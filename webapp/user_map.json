@@ -1,0 +1,20 @@
+{
+    "users": {
+        "mennyg@achimonline.com": {
+            "role": "developer"
+        },
+        "mennyg@ad.achimonline.com": {
+            "role": "developer"
+        },
+        "bgrossman@achimonline.com": {
+            "role": "developer"
+        },
+        "bgrossman@ad.achimonline.com": {
+            "role": "developer"
+        },
+        "example_salesman@achimimporting.com": {
+            "role": "salesman",
+            "salesman_key": "mkolko"
+        }
+    }
+}

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{{ record.report_name }} - History{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('history') }}" class="back-link">
+        <i data-feather="arrow-left"></i> Back to History
+    </a>
+    <h1>{{ record.report_name }}</h1>
+    <p class="page-subtitle">{{ record.timestamp[:16].replace('T', ' ') }}</p>
+</div>
+
+<div class="results-header">
+    <div class="history-params" style="flex:1;">
+        {% if record.params %}
+            {% for k, v in record.params.items() %}
+                {% if v %}
+                <span class="history-param-tag">
+                    {{ k }}: {% if v is iterable and v is not string %}{{ v|join(', ') }}{% else %}{{ v }}{% endif %}
+                </span>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    </div>
+    {% if record.file_available %}
+    <a href="{{ url_for('history_download', record_idx=record_idx) }}" class="btn btn-primary">
+        <i data-feather="download"></i>
+        Download Excel
+    </a>
+    {% endif %}
+</div>
+
+{% if record.summary %}
+<div class="summary-cards" style="margin-bottom: 20px;">
+    {% for k, v in record.summary.items() %}
+        {% if k != 'message' %}
+        <div class="summary-card">
+            <div class="card-label">{{ k|replace('_', ' ')|title }}</div>
+            <div class="card-value">{{ v }}</div>
+        </div>
+        {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if sheets %}
+<div class="tabs">
+    {% set sheet_names = sheets.keys()|list %}
+    {% for name in sheet_names %}
+    <button class="tab-btn {% if loop.first %}active{% endif %}" onclick="showHistorySheet('{{ name|e }}', this)">{{ name }}</button>
+    {% endfor %}
+</div>
+
+<div id="historyTableWrapper" class="table-wrapper"></div>
+
+<script>
+var HISTORY_SHEETS = {{ sheets|tojson }};
+
+function showHistorySheet(name, btn) {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+
+    var rows = HISTORY_SHEETS[name] || [];
+    var wrapper = document.getElementById('historyTableWrapper');
+
+    if (!rows.length) {
+        wrapper.innerHTML = '<p style="padding:16px; color:var(--text-muted);">No data in this sheet.</p>';
+        return;
+    }
+
+    var cols = Object.keys(rows[0]);
+    var html = '<table class="data-table"><thead><tr>';
+    cols.forEach(function(c) { html += '<th>' + c + '</th>'; });
+    html += '</tr></thead><tbody>';
+    var max = Math.min(rows.length, 500);
+    for (var i = 0; i < max; i++) {
+        html += '<tr>';
+        cols.forEach(function(c) {
+            var v = rows[i][c];
+            var isNum = typeof v === 'number';
+            html += '<td class="' + (isNum ? 'num' : '') + '">' + (v === null || v === '' ? '' : v) + '</td>';
+        });
+        html += '</tr>';
+    }
+    html += '</tbody></table>';
+    if (rows.length > 500) {
+        html += '<p style="padding:12px;color:var(--text-muted);font-size:13px;text-align:center;">Showing 500 of ' + rows.length + ' rows. Download Excel for full data.</p>';
+    }
+    wrapper.innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var names = Object.keys(HISTORY_SHEETS);
+    if (names.length) showHistorySheet(names[0], null);
+});
+</script>
+{% else %}
+<div class="empty-state">
+    <i data-feather="file-x" width="48" height="48"></i>
+    <h3>Data not available</h3>
+    <p>The report file is no longer accessible. You may need to run the report again.</p>
+</div>
+{% endif %}
+{% endblock %}

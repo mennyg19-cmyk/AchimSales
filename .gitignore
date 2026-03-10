@@ -1,0 +1,9 @@
+.env
+*.db
+__pycache__/
+_report_output/
+app.zip
+*.pyc
+_history_backup/
+*.xlsx
+.cursor/
