@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Sales">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#2563eb">
+    <title>{% block title %}Sales Reports{% endblock %}</title>
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body class="{% if theme == 'dark' %}dark-theme{% endif %}">
+    {% if user %}
+    <header class="app-header">
+        <div class="header-left">
+            <a href="{{ url_for('reports.reports_list') }}" class="header-logo">Sales Reports</a>
+        </div>
+        <div class="header-right">
+            <span class="user-name">{{ user.name }}</span>
+            <span class="user-role badge {% if user.role == 'admin' or user.role == 'developer' %}badge-admin{% else %}badge-salesman{% endif %}">
+                {{ user.role|title }}
+            </span>
+            {% if user._dev %}
+            <a href="{{ url_for('auth.role_picker') }}" class="btn btn-sm btn-outline btn-icon" title="Switch role">
+                <i data-feather="repeat" style="width:16px;height:16px;"></i>
+            </a>
+            {% endif %}
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline">Sign Out</a>
+        </div>
+    </header>
+    {% endif %}
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    {% if user %}
+    <nav class="bottom-nav">
+        <a href="{{ url_for('reports.reports_list') }}" class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
+            <div class="bottom-nav-icon">
+                <i data-feather="file-text"></i>
+                <span class="nav-badge" id="badgeReports" style="display:none;"></span>
+            </div>
+            <span class="bottom-nav-label">Reports</span>
+        </a>
+        <a href="{{ url_for('dashboard.dashboard') }}" class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}">
+            <div class="bottom-nav-icon">
+                <i data-feather="bar-chart-2"></i>
+                <span class="nav-badge" id="badgeDashboard" style="display:none;"></span>
+            </div>
+            <span class="bottom-nav-label">Dashboard</span>
+        </a>
+        <a href="{{ url_for('settings.settings_page') }}" class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}">
+            <div class="bottom-nav-icon">
+                <i data-feather="settings"></i>
+            </div>
+            <span class="bottom-nav-label">Settings</span>
+        </a>
+    </nav>
+    {% endif %}
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof feather !== 'undefined') feather.replace();
+        });
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

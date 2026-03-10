@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Sales Reports{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <p class="page-subtitle">Customer activity overview</p>
+</div>
+
+<!-- Summary Cards (tappable filters) -->
+<div class="dash-summary-cards">
+    <div class="dash-card dash-card-filter dash-card-filter-active" data-filter="" onclick="filterByCard(this, '')">
+        <div class="dash-card-label">Total Customers</div>
+        <div class="dash-card-value">{{ summary.total_customers }}</div>
+    </div>
+    <div class="dash-card dash-card-active dash-card-filter" data-filter="active" onclick="filterByCard(this, 'active')">
+        <div class="dash-card-label">Active</div>
+        <div class="dash-card-value">{{ summary.active }}</div>
+    </div>
+    <div class="dash-card dash-card-overdue dash-card-filter" data-filter="overdue" onclick="filterByCard(this, 'overdue')">
+        <div class="dash-card-label">Overdue</div>
+        <div class="dash-card-value">{{ summary.overdue }}</div>
+    </div>
+    <div class="dash-card dash-card-filter" data-filter="inactive" onclick="filterByCard(this, 'inactive')">
+        <div class="dash-card-label">Inactive</div>
+        <div class="dash-card-value">{{ summary.inactive }}</div>
+    </div>
+</div>
+
+<!-- Notifications Panel -->
+{% if alerts %}
+<div class="dash-alerts" id="dashAlerts">
+    <h3 class="dash-section-title">
+        <i data-feather="alert-circle" style="width:18px;height:18px;"></i>
+        Notifications
+        <span class="badge badge-admin" style="font-size:11px; vertical-align:middle;">{{ alerts|length }}</span>
+    </h3>
+    {% for alert in alerts %}
+    <div class="dash-alert-item" data-notif-id="{{ alert.id }}">
+        <div class="dash-alert-content">
+            <div class="dash-alert-title">{{ alert.title }}</div>
+            <div class="dash-alert-msg">{{ alert.message }}</div>
+        </div>
+        <button class="dash-alert-dismiss" onclick="dismissNotification({{ alert.id }}, this)" title="Dismiss">
+            <i data-feather="x" style="width:16px;height:16px;"></i>
+        </button>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Refresh Panel -->
+<div class="dash-refresh-panel">
+    <div class="dash-refresh-row">
+        <div class="dash-refresh-times">
+            <span class="dash-refresh-time" id="refreshCompleted">
+                {% if refresh.last_completed %}
+                Last completed: {{ refresh.last_completed[:16].replace('T', ' ') }}
+                {% else %}
+                No data yet
+                {% endif %}
+            </span>
+            <span class="dash-refresh-time dash-refresh-requested" id="refreshRequested">
+                {% if refresh.last_requested %}
+                Last requested: {{ refresh.last_requested[:16].replace('T', ' ') }}
+                {% endif %}
+            </span>
+        </div>
+        <button class="btn btn-sm btn-outline" id="refreshBtn" onclick="triggerDashRefresh()">
+            <i data-feather="refresh-cw" style="width:14px;height:14px;"></i>
+            Refresh
+        </button>
+    </div>
+    <div class="dash-refresh-progress" id="refreshProgress" style="display:{% if refresh.running %}block{% else %}none{% endif %}">
+        <div class="dash-refresh-progress-track">
+            <div class="dash-refresh-progress-bar"></div>
+        </div>
+        <span class="dash-refresh-progress-label" id="refreshProgressLabel">Refreshing data from D365&hellip;</span>
+    </div>
+</div>
+
+<!-- Customer Activity Table -->
+<div class="dash-table-header">
+    <h3 class="dash-section-title">Customer Activity</h3>
+    <input type="text" id="dashSearch" class="form-input" style="max-width:260px; height:38px; font-size:14px;"
+           placeholder="Search customers..." oninput="filterDashTable()">
+</div>
+
+<div class="table-wrapper" id="dashTableWrapper">
+    {% if customers %}
+    <table class="data-table dash-activity-table" id="dashTable">
+        <thead>
+            <tr>
+                <th onclick="sortDashTable(0)">Account <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(1)">Name <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(2)">Last Order <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(3)">Days Since <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(4)">Avg Freq <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(5)">Threshold <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(6)">Status <span class="sort-arrow">&#9650;</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in customers %}
+            {% if not c.excluded %}
+            <tr class="dash-row clickable-row" data-status="{{ c.status }}"
+                onclick="window.location='{{ url_for('dashboard.customer_detail', account=c.customer_account) }}'">
+                <td class="cell-nowrap">{{ c.customer_account }}</td>
+                <td>{{ c.customer_name }}</td>
+                <td class="cell-nowrap">{{ c.last_order_date or 'N/A' }}</td>
+                <td class="num">{{ c.days_since_last if c.days_since_last is not none else '-' }}</td>
+                <td class="num">{{ c.avg_gap_days if c.avg_gap_days else '-' }}</td>
+                <td class="num">{{ c.overdue_threshold if c.overdue_threshold else '-' }}</td>
+                <td>
+                    <span class="status-badge status-dash-{{ c.status }}">{{ c.status|title }}</span>
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <i data-feather="bar-chart-2" width="48" height="48"></i>
+        <h3>No dashboard data yet</h3>
+        <p>Data will appear after the first background refresh from D365. This may take a few minutes.</p>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+<script>
+(function() {
+    {% if refresh.running %}
+    var before = '{{ refresh.last_completed or "" }}';
+    var btn = document.getElementById('refreshBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Refreshing&hellip;';
+    }
+    pollRefreshStatus(before, 0);
+    {% endif %}
+})();
+</script>
+{% endblock %}

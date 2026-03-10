@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name or customer.account }} - Sales Reports{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('dashboard.dashboard') }}" class="back-link">
+    <i data-feather="arrow-left" style="width:16px;height:16px;"></i>
+    Dashboard
+</a>
+
+<div class="page-header">
+    <h1>{{ customer.name or customer.account }}</h1>
+    <p class="page-subtitle">Account: {{ customer.account }}</p>
+</div>
+
+<!-- Customer Info Card -->
+<div class="detail-card">
+    <div class="detail-grid">
+        <div class="detail-item">
+            <span class="detail-label">Account</span>
+            <span class="detail-value">{{ customer.account }}</span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">Name</span>
+            <span class="detail-value">{{ customer.name or '—' }}</span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">Sales Group</span>
+            <span class="detail-value">{{ customer.sales_group or '—' }}</span>
+        </div>
+        {% if customer.status %}
+        <div class="detail-item">
+            <span class="detail-label">Status</span>
+            <span class="detail-value">
+                <span class="status-badge status-dash-{{ customer.status }}">{{ customer.status|title }}</span>
+            </span>
+        </div>
+        {% endif %}
+        {% if customer.days_since_last is not none %}
+        <div class="detail-item">
+            <span class="detail-label">Days Since Last Order</span>
+            <span class="detail-value">{{ customer.days_since_last }}</span>
+        </div>
+        {% endif %}
+        {% if customer.avg_gap_days %}
+        <div class="detail-item">
+            <span class="detail-label">Avg Order Frequency</span>
+            <span class="detail-value">{{ customer.avg_gap_days }} days</span>
+        </div>
+        {% endif %}
+        {% if customer.overdue_threshold %}
+        <div class="detail-item">
+            <span class="detail-label">Overdue Threshold</span>
+            <span class="detail-value">{{ customer.overdue_threshold }} days</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="detail-toggle-row">
+        <div class="detail-toggle-info">
+            <span class="detail-toggle-title">Include in Dashboard</span>
+            <span class="detail-toggle-desc" id="toggleDesc">
+                {% if is_excluded %}Excluded from metrics and notifications{% else %}Included in metrics and notifications{% endif %}
+            </span>
+        </div>
+        <label class="toggle-switch">
+            <input type="checkbox" id="excludeToggle"
+                   {% if not is_excluded %}checked{% endif %}
+                   onchange="toggleExclusion(this)">
+            <span class="toggle-slider"></span>
+        </label>
+    </div>
+</div>
+
+<!-- Period Filter Bar -->
+<div class="detail-section-header">
+    <h3 class="dash-section-title">Orders</h3>
+</div>
+<div class="filter-bar">
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, days=7) }}"
+       class="filter-btn {% if active_period == '7' %}active{% endif %}">1 Week</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, days=30) }}"
+       class="filter-btn {% if active_period == '30' %}active{% endif %}">1 Month</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, days=90) }}"
+       class="filter-btn {% if active_period == '90' %}active{% endif %}">3 Months</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, days=180) }}"
+       class="filter-btn {% if active_period == '180' %}active{% endif %}">6 Months</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, days=365) }}"
+       class="filter-btn {% if active_period == '365' %}active{% endif %}">1 Year</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, days=9999) }}"
+       class="filter-btn {% if active_period == '9999' %}active{% endif %}">All</a>
+</div>
+<div class="filter-bar filter-bar-secondary">
+    <span class="filter-bar-label">Or last:</span>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, last=5) }}"
+       class="filter-btn filter-btn-sm {% if active_period == 'last5' %}active{% endif %}">5</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, last=10) }}"
+       class="filter-btn filter-btn-sm {% if active_period == 'last10' %}active{% endif %}">10</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, last=25) }}"
+       class="filter-btn filter-btn-sm {% if active_period == 'last25' %}active{% endif %}">25</a>
+    <a href="{{ url_for('dashboard.customer_detail', account=customer.account, last=50) }}"
+       class="filter-btn filter-btn-sm {% if active_period == 'last50' %}active{% endif %}">50</a>
+    <span class="filter-bar-label">orders</span>
+</div>
+
+<!-- Orders Table -->
+<div class="table-wrapper">
+    {% if orders %}
+    <table class="data-table detail-table" id="ordersTable">
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Processing</th>
+                <th>Requisition</th>
+                <th>Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in orders %}
+            <tr class="detail-row" onclick="window.location='{{ url_for('dashboard.order_detail', order_number=o.order_number) }}'">
+                <td class="cell-nowrap" style="font-weight:600; color:var(--primary);">{{ o.order_number }}</td>
+                <td class="cell-nowrap">{{ o.order_date }}</td>
+                <td>{{ o.status }}</td>
+                <td>{{ o.processing_status }}</td>
+                <td>{{ o.customer_req }}</td>
+                <td>{{ o.order_name }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:24px;">
+        <i data-feather="package" width="40" height="40"></i>
+        <h3>No orders found</h3>
+        <p>Try a wider time range or more orders.</p>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+var _custAccount = {{ customer.account|tojson }};
+var _isExcluded = {{ is_excluded|tojson }};
+
+function toggleExclusion(checkbox) {
+    var desc = document.getElementById('toggleDesc');
+    var include = checkbox.checked;
+    desc.textContent = 'Saving\u2026';
+    checkbox.disabled = true;
+
+    fetch('/api/settings/toggle-customer-exclusion', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account: _custAccount, include: include})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            _isExcluded = !include;
+            desc.textContent = include
+                ? 'Included in metrics and notifications'
+                : 'Excluded from metrics and notifications';
+        } else {
+            checkbox.checked = !include;
+            desc.textContent = 'Error saving';
+        }
+    })
+    .catch(function() {
+        checkbox.checked = !include;
+        desc.textContent = 'Error saving';
+    })
+    .finally(function() {
+        checkbox.disabled = false;
+    });
+}
+</script>
+{% endblock %}

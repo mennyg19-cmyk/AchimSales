@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Settings - Sales Reports{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Settings</h1>
+    <p class="page-subtitle">Customize your dashboard experience</p>
+</div>
+
+<!-- Customer Exclusions -->
+<div class="settings-section">
+    <h3 class="settings-section-title">
+        <i data-feather="users" style="width:18px;height:18px;"></i>
+        Customer Exclusions
+    </h3>
+    <p class="settings-section-desc">
+        Exclude customers from your dashboard metrics and notifications.
+        Excluded customers won't count toward your averages or trigger overdue alerts.
+    </p>
+
+    <input type="text" id="settingsSearch" class="form-input" style="margin-bottom:12px;"
+           placeholder="Search customers..." oninput="filterSettingsCustomers()">
+
+    <div class="settings-save-bar" id="saveBar" style="display:none;">
+        <span id="saveStatus">Unsaved changes</span>
+        <button class="btn btn-sm btn-primary" onclick="saveExclusions()">Save</button>
+    </div>
+
+    <div class="settings-customer-list" id="settingsCustomerList">
+        {% if customers %}
+        {% for c in customers %}
+        <div class="settings-customer-item {% if c.customer_account in excluded %}excluded{% endif %}"
+             data-account="{{ c.customer_account }}">
+            <div class="settings-cust-info">
+                <span class="settings-cust-account">{{ c.customer_account }}</span>
+                <span class="settings-cust-name">{{ c.customer_name }}</span>
+                {% if c.last_order_date %}
+                <span class="settings-cust-meta">Last order: {{ c.last_order_date }}</span>
+                {% endif %}
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox"
+                       {% if c.customer_account not in excluded %}checked{% endif %}
+                       onchange="toggleCustomer('{{ c.customer_account }}', this)">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="empty-state" style="padding:24px;">
+            <p>No customer data available yet. Dashboard data will load after the first background refresh.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Appearance -->
+<div class="settings-section" style="margin-top: 24px;">
+    <h3 class="settings-section-title">
+        <i data-feather="moon" style="width:18px;height:18px;"></i>
+        Appearance
+    </h3>
+    <div class="settings-customer-item">
+        <div class="settings-cust-info">
+            <span class="settings-cust-account">Dark Mode</span>
+            <span class="settings-cust-name" style="font-size:12px; color:var(--text-muted);">Switch between light and dark theme</span>
+        </div>
+        <label class="toggle-switch">
+            <input type="checkbox" id="darkModeToggle"
+                   {% if theme == 'dark' %}checked{% endif %}
+                   onchange="toggleTheme(this)">
+            <span class="toggle-slider"></span>
+        </label>
+    </div>
+</div>
+
+{% if show_admin_settings %}
+<!-- Salesman Exclusions (Admin/Dev only) -->
+<div class="settings-section" style="margin-top: 24px;">
+    <h3 class="settings-section-title">
+        <i data-feather="user-x" style="width:18px;height:18px;"></i>
+        Salesman Visibility
+    </h3>
+    <p class="settings-section-desc">
+        Hide inactive salesmen from dropdowns across the app.
+        Toggling off a salesman hides them from report forms, role picker, etc.
+    </p>
+
+    <div class="settings-save-bar" id="smSaveBar" style="display:none;">
+        <span id="smSaveStatus">Unsaved changes</span>
+        <button class="btn btn-sm btn-primary" onclick="saveSalesmenExclusions()">Save</button>
+    </div>
+
+    <div class="settings-customer-list" id="salesmenList">
+        {% for sm in all_salesmen %}
+        <div class="settings-customer-item {% if sm.key in excluded_salesmen %}excluded{% endif %}"
+             data-key="{{ sm.key }}">
+            <div class="settings-cust-info">
+                <span class="settings-cust-account">{{ sm.key }}</span>
+                <span class="settings-cust-name">{{ sm.name }}</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox"
+                       {% if sm.key not in excluded_salesmen %}checked{% endif %}
+                       onchange="toggleSalesman('{{ sm.key }}', this)">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if show_user_mgmt %}
+<!-- User Management (Admin / Developer only) -->
+<div class="settings-section" style="margin-top: 24px;">
+    <h3 class="settings-section-title">
+        <i data-feather="user-plus" style="width:18px;height:18px;"></i>
+        User Management
+    </h3>
+    <p class="settings-section-desc">
+        Add, edit, or remove users who can access this app. Changes take effect immediately — no redeploy needed.
+    </p>
+
+    <div class="user-mgmt-add" id="addUserForm" style="margin-bottom: 16px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+            <div style="flex:2; min-width:180px;">
+                <label class="form-label">Email</label>
+                <input type="email" id="newUserEmail" class="form-input" placeholder="user@company.com">
+            </div>
+            <div style="flex:1; min-width:120px;">
+                <label class="form-label">Role</label>
+                <select id="newUserRole" class="form-input form-select" onchange="toggleSalesmanField('new')">
+                    <option value="salesman">Salesman</option>
+                    <option value="admin">Admin</option>
+                    <option value="developer">Developer</option>
+                </select>
+            </div>
+            <div style="flex:1; min-width:120px;" id="newSalesmanKeyWrap">
+                <label class="form-label">Salesman Key</label>
+                <select id="newUserSalesmanKey" class="form-input form-select">
+                    <option value="">— Select —</option>
+                    {% for sm in all_salesmen %}
+                    <option value="{{ sm.key }}">{{ sm.key }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="flex:1; min-width:120px;">
+                <label class="form-label">Display Name</label>
+                <input type="text" id="newUserDisplayName" class="form-input" placeholder="Optional">
+            </div>
+            <div>
+                <button class="btn btn-primary btn-sm" onclick="addUser()">Add User</button>
+            </div>
+        </div>
+        <div id="addUserMsg" style="margin-top:6px; font-size:13px; display:none;"></div>
+    </div>
+
+    <div class="settings-customer-list" id="userList">
+        {% for u in app_users %}
+        <div class="settings-customer-item" data-email="{{ u.email }}" id="user-row-{{ loop.index }}">
+            <div class="settings-cust-info" style="flex:1;">
+                <span class="settings-cust-account">{{ u.email }}</span>
+                <span class="settings-cust-name">
+                    <span class="badge {% if u.role == 'admin' or u.role == 'developer' %}badge-admin{% else %}badge-salesman{% endif %}" style="font-size:11px;">
+                        {{ u.role }}
+                    </span>
+                    {% if u.salesman_key %}
+                    <span style="color:var(--text-muted); font-size:12px; margin-left:4px;">key: {{ u.salesman_key }}</span>
+                    {% endif %}
+                    {% if u.display_name %}
+                    <span style="color:var(--text-muted); font-size:12px; margin-left:4px;">— {{ u.display_name }}</span>
+                    {% endif %}
+                </span>
+            </div>
+            <div style="display:flex; gap:6px;">
+                <button class="btn btn-sm btn-outline" data-user="{{ u|tojson|e }}" onclick="editUserFromBtn(this)" title="Edit">
+                    <i data-feather="edit-2" style="width:14px;height:14px;"></i>
+                </button>
+                <button class="btn btn-sm btn-outline" style="color:var(--error);" data-email="{{ u.email }}" onclick="deleteUserFromBtn(this)" title="Remove">
+                    <i data-feather="trash-2" style="width:14px;height:14px;"></i>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Edit User Modal -->
+<div id="editUserModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+    <div style="background:var(--bg-card); border-radius:12px; padding:24px; max-width:400px; width:90%; margin:auto; position:relative; top:50%; transform:translateY(-50%);">
+        <h3 style="margin:0 0 16px;">Edit User</h3>
+        <input type="hidden" id="editUserEmail">
+        <div style="margin-bottom:12px;">
+            <label class="form-label">Email</label>
+            <input type="text" id="editUserEmailDisplay" class="form-input" disabled>
+        </div>
+        <div style="margin-bottom:12px;">
+            <label class="form-label">Role</label>
+            <select id="editUserRole" class="form-input form-select" onchange="toggleSalesmanField('edit')">
+                <option value="salesman">Salesman</option>
+                <option value="admin">Admin</option>
+                <option value="developer">Developer</option>
+            </select>
+        </div>
+        <div style="margin-bottom:12px;" id="editSalesmanKeyWrap">
+            <label class="form-label">Salesman Key</label>
+            <select id="editUserSalesmanKey" class="form-input form-select">
+                <option value="">— Select —</option>
+                {% for sm in all_salesmen %}
+                <option value="{{ sm.key }}">{{ sm.key }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="margin-bottom:16px;">
+            <label class="form-label">Display Name</label>
+            <input type="text" id="editUserDisplayName" class="form-input" placeholder="Optional">
+        </div>
+        <div id="editUserMsg" style="margin-bottom:8px; font-size:13px; display:none;"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="closeEditModal()">Cancel</button>
+            <button class="btn btn-sm btn-primary" onclick="saveEditUser()">Save</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    var SETTINGS_CONFIG = {{ {'excluded': excluded, 'excludedSalesmen': excluded_salesmen|default([])}|tojson }};
+</script>
+<script src="{{ url_for('static', filename='settings.js') }}"></script>
+{% endblock %}
