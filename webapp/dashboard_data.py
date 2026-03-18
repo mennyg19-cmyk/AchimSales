@@ -137,7 +137,7 @@ def refresh_cache(salesman_key: str | None = None):
         )
         from core.auth import get_d365_token
         from data.d365_entities import fetch_customers, fetch_sales_order_headers
-        from core.dates import get_today_eastern
+        from core.dates import D365_GO_LIVE, get_today_eastern
 
         validate_d365_config()
         env_url = get_d365_env_url().rstrip("/")
@@ -169,7 +169,7 @@ def refresh_cache(salesman_key: str | None = None):
         customers_df["CustomerAccount"] = customers_df["CustomerAccount"].astype(str).str.strip()
         cust_accounts = list(customers_df["CustomerAccount"].unique())
 
-        all_time_start = date(2025, 1, 1)
+        all_time_start = D365_GO_LIVE
         if salesman_key:
             _step(f"Fetching order history for {len(cust_accounts)} customers…")
             headers_df = fetch_sales_order_headers(
@@ -248,8 +248,21 @@ def refresh_cache(salesman_key: str | None = None):
             set_setting(_SYSTEM_EMAIL, "last_refresh_completed", _last_refresh)
         except Exception:
             pass
-        _step(f"Done — {len(metrics)} customers updated")
         log.info("Dashboard cache refreshed: %d customers (scope: %s)", len(metrics), scope_label)
+
+        # -- Product catalog, addresses, and trade agreement prices --
+        _refresh_product_cache(base_url, token, company, _step)
+        _refresh_address_cache(base_url, token, company, _step)
+        _refresh_price_cache(base_url, token, company, _step)
+
+        # -- Runbook history sync --
+        try:
+            _step("Syncing runbook history…")
+            sync_runbook_history()
+        except Exception:
+            log.exception("Runbook history sync failed during refresh (non-fatal)")
+
+        _step(f"Done — {len(metrics)} customers updated")
 
         _generate_overdue_notifications(metrics)
 
@@ -258,6 +271,72 @@ def refresh_cache(salesman_key: str | None = None):
         _step("Refresh failed — see server logs")
     finally:
         _refresh_state[scope_key]["running"] = False
+
+
+def _refresh_product_cache(base_url, token, company, _step):
+    """Fetch ReleasedProductsV2 + DVReleasedProducts descriptions and update the product_cache table."""
+    from data.d365_entities import fetch_book_prices, fetch_product_names
+    from webapp.db import upsert_product_cache
+    try:
+        _step("Fetching product catalog from D365…")
+        products_df = fetch_book_prices(base_url, token, company_id=company)
+        if products_df.empty:
+            log.info("Product cache: no products returned from D365")
+            return
+
+        item_numbers = products_df["ItemNumber"].tolist()
+        desc_map = {}
+        try:
+            _step("Fetching product descriptions from DVReleasedProducts…")
+            desc_df = fetch_product_names(base_url, token, item_numbers, company_id=company)
+            if not desc_df.empty:
+                for _, r in desc_df.iterrows():
+                    desc_map[str(r.get("ItemNumber", "")).strip()] = str(r.get("ProductName", "")).strip()
+                log.info("Fetched %d product descriptions", len(desc_map))
+        except Exception:
+            log.exception("DVReleasedProducts fetch failed (non-fatal, descriptions will be empty)")
+
+        rows = products_df.to_dict("records")
+        for row in rows:
+            row["Description"] = desc_map.get(row.get("ItemNumber", ""), "")
+        upsert_product_cache(rows)
+        log.info("Product cache refreshed: %d items", len(rows))
+    except Exception:
+        log.exception("Product cache refresh failed (non-fatal)")
+
+
+def _refresh_address_cache(base_url, token, company, _step):
+    """Fetch CustomerPostalAddresses and upsert into customer_addresses."""
+    from data.d365_entities import fetch_customer_postal_addresses
+    from webapp.db import upsert_d365_addresses
+    try:
+        _step("Fetching customer addresses from D365…")
+        addr_df = fetch_customer_postal_addresses(base_url, token, company_id=company)
+        if not addr_df.empty:
+            rows = addr_df.to_dict("records")
+            upsert_d365_addresses(rows)
+            log.info("Address cache refreshed: %d addresses", len(rows))
+        else:
+            log.info("Address cache: no addresses returned from D365")
+    except Exception:
+        log.exception("Address cache refresh failed (non-fatal)")
+
+
+def _refresh_price_cache(base_url, token, company, _step):
+    """Fetch OpenSalesPriceJournalLinesV2 and update the price_cache table."""
+    from data.d365_entities import fetch_trade_agreement_prices
+    from webapp.db import upsert_price_cache
+    try:
+        _step("Fetching trade agreement prices from D365…")
+        prices_df = fetch_trade_agreement_prices(base_url, token, company_id=company)
+        if not prices_df.empty:
+            rows = prices_df.to_dict("records")
+            upsert_price_cache(rows)
+            log.info("Price cache refreshed: %d trade agreements", len(rows))
+        else:
+            log.info("Price cache: no trade agreements returned from D365")
+    except Exception:
+        log.exception("Price cache refresh failed (non-fatal)")
 
 
 def _generate_overdue_notifications(metrics: list[dict]):
@@ -283,6 +362,7 @@ def _generate_overdue_notifications(metrics: list[dict]):
     ]
 
     def _send_for_user(email: str, custs: list[dict]):
+        from webapp.db import get_recently_dismissed_accounts
         excluded = get_excluded_customers(email)
         existing_notifs = get_notifications(email, dismissed=False)
         existing_accts = {
@@ -290,11 +370,14 @@ def _generate_overdue_notifications(metrics: list[dict]):
             for n in existing_notifs
             if n["type"] == "overdue_customer"
         }
+        cooldown_accts = get_recently_dismissed_accounts(email, days=7)
 
         for c in custs:
             if c["customer_account"] in excluded:
                 continue
             if c["customer_account"] in existing_accts:
+                continue
+            if c["customer_account"] in cooldown_accts:
                 continue
 
             avg = c.get("avg_gap_days") or 0
@@ -455,3 +538,118 @@ def start_background_refresh():
     _refresh_thread.start()
     log.info("Dashboard background refresh thread started (interval: %ds, immediate: %s)",
              REFRESH_INTERVAL_SECONDS, not has_data)
+
+
+# ---------------------------------------------------------------------------
+# Runbook history sync (Azure Automation jobs + SharePoint run_log.csv)
+# ---------------------------------------------------------------------------
+
+def sync_runbook_history():
+    """Download run_log.csv from SharePoint and merge with Azure Automation job list."""
+    from webapp.db import upsert_runbook_history
+    import csv
+    import io
+
+    all_rows = []
+
+    # 1) Fetch from Azure Automation job API
+    try:
+        from webapp.services.azure_automation import list_jobs
+        jobs = list_jobs(limit=500)
+        for j in jobs:
+            job_id = j.get("job_id", "")
+            start = j.get("start_time") or j.get("creation_time") or ""
+            end = j.get("end_time") or ""
+
+            duration = None
+            if start and end:
+                try:
+                    from datetime import datetime
+                    s = datetime.fromisoformat(start)
+                    e = datetime.fromisoformat(end)
+                    duration = round((e - s).total_seconds(), 1)
+                except Exception:
+                    pass
+
+            all_rows.append({
+                "job_id": job_id,
+                "timestamp": start[:19].replace("T", " ") if start else "",
+                "report_name": j.get("report_name", ""),
+                "status": j.get("status", ""),
+                "duration_sec": duration,
+                "args": j.get("extra_args", ""),
+                "runbook_name": j.get("runbook_name", ""),
+                "start_time": start,
+                "end_time": end,
+                "source": "azure_api",
+            })
+        log.info("Fetched %d jobs from Azure Automation API", len(jobs))
+    except Exception:
+        log.exception("Failed to fetch Azure Automation jobs")
+
+    # 2) Download run_log.csv from SharePoint
+    try:
+        from config.settings import get_client_id, get_client_secret, get_tenant_id
+        from core.auth import get_graph_token
+        import requests as req
+
+        token = get_graph_token(get_tenant_id(), get_client_id(), get_client_secret())
+        if token:
+            site_name = os.environ.get("SHAREPOINT_SITE_NAME", "AchimImportingCoInc")
+            drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_name}/drive"
+            csv_path = "D365 F&O/scripts/logs/run_log.csv"
+            url = f"{drive_url}/root:/{csv_path}:/content"
+
+            resp = req.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+            if resp.status_code == 200:
+                reader = csv.DictReader(io.StringIO(resp.text))
+                csv_rows = 0
+                for row in reader:
+                    ts = row.get("timestamp", "").strip()
+                    rn = row.get("report_name", "").strip()
+                    status = row.get("status", "").strip()
+                    if not ts or not rn:
+                        continue
+                    if status == "STARTED":
+                        continue
+
+                    dur = None
+                    try:
+                        dur = float(row.get("duration_sec", "")) if row.get("duration_sec", "").strip() else None
+                    except ValueError:
+                        pass
+
+                    ro = None
+                    try:
+                        ro = int(row.get("rows_output", "")) if row.get("rows_output", "").strip() else None
+                    except ValueError:
+                        pass
+
+                    fu = None
+                    try:
+                        fu = int(row.get("files_uploaded", "")) if row.get("files_uploaded", "").strip() else None
+                    except ValueError:
+                        pass
+
+                    all_rows.append({
+                        "job_id": None,
+                        "timestamp": ts,
+                        "report_name": rn,
+                        "status": status,
+                        "duration_sec": dur,
+                        "rows_output": ro,
+                        "files_uploaded": fu,
+                        "args": row.get("args", "").strip(),
+                        "error": row.get("error", "").strip(),
+                        "source": "run_log",
+                    })
+                    csv_rows += 1
+                log.info("Parsed %d rows from run_log.csv", csv_rows)
+            else:
+                log.warning("Could not download run_log.csv: HTTP %d", resp.status_code)
+    except Exception:
+        log.exception("Failed to download run_log.csv from SharePoint")
+
+    if all_rows:
+        upsert_runbook_history(all_rows)
+        log.info("Runbook history sync complete: %d total rows processed", len(all_rows))

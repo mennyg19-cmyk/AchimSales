@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Runbook History - Sales Reports{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+    <div>
+        <h1>Runbook History</h1>
+        <p class="page-subtitle">All Azure Automation job runs and run_log.csv entries</p>
+    </div>
+    <button class="btn btn-primary" id="syncBtn" onclick="syncHistory()" style="height:38px;">
+        <i data-feather="refresh-cw" style="width:15px;height:15px;"></i>
+        <span>Sync Now</span>
+    </button>
+</div>
+
+<div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center;">
+    <input type="text" id="histSearch" class="form-input" style="max-width:300px; height:38px; font-size:14px;"
+           placeholder="Search by report, status, args..." oninput="filterHistTable()">
+    <select id="sourceFilter" class="form-input" style="max-width:180px; height:38px; font-size:14px;" onchange="filterHistTable()">
+        <option value="">All sources</option>
+        <option value="azure_api">Azure API</option>
+        <option value="run_log">Run Log (CSV)</option>
+    </select>
+    <select id="statusFilter" class="form-input" style="max-width:180px; height:38px; font-size:14px;" onchange="filterHistTable()">
+        <option value="">All statuses</option>
+        <option value="Completed">Completed</option>
+        <option value="SUCCESS">Success (CSV)</option>
+        <option value="Failed">Failed</option>
+        <option value="FAILED">Failed (CSV)</option>
+        <option value="Running">Running</option>
+        <option value="Suspended">Suspended</option>
+        <option value="Stopped">Stopped</option>
+    </select>
+    <span id="rowCount" style="color:var(--text-muted); font-size:13px;"></span>
+</div>
+
+{% if rows %}
+<div class="table-wrapper">
+    <table class="data-table" id="histTable">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Report</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Args</th>
+                <th>Rows</th>
+                <th>Source</th>
+                <th>Error</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr data-source="{{ r.source or '' }}" data-status="{{ r.status or '' }}">
+                <td class="cell-nowrap">{{ r.timestamp[:19] if r.timestamp else '' }}</td>
+                <td>{{ r.report_name or r.runbook_name or '—' }}</td>
+                <td>
+                    {% set st = r.status or '' %}
+                    {% if st in ('Completed', 'SUCCESS') %}
+                    <span class="status-badge status-dash-succeeded">{{ st }}</span>
+                    {% elif st in ('Failed', 'FAILED') %}
+                    <span class="status-badge status-dash-failed">{{ st }}</span>
+                    {% elif st == 'Running' %}
+                    <span class="status-badge status-dash-running">{{ st }}</span>
+                    {% elif st in ('Stopped', 'Suspended') %}
+                    <span class="status-badge status-dash-cancelled">{{ st }}</span>
+                    {% else %}
+                    <span class="status-badge">{{ st or '—' }}</span>
+                    {% endif %}
+                </td>
+                <td class="num">{{ '%0.1f' % r.duration_sec if r.duration_sec else '—' }}{% if r.duration_sec %}s{% endif %}</td>
+                <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                    title="{{ r.args or '' }}">{{ r.args or '—' }}</td>
+                <td class="num">{{ r.rows_output if r.rows_output else '—' }}</td>
+                <td>
+                    {% if r.source == 'azure_api' %}
+                    <span style="color:var(--primary);font-size:12px;">Azure</span>
+                    {% elif r.source == 'run_log' %}
+                    <span style="color:var(--text-muted);font-size:12px;">CSV</span>
+                    {% else %}
+                    <span style="color:var(--text-muted);font-size:12px;">{{ r.source or '—' }}</span>
+                    {% endif %}
+                </td>
+                <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                    title="{{ r.error or '' }}">{{ r.error or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <i data-feather="server" width="48" height="48"></i>
+    <h3>No runbook history yet</h3>
+    <p>Click "Sync Now" to pull history from Azure Automation and run_log.csv.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterHistTable() {
+    var q = document.getElementById('histSearch').value.toLowerCase();
+    var srcFilter = document.getElementById('sourceFilter').value;
+    var statusFilter = document.getElementById('statusFilter').value;
+    var rows = document.querySelectorAll('#histTable tbody tr');
+    var visible = 0;
+    rows.forEach(function(row) {
+        var textMatch = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+        var srcMatch = !srcFilter || row.getAttribute('data-source') === srcFilter;
+        var statusMatch = !statusFilter || row.getAttribute('data-status') === statusFilter;
+        var show = textMatch && srcMatch && statusMatch;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    document.getElementById('rowCount').textContent = visible + ' of ' + rows.length + ' rows';
+}
+
+function syncHistory() {
+    var btn = document.getElementById('syncBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i data-feather="loader" style="width:15px;height:15px;animation:spin 1s linear infinite;"></i> Syncing...';
+    if (window.feather) feather.replace();
+
+    fetch('/api/admin/sync-runbook-history', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                setTimeout(function() { window.location.reload(); }, 3000);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="refresh-cw" style="width:15px;height:15px;"></i> Sync Now';
+                if (window.feather) feather.replace();
+                alert('Sync failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(function(err) {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="refresh-cw" style="width:15px;height:15px;"></i> Sync Now';
+            if (window.feather) feather.replace();
+            alert('Sync error: ' + err.message);
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var rows = document.querySelectorAll('#histTable tbody tr');
+    if (rows.length) {
+        document.getElementById('rowCount').textContent = rows.length + ' rows';
+    }
+});
+</script>
+<style>
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
