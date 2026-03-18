@@ -1197,6 +1197,9 @@ def get_report_runs(limit: int = 200) -> list[dict]:
             d["params"] = json.loads(d["params"]) if d["params"] else {}
             result.append(d)
         return result
+    except Exception:
+        log.warning("report_runs table may not exist yet", exc_info=True)
+        return []
     finally:
         conn.close()
 

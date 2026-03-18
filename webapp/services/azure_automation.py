@@ -14,6 +14,7 @@ from datetime import datetime
 from azure.identity import ClientSecretCredential
 from azure.mgmt.automation import AutomationClient
 from azure.mgmt.automation.models import (
+    JobCreateParameters,
     JobScheduleCreateParameters,
     RunbookAssociationProperty,
     ScheduleAssociationProperty,
@@ -241,6 +242,28 @@ def sync_from_azure() -> list[dict]:
 
     log.info("Synced %d schedules from Azure Automation", len(synced))
     return synced
+
+
+def start_job(report_name: str, extra_args: str = "") -> str:
+    """Start an Azure Automation Job for the universal_runbook.
+
+    Returns the job name (a UUID) which can be used to poll status.
+    """
+    client = get_client()
+    job_name = str(uuid.uuid4())
+
+    parameters = {"report_name": report_name}
+    if extra_args:
+        parameters["extra_args"] = extra_args
+
+    params = JobCreateParameters(
+        runbook=RunbookAssociationProperty(name=RUNBOOK_NAME),
+        parameters=parameters,
+    )
+
+    client.job.create(RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name, params)
+    log.info("Started job %s (report=%s, args=%s)", job_name, report_name, extra_args)
+    return job_name
 
 
 def list_jobs(limit: int = 200) -> list[dict]:

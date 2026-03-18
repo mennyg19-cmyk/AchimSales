@@ -802,3 +802,29 @@ def api_runbook_history():
     count = get_runbook_history_count()
     rows = get_runbook_history(limit=500)
     return jsonify({"count": count, "rows": rows})
+
+
+@api_bp.route("/api/admin/retry-job", methods=["POST"])
+@require_login
+def api_retry_job():
+    """Retry a failed Azure Automation job with the same parameters."""
+    user = get_current_user()
+    if not is_admin(user):
+        return jsonify({"error": "Admin only"}), 403
+
+    data = request.get_json(silent=True) or {}
+    report_name = data.get("report_name", "").strip()
+    extra_args = data.get("extra_args", "").strip()
+
+    if not report_name:
+        return jsonify({"error": "Missing report_name"}), 400
+
+    try:
+        from webapp.services.azure_automation import start_job
+        job_name = start_job(report_name=report_name, extra_args=extra_args)
+        log.info("Retried job: report=%s args=%s -> new job %s", report_name, extra_args, job_name)
+        return jsonify({"success": True, "job_name": job_name,
+                        "message": f"Retry started as job {job_name[:8]}…"})
+    except Exception as e:
+        log.exception("Failed to retry job")
+        return jsonify({"error": str(e)}), 500
