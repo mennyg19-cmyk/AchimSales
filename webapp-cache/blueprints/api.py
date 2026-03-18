@@ -768,3 +768,37 @@ def api_refresh_order_cache():
 
     threading.Thread(target=_do_refresh, daemon=True).start()
     return jsonify({"success": True, "message": "Refreshing product and pricing data from D365..."})
+
+
+# -- Runbook history sync --------------------------------------------------
+
+@api_bp.route("/api/admin/sync-runbook-history", methods=["POST"])
+@require_login
+def api_sync_runbook_history():
+    """Sync runbook run history from Azure Automation + SharePoint run_log.csv."""
+    user = get_current_user()
+    if not is_admin(user):
+        return jsonify({"error": "Admin only"}), 403
+
+    def _do_sync():
+        try:
+            from webapp.dashboard_data import sync_runbook_history
+            sync_runbook_history()
+        except Exception:
+            log.exception("Runbook history sync failed")
+
+    threading.Thread(target=_do_sync, daemon=True).start()
+    return jsonify({"success": True, "message": "Syncing runbook history..."})
+
+
+@api_bp.route("/api/admin/runbook-history")
+@require_login
+def api_runbook_history():
+    """Return runbook history as JSON (for the admin UI)."""
+    user = get_current_user()
+    if not is_admin(user):
+        return jsonify({"error": "Admin only"}), 403
+    from webapp.db import get_runbook_history, get_runbook_history_count
+    count = get_runbook_history_count()
+    rows = get_runbook_history(limit=500)
+    return jsonify({"count": count, "rows": rows})

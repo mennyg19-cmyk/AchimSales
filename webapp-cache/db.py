@@ -274,6 +274,26 @@ CREATE TABLE IF NOT EXISTS order_lines_cache (
     last_refreshed       TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS runbook_history (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id           TEXT UNIQUE,
+    timestamp        TEXT NOT NULL,
+    report_name      TEXT,
+    status           TEXT,
+    duration_sec     REAL,
+    rows_output      INTEGER,
+    files_uploaded   INTEGER,
+    args             TEXT,
+    error            TEXT,
+    runbook_name     TEXT,
+    start_time       TEXT,
+    end_time         TEXT,
+    source           TEXT DEFAULT 'run_log'
+);
+
+CREATE INDEX IF NOT EXISTS idx_runbook_history_ts ON runbook_history(timestamp);
+CREATE INDEX IF NOT EXISTS idx_runbook_history_report ON runbook_history(report_name);
+
 CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_email, timestamp);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_email, dismissed);
 CREATE INDEX IF NOT EXISTS idx_settings_user ON user_settings(user_email);
@@ -1891,5 +1911,87 @@ def get_record_job_id(record_id: str) -> str | None:
             "SELECT azure_job_id FROM history WHERE record_id = ?", (record_id,)
         ).fetchone()
         return row["azure_job_id"] if row and row["azure_job_id"] else None
+    finally:
+        conn.close()
+
+
+# -- Runbook history -------------------------------------------------------
+
+def upsert_runbook_history(rows: list[dict]):
+    """Insert or update runbook history rows.
+
+    Each row should have at minimum 'timestamp' and 'report_name'.
+    Rows with a 'job_id' use it as unique key; others use timestamp+report_name+status.
+    """
+    if not rows:
+        return
+    conn = get_db()
+    try:
+        for r in rows:
+            job_id = r.get("job_id") or None
+            if job_id:
+                existing = conn.execute(
+                    "SELECT id FROM runbook_history WHERE job_id = ?", (job_id,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """UPDATE runbook_history
+                           SET status = ?, duration_sec = ?, end_time = ?,
+                               error = ?, rows_output = ?, files_uploaded = ?
+                           WHERE job_id = ?""",
+                        (r.get("status"), r.get("duration_sec"), r.get("end_time"),
+                         r.get("error"), r.get("rows_output"), r.get("files_uploaded"),
+                         job_id),
+                    )
+                    continue
+
+            if not job_id:
+                dup = conn.execute(
+                    """SELECT id FROM runbook_history
+                       WHERE job_id IS NULL AND timestamp = ? AND report_name = ? AND status = ?""",
+                    (r.get("timestamp", ""), r.get("report_name", ""), r.get("status", "")),
+                ).fetchone()
+                if dup:
+                    continue
+
+            conn.execute(
+                """INSERT OR IGNORE INTO runbook_history
+                   (job_id, timestamp, report_name, status, duration_sec,
+                    rows_output, files_uploaded, args, error,
+                    runbook_name, start_time, end_time, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (job_id, r.get("timestamp", ""), r.get("report_name", ""),
+                 r.get("status", ""), r.get("duration_sec"),
+                 r.get("rows_output"), r.get("files_uploaded"),
+                 r.get("args", ""), r.get("error", ""),
+                 r.get("runbook_name", ""), r.get("start_time"),
+                 r.get("end_time"), r.get("source", "run_log")),
+            )
+        conn.commit()
+        log.info("Upserted %d runbook history rows", len(rows))
+    finally:
+        conn.close()
+
+
+def get_runbook_history(limit: int = 500) -> list[dict]:
+    """Return the most recent runbook history entries."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM runbook_history
+               ORDER BY timestamp DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_runbook_history_count() -> int:
+    conn = get_db()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM runbook_history").fetchone()[0]
+    except Exception:
+        return 0
     finally:
         conn.close()

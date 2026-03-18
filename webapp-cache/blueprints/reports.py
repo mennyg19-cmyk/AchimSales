@@ -384,3 +384,16 @@ def report_log():
     runs = get_report_runs(limit=500)
     return render_template("report_log.html", user=user, runs=runs,
                            active_tab="settings")
+
+
+@reports_bp.route("/runbook-history")
+@require_login
+def runbook_history():
+    user = get_current_user()
+    if not is_admin(user):
+        flash("Access denied.", "error")
+        return redirect(url_for("reports.reports_list"))
+    from webapp.db import get_runbook_history
+    rows = get_runbook_history(limit=500)
+    return render_template("runbook_history.html", user=user, rows=rows,
+                           active_tab="settings")

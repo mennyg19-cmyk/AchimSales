@@ -315,6 +315,46 @@ def get_job_output(job_name: str) -> str:
         return ""
 
 
+def list_jobs(limit: int = 200) -> list[dict]:
+    """List recent jobs from Azure Automation.
+
+    Returns a list of dicts with job_id, runbook, status, start_time,
+    end_time, parameters (report_name, extra_args).
+    """
+    client = get_client()
+    jobs = []
+    try:
+        for i, job in enumerate(
+            client.job.list_by_automation_account(RESOURCE_GROUP, AUTOMATION_ACCOUNT)
+        ):
+            if i >= limit:
+                break
+            raw_params = getattr(job, "parameters", None) or {}
+            params = {k.lower(): v for k, v in raw_params.items()}
+            report_name, extra_args = _extract_params(params)
+
+            rb = getattr(job, "runbook", None)
+            start = getattr(job, "start_time", None)
+            end = getattr(job, "end_time", None)
+            creation = getattr(job, "creation_time", None)
+
+            jobs.append({
+                "job_id": getattr(job, "name", "") or "",
+                "runbook_name": rb.name if rb else "",
+                "status": getattr(job, "status", "") or "",
+                "start_time": start.isoformat() if start else None,
+                "end_time": end.isoformat() if end else None,
+                "creation_time": creation.isoformat() if creation else None,
+                "report_name": report_name,
+                "extra_args": extra_args,
+                "webapp_record_id": params.get("webapp_record_id", ""),
+            })
+        log.info("Listed %d jobs from Azure Automation", len(jobs))
+    except Exception:
+        log.exception("Failed to list jobs from Azure Automation")
+    return jobs
+
+
 # -- Helpers ---------------------------------------------------------------
 
 def _extract_params(params: dict) -> tuple[str, str]:
