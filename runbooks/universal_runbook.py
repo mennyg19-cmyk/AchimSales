@@ -5,22 +5,31 @@ This single file handles ALL reports. Paste it into Azure Automation once.
 Control which report runs via the ``report_name`` and ``extra_args`` parameters.
 
 Flow:
-  1. Read Azure Automation Variables (or env vars for local testing)
-  2. Acquire Graph token, resolve SharePoint drive
-  3. Download report_registry.json from SharePoint
-  4. Look up the requested report -> get its required_paths
-  5. Download only the required scripts from SharePoint
-  6. Log STARTED to run_log.csv on SharePoint
-  7. Import and run the report
-  8. Log SUCCESS/FAILED to run_log.csv
-  9. Upload Direct Reports/ output to SharePoint
- 10. Send alert email on failure; heartbeat on success
+  1. Check Shabbos/Yom Tov guard -- if melacha is assur, reschedule to after
+     havdalah via a one-time Azure Automation schedule, or fall back to SKIPPED
+  2. Read Azure Automation Variables (or env vars for local testing)
+  3. Acquire Graph token, resolve SharePoint drive
+  4. Download report_registry.json from SharePoint
+  5. Look up the requested report -> get its required_paths
+  6. Download only the required scripts from SharePoint
+  7. Check catch-up: if days were missed, widen date range automatically
+     (handles --period daily, last_7_days, mtd, and no-args reports)
+  8. Log STARTED to run_log.csv on SharePoint
+  9. Import and run the report
+ 10. Log SUCCESS/FAILED to run_log.csv
+ 11. Upload Direct Reports/ output to SharePoint
+ 12. Send alert email on failure; heartbeat on success
 
 Azure Automation Parameters:
   report_name (str, required): Key from report_registry.json, e.g. "ordered",
                                "invoiced", "amazon_weekly", or "all" to run every report.
   extra_args  (str, optional): Additional CLI args, e.g. "--period daily".
                                Merged with default_args from the registry.
+                               Use "--force" to bypass the Shabbos/Yom Tov guard.
+
+Reschedule config (needed for automatic rescheduling after Shabbos/Yom Tov):
+  AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP, AZURE_AUTOMATION_ACCOUNT,
+  AZURE_RUNBOOK_NAME -- set as Automation Variables or env vars.
 """
 
 import importlib
@@ -361,6 +370,289 @@ def _log_upload(drive_id, token, local_path):
 
 
 # ---------------------------------------------------------------------------
+# Shabbos / Yom Tov check via Hebcal REST API
+# ---------------------------------------------------------------------------
+HEBCAL_GEONAMEID = 5110302  # Brooklyn, NY
+
+def _is_melacha_time():
+    """Check if melacha is currently assur (Shabbos or Yom Tov).
+
+    Calls the Hebcal API for Brooklyn with 18-min candle lighting.
+    Returns (is_assur: bool, reason: str, havdalah_dt: datetime | None).
+    The havdalah_dt is the end of the current restricted window (used for
+    rescheduling). Fails open: returns (False, "", None) on any error.
+    """
+    try:
+        import requests
+        from datetime import datetime, timedelta, timezone as tz
+
+        eastern = tz(timedelta(hours=-5))
+        now = datetime.now(tz=eastern)
+        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        day_after_tomorrow = (now + timedelta(days=2)).strftime("%Y-%m-%d")
+
+        url = (
+            f"https://www.hebcal.com/hebcal?cfg=json&v=1&maj=on&leyning=off"
+            f"&c=on&geonameid={HEBCAL_GEONAMEID}&M=on"
+            f"&start={yesterday}&end={day_after_tomorrow}"
+        )
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        candles = []
+        havdalahs = []
+        yomtov_dates = {}
+
+        for item in data.get("items", []):
+            cat = item.get("category", "")
+            if cat == "candles":
+                dt = datetime.fromisoformat(item["date"])
+                memo = item.get("memo", "")
+                candles.append((dt, memo))
+            elif cat == "havdalah":
+                dt = datetime.fromisoformat(item["date"])
+                memo = item.get("memo", "")
+                havdalahs.append((dt, memo))
+            elif item.get("yomtov"):
+                yomtov_dates[item.get("date", "")] = item.get("title", "Yom Tov")
+
+        candles.sort(key=lambda x: x[0])
+        havdalahs.sort(key=lambda x: x[0])
+
+        for candle_dt, candle_memo in candles:
+            matching_havdalah = None
+            for hav_dt, _hav_memo in havdalahs:
+                if hav_dt > candle_dt:
+                    matching_havdalah = hav_dt
+                    break
+
+            if matching_havdalah is None:
+                continue
+
+            if candle_dt <= now <= matching_havdalah:
+                today_str = now.strftime("%Y-%m-%d")
+                if today_str in yomtov_dates:
+                    return True, f"Yom Tov: {yomtov_dates[today_str]}", matching_havdalah
+                if candle_memo and candle_memo not in ("", now.strftime("%A")):
+                    return True, f"Yom Tov: {candle_memo}", matching_havdalah
+                return True, "Shabbos", matching_havdalah
+
+        return False, "", None
+
+    except Exception:
+        log.warning("Hebcal API check failed; proceeding with report run", exc_info=True)
+        return False, "", None
+
+
+# ---------------------------------------------------------------------------
+# Azure Automation reschedule helpers
+# ---------------------------------------------------------------------------
+AZURE_MGMT_BASE = "https://management.azure.com"
+AZURE_API_VERSION_SCHEDULE = "2023-11-01"
+RESCHEDULE_BUFFER_MINUTES = 15
+
+
+def _get_azure_mgmt_token(tenant_id, client_id, client_secret):
+    """Acquire a token for the Azure Management API using the same service principal."""
+    import msal
+    app = msal.ConfidentialClientApplication(
+        client_id,
+        authority=f"https://login.microsoftonline.com/{tenant_id}",
+        client_credential=client_secret,
+    )
+    result = app.acquire_token_for_client(scopes=["https://management.azure.com/.default"])
+    if not result or "access_token" not in result:
+        raise RuntimeError("Azure Mgmt token error: " + str(result.get("error_description", result)))
+    return result["access_token"]
+
+
+def _reschedule_after_havdalah(
+    havdalah_dt, report_name, extra_args,
+    tenant_id, client_id, client_secret,
+):
+    """Create a one-time Azure Automation schedule + job-schedule link to run after havdalah.
+
+    Uses the Azure Management REST API directly (no SDK needed).
+    Returns True on success, False on failure (caller should fall back to SKIPPED).
+    """
+    import requests
+    from datetime import timedelta
+    import uuid
+
+    sub_id = _get_config("AZURE_SUBSCRIPTION_ID", ["AZURE_SUBSCRIPTION_ID"])
+    rg = _get_config("AZURE_RESOURCE_GROUP", ["AZURE_RESOURCE_GROUP"], default="Daily_Invoiced_Report")
+    account = _get_config("AZURE_AUTOMATION_ACCOUNT", ["AZURE_AUTOMATION_ACCOUNT"], default="DailyInvoicedReport")
+    runbook_name = _get_config("AZURE_RUNBOOK_NAME", ["AZURE_RUNBOOK_NAME"], default="universal_runbook")
+
+    if not sub_id:
+        log.warning("AZURE_SUBSCRIPTION_ID not set; cannot reschedule")
+        return False
+
+    try:
+        mgmt_token = _get_azure_mgmt_token(tenant_id, client_id, client_secret)
+    except Exception:
+        log.warning("Failed to acquire Azure Management token for reschedule", exc_info=True)
+        return False
+
+    run_at = havdalah_dt + timedelta(minutes=RESCHEDULE_BUFFER_MINUTES)
+    date_tag = run_at.strftime("%Y%m%d_%H%M")
+    schedule_name = f"catchup_{report_name}_{date_tag}"
+
+    headers = {
+        "Authorization": f"Bearer {mgmt_token}",
+        "Content-Type": "application/json",
+    }
+    base_path = (
+        f"{AZURE_MGMT_BASE}/subscriptions/{sub_id}/resourceGroups/{rg}"
+        f"/providers/Microsoft.Automation/automationAccounts/{account}"
+    )
+
+    # 1) Create one-time schedule
+    schedule_url = f"{base_path}/schedules/{schedule_name}?api-version={AZURE_API_VERSION_SCHEDULE}"
+    schedule_body = {
+        "properties": {
+            "startTime": run_at.isoformat(),
+            "frequency": "OneTime",
+            "timeZone": "America/New_York",
+            "description": f"Auto-rescheduled {report_name} after Shabbos/Yom Tov",
+        }
+    }
+    r = requests.put(schedule_url, headers=headers, json=schedule_body, timeout=TIMEOUT)
+    if r.status_code not in (200, 201):
+        log.warning("Failed to create schedule '%s': %d %s", schedule_name, r.status_code, r.text[:300])
+        return False
+    log.info("Created one-time schedule '%s' for %s", schedule_name, run_at.isoformat())
+
+    # 2) Link schedule to runbook with parameters (including --force to bypass re-check)
+    force_extra = f"--force {extra_args}".strip() if extra_args else "--force"
+    job_schedule_id = str(uuid.uuid4())
+    link_url = f"{base_path}/jobSchedules/{job_schedule_id}?api-version={AZURE_API_VERSION_SCHEDULE}"
+    link_body = {
+        "properties": {
+            "schedule": {"name": schedule_name},
+            "runbook": {"name": runbook_name},
+            "parameters": {
+                "report_name": report_name,
+                "extra_args": force_extra,
+            },
+        }
+    }
+    r2 = requests.put(link_url, headers=headers, json=link_body, timeout=TIMEOUT)
+    if r2.status_code not in (200, 201):
+        log.warning("Failed to link schedule '%s' to runbook: %d %s", schedule_name, r2.status_code, r2.text[:300])
+        return False
+    log.info("Linked schedule '%s' to runbook '%s' (report=%s, args=%s)",
+             schedule_name, runbook_name, report_name, force_extra)
+    return True
+
+
+def _get_last_success_date(log_path, display_name):
+    """Parse run_log.csv and return the date of the last SUCCESS for a report.
+
+    Returns a date object or None if no prior success found.
+    """
+    from datetime import date as _date, datetime as _datetime
+    last = None
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get("report_name") == display_name and row.get("status") == "SUCCESS":
+                    ts = row.get("timestamp", "")
+                    try:
+                        last = _datetime.strptime(ts[:10], "%Y-%m-%d").date()
+                    except (ValueError, IndexError):
+                        pass
+    except Exception:
+        pass
+    return last
+
+
+def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
+    """If days were missed since last success, widen the date range to cover the gap.
+
+    Handles three cases:
+    - No date/period args: inject --from/--to covering the gap (original behavior)
+    - --period daily/yesterday: replace with --from/--to covering missed days
+    - --period last_7_days: replace with --from/--to widened by the gap
+    - --period mtd where month boundary crossed: replace with --from/--to for prior month
+    - --period ytd: no change (already covers full year)
+    - Explicit --from/--to or --date: no change (user specified exact range)
+    """
+    from datetime import date as _date, timedelta, datetime, timezone
+
+    tokens = merged_args.split()
+
+    if "--from" in tokens or "--to" in tokens or "--date" in tokens:
+        return argv
+
+    last_success = _get_last_success_date(log_path, display_name)
+    if last_success is None:
+        return argv
+
+    now = datetime.now(tz=timezone(timedelta(hours=-5)))
+    today = now.date()
+    gap_days = (today - last_success).days
+    if gap_days <= 1:
+        return argv
+
+    period_val = None
+    if "--period" in tokens:
+        try:
+            period_val = tokens[tokens.index("--period") + 1]
+        except IndexError:
+            pass
+
+    catch_from = None
+    catch_to = today.isoformat()
+
+    if period_val is None:
+        catch_from = (last_success + timedelta(days=1)).isoformat()
+
+    elif period_val in ("daily", "yesterday"):
+        catch_from = (last_success + timedelta(days=1)).isoformat()
+
+    elif period_val == "last_7_days":
+        widened_start = today - timedelta(days=6 + gap_days - 1)
+        catch_from = widened_start.isoformat()
+
+    elif period_val == "mtd":
+        if last_success.month != today.month or last_success.year != today.year:
+            catch_from = last_success.replace(day=1).isoformat()
+            catch_to = (today.replace(day=1) - timedelta(days=1)).isoformat()
+        else:
+            return argv
+
+    elif period_val == "ytd":
+        return argv
+
+    else:
+        return argv
+
+    if catch_from is None:
+        return argv
+
+    log.info("[Catch-up] Last success for '%s' was %s (%d days ago, period=%s). "
+             "Injecting --from %s --to %s",
+             display_name, last_success.isoformat(), gap_days,
+             period_val or "(none)", catch_from, catch_to)
+
+    new_argv = []
+    skip_next = False
+    for i, arg in enumerate(argv):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--period":
+            skip_next = True
+            continue
+        new_argv.append(arg)
+
+    return new_argv + ["--from", catch_from, "--to", catch_to]
+
+
+# ---------------------------------------------------------------------------
 # Alert helper (standalone -- sends via Graph sendMail)
 # ---------------------------------------------------------------------------
 def _send_alert(subject, body, tenant_id, client_id, client_secret, from_addr, recipients, content_type="Text"):
@@ -433,6 +725,9 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     _log_append(log_path, {"timestamp": _now_stamp(), "report_name": display, "status": "STARTED", "args": merged_args})
     _log_upload(drive_id, token, log_path)
 
+    argv = _maybe_inject_catchup_args(argv, merged_args, log_path, display)
+    merged_args_display = " ".join(argv) if argv else merged_args
+
     start = time.monotonic()
     exit_code = 0
     error_msg = ""
@@ -474,7 +769,7 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         "report_name": display,
         "status": status,
         "duration_sec": f"{elapsed:.0f}",
-        "args": merged_args,
+        "args": merged_args_display,
         "error": error_msg[:500] if error_msg else "",
     })
     _log_upload(drive_id, token, log_path)
@@ -484,13 +779,13 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     if exit_code != 0:
         _send_alert(
             f"{display} FAILED",
-            f"{display} failed after {elapsed:.0f}s.\n\nArgs: {merged_args}\n\nError:\n{error_msg}",
+            f"{display} failed after {elapsed:.0f}s.\n\nArgs: {merged_args_display}\n\nError:\n{error_msg}",
             **alert_ctx,
         )
-    elif elapsed > 1800:
+    elif elapsed > 3600:
         _send_alert(
             f"{display} slow execution",
-            f"{display} took {elapsed:.0f}s (threshold 1800s). Check D365 API or data volume.",
+            f"{display} took {elapsed:.0f}s (threshold 3600s). Check D365 API or data volume.",
             **alert_ctx,
         )
 
@@ -570,6 +865,43 @@ def _build_heartbeat_html(
 # ===========================================================================
 # MAIN
 # ===========================================================================
+def _upload_webapp_pickup(drive_id, token_mgr, direct_reports, record_id, root_path):
+    """Upload the first Excel file from Direct Reports to the webapp pickup folder.
+
+    The file is saved as ``webapp_reports/{record_id}.xlsx`` so the webapp
+    can download it by record_id after the job completes.
+    """
+    import glob as _g
+    xlsx_files = _g.glob(os.path.join(direct_reports, "**", "*.xlsx"), recursive=True)
+    if not xlsx_files:
+        log.warning("No .xlsx files found in Direct Reports for webapp pickup")
+        return
+
+    src = xlsx_files[0]
+    pickup_folder = f"{root_path}/webapp_reports" if root_path else "webapp_reports"
+    dest_name = f"{record_id}.xlsx"
+    dest_path = f"{pickup_folder}/{dest_name}"
+
+    log.info("Uploading webapp pickup: %s -> %s", os.path.basename(src), dest_path)
+    try:
+        token = token_mgr()
+        import requests
+        file_size = os.path.getsize(src)
+        if file_size < 4 * 1024 * 1024:
+            url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{dest_path}:/content"
+            with open(src, "rb") as f:
+                resp = requests.put(url, headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }, data=f, timeout=120)
+                resp.raise_for_status()
+        else:
+            _sp_upload_large(drive_id, dest_path, src, token_mgr)
+        log.info("Webapp pickup uploaded successfully: %s", dest_path)
+    except Exception:
+        log.exception("Failed to upload webapp pickup file")
+
+
 def main():
     # ---- Read runbook parameters ----
     # Azure Automation injects runbook parameters as module-level globals.
@@ -577,6 +909,7 @@ def main():
     # For local testing, fall back to CLI args or env vars.
     _report_name = ""
     _extra_args = ""
+    _webapp_record_id = ""
 
     # 1) Azure Automation injected globals
     g = globals()
@@ -584,6 +917,8 @@ def main():
         _report_name = str(g["report_name"]).strip()
     if "extra_args" in g and g["extra_args"]:
         _extra_args = str(g["extra_args"]).strip()
+    if "webapp_record_id" in g and g["webapp_record_id"]:
+        _webapp_record_id = str(g["webapp_record_id"]).strip()
 
     # 2) CLI override for local testing
     if len(sys.argv) >= 2 and sys.argv[1] not in ("-h", "--help"):
@@ -596,9 +931,12 @@ def main():
         _report_name = os.environ.get("REPORT_NAME", "").strip()
     if not _extra_args:
         _extra_args = os.environ.get("EXTRA_ARGS", "").strip()
+    if not _webapp_record_id:
+        _webapp_record_id = os.environ.get("WEBAPP_RECORD_ID", "").strip()
 
     report_name = _report_name
     extra_args = _extra_args
+    webapp_record_id = _webapp_record_id
 
     if not report_name:
         log.error("No report_name parameter provided. Set the 'report_name' Azure Automation parameter or pass as first CLI arg.")
@@ -607,8 +945,58 @@ def main():
 
     report_name = report_name.strip().lower().replace("-", "_")
     is_test_mode = "--test" in (extra_args or "").split()
-    log.info("=== Universal Runbook: report_name=%s, extra_args=%s, test_mode=%s ===",
-             report_name, extra_args or "(none)", is_test_mode)
+    is_force = "--force" in (extra_args or "").split()
+    log.info("=== Universal Runbook: report_name=%s, extra_args=%s, test_mode=%s, webapp_record_id=%s ===",
+             report_name, extra_args or "(none)", is_test_mode, webapp_record_id or "(none)")
+
+    # ---- Shabbos / Yom Tov guard ----
+    if not is_force:
+        is_assur, reason, havdalah_dt = _is_melacha_time()
+        if is_assur:
+            log.info("=== %s -- attempting to reschedule after havdalah ===", reason)
+
+            _tid = _get_config("GRAPH_TENANT_ID", ["GRAPH_TENANT_ID", "AZURE_TENANT_ID"])
+            _cid = _get_config("GRAPH_CLIENT_ID", ["GRAPH_CLIENT_ID", "AZURE_CLIENT_ID"])
+            _sec = _get_config("GRAPH_CLIENT_SECRET", ["GRAPH_CLIENT_SECRET", "AZURE_CLIENT_SECRET"])
+            _site = _get_config("SP_SITE_URL", ["SP_SITE_URL"])
+
+            rescheduled = False
+            if havdalah_dt and all([_tid, _cid, _sec]):
+                rescheduled = _reschedule_after_havdalah(
+                    havdalah_dt, report_name, extra_args or "",
+                    _tid, _cid, _sec,
+                )
+
+            status_tag = "RESCHEDULED" if rescheduled else "SKIPPED"
+            if rescheduled:
+                log.info("=== RESCHEDULED for %s ===", havdalah_dt.isoformat())
+            else:
+                log.info("=== SKIPPED: %s (reschedule failed or unavailable). "
+                         "Catch-up will apply on next regular run. ===", reason)
+
+            # Log to run_log.csv
+            try:
+                if all([_tid, _cid, _sec, _site]):
+                    _tmgr = _TokenManager(_tid, _cid, _sec)
+                    _, _did = _sp_resolve_drive(_site, _tmgr)
+                    _tmp = tempfile.mkdtemp(prefix="runlog_skip_")
+                    _lp = _log_download(_did, _tmgr, _tmp)
+                    _log_append(_lp, {
+                        "timestamp": _now_stamp(),
+                        "report_name": report_name,
+                        "status": status_tag,
+                        "args": extra_args or "",
+                        "error": reason,
+                    })
+                    _log_upload(_did, _tmgr, _lp)
+                    shutil.rmtree(_tmp, ignore_errors=True)
+                    log.info("Logged %s to run_log.csv", status_tag)
+            except Exception:
+                log.warning("Could not log %s to run_log.csv", status_tag, exc_info=True)
+            return 0
+
+    if is_force:
+        extra_args = (extra_args or "").replace("--force", "").strip()
 
     log.info("[Step 1/7] Loading configuration...")
     tenant_id = _get_config("GRAPH_TENANT_ID", ["GRAPH_TENANT_ID", "AZURE_TENANT_ID"])
@@ -765,6 +1153,10 @@ def main():
             overall_exit = 1
     else:
         summary_lines.append("  Upload: no output files")
+
+    # Upload to webapp pickup folder if triggered by the webapp
+    if webapp_record_id and os.path.isdir(direct_reports):
+        _upload_webapp_pickup(drive_id, token_mgr, direct_reports, webapp_record_id, root_path)
 
     # Flush deferred salesman emails with SharePoint links
     if runner_instances and uploaded_urls:
