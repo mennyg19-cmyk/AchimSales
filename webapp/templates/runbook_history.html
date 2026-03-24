@@ -4,6 +4,9 @@
 {% block content %}
 <div class="page-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
     <div>
+        <a href="{{ url_for('settings.settings_page') }}" class="back-link">
+            <i data-feather="arrow-left"></i> Back to Settings
+        </a>
         <h1>Schedule Run History</h1>
         <p class="page-subtitle">Azure Automation scheduled job runs — did they succeed or fail?</p>
     </div>

@@ -6,7 +6,7 @@ Reuses the same app registration as the scripts (GRAPH_CLIENT_ID etc).
 """
 
 import msal
-from flask import redirect, request, session, url_for
+from flask import request, session
 
 from webapp.config import AUTHORITY, CLIENT_ID, CLIENT_SECRET, REDIRECT_PATH, SCOPES
 

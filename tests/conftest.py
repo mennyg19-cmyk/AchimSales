@@ -5,13 +5,108 @@ Provides small, realistic DataFrames that mirror the structure returned
 by D365 OData fetchers so builder logic can be tested in isolation.
 """
 
-from datetime import date, datetime
+import os
+import shutil
+from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from core.dates import PeriodSpec
 
+from tests.helpers.date_helpers import freeze_today
+from tests.helpers.mock_d365 import mock_d365_env
+
+from tests.fixtures.sample_orders import (
+    make_order_headers,
+    make_order_lines,
+    make_packing_slips,
+    make_whs_lines,
+)
+from tests.fixtures.sample_invoices import (
+    make_invoice_detail,
+    make_invoice_headers,
+    make_markup_trans,
+)
+from tests.fixtures.sample_customers import make_aged_balances, make_customers
+from tests.fixtures.sample_products import make_products
+
+# ---------------------------------------------------------------------------
+# Output directory management
+# ---------------------------------------------------------------------------
+_OUTPUT_ROOT = Path(__file__).parent / "output"
+
+
+def pytest_addoption(parser):
+    parser.addoption("--keep-output", action="store_true", default=False,
+                     help="Keep test output files after the run")
+    parser.addoption("--update-golden", action="store_true", default=False,
+                     help="Overwrite golden snapshot files with current output")
+
+
+@pytest.fixture
+def output_dir(request, tmp_path) -> Path:
+    """Per-test output directory.
+
+    When ``--keep-output`` is passed, files are written to
+    ``tests/output/<test_name>/`` for manual inspection.  Otherwise a
+    pytest ``tmp_path`` is used and cleaned up automatically.
+    """
+    keep = request.config.getoption("--keep-output")
+    if keep:
+        test_name = request.node.name.replace("[", "_").replace("]", "")
+        d = _OUTPUT_ROOT / test_name
+        if d.exists():
+            shutil.rmtree(d)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    return tmp_path
+
+
+@pytest.fixture
+def update_golden(request) -> bool:
+    return request.config.getoption("--update-golden")
+
+
+# ---------------------------------------------------------------------------
+# Date freezing fixture (marker-driven)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _auto_freeze_date(request):
+    """If a test is decorated with ``@pytest.mark.freeze_date("YYYY-MM-DD")``,
+    automatically freeze ``get_today_eastern()`` to that date."""
+    marker = request.node.get_closest_marker("freeze_date")
+    if marker:
+        d = date.fromisoformat(marker.args[0])
+        with freeze_today(d):
+            yield
+    else:
+        yield
+
+
+@pytest.fixture
+def frozen_today():
+    """Explicit fixture returning the ``freeze_today`` context manager
+    for tests that need to freeze multiple dates within one test."""
+    return freeze_today
+
+
+# ---------------------------------------------------------------------------
+# D365 mock fixture
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mock_d365():
+    """Activate the full D365 mock layer. Yields a ``MockD365`` instance."""
+    with mock_d365_env() as mock:
+        yield mock
+
+
+# ---------------------------------------------------------------------------
+# Legacy fixtures (backward compat with existing test files)
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def period_daily() -> PeriodSpec:
@@ -100,3 +195,58 @@ def sample_invoice_detail() -> pd.DataFrame:
         "SalesmanNumber": ["01", "01", "02", "01"],
         "SalesmanName": ["Mike Kolko", "Mike Kolko", "John Smith", "Mike Kolko"],
     })
+
+
+# ---------------------------------------------------------------------------
+# Factory-based fixtures (new)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def order_headers_factory():
+    """Returns the ``make_order_headers`` factory function."""
+    return make_order_headers
+
+
+@pytest.fixture
+def order_lines_factory():
+    return make_order_lines
+
+
+@pytest.fixture
+def whs_lines_factory():
+    return make_whs_lines
+
+
+@pytest.fixture
+def packing_slips_factory():
+    return make_packing_slips
+
+
+@pytest.fixture
+def invoice_detail_factory():
+    return make_invoice_detail
+
+
+@pytest.fixture
+def invoice_headers_factory():
+    return make_invoice_headers
+
+
+@pytest.fixture
+def markup_trans_factory():
+    return make_markup_trans
+
+
+@pytest.fixture
+def customers_factory():
+    return make_customers
+
+
+@pytest.fixture
+def aged_balances_factory():
+    return make_aged_balances
+
+
+@pytest.fixture
+def products_factory():
+    return make_products

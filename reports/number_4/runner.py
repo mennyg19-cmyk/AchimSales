@@ -11,7 +11,7 @@ import sys
 from datetime import date, datetime
 
 from config.paths import get_output_path
-from core.dates import FetchPlan, get_today_eastern
+from core.dates import FetchPlan, clamp_start, get_today_eastern
 from core.logging import setup_logging
 from core.validation import validate_output
 from reports.base import BaseReportRunner
@@ -39,7 +39,7 @@ class Number4ReportRunner(BaseReportRunner):
         today = get_today_eastern()
         report_date = datetime(today.year, today.month, today.day)
 
-        fetch_start = date(today.year - 1, today.month, 1)
+        fetch_start = clamp_start(date(today.year - 1, today.month, 1))
         fetch_end = plan.fetch_end
 
         log.info("Fetching invoice lines: %s to %s", fetch_start, fetch_end)

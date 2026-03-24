@@ -16,8 +16,6 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 from core.columns import pick_col, to_number
 from core.excel_styles import (
-    ALIGN_CENTER,
-    BORDER_ORDER_END,
     BORDER_THIN,
     FILL_HEADER,
     FILL_LIGHT_GREY,
@@ -62,9 +60,11 @@ def write_report(df: pd.DataFrame, out_path: str, report_variant: str | None = N
     currency_cols = [c for c in out_cols if c.endswith(" $")]
     ordered_out_cols = [c for c in FULL_DATA_ORDER if c in df.columns] or list(out_cols)
 
+    from core.logging import log_memory
     large = len(df) > STREAMING_ROW_THRESHOLD
     log.info("Writing Excel: %d rows, mode=%s, variant=%s",
              len(df), "streaming" if large else "normal", report_variant or "default")
+    log_memory("ordered:writer:start (%d rows)" % len(df))
     if large:
         _write_streaming(df, out_path, ordered_out_cols, AGG_COLS, currency_cols, report_variant=report_variant)
     else:
@@ -457,12 +457,14 @@ def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
     """Build list of (sheet_name, subset_df, write_cols, use_score_fill, skip_totals_row) for all tabs.
 
     Variants:
-      None (default)     -- all tabs: By Customer, By Item, By Order, By Salesman, Full Data
+      None (default)     -- all tabs: Summary, By Customer, By Item, By Order, By Salesman, Full Data
       "amazon_weekly"    -- Summary (one-row totals), By Item, By Order (with PO #)
       "filtered"         -- Summary (aggregated by customer), By Item, By Order
+      "salesman"         -- Summary, By Customer, By Item, By Order, Full Data (no By Salesman)
     """
     amazon = report_variant == "amazon_weekly"
     filtered = report_variant == "filtered"
+    salesman_variant = report_variant == "salesman"
     specs = []
 
     if amazon:
@@ -477,6 +479,14 @@ def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
             specs.append(("Summary", grp, write_cols, False, False))
         else:
             specs.append(("Summary", pd.DataFrame(), out_cols, False, False))
+    elif salesman_variant:
+        cust_cols = [c for c in ["CustomerAccount", "CustomerName"] if c in df.columns]
+        if cust_cols:
+            grp = _build_agg_sheet(df, cust_cols, agg_cols)
+            write_cols = [c for c in grp.columns if c not in ("_StatusCategory", "_FulfillmentScore", "ItemName", "SalesOrderName")]
+            specs.append(("By Customer", grp, write_cols, True, False))
+        else:
+            specs.append(("By Customer", pd.DataFrame(), out_cols, False, False))
     else:
         cust_cols = [c for c in ["CustomerAccount", "CustomerName"] if c in df.columns]
         if "Salesman" in df.columns:
@@ -511,7 +521,7 @@ def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
     else:
         specs.append(("By Order", pd.DataFrame(), out_cols, False, False))
 
-    if not amazon and not filtered:
+    if not amazon and not filtered and not salesman_variant:
         if "Salesman" in df.columns:
             grp = _build_agg_sheet(df, ["Salesman"], agg_cols)
             write_cols = [c for c in grp.columns if c not in ("_StatusCategory", "_FulfillmentScore", "SalesOrderName", "ItemName")]
@@ -519,6 +529,7 @@ def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
         else:
             specs.append(("By Salesman", pd.DataFrame(), out_cols, False, False))
 
+    if not amazon and not filtered:
         full_data = df[out_cols + ["_StatusCategory", "_LastLineOfOrder", "_FulfillmentScore"]].copy()
         write_cols = [c for c in FULL_DATA_ORDER if c in full_data.columns]
         if not write_cols:

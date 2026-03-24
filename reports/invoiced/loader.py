@@ -13,7 +13,7 @@ import pandas as pd
 
 from config.salesman_map import get_salesman_display_name, get_salesman_full_name, get_salesman_number
 from core.columns import rename_columns, to_number
-from core.odata import fetch_odata_batched
+from core.odata import fetch_odata_entity
 from data.d365_entities import (
     fetch_customers,
     fetch_markup_trans,
@@ -50,10 +50,15 @@ def fetch_invoice_detail(
         SalesOrderNumber, SubTotal Invoices, Tariff Charges,
         Freight Charges, CC Charges, Total Invoice, Salesman, SalesmanNumber, SalesmanName
     """
+    from core.logging import log_memory
+    log_memory("invoiced:fetch_invoice_detail:start")
+
     headers = fetch_sales_invoice_headers(base_url, token, start_date, end_date, company_id)
     if headers.empty:
         log.info("No invoice headers for %s to %s", start_date, end_date)
         return pd.DataFrame()
+
+    log_memory("invoiced:after_headers (%d rows)" % len(headers))
 
     if "InvoiceDate" in headers.columns:
         headers["InvoiceDate"] = pd.to_datetime(headers["InvoiceDate"], errors="coerce", utc=True)
@@ -61,7 +66,15 @@ def fetch_invoice_detail(
 
     voucher_ids = set()
     if "LedgerVoucher" in headers.columns:
-        voucher_ids = set(headers["LedgerVoucher"].dropna().astype(str).str.strip().tolist())
+        has_charges = headers
+        if "TotalChargeAmount" in headers.columns:
+            charge_amt = pd.to_numeric(headers["TotalChargeAmount"], errors="coerce").fillna(0)
+            has_charges = headers[charge_amt.abs() > 0]
+            log.info(
+                "Markup optimization: %d/%d invoices have charges (skipping %d with zero charges)",
+                len(has_charges), len(headers), len(headers) - len(has_charges),
+            )
+        voucher_ids = set(has_charges["LedgerVoucher"].dropna().astype(str).str.strip().tolist())
         voucher_ids.discard("")
         voucher_ids.discard("nan")
 
@@ -71,7 +84,8 @@ def fetch_invoice_detail(
         if not markup.empty:
             charges_df = _aggregate_charges(markup)
 
-    detail = headers.copy()
+    detail = headers
+    del headers
     if "TotalInvoiceAmount" in detail.columns:
         detail["Total Invoice"] = to_number(detail["TotalInvoiceAmount"])
     else:
@@ -101,7 +115,7 @@ def fetch_invoice_detail(
     if "SalesOrderNumber" not in detail.columns:
         detail["SalesOrderNumber"] = ""
 
-    detail = _assign_salesman(detail, base_url, token, company_id)
+    detail = _assign_salesman(detail, base_url, token, company_id, start_date, end_date)
 
     keep_cols = [
         "CustomerAccount", "CustomerName", "InvoiceDate", "InvoiceNumber",
@@ -113,7 +127,10 @@ def fetch_invoice_detail(
         if c not in detail.columns:
             detail[c] = ""
 
-    return detail[keep_cols].copy()
+    result = detail[keep_cols].copy()
+    del detail
+    log_memory("invoiced:fetch_invoice_detail:done (%d rows)" % len(result))
+    return result
 
 
 def _aggregate_charges(markup: pd.DataFrame) -> pd.DataFrame:
@@ -142,11 +159,18 @@ def _assign_salesman(
     base_url: str,
     token: str,
     company_id: str | None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> pd.DataFrame:
     """Assign salesman to each invoice row.
 
+    Uses a bulk date-range fetch of SalesOrderHeadersV3 instead of per-order-number
+    batching to avoid thousands of HTTP requests.
+
     Priority: SalesOrderHeaders.CommissionSalesRepresentativeGroupId -> CustomersV3.SalesGroup
     """
+    import time as _time
+
     detail["Salesman"] = ""
     detail["SalesmanNumber"] = ""
     detail["SalesmanName"] = ""
@@ -159,16 +183,24 @@ def _assign_salesman(
         )
 
     so_salesman_map: dict[str, str] = {}
-    if so_nums:
+    if so_nums and start_date and end_date:
         try:
-            so_headers = fetch_odata_batched(
+            import gc
+            t0 = _time.monotonic()
+            date_field = "OrderCreationDateTime"
+            filter_expr = (
+                f"{date_field} ge {start_date.isoformat()}T00:00:00Z and "
+                f"{date_field} le {end_date.isoformat()}T23:59:59Z"
+            )
+            log.info("Bulk-fetching SalesOrderHeadersV3 (%s to %s) for salesman assignment...", start_date, end_date)
+            so_headers = fetch_odata_entity(
                 base_url, "SalesOrderHeadersV3", token,
-                filter_field="SalesOrderNumber",
-                filter_values=list(so_nums),
                 select=["SalesOrderNumber", "CommissionSalesRepresentativeGroupId"],
+                filter_expr=filter_expr,
                 company_id=company_id,
             )
             so_headers = rename_columns(so_headers, SALES_ORDER_HEADER_FIELD_MAP)
+            bulk_count = len(so_headers) if not so_headers.empty else 0
             if not so_headers.empty and "SalesOrderNumber" in so_headers.columns and "Salesman" in so_headers.columns:
                 valid = so_headers.dropna(subset=["SalesOrderNumber", "Salesman"])
                 valid = valid[valid["Salesman"].astype(str).str.strip() != ""]
@@ -176,9 +208,17 @@ def _assign_salesman(
                     valid["SalesOrderNumber"].astype(str).str.strip(),
                     valid["Salesman"].astype(str).str.strip(),
                 ))
-                log.info("Built SO->salesman map: %d entries from %d order numbers", len(so_salesman_map), len(so_nums))
+                del valid
+            del so_headers
+            gc.collect()
+            log_memory("invoiced:after_salesman_map (freed SO headers)")
+            elapsed = _time.monotonic() - t0
+            log.info(
+                "Built SO->salesman map: %d entries from %d bulk rows in %.1fs (needed %d order numbers)",
+                len(so_salesman_map), bulk_count, elapsed, len(so_nums),
+            )
         except Exception:
-            log.warning("Could not fetch SalesOrderHeaders for salesman assignment", exc_info=True)
+            log.warning("Could not bulk-fetch SalesOrderHeaders for salesman assignment", exc_info=True)
 
     cust_salesman_map: dict[str, str] = {}
     cust_name_map: dict[str, str] = {}

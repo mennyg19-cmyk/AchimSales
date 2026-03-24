@@ -19,12 +19,13 @@ from flask import (
 
 from webapp.helpers import get_current_user, get_salesmen_list, require_login
 from webapp.user_map import (
-    get_available_reports, get_salesman_key, is_admin, is_salesman,
+    get_available_reports, get_salesman_key, is_admin, is_manager, is_salesman,
 )
 from webapp.report_api import run_report
 from webapp.history import add_record, delete_record, update_record, get_history
 from webapp.db import (
     add_notification, get_all_users, get_saved_reports,
+    get_user_salesman_access,
     log_report_start, log_report_end, get_report_runs,
 )
 
@@ -70,12 +71,22 @@ def report_form(report_key):
     report_cfg = available[report_key]
     salesman_key = get_salesman_key(user)
     user_is_admin = is_admin(user)
+    user_is_manager = is_manager(user)
 
     admin_default_salesman = None
     salesmen_list = []
-    if user_is_admin and report_cfg.get("salesman_filter"):
-        salesmen_list = get_salesmen_list(user.get("email"))
-        admin_default_salesman = user.get("salesman_key") or None
+    show_salesman_picker = False
+
+    if report_cfg.get("salesman_filter"):
+        if user_is_admin:
+            salesmen_list = get_salesmen_list(user.get("email"))
+            admin_default_salesman = user.get("salesman_key") or None
+            show_salesman_picker = True
+        elif user_is_manager:
+            allowed_keys = set(get_user_salesman_access(user.get("email", "")))
+            all_sm = get_salesmen_list(user.get("email"))
+            salesmen_list = [s for s in all_sm if s["key"] in allowed_keys]
+            show_salesman_picker = bool(salesmen_list)
 
     preset_params = {}
     if request.args.get("preset"):
@@ -90,6 +101,8 @@ def report_form(report_key):
         "report_form.html",
         user=user, report_key=report_key, report=report_cfg,
         salesman_key=salesman_key, is_admin=user_is_admin,
+        is_manager=user_is_manager,
+        show_salesman_picker=show_salesman_picker,
         salesmen_list=salesmen_list, active_tab="reports",
         preset_params=preset_params, app_users=app_users,
         admin_default_salesman=admin_default_salesman,
@@ -106,12 +119,22 @@ def report_run(report_key):
         return jsonify({"success": False, "error": "Access denied"}), 403
 
     params = request.get_json() or {}
+    report_cfg = available[report_key]
+
     if is_salesman(user) and user.get("salesman_key"):
-        report_cfg = available[report_key]
         if report_cfg.get("salesman_filter"):
             params["salesman"] = user["salesman_key"]
-
-    report_cfg = available[report_key]
+    elif is_manager(user) and report_cfg.get("salesman_filter"):
+        allowed_keys = set(get_user_salesman_access(user.get("email", "")))
+        requested = params.get("salesman", "")
+        if requested and requested in allowed_keys:
+            params["salesman"] = requested
+        elif len(allowed_keys) == 1:
+            params["salesman"] = next(iter(allowed_keys))
+        elif allowed_keys:
+            params["salesman_list"] = list(allowed_keys)
+        else:
+            return jsonify({"success": False, "error": "No salesmen assigned to your account"}), 403
     email = user.get("email", "")
     preset_name = params.pop("preset_name", None)
     display_name = f"{preset_name} ({report_cfg.get('name', report_key)})" if preset_name else report_cfg.get("name", report_key)

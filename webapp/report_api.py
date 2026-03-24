@@ -8,18 +8,14 @@ and reads back the Excel data as DataFrames for in-app display.
 import logging
 import os
 import sys
-import tempfile
 import traceback
-import uuid
-from datetime import date, datetime
+from datetime import datetime
 
 import pandas as pd
 
 _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
-
-from webapp.config import REPORT_OUTPUT_DIR
 
 log = logging.getLogger(__name__)
 
@@ -62,8 +58,23 @@ def _read_excel_sheets(filepath: str) -> dict[str, list[dict]]:
         return {}
 
 
+_REPORT_PRIMARY_MONEY_COL = {
+    "invoiced": ["Total Invoice"],
+    "ordered": ["SubTotal"],
+    "salesman": ["Total Invoice", "SubTotal Invoices"],
+    "amazon_weekly": ["Total Invoice", "SubTotal"],
+    "customer_activity": ["Total Invoice", "SubTotal"],
+    "customer_aging": ["Balance", "Amount", "Total"],
+    "number_4": ["Total Invoice", "SubTotal"],
+}
+
+
 def _compute_summary(sheets: dict[str, list[dict]], report_key: str) -> dict:
-    """Compute summary stats from the report data for the dashboard cards."""
+    """Compute summary stats from the report data for the dashboard cards.
+
+    Picks a single primary money column per report to avoid double-counting
+    overlapping fields (e.g. SubTotal vs Total Invoice).
+    """
     summary = {}
 
     first_sheet = next(iter(sheets.values()), [])
@@ -73,14 +84,29 @@ def _compute_summary(sheets: dict[str, list[dict]], report_key: str) -> dict:
     df = pd.DataFrame(first_sheet)
     summary["total_rows"] = len(df)
 
-    money_cols = [c for c in df.columns if any(kw in c.lower() for kw in
-                  ("total", "amount", "subtotal", "net", "revenue", "sales", "price"))]
-    for col in money_cols[:4]:
+    preferred = _REPORT_PRIMARY_MONEY_COL.get(report_key, [])
+    primary_col = None
+    for candidate in preferred:
+        if candidate in df.columns:
+            primary_col = candidate
+            break
+
+    if not primary_col:
+        money_keywords = ("total invoice", "subtotal", "total", "amount", "net", "revenue")
+        for kw in money_keywords:
+            for c in df.columns:
+                if kw in c.lower():
+                    primary_col = c
+                    break
+            if primary_col:
+                break
+
+    if primary_col:
         try:
-            vals = pd.to_numeric(df[col], errors="coerce")
+            vals = pd.to_numeric(df[primary_col], errors="coerce")
             s = vals.sum()
             if pd.notna(s) and s != 0:
-                summary[col] = round(float(s), 2)
+                summary[f"total_{primary_col}"] = round(float(s), 2)
         except Exception:
             pass
 
@@ -220,6 +246,36 @@ def run_customer_activity(params: dict) -> dict:
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
+def run_customer_aging(params: dict) -> dict:
+    """Run the Customer Aging Report and return results."""
+    from reports.customer_aging.runner import CustomerAgingReportRunner
+
+    argv = []
+    if params.get("salesman"):
+        argv.extend(["--salesman", params["salesman"]])
+    if params.get("customers"):
+        argv.append("--customer")
+        argv.extend(params["customers"])
+    elif params.get("customer"):
+        argv.extend(["--customer", params["customer"]])
+
+    return _run_class_report(CustomerAgingReportRunner, argv, "customer_aging")
+
+
+def _copy_to_preset_dir(filepath: str, salesman_key: str, preset_name: str) -> str:
+    """Copy a report file into the salesman/<key>/<preset_name>/ directory."""
+    import shutil
+    from config.paths import get_direct_reports_root
+
+    safe_preset = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in preset_name).strip()
+    safe_sm = salesman_key or "shared"
+    dest_dir = os.path.join(get_direct_reports_root(), "salesman", safe_sm, safe_preset)
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(dest_dir, os.path.basename(filepath))
+    shutil.copy2(filepath, dest_path)
+    return dest_path
+
+
 def _run_class_report(runner_cls, argv: list[str], report_key: str) -> dict:
     """Run a BaseReportRunner subclass and capture results."""
     from config.paths import get_direct_reports_root
@@ -274,12 +330,27 @@ REPORT_RUNNERS = {
     "number_4": run_number4_report,
     "amazon_weekly": run_amazon_weekly,
     "customer_activity": run_customer_activity,
+    "customer_aging": run_customer_aging,
 }
 
 
 def run_report(report_key: str, params: dict) -> dict:
     """Dispatch to the appropriate report runner."""
+    preset_name = params.pop("_preset_name", None)
+    salesman_key = params.pop("_salesman_key", None)
+
     runner_fn = REPORT_RUNNERS.get(report_key)
     if not runner_fn:
         return {"success": False, "error": f"Unknown report: {report_key}"}
-    return runner_fn(params)
+
+    result = runner_fn(params)
+
+    if preset_name and result.get("success") and result.get("filepath"):
+        try:
+            preset_path = _copy_to_preset_dir(result["filepath"], salesman_key or "", preset_name)
+            result["filepath"] = preset_path
+            result["filename"] = os.path.basename(preset_path)
+        except Exception:
+            log.exception("Failed to copy report to preset directory")
+
+    return result

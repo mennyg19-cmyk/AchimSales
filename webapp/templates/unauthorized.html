@@ -12,7 +12,7 @@
             The account <strong>{{ email }}</strong> is not authorized to use this app.
         </p>
         <p class="login-subtitle">Please contact your administrator to request access.</p>
-        <a href="{{ url_for('login') }}" class="btn btn-outline btn-lg btn-block">Try a Different Account</a>
+        <a href="{{ url_for('auth.login') }}" class="btn btn-outline btn-lg btn-block">Try a Different Account</a>
     </div>
 </div>
 {% endblock %}

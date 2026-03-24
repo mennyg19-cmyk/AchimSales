@@ -5,7 +5,7 @@ Provides:
 - get_now_eastern() / get_today_eastern() -- single source of truth for "now"
 - parse_period() -- resolve named periods (daily, mtd, ytd, this_week) to date ranges
 - resolve_fetch_plan() -- determine widest fetch range and per-period report specs
-- UTC-to-Eastern conversion for D365 datetime fields
+- convert_d365_dates_to_eastern() -- batch UTC-to-Eastern for D365 datetime Series
 """
 
 import logging
@@ -18,9 +18,16 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 EASTERN = ZoneInfo("America/New_York")
-UTC = ZoneInfo("UTC")
 
 ALL_PERIODS = ("daily", "mtd", "ytd", "last_7_days")
+
+D365_GO_LIVE = date(2025, 1, 3)
+"""Earliest valid date in D365 F&O. Data before this is test/migration artefacts."""
+
+
+def clamp_start(start: date) -> date:
+    """Return *start* or the D365 go-live date, whichever is later."""
+    return max(start, D365_GO_LIVE)
 
 
 def get_now_eastern() -> datetime:
@@ -31,13 +38,6 @@ def get_now_eastern() -> datetime:
 def get_today_eastern() -> date:
     """Current date in US Eastern."""
     return get_now_eastern().date()
-
-
-def utc_to_eastern(dt: datetime) -> datetime:
-    """Convert a UTC datetime to US Eastern. Naive datetimes are assumed UTC."""
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(EASTERN)
 
 
 def convert_d365_dates_to_eastern(series: pd.Series) -> pd.Series:
@@ -98,7 +98,7 @@ def parse_period(period: str, today: date | None = None) -> PeriodSpec:
     yesterday = get_yesterday(today)
 
     if period in ("daily", "yesterday"):
-        return PeriodSpec(
+        spec = PeriodSpec(
             label=yesterday.isoformat(),
             start_date=yesterday,
             end_date=yesterday,
@@ -106,7 +106,7 @@ def parse_period(period: str, today: date | None = None) -> PeriodSpec:
             filename_tag=yesterday.isoformat(),
         )
     elif period == "mtd":
-        return PeriodSpec(
+        spec = PeriodSpec(
             label="MTD",
             start_date=get_month_start(today),
             end_date=today,
@@ -114,7 +114,7 @@ def parse_period(period: str, today: date | None = None) -> PeriodSpec:
             filename_tag=f"MTD_{today.isoformat()}",
         )
     elif period == "ytd":
-        return PeriodSpec(
+        spec = PeriodSpec(
             label="YTD",
             start_date=get_year_start(today),
             end_date=today,
@@ -123,7 +123,7 @@ def parse_period(period: str, today: date | None = None) -> PeriodSpec:
         )
     elif period == "this_week":
         week_start = get_week_start(today)
-        return PeriodSpec(
+        spec = PeriodSpec(
             label="This Week",
             start_date=week_start,
             end_date=today,
@@ -132,28 +132,47 @@ def parse_period(period: str, today: date | None = None) -> PeriodSpec:
         )
     elif period == "last_7_days":
         start_7 = today - timedelta(days=6)
-        return PeriodSpec(
+        spec = PeriodSpec(
             label="Last 7 Days",
             start_date=start_7,
             end_date=today,
             subfolder="This Week",
             filename_tag=f"Week_{start_7.isoformat()}_to_{today.isoformat()}",
         )
+    elif period == "all_time":
+        spec = PeriodSpec(
+            label="All Time",
+            start_date=D365_GO_LIVE,
+            end_date=today,
+            subfolder="All_Time",
+            filename_tag=f"All_Time_{today.isoformat()}",
+        )
     else:
-        raise ValueError(f"Unknown period: {period}. Use: daily, yesterday, mtd, ytd, this_week, last_7_days")
+        raise ValueError(f"Unknown period: {period}. Use: daily, yesterday, mtd, ytd, this_week, last_7_days, all_time")
+
+    spec.start_date = clamp_start(spec.start_date)
+    return spec
 
 
-def parse_custom_range(from_date: str, to_date: str) -> PeriodSpec:
-    """Parse a custom date range from strings."""
+def parse_custom_range(from_date: str, to_date: str,
+                       subfolder_override: str | None = None) -> PeriodSpec:
+    """Parse a custom date range from strings.
+
+    *subfolder_override* lets the caller force the output subfolder (e.g.
+    ``"Daily"``) instead of the default ``"Custom"``.  The runbook catch-up
+    logic uses this so that post-Shabbos/YT catch-up runs land in the same
+    folder as regular daily runs.
+    """
     start = date.fromisoformat(from_date)
     end = date.fromisoformat(to_date)
     if start > end:
         start, end = end, start
+    start = clamp_start(start)
     return PeriodSpec(
         label=f"{start.isoformat()} to {end.isoformat()}",
         start_date=start,
         end_date=end,
-        subfolder="Custom",
+        subfolder=subfolder_override or "Custom",
         filename_tag=f"{start.isoformat()}_to_{end.isoformat()}",
     )
 
@@ -164,6 +183,7 @@ def resolve_fetch_plan(
     to_date: str | None = None,
     single_date: str | None = None,
     today: date | None = None,
+    subfolder_override: str | None = None,
 ) -> FetchPlan:
     """Determine the optimal fetch range and list of reports to build.
 
@@ -174,11 +194,12 @@ def resolve_fetch_plan(
     today = today or get_today_eastern()
 
     if from_date and to_date:
-        spec = parse_custom_range(from_date, to_date)
+        spec = parse_custom_range(from_date, to_date,
+                                  subfolder_override=subfolder_override)
         return FetchPlan(fetch_start=spec.start_date, fetch_end=spec.end_date, periods=[spec])
 
     if single_date:
-        d = date.fromisoformat(single_date)
+        d = clamp_start(date.fromisoformat(single_date))
         spec = PeriodSpec(
             label=d.isoformat(),
             start_date=d,
@@ -193,7 +214,7 @@ def resolve_fetch_plan(
 
     specs = [parse_period(p, today) for p in periods]
 
-    fetch_start = min(s.start_date for s in specs)
+    fetch_start = clamp_start(min(s.start_date for s in specs))
     fetch_end = max(s.end_date for s in specs)
 
     return FetchPlan(fetch_start=fetch_start, fetch_end=fetch_end, periods=specs)

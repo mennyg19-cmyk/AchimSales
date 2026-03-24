@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
     <h1>Dashboard</h1>
-    <p class="page-subtitle">Customer activity overview</p>
+    <p class="page-subtitle">Customer activity overview <button class="help-icon" data-help="dashboard-cards">?</button></p>
 </div>
 
 <!-- Summary Cards (tappable filters) -->
@@ -30,22 +30,32 @@
 <!-- Notifications Panel -->
 {% if alerts %}
 <div class="dash-alerts" id="dashAlerts">
-    <h3 class="dash-section-title">
-        <i data-feather="alert-circle" style="width:18px;height:18px;"></i>
-        Notifications
-        <span class="badge badge-admin" style="font-size:11px; vertical-align:middle;">{{ alerts|length }}</span>
-    </h3>
-    {% for alert in alerts %}
-    <div class="dash-alert-item" data-notif-id="{{ alert.id }}">
-        <div class="dash-alert-content">
-            <div class="dash-alert-title">{{ alert.title }}</div>
-            <div class="dash-alert-msg">{{ alert.message }}</div>
+    <div class="dash-alerts-header" onclick="toggleAlerts()">
+        <h3 class="dash-section-title">
+            <i data-feather="alert-circle" style="width:18px;height:18px;"></i>
+            Notifications
+            <span class="badge badge-admin" style="font-size:11px; vertical-align:middle;" id="alertCountBadge">{{ alerts|length }}</span>
+        </h3>
+        <div class="dash-alerts-actions">
+            <button class="btn btn-sm btn-outline" style="font-size:12px; padding:4px 10px;" onclick="event.stopPropagation(); clearAllNotifications()">
+                Clear All
+            </button>
+            <span class="dash-alerts-toggle" id="alertsToggle"></span>
         </div>
-        <button class="dash-alert-dismiss" onclick="dismissNotification({{ alert.id }}, this)" title="Dismiss">
-            <i data-feather="x" style="width:16px;height:16px;"></i>
-        </button>
     </div>
-    {% endfor %}
+    <div class="dash-alerts-body" id="alertsBody">
+        {% for alert in alerts %}
+        <div class="dash-alert-item" data-notif-id="{{ alert.id }}">
+            <div class="dash-alert-content">
+                <div class="dash-alert-title">{{ alert.title }}</div>
+                <div class="dash-alert-msg">{{ alert.message }}</div>
+            </div>
+            <button class="dash-alert-dismiss" onclick="event.stopPropagation(); dismissNotification({{ alert.id }}, this)" title="Dismiss">
+                <i data-feather="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+        {% endfor %}
+    </div>
 </div>
 {% endif %}
 
@@ -66,10 +76,13 @@
                 {% endif %}
             </span>
         </div>
-        <button class="btn btn-sm btn-outline" id="refreshBtn" onclick="triggerDashRefresh()">
-            <i data-feather="refresh-cw" style="width:14px;height:14px;"></i>
-            Refresh
-        </button>
+        <div style="display:flex; align-items:center; gap:6px;">
+            <button class="btn btn-sm btn-outline" id="refreshBtn" onclick="triggerDashRefresh()">
+                <i data-feather="refresh-cw" style="width:14px;height:14px;"></i>
+                Refresh
+            </button>
+            <button class="help-icon" data-help="dashboard-refresh" style="margin-left:0;">?</button>
+        </div>
     </div>
     <div class="dash-refresh-progress" id="refreshProgress" style="display:{% if refresh.running %}block{% else %}none{% endif %}">
         <div class="dash-refresh-progress-track">
@@ -95,8 +108,8 @@
                 <th onclick="sortDashTable(1)">Name <span class="sort-arrow">&#9650;</span></th>
                 <th onclick="sortDashTable(2)">Last Order <span class="sort-arrow">&#9650;</span></th>
                 <th onclick="sortDashTable(3)">Days Since <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(4)">Avg Freq <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(5)">Threshold <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(4)">Avg Freq <button class="help-icon" data-help="dashboard-avg-freq" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(5)">Threshold <button class="help-icon" data-help="dashboard-threshold" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>
                 <th onclick="sortDashTable(6)">Status <span class="sort-arrow">&#9650;</span></th>
             </tr>
         </thead>
@@ -104,7 +117,7 @@
             {% for c in customers %}
             {% if not c.excluded %}
             <tr class="dash-row clickable-row" data-status="{{ c.status }}"
-                onclick="window.location='{{ url_for('customer_detail', account=c.customer_account) }}'">
+                onclick="window.location='{{ url_for('dashboard.customer_detail', account=c.customer_account) }}'">
                 <td class="cell-nowrap">{{ c.customer_account }}</td>
                 <td>{{ c.customer_name }}</td>
                 <td class="cell-nowrap">{{ c.last_order_date or 'N/A' }}</td>
@@ -131,97 +144,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
 <script>
-function dismissNotification(id, btn) {
-    var item = btn.closest('.dash-alert-item');
-    fetch('/api/notifications/dismiss', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id: id})
-    }).then(function() {
-        item.style.transition = 'opacity 0.3s, max-height 0.3s';
-        item.style.opacity = '0';
-        item.style.maxHeight = '0';
-        item.style.overflow = 'hidden';
-        item.style.padding = '0';
-        item.style.margin = '0';
-        setTimeout(function() { item.remove(); updateAlertCount(); }, 300);
-    }).catch(function() { });
-}
-
-function updateAlertCount() {
-    var items = document.querySelectorAll('.dash-alert-item');
-    var countBadge = document.querySelector('.dash-alerts .badge');
-    if (countBadge) countBadge.textContent = items.length;
-    if (!items.length) {
-        var panel = document.getElementById('dashAlerts');
-        if (panel) panel.style.display = 'none';
-    }
-}
-
-function triggerDashRefresh() {
-    var btn = document.getElementById('refreshBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Refreshing&hellip;';
-    showRefreshProgress(true);
-
-    fetch('/api/dashboard/refresh', {method: 'POST'})
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var before = data.before || '';
-            var reqEl = document.getElementById('refreshRequested');
-            if (reqEl && data.requested_at) {
-                reqEl.textContent = 'Last requested: ' + data.requested_at.substring(0, 16).replace('T', ' ');
-            }
-            pollRefreshStatus(before, 0);
-        })
-        .catch(function() {
-            resetRefreshBtn();
-        });
-}
-
-function showRefreshProgress(show) {
-    var panel = document.getElementById('refreshProgress');
-    if (panel) panel.style.display = show ? 'block' : 'none';
-}
-
-function resetRefreshBtn() {
-    var btn = document.getElementById('refreshBtn');
-    if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<i data-feather="refresh-cw" style="width:14px;height:14px;"></i> Refresh';
-        if (typeof feather !== 'undefined') feather.replace();
-    }
-    showRefreshProgress(false);
-}
-
-function pollRefreshStatus(before, attempts) {
-    if (attempts > 120) {
-        window.location.reload();
-        return;
-    }
-    setTimeout(function() {
-        fetch('/api/dashboard/refresh-status?before=' + encodeURIComponent(before))
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var label = document.getElementById('refreshProgressLabel');
-                if (data.step && label) {
-                    label.textContent = data.step;
-                }
-                if (data.done) {
-                    if (label) label.textContent = 'Refresh complete! Reloading\u2026';
-                    setTimeout(function() { window.location.reload(); }, 600);
-                } else {
-                    pollRefreshStatus(before, attempts + 1);
-                }
-            })
-            .catch(function() {
-                window.location.reload();
-            });
-    }, 2000);
-}
-
-/* If page loads while a refresh is already running, poll for completion */
 (function() {
     {% if refresh.running %}
     var before = '{{ refresh.last_completed or "" }}';
@@ -233,56 +157,5 @@ function pollRefreshStatus(before, attempts) {
     pollRefreshStatus(before, 0);
     {% endif %}
 })();
-
-var _activeStatusFilter = '';
-
-function filterByCard(card, status) {
-    _activeStatusFilter = status;
-    document.querySelectorAll('.dash-card-filter').forEach(function(c) {
-        c.classList.remove('dash-card-filter-active');
-    });
-    card.classList.add('dash-card-filter-active');
-    applyDashFilters();
-}
-
-function filterDashTable() {
-    applyDashFilters();
-}
-
-function applyDashFilters() {
-    var q = (document.getElementById('dashSearch').value || '').toLowerCase();
-    var rows = document.querySelectorAll('#dashTable tbody .dash-row');
-    rows.forEach(function(row) {
-        var matchStatus = !_activeStatusFilter || row.getAttribute('data-status') === _activeStatusFilter;
-        var matchText = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
-        row.style.display = (matchStatus && matchText) ? '' : 'none';
-    });
-}
-
-var _dashSortCol = -1;
-var _dashSortAsc = true;
-
-function sortDashTable(colIdx) {
-    if (_dashSortCol === colIdx) {
-        _dashSortAsc = !_dashSortAsc;
-    } else {
-        _dashSortCol = colIdx;
-        _dashSortAsc = true;
-    }
-    var tbody = document.querySelector('#dashTable tbody');
-    if (!tbody) return;
-    var rows = Array.from(tbody.querySelectorAll('.dash-row'));
-    rows.sort(function(a, b) {
-        var aVal = a.children[colIdx].textContent.trim();
-        var bVal = b.children[colIdx].textContent.trim();
-        var aNum = parseFloat(aVal);
-        var bNum = parseFloat(bVal);
-        if (!isNaN(aNum) && !isNaN(bNum)) {
-            return _dashSortAsc ? aNum - bNum : bNum - aNum;
-        }
-        return _dashSortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-    });
-    rows.forEach(function(r) { tbody.appendChild(r); });
-}
 </script>
 {% endblock %}

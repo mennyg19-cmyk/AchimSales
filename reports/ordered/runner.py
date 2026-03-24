@@ -11,11 +11,13 @@ a separate report to each.
 
 import logging
 import os
+import shutil
 import sys
+import tempfile
 from datetime import date
 
 from config.paths import get_output_path
-from core.dates import FetchPlan, PeriodSpec, get_today_eastern
+from core.dates import D365_GO_LIVE, FetchPlan, PeriodSpec, get_today_eastern
 from core.email_report import send_report_email
 from core.logging import setup_logging
 from core.validation import validate_output
@@ -29,21 +31,27 @@ REPORT_NAME = "Ordered Report"
 REPORT_KEY = "ordered"
 
 
-def _resolve_salesman_email(sales_group: str, test_override: str | None = None) -> str | None:
-    """Best-effort lookup of the salesman's email address.
+def _resolve_salesman_email(
+    sales_group: str, test_override: str | None = None,
+) -> tuple[str | None, list[str], list[str]]:
+    """Best-effort lookup of the salesman's email, CC, and BCC.
 
-    If ``test_override`` is provided (non-empty), it is returned instead of the
-    real salesman email so that test runs don't spam real recipients.
+    Returns (email_or_None, cc_list, bcc_list).
+    When ``test_override`` is set, CC/BCC are emptied so test runs don't
+    leak emails to real recipients.
     """
     if test_override:
-        return test_override
+        return test_override, [], []
     try:
-        from config.salesman_excel import get_salesman_email
+        from config.salesman_excel import get_salesman_cc_bcc, get_salesman_email
         email = get_salesman_email(sales_group)
-        return email if email and "@" in email else None
+        if not email or "@" not in email:
+            return None, [], []
+        cc, bcc = get_salesman_cc_bcc(sales_group)
+        return email, cc, bcc
     except Exception:
         log.debug("Could not resolve email for salesman '%s'", sales_group, exc_info=True)
-        return None
+        return None, [], []
 
 
 def _get_subscribed_salesmen() -> list[tuple[str, str, str]]:
@@ -73,7 +81,7 @@ def _send_no_data_email(
     test_override: str | None = None,
 ) -> None:
     """Email the salesman explaining why no report was generated."""
-    email = _resolve_salesman_email(salesman_name, test_override=test_override)
+    email, cc, bcc = _resolve_salesman_email(salesman_name, test_override=test_override)
     if not email:
         log.info("No email address for salesman '%s'; skipping no-data notification", salesman_name)
         return
@@ -92,7 +100,8 @@ def _send_no_data_email(
     )
 
     try:
-        send_report_email(file_path=None, subject=subject, body=body, recipients=[email])
+        send_report_email(file_path=None, subject=subject, body=body,
+                          recipients=[email], cc=cc, bcc=bcc)
     except Exception:
         log.exception("Failed to send no-data notification to %s", email)
 
@@ -103,7 +112,7 @@ def _send_salesman_report_email(
     test_override: str | None = None,
 ) -> None:
     """Email a completed report to the salesman."""
-    email = _resolve_salesman_email(salesman_name, test_override=test_override)
+    email, cc, bcc = _resolve_salesman_email(salesman_name, test_override=test_override)
     if not email:
         log.info("No email for salesman '%s'; skipping report email", salesman_name)
         return
@@ -112,7 +121,8 @@ def _send_salesman_report_email(
     if sharepoint_url:
         body += f"\n\nSharePoint link: {sharepoint_url}"
     try:
-        send_report_email(file_path=file_path, subject=subject, body=body, recipients=[email])
+        send_report_email(file_path=file_path, subject=subject, body=body,
+                          recipients=[email], cc=cc, bcc=bcc)
         log.info("Emailed report to %s (%s)", salesman_name, email)
     except Exception:
         log.exception("Failed to email report to %s (%s)", salesman_name, email)
@@ -137,13 +147,16 @@ class OrderedReportRunner(BaseReportRunner):
 
     def _queue_or_send_salesman_email(
         self, salesman_name: str, file_path: str, period_label: str,
+        *, force_immediate: bool = False,
     ) -> None:
         """Queue or immediately send a salesman report email.
 
         When running inside the universal runbook, emails are deferred so the
-        runbook can inject SharePoint links after upload.
+        runbook can inject SharePoint links after upload.  Use
+        ``force_immediate=True`` for email-only files that live in a temp dir
+        and will be deleted before flush time.
         """
-        if self.defer_salesman_emails:
+        if self.defer_salesman_emails and not force_immediate:
             self.pending_salesman_emails.append({
                 "salesman": salesman_name,
                 "file_path": file_path,
@@ -187,12 +200,13 @@ class OrderedReportRunner(BaseReportRunner):
         is_open = status_filter and status_filter.lower() == "open"
         report_label = "Open Orders Report" if is_open else REPORT_NAME
         file_prefix = "Open_Orders" if is_open else "Ordered_Report"
-        if salesman_list:
-            out_subfolder = "Salesman"
-        elif customer_filter:
-            out_subfolder = "Customer/" + "_".join(customer_filter)
-        else:
-            out_subfolder = "Customer"
+
+        email_only = bool(salesman_list)
+        if not salesman_list:
+            if customer_filter:
+                out_subfolder = "Customer/" + "_".join(customer_filter)
+            else:
+                out_subfolder = "Customer"
 
         customer_label = ",".join(customer_filter) if customer_filter else "all"
         log.info("Fetching data: %s to %s (customer=%s)", plan.fetch_start, plan.fetch_end, customer_label)
@@ -218,52 +232,70 @@ class OrderedReportRunner(BaseReportRunner):
                                         test_override=test_override)
             return
 
-        for period in plan.periods:
-            log.info("Building %s: %s (%s to %s)", report_label, period.label, period.start_date, period.end_date)
-            df, empty_reason = build_report(
-                headers_df, lines_df, whs_df, ps_df, period,
-                salesman_filter=salesman_list,
-            )
+        tmp_dir = tempfile.mkdtemp(prefix="ordered_sm_") if email_only else None
+        try:
+            for period in plan.periods:
+                log.info("Building %s: %s (%s to %s)", report_label, period.label, period.start_date, period.end_date)
+                df, empty_reason = build_report(
+                    headers_df, lines_df, whs_df, ps_df, period,
+                    salesman_filter=salesman_list,
+                )
 
-            if df.empty:
-                log.info("No data for period %s: %s", period.label, empty_reason)
-                if customer_filter and not salesman_list:
+                if df.empty:
+                    log.info("No data for period %s: %s", period.label, empty_reason)
+                    if customer_filter and not salesman_list:
+                        continue
+                    for sm in salesman_list:
+                        _send_no_data_email(sm, customer_label, period.label, empty_reason or "No data",
+                                            test_override=test_override)
                     continue
-                for sm in salesman_list:
-                    _send_no_data_email(sm, customer_label, period.label, empty_reason or "No data",
-                                        test_override=test_override)
-                continue
 
-            suffix_parts = []
-            if len(salesman_list) == 1:
-                suffix_parts.append(salesman_list[0])
-            elif len(salesman_list) > 1:
-                suffix_parts.append(f"{len(salesman_list)}salesmen")
-            if customer_filter:
-                suffix_parts.append("Cust_" + "_".join(customer_filter))
-            suffix = ("_" + "_".join(suffix_parts)) if suffix_parts else ""
+                suffix_parts = []
+                if len(salesman_list) == 1:
+                    suffix_parts.append(salesman_list[0])
+                elif len(salesman_list) > 1:
+                    suffix_parts.append(f"{len(salesman_list)}salesmen")
+                if customer_filter:
+                    suffix_parts.append("Cust_" + "_".join(customer_filter))
+                suffix = ("_" + "_".join(suffix_parts)) if suffix_parts else ""
 
-            validate_output(df, FULL_DATA_ORDER, REPORT_NAME)
+                validate_output(df, FULL_DATA_ORDER, REPORT_NAME)
 
-            if self.dry_run:
-                log.info("[DRY RUN] %s %s: %d rows, %d columns -- skipping write",
-                         report_label, period.label, len(df), len(df.columns))
-                continue
+                if self.dry_run:
+                    log.info("[DRY RUN] %s %s: %d rows, %d columns -- skipping write",
+                             report_label, period.label, len(df), len(df.columns))
+                    continue
 
-            test_tag = "_TEST" if self.test_mode else ""
-            filename = f"{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
-            out_path = get_output_path(REPORT_NAME, out_subfolder, filename)
+                test_tag = "_TEST" if self.test_mode else ""
+                filename = f"{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
 
-            log.info("Writing %s (%d rows)", out_path, len(df))
-            write_report(df, out_path, report_variant="filtered")
-            log.info("Saved: %s", out_path)
+                if email_only:
+                    out_path = os.path.join(tmp_dir, filename)
+                else:
+                    out_path = get_output_path(REPORT_NAME, out_subfolder, filename)
+
+                log.info("Writing %s (%d rows)", out_path, len(df))
+                write_report(df, out_path, report_variant="salesman" if salesman_list else "filtered")
+                log.info("Saved: %s", out_path)
+
+                if email_only:
+                    for sm in salesman_list:
+                        self._queue_or_send_salesman_email(
+                            sm, out_path, period.label, force_immediate=True)
+        finally:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                log.info("Cleaned up temp dir for salesman email-only files")
 
     def _run_for_all_salesmen(
         self, customer_filter: list[str] | None,
         plan: FetchPlan, company_id: str | None,
         status_filter: str | None = None,
     ) -> None:
-        """Run a separate filtered report for each subscribed salesman."""
+        """Run a separate filtered report for each subscribed salesman.
+
+        Files are email-only: written to a temp directory, emailed, then deleted.
+        """
         subscribed = _get_subscribed_salesmen()
         if not subscribed:
             log.warning("No salesmen subscribed to '%s' in salesman_map.xlsx", REPORT_KEY)
@@ -273,7 +305,7 @@ class OrderedReportRunner(BaseReportRunner):
         report_label = "Open Orders Report" if is_open else REPORT_NAME
         file_prefix = "Open_Orders" if is_open else "Ordered_Report"
 
-        log.info("Running %s for %d subscribed salesmen", report_label, len(subscribed))
+        log.info("Running %s for %d subscribed salesmen (email-only)", report_label, len(subscribed))
 
         base_url, token, company = self.connect(company_id)
 
@@ -297,38 +329,44 @@ class OrderedReportRunner(BaseReportRunner):
                                         test_override=test_override)
             return
 
-        for sm_idx, (sm_key, sm_display, sm_email) in enumerate(subscribed):
-            log.info("--- Salesman %d/%d: %s (%s) ---", sm_idx + 1, len(subscribed), sm_display, sm_email)
+        tmp_dir = tempfile.mkdtemp(prefix="ordered_sm_all_")
+        try:
+            for sm_idx, (sm_key, sm_display, sm_email) in enumerate(subscribed):
+                log.info("--- Salesman %d/%d: %s (%s) ---", sm_idx + 1, len(subscribed), sm_display, sm_email)
 
-            for period in plan.periods:
-                log.info("Building %s for %s: %s", report_label, sm_display, period.label)
-                df, empty_reason = build_report(
-                    headers_df, lines_df, whs_df, ps_df, period,
-                    salesman_filter=sm_key,
-                )
+                for period in plan.periods:
+                    log.info("Building %s for %s: %s", report_label, sm_display, period.label)
+                    df, empty_reason = build_report(
+                        headers_df, lines_df, whs_df, ps_df, period,
+                        salesman_filter=sm_key,
+                    )
 
-                if df.empty:
-                    log.info("No data for %s, period %s: %s", sm_display, period.label, empty_reason)
-                    _send_no_data_email(sm_key, customer_label, period.label, empty_reason or "No data",
-                                        test_override=test_override)
-                    continue
+                    if df.empty:
+                        log.info("No data for %s, period %s: %s", sm_display, period.label, empty_reason)
+                        _send_no_data_email(sm_key, customer_label, period.label, empty_reason or "No data",
+                                            test_override=test_override)
+                        continue
 
-                validate_output(df, FULL_DATA_ORDER, REPORT_NAME)
+                    validate_output(df, FULL_DATA_ORDER, REPORT_NAME)
 
-                if self.dry_run:
-                    log.info("[DRY RUN] %s %s %s: %d rows -- skipping write",
-                             report_label, sm_display, period.label, len(df))
-                    continue
+                    if self.dry_run:
+                        log.info("[DRY RUN] %s %s %s: %d rows -- skipping write",
+                                 report_label, sm_display, period.label, len(df))
+                        continue
 
-                test_tag = "_TEST" if self.test_mode else ""
-                filename = f"{file_prefix}_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
-                out_path = get_output_path(REPORT_NAME, "Salesman", filename)
+                    test_tag = "_TEST" if self.test_mode else ""
+                    filename = f"{file_prefix}_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
+                    out_path = os.path.join(tmp_dir, filename)
 
-                log.info("Writing %s (%d rows)", out_path, len(df))
-                write_report(df, out_path, report_variant="filtered")
-                log.info("Saved: %s", out_path)
+                    log.info("Writing %s (%d rows)", out_path, len(df))
+                    write_report(df, out_path, report_variant="salesman")
+                    log.info("Saved (temp): %s", out_path)
 
-                self._queue_or_send_salesman_email(sm_key, out_path, period.label)
+                    self._queue_or_send_salesman_email(
+                        sm_key, out_path, period.label, force_immediate=True)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            log.info("Cleaned up temp dir for salesman email-only files")
 
     def _run_unfiltered(
         self, plan: FetchPlan, company_id: str | None,
@@ -383,18 +421,18 @@ class OrderedReportRunner(BaseReportRunner):
         status_filter: str | None = getattr(cli, "status", None) if cli else None
 
         if status_filter and status_filter.lower() == "open":
-            has_explicit_dates = cli and (
+            has_custom_range = cli and (
                 getattr(cli, "from_date", None) or getattr(cli, "to_date", None)
-                or getattr(cli, "date", None) or getattr(cli, "period", None)
+                or getattr(cli, "date", None)
             )
-            if not has_explicit_dates:
+            if not has_custom_range:
                 today = get_today_eastern()
                 plan = FetchPlan(
-                    fetch_start=date(2000, 1, 1),
+                    fetch_start=D365_GO_LIVE,
                     fetch_end=today,
                     periods=[PeriodSpec(
                         label="All Time",
-                        start_date=date(2000, 1, 1),
+                        start_date=D365_GO_LIVE,
                         end_date=today,
                         subfolder="Open_Orders",
                         filename_tag=today.isoformat(),

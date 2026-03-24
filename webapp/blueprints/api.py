@@ -28,6 +28,7 @@ from webapp.db import (
     set_user_report_override, delete_user_report_override,
     get_all_feature_flags, set_feature_flag,
     set_user_dashboard,
+    get_user_salesman_access, set_user_salesman_access,
     create_draft_order, get_draft_orders, get_draft_order,
     update_draft_order, delete_draft_order,
     get_draft_order_lines, add_draft_order_line,
@@ -180,8 +181,8 @@ def api_add_user():
 
     if not email or "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
-    if role not in ("admin", "salesman", "developer"):
-        return jsonify({"error": "Role must be admin, salesman, or developer"}), 400
+    if role not in ("admin", "salesman", "developer", "manager"):
+        return jsonify({"error": "Role must be admin, salesman, manager, or developer"}), 400
     if role == "salesman" and not salesman_key:
         return jsonify({"error": "Salesman key is required for salesman role"}), 400
 
@@ -202,8 +203,8 @@ def api_update_user(email):
     salesman_key = data.get("salesman_key", "").strip() or None
     display_name = data.get("display_name", "").strip() or None
 
-    if role not in ("admin", "salesman", "developer"):
-        return jsonify({"error": "Role must be admin, salesman, or developer"}), 400
+    if role not in ("admin", "salesman", "developer", "manager"):
+        return jsonify({"error": "Role must be admin, salesman, manager, or developer"}), 400
     if role == "salesman" and not salesman_key:
         return jsonify({"error": "Salesman key is required for salesman role"}), 400
 
@@ -224,6 +225,33 @@ def api_delete_user(email):
     ok = db_delete_user(email)
     if not ok:
         return jsonify({"error": "User not found"}), 404
+    return jsonify({"success": True})
+
+
+# -- User-salesman access (manager role) -----------------------------------
+
+@api_bp.route("/api/admin/user-salesman-access/<path:email>", methods=["GET"])
+@require_login
+def api_get_user_salesman_access(email):
+    user = get_current_user()
+    if not is_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    keys = get_user_salesman_access(email)
+    return jsonify({"email": email.lower().strip(), "salesman_keys": keys})
+
+
+@api_bp.route("/api/admin/user-salesman-access", methods=["POST"])
+@require_login
+def api_set_user_salesman_access():
+    user = get_current_user()
+    if not is_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json() or {}
+    email = (data.get("email") or "").lower().strip()
+    keys = data.get("salesman_keys", [])
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+    set_user_salesman_access(email, keys)
     return jsonify({"success": True})
 
 

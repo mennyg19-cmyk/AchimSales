@@ -6,42 +6,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from reports.salesman.builder import build_salesman_full_year_data, build_salesman_month_data
+from reports.salesman.builder import build_salesman_full_year_data
 from reports.salesman.writer import write_monthly_salesmen_workbook
-
-
-class TestBuildSalesmanMonthData:
-    """Tests for ``build_salesman_month_data()`` -- pure aggregation."""
-
-    def test_basic_output(self, sample_invoice_detail):
-        result = build_salesman_month_data(sample_invoice_detail, year=2026, month=2)
-        assert not result.empty
-        for col in ["Sales_Current", "Sales_Prior", "Sales_YTD_Current", "Sales_YTD_Prior"]:
-            assert col in result.columns, f"Expected column '{col}' missing"
-
-    def test_diff_columns_computed(self, sample_invoice_detail):
-        result = build_salesman_month_data(sample_invoice_detail, year=2026, month=2)
-        assert "$ Month Diff" in result.columns
-        assert "% Month Diff" in result.columns
-        assert "$ YTD Diff" in result.columns
-
-    def test_empty_input(self):
-        result = build_salesman_month_data(pd.DataFrame(), year=2026, month=2)
-        assert result.empty
-
-    def test_no_data_for_month(self, sample_invoice_detail):
-        result = build_salesman_month_data(sample_invoice_detail, year=2026, month=12)
-        assert result.empty
-
-    def test_salesman_column_preserved(self, sample_invoice_detail):
-        result = build_salesman_month_data(sample_invoice_detail, year=2026, month=2)
-        if not result.empty and "Salesman" in result.columns:
-            assert all(isinstance(s, str) for s in result["Salesman"])
-
-    def test_sort_number_present(self, sample_invoice_detail):
-        result = build_salesman_month_data(sample_invoice_detail, year=2026, month=2)
-        if not result.empty:
-            assert "Sort Number" in result.columns
 
 
 class TestBuildSalesmanFullYearData:

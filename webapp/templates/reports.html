@@ -8,7 +8,7 @@
             <h1>Your Reports</h1>
             <p class="page-subtitle">Tap a report to get started</p>
         </div>
-        <a href="{{ url_for('history') }}" class="btn btn-sm btn-outline" title="My History">
+        <a href="{{ url_for('reports.history') }}" class="btn btn-sm btn-outline" title="My History">
             <i data-feather="clock" style="width:15px;height:15px;"></i>
             <span class="history-label">History</span>
         </a>
@@ -22,14 +22,19 @@
     </div>
     <div class="presets-grid">
         {% for p in presets %}
-        <div class="preset-card" data-id="{{ p.id }}">
-            <div class="preset-card-body" onclick="runPreset({{ p|tojson|e }})">
+        <div class="preset-card" data-id="{{ p.id }}" data-preset='{{ p|tojson }}'>
+            <div class="preset-card-body">
                 <div class="preset-card-name">{{ p.name }}</div>
                 <div class="preset-card-report">{{ p.report_name }}</div>
             </div>
-            <button class="preset-delete-btn" onclick="deletePreset({{ p.id }}, this)" title="Delete preset">
-                <i data-feather="x"></i>
-            </button>
+            <div class="preset-card-actions">
+                <button class="btn btn-primary btn-sm preset-run-btn" title="Run this preset">
+                    <i data-feather="play" style="width:14px;height:14px;"></i> Run
+                </button>
+                <button class="preset-delete-btn" title="Delete preset">
+                    <i data-feather="x"></i>
+                </button>
+            </div>
         </div>
         {% endfor %}
     </div>
@@ -38,7 +43,7 @@
 
 <div class="report-grid">
     {% for key, report in reports.items() %}
-    <a href="{{ url_for('report_form', report_key=key) }}" class="report-card">
+    <a href="{{ url_for('reports.report_form', report_key=key) }}" class="report-card">
         <div class="report-card-icon">
             <i data-feather="{{ report.icon }}"></i>
         </div>
@@ -46,6 +51,7 @@
             <h3>{{ report.name }}</h3>
             <p>{{ report.description }}</p>
         </div>
+        <button class="help-icon" data-help="report-{{ key }}" style="margin-right:4px;">?</button>
         <div class="report-card-arrow">
             <i data-feather="chevron-right"></i>
         </div>
@@ -55,6 +61,8 @@
 
 {% block scripts %}
 <script>
+    if (typeof dismissReportNotifications === 'function') dismissReportNotifications();
+
     function runPreset(preset) {
         var url = '/report/' + preset.report_key;
         var params = preset.params || {};
@@ -68,30 +76,60 @@
         }
         qs.push('preset=1');
         qs.push('autorun=1');
+        qs.push('preset_name=' + encodeURIComponent(preset.name));
         window.location.href = url + '?' + qs.join('&');
     }
 
-    function deletePreset(id, btn) {
-        event.stopPropagation();
-        if (!confirm('Delete this preset?')) return;
-        fetch('/api/saved-reports/' + id, {method: 'DELETE'})
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (d.success) {
-                    var card = btn.closest('.preset-card');
-                    card.style.transition = 'opacity 0.2s';
-                    card.style.opacity = '0';
-                    setTimeout(function() {
-                        card.remove();
-                        if (!document.querySelectorAll('.preset-card').length) {
-                            var sec = document.querySelector('.presets-section');
-                            if (sec) sec.remove();
+    document.addEventListener('DOMContentLoaded', function() {
+        var grid = document.querySelector('.presets-grid');
+        if (!grid) return;
+
+        grid.addEventListener('click', function(e) {
+            var deleteBtn = e.target.closest('.preset-delete-btn');
+            if (deleteBtn) {
+                e.stopPropagation();
+                var card = deleteBtn.closest('.preset-card');
+                var id = card.getAttribute('data-id');
+                if (!confirm('Delete this preset?')) return;
+                fetch('/api/saved-reports/' + id, {method: 'DELETE'})
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (d.success) {
+                            card.style.transition = 'opacity 0.2s';
+                            card.style.opacity = '0';
+                            setTimeout(function() {
+                                card.remove();
+                                if (!document.querySelectorAll('.preset-card').length) {
+                                    var sec = document.querySelector('.presets-section');
+                                    if (sec) sec.remove();
+                                }
+                            }, 200);
                         }
-                    }, 200);
+                    })
+                    .catch(function() { alert('Network error — could not delete preset.'); });
+                return;
+            }
+
+            var runBtn = e.target.closest('.preset-run-btn');
+            if (runBtn) {
+                if (runBtn.disabled) return;
+                runBtn.disabled = true;
+                runBtn.innerHTML = '<i data-feather="loader" style="width:14px;height:14px;"></i> Loading...';
+                if (typeof feather !== 'undefined') feather.replace();
+                var card = runBtn.closest('.preset-card');
+                try {
+                    var preset = JSON.parse(card.getAttribute('data-preset'));
+                    runPreset(preset);
+                } catch (err) {
+                    console.error('Failed to parse preset data:', err);
+                    runBtn.disabled = false;
+                    runBtn.innerHTML = '<i data-feather="play" style="width:14px;height:14px;"></i> Run';
+                    if (typeof feather !== 'undefined') feather.replace();
                 }
-            })
-            .catch(function() { alert('Network error — could not delete preset.'); });
-    }
+                return;
+            }
+        });
+    });
 </script>
 {% endblock %}
 

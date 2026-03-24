@@ -14,7 +14,7 @@ from datetime import date
 import pandas as pd
 
 from config.salesman_excel import get_salesman_display_name_xl, load_salesman_map
-from core.dates import convert_d365_dates_to_eastern, get_today_eastern
+from core.dates import D365_GO_LIVE, convert_d365_dates_to_eastern, get_today_eastern
 from data.d365_entities import fetch_customers, fetch_sales_order_headers
 
 log = logging.getLogger(__name__)
@@ -26,8 +26,6 @@ OUTPUT_COLUMNS = [
     "PO #",
     "Sales Order Number",
 ]
-
-CURRENCY_COLUMNS: set[str] = set()
 
 
 def fetch_all_data(
@@ -41,7 +39,7 @@ def fetch_all_data(
     orders exist at all -- that is fine; every customer still appears.
     """
     today = get_today_eastern()
-    all_time_start = date(2000, 1, 1)
+    all_time_start = D365_GO_LIVE
 
     customers_df = fetch_customers(base_url, token, company_id=company_id)
     log.info("Customers fetched: %d rows", len(customers_df))

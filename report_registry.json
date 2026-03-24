@@ -73,7 +73,7 @@
             "reports/base.py",
             "reports/ordered"
         ],
-        "default_args": "--customer 9300 --period this_week"
+        "default_args": "--customer 9300 9301 --period last_7_days --email"
     },
     "customer_activity": {
         "display_name": "Customer Activity Report",
@@ -86,6 +86,21 @@
             "data",
             "reports/__init__.py",
             "reports/customer_activity"
+        ],
+        "default_args": "--email"
+    },
+    "customer_aging": {
+        "display_name": "Customer Aging Report",
+        "runner_module": "reports.customer_aging.runner",
+        "runner_class": "CustomerAgingReportRunner",
+        "runner_type": "class",
+        "required_paths": [
+            "config",
+            "core",
+            "data",
+            "reports/__init__.py",
+            "reports/base.py",
+            "reports/customer_aging"
         ],
         "default_args": "--email"
     }

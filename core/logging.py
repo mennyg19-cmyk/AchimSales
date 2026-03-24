@@ -22,3 +22,36 @@ def setup_logging(level: int = logging.INFO) -> None:
     ))
     root.addHandler(handler)
     root.setLevel(level)
+
+
+_mem_log = logging.getLogger("memory")
+
+def log_memory(label: str) -> None:
+    """Log current process RSS memory usage. Works on Linux (Azure) and Windows."""
+    try:
+        import os
+        pid = os.getpid()
+        # Linux: read from /proc (Azure Automation sandbox is Linux)
+        try:
+            with open(f"/proc/{pid}/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        rss_kb = int(line.split()[1])
+                        rss_mb = rss_kb / 1024
+                        level = logging.WARNING if rss_mb > 300 else logging.INFO
+                        _mem_log.log(level, "[MEMORY] %s: %.0f MB RSS%s",
+                                     label, rss_mb,
+                                     " ** HIGH - approaching 400MB sandbox limit **" if rss_mb > 300 else "")
+                        return
+        except FileNotFoundError:
+            pass
+        # Windows fallback
+        try:
+            import psutil
+            proc = psutil.Process(pid)
+            rss_mb = proc.memory_info().rss / (1024 * 1024)
+            _mem_log.info("[MEMORY] %s: %.0f MB RSS", label, rss_mb)
+        except ImportError:
+            pass
+    except Exception:
+        pass

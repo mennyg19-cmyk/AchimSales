@@ -4,6 +4,9 @@
 {% block content %}
 <div class="login-page">
     <div class="login-card">
+        <a href="{{ url_for('reports.reports_list') }}" class="back-link" style="margin-bottom:12px;">
+            <i data-feather="arrow-left"></i> Back
+        </a>
         <div class="login-icon">
             <i data-feather="eye" width="48" height="48"></i>
         </div>
@@ -13,7 +16,7 @@
             Choose how you want to view the app. You'll see exactly what that user sees.
         </p>
 
-        <form method="POST" action="{{ url_for('role_picker') }}" style="margin-bottom: 16px;">
+        <form method="POST" action="{{ url_for('auth.role_picker') }}" style="margin-bottom: 16px;">
             <input type="hidden" name="role" value="admin">
             <button type="submit" class="btn btn-primary btn-lg btn-block" style="margin-bottom: 12px;">
                 <i data-feather="shield" style="width:18px;height:18px;vertical-align:middle;margin-right:6px;"></i>
@@ -21,7 +24,7 @@
             </button>
         </form>
 
-        <form method="POST" action="{{ url_for('role_picker') }}">
+        <form method="POST" action="{{ url_for('auth.role_picker') }}">
             <input type="hidden" name="role" value="salesman">
             <label class="form-label" for="salesmanKey" style="text-align: left;">View as Salesman:</label>
             <select name="salesman_key" id="salesmanKey" class="form-input form-select" style="margin-bottom: 12px;">
@@ -40,7 +43,7 @@
         </form>
 
         <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
-            <a href="{{ url_for('logout') }}" class="btn btn-sm" style="color: var(--text-muted);">
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-sm" style="color: var(--text-muted);">
                 Sign out
             </a>
         </div>

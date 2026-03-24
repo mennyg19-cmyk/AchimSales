@@ -3,12 +3,12 @@
 
 {% block content %}
 {% if customer_account %}
-<a href="{{ url_for('customer_detail', account=customer_account) }}" class="back-link">
+<a href="{{ url_for('dashboard.customer_detail', account=customer_account) }}" class="back-link">
     <i data-feather="arrow-left" style="width:16px;height:16px;"></i>
     Back to Customer
 </a>
 {% else %}
-<a href="{{ url_for('dashboard') }}" class="back-link">
+<a href="{{ url_for('dashboard.dashboard') }}" class="back-link">
     <i data-feather="arrow-left" style="width:16px;height:16px;"></i>
     Dashboard
 </a>
@@ -44,7 +44,7 @@
         <div class="detail-item">
             <span class="detail-label">Customer</span>
             <span class="detail-value">
-                <a href="{{ url_for('customer_detail', account=customer_account) }}" style="color:var(--primary); text-decoration:none;">
+                <a href="{{ url_for('dashboard.customer_detail', account=customer_account) }}" style="color:var(--primary); text-decoration:none;">
                     {{ customer_account }}
                 </a>
                 {% if header.customer_name %}<span style="color:var(--text-muted); margin-left:4px;">{{ header.customer_name }}</span>{% endif %}

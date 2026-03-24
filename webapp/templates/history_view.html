@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-    <a href="{{ url_for('history') }}" class="back-link">
+    <a href="{{ url_for('reports.history') }}" class="back-link">
         <i data-feather="arrow-left"></i> Back to History
     </a>
     <h1>{{ record.report_name }}</h1>
@@ -23,7 +23,7 @@
         {% endif %}
     </div>
     {% if record.file_available %}
-    <a href="{{ url_for('history_download', record_idx=record_idx) }}" class="btn btn-primary">
+    <a href="{{ url_for('reports.history_download', record_idx=record_idx) }}" class="btn btn-primary">
         <i data-feather="download"></i>
         Download Excel
     </a>

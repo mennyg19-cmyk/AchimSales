@@ -1,11 +1,14 @@
 """
 Output path resolution for all reports.
 
-All reports write to: D365 F&O/Direct Reports/{report_name}/{sub_report?}/{period_subfolder}/
-Working files go to:  D365 F&O/Direct Reports/_working/
+Local:  D365 F&O/Direct Reports/{report_name}/{sub_report?}/{period_subfolder}/
+Azure:  /home/data/reports/{report_name}/{sub_report?}/{period_subfolder}/
+        (/home is the only persistent storage on Azure App Service)
 """
 
 import os
+
+_ON_AZURE = bool(os.environ.get("WEBSITE_SITE_NAME"))
 
 
 def _get_d365_root() -> str:
@@ -16,12 +19,11 @@ def _get_d365_root() -> str:
 
 def get_direct_reports_root() -> str:
     """Return the Direct Reports output root directory."""
+    if _ON_AZURE:
+        root = "/home/data/reports"
+        os.makedirs(root, exist_ok=True)
+        return root
     return os.path.join(_get_d365_root(), "Direct Reports")
-
-
-def get_working_dir() -> str:
-    """Return the _working directory for intermediate files."""
-    return os.path.join(get_direct_reports_root(), "_working")
 
 
 def get_output_dir(report_name: str, period_subfolder: str, sub_report: str | None = None) -> str:

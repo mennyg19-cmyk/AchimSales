@@ -266,38 +266,90 @@ def start_job(report_name: str, extra_args: str = "") -> str:
     return job_name
 
 
+def get_job_output(job_name: str) -> str:
+    """Return the text output of a completed job."""
+    client = get_client()
+    try:
+        return client.job.get_output(RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name) or ""
+    except Exception:
+        log.exception("Failed to get output for job %s", job_name)
+        return ""
+
+
 def list_jobs(limit: int = 200) -> list[dict]:
     """List recent jobs from Azure Automation.
 
     Returns a list of dicts with job_id, runbook, status, start_time,
-    end_time, parameters (report_name, extra_args).
+    end_time, parameters (report_name, extra_args), and error for failed jobs.
+
+    The list API often returns empty parameters for schedule-triggered jobs,
+    so we fall back to fetching each job individually.  For failed jobs we
+    also pull the error stream.
     """
     client = get_client()
     jobs = []
     try:
+        summaries = []
         for i, job in enumerate(
             client.job.list_by_automation_account(RESOURCE_GROUP, AUTOMATION_ACCOUNT)
         ):
             if i >= limit:
                 break
+            summaries.append(job)
+
+        for job in summaries:
+            job_name = getattr(job, "name", "") or ""
             raw_params = getattr(job, "parameters", None) or {}
             params = {k.lower(): v for k, v in raw_params.items()}
             report_name, extra_args = _extract_params(params)
 
+            # Schedule-triggered jobs often have empty params in the list view;
+            # fetch the full job object to get them.
+            if not report_name and job_name:
+                try:
+                    full = client.job.get(RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name)
+                    full_params = getattr(full, "parameters", None) or {}
+                    full_params = {k.lower(): v for k, v in full_params.items()}
+                    rn, ea = _extract_params(full_params)
+                    if rn:
+                        report_name, extra_args = rn, ea
+                        params = full_params
+                except Exception:
+                    pass
+
             rb = getattr(job, "runbook", None)
+            status = getattr(job, "status", "") or ""
             start = getattr(job, "start_time", None)
             end = getattr(job, "end_time", None)
             creation = getattr(job, "creation_time", None)
 
+            error = ""
+            if status.lower() in ("failed", "stopped", "suspended") and job_name:
+                try:
+                    streams = client.job_stream.list_by_job(
+                        RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name
+                    )
+                    err_parts = []
+                    for stream in streams:
+                        if getattr(stream, "stream_type", "").lower() == "error":
+                            err_parts.append(
+                                getattr(stream, "summary", "") or ""
+                            )
+                    if err_parts:
+                        error = "\n".join(p for p in err_parts if p)[:1000]
+                except Exception:
+                    log.debug("Could not fetch error stream for job %s", job_name)
+
             jobs.append({
-                "job_id": getattr(job, "name", "") or "",
+                "job_id": job_name,
                 "runbook_name": rb.name if rb else "",
-                "status": getattr(job, "status", "") or "",
+                "status": status,
                 "start_time": start.isoformat() if start else None,
                 "end_time": end.isoformat() if end else None,
                 "creation_time": creation.isoformat() if creation else None,
                 "report_name": report_name,
                 "extra_args": extra_args,
+                "error": error,
                 "webapp_record_id": params.get("webapp_record_id", ""),
             })
         log.info("Listed %d jobs from Azure Automation", len(jobs))

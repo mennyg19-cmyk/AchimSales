@@ -17,8 +17,12 @@ from core.odata import fetch_odata_batched, fetch_odata_entity
 from data.field_maps import (
     BOOK_PRICE_FIELD_MAP,
     BOOK_PRICE_SELECT,
+    CUST_AGED_BALANCES_FIELD_MAP,
+    CUST_AGED_BALANCES_SELECT,
     CUSTOMER_FIELD_MAP,
     CUSTOMER_SELECT,
+    CUSTOMER_ADDRESS_FIELD_MAP,
+    CUSTOMER_ADDRESS_SELECT,
     MARKUP_TRANS_FIELD_MAP,
     MARKUP_TRANS_SELECT,
     PACKING_SLIP_FIELD_MAP,
@@ -33,6 +37,8 @@ from data.field_maps import (
     SALES_ORDER_HEADER_SELECT,
     SALES_ORDER_LINE_FIELD_MAP,
     SALES_ORDER_LINE_SELECT,
+    TRADE_AGREEMENT_FIELD_MAP,
+    TRADE_AGREEMENT_SELECT,
     WHS_LINE_FIELD_MAP,
     WHS_LINE_SELECT,
 )
@@ -259,11 +265,11 @@ def fetch_book_prices(
     token: str,
     company_id: str | None = None,
 ) -> pd.DataFrame:
-    """Fetch standard sales price (Book Price) per item from ReleasedProductsV2.
+    """Fetch product catalog from ReleasedProductsV2.
 
-    Returns DataFrame with columns: ItemNumber, BookPrice
+    Returns DataFrame with columns: ItemNumber, BookPrice, ProductName, ProductGroup
     """
-    log.info("Fetching ReleasedProductsV2 (book prices)")
+    log.info("Fetching ReleasedProductsV2 (product catalog + book prices)")
     t0 = time.monotonic()
 
     df = fetch_odata_entity(
@@ -277,6 +283,10 @@ def fetch_book_prices(
     df = rename_columns(df, BOOK_PRICE_FIELD_MAP)
     df["ItemNumber"] = df["ItemNumber"].astype(str).str.strip()
     df["BookPrice"] = to_number(df["BookPrice"])
+    for col in ("ProductName", "ProductGroup"):
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("").astype(str).str.strip()
     df = df.drop_duplicates(subset=["ItemNumber"], keep="first")
     log.info("ReleasedProductsV2: %d items in %.1fs", len(df), time.monotonic() - t0)
     return df
@@ -370,6 +380,104 @@ def fetch_sales_invoice_lines(
         return df
     df = rename_columns(df, SALES_INVOICE_LINE_FIELD_MAP)
     log.info("SalesInvoiceV4Lines: %d rows in %.1fs", len(df), time.monotonic() - t0)
+    return df
+
+
+# =====================================================================
+# CustomerPostalAddresses (delivery addresses for order entry)
+# =====================================================================
+
+def fetch_customer_postal_addresses(
+    base_url: str,
+    token: str,
+    company_id: str | None = None,
+) -> pd.DataFrame:
+    """Fetch delivery addresses from CustomerPostalAddresses."""
+    log.info("Fetching CustomerPostalAddresses")
+    t0 = time.monotonic()
+
+    df = fetch_odata_entity(
+        base_url, "CustomerPostalAddresses", token,
+        select=CUSTOMER_ADDRESS_SELECT,
+        company_id=company_id,
+    )
+    if df.empty:
+        log.info("CustomerPostalAddresses: 0 rows in %.1fs", time.monotonic() - t0)
+        return df
+    df = rename_columns(df, CUSTOMER_ADDRESS_FIELD_MAP)
+    for col in ("CustomerAccount", "Label", "Street", "City", "State", "ZipCode", "Country"):
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("").astype(str).str.strip()
+    log.info("CustomerPostalAddresses: %d rows in %.1fs", len(df), time.monotonic() - t0)
+    return df
+
+
+# =====================================================================
+# OpenSalesPriceJournalLinesV2 (trade agreement pricing)
+# =====================================================================
+
+def fetch_trade_agreement_prices(
+    base_url: str,
+    token: str,
+    company_id: str | None = None,
+) -> pd.DataFrame:
+    """Fetch customer-specific pricing from OpenSalesPriceJournalLinesV2."""
+    log.info("Fetching OpenSalesPriceJournalLinesV2 (trade agreements)")
+    t0 = time.monotonic()
+
+    df = fetch_odata_entity(
+        base_url, "OpenSalesPriceJournalLinesV2", token,
+        select=TRADE_AGREEMENT_SELECT,
+        company_id=company_id,
+    )
+    if df.empty:
+        log.info("OpenSalesPriceJournalLinesV2: 0 rows in %.1fs", time.monotonic() - t0)
+        return df
+    df = rename_columns(df, TRADE_AGREEMENT_FIELD_MAP)
+    for col in ("ItemNumber", "CustomerAccount", "Currency"):
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("").astype(str).str.strip()
+    for col in ("Price", "MinQty"):
+        if col not in df.columns:
+            df[col] = 0.0
+        df[col] = to_number(df[col])
+    log.info("OpenSalesPriceJournalLinesV2: %d rows in %.1fs", len(df), time.monotonic() - t0)
+    return df
+
+
+# =====================================================================
+# CustAgedBalances (Customer Aging Report)
+# =====================================================================
+
+def fetch_cust_aged_balances(
+    base_url: str,
+    token: str,
+    company_id: str | None = None,
+    customer_account: str | list[str] | None = None,
+) -> pd.DataFrame:
+    """Fetch CustAgedBalances with optional customer filter."""
+    customers = ([customer_account] if isinstance(customer_account, str) else customer_account) if customer_account else None
+    log.info("Fetching CustAgedBalances%s", f" (customer={','.join(customers)})" if customers else "")
+    t0 = time.monotonic()
+
+    filter_expr = None
+    if customers:
+        parts = [f"CustAccount eq '{str(c).replace(chr(39), chr(39)*2)}'" for c in customers]
+        filter_expr = " or ".join(parts) if len(parts) > 1 else parts[0]
+
+    df = fetch_odata_entity(
+        base_url, "CustAgedBalances", token,
+        select=CUST_AGED_BALANCES_SELECT,
+        filter_expr=filter_expr,
+        company_id=company_id,
+    )
+    if df.empty:
+        log.info("CustAgedBalances: 0 rows in %.1fs", time.monotonic() - t0)
+        return df
+    df = rename_columns(df, CUST_AGED_BALANCES_FIELD_MAP)
+    log.info("CustAgedBalances: %d rows in %.1fs", len(df), time.monotonic() - t0)
     return df
 
 

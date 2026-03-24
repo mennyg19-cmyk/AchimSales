@@ -162,11 +162,11 @@ function _renderSelectedChips() {
     var keys = Object.keys(_selectedCustomers);
     if (!keys.length) {
         chipsEl.innerHTML = '';
-        if (countEl) countEl.textContent = '';
+        if (countEl) { countEl.textContent = ''; countEl.style.display = 'none'; }
         return;
     }
 
-    if (countEl) countEl.textContent = keys.length + ' selected';
+    if (countEl) { countEl.textContent = keys.length + ' selected'; countEl.style.display = ''; }
 
     var html = '';
     keys.forEach(function (acct) {
@@ -212,6 +212,11 @@ function initSalesmanDropdownRefresh() {
 
 /* -- Form submission ----------------------------------------------------- */
 
+var _currentRunId = null;
+var _progressTimer = null;
+var _bgReportPending = false;
+var _reportSubmitting = false;
+
 function initFormSubmit() {
     var form = document.getElementById('reportForm');
     if (!form) return;
@@ -223,6 +228,9 @@ function initFormSubmit() {
 }
 
 function runReport() {
+    if (_reportSubmitting) return;
+    _reportSubmitting = true;
+
     var params = {};
 
     var period = document.getElementById('periodInput');
@@ -248,6 +256,10 @@ function runReport() {
     var selectedCusts = getSelectedCustomerAccounts();
     if (selectedCusts.length) params.customers = selectedCusts;
 
+    if (typeof REPORT_FORM_CONFIG !== 'undefined' && REPORT_FORM_CONFIG.presetParams && REPORT_FORM_CONFIG.presetParams.preset_name) {
+        params.preset_name = REPORT_FORM_CONFIG.presetParams.preset_name;
+    }
+
     var loading = document.getElementById('loadingOverlay');
     var results = document.getElementById('resultsSection');
     var runBtn = document.getElementById('runBtn');
@@ -255,6 +267,9 @@ function runReport() {
     loading.style.display = 'flex';
     results.style.display = 'none';
     runBtn.disabled = true;
+    _currentRunId = null;
+    var cancelBtn = document.getElementById('cancelBtn');
+    if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.style.display = ''; }
     updateProgress(0, 'Starting...', '');
 
     fetch('/report/' + REPORT_KEY + '/run', {
@@ -267,14 +282,17 @@ function runReport() {
         if (!data.run_id) {
             loading.style.display = 'none';
             runBtn.disabled = false;
+            _reportSubmitting = false;
             showError(data.error || 'Failed to start report.');
             return;
         }
+        _currentRunId = data.run_id;
         listenForProgress(data.run_id);
     })
     .catch(function (err) {
         loading.style.display = 'none';
         runBtn.disabled = false;
+        _reportSubmitting = false;
         showError('Network error: ' + err.message);
     });
 }
@@ -282,33 +300,93 @@ function runReport() {
 function listenForProgress(runId) {
     var loading = document.getElementById('loadingOverlay');
     var runBtn = document.getElementById('runBtn');
-    var evtSource = new EventSource('/report/progress/' + runId);
+    var cancelBtn = document.getElementById('cancelBtn');
 
-    evtSource.onmessage = function (event) {
-        var msg = JSON.parse(event.data);
-        updateProgress(msg.pct || 0, msg.msg || '', msg.step || '');
+    if (_progressTimer) clearInterval(_progressTimer);
 
-        if (msg.step === 'done' || msg.step === 'error') {
-            evtSource.close();
-            loading.style.display = 'none';
-            runBtn.disabled = false;
+    _progressTimer = setInterval(function () {
+        fetch('/report/progress/' + runId)
+            .then(function (r) { return r.json(); })
+            .then(function (msg) {
+                updateProgress(msg.pct || 0, msg.msg || '', msg.step || '');
 
-            if (msg.result) {
-                if (msg.result.success) {
-                    displayResults(msg.result);
-                } else {
-                    showError(msg.result.error || 'Report failed.');
+                if (msg.step === 'done' || msg.step === 'error') {
+                    clearInterval(_progressTimer);
+                    _progressTimer = null;
+                    loading.style.display = 'none';
+                    runBtn.disabled = false;
+                    _reportSubmitting = false;
+                    _currentRunId = null;
+                    if (cancelBtn) cancelBtn.style.display = 'none';
+
+                    if (msg.result) {
+                        if (msg.result.success) {
+                            displayResults(msg.result);
+                        } else {
+                            showError(msg.result.error || 'Report failed.');
+                        }
+                    }
                 }
-            }
-        }
-    };
+            })
+            .catch(function () {});
+    }, 1000);
+}
 
-    evtSource.onerror = function () {
-        evtSource.close();
-        loading.style.display = 'none';
-        runBtn.disabled = false;
-        showError('Lost connection to server. The report may still be running \u2014 check History.');
-    };
+function sendToBackground() {
+    if (_progressTimer) {
+        clearInterval(_progressTimer);
+        _progressTimer = null;
+    }
+    var loading = document.getElementById('loadingOverlay');
+    var runBtn = document.getElementById('runBtn');
+    loading.style.display = 'none';
+    runBtn.disabled = false;
+    _reportSubmitting = false;
+    _currentRunId = null;
+    _bgReportPending = true;
+
+    _showInAppToast('Report running in background. You\u2019ll be notified when it\u2019s ready.');
+
+    if (_pollInterval) clearInterval(_pollInterval);
+    _pollInterval = setInterval(pollNotifications, 5000);
+    pollNotifications();
+}
+
+function _showInAppToast(message) {
+    var existing = document.getElementById('appToast');
+    if (existing) existing.remove();
+
+    var toast = document.createElement('div');
+    toast.id = 'appToast';
+    toast.style.cssText = 'position:fixed; bottom:80px; left:50%; transform:translateX(-50%); ' +
+        'background:var(--bg-card); color:var(--text); border:1px solid var(--border); ' +
+        'padding:12px 20px; border-radius:10px; box-shadow:0 4px 20px rgba(0,0,0,0.15); ' +
+        'z-index:2000; font-size:14px; max-width:90%; text-align:center; ' +
+        'animation: toastIn 0.3s ease;';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(function() {
+        toast.style.transition = 'opacity 0.3s';
+        toast.style.opacity = '0';
+        setTimeout(function() { toast.remove(); }, 300);
+    }, 4000);
+}
+
+function cancelReport() {
+    if (!_currentRunId) return;
+    var cancelBtn = document.getElementById('cancelBtn');
+    if (cancelBtn) { cancelBtn.disabled = true; cancelBtn.textContent = 'Cancelling...'; }
+
+    fetch('/report/cancel/' + _currentRunId, { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data.success) {
+                if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = 'Cancel'; }
+            }
+        })
+        .catch(function () {
+            if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.textContent = 'Cancel'; }
+        });
 }
 
 function updateProgress(pct, msg, step) {
@@ -480,14 +558,56 @@ function startNotificationPolling() {
     });
 }
 
+var _lastSeenReportCount = 0;
+
 function pollNotifications() {
     fetch('/api/notifications')
         .then(function (r) { return r.json(); })
         .then(function (data) {
-            updateBadge('badgeReports', data.report_ready_count || 0);
+            var reportCount = data.report_ready_count || 0;
+            updateBadge('badgeReports', reportCount);
             updateBadge('badgeDashboard', data.overdue_count || 0);
+
+            if (_bgReportPending && reportCount > _lastSeenReportCount) {
+                _bgReportPending = false;
+                if (_pollInterval) clearInterval(_pollInterval);
+                _pollInterval = setInterval(pollNotifications, 30000);
+
+                var reportItem = null;
+                if (data.items) {
+                    for (var i = 0; i < data.items.length; i++) {
+                        if (data.items[i].type === 'report_ready') { reportItem = data.items[i]; break; }
+                    }
+                }
+
+                _showReportReadyBanner(reportItem);
+            }
+            _lastSeenReportCount = reportCount;
         })
         .catch(function () {});
+}
+
+function _showReportReadyBanner(notif) {
+    var existing = document.getElementById('reportReadyBanner');
+    if (existing) existing.remove();
+
+    var title = (notif && notif.title) ? notif.title : 'Report is ready';
+
+    var banner = document.createElement('div');
+    banner.id = 'reportReadyBanner';
+    banner.style.cssText = 'position:fixed; bottom:80px; left:50%; transform:translateX(-50%); ' +
+        'background:var(--primary); color:#fff; padding:14px 20px; border-radius:12px; ' +
+        'box-shadow:0 4px 20px rgba(0,0,0,0.25); z-index:2000; font-size:14px; max-width:90%; ' +
+        'text-align:center; cursor:pointer; display:flex; align-items:center; gap:10px;';
+    banner.innerHTML = '<span style="flex:1;">' + escapeHtml(title) + ' \u2014 <strong>Tap to view</strong></span>' +
+        '<span onclick="event.stopPropagation(); this.parentElement.remove(); dismissReportNotifications();" ' +
+        'style="cursor:pointer; opacity:0.7; font-size:18px;">&times;</span>';
+    banner.addEventListener('click', function () {
+        banner.remove();
+        dismissReportNotifications();
+        window.location.href = '/history';
+    });
+    document.body.appendChild(banner);
 }
 
 function updateBadge(elementId, count) {
@@ -502,6 +622,20 @@ function updateBadge(elementId, count) {
 }
 
 
+/* -- Dismiss report notifications ---------------------------------------- */
+
+function dismissReportNotifications() {
+    fetch('/api/notifications/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'report_ready' }),
+    }).then(function () {
+        updateBadge('badgeReports', 0);
+        _lastSeenReportCount = 0;
+    }).catch(function () {});
+}
+
+
 /* -- Helpers ------------------------------------------------------------- */
 
 function escapeHtml(str) {
@@ -510,21 +644,20 @@ function escapeHtml(str) {
 }
 
 function formatNumber(val, key) {
-    if (key && key.toLowerCase().indexOf('unique') !== -1) {
+    var kl = (key || '').toLowerCase();
+    if (kl.indexOf('unique') !== -1) {
         return val.toLocaleString();
     }
-    if (key && key.toLowerCase() === 'total_rows') {
+    if (kl === 'total_rows') {
         return val.toLocaleString();
     }
-    if (Math.abs(val) >= 1 && (
-        key && (key.toLowerCase().indexOf('total') !== -1 ||
-                key.toLowerCase().indexOf('amount') !== -1 ||
-                key.toLowerCase().indexOf('subtotal') !== -1 ||
-                key.toLowerCase().indexOf('net') !== -1 ||
-                key.toLowerCase().indexOf('revenue') !== -1 ||
-                key.toLowerCase().indexOf('price') !== -1 ||
-                key.toLowerCase().indexOf('sales') !== -1)
-    )) {
+    var moneyKeywords = ['total', 'amount', 'subtotal', 'net', 'revenue', 'price', 'sales',
+                         'invoice', 'balance', 'commission', 'freight', 'tariff', 'charges'];
+    var isMoney = false;
+    for (var i = 0; i < moneyKeywords.length; i++) {
+        if (kl.indexOf(moneyKeywords[i]) !== -1) { isMoney = true; break; }
+    }
+    if (isMoney) {
         return '$' + val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     if (Number.isInteger(val)) return val.toLocaleString();
@@ -532,12 +665,15 @@ function formatNumber(val, key) {
 }
 
 function formatLabel(key) {
-    return key
+    var label = key
+        .replace(/^total_/i, '')
         .replace(/_/g, ' ')
         .replace(/([A-Z])/g, ' $1')
         .replace(/\bunique\b/i, '')
+        .replace(/\s+/g, ' ')
         .trim()
         .replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    return label;
 }
 
 function showError(message) {

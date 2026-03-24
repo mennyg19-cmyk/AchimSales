@@ -5,21 +5,30 @@ Features:
 - Paginated fetch with @odata.nextLink
 - Chunked page concatenation (every CHUNK_PAGES pages) to limit peak memory
 - Server-side $filter and $select to minimize payload
-- Batched ID-based filters (50 IDs per request) for child entities
+- Batched ID-based filters (200 IDs per request) for child entities
+- Parallel batch fetching with configurable concurrency
+- Auto-refreshing tokens via D365TokenManager for long-running fetches
 """
 
+import gc
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode
 
 import pandas as pd
 
-from core.http import get_session
+from core.auth import resolve_token
+from core.http import build_retry_session, get_session
+
+_thread_local = threading.local()
 
 log = logging.getLogger(__name__)
 
-CHUNK_PAGES = 10
-BATCH_SIZE = 50
+CHUNK_PAGES = 5
+BATCH_SIZE = 200
 REQUEST_TIMEOUT = 120
+MAX_WORKERS = 6
 
 
 def fetch_odata_entity(
@@ -55,22 +64,22 @@ def fetch_odata_entity(
         query["$filter"] = " and ".join(filter_parts)
 
     next_url = f"{url_base}?{urlencode(query)}" if query else url_base
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "OData-MaxVersion": "4.0",
-        "OData-Version": "4.0",
-        "Accept": "application/json",
-    }
 
     chunks: list[pd.DataFrame] = []
     page_buffer: list[list[dict]] = []
     total_rows = 0
     page = 0
 
-    session = get_session()
+    session = getattr(_thread_local, "session", None) or get_session()
 
     while next_url:
         page += 1
+        headers = {
+            "Authorization": f"Bearer {resolve_token(token)}",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+            "Accept": "application/json",
+        }
         resp = session.get(next_url, headers=headers, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
@@ -100,9 +109,35 @@ def fetch_odata_entity(
         return pd.DataFrame()
 
     df = pd.concat(chunks, ignore_index=True) if len(chunks) > 1 else chunks[0]
+    del chunks
+    gc.collect()
     if log_pages:
         log.info("  %s: fetched %d total rows", entity_name, len(df))
     return df
+
+
+def _fetch_one_batch(
+    base_url: str,
+    entity_name: str,
+    token: str,
+    filter_field: str,
+    batch: list[str],
+    select: list[str] | None,
+    company_id: str | None,
+) -> pd.DataFrame:
+    """Fetch a single batch of IDs. Thread-safe helper for parallel batching."""
+    if not getattr(_thread_local, "session", None):
+        _thread_local.session = build_retry_session()
+    escaped = [str(v).replace("'", "''") for v in batch]
+    conditions = [f"{filter_field} eq '{v}'" for v in escaped]
+    filter_expr = " or ".join(conditions)
+    return fetch_odata_entity(
+        base_url, entity_name, token,
+        select=select,
+        filter_expr=filter_expr,
+        company_id=company_id,
+        log_pages=False,
+    )
 
 
 def fetch_odata_batched(
@@ -115,11 +150,12 @@ def fetch_odata_batched(
     company_id: str | None = None,
     batch_size: int = BATCH_SIZE,
     log_progress: bool = True,
+    max_workers: int = MAX_WORKERS,
 ) -> pd.DataFrame:
     """Fetch an OData entity filtered by a list of IDs, batched to avoid URL length limits.
 
-    Builds OData $filter like: "SalesOrderNumber eq 'SO001' or SalesOrderNumber eq 'SO002'"
-    in batches of `batch_size`.
+    Runs batches in parallel (up to ``max_workers`` threads) to drastically reduce
+    wall-clock time for large ID lists.
     """
     if not filter_values:
         return pd.DataFrame()
@@ -127,37 +163,65 @@ def fetch_odata_batched(
     values = list(filter_values)
     num_batches = (len(values) + batch_size - 1) // batch_size
     if log_progress:
-        log.info("Fetching %s for %d values (%d batches)", entity_name, len(values), num_batches)
+        log.info("Fetching %s for %d values (%d batches, %d parallel workers)",
+                 entity_name, len(values), num_batches, max_workers)
+
+    batches = [values[i : i + batch_size] for i in range(0, len(values), batch_size)]
 
     chunks: list[pd.DataFrame] = []
-    for i in range(0, len(values), batch_size):
-        batch = values[i : i + batch_size]
-        batch_num = (i // batch_size) + 1
+    total_rows = 0
+    completed = 0
+    consolidate_every = 50
 
-        escaped = [str(v).replace("'", "''") for v in batch]
-        conditions = [f"{filter_field} eq '{v}'" for v in escaped]
-        filter_expr = " or ".join(conditions)
+    # Submit batches in waves to limit how many DataFrames sit in memory
+    # waiting to be consumed. Each wave submits `wave_size` futures.
+    wave_size = max_workers * 8
 
-        should_log = batch_num == 1 or batch_num == num_batches or batch_num % 50 == 0
-        if should_log and log_progress:
-            log.info("  %s batch %d/%d: %d values", entity_name, batch_num, num_batches, len(batch))
+    for wave_start in range(0, num_batches, wave_size):
+        wave_end = min(wave_start + wave_size, num_batches)
+        wave_batches = batches[wave_start:wave_end]
 
-        df = fetch_odata_entity(
-            base_url, entity_name, token,
-            select=select,
-            filter_expr=filter_expr,
-            company_id=company_id,
-            log_pages=False,
-        )
-        if not df.empty:
-            chunks.append(df)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _fetch_one_batch,
+                    base_url, entity_name, token, filter_field,
+                    batch, select, company_id,
+                ): wave_start + idx
+                for idx, batch in enumerate(wave_batches)
+            }
+
+            for future in as_completed(futures):
+                completed += 1
+                should_log = completed == 1 or completed == num_batches or completed % 50 == 0
+                if should_log and log_progress:
+                    log.info("  %s: completed %d/%d batches (%d rows so far)",
+                             entity_name, completed, num_batches, total_rows)
+                try:
+                    df = future.result()
+                    if not df.empty:
+                        chunks.append(df)
+                        total_rows += len(df)
+                except Exception:
+                    batch_idx = futures[future]
+                    log.warning("  %s batch %d failed, skipping", entity_name, batch_idx + 1, exc_info=True)
+
+                if len(chunks) >= consolidate_every:
+                    chunks = [pd.concat(chunks, ignore_index=True)]
 
     if not chunks:
         if log_progress:
             log.info("  %s: no rows returned across all batches", entity_name)
         return pd.DataFrame()
 
-    result = pd.concat(chunks, ignore_index=True).drop_duplicates()
+    result = pd.concat(chunks, ignore_index=True) if len(chunks) > 1 else chunks[0]
+    del chunks
+    gc.collect()
     if log_progress:
         log.info("  %s: fetched %d total rows", entity_name, len(result))
+        try:
+            from core.logging import log_memory
+            log_memory("odata:batched:%s:done (%d rows)" % (entity_name, len(result)))
+        except Exception:
+            pass
     return result

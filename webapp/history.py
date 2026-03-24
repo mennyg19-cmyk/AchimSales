@@ -108,6 +108,33 @@ def get_history(email: str) -> list[dict]:
         conn.close()
 
 
+def delete_record(email: str, record_id: str) -> bool:
+    """Delete a single history record. Also removes the output file if present.
+    Returns True if a row was actually deleted."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT filepath FROM history WHERE record_id = ? AND user_email = ?",
+            (record_id, email),
+        ).fetchone()
+        if not row:
+            return False
+        filepath = row["filepath"] if row else None
+        conn.execute(
+            "DELETE FROM history WHERE record_id = ? AND user_email = ?",
+            (record_id, email),
+        )
+        conn.commit()
+        if filepath and os.path.isfile(filepath):
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+        return True
+    finally:
+        conn.close()
+
+
 def _trim_history(conn, email: str):
     """Keep only the newest MAX_HISTORY records per user."""
     conn.execute(

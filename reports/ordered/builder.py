@@ -10,7 +10,7 @@ import logging
 import pandas as pd
 
 from core.columns import pick_col, to_number
-from core.dates import PeriodSpec, convert_d365_dates_to_eastern
+from core.dates import PeriodSpec
 from data.d365_entities import (
     fetch_packing_slip_trans,
     fetch_released_products,
@@ -20,12 +20,6 @@ from data.d365_entities import (
 )
 
 log = logging.getLogger(__name__)
-
-_D365_RAW_FIELDS = frozenset({
-    "sysrecversion", "recversion", "recid", "partition", "dataareaid",
-    "entity", "_entity", "createdby", "modifiedby", "createddatetime",
-    "modifieddatetime", "isdeleted", "isreadonly",
-})
 
 FULL_DATA_ORDER = [
     "SalesOrderNumber", "CustomerAccount", "SalesOrderName", "OrderDate",
@@ -67,6 +61,11 @@ def fetch_all_data(
 
     Returns (headers_df, lines_df, whs_df, packing_slip_df).
     """
+    import gc
+    from core.logging import log_memory
+
+    log_memory("ordered:fetch_all_data:start")
+
     headers_df = fetch_sales_order_headers(
         base_url, token, start_date, end_date, company_id,
         customer_account=customer_account, status_filter=status_filter,
@@ -76,8 +75,11 @@ def fetch_all_data(
 
     order_nums = set(headers_df["SalesOrderNumber"].astype(str).str.strip().tolist())
     log.info("Found %d unique orders in headers", len(order_nums))
+    log_memory("ordered:after_headers (%d rows)" % len(headers_df))
 
     lines_df = fetch_sales_order_lines(base_url, token, order_nums, company_id)
+    gc.collect()
+    log_memory("ordered:after_lines (%d rows)" % len(lines_df))
     if lines_df.empty:
         return headers_df, lines_df, pd.DataFrame(), pd.DataFrame()
 
@@ -91,7 +93,11 @@ def fetch_all_data(
         )
 
     whs_df = fetch_whs_sales_lines(base_url, token, inv_lot_ids, company_id)
+    gc.collect()
+    log_memory("ordered:after_whs (%d rows)" % len(whs_df))
     packing_slip_df = fetch_packing_slip_trans(base_url, token, order_nums, company_id)
+    gc.collect()
+    log_memory("ordered:after_packing_slip (%d rows)" % len(packing_slip_df))
 
     return headers_df, lines_df, whs_df, packing_slip_df
 
@@ -251,6 +257,10 @@ def build_report(
     merged = _join_whs(merged, whs_lines_df)
     merged = _join_packing_slip(merged, packing_slip_df)
     merged = _derive_statuses(merged)
+
+    from reports.ordered._temp_rules import apply_temp_rules
+    merged = apply_temp_rules(merged)
+
     merged = _compute_dollars(merged)
     merged = _compute_fulfillment(merged)
 

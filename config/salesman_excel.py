@@ -4,7 +4,8 @@ Read salesman mappings from the editable Excel file (salesman_map.xlsx).
 The Excel file has columns:
   Key, Number, FullName, DisplayName, Email,
   Recv_Ordered, Recv_Invoiced, Recv_Salesman, Recv_Number4, Recv_CustomerActivity,
-  Recv_MasterSalesman, Recv_MasterCustomerActivity
+  Recv_MasterSalesman, Recv_MasterCustomerActivity,
+  CC, BCC, Commission %
 
 This module is the primary data source for salesman lookups.
 salesman_map.py delegates here and falls back to its hardcoded dict
@@ -24,7 +25,8 @@ log = logging.getLogger(__name__)
 _XLSX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "salesman_map.xlsx")
 
 REPORT_KEYS = ("ordered", "invoiced", "salesman", "number_4", "customer_activity",
-                "master_salesman", "master_customer_activity")
+                "master_salesman", "master_customer_activity", "amazon_weekly",
+                "customer_aging_report")
 
 _SUBSCRIPTION_COLUMNS = {
     "Recv_Ordered": "ordered",
@@ -34,6 +36,8 @@ _SUBSCRIPTION_COLUMNS = {
     "Recv_CustomerActivity": "customer_activity",
     "Recv_MasterSalesman": "master_salesman",
     "Recv_MasterCustomerActivity": "master_customer_activity",
+    "Recv_AmazonWeekly": "amazon_weekly",
+    "Recv_CustomerAging": "customer_aging_report",
 }
 
 
@@ -43,6 +47,9 @@ class SalesmanRecord(NamedTuple):
     display_name: str
     email: str
     subscriptions: dict[str, bool]
+    cc: list[str] = []
+    bcc: list[str] = []
+    commission_pct: float = 0.0
 
 
 DEFAULT_SALESMAN = SalesmanRecord(
@@ -51,6 +58,9 @@ DEFAULT_SALESMAN = SalesmanRecord(
     display_name="Unassigned",
     email="",
     subscriptions={k: False for k in REPORT_KEYS},
+    cc=[],
+    bcc=[],
+    commission_pct=0.0,
 )
 
 
@@ -65,6 +75,16 @@ def _to_bool(val) -> bool:
         return val
     s = str(val).strip().lower()
     return s in ("true", "1", "yes", "y")
+
+
+def _parse_email_list(val) -> list[str]:
+    """Split a semicolon-separated email string into a clean list."""
+    if not val:
+        return []
+    raw = str(val).strip()
+    if not raw:
+        return []
+    return [addr.strip() for addr in raw.split(";") if addr.strip()]
 
 
 @lru_cache(maxsize=1)
@@ -111,12 +131,28 @@ def load_salesman_map(path: str | None = None) -> dict[str, SalesmanRecord]:
             else:
                 subs[report_key] = bool(email)
 
+        cc_idx = header_map.get("CC")
+        cc = _parse_email_list(vals[cc_idx] if cc_idx is not None and cc_idx < len(vals) else None)
+        bcc_idx = header_map.get("BCC")
+        bcc = _parse_email_list(vals[bcc_idx] if bcc_idx is not None and bcc_idx < len(vals) else None)
+
+        comm_idx = header_map.get("Commission %")
+        comm_pct = 0.0
+        if comm_idx is not None and comm_idx < len(vals) and vals[comm_idx] is not None:
+            try:
+                comm_pct = float(vals[comm_idx])
+            except (TypeError, ValueError):
+                pass
+
         result[key] = SalesmanRecord(
             number=number,
             full_name=full_name,
             display_name=display_name,
             email=email,
             subscriptions=subs,
+            cc=cc,
+            bcc=bcc,
+            commission_pct=comm_pct,
         )
 
     wb.close()
@@ -132,6 +168,12 @@ def lookup_salesman_xl(sales_group: str) -> SalesmanRecord:
 
 def get_salesman_email(sales_group: str) -> str:
     return lookup_salesman_xl(sales_group).email
+
+
+def get_salesman_cc_bcc(sales_group: str) -> tuple[list[str], list[str]]:
+    """Return (cc_list, bcc_list) for a salesman."""
+    rec = lookup_salesman_xl(sales_group)
+    return list(rec.cc), list(rec.bcc)
 
 
 def get_salesman_display_name_xl(sales_group: str) -> str:
@@ -166,18 +208,8 @@ def pad_salesman_number(num: str) -> str:
     return s
 
 
-def get_all_active_salesmen() -> dict[str, SalesmanRecord]:
-    """Return only salesmen with non-empty email addresses."""
-    return {k: v for k, v in load_salesman_map().items() if v.email}
-
-
-def get_all_salesmen_keys() -> list[str]:
-    """Return all salesman keys (including inactive/no-email)."""
-    return list(load_salesman_map().keys())
-
-
-def get_report_subscribers(report_key: str) -> list[tuple[str, str]]:
-    """Return [(display_name, email)] for everyone subscribed to a report.
+def get_report_subscribers(report_key: str) -> list[tuple[str, str, list[str], list[str]]]:
+    """Return [(display_name, email, cc, bcc)] for everyone subscribed to a report.
 
     Useful for master report distribution where the recipient is not
     necessarily a salesman in the data -- just someone who wants the file.
@@ -185,5 +217,19 @@ def get_report_subscribers(report_key: str) -> list[tuple[str, str]]:
     result = []
     for key, rec in load_salesman_map().items():
         if rec.email and rec.subscriptions.get(report_key, False):
-            result.append((rec.display_name or key, rec.email))
+            result.append((rec.display_name or key, rec.email, list(rec.cc), list(rec.bcc)))
+    return result
+
+
+def get_commission_pct_map() -> dict[str, float]:
+    """Return {normalized_salesman_number: commission_rate} from the Excel file.
+
+    Only includes salesmen with a non-zero commission percentage.
+    Keys are salesman numbers with leading zeros stripped (e.g. "12", "90").
+    """
+    result: dict[str, float] = {}
+    for _key, rec in load_salesman_map().items():
+        if rec.commission_pct and rec.commission_pct > 0:
+            normalized = str(rec.number).strip().lstrip("0") or "0"
+            result[normalized] = rec.commission_pct
     return result

@@ -7,7 +7,7 @@
 
 {% block content %}
 <div class="page-header">
-    <a href="{{ url_for('reports') }}" class="back-link">
+    <a href="{{ url_for('reports.reports_list') }}" class="back-link">
         <i data-feather="arrow-left"></i> Back
     </a>
     <h1>{{ report.name }}</h1>
@@ -18,7 +18,7 @@
     {% set has_any_params = (report.has_period is defined and report.has_period) or
                             (report.has_year is defined and report.has_year) or
                             (report.has_status is defined and report.has_status) or
-                            (is_admin and report.salesman_filter) or
+                            (show_salesman_picker) or
                             report.customer_filter %}
     {% if not has_any_params %}
     <div class="form-group">
@@ -30,12 +30,13 @@
 
     {% if report.has_period is defined and report.has_period %}
     <div class="form-group">
-        <label class="form-label">Time Period</label>
+        <label class="form-label">Time Period <button class="help-icon" data-help="param-period">?</button></label>
         <div class="period-buttons">
             <button type="button" class="period-btn" data-period="daily">Yesterday</button>
             <button type="button" class="period-btn" data-period="last_7_days">Last 7 Days</button>
             <button type="button" class="period-btn active" data-period="mtd">This Month</button>
             <button type="button" class="period-btn" data-period="ytd">Year to Date</button>
+            <button type="button" class="period-btn" data-period="all_time">All Time</button>
             <button type="button" class="period-btn" data-period="custom">Custom Range</button>
         </div>
         <input type="hidden" name="period" id="periodInput" value="mtd">
@@ -44,7 +45,7 @@
     <div id="customDateRange" class="form-group" style="display: none;">
         <div class="date-row">
             <div class="date-field">
-                <label class="form-label" for="fromDate">From</label>
+                <label class="form-label" for="fromDate">From <button class="help-icon" data-help="param-custom-dates">?</button></label>
                 <input type="date" id="fromDate" name="from_date" class="form-input">
             </div>
             <div class="date-field">
@@ -57,7 +58,7 @@
 
     {% if report.has_year is defined and report.has_year %}
     <div class="form-group">
-        <label class="form-label" for="yearInput">Report Year</label>
+        <label class="form-label" for="yearInput">Report Year <button class="help-icon" data-help="param-year">?</button></label>
         <select id="yearInput" name="year" class="form-input form-select"></select>
         <script>
             (function() {
@@ -76,7 +77,7 @@
 
     {% if report.has_status is defined and report.has_status %}
     <div class="form-group">
-        <label class="form-label">Order Status</label>
+        <label class="form-label">Order Status <button class="help-icon" data-help="param-status">?</button></label>
         <div class="period-buttons">
             <button type="button" class="status-btn active" data-status="">All Orders</button>
             <button type="button" class="status-btn" data-status="open">Open Orders Only</button>
@@ -85,14 +86,15 @@
     </div>
     {% endif %}
 
-    {% if is_admin and report.salesman_filter %}
+    {% if show_salesman_picker %}
     <div class="form-group">
-        <label class="form-label" for="salesmanSelect">Salesman</label>
+        <label class="form-label" for="salesmanSelect">Salesman <button class="help-icon" data-help="param-salesman">?</button></label>
         <select id="salesmanSelect" name="salesman" class="form-input form-select">
-            <option value="">All Salesmen</option>
+            {% if is_admin %}<option value="">All Salesmen</option>{% endif %}
             {% for sm in salesmen_list %}
             <option value="{{ sm.key }}" data-display="{{ sm.display }}"
-                {% if admin_default_salesman and sm.key == admin_default_salesman %}selected{% endif %}>
+                {% if admin_default_salesman and sm.key == admin_default_salesman %}selected{% endif %}
+                {% if is_manager and salesmen_list|length == 1 %}selected{% endif %}>
                 {{ sm.name }} ({{ sm.display }})</option>
             {% endfor %}
         </select>
@@ -101,7 +103,7 @@
 
     {% if report.customer_filter %}
     <div class="form-group">
-        <label class="form-label">Customers <span id="customerCount" class="badge badge-salesman" style="font-size:12px; vertical-align:middle;"></span></label>
+        <label class="form-label">Customers <button class="help-icon" data-help="param-customers">?</button> <span id="customerCount" class="badge badge-salesman" style="font-size:12px; vertical-align:middle; display:none;"></span></label>
         <div id="selectedCustomers" class="selected-chips"></div>
         <input type="text" id="customerSearch" class="form-input" placeholder="Search customers..." autocomplete="off">
         <div id="customerList" class="customer-picker">
@@ -110,14 +112,16 @@
     </div>
     {% endif %}
 
-    <div style="display:flex; gap:10px;">
+    <div style="display:flex; gap:10px; align-items:stretch;">
         <button type="submit" id="runBtn" class="btn btn-primary btn-lg" style="flex:1;">
             <i data-feather="play"></i>
             Run Report
         </button>
-        <button type="button" id="savePresetBtn" class="btn btn-outline btn-lg" onclick="openSavePreset()" title="Save as Preset">
+        <button type="button" id="savePresetBtn" class="btn btn-outline" onclick="openSavePreset()" title="Save as Preset"
+                style="padding:0 16px; font-size:18px; border-radius:var(--radius); display:flex; align-items:center; justify-content:center;">
             <i data-feather="bookmark"></i>
         </button>
+        <button class="help-icon" data-help="param-save-preset" style="align-self:center;">?</button>
     </div>
 </form>
 
@@ -152,7 +156,7 @@
 </div>
 
 <div id="loadingOverlay" class="loading-overlay" style="display: none;">
-    <div class="loading-card">
+    <div class="loading-card" style="position:relative;">
         <div class="spinner"></div>
         <h3 id="progressTitle">Generating Report</h3>
         <p id="progressMsg">Starting...</p>
@@ -165,6 +169,15 @@
             <span class="progress-step" data-step="processing">Processing</span>
             <span class="progress-step" data-step="writing">Writing</span>
             <span class="progress-step" data-step="done">Done</span>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:16px; justify-content:center;">
+            <button type="button" id="bgBtn" class="btn btn-outline" onclick="sendToBackground()">
+                <i data-feather="minimize-2"></i> Run in Background
+            </button>
+            <button class="help-icon" data-help="param-background" style="position:absolute; top:12px; right:12px;">?</button>
+            <button type="button" id="cancelBtn" class="btn btn-outline" style="color:var(--error); border-color:var(--error);" onclick="cancelReport()">
+                <i data-feather="x-circle"></i> Cancel
+            </button>
         </div>
     </div>
 </div>
@@ -199,107 +212,14 @@
 
 {% block scripts %}
 <script>
-    const REPORT_KEY = "{{ report_key }}";
-    const REPORT_NAME = {{ report.name|tojson }};
-    const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
-    const SALESMAN_KEY = {{ salesman_key|tojson if salesman_key else 'null' }};
-    const HAS_CUSTOMER_FILTER = {{ 'true' if report.customer_filter else 'false' }};
-    const HAS_SALESMAN_FILTER = {{ 'true' if is_admin and report.salesman_filter else 'false' }};
-    const PRESET_PARAMS = {{ preset_params|default({})|tojson }};
-
-    document.addEventListener('DOMContentLoaded', function() {
-        if (!PRESET_PARAMS || !Object.keys(PRESET_PARAMS).length) return;
-        // Period
-        if (PRESET_PARAMS.period) {
-            var periodBtns = document.querySelectorAll('.period-btn');
-            periodBtns.forEach(function(b) {
-                b.classList.toggle('active', b.dataset.period === PRESET_PARAMS.period);
-            });
-            var pi = document.getElementById('periodInput');
-            if (pi) pi.value = PRESET_PARAMS.period;
-            if (PRESET_PARAMS.period === 'custom') {
-                var cr = document.getElementById('customDateRange');
-                if (cr) cr.style.display = '';
-                if (PRESET_PARAMS.from_date) document.getElementById('fromDate').value = PRESET_PARAMS.from_date;
-                if (PRESET_PARAMS.to_date) document.getElementById('toDate').value = PRESET_PARAMS.to_date;
-            }
-        }
-        // Year
-        if (PRESET_PARAMS.year) {
-            var yi = document.getElementById('yearInput');
-            if (yi) yi.value = PRESET_PARAMS.year;
-        }
-        // Status
-        if (PRESET_PARAMS.status !== undefined) {
-            var statusBtns = document.querySelectorAll('.status-btn');
-            statusBtns.forEach(function(b) {
-                b.classList.toggle('active', b.dataset.status === PRESET_PARAMS.status);
-            });
-            var si = document.getElementById('statusInput');
-            if (si) si.value = PRESET_PARAMS.status;
-        }
-        // Salesman
-        if (PRESET_PARAMS.salesman) {
-            var ss = document.getElementById('salesmanSelect');
-            if (ss) { ss.value = PRESET_PARAMS.salesman; ss.dispatchEvent(new Event('change')); }
-        }
-        // Auto-run after a brief delay so customers can load
-        if (PRESET_PARAMS.autorun) {
-            var delay = HAS_CUSTOMER_FILTER ? 1500 : 300;
-            setTimeout(function() { document.getElementById('reportForm').requestSubmit(); }, delay);
-        }
-    });
-
-    function _collectParams() {
-        var p = {};
-        var form = document.getElementById('reportForm');
-        var fd = new FormData(form);
-        fd.forEach(function(v, k) { if (v) p[k] = v; });
-        // Multi-select customers
-        var chips = document.querySelectorAll('#selectedCustomers .chip');
-        if (chips.length) {
-            var customers = [];
-            chips.forEach(function(c) { customers.push(c.dataset.account); });
-            p['customers'] = customers;
-        }
-        return p;
-    }
-
-    function openSavePreset() {
-        document.getElementById('savePresetModal').style.display = 'block';
-        document.getElementById('presetName').value = '';
-        document.getElementById('presetMsg').style.display = 'none';
-        document.getElementById('presetName').focus();
-    }
-
-    function closeSavePreset() {
-        document.getElementById('savePresetModal').style.display = 'none';
-    }
-
-    function doSavePreset() {
-        var name = document.getElementById('presetName').value.trim();
-        var msg = document.getElementById('presetMsg');
-        if (!name) { msg.style.display = 'block'; msg.style.color = 'var(--error)'; msg.textContent = 'Please enter a name.'; return; }
-        var params = _collectParams();
-        var payload = {name: name, report_key: REPORT_KEY, report_name: REPORT_NAME, params: params};
-        var forUserEl = document.getElementById('presetForUser');
-        if (forUserEl && forUserEl.value) {
-            payload.for_user_email = forUserEl.value;
-        }
-        fetch('/api/saved-reports', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        }).then(function(r) { return r.json(); }).then(function(d) {
-            if (d.error) { msg.style.display = 'block'; msg.style.color = 'var(--error)'; msg.textContent = d.error; }
-            else {
-                var who = (forUserEl && forUserEl.value) ? forUserEl.options[forUserEl.selectedIndex].text : 'you';
-                msg.style.display = 'block'; msg.style.color = 'var(--success)';
-                msg.textContent = 'Preset saved for ' + who + '!';
-                setTimeout(closeSavePreset, 1000);
-            }
-        }).catch(function() { msg.style.display = 'block'; msg.style.color = 'var(--error)'; msg.textContent = 'Network error'; });
-    }
+    var REPORT_KEY = "{{ report_key }}";
+    var REPORT_NAME = {{ report.name|tojson }};
+    var IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+    var SALESMAN_KEY = {{ salesman_key|tojson if salesman_key else 'null' }};
+    var HAS_CUSTOMER_FILTER = {{ 'true' if report.customer_filter else 'false' }};
+    var HAS_SALESMAN_FILTER = {{ 'true' if show_salesman_picker else 'false' }};
+    var REPORT_FORM_CONFIG = {{ {'reportKey': report_key, 'reportName': report.name, 'isAdmin': is_admin, 'isManager': is_manager|default(false), 'presetParams': preset_params|default({})}|tojson }};
 </script>
+<script src="{{ url_for('static', filename='report_form.js') }}"></script>
 {% endblock %}
 {% endblock %}

@@ -5,15 +5,20 @@ This single file handles ALL reports. Paste it into Azure Automation once.
 Control which report runs via the ``report_name`` and ``extra_args`` parameters.
 
 Flow:
-  1. Check Shabbos/Yom Tov guard -- if melacha is assur, reschedule to after
-     havdalah via a one-time Azure Automation schedule, or fall back to SKIPPED
+  1. Check Shabbos/Yom Tov guard (via Hebcal API for Brooklyn):
+       - daily/yesterday, no-period, MTD (not month-end), YTD -> SKIP
+         (catch-up logic on the next regular run widens the date range)
+       - last_7_days/this_week, MTD on last day of month -> RESCHEDULE
+         (create one-time Azure schedule after havdalah + 15 min)
+     Handles multi-day Yom Tov + Shabbos combos (e.g. 3-day Pesach block).
   2. Read Azure Automation Variables (or env vars for local testing)
   3. Acquire Graph token, resolve SharePoint drive
   4. Download report_registry.json from SharePoint
   5. Look up the requested report -> get its required_paths
   6. Download only the required scripts from SharePoint
   7. Check catch-up: if days were missed, widen date range automatically
-     (handles --period daily, last_7_days, mtd, and no-args reports)
+     (handles --period daily, last_7_days, mtd, and no-args reports;
+      matches on schedule variant so nightly vs salesman don't cross-pollinate)
   8. Log STARTED to run_log.csv on SharePoint
   9. Import and run the report
  10. Log SUCCESS/FAILED to run_log.csv
@@ -26,6 +31,8 @@ Azure Automation Parameters:
   extra_args  (str, optional): Additional CLI args, e.g. "--period daily".
                                Merged with default_args from the registry.
                                Use "--force" to bypass the Shabbos/Yom Tov guard.
+                               Use "--simulate-date 2026-04-02T05:00" to test the
+                               guard for any date/time without running real reports.
 
 Reschedule config (needed for automatic rescheduling after Shabbos/Yom Tov):
   AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP, AZURE_AUTOMATION_ACCOUNT,
@@ -64,6 +71,21 @@ UPLOAD_TIMEOUT = 120
 DEFAULT_SCRIPTS_CLOUD = "D365 F&O/scripts"
 REGISTRY_FILENAME = "report_registry.json"
 RUN_LOG_CLOUD_PATH = "D365 F&O/scripts/logs/run_log.csv"
+
+# ---------------------------------------------------------------------------
+# Simulated time (for testing Shabbos/YT guard without waiting for the date)
+# ---------------------------------------------------------------------------
+_SIMULATED_NOW = None  # Set by --simulate-date; used by _effective_now()
+
+
+def _effective_now():
+    """Return the current Eastern datetime, or the simulated time if set."""
+    if _SIMULATED_NOW is not None:
+        return _SIMULATED_NOW
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(tz=ZoneInfo("America/New_York"))
+
 
 # ---------------------------------------------------------------------------
 # Azure Automation / env-var config helper
@@ -243,13 +265,13 @@ def _sp_download_folder(drive_id, cloud_path, local_path, token):
     os.makedirs(local_path, exist_ok=True)
     for item in children:
         name = item.get("name", "")
-        if not name or name.startswith("."):
+        if not name or name.startswith(".") or name == "__pycache__":
             continue
         child_cloud = f"{p}/{name}" if p else name
         child_local = os.path.join(local_path, name)
         if "folder" in item:
             _sp_download_folder(drive_id, child_cloud, child_local, token)
-        elif "file" in item:
+        elif "file" in item and not name.endswith(".pyc"):
             content = _sp_download_content(drive_id, item["id"], token)
             with open(child_local, "wb") as f:
                 f.write(content)
@@ -333,9 +355,7 @@ _LOG_COLUMNS = ["timestamp", "report_name", "status", "duration_sec", "rows_outp
 
 
 def _now_stamp():
-    from datetime import datetime, timezone, timedelta
-    eastern = timezone(timedelta(hours=-5))
-    return datetime.now(tz=eastern).strftime("%Y-%m-%d %H:%M:%S")
+    return _effective_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _log_ensure_header(path):
@@ -373,6 +393,8 @@ def _log_upload(drive_id, token, local_path):
 # Shabbos / Yom Tov check via Hebcal REST API
 # ---------------------------------------------------------------------------
 HEBCAL_GEONAMEID = 5110302  # Brooklyn, NY
+_hebcal_cache: dict[str, dict] = {}
+
 
 def _is_melacha_time():
     """Check if melacha is currently assur (Shabbos or Yom Tov).
@@ -384,21 +406,25 @@ def _is_melacha_time():
     """
     try:
         import requests
-        from datetime import datetime, timedelta, timezone as tz
+        from datetime import datetime, timedelta
 
-        eastern = tz(timedelta(hours=-5))
-        now = datetime.now(tz=eastern)
-        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-        day_after_tomorrow = (now + timedelta(days=2)).strftime("%Y-%m-%d")
+        now = _effective_now()
+        range_start = (now - timedelta(days=4)).strftime("%Y-%m-%d")
+        range_end = (now + timedelta(days=3)).strftime("%Y-%m-%d")
 
-        url = (
-            f"https://www.hebcal.com/hebcal?cfg=json&v=1&maj=on&leyning=off"
-            f"&c=on&geonameid={HEBCAL_GEONAMEID}&M=on"
-            f"&start={yesterday}&end={day_after_tomorrow}"
-        )
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        cache_key = f"{range_start}_{range_end}"
+        if cache_key in _hebcal_cache:
+            data = _hebcal_cache[cache_key]
+        else:
+            url = (
+                f"https://www.hebcal.com/hebcal?cfg=json&v=1&maj=on&leyning=off"
+                f"&c=on&geonameid={HEBCAL_GEONAMEID}&M=on"
+                f"&start={range_start}&end={range_end}"
+            )
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            _hebcal_cache[cache_key] = data
 
         candles = []
         havdalahs = []
@@ -547,54 +573,100 @@ def _reschedule_after_havdalah(
     return True
 
 
-def _get_last_success_date(log_path, display_name):
+def _get_last_success_date(log_path, display_name, merged_args=""):
     """Parse run_log.csv and return the date of the last SUCCESS for a report.
+
+    When *merged_args* is provided, only rows whose "base args" match are
+    considered.  Base args are the schedule-identifying arguments with
+    date-range flags (``--from``, ``--to``, ``--period``, ``--date``,
+    ``--force``) stripped out, so that a catch-up row (which replaces
+    ``--period yesterday`` with ``--from/--to``) still matches its original
+    schedule variant.  This prevents a nightly all-periods run from
+    satisfying the catch-up check for a salesman-yesterday run.
 
     Returns a date object or None if no prior success found.
     """
     from datetime import date as _date, datetime as _datetime
+
+    _DATE_FLAGS = {"--from", "--to", "--period", "--date", "--force"}
+
+    def _base_args(raw: str) -> str:
+        tokens = raw.split()
+        out = []
+        skip_next = False
+        for t in tokens:
+            if skip_next:
+                skip_next = False
+                continue
+            if t in _DATE_FLAGS:
+                skip_next = True
+                continue
+            out.append(t)
+        return " ".join(sorted(out))
+
+    target_base = _base_args(merged_args)
     last = None
     try:
         with open(log_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if row.get("report_name") == display_name and row.get("status") == "SUCCESS":
-                    ts = row.get("timestamp", "")
-                    try:
-                        last = _datetime.strptime(ts[:10], "%Y-%m-%d").date()
-                    except (ValueError, IndexError):
-                        pass
+                if row.get("report_name") != display_name:
+                    continue
+                if row.get("status") != "SUCCESS":
+                    continue
+                row_base = _base_args(row.get("args", ""))
+                if row_base != target_base:
+                    continue
+                ts = row.get("timestamp", "")
+                try:
+                    last = _datetime.strptime(ts[:10], "%Y-%m-%d").date()
+                except (ValueError, IndexError):
+                    pass
     except Exception:
         pass
     return last
 
 
+_CATCHUP_THEN_NORMAL = "__catchup_then_normal__"
+
+
 def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
     """If days were missed since last success, widen the date range to cover the gap.
 
-    Handles three cases:
-    - No date/period args: inject --from/--to covering the gap (original behavior)
-    - --period daily/yesterday: replace with --from/--to covering missed days
-    - --period last_7_days: replace with --from/--to widened by the gap
-    - --period mtd where month boundary crossed: replace with --from/--to for prior month
-    - --period ytd: no change (already covers full year)
-    - Explicit --from/--to or --date: no change (user specified exact range)
+    Period-specific behaviour:
+
+    daily / yesterday
+        The run on date X covers X-1 ("yesterday"). When the last success was
+        on date L, data for date L itself was never reported as "yesterday".
+        So catch_from = L (not L+1), catch_to = yesterday.
+
+    mtd
+        Same-month gap: no change (MTD already covers the full month to today).
+        Cross-month gap (e.g. skipped on last day of month): inject --from/--to
+        for the prior month so it gets finished off.
+
+    ytd
+        Same-year gap: no change (YTD already covers the full year to today).
+        Cross-year gap (e.g. skipped on last day of year): inject --from/--to
+        for the prior year so it gets finished off.
+
+    last_7_days
+        Widen the 7-day window by the number of missed days.
+
+    No period (all-periods nightly run)
+        Two-pass: first run a catch-up --from/--to for missed days into the
+        Daily subfolder, then run the normal all-periods pass so MTD/YTD/
+        last_7_days files are also generated.  Returns a sentinel tuple so
+        the caller can execute both passes.
+
+    Explicit --from / --to / --date
+        No change (user specified exact range).
     """
-    from datetime import date as _date, timedelta, datetime, timezone
+    from datetime import date as _date, timedelta
 
     tokens = merged_args.split()
 
     if "--from" in tokens or "--to" in tokens or "--date" in tokens:
-        return argv
-
-    last_success = _get_last_success_date(log_path, display_name)
-    if last_success is None:
-        return argv
-
-    now = datetime.now(tz=timezone(timedelta(hours=-5)))
-    today = now.date()
-    gap_days = (today - last_success).days
-    if gap_days <= 1:
         return argv
 
     period_val = None
@@ -604,28 +676,60 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
         except IndexError:
             pass
 
+    now = _effective_now()
+    today = now.date()
+    yesterday = today - timedelta(days=1)
+
+    last_success = _get_last_success_date(log_path, display_name, merged_args)
+    if last_success is None:
+        return argv
+
+    gap_days = (today - last_success).days
+    if gap_days <= 1:
+        return argv
+
     catch_from = None
-    catch_to = today.isoformat()
+    catch_to = None
+    subfolder = None
 
     if period_val is None:
-        catch_from = (last_success + timedelta(days=1)).isoformat()
+        # All-periods nightly run.  MTD/YTD/last_7_days are self-healing, but
+        # the "daily" period only covers yesterday -- missed days would be lost.
+        # Return a special sentinel so the caller can run BOTH a catch-up daily
+        # pass AND the normal all-periods pass.
+        catch_from = last_success.isoformat()
+        catch_to = yesterday.isoformat()
+        log.info("[Catch-up] No-period run: last success %s (%d days ago). "
+                 "Will run catch-up daily --from %s --to %s THEN normal all-periods.",
+                 last_success.isoformat(), gap_days, catch_from, catch_to)
+        return _CATCHUP_THEN_NORMAL, catch_from, catch_to
 
     elif period_val in ("daily", "yesterday"):
-        catch_from = (last_success + timedelta(days=1)).isoformat()
+        catch_from = last_success.isoformat()
+        catch_to = yesterday.isoformat()
+        subfolder = "Daily"
 
     elif period_val == "last_7_days":
         widened_start = today - timedelta(days=6 + gap_days - 1)
         catch_from = widened_start.isoformat()
+        catch_to = today.isoformat()
+        subfolder = "This Week"
 
     elif period_val == "mtd":
         if last_success.month != today.month or last_success.year != today.year:
             catch_from = last_success.replace(day=1).isoformat()
             catch_to = (today.replace(day=1) - timedelta(days=1)).isoformat()
+            subfolder = "MTD"
         else:
             return argv
 
     elif period_val == "ytd":
-        return argv
+        if last_success.year != today.year:
+            catch_from = last_success.replace(month=1, day=1).isoformat()
+            catch_to = _date(last_success.year, 12, 31).isoformat()
+            subfolder = "YTD"
+        else:
+            return argv
 
     else:
         return argv
@@ -634,13 +738,22 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
         return argv
 
     log.info("[Catch-up] Last success for '%s' was %s (%d days ago, period=%s). "
-             "Injecting --from %s --to %s",
+             "Injecting --from %s --to %s (subfolder=%s)",
              display_name, last_success.isoformat(), gap_days,
-             period_val or "(none)", catch_from, catch_to)
+             period_val or "(none)", catch_from, catch_to, subfolder or "(default)")
 
+    new_argv = _strip_period(argv)
+    new_argv += ["--from", catch_from, "--to", catch_to]
+    if subfolder:
+        new_argv += ["--subfolder", subfolder]
+    return new_argv
+
+
+def _strip_period(argv):
+    """Remove --period and its value from argv."""
     new_argv = []
     skip_next = False
-    for i, arg in enumerate(argv):
+    for arg in argv:
         if skip_next:
             skip_next = False
             continue
@@ -648,8 +761,7 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
             skip_next = True
             continue
         new_argv.append(arg)
-
-    return new_argv + ["--from", catch_from, "--to", catch_to]
+    return new_argv
 
 
 # ---------------------------------------------------------------------------
@@ -706,29 +818,11 @@ def _download_required(drive_id, scripts_cloud, scripts_local, required_paths, t
 # ---------------------------------------------------------------------------
 # Run a single report
 # ---------------------------------------------------------------------------
-def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, token, alert_ctx):
-    """Run a single report. Returns (exit_code, duration, error_msg, runner_instance_or_None)."""
-    display = entry["display_name"]
+def _execute_runner(entry, argv, display):
+    """Import and execute a report runner. Returns (exit_code, error_msg, runner_instance)."""
     runner_module = entry["runner_module"]
     runner_class = entry.get("runner_class")
     runner_type = entry.get("runner_type", "class")
-
-    default_args = entry.get("default_args", "") or ""
-    merged_args = f"{default_args} {extra_args}".strip()
-    argv = merged_args.split() if merged_args else []
-
-    log.info("--- Running: %s (key=%s, args=%s) ---", display, report_key, argv or "(none)")
-
-    log.info("[%s] Logging STARTED to run_log.csv...", display)
-    log_tmp = tempfile.mkdtemp(prefix="runlog_")
-    log_path = _log_download(drive_id, token, log_tmp)
-    _log_append(log_path, {"timestamp": _now_stamp(), "report_name": display, "status": "STARTED", "args": merged_args})
-    _log_upload(drive_id, token, log_path)
-
-    argv = _maybe_inject_catchup_args(argv, merged_args, log_path, display)
-    merged_args_display = " ".join(argv) if argv else merged_args
-
-    start = time.monotonic()
     exit_code = 0
     error_msg = ""
     runner_instance = None
@@ -755,6 +849,60 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         exit_code = 1
         error_msg = traceback.format_exc()
         log.exception("%s raised an exception", display)
+
+    return exit_code, error_msg, runner_instance
+
+
+def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, token, alert_ctx):
+    """Run a single report. Returns (exit_code, duration, error_msg, runner_instance_or_None)."""
+    display = entry["display_name"]
+
+    default_args = entry.get("default_args", "") or ""
+    merged_args = f"{default_args} {extra_args}".strip()
+    argv = merged_args.split() if merged_args else []
+
+    log.info("--- Running: %s (key=%s, args=%s) ---", display, report_key, argv or "(none)")
+
+    log.info("[%s] Logging STARTED to run_log.csv...", display)
+    log_tmp = tempfile.mkdtemp(prefix="runlog_")
+    log_path = _log_download(drive_id, token, log_tmp)
+    _log_append(log_path, {"timestamp": _now_stamp(), "report_name": display, "status": "STARTED", "args": merged_args})
+    _log_upload(drive_id, token, log_path)
+
+    catchup_result = _maybe_inject_catchup_args(argv, merged_args, log_path, display)
+
+    # Two-pass catch-up: for no-period runs with a gap, run the catch-up
+    # daily pass first (missed days), then the normal all-periods pass.
+    do_two_pass = (isinstance(catchup_result, tuple)
+                   and len(catchup_result) == 3
+                   and catchup_result[0] == _CATCHUP_THEN_NORMAL)
+
+    start = time.monotonic()
+    exit_code = 0
+    error_msg = ""
+    runner_instance = None
+
+    if do_two_pass:
+        _, catch_from, catch_to = catchup_result
+
+        # Pass 1: catch-up daily for missed days
+        catchup_argv = list(argv) + ["--from", catch_from, "--to", catch_to, "--subfolder", "Daily"]
+        log.info("[%s] Pass 1/2: catch-up daily (%s to %s)", display, catch_from, catch_to)
+        code1, err1, inst1 = _execute_runner(entry, catchup_argv, display)
+        if code1 != 0:
+            log.warning("[%s] Catch-up daily pass failed (code=%d), continuing with normal run", display, code1)
+
+        # Pass 2: normal all-periods run
+        log.info("[%s] Pass 2/2: normal all-periods run", display)
+        code2, err2, inst2 = _execute_runner(entry, argv, display)
+        runner_instance = inst2 or inst1
+        exit_code = code2
+        error_msg = err2
+        merged_args_display = f"[catchup: --from {catch_from} --to {catch_to}] + [normal: {merged_args or '(none)'}]"
+    else:
+        argv = catchup_result if isinstance(catchup_result, list) else argv
+        merged_args_display = " ".join(argv) if argv else merged_args
+        exit_code, error_msg, runner_instance = _execute_runner(entry, argv, display)
 
     elapsed = time.monotonic() - start
 
@@ -902,6 +1050,49 @@ def _upload_webapp_pickup(drive_id, token_mgr, direct_reports, record_id, root_p
         log.exception("Failed to upload webapp pickup file")
 
 
+def _classify_guard_action(extra_args):
+    """Decide whether to SKIP or RESCHEDULE when melacha is assur.
+
+    Returns ``"skip"`` or ``"reschedule"`` based on the period in *extra_args*.
+
+    Rules:
+      - daily / yesterday      -> skip  (catch-up on next regular run)
+      - no period (nightly)    -> skip  (catch-up on next regular run)
+      - mtd (same month)       -> skip  (MTD self-heals within the month)
+      - mtd (last day of month)-> reschedule (month-end run would be lost)
+      - ytd (same year)        -> skip  (YTD self-heals within the year)
+      - last_7_days / weekly   -> reschedule (window shifts, data would be lost)
+      - anything else          -> skip  (safe fallback)
+    """
+    from datetime import timedelta
+
+    tokens = (extra_args or "").split()
+    period_val = None
+    if "--period" in tokens:
+        try:
+            period_val = tokens[tokens.index("--period") + 1]
+        except IndexError:
+            pass
+
+    if period_val in (None, "daily", "yesterday"):
+        return "skip"
+
+    if period_val in ("last_7_days", "this_week"):
+        return "reschedule"
+
+    if period_val == "mtd":
+        today = _effective_now().date()
+        tomorrow = today + timedelta(days=1)
+        if tomorrow.month != today.month:
+            return "reschedule"
+        return "skip"
+
+    if period_val == "ytd":
+        return "skip"
+
+    return "skip"
+
+
 def main():
     # ---- Read runbook parameters ----
     # Azure Automation injects runbook parameters as module-level globals.
@@ -946,14 +1137,42 @@ def main():
     report_name = report_name.strip().lower().replace("-", "_")
     is_test_mode = "--test" in (extra_args or "").split()
     is_force = "--force" in (extra_args or "").split()
+
+    # ---- Simulation mode for testing Shabbos/YT guard ----
+    global _SIMULATED_NOW
+    _ea_parts = (extra_args or "").split()
+    if "--simulate-date" in _ea_parts:
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo
+        _sim_idx = _ea_parts.index("--simulate-date")
+        try:
+            _sim_str = _ea_parts[_sim_idx + 1]
+            _SIMULATED_NOW = _dt.fromisoformat(_sim_str).replace(
+                tzinfo=ZoneInfo("America/New_York"))
+            log.info("*** SIMULATION MODE: now = %s ***", _SIMULATED_NOW.isoformat())
+        except (IndexError, ValueError) as e:
+            log.error("--simulate-date requires YYYY-MM-DDTHH:MM value: %s", e)
+            return 1
+        extra_args = " ".join(
+            p for i, p in enumerate(_ea_parts)
+            if i != _sim_idx and i != _sim_idx + 1
+        )
+
+    is_simulating = _SIMULATED_NOW is not None
+
     log.info("=== Universal Runbook: report_name=%s, extra_args=%s, test_mode=%s, webapp_record_id=%s ===",
              report_name, extra_args or "(none)", is_test_mode, webapp_record_id or "(none)")
 
     # ---- Shabbos / Yom Tov guard ----
+    # Uses _classify_guard_action() to decide per-period whether to SKIP
+    # (catch-up on next regular run) or RESCHEDULE (create a one-time Azure
+    # schedule after havdalah).  See _classify_guard_action() docstring for
+    # the full rules table.
     if not is_force:
         is_assur, reason, havdalah_dt = _is_melacha_time()
         if is_assur:
-            log.info("=== %s -- attempting to reschedule after havdalah ===", reason)
+            guard_action = _classify_guard_action(extra_args)
+            log.info("=== %s -- guard action: %s ===", reason, guard_action)
 
             _tid = _get_config("GRAPH_TENANT_ID", ["GRAPH_TENANT_ID", "AZURE_TENANT_ID"])
             _cid = _get_config("GRAPH_CLIENT_ID", ["GRAPH_CLIENT_ID", "AZURE_CLIENT_ID"])
@@ -961,20 +1180,30 @@ def main():
             _site = _get_config("SP_SITE_URL", ["SP_SITE_URL"])
 
             rescheduled = False
-            if havdalah_dt and all([_tid, _cid, _sec]):
-                rescheduled = _reschedule_after_havdalah(
-                    havdalah_dt, report_name, extra_args or "",
-                    _tid, _cid, _sec,
-                )
+            if guard_action == "reschedule":
+                if is_simulating:
+                    log.info("[SIM] Would reschedule after havdalah %s",
+                             havdalah_dt.isoformat() if havdalah_dt else "(unknown)")
+                elif havdalah_dt and all([_tid, _cid, _sec]):
+                    rescheduled = _reschedule_after_havdalah(
+                        havdalah_dt, report_name, extra_args or "",
+                        _tid, _cid, _sec,
+                    )
 
             status_tag = "RESCHEDULED" if rescheduled else "SKIPPED"
             if rescheduled:
                 log.info("=== RESCHEDULED for %s ===", havdalah_dt.isoformat())
             else:
-                log.info("=== SKIPPED: %s (reschedule failed or unavailable). "
-                         "Catch-up will apply on next regular run. ===", reason)
+                log.info("=== SKIPPED: %s (action=%s). "
+                         "Catch-up will apply on next regular run. ===",
+                         reason, guard_action)
 
-            # Log to run_log.csv
+            if is_simulating:
+                log.info("[SIM] Result: %s | reason=%s | havdalah=%s",
+                         status_tag, reason,
+                         havdalah_dt.isoformat() if havdalah_dt else "(none)")
+                return 0
+
             try:
                 if all([_tid, _cid, _sec, _site]):
                     _tmgr = _TokenManager(_tid, _cid, _sec)
@@ -997,6 +1226,11 @@ def main():
 
     if is_force:
         extra_args = (extra_args or "").replace("--force", "").strip()
+
+    if is_simulating:
+        log.info("[SIM] Melacha is NOT assur at simulated time. Report would RUN normally.")
+        log.info("[SIM] Args: %s", extra_args or "(none)")
+        return 0
 
     log.info("[Step 1/7] Loading configuration...")
     tenant_id = _get_config("GRAPH_TENANT_ID", ["GRAPH_TENANT_ID", "AZURE_TENANT_ID"])

@@ -18,7 +18,7 @@ from config.settings import (
     get_tenant_id,
     validate_d365_config,
 )
-from core.auth import get_d365_token
+from core.auth import D365TokenManager
 from core.dates import FetchPlan, resolve_fetch_plan
 from core.logging import setup_logging
 
@@ -32,7 +32,7 @@ class BaseReportRunner(ABC):
 
     def build_arg_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(description=self.report_name)
-        parser.add_argument("--period", type=str, choices=["daily", "yesterday", "mtd", "ytd", "last_7_days"],
+        parser.add_argument("--period", type=str, choices=["daily", "yesterday", "mtd", "ytd", "last_7_days", "all_time"],
                             help="Named period (default: all periods)")
         parser.add_argument("--date", type=str, help="Single date YYYY-MM-DD")
         parser.add_argument("--from", dest="from_date", type=str, metavar="DATE", help="Range start YYYY-MM-DD")
@@ -44,6 +44,9 @@ class BaseReportRunner(ABC):
                             help="Filter by customer account(s) (e.g. 9300 or 9300 9301 9302)")
         parser.add_argument("--status", type=str, default=None,
                             help="Filter by order status (e.g. 'open' for non-invoiced/non-cancelled)")
+        parser.add_argument("--subfolder", type=str, default=None,
+                            help="Override output subfolder (e.g. 'Daily'). "
+                                 "Used by catch-up logic so --from/--to runs land in the same folder as regular period runs.")
         parser.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
                             help="Fetch and build reports but skip writing Excel / uploading")
         parser.add_argument("--test", dest="test", action="store_true", default=False,
@@ -52,19 +55,21 @@ class BaseReportRunner(ABC):
 
     def resolve_plan(self, args) -> FetchPlan:
         """Build a FetchPlan from parsed CLI args."""
+        subfolder = getattr(args, "subfolder", None)
         if args.from_date and args.to_date:
-            return resolve_fetch_plan(from_date=args.from_date, to_date=args.to_date)
+            return resolve_fetch_plan(from_date=args.from_date, to_date=args.to_date,
+                                      subfolder_override=subfolder)
         if args.date:
             return resolve_fetch_plan(single_date=args.date)
         if args.period:
             return resolve_fetch_plan(periods=[args.period])
         return resolve_fetch_plan()
 
-    def connect(self, company_id: str | None = None) -> tuple[str, str, str | None]:
-        """Validate D365 config and return (base_url, token, company).
+    def connect(self, company_id: str | None = None) -> tuple[str, D365TokenManager, str | None]:
+        """Validate D365 config and return (base_url, token_manager, company).
 
-        Call this at the start of ``run()`` instead of repeating the
-        validate / URL / token / company boilerplate in every runner.
+        The token manager auto-refreshes before expiry, so long-running
+        OData fetches (>30 min) won't fail with 401.
         """
         log.info("Connecting to D365: validating config, acquiring token...")
         validate_d365_config()
@@ -74,10 +79,10 @@ class BaseReportRunner(ABC):
             if "/data" not in env_url.lower()
             else (env_url if env_url.endswith("/") else f"{env_url}/")
         )
-        token = get_d365_token(get_tenant_id(), get_client_id(), get_client_secret(), env_url)
+        token_mgr = D365TokenManager(get_tenant_id(), get_client_id(), get_client_secret(), env_url)
         company = company_id or get_company_id() or None
         log.info("Connected to D365 (company=%s)", company or "(default)")
-        return base_url, token, company
+        return base_url, token_mgr, company
 
     @property
     def dry_run(self) -> bool:

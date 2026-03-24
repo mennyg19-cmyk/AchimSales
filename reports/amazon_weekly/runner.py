@@ -2,13 +2,15 @@
 Amazon Weekly Report runner.
 
 Same dataset and layout as the Ordered Report, but:
-- Single customer: 9300 (Amazon) via direct OData $filter on SalesOrderHeadersV3.
-- Single period: this week (Monday through today).
+- Customers: 9300 and 9301 (Amazon accounts) via direct OData $filter.
+- Period: last 7 days.
 - Output: one Excel file with ordered / shipped / cancelled / remaining.
 - Optional: send report by email (e.g. every Friday 5pm).
+- Recipients: spreadsheet subscribers (Recv_AmazonWeekly column in salesman_map.xlsx),
+  falling back to AMAZON_EMAIL_RECIPIENTS env var.
 
 Usage:
-  python -m reports.amazon_weekly.runner              # this week, write Excel
+  python -m reports.amazon_weekly.runner              # write Excel only
   python -m reports.amazon_weekly.runner --email     # write Excel and email
 """
 
@@ -17,8 +19,8 @@ import sys
 
 from config.paths import get_output_path
 from config.settings import get_client_id, get_client_secret, get_company_id, get_d365_env_url, get_tenant_id, validate_d365_config
-from core.auth import get_d365_token
-from core.dates import get_today_eastern, get_week_start, parse_period
+from core.auth import D365TokenManager
+from core.dates import get_today_eastern, parse_period
 from core.logging import setup_logging
 from reports.ordered.builder import build_report, fetch_all_data
 from reports.ordered.writer import write_report
@@ -26,16 +28,28 @@ from reports.ordered.writer import write_report
 log = logging.getLogger(__name__)
 
 REPORT_NAME = "Amazon Weekly"
-AMAZON_CUSTOMER_ACCOUNT = "9300"
+AMAZON_CUSTOMER_ACCOUNTS = ["9300", "9301"]
+
+
+def _get_email_recipients() -> list[str] | None:
+    """Spreadsheet subscribers first, then AMAZON_EMAIL_RECIPIENTS env var fallback."""
+    try:
+        from config.salesman_excel import get_report_subscribers
+        subscribers = get_report_subscribers("amazon_weekly")
+        if subscribers:
+            return [email for _, email, _, _ in subscribers]
+    except Exception:
+        log.debug("Could not load spreadsheet subscribers, falling back to env var")
+    return None
 
 
 def run(send_email: bool = False, test_mode: bool = False) -> None:
-    """Fetch Amazon (9300) orders for this week from D365 via direct OData, build report, write Excel, optionally email."""
+    """Fetch Amazon orders for last 7 days from D365, build report, write Excel, optionally email."""
     validate_d365_config()
     env_url = get_d365_env_url().rstrip("/")
     base_url = f"{env_url}/data/" if "/data" not in env_url.lower() else (env_url if env_url.endswith("/") else f"{env_url}/")
 
-    token = get_d365_token(get_tenant_id(), get_client_id(), get_client_secret(), env_url)
+    token = D365TokenManager(get_tenant_id(), get_client_id(), get_client_secret(), env_url)
     company_id = get_company_id() or None
 
     test_recipients: list[str] | None = None
@@ -49,21 +63,24 @@ def run(send_email: bool = False, test_mode: bool = False) -> None:
             log.warning("[TEST] --test flag passed but TEST_EMAIL is not configured")
 
     period = parse_period("last_7_days", get_today_eastern())
-    log.info("Amazon Weekly: fetch %s to %s (customer %s)", period.start_date, period.end_date, AMAZON_CUSTOMER_ACCOUNT)
+    acct_str = ", ".join(AMAZON_CUSTOMER_ACCOUNTS)
+    log.info("Amazon Weekly: fetch %s to %s (customers %s)", period.start_date, period.end_date, acct_str)
 
     headers_df, lines_df, whs_df, ps_df = fetch_all_data(
-        base_url, token, period.start_date, period.end_date, company_id, customer_account=AMAZON_CUSTOMER_ACCOUNT
+        base_url, token, period.start_date, period.end_date, company_id, customer_account=AMAZON_CUSTOMER_ACCOUNTS
     )
 
+    recipients = test_recipients or (_get_email_recipients() if send_email else None)
+
     if headers_df.empty:
-        log.info("No Amazon orders found for this week. Exiting.")
+        log.info("No Amazon orders found for this period. Exiting.")
         if send_email:
             from core.email_report import send_report_email
             send_report_email(
                 file_path=None,
-                subject=f"{REPORT_NAME} – No orders this week",
-                body=f"No orders for customer {AMAZON_CUSTOMER_ACCOUNT} (Amazon) for week {period.start_date} to {period.end_date}.",
-                recipients=test_recipients,
+                subject=f"{REPORT_NAME} \u2013 No orders this week",
+                body=f"No orders for customers {acct_str} (Amazon) for {period.start_date} to {period.end_date}.",
+                recipients=recipients,
             )
         return
 
@@ -83,9 +100,9 @@ def run(send_email: bool = False, test_mode: bool = False) -> None:
         from core.email_report import send_report_email
         send_report_email(
             file_path=out_path,
-            subject=f"{REPORT_NAME} – {period.label} ({period.start_date} to {period.end_date})",
-            body=f"Amazon (customer #9300) orders this week: ordered, shipped, cancelled, remaining.\n\nPeriod: {period.start_date} to {period.end_date}.",
-            recipients=test_recipients,
+            subject=f"{REPORT_NAME} \u2013 {period.label} ({period.start_date} to {period.end_date})",
+            body=f"Amazon (customers {acct_str}) orders: ordered, shipped, cancelled, remaining.\n\nPeriod: {period.start_date} to {period.end_date}.",
+            recipients=recipients,
         )
         log.info("Email sent.")
 

@@ -136,15 +136,19 @@ PRODUCT_FIELD_MAP = {
 }
 
 # =====================================================================
-# ReleasedProductsV2 (Book Price lookup)
+# ReleasedProductsV2 (Product catalog + Book Price lookup)
 # =====================================================================
-BOOK_PRICE_SELECT = ["ItemNumber", "SalesPrice"]
+BOOK_PRICE_SELECT = ["ItemNumber", "SalesPrice", "SearchName", "ProductGroupId"]
 
 BOOK_PRICE_FIELD_MAP = {
     "ItemNumber": "ItemNumber",
     "ITEMNUMBER": "ItemNumber",
     "SalesPrice": "BookPrice",
     "SALESPRICE": "BookPrice",
+    "SearchName": "ProductName",
+    "SEARCHNAME": "ProductName",
+    "ProductGroupId": "ProductGroup",
+    "PRODUCTGROUPID": "ProductGroup",
 }
 
 # =====================================================================
@@ -244,4 +248,103 @@ CUSTOMER_FIELD_MAP = {
     "NAMEALIAS": "NameAlias",
     "CommissionSalesGroupId": "SalesGroup",
     "COMMISSIONSALESGROUPID": "SalesGroup",
+}
+
+# =====================================================================
+# CustomerPostalAddresses (Delivery addresses for order entry)
+# =====================================================================
+CUSTOMER_ADDRESS_SELECT = [
+    "CustomerAccountNumber",
+    "AddressDescription",
+    "AddressStreet",
+    "AddressCity",
+    "AddressState",
+    "AddressZipCode",
+    "AddressCountryRegionId",
+    "IsPrimary",
+]
+
+CUSTOMER_ADDRESS_FIELD_MAP = {
+    "CustomerAccountNumber": "CustomerAccount",
+    "CUSTOMERACCOUNTNUMBER": "CustomerAccount",
+    "AddressDescription": "Label",
+    "ADDRESSDESCRIPTION": "Label",
+    "AddressStreet": "Street",
+    "ADDRESSSTREET": "Street",
+    "AddressCity": "City",
+    "ADDRESSCITY": "City",
+    "AddressState": "State",
+    "ADDRESSSTATE": "State",
+    "AddressZipCode": "ZipCode",
+    "ADDRESSZIPCODE": "ZipCode",
+    "AddressCountryRegionId": "Country",
+    "ADDRESSCOUNTRYREGIONID": "Country",
+    "IsPrimary": "IsPrimary",
+    "ISPRIMARY": "IsPrimary",
+}
+
+# =====================================================================
+# CustAgedBalances (Customer Aging Report)
+# =====================================================================
+CUST_AGED_BALANCES_SELECT = [
+    "CustAccount",
+    "CustName",
+    "SumOfAmountDueMst",
+    "AgingPeriod1",
+    "AgingPeriod2",
+    "AgingPeriod3",
+    "AgingPeriod4",
+    "AgingPeriod5",
+    "LastPaymentDate",
+    "LastPaymentAmount",
+    "NumOpenInvoices",
+]
+
+CUST_AGED_BALANCES_FIELD_MAP = {
+    "CustAccount": "CustomerAccount",
+    "CUSTACCOUNT": "CustomerAccount",
+    "CustName": "CustomerName",
+    "CUSTNAME": "CustomerName",
+    "SumOfAmountDueMst": "AmountDue",
+    "SUMOFAMOUNTDUEMST": "AmountDue",
+    "AgingPeriod1": "Current",
+    "AGINGPERIOD1": "Current",
+    "AgingPeriod2": "30",
+    "AGINGPERIOD2": "30",
+    "AgingPeriod3": "60",
+    "AGINGPERIOD3": "60",
+    "AgingPeriod4": "90",
+    "AGINGPERIOD4": "90",
+    "AgingPeriod5": "91+",
+    "AGINGPERIOD5": "91+",
+    "LastPaymentDate": "LastPaymentDate",
+    "LASTPAYMENTDATE": "LastPaymentDate",
+    "LastPaymentAmount": "LastPaymentAmount",
+    "LASTPAYMENTAMOUNT": "LastPaymentAmount",
+    "NumOpenInvoices": "NumOpenInvoices",
+    "NUMOPENINVOICES": "NumOpenInvoices",
+}
+
+# =====================================================================
+# OpenSalesPriceJournalLinesV2 (Trade agreement pricing)
+# =====================================================================
+TRADE_AGREEMENT_SELECT = [
+    "ItemNumber",
+    "CustomerAccountNumber",
+    "Amount",
+    "CurrencyCode",
+    "SalesPriceQuantity",
+]
+
+TRADE_AGREEMENT_FIELD_MAP = {
+    "ItemNumber": "ItemNumber",
+    "ITEMNUMBER": "ItemNumber",
+    "CustomerAccountNumber": "CustomerAccount",
+    "CUSTOMERACCOUNTNUMBER": "CustomerAccount",
+    "Amount": "Price",
+    "AMOUNT": "Price",
+    "CurrencyCode": "Currency",
+    "CURRENCYCODE": "Currency",
+    "SalesPriceQuantity": "MinQty",
+    "SALESPRICEQUANTITY": "MinQty",
 }

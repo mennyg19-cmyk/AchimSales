@@ -7,3 +7,4 @@ app.zip
 _history_backup/
 *.xlsx
 .cursor/
+tests/output/

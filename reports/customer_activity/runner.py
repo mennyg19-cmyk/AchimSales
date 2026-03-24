@@ -13,7 +13,7 @@ import os
 import sys
 
 from config.paths import get_output_path
-from config.salesman_excel import get_salesman_email, load_salesman_map, lookup_salesman_xl, wants_report
+from config.salesman_excel import get_salesman_cc_bcc, get_salesman_email, load_salesman_map, lookup_salesman_xl, wants_report
 from config.settings import (
     get_client_id,
     get_client_secret,
@@ -23,7 +23,7 @@ from config.settings import (
     get_tenant_id,
     validate_d365_config,
 )
-from core.auth import get_d365_token
+from core.auth import D365TokenManager
 from core.dates import get_today_eastern
 from core.logging import setup_logging
 from reports.customer_activity.builder import build_customer_activity, fetch_all_data, split_by_salesman
@@ -72,6 +72,8 @@ def _send_individual_emails(per_salesman_files: dict[str, str],
             log.info("No email for %s -- skipping", display_name)
             continue
 
+        cc, bcc = ([], []) if test_override else get_salesman_cc_bcc(sg_key)
+
         body = (
             f"Hi {lookup_salesman_xl(sg_key).full_name},\n\n"
             f"Attached is your Customer Activity Report for {today.strftime('%B %Y')}.\n\n"
@@ -86,6 +88,8 @@ def _send_individual_emails(per_salesman_files: dict[str, str],
                 subject=subject,
                 body=body,
                 recipients=[email],
+                cc=cc,
+                bcc=bcc,
             )
             log.info("Emailed report to %s (%s)", display_name, email)
         except Exception:
@@ -108,12 +112,14 @@ def _send_master_report_emails(mgmt_path: str, today, test_override: str | None 
         "This report covers all salesmen and their customer activity."
     )
 
-    for display_name, email in subscribers:
+    for display_name, email, sub_cc, sub_bcc in subscribers:
         recipient = test_override if test_override else email
+        cc = [] if test_override else sub_cc
+        bcc = [] if test_override else sub_bcc
         try:
             send_report_email(
                 file_path=mgmt_path, subject=subject, body=body,
-                recipients=[recipient],
+                recipients=[recipient], cc=cc, bcc=bcc,
             )
             log.info("Emailed master customer activity report to %s (%s)", display_name, recipient)
         except Exception:
@@ -139,7 +145,7 @@ def run(send_email: bool = False, test_mode: bool = False) -> int:
         env_url = get_d365_env_url().rstrip("/")
         base_url = f"{env_url}/data/" if "/data" not in env_url.lower() else (env_url if env_url.endswith("/") else f"{env_url}/")
 
-        token = get_d365_token(get_tenant_id(), get_client_id(), get_client_secret(), env_url)
+        token = D365TokenManager(get_tenant_id(), get_client_id(), get_client_secret(), env_url)
         company = get_company_id() or None
 
         log.info("Fetching data from D365")
@@ -162,8 +168,17 @@ def run(send_email: bool = False, test_mode: bool = False) -> int:
         month_folder = f"{today.strftime('%B')} {today.year}"
         test_tag = "_TEST" if test_mode else ""
 
+        sm_map = load_salesman_map()
+        subscribed_displays = {
+            rec.display_name for rec in sm_map.values()
+            if rec.subscriptions.get("customer_activity", False) and rec.email
+        }
+
         per_salesman_files: dict[str, str] = {}
         for display_name, df in per_salesman.items():
+            if display_name not in subscribed_displays:
+                log.debug("Skipping individual report for %s (not subscribed)", display_name)
+                continue
             filename = f"Customer_Activity_{display_name}_{today.isoformat()}{test_tag}.xlsx"
             out_path = get_output_path(
                 "Salesman Report", month_folder, filename,

@@ -266,6 +266,13 @@ CREATE TABLE IF NOT EXISTS runbook_history (
     source           TEXT DEFAULT 'run_log'
 );
 
+CREATE TABLE IF NOT EXISTS user_salesman_access (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email    TEXT NOT NULL,
+    salesman_key  TEXT NOT NULL,
+    UNIQUE(user_email, salesman_key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_runbook_history_ts ON runbook_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_runbook_history_report ON runbook_history(report_name);
 
@@ -281,6 +288,7 @@ CREATE INDEX IF NOT EXISTS idx_draft_order_lines_order ON draft_order_lines(draf
 CREATE INDEX IF NOT EXISTS idx_customer_addresses_account ON customer_addresses(customer_account);
 CREATE INDEX IF NOT EXISTS idx_price_cache_customer ON price_cache(customer_account);
 CREATE INDEX IF NOT EXISTS idx_price_cache_item ON price_cache(item_number);
+CREATE INDEX IF NOT EXISTS idx_user_salesman_access_email ON user_salesman_access(user_email);
 """
 
 
@@ -872,6 +880,39 @@ def delete_user_report_override(user_email: str, report_key: str):
         conn.close()
 
 
+# -- Per-user salesman access (for managers) -------------------------------
+
+def get_user_salesman_access(user_email: str) -> list[str]:
+    """Return the list of salesman keys a user (typically a manager) is allowed to access."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT salesman_key FROM user_salesman_access WHERE user_email = ?",
+            (user_email.lower().strip(),),
+        ).fetchall()
+        return [r["salesman_key"] for r in rows]
+    finally:
+        conn.close()
+
+
+def set_user_salesman_access(user_email: str, keys: list[str]):
+    """Replace all salesman-access entries for *user_email* with *keys*."""
+    email = user_email.lower().strip()
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM user_salesman_access WHERE user_email = ?", (email,))
+        for k in keys:
+            k = k.strip()
+            if k:
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_salesman_access (user_email, salesman_key) VALUES (?, ?)",
+                    (email, k),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # -- Feature flags ---------------------------------------------------------
 
 def get_feature_flag(flag_key: str, default: bool = True) -> bool:
@@ -926,7 +967,8 @@ def get_users_permission_grid() -> list[dict]:
     """Return every app_user with their salesman info and per-report access map.
 
     Each item: {email, role, salesman_key, display_name, dashboard_enabled,
-                sm_number, sm_name, active, reports: {report_key: bool}}
+                sm_number, sm_name, active, reports: {report_key: bool},
+                allowed_salesmen: [str]}
     """
     conn = get_db()
     try:
@@ -936,7 +978,9 @@ def get_users_permission_grid() -> list[dict]:
                       s.number AS sm_number, s.full_name AS sm_name, s.active
                FROM app_users u
                LEFT JOIN salesmen s ON u.salesman_key = s.key
-               ORDER BY CASE WHEN u.role IN ('admin','developer') THEN 0 ELSE 1 END,
+               ORDER BY CASE WHEN u.role IN ('admin','developer') THEN 0
+                             WHEN u.role = 'manager' THEN 1
+                             ELSE 2 END,
                         s.full_name, u.email"""
         ).fetchall()
 
@@ -946,6 +990,13 @@ def get_users_permission_grid() -> list[dict]:
         ovr_map: dict[str, dict[str, bool]] = {}
         for o in overrides:
             ovr_map.setdefault(o["user_email"], {})[o["report_key"]] = bool(o["allowed"])
+
+        sm_access_rows = conn.execute(
+            "SELECT user_email, salesman_key FROM user_salesman_access"
+        ).fetchall()
+        sm_access_map: dict[str, list[str]] = {}
+        for row in sm_access_rows:
+            sm_access_map.setdefault(row["user_email"], []).append(row["salesman_key"])
 
         from webapp.user_map import REPORTS_CONFIG
         report_keys = list(REPORTS_CONFIG.keys())
@@ -959,18 +1010,20 @@ def get_users_permission_grid() -> list[dict]:
             d = dict(u)
             user_ovr = ovr_map.get(d["email"], {})
             is_adm = d["role"] in ("admin", "developer")
+            is_mgr = d["role"] == "manager"
             reports = {}
             for rk in report_keys:
                 cfg = REPORTS_CONFIG[rk]
                 if rk in user_ovr:
                     reports[rk] = user_ovr[rk]
-                elif is_adm:
+                elif is_adm or is_mgr:
                     reports[rk] = global_cfg.get(rk, True)
                 elif cfg.get("salesman_filter"):
                     reports[rk] = global_cfg.get(rk, True)
                 else:
                     reports[rk] = False
             d["reports"] = reports
+            d["allowed_salesmen"] = sm_access_map.get(d["email"], [])
             result.append(d)
         return result
     finally:
@@ -1765,16 +1818,21 @@ def upsert_runbook_history(rows: list[dict]):
             job_id = r.get("job_id") or None
             if job_id:
                 existing = conn.execute(
-                    "SELECT id FROM runbook_history WHERE job_id = ?", (job_id,)
+                    "SELECT id, report_name, args, error FROM runbook_history WHERE job_id = ?", (job_id,)
                 ).fetchone()
                 if existing:
                     conn.execute(
                         """UPDATE runbook_history
                            SET status = ?, duration_sec = ?, end_time = ?,
-                               error = ?, rows_output = ?, files_uploaded = ?
+                               report_name = COALESCE(NULLIF(?, ''), report_name),
+                               args = COALESCE(NULLIF(?, ''), args),
+                               error = COALESCE(NULLIF(?, ''), error),
+                               rows_output = COALESCE(?, rows_output),
+                               files_uploaded = COALESCE(?, files_uploaded)
                            WHERE job_id = ?""",
                         (r.get("status"), r.get("duration_sec"), r.get("end_time"),
-                         r.get("error"), r.get("rows_output"), r.get("files_uploaded"),
+                         r.get("report_name", ""), r.get("args", ""),
+                         r.get("error", ""), r.get("rows_output"), r.get("files_uploaded"),
                          job_id),
                     )
                     continue

@@ -79,14 +79,6 @@ def get_client_secret() -> str:
     return get_config("GRAPH_CLIENT_SECRET", ["GRAPH_CLIENT_SECRET", "AZURE_CLIENT_SECRET"])
 
 
-def get_sp_site_url() -> str:
-    return get_config("SP_SITE_URL", ["SP_SITE_URL", "GRAPH_SITE_URL"])
-
-
-def get_drive_root_path() -> str:
-    return get_config("DriveRootPath", ["DriveRootPath", "GRAPH_ROOT_PATH"], default="D365 F&O")
-
-
 def get_company_id() -> str:
     return get_config("D365_COMPANY_ID", ["D365_COMPANY_ID"])
 
@@ -108,13 +100,6 @@ def validate_d365_config() -> None:
     log.info("D365 config validated: env_url=%s..., company=%s",
              env_url[:30] if len(env_url) > 30 else env_url,
              get_company_id() or "(default)")
-
-
-def validate_graph_config() -> None:
-    """Raise if required Graph/SharePoint config is missing."""
-    validate_d365_config()
-    if not get_sp_site_url():
-        raise RuntimeError("Missing required config: SP_SITE_URL")
 
 
 # ---------------------------------------------------------------------------
@@ -151,18 +136,6 @@ def get_smtp_password() -> str:
 def get_graph_email_from() -> str:
     """When using Graph to send mail: the mailbox to send from (UPN, e.g. reports@company.com). Empty = do not use Graph for email."""
     return get_config("AMAZON_EMAIL_FROM", ["AMAZON_EMAIL_FROM", "GRAPH_EMAIL_FROM"], default="").strip()
-
-
-# ---------------------------------------------------------------------------
-# Alerting (Plan 3 – runbook failure / warning notifications)
-# ---------------------------------------------------------------------------
-
-def get_alert_recipients() -> list[str]:
-    """Comma- or semicolon-separated list of email addresses for runbook alerts. Empty = alerts logged only."""
-    raw = get_config("ALERT_RECIPIENTS", ["ALERT_RECIPIENTS"], default="")
-    if not raw or not str(raw).strip():
-        return []
-    return [a.strip() for a in str(raw).replace(";", ",").split(",") if a.strip()]
 
 
 def get_test_email() -> str:

@@ -545,45 +545,52 @@ def start_background_refresh():
 # ---------------------------------------------------------------------------
 
 def sync_runbook_history():
-    """Download run_log.csv from SharePoint and merge with Azure Automation job list."""
+    """Download run_log.csv from SharePoint, fetch Azure Automation jobs,
+    merge them, and upsert into local DB.
+
+    Azure jobs provide job_id and status but often lack report_name/args for
+    schedule-triggered runs.  run_log.csv (written by the runbook itself)
+    always has report_name, args, and error.  We match them by timestamp
+    proximity and merge the best data from each source.
+    """
     from webapp.db import upsert_runbook_history
+    from datetime import datetime, timedelta
     import csv
     import io
 
-    all_rows = []
+    azure_jobs: list[dict] = []
+    csv_rows_list: list[dict] = []
 
     # 1) Fetch from Azure Automation job API
     try:
         from webapp.services.azure_automation import list_jobs
         jobs = list_jobs(limit=500)
         for j in jobs:
-            job_id = j.get("job_id", "")
             start = j.get("start_time") or j.get("creation_time") or ""
             end = j.get("end_time") or ""
-
             duration = None
             if start and end:
                 try:
-                    from datetime import datetime
                     s = datetime.fromisoformat(start)
                     e = datetime.fromisoformat(end)
                     duration = round((e - s).total_seconds(), 1)
                 except Exception:
                     pass
 
-            all_rows.append({
-                "job_id": job_id,
+            azure_jobs.append({
+                "job_id": j.get("job_id", ""),
                 "timestamp": start[:19].replace("T", " ") if start else "",
                 "report_name": j.get("report_name", ""),
                 "status": j.get("status", ""),
                 "duration_sec": duration,
                 "args": j.get("extra_args", ""),
+                "error": j.get("error", ""),
                 "runbook_name": j.get("runbook_name", ""),
                 "start_time": start,
                 "end_time": end,
                 "source": "azure_api",
             })
-        log.info("Fetched %d jobs from Azure Automation API", len(jobs))
+        log.info("Fetched %d jobs from Azure Automation API", len(azure_jobs))
     except Exception:
         log.exception("Failed to fetch Azure Automation jobs")
 
@@ -603,7 +610,6 @@ def sync_runbook_history():
             resp = req.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
             if resp.status_code == 200:
                 reader = csv.DictReader(io.StringIO(resp.text))
-                csv_rows = 0
                 for row in reader:
                     ts = row.get("timestamp", "").strip()
                     rn = row.get("report_name", "").strip()
@@ -613,43 +619,105 @@ def sync_runbook_history():
                     if status == "STARTED":
                         continue
 
-                    dur = None
-                    try:
-                        dur = float(row.get("duration_sec", "")) if row.get("duration_sec", "").strip() else None
-                    except ValueError:
-                        pass
+                    def _safe_float(v):
+                        try:
+                            return float(v) if v and v.strip() else None
+                        except ValueError:
+                            return None
 
-                    ro = None
-                    try:
-                        ro = int(row.get("rows_output", "")) if row.get("rows_output", "").strip() else None
-                    except ValueError:
-                        pass
+                    def _safe_int(v):
+                        try:
+                            return int(v) if v and v.strip() else None
+                        except ValueError:
+                            return None
 
-                    fu = None
-                    try:
-                        fu = int(row.get("files_uploaded", "")) if row.get("files_uploaded", "").strip() else None
-                    except ValueError:
-                        pass
-
-                    all_rows.append({
-                        "job_id": None,
+                    csv_rows_list.append({
                         "timestamp": ts,
                         "report_name": rn,
                         "status": status,
-                        "duration_sec": dur,
-                        "rows_output": ro,
-                        "files_uploaded": fu,
+                        "duration_sec": _safe_float(row.get("duration_sec", "")),
+                        "rows_output": _safe_int(row.get("rows_output", "")),
+                        "files_uploaded": _safe_int(row.get("files_uploaded", "")),
                         "args": row.get("args", "").strip(),
                         "error": row.get("error", "").strip(),
-                        "source": "run_log",
                     })
-                    csv_rows += 1
-                log.info("Parsed %d rows from run_log.csv", csv_rows)
+                log.info("Parsed %d rows from run_log.csv", len(csv_rows_list))
             else:
                 log.warning("Could not download run_log.csv: HTTP %d", resp.status_code)
     except Exception:
         log.exception("Failed to download run_log.csv from SharePoint")
 
+    # 3) Merge: enrich Azure jobs with run_log data by matching timestamps
+    #    A CSV row matches an Azure job if the timestamps are within 5 minutes
+    #    and the status is compatible.
+    MAX_DELTA = timedelta(minutes=5)
+    used_csv_indices: set[int] = set()
+
+    def _parse_ts(ts_str: str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return datetime.strptime(ts_str[:19], fmt)
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    all_rows: list[dict] = []
+
+    for aj in azure_jobs:
+        aj_ts = _parse_ts(aj.get("timestamp", ""))
+        best_match = None
+        best_idx = -1
+        best_delta = MAX_DELTA
+
+        if aj_ts:
+            for idx, cr in enumerate(csv_rows_list):
+                if idx in used_csv_indices:
+                    continue
+                cr_ts = _parse_ts(cr.get("timestamp", ""))
+                if not cr_ts:
+                    continue
+                delta = abs(aj_ts - cr_ts)
+                if delta < best_delta:
+                    best_delta = delta
+                    best_match = cr
+                    best_idx = idx
+
+        merged = dict(aj)
+        if best_match and best_idx >= 0:
+            used_csv_indices.add(best_idx)
+            if not merged.get("report_name"):
+                merged["report_name"] = best_match.get("report_name", "")
+            if not merged.get("args"):
+                merged["args"] = best_match.get("args", "")
+            if not merged.get("error"):
+                merged["error"] = best_match.get("error", "")
+            if not merged.get("duration_sec") and best_match.get("duration_sec"):
+                merged["duration_sec"] = best_match["duration_sec"]
+            if best_match.get("rows_output"):
+                merged["rows_output"] = best_match["rows_output"]
+            if best_match.get("files_uploaded"):
+                merged["files_uploaded"] = best_match["files_uploaded"]
+
+        all_rows.append(merged)
+
+    # 4) Add unmatched CSV rows (e.g. older history not in Azure job list)
+    for idx, cr in enumerate(csv_rows_list):
+        if idx in used_csv_indices:
+            continue
+        all_rows.append({
+            "job_id": None,
+            "timestamp": cr["timestamp"],
+            "report_name": cr["report_name"],
+            "status": cr["status"],
+            "duration_sec": cr.get("duration_sec"),
+            "rows_output": cr.get("rows_output"),
+            "files_uploaded": cr.get("files_uploaded"),
+            "args": cr.get("args", ""),
+            "error": cr.get("error", ""),
+            "source": "run_log",
+        })
+
     if all_rows:
         upsert_runbook_history(all_rows)
-        log.info("Runbook history sync complete: %d total rows processed", len(all_rows))
+        log.info("Runbook history sync complete: %d total rows (%d azure, %d csv, %d merged)",
+                 len(all_rows), len(azure_jobs), len(csv_rows_list), len(used_csv_indices))

@@ -5,8 +5,8 @@ Loads settings from the parent scripts/.env and adds web-specific config.
 """
 
 import os
-import sys
 import secrets
+import sys
 
 _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
@@ -35,7 +35,10 @@ if FLASK_SECRET == _fallback_secret:
     )
 
 WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
-USER_MAP_PATH = os.path.join(WEBAPP_DIR, "user_map.json")
 
 REPORT_OUTPUT_DIR = os.path.join(WEBAPP_DIR, "_report_output")
 os.makedirs(REPORT_OUTPUT_DIR, exist_ok=True)
+
+DEV_BYPASS_AUTH = os.environ.get("DEV_BYPASS_AUTH", "").lower() in ("1", "true", "yes")
+
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")

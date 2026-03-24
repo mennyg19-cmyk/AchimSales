@@ -12,7 +12,7 @@ import sys
 from datetime import date
 
 from config.paths import get_output_path
-from core.dates import FetchPlan, get_today_eastern, resolve_fetch_plan
+from core.dates import FetchPlan, clamp_start, get_today_eastern, resolve_fetch_plan
 from core.email_report import send_report_email
 from core.logging import setup_logging
 from core.validation import validate_output
@@ -31,28 +31,34 @@ REPORT_NAME = "Salesman Report"
 REPORT_KEY = "salesman"
 
 
-def _resolve_salesman_email(sm_display_name: str, test_override: str | None = None) -> str | None:
-    """Look up a salesman's email if they are subscribed to the salesman report.
+def _resolve_salesman_email(
+    sm_display_name: str, test_override: str | None = None,
+) -> tuple[str | None, list[str], list[str]]:
+    """Look up a salesman's email, CC, and BCC if subscribed to the salesman report.
 
-    If ``test_override`` is provided, it is returned instead so test runs
-    don't email real recipients.
+    Returns (email_or_None, cc_list, bcc_list).
+    When ``test_override`` is set, CC/BCC are emptied so test runs don't
+    leak emails to real recipients.
     """
     if test_override:
-        return test_override
+        return test_override, [], []
     try:
-        from config.salesman_excel import get_salesman_email, load_salesman_map, wants_report
+        from config.salesman_excel import get_salesman_cc_bcc, get_salesman_email, load_salesman_map, wants_report
         sm_map = load_salesman_map()
         for key, rec in sm_map.items():
             if rec.display_name == sm_display_name:
                 if not wants_report(key, REPORT_KEY):
                     log.debug("%s opted out of %s", sm_display_name, REPORT_NAME)
-                    return None
+                    return None, [], []
                 email = get_salesman_email(key)
-                return email if email and "@" in email else None
-        return None
+                if not email or "@" not in email:
+                    return None, [], []
+                cc, bcc = get_salesman_cc_bcc(key)
+                return email, cc, bcc
+        return None, [], []
     except Exception:
         log.debug("Could not resolve email for salesman '%s'", sm_display_name, exc_info=True)
-        return None
+        return None, [], []
 
 
 def _send_salesman_report_email(
@@ -61,7 +67,7 @@ def _send_salesman_report_email(
     test_override: str | None = None,
 ) -> None:
     """Email a salesman their individual report."""
-    email = _resolve_salesman_email(sm_name, test_override=test_override)
+    email, cc, bcc = _resolve_salesman_email(sm_name, test_override=test_override)
     if not email:
         log.info("No email for salesman '%s'; skipping report email", sm_name)
         return
@@ -70,7 +76,8 @@ def _send_salesman_report_email(
     if sharepoint_url:
         body += f"\n\nSharePoint link: {sharepoint_url}"
     try:
-        send_report_email(file_path=file_path, subject=subject, body=body, recipients=[email])
+        send_report_email(file_path=file_path, subject=subject, body=body,
+                          recipients=[email], cc=cc, bcc=bcc)
         log.info("Emailed report to %s (%s)", sm_name, email)
     except Exception:
         log.exception("Failed to email report to %s (%s)", sm_name, email)
@@ -128,8 +135,10 @@ class SalesmanReportRunner(BaseReportRunner):
             if entry.get("is_master"):
                 from config.salesman_excel import get_report_subscribers
                 subscribers = get_report_subscribers("master_salesman")
-                for display_name, email in subscribers:
+                for display_name, email, sub_cc, sub_bcc in subscribers:
                     recipient = test_override if test_override else email
+                    cc = [] if test_override else sub_cc
+                    bcc = [] if test_override else sub_bcc
                     year = entry["year"]
                     subject = f"Monthly Salesmen Report ({year})"
                     body = f"Attached is the Monthly Salesmen Report for {year}."
@@ -138,7 +147,7 @@ class SalesmanReportRunner(BaseReportRunner):
                     try:
                         send_report_email(
                             file_path=entry["file_path"], subject=subject, body=body,
-                            recipients=[recipient],
+                            recipients=[recipient], cc=cc, bcc=bcc,
                         )
                         log.info("Emailed master report to %s (%s)", display_name, recipient)
                     except Exception:
@@ -167,8 +176,10 @@ class SalesmanReportRunner(BaseReportRunner):
         subject = f"Monthly Salesmen Report ({year})"
         body = f"Attached is the Monthly Salesmen Report for {year}."
 
-        for display_name, email in subscribers:
+        for display_name, email, sub_cc, sub_bcc in subscribers:
             recipient = test_override if test_override else email
+            cc = [] if test_override else sub_cc
+            bcc = [] if test_override else sub_bcc
             if self.defer_salesman_emails:
                 self.pending_salesman_emails.append({
                     "salesman": display_name,
@@ -181,7 +192,7 @@ class SalesmanReportRunner(BaseReportRunner):
                 try:
                     send_report_email(
                         file_path=master_path, subject=subject, body=body,
-                        recipients=[recipient],
+                        recipients=[recipient], cc=cc, bcc=bcc,
                     )
                     log.info("Emailed master report to %s (%s)", display_name, recipient)
                 except Exception:
@@ -208,7 +219,7 @@ class SalesmanReportRunner(BaseReportRunner):
             return resolve_fetch_plan(single_date=args.date)
         # Monthly Salesmen: always fetch full prior + current year
         return FetchPlan(
-            fetch_start=date(year - 1, 1, 1),
+            fetch_start=clamp_start(date(year - 1, 1, 1)),
             fetch_end=date(year, 12, 31),
             periods=[],
         )

@@ -1,38 +1,26 @@
 """
 Commission percentages by salesman number.
 
-Keys are normalized salesman numbers (no leading zeros).
-Values are commission rates as decimals (e.g., 0.05 = 5%).
+All commission rates are now managed in salesman_map.xlsx (``Commission %`` column).
+This module delegates to :func:`config.salesman_excel.get_commission_pct_map`.
 """
 
-COMMISSION_PCT: dict[str, float] = {
-    "90": 0.03,
-    "76": 0.04,
-    "71": 0.05,
-    "77": 0.05,
-    "102": 0.05,
-    "80": 0.05,
-}
+import logging
 
-COMMISSION_PCT_2026_PLUS: dict[str, float] = {
-    "12": 0.06,
-    "29": 0.04,
-    "24": 0.06,
-}
+log = logging.getLogger(__name__)
 
 
-def get_commission_rate(salesman_number: str, year: int | None = None) -> float:
+def get_commission_rate(salesman_number: str) -> float:
     """Return commission rate for a salesman number, or 0.0 if not configured."""
     normalized = str(salesman_number).strip().lstrip("0") or "0"
-    rate = COMMISSION_PCT.get(normalized, 0.0)
-    if year is not None and year >= 2026:
-        rate = max(rate, COMMISSION_PCT_2026_PLUS.get(normalized, 0.0))
-    return rate
+    return get_commission_pct_map().get(normalized, 0.0)
 
 
-def get_commission_pct_map(year: int | None = None) -> dict[str, float]:
-    """Return the full commission map for the given year."""
-    result = dict(COMMISSION_PCT)
-    if year is not None and year >= 2026:
-        result.update(COMMISSION_PCT_2026_PLUS)
-    return result
+def get_commission_pct_map() -> dict[str, float]:
+    """Return the full commission map from salesman_map.xlsx."""
+    try:
+        from config.salesman_excel import get_commission_pct_map as _xl_map
+        return _xl_map()
+    except Exception:
+        log.warning("Could not load commission map from Excel; returning empty map", exc_info=True)
+        return {}

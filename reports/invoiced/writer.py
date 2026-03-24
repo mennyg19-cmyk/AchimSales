@@ -41,24 +41,32 @@ def write_invoiced_report(
     ytd_invoices: pd.DataFrame | None = None,
     pct_map: dict[str, float] | None = None,
     current_month: int | None = None,
+    skip_commissions: bool = False,
 ) -> None:
-    """Write the Invoiced Report workbook."""
+    """Write the Invoiced Report workbook.
+
+    Set ``skip_commissions=True`` for per-salesman Shipped Reports where the
+    commissions tab is not meaningful.
+    """
+    from core.logging import log_memory
     log.info("Writing Invoiced Excel: %d summary, %d detail, %d invoice rows",
              len(summary), len(details), len(invoices))
+    log_memory("invoiced:writer:start (%d detail, %d invoice rows)" % (len(details), len(invoices)))
     wb = Workbook()
 
     log.info("  Writing sheet: Summary by Customer (%d rows)", len(summary))
     _write_data_sheet(wb, "Summary by Customer", summary, is_first=True)
 
-    if year is not None and full_detail is not None and pct_map is not None:
-        log.info("  Writing sheet: Commissions (legacy monthly format)")
-        comm_credits = ytd_credits if ytd_credits is not None else credits
-        comm_invoices = ytd_invoices if ytd_invoices is not None else invoices
-        _write_commissions_sheet(wb, year, full_detail, comm_credits, comm_invoices, pct_map,
-                                 current_month=current_month)
-    else:
-        log.info("  Writing sheet: Commissions (fallback -- no monthly data)")
-        _write_commissions_sheet_simple(wb, commissions)
+    if not skip_commissions:
+        if year is not None and full_detail is not None and pct_map is not None:
+            log.info("  Writing sheet: Commissions (legacy monthly format)")
+            comm_credits = ytd_credits if ytd_credits is not None else credits
+            comm_invoices = ytd_invoices if ytd_invoices is not None else invoices
+            _write_commissions_sheet(wb, year, full_detail, comm_credits, comm_invoices, pct_map,
+                                     current_month=current_month)
+        else:
+            log.info("  Writing sheet: Commissions (fallback -- no monthly data)")
+            _write_commissions_sheet_simple(wb, commissions)
 
     log.info("  Writing sheet: Full Details (%d rows)", len(details))
     _write_data_sheet(wb, "Full Details", details)
@@ -71,6 +79,7 @@ def write_invoiced_report(
         log.info("  Writing sheet: Audit - Reversals (%d rows)", len(audit))
         _write_data_sheet(wb, "Audit - Reversals", audit)
 
+    log_memory("invoiced:writer:before_save")
     wb.save(out_path)
     try:
         size_kb = os.path.getsize(out_path) / 1024
@@ -117,7 +126,11 @@ def _write_commissions_sheet_simple(wb: Workbook, comm_df: pd.DataFrame) -> None
 
 
 def _write_data_sheet(wb: Workbook, title: str, df: pd.DataFrame, is_first: bool = False) -> None:
-    """Write a simple data sheet with header styling and money formatting."""
+    """Write a simple data sheet with header styling and money formatting.
+
+    Uses numpy array access instead of iterrows() to minimize memory overhead
+    when writing large DataFrames (50K+ rows).
+    """
     if is_first:
         ws = wb.active
         ws.title = title
@@ -128,8 +141,9 @@ def _write_data_sheet(wb: Workbook, title: str, df: pd.DataFrame, is_first: bool
         ws.cell(row=1, column=1, value="No data")
         return
 
-    df = strip_datetime_tz(df.copy())
+    strip_datetime_tz(df)
     cols = [c for c in df.columns if not c.startswith("_")]
+    col_indices = [df.columns.get_loc(c) for c in cols]
 
     for c_idx, col in enumerate(cols, 1):
         cell = ws.cell(row=1, column=c_idx, value=col)
@@ -137,15 +151,19 @@ def _write_data_sheet(wb: Workbook, title: str, df: pd.DataFrame, is_first: bool
         cell.fill = FILL_HEADER_BLUE
         cell.border = BORDER_THIN
 
-    for r_idx, (_, row) in enumerate(df.iterrows(), 2):
-        for c_idx, col in enumerate(cols, 1):
-            v = row.get(col, "")
-            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+    data = df.values
+    num_rows = len(data)
+    for r_idx in range(num_rows):
+        row_data = data[r_idx]
+        for c_idx, ci in enumerate(col_indices, 1):
+            v = row_data[ci]
+            if v is None:
+                v = ""
+            elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
                 v = 0.0
-            cell = ws.cell(row=r_idx, column=c_idx, value=v)
-            cell.border = BORDER_THIN
+            ws.cell(row=r_idx + 2, column=c_idx, value=v)
 
-    totals_row = len(df) + 2
+    totals_row = num_rows + 2
     money_cols = {"SubTotal Invoices", "Total Tariff Charges", "Total Freight Charges",
                   "Total CC Charges", "Total Invoices", "Total Invoice",
                   "Tariff Charges", "Freight Charges", "CC Charges", "Commissions", "Commission Base"}
@@ -159,7 +177,7 @@ def _write_data_sheet(wb: Workbook, title: str, df: pd.DataFrame, is_first: bool
             ws.cell(row=totals_row, column=c_idx, value="Total").font = FONT_HEADER
 
     format_money_columns(ws, money_cols)
-    autosize_columns(ws)
+    autosize_columns(ws, max_rows=200)
     ws.freeze_panes = "A2"
     if ws.max_row > 1:
         ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{ws.max_row}"
@@ -230,17 +248,16 @@ def _write_commissions_sheet(
     smn_col_name = "SalesmanNumber" if "SalesmanNumber" in detail_df.columns else None
     name_col_name = "SalesmanName" if "SalesmanName" in detail_df.columns else None
     if smn_col_name and name_col_name:
-        tmp = detail_df.copy()
-        tmp["_smn"] = tmp[smn_col_name].map(_norm_smn)
-        for smn, grp in tmp.groupby("_smn", dropna=False):
-            nm = grp[name_col_name].astype(str).str.strip()
+        smn_series = detail_df[smn_col_name].map(_norm_smn)
+        for smn, idx_group in smn_series.groupby(smn_series):
+            nm = detail_df.loc[idx_group.index, name_col_name].astype(str).str.strip()
             nm = nm[nm != ""]
             if len(nm):
                 smn_to_name[str(smn)] = nm.iloc[0]
 
-    det = detail_df.copy()
-    crd = credits_df.copy()
-    inv = invoices_df.copy()
+    det = detail_df
+    crd = credits_df
+    inv = invoices_df
 
     def _coerce_month(series):
         return pd.to_datetime(series, errors="coerce").dt.month
@@ -271,12 +288,11 @@ def _write_commissions_sheet(
         smn_c = "SalesmanNumber" if "SalesmanNumber" in df_src.columns else None
         if not smn_c:
             return [0.0] * num_months
-        tmp2 = df_src.copy()
-        tmp2["_smn"] = tmp2[smn_c].map(_norm_smn)
-        tmp2 = tmp2[tmp2["_smn"] == _norm_smn(smn_key)]
-        if tmp2.empty:
+        mask = df_src[smn_c].map(_norm_smn) == _norm_smn(smn_key)
+        filtered = df_src.loc[mask]
+        if filtered.empty:
             return [0.0] * num_months
-        g = tmp2.groupby("_month")[col].sum()
+        g = filtered.groupby("_month")[col].sum()
         return [float(g.get(m, 0.0) or 0.0) for m in range(1, num_months + 1)]
 
     def _find_col(df_src, candidates):
@@ -345,7 +361,9 @@ def _write_commissions_sheet(
         comm_row = r0 + 8
         pay_row = r0 + 9
 
-        ws.cell(comm_row, 3).value = float(pct or 0)
+        pct_cell = ws.cell(comm_row, 3)
+        pct_cell.value = float(pct or 0)
+        pct_cell.number_format = '0.00%'
 
         subtotal_col = _find_col(inv, ["SubTotal Invoices", "SubTotal", "Subtotal", "Sub Total", "SubTotalAmount"])
         tariff_col = _find_col(det, ["Tariff Charges", "Tariff", "TariffCharge"])
