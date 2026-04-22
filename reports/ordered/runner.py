@@ -194,19 +194,26 @@ class OrderedReportRunner(BaseReportRunner):
         plan: FetchPlan, company_id: str | None,
         status_filter: str | None = None,
     ) -> None:
-        """Run the report filtered to specific salesman(s) passed via CLI."""
+        """Run the report filtered to specific salesman(s) and/or customer(s).
+
+        Output is always written to disk (Direct Reports). Email-only fan-out
+        lives in ``_run_for_all_salesmen`` and is only triggered by
+        ``--salesman all``. When a specific-salesman run comes back empty, we
+        still send a "no data" notification so the salesman knows their
+        requested run returned nothing.
+        """
         base_url, token, company = self.connect(company_id)
 
         is_open = status_filter and status_filter.lower() == "open"
         report_label = "Open Orders Report" if is_open else REPORT_NAME
         file_prefix = "Open_Orders" if is_open else "Ordered_Report"
 
-        email_only = bool(salesman_list)
-        if not salesman_list:
-            if customer_filter:
-                out_subfolder = "Customer/" + "_".join(customer_filter)
-            else:
-                out_subfolder = "Customer"
+        if salesman_list:
+            out_subfolder = "Salesman"
+        elif customer_filter:
+            out_subfolder = "Customer/" + "_".join(customer_filter)
+        else:
+            out_subfolder = "Customer"
 
         customer_label = ",".join(customer_filter) if customer_filter else "all"
         log.info("Fetching data: %s to %s (customer=%s)", plan.fetch_start, plan.fetch_end, customer_label)
@@ -232,60 +239,45 @@ class OrderedReportRunner(BaseReportRunner):
                                         test_override=test_override)
             return
 
-        tmp_dir = tempfile.mkdtemp(prefix="ordered_sm_") if email_only else None
-        try:
-            for period in plan.periods:
-                log.info("Building %s: %s (%s to %s)", report_label, period.label, period.start_date, period.end_date)
-                df, empty_reason = build_report(
-                    headers_df, lines_df, whs_df, ps_df, period,
-                    salesman_filter=salesman_list,
-                )
+        for period in plan.periods:
+            log.info("Building %s: %s (%s to %s)", report_label, period.label, period.start_date, period.end_date)
+            df, empty_reason = build_report(
+                headers_df, lines_df, whs_df, ps_df, period,
+                salesman_filter=salesman_list,
+            )
 
-                if df.empty:
-                    log.info("No data for period %s: %s", period.label, empty_reason)
-                    if customer_filter and not salesman_list:
-                        continue
-                    for sm in salesman_list:
-                        _send_no_data_email(sm, customer_label, period.label, empty_reason or "No data",
-                                            test_override=test_override)
+            if df.empty:
+                log.info("No data for period %s: %s", period.label, empty_reason)
+                if customer_filter and not salesman_list:
                     continue
+                for sm in salesman_list:
+                    _send_no_data_email(sm, customer_label, period.label, empty_reason or "No data",
+                                        test_override=test_override)
+                continue
 
-                suffix_parts = []
-                if len(salesman_list) == 1:
-                    suffix_parts.append(salesman_list[0])
-                elif len(salesman_list) > 1:
-                    suffix_parts.append(f"{len(salesman_list)}salesmen")
-                if customer_filter:
-                    suffix_parts.append("Cust_" + "_".join(customer_filter))
-                suffix = ("_" + "_".join(suffix_parts)) if suffix_parts else ""
+            suffix_parts = []
+            if len(salesman_list) == 1:
+                suffix_parts.append(salesman_list[0])
+            elif len(salesman_list) > 1:
+                suffix_parts.append(f"{len(salesman_list)}salesmen")
+            if customer_filter:
+                suffix_parts.append("Cust_" + "_".join(customer_filter))
+            suffix = ("_" + "_".join(suffix_parts)) if suffix_parts else ""
 
-                validate_output(df, FULL_DATA_ORDER, REPORT_NAME)
+            validate_output(df, FULL_DATA_ORDER, REPORT_NAME)
 
-                if self.dry_run:
-                    log.info("[DRY RUN] %s %s: %d rows, %d columns -- skipping write",
-                             report_label, period.label, len(df), len(df.columns))
-                    continue
+            if self.dry_run:
+                log.info("[DRY RUN] %s %s: %d rows, %d columns -- skipping write",
+                         report_label, period.label, len(df), len(df.columns))
+                continue
 
-                test_tag = "_TEST" if self.test_mode else ""
-                filename = f"{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
+            test_tag = "_TEST" if self.test_mode else ""
+            filename = f"{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
+            out_path = get_output_path(REPORT_NAME, out_subfolder, filename)
 
-                if email_only:
-                    out_path = os.path.join(tmp_dir, filename)
-                else:
-                    out_path = get_output_path(REPORT_NAME, out_subfolder, filename)
-
-                log.info("Writing %s (%d rows)", out_path, len(df))
-                write_report(df, out_path, report_variant="salesman" if salesman_list else "filtered")
-                log.info("Saved: %s", out_path)
-
-                if email_only:
-                    for sm in salesman_list:
-                        self._queue_or_send_salesman_email(
-                            sm, out_path, period.label, force_immediate=True)
-        finally:
-            if tmp_dir:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-                log.info("Cleaned up temp dir for salesman email-only files")
+            log.info("Writing %s (%d rows)", out_path, len(df))
+            write_report(df, out_path, report_variant="salesman" if salesman_list else "filtered")
+            log.info("Saved: %s", out_path)
 
     def _run_for_all_salesmen(
         self, customer_filter: list[str] | None,

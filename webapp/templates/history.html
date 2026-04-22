@@ -63,11 +63,33 @@
                 <i data-feather="x-circle" style="width:14px;height:14px;"></i> Cancel
             </button>
             {% elif rec.status == 'completed' or rec.status == 'no_data' %}
-            <a href="{{ url_for('reports.history_view', record_idx=loop.index0) }}" class="btn btn-sm btn-primary">
+            <a href="{{ url_for('reports.history_view', record_id=rec.record_id) }}" class="btn btn-sm btn-primary">
                 <i data-feather="eye"></i> View
             </a>
-            {% if rec.file_available %}
-            <a href="{{ url_for('reports.history_download', record_idx=loop.index0) }}" class="btn btn-sm btn-outline">
+            {% if rec.file_available and rec.extra_files %}
+            <div class="history-downloads-dropdown" style="position:relative; display:inline-block;">
+                <button type="button" class="btn btn-sm btn-outline"
+                        onclick="toggleHistDownloads(this)"
+                        title="{{ rec.extra_files|length + 1 }} files">
+                    <i data-feather="download"></i>
+                    <span style="margin-left:4px; font-size:11px;">{{ rec.extra_files|length + 1 }}</span>
+                </button>
+                <div class="history-downloads-menu" style="display:none; position:absolute; right:0; top:100%; background:var(--surface,#fff); border:1px solid var(--border,#ddd); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.12); z-index:100; min-width:240px; max-width:360px; padding:4px 0;">
+                    <a href="{{ url_for('reports.history_download', record_id=rec.record_id) }}"
+                       class="history-download-item" style="display:block; padding:8px 12px; text-decoration:none; color:var(--text,#111); font-size:13px; border-bottom:1px solid var(--border-light,#eee); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                        {{ rec.filename or 'Primary file' }}
+                    </a>
+                    {% for ef in rec.extra_files %}
+                    <a href="{{ url_for('reports.history_download_extra', record_id=rec.record_id, file_idx=loop.index0) }}"
+                       class="history-download-item" style="display:block; padding:8px 12px; text-decoration:none; color:var(--text,#111); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                       title="{{ ef.filename }}">
+                        {{ ef.filename }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% elif rec.file_available %}
+            <a href="{{ url_for('reports.history_download', record_id=rec.record_id) }}" class="btn btn-sm btn-outline">
                 <i data-feather="download"></i>
             </a>
             {% endif %}
@@ -116,6 +138,24 @@ function cancelFromHistory(runId, btn) {
             alert('Network error.');
         });
 }
+
+function toggleHistDownloads(btn) {
+    var menu = btn.parentElement.querySelector('.history-downloads-menu');
+    if (!menu) return;
+    var isOpen = menu.style.display !== 'none' && menu.style.display !== '';
+    document.querySelectorAll('.history-downloads-menu').forEach(function(m) {
+        m.style.display = 'none';
+    });
+    if (!isOpen) menu.style.display = 'block';
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.history-downloads-dropdown')) {
+        document.querySelectorAll('.history-downloads-menu').forEach(function(m) {
+            m.style.display = 'none';
+        });
+    }
+});
 
 function deleteFromHistory(recordId, btn) {
     if (!confirm('Delete this report from your history?')) return;

@@ -588,7 +588,8 @@ def _get_last_success_date(log_path, display_name, merged_args=""):
     """
     from datetime import date as _date, datetime as _datetime
 
-    _DATE_FLAGS = {"--from", "--to", "--period", "--date", "--force"}
+    _FLAGS_WITH_VALUE = {"--from", "--to", "--period", "--date", "--subfolder"}
+    _FLAGS_STANDALONE = {"--force", "--test"}
 
     def _base_args(raw: str) -> str:
         tokens = raw.split()
@@ -598,32 +599,52 @@ def _get_last_success_date(log_path, display_name, merged_args=""):
             if skip_next:
                 skip_next = False
                 continue
-            if t in _DATE_FLAGS:
+            if t in _FLAGS_WITH_VALUE:
                 skip_next = True
+                continue
+            if t in _FLAGS_STANDALONE:
                 continue
             out.append(t)
         return " ".join(sorted(out))
 
     target_base = _base_args(merged_args)
+    log.info("[run_log] Looking for last SUCCESS for '%s' with base args '%s'",
+             display_name, target_base or "(empty)")
     last = None
+    rows_checked = 0
+    rows_matched = 0
+    skipped_names = 0
+    skipped_status = 0
+    skipped_args = 0
     try:
         with open(log_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                rows_checked += 1
                 if row.get("report_name") != display_name:
+                    skipped_names += 1
                     continue
                 if row.get("status") != "SUCCESS":
+                    skipped_status += 1
                     continue
                 row_base = _base_args(row.get("args", ""))
                 if row_base != target_base:
+                    skipped_args += 1
+                    log.debug("[run_log]   Skipped row (args mismatch): date=%s row_base='%s' vs target='%s'",
+                              row.get("timestamp", "")[:10], row_base, target_base)
                     continue
                 ts = row.get("timestamp", "")
                 try:
                     last = _datetime.strptime(ts[:10], "%Y-%m-%d").date()
+                    rows_matched += 1
                 except (ValueError, IndexError):
                     pass
     except Exception:
-        pass
+        log.warning("[run_log] Could not read run_log.csv", exc_info=True)
+    log.info("[run_log] Scanned %d rows: %d name-mismatches, %d non-SUCCESS, "
+             "%d args-mismatches, %d matched. Last SUCCESS date: %s",
+             rows_checked, skipped_names, skipped_status, skipped_args,
+             rows_matched, last.isoformat() if last else "(none)")
     return last
 
 
@@ -666,9 +687,6 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
 
     tokens = merged_args.split()
 
-    if "--from" in tokens or "--to" in tokens or "--date" in tokens:
-        return argv
-
     period_val = None
     if "--period" in tokens:
         try:
@@ -676,51 +694,74 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
         except IndexError:
             pass
 
+    log.info("[Catch-up] Checking if catch-up is needed for '%s' (period=%s, args=%s)",
+             display_name, period_val or "(all)", merged_args or "(none)")
+
+    if "--from" in tokens or "--to" in tokens or "--date" in tokens:
+        log.info("[Catch-up] Explicit date range in args -- no catch-up needed.")
+        return argv
+
     now = _effective_now()
     today = now.date()
     yesterday = today - timedelta(days=1)
+    log.info("[Catch-up] Today is %s, yesterday is %s.", today.isoformat(), yesterday.isoformat())
 
     last_success = _get_last_success_date(log_path, display_name, merged_args)
     if last_success is None:
+        log.info("[Catch-up] No previous successful run found in run_log. "
+                 "Running regular scheduled %s.", period_val or "all-periods")
         return argv
 
     gap_days = (today - last_success).days
+    log.info("[Catch-up] Previous successful run was %s (%d day(s) ago).",
+             last_success.isoformat(), gap_days)
+
     if gap_days <= 1:
+        log.info("[Catch-up] Gap is <= 1 day -- no catch-up needed. "
+                 "Running regular scheduled %s.", period_val or "all-periods")
         return argv
+
+    log.info("[Catch-up] Gap is %d days -- catch-up IS needed.", gap_days)
 
     catch_from = None
     catch_to = None
     subfolder = None
 
     if period_val is None:
-        # All-periods nightly run.  MTD/YTD/last_7_days are self-healing, but
-        # the "daily" period only covers yesterday -- missed days would be lost.
-        # Return a special sentinel so the caller can run BOTH a catch-up daily
-        # pass AND the normal all-periods pass.
         catch_from = last_success.isoformat()
         catch_to = yesterday.isoformat()
-        log.info("[Catch-up] No-period run: last success %s (%d days ago). "
-                 "Will run catch-up daily --from %s --to %s THEN normal all-periods.",
-                 last_success.isoformat(), gap_days, catch_from, catch_to)
+        log.info("[Catch-up] No-period (nightly) run: will do two-pass. "
+                 "Pass 1: catch-up daily --from %s --to %s. "
+                 "Pass 2: normal all-periods.",
+                 catch_from, catch_to)
         return _CATCHUP_THEN_NORMAL, catch_from, catch_to
 
     elif period_val in ("daily", "yesterday"):
         catch_from = last_success.isoformat()
         catch_to = yesterday.isoformat()
         subfolder = "Daily"
+        log.info("[Catch-up] Daily catch-up: expanding to --from %s --to %s "
+                 "(covers %d missed day(s) + yesterday).",
+                 catch_from, catch_to, gap_days - 1)
 
     elif period_val == "last_7_days":
         widened_start = today - timedelta(days=6 + gap_days - 1)
         catch_from = widened_start.isoformat()
         catch_to = today.isoformat()
         subfolder = "This Week"
+        log.info("[Catch-up] last_7_days catch-up: widening to --from %s --to %s.",
+                 catch_from, catch_to)
 
     elif period_val == "mtd":
         if last_success.month != today.month or last_success.year != today.year:
             catch_from = last_success.replace(day=1).isoformat()
             catch_to = (today.replace(day=1) - timedelta(days=1)).isoformat()
             subfolder = "MTD"
+            log.info("[Catch-up] MTD cross-month catch-up: finishing prior month "
+                     "--from %s --to %s.", catch_from, catch_to)
         else:
+            log.info("[Catch-up] MTD same month -- no catch-up needed. "
+                     "Running regular scheduled MTD.")
             return argv
 
     elif period_val == "ytd":
@@ -728,24 +769,26 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
             catch_from = last_success.replace(month=1, day=1).isoformat()
             catch_to = _date(last_success.year, 12, 31).isoformat()
             subfolder = "YTD"
+            log.info("[Catch-up] YTD cross-year catch-up: finishing prior year "
+                     "--from %s --to %s.", catch_from, catch_to)
         else:
+            log.info("[Catch-up] YTD same year -- no catch-up needed. "
+                     "Running regular scheduled YTD.")
             return argv
 
     else:
+        log.info("[Catch-up] Unknown period '%s' -- no catch-up. "
+                 "Running regular scheduled run.", period_val)
         return argv
 
     if catch_from is None:
         return argv
 
-    log.info("[Catch-up] Last success for '%s' was %s (%d days ago, period=%s). "
-             "Injecting --from %s --to %s (subfolder=%s)",
-             display_name, last_success.isoformat(), gap_days,
-             period_val or "(none)", catch_from, catch_to, subfolder or "(default)")
-
     new_argv = _strip_period(argv)
     new_argv += ["--from", catch_from, "--to", catch_to]
     if subfolder:
         new_argv += ["--subfolder", subfolder]
+    log.info("[Catch-up] Final args for runner: %s", " ".join(new_argv))
     return new_argv
 
 
@@ -885,23 +928,32 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     if do_two_pass:
         _, catch_from, catch_to = catchup_result
 
-        # Pass 1: catch-up daily for missed days
         catchup_argv = list(argv) + ["--from", catch_from, "--to", catch_to, "--subfolder", "Daily"]
-        log.info("[%s] Pass 1/2: catch-up daily (%s to %s)", display, catch_from, catch_to)
+        log.info(">>> Running CATCH-UP pass for '%s': --from %s --to %s (subfolder=Daily)",
+                 display, catch_from, catch_to)
         code1, err1, inst1 = _execute_runner(entry, catchup_argv, display)
         if code1 != 0:
-            log.warning("[%s] Catch-up daily pass failed (code=%d), continuing with normal run", display, code1)
+            log.warning("[%s] Catch-up pass failed (code=%d), continuing with normal run", display, code1)
+            _send_alert(
+                f"FAILURE: {display} catch-up",
+                f"{display} catch-up pass failed (--from {catch_from} --to {catch_to}).\n\nError:\n{err1}",
+                **alert_ctx,
+            )
 
-        # Pass 2: normal all-periods run
-        log.info("[%s] Pass 2/2: normal all-periods run", display)
+        log.info(">>> Running REGULAR SCHEDULED all-periods pass for '%s'", display)
         code2, err2, inst2 = _execute_runner(entry, argv, display)
         runner_instance = inst2 or inst1
         exit_code = code2
         error_msg = err2
-        merged_args_display = f"[catchup: --from {catch_from} --to {catch_to}] + [normal: {merged_args or '(none)'}]"
+        merged_args_display = merged_args or ""
     else:
         argv = catchup_result if isinstance(catchup_result, list) else argv
         merged_args_display = " ".join(argv) if argv else merged_args
+        is_catchup = (catchup_result is not argv)
+        if is_catchup:
+            log.info(">>> Running CATCH-UP for '%s': %s", display, merged_args_display)
+        else:
+            log.info(">>> Running REGULAR SCHEDULED '%s': %s", display, merged_args_display)
         exit_code, error_msg, runner_instance = _execute_runner(entry, argv, display)
 
     elapsed = time.monotonic() - start
@@ -926,13 +978,13 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
 
     if exit_code != 0:
         _send_alert(
-            f"{display} FAILED",
+            f"FAILURE: {display}",
             f"{display} failed after {elapsed:.0f}s.\n\nArgs: {merged_args_display}\n\nError:\n{error_msg}",
             **alert_ctx,
         )
     elif elapsed > 3600:
         _send_alert(
-            f"{display} slow execution",
+            f"SLOW: {display} execution ({elapsed:.0f}s)",
             f"{display} took {elapsed:.0f}s (threshold 3600s). Check D365 API or data volume.",
             **alert_ctx,
         )
@@ -1088,42 +1140,123 @@ def _classify_guard_action(extra_args):
         return "skip"
 
     if period_val == "ytd":
+        today = _effective_now().date()
+        tomorrow = today + timedelta(days=1)
+        if tomorrow.year != today.year:
+            return "reschedule"
         return "skip"
 
     return "skip"
 
 
-def main():
-    # ---- Read runbook parameters ----
-    # Azure Automation injects runbook parameters as module-level globals.
-    # We read them directly to avoid the slow automationassets probe.
-    # For local testing, fall back to CLI args or env vars.
-    _report_name = ""
-    _extra_args = ""
-    _webapp_record_id = ""
+_KNOWN_REPORT_KEYS = {
+    "ordered", "invoiced", "salesman", "number_4", "amazon_weekly",
+    "customer_activity", "customer_aging", "all",
+}
 
-    # 1) Azure Automation injected globals
+
+def _parse_runbook_args():
+    """Resolve (report_name, extra_args, webapp_record_id) from any source.
+
+    Sources, in priority order:
+      1. Module-level globals (rarely set for Python runbooks, but cheap to check).
+      2. Command-line arguments.
+
+         Azure Automation ships params to a Python3 runbook as positional
+         argv tokens. Two delivery shapes exist:
+
+         a) Positional schedule params or a single ordered call: the first
+            argv token is the report key, everything after it is extra_args
+            in its original order, e.g.::
+
+                argv = ['ordered', '--customer', '48999', '917', '2267',
+                        '--period', 'daily']
+
+            We must keep that order intact -- argparse needs ``--customer``
+            adjacent to its values because the flag uses ``nargs='+'``.
+
+         b) Named schedule/webapp params: Azure sorts by parameter name,
+            which puts ``extra_args`` before ``report_name`` ('e' < 'r').
+            So argv comes back with the flags first and the report key
+            stranded at the end, e.g.::
+
+                argv = ['--email', 'salesman']   # report_name='salesman'
+                argv = ['--customer', '48999', 'ordered']  # report_name='ordered'
+
+            We detect this by argv[0] not being a known report key and
+            then pick the one token that IS a known key as the name,
+            leaving the rest in their original relative order.
+      3. Environment variables.
+    """
+    report_name = ""
+    extra_args = ""
+    webapp_record_id = ""
+
     g = globals()
     if "report_name" in g and g["report_name"]:
-        _report_name = str(g["report_name"]).strip()
+        report_name = str(g["report_name"]).strip()
     if "extra_args" in g and g["extra_args"]:
-        _extra_args = str(g["extra_args"]).strip()
+        extra_args = str(g["extra_args"]).strip()
     if "webapp_record_id" in g and g["webapp_record_id"]:
-        _webapp_record_id = str(g["webapp_record_id"]).strip()
+        webapp_record_id = str(g["webapp_record_id"]).strip()
 
-    # 2) CLI override for local testing
-    if len(sys.argv) >= 2 and sys.argv[1] not in ("-h", "--help"):
-        _report_name = sys.argv[1]
-    if len(sys.argv) >= 3:
-        _extra_args = " ".join(sys.argv[2:])
+    tokens = [
+        t.strip().strip('"').strip("'")
+        for t in sys.argv[1:]
+        if t and t not in ("-h", "--help")
+    ]
+    tokens = [t for t in tokens if t]
 
-    # 3) Env var fallback
-    if not _report_name:
-        _report_name = os.environ.get("REPORT_NAME", "").strip()
-    if not _extra_args:
-        _extra_args = os.environ.get("EXTRA_ARGS", "").strip()
-    if not _webapp_record_id:
-        _webapp_record_id = os.environ.get("WEBAPP_RECORD_ID", "").strip()
+    if tokens and (not report_name or not extra_args):
+        first = tokens[0]
+        first_key = first.lower().replace("-", "_")
+        first_is_known = first_key in _KNOWN_REPORT_KEYS
+
+        if first_is_known:
+            # Shape (a): ordered positional delivery.  Trust argv order --
+            # never re-sort the tail or argparse nargs='+' flags will break.
+            if not report_name:
+                report_name = first
+            if not extra_args:
+                extra_args = " ".join(tokens[1:])
+        else:
+            # Shape (b): alphabetical-named-param swap.  Azure sorts named
+            # params by name ('extra_args' < 'report_name'), so the report
+            # key always lands as the LAST known-key token in argv.
+            # Scan from the right so values like ``--salesman all`` don't
+            # steal the report_name slot when the real report name is
+            # ``ordered`` sitting at the end.
+            name_idx = None
+            for i in range(len(tokens) - 1, -1, -1):
+                if tokens[i].lower().replace("-", "_") in _KNOWN_REPORT_KEYS:
+                    name_idx = i
+                    break
+            if name_idx is not None:
+                if not report_name:
+                    report_name = tokens[name_idx]
+                if not extra_args:
+                    rest = tokens[:name_idx] + tokens[name_idx + 1:]
+                    extra_args = " ".join(rest)
+            else:
+                # No known key in argv -- treat whole thing as extra_args.
+                if not extra_args:
+                    extra_args = " ".join(tokens)
+
+    if not report_name:
+        report_name = os.environ.get("REPORT_NAME", "").strip()
+    if not extra_args:
+        extra_args = os.environ.get("EXTRA_ARGS", "").strip()
+    if not webapp_record_id:
+        webapp_record_id = os.environ.get("WEBAPP_RECORD_ID", "").strip()
+
+    return report_name, extra_args, webapp_record_id
+
+
+def main():
+    _report_name, _extra_args, _webapp_record_id = _parse_runbook_args()
+    log.info("Raw sys.argv: %s", sys.argv)
+    log.info("Resolved parameters: report_name=%r, extra_args=%r, webapp_record_id=%r",
+             _report_name, _extra_args, _webapp_record_id)
 
     report_name = _report_name
     extra_args = _extra_args
@@ -1169,10 +1302,11 @@ def main():
     # schedule after havdalah).  See _classify_guard_action() docstring for
     # the full rules table.
     if not is_force:
+        log.info("Checking Shabbos/Yom Tov date bypass...")
         is_assur, reason, havdalah_dt = _is_melacha_time()
         if is_assur:
             guard_action = _classify_guard_action(extra_args)
-            log.info("=== %s -- guard action: %s ===", reason, guard_action)
+            log.info("Today IS assur b'melacha (%s). Guard action: %s", reason, guard_action)
 
             _tid = _get_config("GRAPH_TENANT_ID", ["GRAPH_TENANT_ID", "AZURE_TENANT_ID"])
             _cid = _get_config("GRAPH_CLIENT_ID", ["GRAPH_CLIENT_ID", "AZURE_CLIENT_ID"])
@@ -1223,8 +1357,11 @@ def main():
             except Exception:
                 log.warning("Could not log %s to run_log.csv", status_tag, exc_info=True)
             return 0
+        else:
+            log.info("Today is NOT assur b'melacha. Proceeding with report run.")
 
     if is_force:
+        log.info("--force flag present, bypassing Shabbos/Yom Tov check.")
         extra_args = (extra_args or "").replace("--force", "").strip()
 
     if is_simulating:
@@ -1382,7 +1519,7 @@ def main():
             summary_lines.append(f"  Upload: {files_uploaded} files")
         except Exception:
             log.exception("SharePoint upload failed")
-            _send_alert("SharePoint upload FAILED", traceback.format_exc(), **alert_ctx)
+            _send_alert("FAILURE: SharePoint upload", traceback.format_exc(), **alert_ctx)
             summary_lines.append("  Upload: FAILED")
             overall_exit = 1
     else:
@@ -1429,8 +1566,9 @@ def main():
         overall_elapsed=overall_elapsed,
         overall_exit=overall_exit,
     )
+    heartbeat_prefix = "FAILURE" if overall_exit != 0 else "Runbook Heartbeat"
     _send_alert(
-        f"Runbook Heartbeat: {report_name}",
+        f"{heartbeat_prefix}: {report_name}",
         html_body,
         **alert_ctx,
         content_type="HTML",

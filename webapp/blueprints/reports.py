@@ -3,7 +3,7 @@ Reports blueprint.
 
 Routes: /home, /reports, /report/<key>, /report/<key>/run,
         /report/progress/<run_id>, /report/<key>/download,
-        /history, /history/download/<idx>, /history/view/<idx>
+        /history, /history/download/<record_id>, /history/view/<record_id>
 """
 
 import json
@@ -22,7 +22,7 @@ from webapp.user_map import (
     get_available_reports, get_salesman_key, is_admin, is_manager, is_salesman,
 )
 from webapp.report_api import run_report
-from webapp.history import add_record, delete_record, update_record, get_history
+from webapp.history import add_record, delete_record, update_record, get_history, get_record
 from webapp.db import (
     add_notification, get_all_users, get_saved_reports,
     get_user_salesman_access,
@@ -190,6 +190,7 @@ def report_run(report_key):
                     filepath=result.get("filepath"),
                     filename=result.get("filename"),
                     summary=result.get("summary", {}),
+                    extra_files=result.get("extra_files", []),
                 )
                 result.pop("traceback", None)
                 _update("done", 100, "Report complete!", result)
@@ -293,6 +294,30 @@ def report_download(report_key):
     return send_file(filepath, as_attachment=True, download_name=os.path.basename(filepath))
 
 
+@reports_bp.route("/report/download-file")
+@require_login
+def report_download_file():
+    """Download a report output file by path (validated to be under Direct Reports)."""
+    from config.paths import get_direct_reports_root
+
+    filepath = request.args.get("path", "")
+    if not filepath:
+        flash("No file specified.", "error")
+        return redirect(url_for("reports.reports_list"))
+
+    reports_root = os.path.realpath(get_direct_reports_root())
+    real_path = os.path.realpath(filepath)
+    if not real_path.startswith(reports_root) or not real_path.endswith(".xlsx"):
+        flash("Invalid file path.", "error")
+        return redirect(url_for("reports.reports_list"))
+
+    if not os.path.isfile(real_path):
+        flash("File not found.", "error")
+        return redirect(url_for("reports.reports_list"))
+
+    return send_file(real_path, as_attachment=True, download_name=os.path.basename(real_path))
+
+
 # -- History ---------------------------------------------------------------
 
 @reports_bp.route("/history")
@@ -303,16 +328,15 @@ def history():
     return render_template("history.html", user=user, records=records, active_tab="reports")
 
 
-@reports_bp.route("/history/download/<int:record_idx>")
+@reports_bp.route("/history/download/<record_id>")
 @require_login
-def history_download(record_idx):
+def history_download(record_id):
     user = get_current_user()
-    records = get_history(user.get("email", ""))
-    if record_idx < 0 or record_idx >= len(records):
+    rec = get_record(user.get("email", ""), record_id)
+    if not rec:
         flash("Report not found in history.", "error")
         return redirect(url_for("reports.history"))
 
-    rec = records[record_idx]
     filepath = rec.get("filepath")
     if not filepath or not os.path.isfile(filepath):
         flash("The file for this report is no longer available.", "error")
@@ -322,16 +346,42 @@ def history_download(record_idx):
                      download_name=rec.get("filename", os.path.basename(filepath)))
 
 
-@reports_bp.route("/history/view/<int:record_idx>")
+@reports_bp.route("/history/download-extra/<record_id>/<int:file_idx>")
 @require_login
-def history_view(record_idx):
+def history_download_extra(record_id, file_idx):
+    """Download one of the extra_files attached to a multi-file history record."""
     user = get_current_user()
-    records = get_history(user.get("email", ""))
-    if record_idx < 0 or record_idx >= len(records):
+    rec = get_record(user.get("email", ""), record_id)
+    if not rec:
         flash("Report not found in history.", "error")
         return redirect(url_for("reports.history"))
 
-    rec = records[record_idx]
+    extras = rec.get("extra_files") or []
+    if file_idx < 0 or file_idx >= len(extras):
+        flash("File not found in history.", "error")
+        return redirect(url_for("reports.history"))
+
+    ef = extras[file_idx]
+    fp = ef.get("filepath") if isinstance(ef, dict) else None
+    fname = (ef.get("filename") if isinstance(ef, dict) else None) or (
+        os.path.basename(fp) if fp else "report.xlsx"
+    )
+    if not fp or not os.path.isfile(fp):
+        flash("The file for this report is no longer available.", "error")
+        return redirect(url_for("reports.history"))
+
+    return send_file(fp, as_attachment=True, download_name=fname)
+
+
+@reports_bp.route("/history/view/<record_id>")
+@require_login
+def history_view(record_id):
+    user = get_current_user()
+    rec = get_record(user.get("email", ""), record_id)
+    if not rec:
+        flash("Report not found in history.", "error")
+        return redirect(url_for("reports.history"))
+
     filepath = rec.get("filepath")
     sheets = {}
     if filepath and os.path.isfile(filepath):
@@ -339,7 +389,7 @@ def history_view(record_idx):
         sheets = _read_excel_sheets(filepath)
 
     return render_template("history_view.html", user=user, record=rec,
-                           record_idx=record_idx, sheets=sheets, active_tab="reports")
+                           sheets=sheets, active_tab="reports")
 
 
 @reports_bp.route("/history/delete/<record_id>", methods=["POST"])

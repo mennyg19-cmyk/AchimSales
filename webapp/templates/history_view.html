@@ -23,10 +23,20 @@
         {% endif %}
     </div>
     {% if record.file_available %}
-    <a href="{{ url_for('reports.history_download', record_idx=record_idx) }}" class="btn btn-primary">
-        <i data-feather="download"></i>
-        Download Excel
-    </a>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+        <a href="{{ url_for('reports.history_download', record_id=record.record_id) }}" class="btn btn-primary"
+           title="{{ record.filename }}">
+            <i data-feather="download"></i>
+            Download Excel{% if record.extra_files %} (1 of {{ record.extra_files|length + 1 }}){% endif %}
+        </a>
+        {% for ef in record.extra_files %}
+        <a href="{{ url_for('reports.history_download_extra', record_id=record.record_id, file_idx=loop.index0) }}"
+           class="btn btn-outline btn-sm" title="{{ ef.filename }}">
+            <i data-feather="download"></i>
+            {{ ef.filename }}
+        </a>
+        {% endfor %}
+    </div>
     {% endif %}
 </div>
 
