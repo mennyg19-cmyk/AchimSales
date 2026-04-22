@@ -2137,18 +2137,25 @@ body.dark-theme .settings-save-bar {
     gap: 8px;
     flex-wrap: nowrap;
 }
+.admin-btn-grid {
+    margin: 12px 0 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
 .admin-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     text-decoration: none;
-    max-width: calc(50% - 4px);
     overflow: hidden;
     white-space: nowrap;
     font-size: 13px;
+    padding: 10px 12px;
 }
 @media (max-width: 480px) {
-    .admin-btn { font-size: 12px; padding: 6px 10px; }
+    .admin-btn { font-size: 12px; padding: 8px 10px; }
 }
 
 /* Page transition loading overlay */
@@ -2959,3 +2966,92 @@ body.dark-theme .settings-save-bar {
         width: 64px;
     }
 }
+
+/* -- Table tools: toolbar, expand mode, column resizers ------------------- */
+
+.table-wrapper {
+    position: relative;
+}
+
+.table-toolbar {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.table-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    line-height: 1.4;
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+.table-tool-btn:hover {
+    background: var(--bg);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+.table-tool-btn .tt-icon {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* Expanded mode: break out of the container's max-width */
+.table-wrapper.table-expanded {
+    position: relative;
+    left: 50%;
+    right: 50%;
+    margin-left: -49vw;
+    margin-right: -49vw;
+    width: 98vw;
+    max-width: 98vw;
+    z-index: 6;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+}
+
+body.dark-theme .table-wrapper.table-expanded {
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+}
+
+/* Column resizer grip */
+.col-resizer {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 7px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    touch-action: none;
+    z-index: 2;
+    background: transparent;
+}
+.col-resizer:hover,
+.col-resizer:active {
+    background: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%);
+    opacity: 0.6;
+}
+.table-with-resizers th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+body.col-resizing,
+body.col-resizing * {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
+ 
+
+

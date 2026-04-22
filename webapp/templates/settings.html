@@ -90,7 +90,7 @@
 
     <div class="collapsible-body collapsed">
 
-    <div class="admin-btn-row">
+    <div class="admin-btn-grid">
         <a href="{{ url_for('reports.report_log') }}" class="btn btn-outline admin-btn">
             <i data-feather="activity" style="width:16px;height:16px;flex-shrink:0;"></i>
             <span>Report Run Log</span>
@@ -102,6 +102,10 @@
         <a href="{{ url_for('reports.runbook_history') }}" class="btn btn-outline admin-btn">
             <i data-feather="server" style="width:16px;height:16px;flex-shrink:0;"></i>
             <span>Schedule Run History</span>
+        </a>
+        <a href="{{ url_for('email_distributions.distributions_page') }}" class="btn btn-outline admin-btn">
+            <i data-feather="mail" style="width:16px;height:16px;flex-shrink:0;"></i>
+            <span>Email Distributions</span>
         </a>
     </div>
 

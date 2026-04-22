@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Sign in &middot; v2{% endblock %}
+
+{% block content %}
+<section class="login-page">
+    <div class="login-card">
+        <h1>Sign in</h1>
+        <p class="muted">Sales Reports v2 &middot; <code>AUTH_MODE={{ auth_mode }}</code></p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, msg in messages %}
+                    <p class="form-error" role="alert">{{ msg }}</p>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% if auth_mode == 'msal' %}
+            {% if msal_configured %}
+                <a class="button primary big" href="{{ url_for('auth.login_start') }}?next={{ next_url|urlencode }}">
+                    Sign in with Microsoft
+                </a>
+                <p class="muted small">Uses your work or school account.</p>
+            {% else %}
+                <p class="form-error">
+                    MSAL mode is selected but <code>V2_AZURE_*</code> variables are not set.
+                    Ask the admin to set <code>V2_AZURE_TENANT_ID</code>,
+                    <code>V2_AZURE_CLIENT_ID</code>, and <code>V2_AZURE_CLIENT_SECRET</code>.
+                </p>
+            {% endif %}
+        {% else %}
+            <form method="post" action="{{ url_for('auth.login_dev') }}" class="login-form">
+                <input type="hidden" name="next" value="{{ next_url }}">
+                <label class="block">
+                    <span>Email <em class="req">*</em></span>
+                    <input type="email" name="email" required autocomplete="username"
+                           placeholder="you@example.com">
+                </label>
+                <label class="block">
+                    <span>Display name (optional)</span>
+                    <input type="text" name="name" autocomplete="name" maxlength="120">
+                </label>
+                <button type="submit" class="primary big">Sign in (dev bypass)</button>
+                <p class="muted small">
+                    Dev mode &mdash; no password checked. Any email is accepted and a local
+                    profile is created on first login. Flip <code>V2_AUTH_MODE=msal</code>
+                    to require real Microsoft sign-in.
+                </p>
+            </form>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

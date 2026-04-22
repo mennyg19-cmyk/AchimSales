@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Sales Reports v2{% endblock %}
+{% block content %}
+<section class="hero">
+    <h1>Sales Reports v2</h1>
+    <p class="lead">
+        Run any report, tweak the grid the way you want it, then export, save,
+        or schedule it. Pick a report below to get started.
+    </p>
+
+    <h2>Reports</h2>
+    <div class="reports-grid">
+        {% for r in reports %}
+        <a class="report-card" href="{{ url_for('reports.filter_form', report_key=r.key) }}">
+            <h3>{{ r.name }}</h3>
+            <p>{{ r.description }}</p>
+            <span class="open-link">Open &rarr;</span>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

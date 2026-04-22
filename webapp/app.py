@@ -26,6 +26,7 @@ from webapp.blueprints.settings import settings_bp
 from webapp.blueprints.api import api_bp
 from webapp.blueprints.schedules import schedules_bp
 from webapp.blueprints.orders import orders_bp
+from webapp.blueprints.email_distributions import email_dist_bp
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -93,6 +94,7 @@ def create_app() -> Flask:
     application.register_blueprint(api_bp)
     application.register_blueprint(schedules_bp)
     application.register_blueprint(orders_bp)
+    application.register_blueprint(email_dist_bp)
 
     print("[app] Initializing database...", flush=True)
     init_db()
@@ -102,6 +104,10 @@ def create_app() -> Flask:
     from webapp.dashboard_data import start_background_refresh
     start_background_refresh()
     print("[app] Background refresh thread started.", flush=True)
+
+    from webapp.services.email_distributions import start_distribution_check
+    start_distribution_check()
+    print("[app] Email distribution check thread started.", flush=True)
 
     _cleanup_old_reports()
     print("[app] App factory complete.", flush=True)

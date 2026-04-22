@@ -23,12 +23,18 @@
             <a href="{{ url_for('reports.reports_list') }}" class="header-logo">Sales Reports</a>
         </div>
         <div class="header-right">
+            {% if user._dev and user.role not in ('admin', 'developer') %}
+            <span class="badge badge-impersonate" style="font-size:11px; padding:3px 8px; background:var(--warning-bg, #fef3cd); color:var(--warning-text, #856404); border:1px solid var(--warning-border, #ffc107); border-radius:4px;">
+                Viewing as {{ user.name.split(' (as ')[0] }}
+            </span>
+            {% else %}
             <span class="user-name">{{ user.name }}</span>
+            {% endif %}
             <span class="user-role badge {% if user.role == 'admin' or user.role == 'developer' %}badge-admin{% elif user.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">
                 {{ user.role|title }}
             </span>
             {% if user._dev %}
-            <a href="{{ url_for('auth.role_picker') }}" class="btn btn-sm btn-outline btn-icon" title="Switch role">
+            <a href="{{ url_for('auth.role_picker') }}" class="btn btn-sm btn-outline btn-icon" title="Switch user">
                 <i data-feather="repeat" style="width:16px;height:16px;"></i>
             </a>
             {% endif %}
@@ -168,6 +174,7 @@
         });
     </script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ url_for('static', filename='table_tools.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

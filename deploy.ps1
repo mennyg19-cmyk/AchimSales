@@ -1,119 +1,124 @@
-# Deploy to Azure App Service
-# Usage: .\deploy.ps1          (fast / code-only - keeps existing virtualenv)
-#        .\deploy.ps1 --build   (full build with pip install)
+# Deploy the unified container (live app + /v2) to Azure App Service.
+#
+# Usage:
+#   .\deploy.ps1                # build + push + set container + restart
+#   .\deploy.ps1 -SkipBuild     # redeploy current ACR image without rebuilding
+#   .\deploy.ps1 -BuildOnly     # build and push, but don't touch App Service
+#
+# Prerequisites (one-time):
+#   az login
+#   az account set --subscription <your-sub-id>
+#   An Azure Container Registry (ACR) in the same subscription. If you don't
+#   have one yet, create it once:
+#       az acr create --resource-group AchimReportsApp `
+#                     --name achimreportsregistry `
+#                     --sku Basic --admin-enabled true
+#   Then enable App Service to pull from it:
+#       az webapp config container set `
+#           --name achim-sales-reports --resource-group AchimReportsApp `
+#           --container-registry-url https://achimreportsregistry.azurecr.io
+#
+# The build runs in Azure (`az acr build`), so Docker Desktop is NOT required
+# locally. ACR builds the image from the repo root and pushes automatically.
+
+[CmdletBinding()]
+param(
+    [switch]$SkipBuild,
+    [switch]$BuildOnly
+)
 
 $ErrorActionPreference = "Stop"
-$APP_NAME = "achim-sales-reports"
-$RG = "AchimReportsApp"
+
+# --- Config -----------------------------------------------------------------
+$APP_NAME       = "achim-sales-reports"
+$RG             = "AchimReportsApp"
+$ACR_NAME       = "achimreportsregistry"
+$IMAGE_NAME     = "achim-sales-reports"
+$TIMESTAMP_TAG  = Get-Date -Format "yyyyMMdd-HHmmss"
+$LATEST_TAG     = "latest"
+$IMAGE_FULL     = "$ACR_NAME.azurecr.io/${IMAGE_NAME}:${TIMESTAMP_TAG}"
+$IMAGE_LATEST   = "$ACR_NAME.azurecr.io/${IMAGE_NAME}:${LATEST_TAG}"
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
 $totalTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
-# ── Step 1: Build zip ────────────────────────────────────────────────────
-Write-Host "Building deployment package..." -ForegroundColor Cyan
+# --- Step 1: Build + push via ACR Build ------------------------------------
+if (-not $SkipBuild) {
+    Write-Host "Building image in ACR ($ACR_NAME)..." -ForegroundColor Cyan
+    $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
+    az acr build `
+        --registry $ACR_NAME `
+        --resource-group $RG `
+        --image "${IMAGE_NAME}:${TIMESTAMP_TAG}" `
+        --image "${IMAGE_NAME}:${LATEST_TAG}" `
+        --file Dockerfile `
+        . | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "az acr build failed (exit $LASTEXITCODE)" }
+
+    $elapsed = [math]::Round($stepTimer.Elapsed.TotalSeconds, 1)
+    Write-Host "  Build + push complete (${elapsed}s)" -ForegroundColor DarkGray
+    Write-Host "  Tag: $IMAGE_FULL" -ForegroundColor DarkGray
+}
+else {
+    Write-Host "Skipping build (-SkipBuild). Using existing '$LATEST_TAG' tag." -ForegroundColor Yellow
+}
+
+if ($BuildOnly) {
+    $totalElapsed = [math]::Round($totalTimer.Elapsed.TotalSeconds, 1)
+    Write-Host "`nBuild-only done. Total: ${totalElapsed}s" -ForegroundColor Green
+    return
+}
+
+# --- Step 2: Point App Service at the new tag ------------------------------
+Write-Host "`nPointing App Service at '$LATEST_TAG' tag..." -ForegroundColor Cyan
 $stepTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
-$zipPath = Join-Path $env:TEMP "achim_deploy.zip"
-if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+az webapp config container set `
+    --name $APP_NAME --resource-group $RG `
+    --container-image-name $IMAGE_LATEST | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "az webapp config container set failed (exit $LASTEXITCODE)" }
 
-$exclude = @(
-    ".env", ".env.example", "app.zip", "deploy.ps1", "deploy-cache.ps1",
-    ".azure", ".git", ".gitignore", ".pytest_cache",
-    "tests", "logs", "runbooks", "SETUP_INSTRUCTIONS.txt",
-    "_history_backup", "_report_output", "__pycache__",
-    "app.db", "AchimReportsApp.zip", "app_v2.py",
-    "webapp-cache", "webapp_v2"
-)
-$excludeExt = @(".md", ".pyc")
+$elapsed = [math]::Round($stepTimer.Elapsed.TotalSeconds, 1)
+Write-Host "  Container config updated (${elapsed}s)" -ForegroundColor DarkGray
 
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
+# --- Step 3: Restart so the new image pulls --------------------------------
+Write-Host "`nRestarting App Service..." -ForegroundColor Cyan
+$stepTimer.Restart()
 
-try {
-    Get-ChildItem -Path $scriptDir -Recurse -File | Where-Object {
-        $rel = $_.FullName.Substring($scriptDir.Length + 1)
-        $parts = $rel -split '\\'
-        $skip = $false
-        foreach ($part in $parts) {
-            foreach ($ex in $exclude) {
-                if ($part -eq $ex) { $skip = $true; break }
-            }
-            if ($skip) { break }
-        }
-        if (-not $skip) {
-            foreach ($ext in $excludeExt) {
-                if ($_.Extension -eq $ext) { $skip = $true; break }
-            }
-        }
-        -not $skip
-    } | ForEach-Object {
-        $rel = $_.FullName.Substring($scriptDir.Length + 1)
-        $entryName = $rel -replace '\\', '/'
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName) | Out-Null
-    }
+az webapp restart --name $APP_NAME --resource-group $RG | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "az webapp restart failed (exit $LASTEXITCODE)" }
 
-    $webappReq = Join-Path $scriptDir "webapp\requirements.txt"
-    if (Test-Path $webappReq) {
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $webappReq, "requirements.txt") | Out-Null
-    }
-}
-finally {
-    $zip.Dispose()
+$elapsed = [math]::Round($stepTimer.Elapsed.TotalSeconds, 1)
+Write-Host "  Restart triggered (${elapsed}s)" -ForegroundColor DarkGray
+
+# --- Step 4: Wait for readiness --------------------------------------------
+Write-Host "`nWaiting for /healthz..." -ForegroundColor Cyan
+$stepTimer.Restart()
+
+$hostname = az webapp show --name $APP_NAME --resource-group $RG --query defaultHostName -o tsv
+if (-not $hostname) { throw "Could not resolve App Service hostname." }
+
+$healthUrl = "https://${hostname}/v2/healthz"
+$deadline  = (Get-Date).AddMinutes(5)
+$ready     = $false
+while ((Get-Date) -lt $deadline) {
+    try {
+        $resp = Invoke-WebRequest -Uri $healthUrl -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) { $ready = $true; break }
+    } catch { Start-Sleep -Seconds 5 }
 }
 
-$zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-$zipElapsed = [math]::Round($stepTimer.Elapsed.TotalSeconds, 1)
-Write-Host "  Zip created: ${zipSize}MB (${zipElapsed}s)" -ForegroundColor DarkGray
-
-# ── Step 2: Deploy ───────────────────────────────────────────────────────
-$doBuild = $args -contains "--build"
-
-if ($doBuild) {
-    Write-Host "`nDeploying to Azure (with remote build)..." -ForegroundColor Cyan
-    Write-Host "  This will run pip install -- expect 3-6 min" -ForegroundColor DarkGray
-    $stepTimer.Restart()
-
-    az webapp config appsettings set `
-        --name $APP_NAME --resource-group $RG `
-        --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true `
-        --output none 2>$null
-
-    az webapp deployment source config-zip `
-        --name $APP_NAME --resource-group $RG `
-        --src $zipPath --timeout 600
-
-    $elapsed = [math]::Round($stepTimer.Elapsed.TotalSeconds, 1)
-    Write-Host "  Build deploy finished (${elapsed}s)" -ForegroundColor DarkGray
+$elapsed = [math]::Round($stepTimer.Elapsed.TotalSeconds, 1)
+if ($ready) {
+    Write-Host "  /v2/healthz responded OK (${elapsed}s)" -ForegroundColor DarkGray
 } else {
-    Write-Host "`nDeploying to Azure (code-only / no build)..." -ForegroundColor Cyan
-    $stepTimer.Restart()
-
-    az webapp config appsettings set `
-        --name $APP_NAME --resource-group $RG `
-        --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false `
-        --output none 2>$null
-
-    $ErrorActionPreference = "Continue"
-    az webapp deploy `
-        --name $APP_NAME --resource-group $RG `
-        --src-path $zipPath --type zip --async true 2>&1 | Out-String | Write-Host
-    $ErrorActionPreference = "Stop"
-
-    $elapsed = [math]::Round($stepTimer.Elapsed.TotalSeconds, 1)
-    Write-Host "  Deploy kicked off (${elapsed}s)" -ForegroundColor DarkGray
-    Write-Host "  Tip: run .\deploy.ps1 --build if you changed requirements.txt" -ForegroundColor DarkGray
+    Write-Warning "  /v2/healthz did not respond within 5 min. Check App Service logs."
 }
-
-# ── Step 3: Restart the app ─────────────────────────────────────────────
-Write-Host "`nRestarting app..." -ForegroundColor Cyan
-az webapp restart --name $APP_NAME --resource-group $RG --output none 2>$null
-Write-Host "  App restarted." -ForegroundColor DarkGray
-
-# ── Cleanup ──────────────────────────────────────────────────────────────
-Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $scriptDir "app.zip") -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $scriptDir "AchimReportsApp.zip") -Force -ErrorAction SilentlyContinue
 
 $totalElapsed = [math]::Round($totalTimer.Elapsed.TotalSeconds, 1)
 Write-Host "`nDone! Total: ${totalElapsed}s" -ForegroundColor Green
+Write-Host "  Live: https://${hostname}/" -ForegroundColor DarkGray
+Write-Host "  v2:   https://${hostname}/v2/" -ForegroundColor DarkGray

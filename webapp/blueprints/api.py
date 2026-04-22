@@ -834,6 +834,18 @@ def api_retry_job():
     if not report_name:
         return jsonify({"error": "Missing report_name"}), 400
 
+    from webapp.user_map import REPORTS_CONFIG
+    valid_reports = set(REPORTS_CONFIG.keys()) | {"all"}
+    if report_name not in valid_reports:
+        return jsonify({
+            "error": (
+                f"Unknown report '{report_name}'. This job was probably started by "
+                f"an orphan Azure Automation schedule. Open Manage Schedules and "
+                f"delete any entry whose Report shows '{report_name}'. "
+                f"Valid reports: {', '.join(sorted(valid_reports))}"
+            ),
+        }), 400
+
     try:
         from webapp.services.azure_automation import start_job
         job_name = start_job(report_name=report_name, extra_args=extra_args)
@@ -843,3 +855,28 @@ def api_retry_job():
     except Exception as e:
         log.exception("Failed to retry job")
         return jsonify({"error": str(e)}), 500
+
+
+@api_bp.route("/api/admin/job-logs/<job_id>")
+@require_login
+def api_job_logs(job_id):
+    """Fetch Azure Automation job logs on demand (not cached in DB).
+
+    Returns {"output": str, "streams": [...]} so admins can inspect a run
+    without bloating storage.
+    """
+    user = get_current_user()
+    if not is_admin(user):
+        return jsonify({"error": "Admin only"}), 403
+
+    job_id = (job_id or "").strip()
+    if not job_id:
+        return jsonify({"error": "Missing job_id"}), 400
+
+    try:
+        from webapp.services.azure_automation import get_job_full_log
+        result = get_job_full_log(job_id)
+        return jsonify({"success": True, **result})
+    except Exception as e:
+        log.exception("Failed to fetch job logs for %s", job_id)
+        return jsonify({"success": False, "error": str(e)}), 500

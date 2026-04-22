@@ -68,6 +68,20 @@
     <span id="syncStatus" style="font-size:12px; color:var(--text-muted);"></span>
 </div>
 
+{% if orphan_schedules %}
+<div class="alert alert-warning" style="margin-bottom:16px; padding:12px 14px; background:#fff7e6; border:1px solid #f59e0b; border-radius:6px; color:#7c2d12;">
+    <strong>Orphan Azure schedules detected ({{ orphan_schedules|length }}).</strong>
+    These schedules point at a report name that no longer exists in the app, so
+    every run they trigger fails immediately with "Unknown report". Delete them
+    below, or remove them directly in the Azure Automation portal.
+    <ul style="margin:6px 0 0 18px;">
+        {% for s in orphan_schedules %}
+        <li><code>{{ s.name }}</code> &rarr; report_key = <code>{{ s.report_key }}</code></li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
 {% if schedules %}
 <div class="table-wrapper">
     <table class="data-table" id="schedulesTable">
@@ -95,7 +109,13 @@
                 </td>
                 <td>
                     {% if s.report_key %}
-                        {{ report_names.get(s.report_key, s.report_key) }}
+                        {% if s.report_key in report_names %}
+                            {{ report_names[s.report_key] }}
+                        {% else %}
+                            <span style="color:#b91c1c; font-weight:600;" title="Unknown report key — delete this schedule">
+                                {{ s.report_key }} &#9888;
+                            </span>
+                        {% endif %}
                     {% else %}
                         <span style="color:var(--text-muted); font-style:italic;">not linked</span>
                     {% endif %}

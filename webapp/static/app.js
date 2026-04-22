@@ -422,14 +422,57 @@ function displayResults(data) {
     if (data.filename) {
         downloadBtn.href = '/report/' + REPORT_KEY + '/download';
         downloadBtn.style.display = 'inline-flex';
+        downloadBtn.textContent = '';
+        var ico = document.createElement('i');
+        ico.setAttribute('data-feather', 'download');
+        downloadBtn.appendChild(ico);
+        downloadBtn.appendChild(document.createTextNode(
+            data.extra_files && data.extra_files.length
+                ? ' ' + _friendlyLabel(data.filename)
+                : ' Download Excel'
+        ));
     } else {
         downloadBtn.style.display = 'none';
     }
+
+    var oldExtra = document.getElementById('extraDownloadBtns');
+    if (oldExtra) oldExtra.remove();
+
+    if (data.extra_files && data.extra_files.length) {
+        var wrap = document.createElement('span');
+        wrap.id = 'extraDownloadBtns';
+        wrap.style.display = 'inline-flex';
+        wrap.style.gap = '8px';
+        wrap.style.marginLeft = '8px';
+        data.extra_files.forEach(function(ef) {
+            var a = document.createElement('a');
+            a.href = '/report/download-file?path=' + encodeURIComponent(ef.filepath);
+            a.className = 'btn btn-primary';
+            a.style.display = 'inline-flex';
+            a.style.alignItems = 'center';
+            a.style.gap = '6px';
+            var ico2 = document.createElement('i');
+            ico2.setAttribute('data-feather', 'download');
+            a.appendChild(ico2);
+            a.appendChild(document.createTextNode(' ' + _friendlyLabel(ef.filename)));
+            wrap.appendChild(a);
+        });
+        downloadBtn.parentNode.insertBefore(wrap, downloadBtn.nextSibling);
+    }
+
+    if (typeof feather !== 'undefined') feather.replace();
 
     renderSummary(data.summary || {});
     renderSheets(data.sheets || {});
 
     results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function _friendlyLabel(filename) {
+    if (!filename) return 'Download';
+    if (filename.indexOf('_Item_') !== -1) return 'By Item';
+    if (filename.indexOf('_Customer_') !== -1) return 'By Customer';
+    return filename.replace(/\.xlsx$/i, '').replace(/_/g, ' ');
 }
 
 function renderSummary(summary) {

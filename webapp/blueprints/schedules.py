@@ -53,6 +53,11 @@ def schedules_page():
     report_keys = list(REPORTS_CONFIG.keys())
     report_names = {k: v["name"] for k, v in REPORTS_CONFIG.items()}
 
+    valid_keys = set(report_keys) | {""}  # empty = not linked yet
+    orphan_schedules = [
+        s for s in schedules if (s.get("report_key") or "") and (s["report_key"] not in valid_keys)
+    ]
+
     return render_template(
         "schedules.html",
         user=user,
@@ -60,6 +65,7 @@ def schedules_page():
         report_keys=report_keys,
         report_names=report_names,
         param_caps=PARAM_CAPS,
+        orphan_schedules=orphan_schedules,
         active_tab="settings",
     )
 

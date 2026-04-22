@@ -9,7 +9,8 @@ them to the universal_runbook.
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from azure.identity import ClientSecretCredential
 from azure.mgmt.automation import AutomationClient
@@ -71,6 +72,39 @@ def get_schedule(name: str) -> dict | None:
         return None
 
 
+def _ensure_future_start(start_time: str, time_zone: str) -> str:
+    """Ensure start_time is in the future within the given timezone.
+
+    The browser sends a datetime-local string (e.g. '2026-03-25T09:00') which
+    has no timezone info.  Azure Automation interprets it in *time_zone* and
+    rejects it if it's in the past.  We extract the time-of-day, attach the
+    correct timezone, and if that moment has already passed today we bump the
+    date to tomorrow.
+    """
+    if not start_time:
+        return datetime.utcnow().isoformat()
+
+    try:
+        tz = ZoneInfo(time_zone)
+    except Exception:
+        tz = ZoneInfo("America/New_York")
+
+    try:
+        naive = datetime.fromisoformat(start_time)
+    except ValueError:
+        return start_time
+
+    now_tz = datetime.now(tz)
+    target = naive.replace(tzinfo=tz)
+
+    if target <= now_tz:
+        target = target + timedelta(days=1)
+        if target <= now_tz:
+            target = now_tz + timedelta(minutes=5)
+
+    return target.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
 def create_or_update_schedule(
     name: str,
     frequency: str = "Day",
@@ -84,12 +118,14 @@ def create_or_update_schedule(
     """Create or update a schedule. Returns the schedule dict."""
     client = get_client()
 
+    resolved_start = _ensure_future_start(start_time, time_zone)
+
     params = ScheduleCreateOrUpdateParameters(
         name=name,
         description=description,
         frequency=frequency,
         interval=interval,
-        start_time=start_time or datetime.utcnow().isoformat(),
+        start_time=resolved_start,
         time_zone=time_zone,
     )
 
@@ -267,13 +303,140 @@ def start_job(report_name: str, extra_args: str = "") -> str:
 
 
 def get_job_output(job_name: str) -> str:
-    """Return the text output of a completed job."""
+    """Return the text output of a completed job.
+
+    The Azure Automation management SDK's `job.get_output` returns an
+    `application/octet-stream` response.  Depending on SDK version it can
+    come back as a plain string, bytes, an HTTP response object with an
+    `iter_bytes`/`iter_content` method, or an iterable of bytes chunks.
+    Normalize all of them to a decoded UTF-8 string.
+    """
     client = get_client()
     try:
-        return client.job.get_output(RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name) or ""
-    except Exception:
+        raw = client.job.get_output(RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name)
+        return _decode_stream_response(raw)
+    except Exception as e:
         log.exception("Failed to get output for job %s", job_name)
+        return f"[Failed to fetch job output: {type(e).__name__}: {e}]"
+
+
+def _decode_stream_response(raw) -> str:
+    """Turn any shape Azure might return from an octet-stream endpoint into str."""
+    if raw is None:
         return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            return raw.decode("utf-8", errors="replace")
+        except Exception:
+            return str(raw)
+    # azure-core HTTP response objects expose iter_bytes / iter_raw
+    for method in ("iter_bytes", "iter_raw", "iter_content"):
+        if hasattr(raw, method):
+            try:
+                chunks = list(getattr(raw, method)())
+                return b"".join(
+                    c if isinstance(c, (bytes, bytearray)) else c.encode("utf-8", "replace")
+                    for c in chunks
+                ).decode("utf-8", errors="replace")
+            except Exception:
+                pass
+    # Some versions expose .content
+    if hasattr(raw, "content"):
+        content = raw.content
+        if isinstance(content, (bytes, bytearray)):
+            return content.decode("utf-8", errors="replace")
+        if isinstance(content, str):
+            return content
+    # Last resort: iterate
+    try:
+        return b"".join(
+            c if isinstance(c, (bytes, bytearray)) else str(c).encode("utf-8", "replace")
+            for c in raw
+        ).decode("utf-8", errors="replace")
+    except TypeError:
+        return str(raw)
+
+
+def get_job_streams(job_name: str) -> list[dict]:
+    """Return all streams (output, error, warning, verbose) for a job.
+
+    Each item: {stream_type, summary, value, time}.  `summary` is a short
+    preview; `value` is the full stream body (fetched lazily per stream).
+    """
+    client = get_client()
+    out: list[dict] = []
+    try:
+        streams = client.job_stream.list_by_job(
+            RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name
+        )
+    except Exception as e:
+        log.exception("Failed to list streams for job %s", job_name)
+        return [{
+            "stream_type": "Error",
+            "summary": f"[Failed to list streams: {type(e).__name__}: {e}]",
+            "value": "",
+            "time": "",
+        }]
+
+    for s in streams:
+        summary = getattr(s, "summary", "") or ""
+        stream_id = (
+            getattr(s, "job_stream_id", None)
+            or getattr(s, "name", None)
+            or ""
+        )
+        # Fetch full body when the stream has one (summary is often truncated)
+        value = ""
+        if stream_id:
+            try:
+                full = client.job_stream.get(
+                    RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_name, stream_id
+                )
+                raw_val = getattr(full, "stream_text", None)
+                if not raw_val:
+                    stream_values = getattr(full, "value", None)
+                    if isinstance(stream_values, dict):
+                        # Common keys: {'PSComputerName': ..., 'PSMessageDetails': ...}
+                        raw_val = (
+                            stream_values.get("value")
+                            or stream_values.get("message")
+                            or ""
+                        )
+                    else:
+                        raw_val = stream_values or ""
+                value = _decode_stream_response(raw_val)
+            except Exception:
+                log.debug("Could not fetch full stream body for %s/%s",
+                          job_name, stream_id)
+        out.append({
+            "stream_type": getattr(s, "stream_type", "") or "",
+            "summary": summary,
+            "value": value,
+            "time": str(getattr(s, "time", "") or ""),
+            "stream_id": str(stream_id),
+        })
+    return out
+
+
+def get_job_full_log(job_name: str) -> dict:
+    """Fetch full output + streams for a job on-demand.
+
+    Returns {"output": str, "streams": [...], "error": str | None}.
+    """
+    out = {"output": "", "streams": [], "error": None}
+    try:
+        out["output"] = get_job_output(job_name)
+    except Exception as e:
+        out["error"] = f"Failed to fetch output: {e}"
+    try:
+        out["streams"] = get_job_streams(job_name)
+    except Exception as e:
+        # Don't overwrite an earlier error, just append
+        msg = f"Failed to fetch streams: {e}"
+        out["error"] = (out["error"] + " | " + msg) if out["error"] else msg
+    return out
 
 
 def list_jobs(limit: int = 200) -> list[dict]:

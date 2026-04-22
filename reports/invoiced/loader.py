@@ -186,6 +186,7 @@ def _assign_salesman(
     if so_nums and start_date and end_date:
         try:
             import gc
+            from core.logging import log_memory
             t0 = _time.monotonic()
             date_field = "OrderCreationDateTime"
             filter_expr = (

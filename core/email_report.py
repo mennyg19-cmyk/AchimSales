@@ -187,3 +187,135 @@ def send_report_email(
         "Email skipped: set AMAZON_EMAIL_FROM (and Graph credentials) for Graph, "
         "or SMTP_USER and SMTP_PASSWORD for SMTP"
     )
+
+
+def send_multi_attachment_email(
+    attachments: list[tuple[str, bytes]],
+    subject: str,
+    body: str,
+    recipients: list[str],
+    content_type: str = "Text",
+    cc: list[str] | None = None,
+) -> None:
+    """Send an email with multiple in-memory file attachments.
+
+    Args:
+        attachments: List of (filename, content_bytes) tuples.
+        subject: Email subject.
+        body: Email body.
+        recipients: List of To addresses.
+        content_type: ``"Text"`` or ``"HTML"``.
+        cc: Optional CC addresses.
+    """
+    if not recipients:
+        log.info("Multi-attachment email skipped: no recipients")
+        return
+
+    cc = cc or []
+
+    from_graph = get_graph_email_from()
+    tenant = get_tenant_id()
+    client = get_client_id()
+    secret = get_client_secret()
+
+    if from_graph and tenant and client and secret:
+        try:
+            _send_multi_via_graph(from_graph, recipients, subject, body,
+                                 attachments, content_type=content_type, cc_list=cc)
+            return
+        except Exception:
+            log.exception("Graph multi-send failed, falling back to SMTP if configured")
+
+    user = get_smtp_user()
+    password = get_smtp_password()
+    if user and password:
+        _send_multi_via_smtp(recipients, subject, body, attachments,
+                             cc_list=cc)
+        return
+
+    raise RuntimeError(
+        "No email provider configured. "
+        f"EMAIL_FROM_ADDRESS={'set' if from_graph else 'MISSING'}, "
+        f"GRAPH_TENANT_ID={'set' if tenant else 'MISSING'}, "
+        f"GRAPH_CLIENT_ID={'set' if client else 'MISSING'}, "
+        f"GRAPH_CLIENT_SECRET={'set' if secret else 'MISSING'}. "
+        "Set EMAIL_FROM_ADDRESS (for Graph) or SMTP_USER + SMTP_PASSWORD (for SMTP) in Azure App Service settings."
+    )
+
+
+def _send_multi_via_graph(
+    from_address: str,
+    to_list: list[str],
+    subject: str,
+    body: str,
+    attachments: list[tuple[str, bytes]],
+    content_type: str = "Text",
+    cc_list: list[str] | None = None,
+) -> None:
+    token = get_graph_token(get_tenant_id(), get_client_id(), get_client_secret())
+    message: dict = {
+        "subject": subject,
+        "body": {"contentType": content_type, "content": body},
+        "toRecipients": [{"emailAddress": {"address": addr}} for addr in to_list],
+    }
+    if cc_list:
+        message["ccRecipients"] = [{"emailAddress": {"address": addr}} for addr in cc_list]
+
+    graph_attachments = []
+    for filename, content_bytes in attachments:
+        graph_attachments.append({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": filename,
+            "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "contentBytes": base64.b64encode(content_bytes).decode("ascii"),
+        })
+    if graph_attachments:
+        message["attachments"] = graph_attachments
+
+    payload = {"message": message, "saveToSentItems": True}
+    url = GRAPH_SEND_MAIL_URL.format(user_id=quote(from_address, safe=""))
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    session = get_session()
+    resp = session.post(url, json=payload, headers=headers, timeout=GRAPH_TIMEOUT)
+    resp.raise_for_status()
+    log.info("Multi-attachment email sent via Graph to=%s cc=%s (%d files, from %s)",
+             to_list, cc_list or [], len(attachments), from_address)
+
+
+def _send_multi_via_smtp(
+    to_list: list[str],
+    subject: str,
+    body: str,
+    attachments: list[tuple[str, bytes]],
+    cc_list: list[str] | None = None,
+) -> None:
+    user = get_smtp_user()
+    password = get_smtp_password()
+
+    msg = MIMEMultipart()
+    msg["Subject"] = subject
+    msg["From"] = user
+    msg["To"] = ", ".join(to_list)
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+    msg.attach(MIMEText(body, "plain"))
+
+    for filename, content_bytes in attachments:
+        part = MIMEApplication(content_bytes,
+                               _subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        part.add_header("Content-Disposition", "attachment", filename=filename)
+        msg.attach(part)
+
+    host = get_smtp_host()
+    port = get_smtp_port()
+    all_recipients = list(to_list) + (cc_list or [])
+
+    def _do_send():
+        with smtplib.SMTP(host, port, timeout=30) as server:
+            server.starttls()
+            server.login(user, password)
+            server.sendmail(user, all_recipients, msg.as_string())
+
+    retry_call(_do_send, retries=1, delay=2.0)
+    log.info("Multi-attachment email sent via SMTP to=%s cc=%s (%d files)",
+             to_list, cc_list or [], len(attachments))

@@ -301,6 +301,7 @@ class InvoicedReportRunner(BaseReportRunner):
         else:
             subfolder_base = None
 
+        failed_periods: list[tuple[str, str]] = []
         for period in plan.periods:
             log.info("Building %s: %s (%s to %s)", display_name, period.label, period.start_date, period.end_date)
             period_detail = _filter_to_period(full_detail, period)
@@ -335,12 +336,27 @@ class InvoicedReportRunner(BaseReportRunner):
             out_subfolder = self._resolve_out_subfolder(period, subfolder_base)
             out_path = get_output_path(report_dir_name, out_subfolder, filename, sub_report=sub_report)
 
-            self._write_period_report(
-                period, full_detail, ytd_credits, ytd_invoices,
-                period_detail, out_path, display_name,
-                skip_commissions=is_shipped,
+            try:
+                self._write_period_report(
+                    period, full_detail, ytd_credits, ytd_invoices,
+                    period_detail, out_path, display_name,
+                    skip_commissions=is_shipped,
+                )
+                log.info("Saved: %s", out_path)
+            except Exception as exc:
+                import gc
+                gc.collect()
+                failed_periods.append((period.label, str(exc)))
+                log.error("FAILED to write %s for period %s: %s",
+                          display_name, period.label, exc, exc_info=True)
+
+        if failed_periods:
+            succeeded = len(plan.periods) - len(failed_periods)
+            summary = "; ".join(f"{lbl}: {err[:120]}" for lbl, err in failed_periods)
+            raise RuntimeError(
+                f"{len(failed_periods)} period(s) failed to write "
+                f"({succeeded} succeeded): {summary}"
             )
-            log.info("Saved: %s", out_path)
 
     def run(self, plan: FetchPlan, company_id: str | None = None) -> None:
         cli = getattr(self, "_cli_args", None)

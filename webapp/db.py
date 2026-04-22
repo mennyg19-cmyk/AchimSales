@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS history (
     filepath      TEXT,
     filename      TEXT,
     summary       TEXT DEFAULT '{}',
-    error         TEXT
+    error         TEXT,
+    extra_files   TEXT DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
@@ -273,6 +274,42 @@ CREATE TABLE IF NOT EXISTS user_salesman_access (
     UNIQUE(user_email, salesman_key)
 );
 
+CREATE TABLE IF NOT EXISTS email_distributions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    name             TEXT UNIQUE NOT NULL,
+    recipients       TEXT NOT NULL DEFAULT '[]',
+    cc               TEXT NOT NULL DEFAULT '[]',
+    subject_template TEXT NOT NULL DEFAULT 'Daily Reports - {date}',
+    body_template    TEXT NOT NULL DEFAULT '',
+    enabled          INTEGER NOT NULL DEFAULT 1,
+    trigger_mode     TEXT NOT NULL DEFAULT 'after_reports',
+    frequency        TEXT NOT NULL DEFAULT 'daily',
+    days_of_week     TEXT NOT NULL DEFAULT '',
+    month_days       TEXT NOT NULL DEFAULT '',
+    send_time        TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS email_distribution_reports (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    distribution_id    INTEGER NOT NULL REFERENCES email_distributions(id) ON DELETE CASCADE,
+    report_key         TEXT NOT NULL,
+    extra_args_match   TEXT DEFAULT '',
+    file_path_template TEXT DEFAULT '',
+    UNIQUE(distribution_id, report_key)
+);
+
+CREATE TABLE IF NOT EXISTS email_distribution_log (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    distribution_id  INTEGER NOT NULL REFERENCES email_distributions(id) ON DELETE CASCADE,
+    sent_date        TEXT NOT NULL,
+    sent_at          TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'sent',
+    error            TEXT,
+    reports_included TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_dist_log_date ON email_distribution_log(distribution_id, sent_date);
 CREATE INDEX IF NOT EXISTS idx_runbook_history_ts ON runbook_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_runbook_history_report ON runbook_history(report_name);
 
@@ -344,6 +381,26 @@ def init_db():
             conn.commit()
         except Exception:
             pass  # index already exists or table has duplicates
+        # Migrate email_distributions: add scheduling columns
+        ed_cols = [r[1] for r in conn.execute("PRAGMA table_info(email_distributions)").fetchall()]
+        for col, typedef in [("trigger_mode", "TEXT NOT NULL DEFAULT 'after_reports'"),
+                             ("frequency", "TEXT NOT NULL DEFAULT 'daily'"),
+                             ("days_of_week", "TEXT NOT NULL DEFAULT ''"),
+                             ("month_days", "TEXT NOT NULL DEFAULT ''"),
+                             ("send_time", "TEXT NOT NULL DEFAULT ''")]:
+            if col not in ed_cols:
+                conn.execute(f"ALTER TABLE email_distributions ADD COLUMN {col} {typedef}")
+        conn.commit()
+        # Migrate email_distribution_reports: add file_path_template
+        edr_cols = [r[1] for r in conn.execute("PRAGMA table_info(email_distribution_reports)").fetchall()]
+        if "file_path_template" not in edr_cols:
+            conn.execute("ALTER TABLE email_distribution_reports ADD COLUMN file_path_template TEXT DEFAULT ''")
+            conn.commit()
+        # Migrate history: add extra_files JSON array for multi-file reports (Number 4, Salesman, etc.)
+        hist_cols = [r[1] for r in conn.execute("PRAGMA table_info(history)").fetchall()]
+        if hist_cols and "extra_files" not in hist_cols:
+            conn.execute("ALTER TABLE history ADD COLUMN extra_files TEXT DEFAULT '[]'")
+            conn.commit()
         user_count = conn.execute("SELECT COUNT(*) FROM app_users").fetchone()[0]
         print(f"[db] init_db: app_users table has {user_count} rows after schema init", flush=True)
     finally:
@@ -1885,5 +1942,202 @@ def get_runbook_history_count() -> int:
         return conn.execute("SELECT COUNT(*) FROM runbook_history").fetchone()[0]
     except Exception:
         return 0
+    finally:
+        conn.close()
+
+
+# -- Email Distribution CRUD -----------------------------------------------
+
+def get_all_distributions() -> list[dict]:
+    """Return all email distributions with their associated report keys."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM email_distributions ORDER BY name"
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["recipients"] = json.loads(d["recipients"]) if d["recipients"] else []
+            d["cc"] = json.loads(d["cc"]) if d["cc"] else []
+            reps = conn.execute(
+                "SELECT report_key, extra_args_match, file_path_template FROM email_distribution_reports WHERE distribution_id = ?",
+                (d["id"],),
+            ).fetchall()
+            d["report_keys"] = [dict(rep) for rep in reps]
+            last = conn.execute(
+                """SELECT sent_date, sent_at, status, error FROM email_distribution_log
+                   WHERE distribution_id = ? ORDER BY sent_at DESC LIMIT 1""",
+                (d["id"],),
+            ).fetchone()
+            d["last_send"] = dict(last) if last else None
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_distribution_by_id(dist_id: int) -> dict | None:
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM email_distributions WHERE id = ?", (dist_id,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["recipients"] = json.loads(d["recipients"]) if d["recipients"] else []
+        d["cc"] = json.loads(d["cc"]) if d["cc"] else []
+        reps = conn.execute(
+            "SELECT report_key, extra_args_match, file_path_template FROM email_distribution_reports WHERE distribution_id = ?",
+            (d["id"],),
+        ).fetchall()
+        d["report_keys"] = [dict(rep) for rep in reps]
+        return d
+    finally:
+        conn.close()
+
+
+def upsert_distribution(
+    name: str,
+    recipients: list[str],
+    report_keys: list[dict],
+    cc: list[str] | None = None,
+    subject_template: str = "Daily Reports - {date}",
+    body_template: str = "",
+    enabled: bool = True,
+    trigger_mode: str = "after_reports",
+    frequency: str = "daily",
+    days_of_week: str = "",
+    month_days: str = "",
+    send_time: str = "",
+    dist_id: int | None = None,
+) -> int:
+    """Create or update an email distribution. Returns the row id."""
+    from datetime import datetime
+    conn = get_db()
+    try:
+        if dist_id:
+            conn.execute(
+                """UPDATE email_distributions
+                   SET name = ?, recipients = ?, cc = ?, subject_template = ?,
+                       body_template = ?, enabled = ?,
+                       trigger_mode = ?, frequency = ?, days_of_week = ?,
+                       month_days = ?, send_time = ?
+                   WHERE id = ?""",
+                (name, json.dumps(recipients), json.dumps(cc or []),
+                 subject_template, body_template, int(enabled),
+                 trigger_mode, frequency, days_of_week, month_days, send_time,
+                 dist_id),
+            )
+            conn.execute("DELETE FROM email_distribution_reports WHERE distribution_id = ?", (dist_id,))
+            row_id = dist_id
+        else:
+            cur = conn.execute(
+                """INSERT INTO email_distributions
+                   (name, recipients, cc, subject_template, body_template, enabled,
+                    trigger_mode, frequency, days_of_week, month_days, send_time, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (name, json.dumps(recipients), json.dumps(cc or []),
+                 subject_template, body_template, int(enabled),
+                 trigger_mode, frequency, days_of_week, month_days, send_time,
+                 datetime.now().isoformat(timespec="seconds")),
+            )
+            row_id = cur.lastrowid
+        for rk in report_keys:
+            conn.execute(
+                """INSERT INTO email_distribution_reports
+                   (distribution_id, report_key, extra_args_match, file_path_template)
+                   VALUES (?, ?, ?, ?)""",
+                (row_id, rk["report_key"], rk.get("extra_args_match", ""),
+                 rk.get("file_path_template", "")),
+            )
+        conn.commit()
+        return row_id
+    finally:
+        conn.close()
+
+
+def delete_distribution(dist_id: int) -> bool:
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM email_distribution_reports WHERE distribution_id = ?", (dist_id,))
+        conn.execute("DELETE FROM email_distribution_log WHERE distribution_id = ?", (dist_id,))
+        cur = conn.execute("DELETE FROM email_distributions WHERE id = ?", (dist_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def toggle_distribution_enabled(dist_id: int) -> bool | None:
+    """Toggle the enabled flag. Returns the new value, or None if not found."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT enabled FROM email_distributions WHERE id = ?", (dist_id,)).fetchone()
+        if not row:
+            return None
+        new_val = 0 if row["enabled"] else 1
+        conn.execute("UPDATE email_distributions SET enabled = ? WHERE id = ?", (new_val, dist_id))
+        conn.commit()
+        return bool(new_val)
+    finally:
+        conn.close()
+
+
+def was_distribution_sent_today(dist_id: int, today_str: str) -> bool:
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM email_distribution_log WHERE distribution_id = ? AND sent_date = ? AND status = 'sent'",
+            (dist_id, today_str),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def log_distribution_send(dist_id: int, sent_date: str, status: str,
+                          reports_included: list[str], error: str | None = None) -> int:
+    from datetime import datetime
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            """INSERT INTO email_distribution_log
+               (distribution_id, sent_date, sent_at, status, error, reports_included)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (dist_id, sent_date, datetime.now().isoformat(timespec="seconds"),
+             status, error, json.dumps(reports_included)),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_distribution_log(dist_id: int | None = None, limit: int = 100) -> list[dict]:
+    conn = get_db()
+    try:
+        if dist_id:
+            rows = conn.execute(
+                """SELECT l.*, d.name as distribution_name
+                   FROM email_distribution_log l
+                   JOIN email_distributions d ON d.id = l.distribution_id
+                   WHERE l.distribution_id = ?
+                   ORDER BY l.sent_at DESC LIMIT ?""",
+                (dist_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT l.*, d.name as distribution_name
+                   FROM email_distribution_log l
+                   JOIN email_distributions d ON d.id = l.distribution_id
+                   ORDER BY l.sent_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["reports_included"] = json.loads(d["reports_included"]) if d["reports_included"] else []
+            result.append(d)
+        return result
     finally:
         conn.close()

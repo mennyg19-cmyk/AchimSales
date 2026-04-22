@@ -8,6 +8,11 @@ _history_backup/
 *.xlsx
 .cursor/*
 !.cursor/rules/
+
+*.log
+logs/*.err
+logs/run_log-*.csv
+.git-commit-msg.tmp
 tests/output/
 
 # v2 (test/) app

@@ -90,7 +90,7 @@
     <div class="form-group">
         <label class="form-label" for="salesmanSelect">Salesman <button class="help-icon" data-help="param-salesman">?</button></label>
         <select id="salesmanSelect" name="salesman" class="form-input form-select">
-            {% if is_admin %}<option value="">All Salesmen</option>{% endif %}
+            {% if is_admin or is_manager %}<option value="">All Salesmen</option>{% endif %}
             {% for sm in salesmen_list %}
             <option value="{{ sm.key }}" data-display="{{ sm.display }}"
                 {% if admin_default_salesman and sm.key == admin_default_salesman %}selected{% endif %}
@@ -183,8 +183,8 @@
 </div>
 
 <div id="resultsSection" style="display: none;">
-    <div class="results-header">
-        <h2>Results</h2>
+    <div class="results-header" style="flex-wrap: wrap; gap: 8px;">
+        <h2 style="margin-right: auto;">Results</h2>
         <a id="downloadBtn" href="#" class="btn btn-primary">
             <i data-feather="download"></i>
             Download Excel

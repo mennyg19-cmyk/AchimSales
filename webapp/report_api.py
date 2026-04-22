@@ -38,6 +38,23 @@ def _find_newest_xlsx(directory: str, before: float) -> str | None:
     return newest
 
 
+def _find_all_new_xlsx(directory: str, before: float) -> list[str]:
+    """Find all .xlsx files created after `before` timestamp, newest first."""
+    found: list[tuple[float, str]] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.endswith(".xlsx"):
+                path = os.path.join(root, f)
+                try:
+                    mtime = os.path.getmtime(path)
+                    if mtime > before:
+                        found.append((mtime, path))
+                except OSError:
+                    continue
+    found.sort(reverse=True)
+    return [p for _, p in found]
+
+
 def _read_excel_sheets(filepath: str) -> dict[str, list[dict]]:
     """Read an Excel file and return {sheet_name: [row_dicts]} for display."""
     try:
@@ -196,19 +213,25 @@ def run_amazon_weekly(params: dict) -> dict:
 
     try:
         amazon_run(send_email=False, test_mode=False)
-        filepath = _find_newest_xlsx(os.path.join(output_root, "Amazon Weekly"), before)
-        if not filepath:
+        all_files = _find_all_new_xlsx(os.path.join(output_root, "Amazon Weekly"), before)
+        if not all_files:
             return {"success": False, "error": "Report generated but output file not found."}
 
+        filepath = all_files[0]
         sheets = _read_excel_sheets(filepath)
         summary = _compute_summary(sheets, "amazon_weekly")
-        return {
+        result = {
             "success": True,
             "filepath": filepath,
             "filename": os.path.basename(filepath),
             "sheets": sheets,
             "summary": summary,
         }
+        if len(all_files) > 1:
+            result["extra_files"] = [
+                {"filepath": p, "filename": os.path.basename(p)} for p in all_files[1:]
+            ]
+        return result
     except Exception as e:
         log.exception("Amazon Weekly failed")
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
@@ -226,21 +249,27 @@ def run_customer_activity(params: dict) -> dict:
     try:
         activity_run(send_email=False, test_mode=False)
 
-        filepath = _find_newest_xlsx(
+        all_files = _find_all_new_xlsx(
             os.path.join(output_root, "Salesman Report"), before
         )
-        if not filepath:
+        if not all_files:
             return {"success": False, "error": "Report generated but output file not found."}
 
+        filepath = all_files[0]
         sheets = _read_excel_sheets(filepath)
         summary = _compute_summary(sheets, "customer_activity")
-        return {
+        result = {
             "success": True,
             "filepath": filepath,
             "filename": os.path.basename(filepath),
             "sheets": sheets,
             "summary": summary,
         }
+        if len(all_files) > 1:
+            result["extra_files"] = [
+                {"filepath": p, "filename": os.path.basename(p)} for p in all_files[1:]
+            ]
+        return result
     except Exception as e:
         log.exception("Customer Activity failed")
         return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
@@ -277,7 +306,12 @@ def _copy_to_preset_dir(filepath: str, salesman_key: str, preset_name: str) -> s
 
 
 def _run_class_report(runner_cls, argv: list[str], report_key: str) -> dict:
-    """Run a BaseReportRunner subclass and capture results."""
+    """Run a BaseReportRunner subclass and capture results.
+
+    For runners that produce multiple output files (e.g. Number 4's
+    By Item + By Customer), ``extra_files`` carries the additional paths
+    so callers can surface all downloads.
+    """
     from config.paths import get_direct_reports_root
     import time
 
@@ -293,13 +327,13 @@ def _run_class_report(runner_cls, argv: list[str], report_key: str) -> dict:
 
         report_name = runner.report_name
         search_dir = os.path.join(output_root, report_name)
-        filepath = _find_newest_xlsx(search_dir, before)
+        all_files = _find_all_new_xlsx(search_dir, before)
 
-        if not filepath:
+        if not all_files:
             search_dir = output_root
-            filepath = _find_newest_xlsx(search_dir, before)
+            all_files = _find_all_new_xlsx(search_dir, before)
 
-        if not filepath:
+        if not all_files:
             return {
                 "success": True,
                 "filepath": None,
@@ -308,15 +342,25 @@ def _run_class_report(runner_cls, argv: list[str], report_key: str) -> dict:
                 "summary": {"message": "Report completed but no data found for the selected parameters."},
             }
 
+        filepath = all_files[0]
         sheets = _read_excel_sheets(filepath)
         summary = _compute_summary(sheets, report_key)
-        return {
+
+        result = {
             "success": True,
             "filepath": filepath,
             "filename": os.path.basename(filepath),
             "sheets": sheets,
             "summary": summary,
         }
+
+        if len(all_files) > 1:
+            extra = []
+            for ef in all_files[1:]:
+                extra.append({"filepath": ef, "filename": os.path.basename(ef)})
+            result["extra_files"] = extra
+
+        return result
 
     except Exception as e:
         log.exception("Report %s failed", report_key)

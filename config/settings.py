@@ -135,7 +135,7 @@ def get_smtp_password() -> str:
 
 def get_graph_email_from() -> str:
     """When using Graph to send mail: the mailbox to send from (UPN, e.g. reports@company.com). Empty = do not use Graph for email."""
-    return get_config("AMAZON_EMAIL_FROM", ["AMAZON_EMAIL_FROM", "GRAPH_EMAIL_FROM"], default="").strip()
+    return get_config("AMAZON_EMAIL_FROM", ["EMAIL_FROM_ADDRESS", "AMAZON_EMAIL_FROM", "GRAPH_EMAIL_FROM"], default="").strip()
 
 
 def get_test_email() -> str:

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ report.name }} &middot; Results{% endblock %}
+{% block container_class %}wide{% endblock %}
+{% block content %}
+
+<link rel="stylesheet"
+      href="https://unpkg.com/tabulator-tables@6.2.5/dist/css/tabulator_midnight.min.css">
+
+<section class="page report-view-page"
+         id="reportView"
+         data-report-key="{{ report.key }}"
+         data-report-name="{{ report.name }}"
+         data-run-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/run"
+         data-export-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/export.xlsx"
+         data-params='{{ params_json }}'>
+
+    <div class="view-header">
+        <div>
+            <a href="{{ url_for('reports.filter_form', report_key=report.key) }}" class="back-link">
+                &larr; Change filters
+            </a>
+            <h1>{{ report.name }}</h1>
+            <p class="page-subtitle">{{ report.description }}</p>
+
+            {% if params %}
+            <div class="applied-filters">
+                {% for k, v in params.items() %}
+                    {% if v is iterable and v is not string %}
+                        <span class="chip"><span class="chip-label">{{ k }}:</span>{{ v|join(', ') }}</span>
+                    {% else %}
+                        <span class="chip"><span class="chip-label">{{ k }}:</span>{{ v }}</span>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        <div class="view-actions">
+            <button type="button" class="btn btn-outline" id="exportXlsxBtn" disabled>
+                Export to Excel
+            </button>
+        </div>
+    </div>
+
+    <div class="view-status">
+        <span id="generatedAt"></span>
+        <span id="loading">Running report&hellip;</span>
+    </div>
+
+    <div id="tabStrip" class="tab-strip" role="tablist"></div>
+
+    <div class="grid-shell no-panel" id="gridShell">
+        <div id="gridRoot" class="grid-root"></div>
+        <aside class="col-panel" id="hiddenPanel" hidden>
+            <header>
+                <h3>Hidden columns</h3>
+                <button type="button" class="subtle" id="restoreAllBtn">Restore all</button>
+            </header>
+            <p class="muted small">Click a column to put it back.</p>
+            <ul class="col-list" id="hiddenList"></ul>
+        </aside>
+    </div>
+
+    <div id="runError" class="empty-state" hidden>
+        <p class="muted"></p>
+    </div>
+</section>
+
+<script src="https://unpkg.com/tabulator-tables@6.2.5/dist/js/tabulator.min.js"></script>
+<script src="{{ url_for('static', filename='js/report_view.js') }}"></script>
+
+{% endblock %}

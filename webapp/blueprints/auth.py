@@ -102,6 +102,7 @@ def auth_callback():
             "salesman_key": None,
             "_dev": True,
             "_dev_name": dev_name,
+            "_dev_email": email,
         }
         from webapp.db import get_setting
         session["theme"] = get_setting(email, "theme", "light")
@@ -121,42 +122,59 @@ def auth_callback():
 @auth_bp.route("/dev/role-picker", methods=["GET", "POST"])
 @require_login
 def role_picker():
-    """Let authenticated developers pick a role to impersonate."""
+    """Let authenticated developers impersonate any registered user."""
     user = get_current_user()
     if not is_developer(user) and not user.get("_dev"):
         return redirect(url_for("reports.reports_list"))
 
-    if request.method == "POST":
-        role = request.form.get("role", "admin")
-        real_email = user.get("email", "")
-        raw_name = user.get("_dev_name") or user.get("name", real_email)
-        dev_name = raw_name.split(" (as ")[0] if " (as " in raw_name else raw_name
+    dev_email = user.get("_dev_email") or user.get("email", "")
+    raw_name = user.get("_dev_name") or user.get("name", dev_email)
+    dev_name = raw_name.split(" (as ")[0] if " (as " in raw_name else raw_name
 
-        if role == "admin":
+    if request.method == "POST":
+        from webapp.db import get_setting, get_user_by_email
+        target_email = request.form.get("target_email", "").strip()
+
+        if target_email == "__self__":
             session["user"] = {
-                "email": real_email,
+                "email": dev_email,
                 "name": dev_name,
                 "role": "admin",
                 "salesman_key": None,
                 "_dev": True,
                 "_dev_name": dev_name,
+                "_dev_email": dev_email,
             }
-        else:
-            sm_key = request.form.get("salesman_key", "")
-            from config.salesman_map import lookup_salesman
-            _, full_name, display_name = lookup_salesman(sm_key)
-            session["user"] = {
-                "email": real_email,
-                "name": f"{full_name} (as {dev_name})",
-                "role": "salesman",
-                "salesman_key": sm_key,
-                "_dev": True,
-                "_dev_name": dev_name,
-            }
+            session["theme"] = get_setting(dev_email, "theme", "light")
+            return redirect(url_for("reports.reports_list"))
+
+        target = get_user_by_email(target_email)
+        if not target:
+            flash("User not found.", "error")
+            return redirect(url_for("auth.role_picker"))
+
+        display = target.get("display_name") or target["email"]
+        session["user"] = {
+            "email": target["email"],
+            "name": f"{display} (as {dev_name})",
+            "role": target["role"],
+            "salesman_key": target.get("salesman_key"),
+            "_dev": True,
+            "_dev_name": dev_name,
+            "_dev_email": dev_email,
+        }
+        session["theme"] = get_setting(target["email"], "theme", "light")
         return redirect(url_for("reports.reports_list"))
 
+    from webapp.db import get_all_users
+    all_users = get_all_users()
+    grouped = {"admin": [], "developer": [], "manager": [], "salesman": []}
+    for u in all_users:
+        r = u.get("role", "salesman")
+        grouped.setdefault(r, []).append(u)
+
     return render_template("role_picker.html", user=user,
-                           salesmen=get_salesmen_list(user.get("email")))
+                           grouped_users=grouped, dev_email=dev_email)
 
 
 @auth_bp.route("/logout")

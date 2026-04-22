@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ report.name }} &middot; v2{% endblock %}
+{% block content %}
+<section class="page report-form-page"
+    data-report-key="{{ report.key }}"
+    data-report-name="{{ report.name }}"
+    data-salesmen-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/salesmen"
+    data-customers-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/customers"
+    data-years-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/years"
+    data-view-url="{{ url_for('reports.view', report_key=report.key) }}"
+    data-has-period="{{ 'true' if report.has_period else 'false' }}"
+    data-has-status="{{ 'true' if report.has_status else 'false' }}"
+    data-has-year="{{ 'true' if report.has_year else 'false' }}"
+    data-has-salesman="{{ 'true' if report.salesman_filter else 'false' }}"
+    data-has-customer="{{ 'true' if report.customer_filter else 'false' }}">
+
+    <div class="page-header">
+        <a href="{{ url_for('reports.list_all') }}" class="back-link">&larr; Back to reports</a>
+        <h1>{{ report.name }}</h1>
+        <p class="page-subtitle">{{ report.description }}</p>
+    </div>
+
+    <form id="reportForm" class="report-form" autocomplete="off" novalidate>
+
+        {% set has_any = report.has_period or report.has_year or report.has_status
+                         or report.salesman_filter or report.customer_filter %}
+        {% if not has_any %}
+        <div class="form-group">
+            <p class="muted">This report runs with default settings. Just tap <strong>Run Report</strong> below.</p>
+        </div>
+        {% endif %}
+
+        {% if report.has_period %}
+        <div class="form-group">
+            <label class="form-label">Time Period</label>
+            <div class="period-buttons">
+                <button type="button" class="period-btn"        data-period="daily">Yesterday</button>
+                <button type="button" class="period-btn"        data-period="last_7_days">Last 7 Days</button>
+                <button type="button" class="period-btn active" data-period="mtd">This Month</button>
+                <button type="button" class="period-btn"        data-period="ytd">Year to Date</button>
+                <button type="button" class="period-btn"        data-period="all_time">All Time</button>
+                <button type="button" class="period-btn"        data-period="custom">Custom Range</button>
+            </div>
+            <input type="hidden" name="period" id="periodInput" value="mtd">
+        </div>
+
+        <div id="customDateRange" class="form-group" hidden>
+            <div class="date-row">
+                <div class="date-field">
+                    <label class="form-label" for="fromDate">From</label>
+                    <input type="date" id="fromDate" name="start_date" class="form-input">
+                </div>
+                <div class="date-field">
+                    <label class="form-label" for="toDate">To</label>
+                    <input type="date" id="toDate" name="end_date" class="form-input">
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if report.has_year %}
+        <div class="form-group">
+            <label class="form-label" for="yearInput">Report Year</label>
+            <select id="yearInput" name="year" class="form-input form-select">
+                <option value="">Loading&hellip;</option>
+            </select>
+        </div>
+        {% endif %}
+
+        {% if report.has_status %}
+        <div class="form-group">
+            <label class="form-label">Order Status</label>
+            <div class="period-buttons">
+                <button type="button" class="status-btn active" data-status="">All Orders</button>
+                <button type="button" class="status-btn"        data-status="open">Open Orders Only</button>
+            </div>
+            <input type="hidden" name="status" id="statusInput" value="">
+        </div>
+        {% endif %}
+
+        {% if report.salesman_filter %}
+        <div class="form-group">
+            <label class="form-label" for="salesmanSelect">Salesman</label>
+            <select id="salesmanSelect" name="salesman" class="form-input form-select">
+                <option value="">All Salesmen</option>
+            </select>
+        </div>
+        {% endif %}
+
+        {% if report.customer_filter %}
+        <div class="form-group">
+            <label class="form-label">
+                Customers
+                <span id="customerCount" class="badge" hidden></span>
+            </label>
+            <div id="selectedCustomers" class="selected-chips"></div>
+            <input type="text" id="customerSearch" class="form-input" placeholder="Search customers&hellip;">
+            <div id="customerList" class="customer-picker">
+                <div class="customer-picker-loading">Loading customers&hellip;</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="form-actions">
+            <button type="submit" id="runBtn" class="btn btn-primary btn-lg btn-block">Run Report</button>
+        </div>
+    </form>
+</section>
+
+<script src="{{ url_for('static', filename='js/report_form.js') }}"></script>
+{% endblock %}

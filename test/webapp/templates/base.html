@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Sales Reports v2{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    {% if USE_MOCK_DATA %}
+    <div class="mock-banner" role="status" aria-live="polite">
+        Demo mode &mdash; mock data. Numbers shown are sample/historical, not live.
+    </div>
+    {% endif %}
+
+    <header class="site-header">
+        <div class="brand">
+            <strong>Achim Sales Reports</strong>
+            <span class="badge">v2</span>
+        </div>
+        <nav class="top-nav">
+            <a href="{{ url_for('index') }}">Home</a>
+            <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
+            <a href="{{ url_for('reports.list_all') }}">Reports</a>
+            <a href="{{ url_for('settings.index') }}">Settings</a>
+        </nav>
+        <div class="user-menu">
+            {% if CURRENT_USER %}
+                <span class="user-name" title="{{ CURRENT_USER.email }}">
+                    {{ CURRENT_USER.name or CURRENT_USER.email }}
+                    {% if CURRENT_USER.is_admin %}<span class="badge admin">admin</span>{% endif %}
+                    {% if CURRENT_USER.dev_bypass %}<span class="badge dev">dev</span>{% endif %}
+                </span>
+                <a class="button subtle" href="{{ url_for('auth.logout') }}">Sign out</a>
+            {% else %}
+                <a class="button subtle" href="{{ url_for('auth.login') }}">Sign in</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="container {% block container_class %}{% endblock %}">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <small>
+            Sales Reports v2
+            {% if USE_MOCK_DATA %} &middot; <code>USE_MOCK_DATA=true</code>{% endif %}
+        </small>
+    </footer>
+</body>
+</html>
