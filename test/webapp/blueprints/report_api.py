@@ -105,8 +105,9 @@ def export_xlsx(key: str):
 
     Body:
         {
-          "params":  { ... same shape as /run ... },
-          "layouts": { "<tab_key>": {"order": [...fields...], "hidden": [...fields...]} }
+          "params":       { ... same shape as /run ... },
+          "layouts":      { "<tab_key>": {"order": [...fields...], "hidden": [...fields...]} },
+          "dropped_tabs": [ "<tab_key>", ... ]   # tabs the user deleted; skipped in export
         }
     """
     _ensure_report(key)
@@ -115,8 +116,14 @@ def export_xlsx(key: str):
     body = request.get_json(silent=True) or {}
     params = body.get("params") if isinstance(body.get("params"), dict) else {}
     layouts = body.get("layouts") if isinstance(body.get("layouts"), dict) else {}
+    dropped = body.get("dropped_tabs") if isinstance(body.get("dropped_tabs"), list) else []
+    dropped_set = {str(k) for k in dropped}
 
     payload = run_report(key, report.name, params or {})
+    if dropped_set:
+        payload = dict(payload)
+        payload["tabs"] = [t for t in payload.get("tabs", []) if str(t.get("key")) not in dropped_set]
+
     xlsx_bytes = build_workbook(payload, layouts)
 
     filename = f"{report.name.replace(' ', '_')}.xlsx"

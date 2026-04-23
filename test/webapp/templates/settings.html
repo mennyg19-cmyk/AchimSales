@@ -1,21 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Settings &middot; v2{% endblock %}
+{% block title %}Settings &middot; Sales Reports v2{% endblock %}
 {% block content %}
-<section class="page">
-    <div class="page-header">
-        <h1>Settings</h1>
-        <p class="page-subtitle">Coming soon &mdash; user + report visibility settings from the old app.</p>
-    </div>
+<div class="page-header">
+    <h1>Settings</h1>
+    <p class="page-subtitle">Account, preferences, and admin tools</p>
+</div>
 
-    <dl class="settings-readout">
-        <dt>Signed in as</dt>
-        <dd>{{ CURRENT_USER.email }}{% if CURRENT_USER.is_admin %} (admin){% endif %}</dd>
-
-        <dt>Auth mode</dt>
-        <dd><code>{{ AUTH_MODE }}</code></dd>
-
-        <dt>Mock data</dt>
-        <dd><code>{{ 'on' if USE_MOCK_DATA else 'off' }}</code></dd>
-    </dl>
-</section>
+<div class="empty-state">
+    <i data-feather="settings"></i>
+    <h2>Coming soon</h2>
+    <p>You'll be able to pick your default home tab, manage email distributions,
+       and see app status here.</p>
+</div>
 {% endblock %}

@@ -15,7 +15,9 @@
     data-has-customer="{{ 'true' if report.customer_filter else 'false' }}">
 
     <div class="page-header">
-        <a href="{{ url_for('reports.list_all') }}" class="back-link">&larr; Back to reports</a>
+        <a href="{{ url_for('index') }}" class="back-link">
+            <i data-feather="arrow-left"></i> Back to reports
+        </a>
         <h1>{{ report.name }}</h1>
         <p class="page-subtitle">{{ report.description }}</p>
     </div>

@@ -1,43 +1,65 @@
 {% extends "base.html" %}
 {% block title %}{{ report.name }} &middot; Results{% endblock %}
 {% block container_class %}wide{% endblock %}
-{% block content %}
 
+{% block head %}
 <link rel="stylesheet"
-      href="https://unpkg.com/tabulator-tables@6.2.5/dist/css/tabulator_midnight.min.css">
+      href="https://unpkg.com/tabulator-tables@6.2.5/dist/css/tabulator_simple.min.css">
+{% endblock %}
 
-<section class="page report-view-page"
+{% block content %}
+<section class="report-view-page"
          id="reportView"
          data-report-key="{{ report.key }}"
          data-report-name="{{ report.name }}"
          data-run-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/run"
          data-export-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/export.xlsx"
-         data-params='{{ params_json }}'>
+         data-presets-url="{{ URL_PREFIX }}/api/saved-reports"
+         data-home-url="{{ url_for('index') }}"
+         data-params='{{ params_json }}'
+         data-preset-name="{{ preset_name }}"
+         data-preset-id="{{ preset_id }}">
 
-    <div class="view-header">
-        <div>
-            <a href="{{ url_for('reports.filter_form', report_key=report.key) }}" class="back-link">
-                &larr; Change filters
-            </a>
-            <h1>{{ report.name }}</h1>
-            <p class="page-subtitle">{{ report.description }}</p>
+    <div class="page-header">
+        <a href="{{ url_for('reports.filter_form', report_key=report.key) }}" class="back-link">
+            <i data-feather="arrow-left"></i> Change filters
+        </a>
+        <div class="view-top">
+            <div>
+                <h1>{{ report.name }}</h1>
+                <p class="page-subtitle">{{ report.description }}</p>
+                {% if preset_name %}
+                <p class="page-subtitle" style="margin-top:6px;">
+                    Running preset: <strong>{{ preset_name }}</strong>
+                </p>
+                {% endif %}
 
-            {% if params %}
-            <div class="applied-filters">
-                {% for k, v in params.items() %}
-                    {% if v is iterable and v is not string %}
-                        <span class="chip"><span class="chip-label">{{ k }}:</span>{{ v|join(', ') }}</span>
-                    {% else %}
-                        <span class="chip"><span class="chip-label">{{ k }}:</span>{{ v }}</span>
-                    {% endif %}
-                {% endfor %}
+                {% if params %}
+                <div class="applied-filters">
+                    {% for k, v in params.items() %}
+                        {% if v is iterable and v is not string %}
+                            <span class="chip"><span class="chip-label">{{ k }}:</span>{{ v|join(', ') }}</span>
+                        {% else %}
+                            <span class="chip"><span class="chip-label">{{ k }}:</span>{{ v }}</span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
-        </div>
-        <div class="view-actions">
-            <button type="button" class="btn btn-outline" id="exportXlsxBtn" disabled>
-                Export to Excel
-            </button>
+            <div class="view-toolbar">
+                <button type="button" class="btn btn-outline" id="scheduleBtn" disabled>
+                    <i data-feather="calendar"></i> Schedule
+                </button>
+                <button type="button" class="btn btn-outline" id="emailNowBtn" disabled>
+                    <i data-feather="mail"></i> Email Now
+                </button>
+                <button type="button" class="btn btn-outline" id="savePresetBtn" disabled>
+                    <i data-feather="bookmark"></i> Save as Preset
+                </button>
+                <button type="button" class="btn btn-primary" id="exportXlsxBtn" disabled>
+                    <i data-feather="download"></i> Export Excel
+                </button>
+            </div>
         </div>
     </div>
 
@@ -48,22 +70,105 @@
 
     <div id="tabStrip" class="tab-strip" role="tablist"></div>
 
-    <div class="grid-shell no-panel" id="gridShell">
-        <div id="gridRoot" class="grid-root"></div>
-        <aside class="col-panel" id="hiddenPanel" hidden>
-            <header>
-                <h3>Hidden columns</h3>
-                <button type="button" class="subtle" id="restoreAllBtn">Restore all</button>
-            </header>
-            <p class="muted small">Click a column to put it back.</p>
-            <ul class="col-list" id="hiddenList"></ul>
-        </aside>
-    </div>
+    <div class="grid-root" id="gridRoot"></div>
 
     <div id="runError" class="empty-state" hidden>
-        <p class="muted"></p>
+        <i data-feather="alert-triangle"></i>
+        <h2>Something went wrong</h2>
+        <p></p>
     </div>
 </section>
+
+<!-- Deleted-items drawer (bottom sheet on mobile, side panel on desktop) -->
+<aside class="deleted-drawer" id="deletedDrawer" hidden>
+    <div class="drawer-handle" id="drawerHandle">
+        <div>
+            <strong>Deleted</strong>
+            <span class="drawer-count" id="drawerCount">0</span>
+        </div>
+        <div class="drawer-chevron">
+            <i data-feather="chevron-up"></i>
+        </div>
+    </div>
+    <div class="drawer-body">
+        <div class="deleted-section" id="deletedTabsSection" hidden>
+            <h4>Tabs <span class="deleted-count" id="deletedTabsCount">0</span></h4>
+            <ul class="deleted-list" id="deletedTabsList"></ul>
+        </div>
+        <div class="deleted-section" id="deletedColsSection" hidden>
+            <h4>Columns <span class="deleted-count" id="deletedColsCount">0</span></h4>
+            <ul class="deleted-list" id="deletedColsList"></ul>
+        </div>
+    </div>
+</aside>
+
+<!-- Save as Preset modal -->
+<div class="modal-overlay" id="savePresetModal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Save as Preset</h3>
+            <button type="button" class="modal-close" data-close><i data-feather="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-error" id="savePresetError" hidden></div>
+            <label class="block">
+                <span style="display:block; margin-bottom:4px; font-size:13px; color:var(--text-muted);">
+                    Preset name
+                </span>
+                <input type="text" id="savePresetName" class="form-input"
+                       placeholder="e.g. Monthly Invoiced, YTD by Salesman"
+                       maxlength="80" autocomplete="off">
+            </label>
+            <div style="font-size:12px; color:var(--text-muted);">
+                Saves the filters you entered. It will show up on the home page under <em>My Presets</em>.
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" data-close>Cancel</button>
+            <button type="button" class="btn btn-primary" id="savePresetConfirm">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Schedule stub modal -->
+<div class="modal-overlay" id="scheduleModal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Schedule report</h3>
+            <button type="button" class="modal-close" data-close><i data-feather="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="color:var(--text-muted);">
+                Scheduling is coming next. It will use the filters already on the page and
+                offer simple buttons for <strong>Daily / Weekly / Monthly</strong> plus
+                time-of-day and recipient list.
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" data-close>Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Email Now stub modal -->
+<div class="modal-overlay" id="emailNowModal" role="dialog" aria-modal="true">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3>Send this report by email</h3>
+            <button type="button" class="modal-close" data-close><i data-feather="x"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="color:var(--text-muted);">
+                Sending reports directly is coming next. The exact same Excel that
+                <em>Export Excel</em> builds will be attached to an email to one or more
+                addresses.
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" data-close>Close</button>
+        </div>
+    </div>
+</div>
 
 <script src="https://unpkg.com/tabulator-tables@6.2.5/dist/js/tabulator.min.js"></script>
 <script src="{{ url_for('static', filename='js/report_view.js') }}"></script>

@@ -1,15 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Dashboard &middot; v2{% endblock %}
+{% block title %}Dashboard &middot; Sales Reports v2{% endblock %}
 {% block content %}
-<section class="page">
-    <div class="page-header">
-        <h1>Dashboard</h1>
-        <p class="page-subtitle">Coming soon &mdash; the same dashboard from the old app.</p>
-    </div>
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <p class="page-subtitle">At-a-glance metrics across your reports</p>
+</div>
 
-    <p class="muted">
-        This page will mirror the live app's dashboard (recent activity,
-        quick stats, etc.). Stubbed until we wire it up.
-    </p>
-</section>
+<div class="empty-state">
+    <i data-feather="bar-chart-2"></i>
+    <h2>Coming soon</h2>
+    <p>The dashboard will be rebuilt here once the new reports flow is settled.</p>
+</div>
 {% endblock %}

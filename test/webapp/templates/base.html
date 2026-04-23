@@ -1,52 +1,83 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Sales v2">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#2563eb">
     <title>{% block title %}Sales Reports v2{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
+    {% block head %}{% endblock %}
 </head>
 <body>
     {% if USE_MOCK_DATA %}
-    <div class="mock-banner" role="status" aria-live="polite">
-        Demo mode &mdash; mock data. Numbers shown are sample/historical, not live.
+    <div class="mock-banner">
+        Demo mode &mdash; mock data. Not live.
     </div>
     {% endif %}
 
-    <header class="site-header">
-        <div class="brand">
-            <strong>Achim Sales Reports</strong>
-            <span class="badge">v2</span>
+    {% if CURRENT_USER %}
+    <header class="app-header">
+        <div class="header-left">
+            <a href="{{ url_for('index') }}" class="header-logo">Sales Reports</a>
+            <span class="brand-badge">v2</span>
         </div>
-        <nav class="top-nav">
-            <a href="{{ url_for('index') }}">Home</a>
-            <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
-            <a href="{{ url_for('reports.list_all') }}">Reports</a>
-            <a href="{{ url_for('settings.index') }}">Settings</a>
-        </nav>
-        <div class="user-menu">
-            {% if CURRENT_USER %}
-                <span class="user-name" title="{{ CURRENT_USER.email }}">
-                    {{ CURRENT_USER.name or CURRENT_USER.email }}
-                    {% if CURRENT_USER.is_admin %}<span class="badge admin">admin</span>{% endif %}
-                    {% if CURRENT_USER.dev_bypass %}<span class="badge dev">dev</span>{% endif %}
-                </span>
-                <a class="button subtle" href="{{ url_for('auth.logout') }}">Sign out</a>
-            {% else %}
-                <a class="button subtle" href="{{ url_for('auth.login') }}">Sign in</a>
+        <div class="header-right">
+            <span class="user-name">{{ CURRENT_USER.name or CURRENT_USER.email }}</span>
+            {% if CURRENT_USER.is_admin %}
+            <span class="badge badge-admin">Admin</span>
             {% endif %}
+            {% if CURRENT_USER.dev_bypass %}
+            <span class="badge badge-dev">Dev</span>
+            {% endif %}
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline">Sign Out</a>
         </div>
     </header>
+    {% endif %}
 
     <main class="container {% block container_class %}{% endblock %}">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="site-footer">
-        <small>
-            Sales Reports v2
-            {% if USE_MOCK_DATA %} &middot; <code>USE_MOCK_DATA=true</code>{% endif %}
-        </small>
-    </footer>
+    {% if CURRENT_USER %}
+    <nav class="bottom-nav">
+        <a href="{{ url_for('index') }}"
+           class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
+            <div class="bottom-nav-icon"><i data-feather="file-text"></i></div>
+            <span class="bottom-nav-label">Reports</span>
+        </a>
+        <a href="{{ url_for('dashboard.index') }}"
+           class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}">
+            <div class="bottom-nav-icon"><i data-feather="bar-chart-2"></i></div>
+            <span class="bottom-nav-label">Dashboard</span>
+        </a>
+        <a href="{{ url_for('settings.index') }}"
+           class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}">
+            <div class="bottom-nav-icon"><i data-feather="settings"></i></div>
+            <span class="bottom-nav-label">Settings</span>
+        </a>
+    </nav>
+    {% endif %}
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof feather !== 'undefined') feather.replace();
+        });
+    </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

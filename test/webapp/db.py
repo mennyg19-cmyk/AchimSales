@@ -32,6 +32,22 @@ SCHEMA_STATEMENTS = [
         last_login_utc  TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS saved_reports (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_email   TEXT    NOT NULL,
+        name         TEXT    NOT NULL,
+        report_key   TEXT    NOT NULL,
+        report_name  TEXT    NOT NULL,
+        params_json  TEXT    NOT NULL DEFAULT '{}',
+        created_utc  TEXT    NOT NULL,
+        UNIQUE(user_email, name)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_saved_reports_user
+        ON saved_reports(user_email, created_utc DESC)
+    """,
 ]
 
 

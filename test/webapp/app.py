@@ -27,6 +27,7 @@ from test.config.settings import AUTH_MODE, FLASK_SECRET, URL_PREFIX, USE_MOCK_D
 from test.webapp.auth import current_user, require_login
 from test.webapp.blueprints.auth_bp import auth_bp
 from test.webapp.blueprints.dashboard import dashboard_bp
+from test.webapp.blueprints.presets import presets_bp
 from test.webapp.blueprints.report_api import report_api_bp
 from test.webapp.blueprints.reports import reports_bp
 from test.webapp.blueprints.settings_bp import settings_bp
@@ -63,7 +64,7 @@ def create_app() -> Flask:
     @app.route("/")
     @require_login
     def index():
-        return render_template("index.html", reports=list_reports())
+        return render_template("index.html", reports=list_reports(), active_tab="reports")
 
     @app.route("/healthz")
     def healthz():
@@ -73,6 +74,7 @@ def create_app() -> Flask:
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(report_api_bp)
+    app.register_blueprint(presets_bp)
     app.register_blueprint(settings_bp)
 
     init_db()
