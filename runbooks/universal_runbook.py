@@ -278,19 +278,76 @@ def _sp_download_folder(drive_id, cloud_path, local_path, token):
             log.info("  Downloaded: %s", child_cloud)
 
 
+def _graph_request_with_retry(method, url, *, headers, max_attempts=4,
+                              backoff_base=2.0, timeout=None,
+                              expect_status=None, **kwargs):
+    """Call Graph with exponential-backoff retry on timeouts and 5xx.
+
+    Graph occasionally drops a connection mid-request (real-world read
+    timeouts at 30s happen every few thousand calls).  Without retry a
+    single hiccup crashes the whole SharePoint upload tree and an entire
+    successful report run gets flagged as FAILED.  Back off 1s, 2s, 4s,
+    8s between attempts, then let the caller handle the final failure.
+
+    Returns the ``requests.Response`` if the call ultimately succeeded
+    (status 2xx, or in ``expect_status`` when provided).  Raises the
+    last exception / non-retryable response otherwise.
+    """
+    import requests
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            last_exc = e
+            if attempt == max_attempts:
+                raise
+            sleep_s = backoff_base ** (attempt - 1)
+            log.warning("Graph %s %s timeout (attempt %d/%d): %s -- retrying in %.0fs",
+                        method, url.rsplit("/", 1)[-1], attempt, max_attempts, e, sleep_s)
+            time.sleep(sleep_s)
+            continue
+
+        code = resp.status_code
+        # Retry on 429 (throttle) and 5xx (transient server errors).
+        if code == 429 or 500 <= code < 600:
+            if attempt == max_attempts:
+                return resp
+            retry_after = resp.headers.get("Retry-After")
+            try:
+                sleep_s = float(retry_after) if retry_after else backoff_base ** (attempt - 1)
+            except ValueError:
+                sleep_s = backoff_base ** (attempt - 1)
+            log.warning("Graph %s %s returned %d (attempt %d/%d) -- retrying in %.0fs",
+                        method, url.rsplit("/", 1)[-1], code, attempt, max_attempts, sleep_s)
+            time.sleep(sleep_s)
+            continue
+
+        return resp
+
+    raise RuntimeError(f"Graph retry exhausted for {method} {url}") from last_exc
+
+
 def _sp_upload_file(drive_id, cloud_folder, local_path, token):
     """Upload a single file to a SharePoint folder.
 
     Returns the SharePoint webUrl of the uploaded file, or None on failure.
     """
-    import requests
     t = _resolve_token(token)
     folder_clean = cloud_folder.replace("\\", "/").strip("/")
     filename = os.path.basename(local_path)
     url = f"{GRAPH_BASE}/drives/{drive_id}/root:/{folder_clean}/{filename}:/content"
     with open(local_path, "rb") as f:
         data = f.read()
-    r = requests.put(url, headers={"Authorization": f"Bearer {t}", "Content-Type": "application/octet-stream"}, data=data, timeout=UPLOAD_TIMEOUT)
+    try:
+        r = _graph_request_with_retry(
+            "PUT", url,
+            headers={"Authorization": f"Bearer {t}", "Content-Type": "application/octet-stream"},
+            data=data, timeout=UPLOAD_TIMEOUT,
+        )
+    except Exception:
+        log.exception("Upload %s/%s failed after retries", folder_clean, filename)
+        return None
     if r.status_code not in (200, 201):
         log.warning("Upload %s/%s returned %d", folder_clean, filename, r.status_code)
         return None
@@ -302,7 +359,6 @@ def _sp_upload_file(drive_id, cloud_folder, local_path, token):
 
 def _sp_ensure_folder(drive_id, folder_path, token):
     """Ensure a folder exists in the drive."""
-    import requests
     t = _resolve_token(token)
     parts = folder_path.replace("\\", "/").strip("/").split("/")
     current = ""
@@ -314,7 +370,7 @@ def _sp_ensure_folder(drive_id, folder_path, token):
         else:
             url = f"{GRAPH_BASE}/drives/{drive_id}/root/children"
         body = {"name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "replace"}
-        requests.post(url, headers=headers, json=body, timeout=TIMEOUT)
+        _graph_request_with_retry("POST", url, headers=headers, json=body, timeout=TIMEOUT)
         current = f"{current}/{part}" if current else part
 
 
@@ -1014,7 +1070,11 @@ def _build_heartbeat_html(
     rows_html = ""
     for line in report_results:
         line = line.strip()
-        if not line or line.startswith("Upload:") or line.startswith("Total duration:"):
+        if not line or line.startswith("Total duration:"):
+            continue
+        # Hide the "Upload: N files" / "Upload: no output files" rows (noise),
+        # but surface "Upload: FAILED" so failures are never silent.
+        if line.startswith("Upload:") and "FAILED" not in line:
             continue
         if ":" in line:
             parts = line.split(":", 1)
