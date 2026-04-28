@@ -3,6 +3,14 @@
 
 {% block head %}
 <style>
+    /* The DB explorer is a power-user tool, not a phone-friendly view.
+     * Break out of the global 800px container so wide tables breathe. */
+    main.container:has(.dbx-layout) {
+        max-width: none;
+        padding-left: 24px;
+        padding-right: 24px;
+    }
+
     .dbx-layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; }
     @media (max-width: 800px) { .dbx-layout { grid-template-columns: 1fr; } }
 
