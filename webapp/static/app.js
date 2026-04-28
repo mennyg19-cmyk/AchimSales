@@ -236,10 +236,17 @@ function runReport() {
     var period = document.getElementById('periodInput');
     if (period) params.period = period.value;
 
-    var fromDate = document.getElementById('fromDate');
-    var toDate = document.getElementById('toDate');
-    if (fromDate && fromDate.value) params.from_date = fromDate.value;
-    if (toDate && toDate.value) params.to_date = toDate.value;
+    /* Only forward the custom-range dates when the user actually picked
+       Custom Range. Otherwise we'd ship stale values left over from a
+       previous custom selection -- the date fields are hidden but their
+       values stick around, and the backend will happily prefer them
+       over the period preset (a real bug Dad hit). */
+    if (period && period.value === 'custom') {
+        var fromDate = document.getElementById('fromDate');
+        var toDate = document.getElementById('toDate');
+        if (fromDate && fromDate.value) params.from_date = fromDate.value;
+        if (toDate && toDate.value) params.to_date = toDate.value;
+    }
 
     var yearInput = document.getElementById('yearInput');
     if (yearInput) params.year = parseInt(yearInput.value);

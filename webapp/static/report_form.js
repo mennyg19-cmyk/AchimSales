@@ -48,6 +48,13 @@ function _collectParams() {
     var form = document.getElementById('reportForm');
     var fd = new FormData(form);
     fd.forEach(function(v, k) { if (v) p[k] = v; });
+    /* Same fix as runReport(): the custom-range inputs aren't cleared
+       when the user picks This Month / YTD / etc., so FormData would
+       otherwise smuggle stale dates into the saved preset. */
+    if (p.period !== 'custom') {
+        delete p.from_date;
+        delete p.to_date;
+    }
     var chips = document.querySelectorAll('#selectedCustomers .chip');
     if (chips.length) {
         var customers = [];
