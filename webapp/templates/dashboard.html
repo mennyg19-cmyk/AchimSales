@@ -7,21 +7,31 @@
     <p class="page-subtitle">Customer activity overview <button class="help-icon" data-help="dashboard-cards">?</button></p>
 </div>
 
-<!-- Summary Cards (tappable filters) -->
+<!-- Summary Cards (tappable filters). Help-icon clicks are stopped from
+     bubbling so they don't trigger the card-filter onclick. -->
 <div class="dash-summary-cards">
     <div class="dash-card dash-card-filter dash-card-filter-active" data-filter="" onclick="filterByCard(this, '')">
+        <button class="help-icon dash-card-help" data-help="dashboard-tile-total" onclick="event.stopPropagation()">?</button>
         <div class="dash-card-label">Total Customers</div>
         <div class="dash-card-value">{{ summary.total_customers }}</div>
     </div>
+    <div class="dash-card dash-card-new dash-card-filter" data-filter="new" onclick="filterByCard(this, 'new')">
+        <button class="help-icon dash-card-help" data-help="dashboard-tile-new" onclick="event.stopPropagation()">?</button>
+        <div class="dash-card-label">New</div>
+        <div class="dash-card-value">{{ summary.new }}</div>
+    </div>
     <div class="dash-card dash-card-active dash-card-filter" data-filter="active" onclick="filterByCard(this, 'active')">
+        <button class="help-icon dash-card-help" data-help="dashboard-tile-active" onclick="event.stopPropagation()">?</button>
         <div class="dash-card-label">Active</div>
         <div class="dash-card-value">{{ summary.active }}</div>
     </div>
     <div class="dash-card dash-card-overdue dash-card-filter" data-filter="overdue" onclick="filterByCard(this, 'overdue')">
+        <button class="help-icon dash-card-help" data-help="dashboard-tile-overdue" onclick="event.stopPropagation()">?</button>
         <div class="dash-card-label">Overdue</div>
         <div class="dash-card-value">{{ summary.overdue }}</div>
     </div>
     <div class="dash-card dash-card-filter" data-filter="inactive" onclick="filterByCard(this, 'inactive')">
+        <button class="help-icon dash-card-help" data-help="dashboard-tile-inactive" onclick="event.stopPropagation()">?</button>
         <div class="dash-card-label">Inactive</div>
         <div class="dash-card-value">{{ summary.inactive }}</div>
     </div>

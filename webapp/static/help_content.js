@@ -121,13 +121,47 @@ var HELP = {
         title: "Dashboard Overview",
         body: "This page shows how your customers are doing based on their ordering patterns.<br><br>" +
               "<strong>Total Customers</strong> — everyone assigned to you.<br>" +
+              "<strong>New</strong> — customers who have only ordered once since we moved to the new system.<br>" +
               "<strong>Active</strong> — customers who are ordering on their normal schedule.<br>" +
               "<strong>Overdue</strong> — customers who are taking longer than usual to place their next order.<br>" +
-              "<strong>Inactive</strong> — customers who haven't ordered in a very long time.<br><br>" +
-              "Tap any card to show only that group in the table below.<br><br>" +
+              "<strong>Inactive</strong> — customers who haven't ordered in over a year.<br><br>" +
+              "Tap any card to show only that group in the table below. Tap the <strong>?</strong> in any tile for a more detailed explanation.<br><br>" +
               "The table columns:<br>" +
               "<strong>Avg Freq</strong> — the average number of days between this customer's orders.<br>" +
               "<strong>Threshold</strong> — how many days we wait before marking them overdue (based on their ordering pattern plus some buffer)."
+    },
+
+    "dashboard-tile-total": {
+        title: "Total Customers",
+        body: "Every customer assigned to you (or to the salesman you're viewing).<br><br>" +
+              "Tap this tile to clear any filter and show everyone in the table below."
+    },
+
+    "dashboard-tile-new": {
+        title: "New",
+        body: "Customers who have only placed one order since the move to D365.<br><br>" +
+              "We need at least 2 orders to figure out how often a customer normally orders, so 'New' customers don't yet have an Avg Freq or Threshold." +
+              " Once they place their second order, they'll move to Active, Overdue, or Inactive."
+    },
+
+    "dashboard-tile-active": {
+        title: "Active",
+        body: "Customers who are ordering on their normal schedule.<br><br>" +
+              "We look at the gap between each of their past orders to figure out their typical ordering frequency." +
+              " As long as it's been less time since their last order than that frequency (plus a small buffer), they're Active."
+    },
+
+    "dashboard-tile-overdue": {
+        title: "Overdue",
+        body: "Customers who are taking longer than usual to place their next order.<br><br>" +
+              "Once it's been more time since their last order than their typical frequency (plus the buffer), they show up here." +
+              " These are the customers worth a phone call."
+    },
+
+    "dashboard-tile-inactive": {
+        title: "Inactive (1+ year)",
+        body: "Customers who haven't placed an order in over a year.<br><br>" +
+              "They're probably not coming back without a serious push. We separate them from Overdue so they don't drown out the more time-sensitive Overdue customers."
     },
 
     "dashboard-avg-freq": {

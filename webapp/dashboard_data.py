@@ -83,7 +83,10 @@ def _compute_customer_metrics(customer_account: str, customer_name: str,
     result["last_order_date"] = last.isoformat()
     result["days_since_last"] = (today - last).days
 
-    if len(parsed) < 3:
+    # "new" = exactly 1 order. With 2+ orders we have at least 1 gap, which
+    # is enough to compute a (rough) avg-frequency baseline. With 2 orders
+    # stdev=0, so threshold=avg_gap; with 3+ orders we get a real spread.
+    if len(parsed) < 2:
         result["status"] = "new"
         return result
 
@@ -444,6 +447,7 @@ def get_dashboard_summary(data: list[dict]) -> dict:
     """Compute summary stats from cached dashboard data (excluding excluded)."""
     included = [d for d in data if not d.get("excluded")]
     total = len(included)
+    new = sum(1 for d in included if d.get("status") == "new")
     active = sum(1 for d in included if d.get("status") == "active")
     overdue = sum(1 for d in included if d.get("status") == "overdue")
     inactive = sum(1 for d in included if d.get("status") == "inactive")
@@ -454,6 +458,7 @@ def get_dashboard_summary(data: list[dict]) -> dict:
 
     return {
         "total_customers": total,
+        "new": new,
         "active": active,
         "overdue": overdue,
         "inactive": inactive,

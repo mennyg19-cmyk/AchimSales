@@ -269,8 +269,16 @@ def _headers_to_list(headers_df) -> list[dict]:
 
 
 def fetch_customer_orders(account: str, start_date: date, end_date: date,
-                          last_n: int | None = None) -> list[dict]:
-    """Return a list of order dicts for *account* between the given dates."""
+                          last_n: int | None = None,
+                          invoiced_only: bool = True) -> list[dict]:
+    """Return a list of order dicts for *account* between the given dates.
+
+    Defaults to invoiced-only because that's what the customer detail page
+    shows after the dashboard rework -- a salesman doing a store visit
+    cares about what actually shipped, not draft/cancelled orders.
+    Pass ``invoiced_only=False`` to keep all statuses (e.g. for the
+    activity-metrics refresh, which uses every order date).
+    """
     base_url, token, company = get_d365_connection()
     from data.d365_entities import fetch_sales_order_headers
     from core.dates import convert_d365_dates_to_eastern
@@ -282,6 +290,12 @@ def fetch_customer_orders(account: str, start_date: date, end_date: date,
 
     if headers_df.empty:
         return []
+
+    if invoiced_only and "OrderStatus" in headers_df.columns:
+        status = headers_df["OrderStatus"].fillna("").astype(str).str.lower()
+        headers_df = headers_df[status.str.contains("invoiced")]
+        if headers_df.empty:
+            return []
 
     if "OrderDate" in headers_df.columns:
         headers_df["OrderDate"] = convert_d365_dates_to_eastern(headers_df["OrderDate"])
