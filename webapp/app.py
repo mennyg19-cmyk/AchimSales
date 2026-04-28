@@ -27,6 +27,7 @@ from webapp.blueprints.api import api_bp
 from webapp.blueprints.schedules import schedules_bp
 from webapp.blueprints.orders import orders_bp
 from webapp.blueprints.email_distributions import email_dist_bp
+from webapp.blueprints.db_explorer import db_explorer_bp
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -95,6 +96,7 @@ def create_app() -> Flask:
     application.register_blueprint(schedules_bp)
     application.register_blueprint(orders_bp)
     application.register_blueprint(email_dist_bp)
+    application.register_blueprint(db_explorer_bp)
 
     print("[app] Initializing database...", flush=True)
     init_db()

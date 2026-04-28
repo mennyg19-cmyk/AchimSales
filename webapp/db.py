@@ -430,7 +430,6 @@ def init_db():
     seed_salesmen()
     seed_report_config()
     seed_feature_flags()
-    sync_salesmen_to_users()
     seed_demo_order_data()
 
 
@@ -812,37 +811,6 @@ def seed_feature_flags():
         conn.commit()
     except Exception:
         log.exception("Feature flags seed failed")
-    finally:
-        conn.close()
-
-
-def sync_salesmen_to_users():
-    """Ensure every salesman in the salesmen table has a corresponding app_users row.
-
-    Creates placeholder rows (email = key, role = salesman) so they appear
-    in the unified user/permissions grid even before a real email is assigned.
-    """
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    try:
-        salesmen = conn.execute("SELECT key, full_name FROM salesmen WHERE number != '?unassigned'").fetchall()
-        created = 0
-        for sm in salesmen:
-            existing = conn.execute(
-                "SELECT 1 FROM app_users WHERE salesman_key = ?", (sm["key"],)
-            ).fetchone()
-            if not existing:
-                conn.execute(
-                    """INSERT OR IGNORE INTO app_users (email, role, salesman_key, display_name, dashboard_enabled)
-                       VALUES (?, 'salesman', ?, ?, 1)""",
-                    (sm["key"], sm["key"], sm["full_name"]),
-                )
-                created += 1
-        if created:
-            conn.commit()
-            print(f"[db] sync_salesmen_to_users: created {created} placeholder user rows", flush=True)
-    except Exception:
-        log.exception("sync_salesmen_to_users failed")
     finally:
         conn.close()
 

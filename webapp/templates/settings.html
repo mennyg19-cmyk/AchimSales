@@ -389,6 +389,22 @@
 </div>
 {% endif %}
 
+{% if user.role == 'developer' %}
+<div class="settings-section" style="margin-top:24px; border:1px dashed var(--border);">
+    <h3 class="settings-section-title">
+        <i data-feather="terminal" style="width:18px;height:18px;"></i>
+        Developer Tools
+    </h3>
+    <div class="settings-customer-item">
+        <div class="settings-cust-info">
+            <span class="settings-cust-account">Database Explorer</span>
+            <span class="settings-cust-name" style="font-size:12px; color:var(--text-muted);">Browse and edit any table in the SQLite database</span>
+        </div>
+        <a href="{{ url_for('db_explorer.db_explorer_page') }}" class="btn btn-sm btn-outline">Open</a>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
