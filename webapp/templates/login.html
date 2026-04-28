@@ -45,16 +45,14 @@
 <div class="login-page">
     <div class="login-card">
         <div class="login-icon">
-            <i data-feather="bar-chart-2" width="48" height="48"></i>
+            <img src="{{ url_for('static', filename='icon-192.png') }}"
+                 alt="Achim" width="64" height="64">
         </div>
         <h1>Sales Reports</h1>
         <p class="login-subtitle">Sign in to continue</p>
 
         <a href="{{ url_for('auth.login_start') }}" class="btn btn-primary btn-lg btn-block">
-            <img src="{{ url_for('static', filename='icon-192.png') }}"
-                 alt="" width="22" height="22"
-                 style="margin-right: 8px; vertical-align: middle; background: #fff; border-radius: 4px; padding: 1px;">
-            Achim Sign In
+            Achim User Login
         </a>
 
         <button type="button" id="externalLoginBtn"
