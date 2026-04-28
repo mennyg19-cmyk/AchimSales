@@ -877,6 +877,11 @@ body.dark-theme .status-no_data {
 
 /* -- Data Table ---------------------------------------------------------- */
 
+/* Make container full-width when it contains a table wrapper */
+.container:has(.table-wrapper) {
+    max-width: none;
+}
+
 .table-wrapper {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -3050,6 +3055,55 @@ body.col-resizing,
 body.col-resizing * {
     cursor: col-resize !important;
     user-select: none !important;
+}
+
+/* Customer's Last Order: customer pick list */
+.customer-pick-list {
+    margin-top: 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: var(--card-bg);
+}
+.customer-pick-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: var(--text);
+    transition: background 0.1s;
+}
+.customer-pick-row:last-child {
+    border-bottom: none;
+}
+.customer-pick-row:hover {
+    background: var(--bg);
+}
+.customer-pick-acct {
+    font-weight: 600;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+}
+.customer-pick-name {
+    color: var(--text);
+    flex: 1 1 auto;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.customer-pick-more {
+    padding: 10px 14px;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
 }
 
  

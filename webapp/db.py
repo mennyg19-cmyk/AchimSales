@@ -116,7 +116,8 @@ CREATE TABLE IF NOT EXISTS app_users (
     role          TEXT NOT NULL DEFAULT 'salesman',
     salesman_key  TEXT,
     display_name  TEXT,
-    dashboard_enabled INTEGER DEFAULT 1
+    dashboard_enabled INTEGER DEFAULT 1,
+    test_access_enabled INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS report_runs (
@@ -349,6 +350,9 @@ def init_db():
         cols = [r[1] for r in conn.execute("PRAGMA table_info(app_users)").fetchall()]
         if "dashboard_enabled" not in cols:
             conn.execute("ALTER TABLE app_users ADD COLUMN dashboard_enabled INTEGER DEFAULT 1")
+            conn.commit()
+        if "test_access_enabled" not in cols:
+            conn.execute("ALTER TABLE app_users ADD COLUMN test_access_enabled INTEGER DEFAULT 0")
             conn.commit()
         notif_cols = [r[1] for r in conn.execute("PRAGMA table_info(notifications)").fetchall()]
         if notif_cols and "dismissed_at" not in notif_cols:
@@ -744,14 +748,22 @@ def seed_salesmen():
 
 
 def seed_report_config():
-    """Seed report_config from REPORTS_CONFIG so every report key has a row."""
+    """Seed report_config from REPORTS_CONFIG so every report key has a row.
+
+    Most reports default to globally enabled. Reports listed in
+    ``_REPORTS_DISABLED_BY_DEFAULT`` start globally disabled instead, so
+    they're hidden from everyone (including future new users) until an admin
+    explicitly turns them on per-user via the user_report_access override.
+    """
     from webapp.user_map import REPORTS_CONFIG
+
     conn = get_db()
     try:
         for rkey in REPORTS_CONFIG:
+            default_enabled = 0 if rkey in _REPORTS_DISABLED_BY_DEFAULT else 1
             conn.execute(
-                "INSERT OR IGNORE INTO report_config (report_key, enabled) VALUES (?, 1)",
-                (rkey,),
+                "INSERT OR IGNORE INTO report_config (report_key, enabled) VALUES (?, ?)",
+                (rkey, default_enabled),
             )
         conn.commit()
     except Exception:
@@ -760,11 +772,19 @@ def seed_report_config():
         conn.close()
 
 
+# Reports that ship globally disabled. Admins flip them on for individual
+# users via the user_report_access override (Settings -> Permissions grid).
+_REPORTS_DISABLED_BY_DEFAULT = {
+    "customer_last_order",
+}
+
+
 def seed_feature_flags():
     """Seed default feature flags."""
     defaults = [
         ("dashboard_enabled", 1, "Show the Dashboard tab for all users"),
         ("order_entry_enabled", 0, "Show the Order Entry tab for sales reps"),
+        ("test_site_enabled", 0, "Show 'Go to Test' link for users with test access"),
     ]
     conn = get_db()
     try:
@@ -1024,14 +1044,14 @@ def get_users_permission_grid() -> list[dict]:
     """Return every app_user with their salesman info and per-report access map.
 
     Each item: {email, role, salesman_key, display_name, dashboard_enabled,
-                sm_number, sm_name, active, reports: {report_key: bool},
+                test_access_enabled, sm_number, sm_name, active, reports: {report_key: bool},
                 allowed_salesmen: [str]}
     """
     conn = get_db()
     try:
         users = conn.execute(
             """SELECT u.id, u.email, u.role, u.salesman_key, u.display_name,
-                      u.dashboard_enabled,
+                      u.dashboard_enabled, u.test_access_enabled,
                       s.number AS sm_number, s.full_name AS sm_name, s.active
                FROM app_users u
                LEFT JOIN salesmen s ON u.salesman_key = s.key
@@ -1091,6 +1111,16 @@ def set_user_dashboard(email: str, enabled: bool):
     conn = get_db()
     try:
         conn.execute("UPDATE app_users SET dashboard_enabled = ? WHERE email = ?",
+                     (int(enabled), email.lower().strip()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_user_test_access(email: str, enabled: bool):
+    conn = get_db()
+    try:
+        conn.execute("UPDATE app_users SET test_access_enabled = ? WHERE email = ?",
                      (int(enabled), email.lower().strip()))
         conn.commit()
     finally:

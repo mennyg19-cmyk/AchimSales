@@ -43,7 +43,11 @@
 
 <div class="report-grid">
     {% for key, report in reports.items() %}
+    {% if key == 'customer_last_order' %}
+    <a href="{{ url_for('reports.customer_last_order_pick') }}" class="report-card">
+    {% else %}
     <a href="{{ url_for('reports.report_form', report_key=key) }}" class="report-card">
+    {% endif %}
         <div class="report-card-icon">
             <i data-feather="{{ report.icon }}"></i>
         </div>

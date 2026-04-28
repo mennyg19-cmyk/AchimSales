@@ -117,6 +117,17 @@ REPORTS_CONFIG = {
         "has_status": False,
         "icon": "clock",
     },
+    "customer_last_order": {
+        "name": "Customer's Last Order",
+        "description": "Pick a customer and see their last order header + line items. Built for store visits.",
+        # In-app only -- has its own picker + view, not the generic filter form.
+        "in_app_only": True,
+        "salesman_filter": True,
+        "customer_filter": False,
+        "has_period": False,
+        "has_status": False,
+        "icon": "shopping-bag",
+    },
 }
 
 

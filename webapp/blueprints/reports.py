@@ -58,6 +58,121 @@ def reports_list():
                            presets=presets, active_tab="reports")
 
 
+@reports_bp.route("/report/customer-last-order")
+@require_login
+def customer_last_order_pick():
+    """Customer picker for the in-app Customer's Last Order report.
+
+    Salesman users see only their book; admins/managers see everyone they
+    have access to. The actual customer list is loaded async via /api/customers.
+    """
+    user = get_current_user()
+    available = get_available_reports(user)
+    if "customer_last_order" not in available:
+        flash("You do not have access to this report.", "error")
+        return redirect(url_for("reports.reports_list"))
+
+    report_cfg = available["customer_last_order"]
+    user_is_admin = is_admin(user)
+    user_is_manager = is_manager(user)
+
+    salesmen_list = []
+    show_salesman_picker = False
+    if user_is_admin:
+        salesmen_list = get_salesmen_list(user.get("email"))
+        show_salesman_picker = True
+    elif user_is_manager:
+        allowed_keys = set(get_user_salesman_access(user.get("email", "")))
+        all_sm = get_salesmen_list(user.get("email"))
+        salesmen_list = [s for s in all_sm if s["key"] in allowed_keys]
+        show_salesman_picker = bool(salesmen_list)
+
+    return render_template(
+        "customer_last_order_pick.html",
+        user=user, report=report_cfg,
+        show_salesman_picker=show_salesman_picker,
+        salesmen_list=salesmen_list,
+        active_tab="reports",
+    )
+
+
+@reports_bp.route("/report/customer-last-order/<account>")
+@require_login
+def customer_last_order_view(account):
+    """Show the most-recent order header + line items for one customer.
+
+    Pulls live from D365 (no Excel runner, no history record). Designed
+    to be fast enough to flip open during an in-store visit.
+    """
+    from webapp.helpers import get_d365_connection
+
+    user = get_current_user()
+    available = get_available_reports(user)
+    if "customer_last_order" not in available:
+        flash("You do not have access to this report.", "error")
+        return redirect(url_for("reports.reports_list"))
+
+    salesman_key = get_salesman_key(user)
+    user_is_admin = is_admin(user)
+    user_is_manager = is_manager(user)
+
+    # Customer-access guard: salesman = own book only; manager = assigned books.
+    cust_info = {"account": account, "name": account, "sales_group": ""}
+    try:
+        from webapp.services.d365 import fetch_customer_info
+        cust_info = fetch_customer_info(account) or cust_info
+    except Exception:
+        log.exception("Failed to fetch customer info for %s", account)
+
+    cust_sg = (cust_info.get("sales_group") or "").strip()
+    if not user_is_admin:
+        from webapp.db import normalize_key
+        norm_cust = normalize_key(cust_sg)
+        if user_is_manager:
+            allowed = {normalize_key(k) for k in get_user_salesman_access(user.get("email", ""))}
+            if norm_cust not in allowed:
+                flash("You do not have access to this customer.", "error")
+                return redirect(url_for("reports.customer_last_order_pick"))
+        elif salesman_key:
+            if normalize_key(salesman_key) != norm_cust:
+                flash("You do not have access to this customer.", "error")
+                return redirect(url_for("reports.customer_last_order_pick"))
+
+    header = {}
+    lines = []
+    error = None
+    try:
+        from core.dates import D365_GO_LIVE, get_today_eastern
+        base_url, token, company = get_d365_connection()
+        from data.d365_entities import fetch_sales_order_headers
+        from core.dates import convert_d365_dates_to_eastern
+
+        headers_df = fetch_sales_order_headers(
+            base_url, token, D365_GO_LIVE, get_today_eastern(),
+            company_id=company, customer_account=account,
+        )
+
+        if not headers_df.empty:
+            if "OrderDate" in headers_df.columns:
+                headers_df["OrderDate"] = convert_d365_dates_to_eastern(headers_df["OrderDate"])
+            headers_df = headers_df.sort_values("OrderDate", ascending=False)
+            top = headers_df.iloc[0]
+            order_number = str(top.get("SalesOrderNumber", "")).strip()
+            if order_number:
+                from webapp.services.d365 import fetch_order_with_lines
+                header, lines, _ = fetch_order_with_lines(order_number)
+    except Exception as e:
+        log.exception("Customer last order fetch failed for %s", account)
+        error = str(e)
+
+    return render_template(
+        "customer_last_order_view.html",
+        user=user, customer=cust_info,
+        header=header, lines=lines, error=error,
+        active_tab="reports",
+    )
+
+
 @reports_bp.route("/report/<report_key>")
 @require_login
 def report_form(report_key):
@@ -66,6 +181,13 @@ def report_form(report_key):
 
     if report_key not in available:
         flash("You do not have access to this report.", "error")
+        return redirect(url_for("reports.reports_list"))
+
+    # In-app-only reports have their own dedicated routes.
+    if available[report_key].get("in_app_only"):
+        if report_key == "customer_last_order":
+            return redirect(url_for("reports.customer_last_order_pick"))
+        flash("This report has no filter form.", "error")
         return redirect(url_for("reports.reports_list"))
 
     report_cfg = available[report_key]

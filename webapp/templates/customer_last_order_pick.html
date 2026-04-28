@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Customer's Last Order - Sales Reports{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('reports.reports_list') }}" class="back-link">
+    <i data-feather="arrow-left" style="width:16px;height:16px;"></i>
+    Reports
+</a>
+
+<div class="page-header">
+    <h1>{{ report.name }}</h1>
+    <p class="page-subtitle">Pick a customer to see their last order, ready for a store visit.</p>
+</div>
+
+<div class="detail-card">
+    {% if show_salesman_picker %}
+    <div class="form-group">
+        <label class="form-label" for="salesmanPicker">Salesman</label>
+        <select id="salesmanPicker" class="form-input form-select">
+            <option value="">— All —</option>
+            {% for s in salesmen_list %}
+            <option value="{{ s.key }}">{{ s.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
+
+    <div class="form-group">
+        <label class="form-label" for="customerSearch">Customer</label>
+        <input type="text" id="customerSearch" class="form-input"
+               placeholder="Search by name or account…" autocomplete="off">
+    </div>
+
+    <div id="customerList" class="customer-pick-list" role="listbox" aria-label="Customers">
+        <div class="empty-state" style="padding:16px;">
+            <i data-feather="loader" width="22" height="22"></i>
+            <p style="margin-top:8px;">Loading customers…</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    "use strict";
+
+    var listEl = document.getElementById("customerList");
+    var searchEl = document.getElementById("customerSearch");
+    var salesmanEl = document.getElementById("salesmanPicker");
+
+    var allCustomers = [];
+
+    function render(filterTerm) {
+        var term = (filterTerm || "").trim().toLowerCase();
+        var rows = allCustomers;
+        if (term) {
+            rows = rows.filter(function (c) {
+                return (c.account || "").toLowerCase().indexOf(term) !== -1
+                    || (c.name || "").toLowerCase().indexOf(term) !== -1;
+            });
+        }
+
+        if (!rows.length) {
+            listEl.innerHTML =
+                '<div class="empty-state" style="padding:16px;">' +
+                '<i data-feather="search" width="22" height="22"></i>' +
+                '<p style="margin-top:8px;">No customers match.</p></div>';
+            if (typeof feather !== "undefined") feather.replace();
+            return;
+        }
+
+        var html = "";
+        var max = Math.min(rows.length, 200);
+        for (var i = 0; i < max; i++) {
+            var c = rows[i];
+            var url = "/report/customer-last-order/" + encodeURIComponent(c.account);
+            html += '<a href="' + url + '" class="customer-pick-row">' +
+                    '<span class="customer-pick-acct">' + c.account + '</span>' +
+                    '<span class="customer-pick-name">' + (c.name || "") + '</span>' +
+                    '</a>';
+        }
+        if (rows.length > max) {
+            html += '<div class="customer-pick-more">' +
+                    'Showing ' + max + ' of ' + rows.length + '. Refine your search to narrow down.' +
+                    '</div>';
+        }
+        listEl.innerHTML = html;
+    }
+
+    function loadCustomers() {
+        listEl.innerHTML =
+            '<div class="empty-state" style="padding:16px;">' +
+            '<i data-feather="loader" width="22" height="22"></i>' +
+            '<p style="margin-top:8px;">Loading customers…</p></div>';
+        if (typeof feather !== "undefined") feather.replace();
+
+        var url = "/api/customers";
+        if (salesmanEl && salesmanEl.value) {
+            url += "?salesman=" + encodeURIComponent(salesmanEl.value);
+        }
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                allCustomers = Array.isArray(data) ? data : [];
+                allCustomers.sort(function (a, b) {
+                    return (a.name || "").localeCompare(b.name || "");
+                });
+                render(searchEl.value);
+            })
+            .catch(function () {
+                listEl.innerHTML =
+                    '<div class="empty-state" style="padding:16px;">' +
+                    '<p>Could not load customers. Please try again.</p></div>';
+            });
+    }
+
+    searchEl.addEventListener("input", function () { render(searchEl.value); });
+    if (salesmanEl) {
+        salesmanEl.addEventListener("change", loadCustomers);
+    }
+
+    loadCustomers();
+})();
+</script>
+{% endblock %}
