@@ -38,7 +38,7 @@ from typing import Any
 
 from flask import Blueprint, jsonify, render_template, request
 
-from webapp.db import DB_PATH, get_db
+from webapp.db import DB_PATH, get_db, purge_orphan_user_data
 from webapp.helpers import get_current_user, require_login
 from webapp.user_map import is_developer
 
@@ -549,3 +549,32 @@ def api_insert_row(table):
         return jsonify({"error": str(exc)}), 400
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Orphan-data cleanup
+#
+# When a user's email was changed (or deleted) before the cascade logic
+# existed, rows can be left behind in user-keyed tables. The dry-run
+# returns a per-table breakdown so we can see what's about to be wiped;
+# the POST commits the delete.
+# ---------------------------------------------------------------------------
+
+@db_explorer_bp.route("/api/dev/db/orphans")
+@require_login
+def api_orphan_scan():
+    guard = _require_developer()
+    if guard is not None:
+        return guard
+    return jsonify(purge_orphan_user_data(dry_run=True))
+
+
+@db_explorer_bp.route("/api/dev/db/orphans", methods=["POST"])
+@require_login
+def api_orphan_purge():
+    guard = _require_developer()
+    if guard is not None:
+        return guard
+    result = purge_orphan_user_data(dry_run=False)
+    log.info("db_explorer: purged orphan rows: %s", result.get("deleted_rows"))
+    return jsonify(result)

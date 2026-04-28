@@ -181,6 +181,20 @@
     Direct database access. Edits and deletes happen immediately and aren't undoable. Be careful.
 </div>
 
+<details id="dbxOrphans" style="margin: 8px 0 16px; border:1px solid var(--border); border-radius:6px; padding:10px 14px; background:var(--bg-card);">
+    <summary style="cursor:pointer; font-weight:600;">
+        Orphan-row scanner
+        <span style="font-weight:400; font-size:12px; color:var(--text-muted);">
+            &mdash; finds notifications/settings/history rows whose user no longer exists in <code>app_users</code>
+        </span>
+    </summary>
+    <div style="margin-top:10px;">
+        <button class="btn btn-sm btn-outline" id="dbxOrphScan" type="button">Scan now</button>
+        <button class="btn btn-sm btn-danger" id="dbxOrphPurge" type="button" disabled style="margin-left:6px;">Delete orphans</button>
+        <div id="dbxOrphResult" style="margin-top:10px; font-size:13px;"></div>
+    </div>
+</details>
+
 <div class="dbx-layout">
     <aside class="dbx-tables" id="dbxTables">
         <div style="font-size:11px; text-transform:uppercase; color:var(--text-muted); padding:4px 10px; letter-spacing:0.04em;">Tables</div>
@@ -462,6 +476,73 @@
     $('dbxRefresh').addEventListener('click', function() { loadRows(); refreshTableCounts(); });
 
     refreshTableCounts();
+
+    // Orphan scanner -- separate concern from the table grid, kept inline
+    // because there's no shared admin.js that runs on this page.
+    var orphState = { hasOrphans: false };
+
+    function renderOrphResult(d) {
+        var box = $('dbxOrphResult');
+        var perTable = d.per_table || {};
+        var emails = d.orphan_emails || [];
+        if (!emails.length) {
+            orphState.hasOrphans = false;
+            $('dbxOrphPurge').disabled = true;
+            box.innerHTML = '<span style="color:var(--success);">No orphan rows. Database is clean.</span>';
+            return;
+        }
+        orphState.hasOrphans = true;
+        $('dbxOrphPurge').disabled = !!d.deleted_rows && Object.keys(d.deleted_rows).length > 0;
+
+        var html = '<div style="margin-bottom:8px;"><strong>Orphan emails (' + emails.length + '):</strong> ' +
+                   emails.map(function(e) { return '<code>' + e + '</code>'; }).join(', ') + '</div>';
+        html += '<table style="width:100%; font-size:12px; border-collapse:collapse;">';
+        html += '<thead><tr><th style="text-align:left; padding:4px;">Table</th><th style="text-align:right; padding:4px;">Rows</th><th style="text-align:left; padding:4px;">By email</th></tr></thead><tbody>';
+        Object.keys(perTable).sort().forEach(function(t) {
+            var info = perTable[t];
+            var byEmail = (info.by_email || []).map(function(e) {
+                return e.email + ' (' + e.rows + ')';
+            }).join(', ');
+            html += '<tr>' +
+                '<td style="padding:4px; border-top:1px solid var(--border);"><code>' + t + '</code></td>' +
+                '<td style="padding:4px; border-top:1px solid var(--border); text-align:right;">' + info.total + '</td>' +
+                '<td style="padding:4px; border-top:1px solid var(--border); color:var(--text-muted);">' + byEmail + '</td>' +
+                '</tr>';
+        });
+        html += '</tbody></table>';
+        if (d.deleted_rows && Object.keys(d.deleted_rows).length) {
+            html = '<div style="color:var(--success); font-weight:600; margin-bottom:6px;">' +
+                   'Purged ' + Object.values(d.deleted_rows).reduce(function(a, b) { return a + b; }, 0) +
+                   ' orphan rows.</div>' + html;
+        }
+        box.innerHTML = html;
+    }
+
+    $('dbxOrphScan').addEventListener('click', function() {
+        $('dbxOrphResult').textContent = 'Scanning…';
+        $('dbxOrphPurge').disabled = true;
+        fetchJSON('/api/dev/db/orphans').then(function(res) {
+            if (!res.ok) {
+                $('dbxOrphResult').textContent = res.data.error || 'Error';
+                return;
+            }
+            renderOrphResult(res.data);
+        });
+    });
+
+    $('dbxOrphPurge').addEventListener('click', function() {
+        if (!orphState.hasOrphans) return;
+        if (!confirm('Delete every orphan row from notifications, settings, history, etc.? This cannot be undone.')) return;
+        $('dbxOrphPurge').disabled = true;
+        fetchJSON('/api/dev/db/orphans', { method: 'POST' }).then(function(res) {
+            if (!res.ok) {
+                $('dbxOrphResult').textContent = res.data.error || 'Error';
+                return;
+            }
+            renderOrphResult(res.data);
+            refreshTableCounts();
+        });
+    });
 })();
 </script>
 {% endblock %}

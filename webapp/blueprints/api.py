@@ -6,6 +6,7 @@ dashboard refresh, customer list, and reload-users.
 """
 
 import logging
+import sqlite3
 import threading
 
 from flask import Blueprint, jsonify, request, session
@@ -206,6 +207,7 @@ def api_update_user(email):
     role = data.get("role", "salesman")
     salesman_key = data.get("salesman_key", "").strip() or None
     display_name = data.get("display_name", "").strip() or None
+    new_email = (data.get("new_email") or "").strip().lower() or None
     is_external = data.get("is_external")
     if is_external is not None:
         is_external = bool(is_external)
@@ -216,8 +218,14 @@ def api_update_user(email):
         return jsonify({"error": "Salesman key is required for salesman role"}), 400
     if is_external and role != "salesman":
         return jsonify({"error": "External (magic-link) login is only for salesmen"}), 400
+    if new_email and "@" not in new_email:
+        return jsonify({"error": "New email must be a valid address"}), 400
 
-    ok = db_update_user(email, role, salesman_key, display_name, is_external=is_external)
+    try:
+        ok = db_update_user(email, role, salesman_key, display_name,
+                            is_external=is_external, new_email=new_email)
+    except sqlite3.IntegrityError as exc:
+        return jsonify({"error": str(exc)}), 409
     if not ok:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"success": True})
@@ -231,10 +239,10 @@ def api_delete_user(email):
         return jsonify({"error": "forbidden"}), 403
     if email.lower().strip() == user.get("email", "").lower().strip():
         return jsonify({"error": "Cannot delete yourself"}), 400
-    ok = db_delete_user(email)
-    if not ok:
+    result = db_delete_user(email)
+    if not result.get("existed"):
         return jsonify({"error": "User not found"}), 404
-    return jsonify({"success": True})
+    return jsonify({"success": True, "deleted_rows": result.get("deleted_rows", {})})
 
 
 # -- User-salesman access (manager role) -----------------------------------

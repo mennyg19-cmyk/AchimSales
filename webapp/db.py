@@ -1082,28 +1082,73 @@ def add_user(email: str, role: str, salesman_key: str | None = None,
 
 def update_user(email: str, role: str, salesman_key: str | None = None,
                 display_name: str | None = None,
-                is_external: bool | None = None) -> bool:
-    """Update a user. ``is_external=None`` leaves the existing value alone."""
+                is_external: bool | None = None,
+                new_email: str | None = None) -> bool:
+    """Update a user. ``is_external=None`` leaves the existing value alone.
+
+    If *new_email* is provided AND differs from *email*, the email
+    change cascades to every other table that stores user_email, in a
+    single transaction. We use string columns for user_email throughout
+    (no FK constraints), so this manual cascade is the only way to keep
+    notifications, settings, saved reports, etc. attached to the same
+    person after a rename.
+    """
+    old = email.lower().strip()
+    new = (new_email or "").lower().strip() or old
+
     conn = get_db()
     try:
+        if new != old:
+            existing = conn.execute(
+                "SELECT 1 FROM app_users WHERE email = ?", (new,)
+            ).fetchone()
+            if existing:
+                raise sqlite3.IntegrityError(
+                    f"Cannot rename: an account with email {new} already exists.")
+
         if is_external is None:
             cur = conn.execute(
-                """UPDATE app_users SET role = ?, salesman_key = ?, display_name = ?
+                """UPDATE app_users SET email = ?, role = ?, salesman_key = ?,
+                       display_name = ?
                    WHERE email = ?""",
-                (role, salesman_key or None, display_name or None, email.lower().strip()),
+                (new, role, salesman_key or None, display_name or None, old),
             )
         else:
             cur = conn.execute(
-                """UPDATE app_users SET role = ?, salesman_key = ?, display_name = ?,
-                       is_external = ?
+                """UPDATE app_users SET email = ?, role = ?, salesman_key = ?,
+                       display_name = ?, is_external = ?
                    WHERE email = ?""",
-                (role, salesman_key or None, display_name or None,
-                 1 if is_external else 0, email.lower().strip()),
+                (new, role, salesman_key or None, display_name or None,
+                 1 if is_external else 0, old),
             )
+
+        if cur.rowcount > 0 and new != old:
+            for table, col in _USER_EMAIL_REFS:
+                conn.execute(
+                    f"UPDATE {table} SET {col} = ? WHERE {col} = ?",
+                    (new, old),
+                )
+
         conn.commit()
         return cur.rowcount > 0
     finally:
         conn.close()
+
+
+# Tables that store a user identity by *email string* rather than by
+# foreign key. Anything that references a user belongs in this list so
+# delete_user can purge it and update_user can rename it. Adding a new
+# user-keyed table? Add it here too -- there's no schema-level cascade.
+_USER_EMAIL_REFS: list[tuple[str, str]] = [
+    ("notifications", "user_email"),
+    ("user_settings", "user_email"),
+    ("saved_reports", "user_email"),
+    ("user_report_access", "user_email"),
+    ("user_salesman_access", "user_email"),
+    ("history", "user_email"),
+    ("report_runs", "user_email"),
+    ("magic_link_tokens", "email"),
+]
 
 
 def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
@@ -1171,13 +1216,85 @@ def consume_magic_link_token(token: str) -> str | None:
         conn.close()
 
 
-def delete_user(email: str) -> bool:
+def delete_user(email: str) -> dict:
+    """Delete a user and every row keyed to their email across the DB.
+
+    There are no foreign-key cascades (user_email is denormalized as a
+    plain string in 8 tables), so the cleanup is manual but exhaustive
+    -- see ``_USER_EMAIL_REFS``. Returns a small audit dict so the
+    caller / admin UI can confirm what was wiped.
+    """
+    norm = email.lower().strip()
     conn = get_db()
     try:
-        cur = conn.execute("DELETE FROM app_users WHERE email = ?",
-                           (email.lower().strip(),))
+        deleted: dict[str, int] = {}
+        for table, col in _USER_EMAIL_REFS:
+            cur = conn.execute(
+                f"DELETE FROM {table} WHERE {col} = ?", (norm,)
+            )
+            if cur.rowcount:
+                deleted[table] = cur.rowcount
+
+        cur = conn.execute("DELETE FROM app_users WHERE email = ?", (norm,))
+        existed = cur.rowcount > 0
+        if existed:
+            deleted["app_users"] = 1
         conn.commit()
-        return cur.rowcount > 0
+        return {"existed": existed, "deleted_rows": deleted}
+    finally:
+        conn.close()
+
+
+def purge_orphan_user_data(dry_run: bool = True) -> dict:
+    """Find rows in user-keyed tables whose email no longer exists in
+    ``app_users`` and (optionally) delete them.
+
+    Useful when historical bugs or pre-cascade renames left dangling
+    rows -- e.g. notifications keyed to an old email after the user was
+    renamed. Returns a per-table breakdown of what was found, plus the
+    list of orphan emails so the caller can show them in the UI.
+    """
+    conn = get_db()
+    try:
+        per_table: dict[str, dict] = {}
+        all_orphans: set[str] = set()
+        for table, col in _USER_EMAIL_REFS:
+            rows = conn.execute(
+                f"""SELECT {col} AS email, COUNT(*) AS n FROM {table}
+                    WHERE {col} NOT IN (SELECT email FROM app_users)
+                    GROUP BY {col}"""
+            ).fetchall()
+            if not rows:
+                continue
+            entries = [{"email": r["email"], "rows": r["n"]} for r in rows]
+            per_table[table] = {
+                "column": col,
+                "total": sum(e["rows"] for e in entries),
+                "by_email": entries,
+            }
+            for e in entries:
+                if e["email"]:
+                    all_orphans.add(e["email"])
+
+        deleted: dict[str, int] = {}
+        if not dry_run and per_table:
+            for table, col in _USER_EMAIL_REFS:
+                if table not in per_table:
+                    continue
+                cur = conn.execute(
+                    f"""DELETE FROM {table}
+                        WHERE {col} NOT IN (SELECT email FROM app_users)"""
+                )
+                if cur.rowcount:
+                    deleted[table] = cur.rowcount
+            conn.commit()
+
+        return {
+            "dry_run": dry_run,
+            "orphan_emails": sorted(all_orphans),
+            "per_table": per_table,
+            "deleted_rows": deleted,
+        }
     finally:
         conn.close()
 

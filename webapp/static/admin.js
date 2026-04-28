@@ -126,12 +126,17 @@ function saveEditUser() {
     var extToggle = document.getElementById('editUserIsExternal');
     var isExt = !!(extToggle && extToggle.checked);
 
+    var displayedEmail = (document.getElementById('editUserEmailDisplay').value || '').trim().toLowerCase();
+    var body = {role: role, salesman_key: key, display_name: name, is_external: isExt};
+    if (displayedEmail && displayedEmail !== (email || '').toLowerCase()) {
+        body.new_email = displayedEmail;
+    }
+
     promises.push(
         fetch('/api/users/' + encodeURIComponent(email), {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({role: role, salesman_key: key,
-                                  display_name: name, is_external: isExt})
+            body: JSON.stringify(body)
         }).then(function(r) { return r.json(); })
     );
 
