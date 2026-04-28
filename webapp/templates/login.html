@@ -51,12 +51,9 @@
         <p class="login-subtitle">Sign in to continue</p>
 
         <a href="{{ url_for('auth.login_start') }}" class="btn btn-primary btn-lg btn-block">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 21 21" style="margin-right: 8px; vertical-align: middle;">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-            </svg>
+            <img src="{{ url_for('static', filename='icon-192.png') }}"
+                 alt="" width="22" height="22"
+                 style="margin-right: 8px; vertical-align: middle; background: #fff; border-radius: 4px; padding: 1px;">
             Achim Sign In
         </a>
 
