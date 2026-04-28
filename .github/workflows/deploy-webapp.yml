@@ -1,0 +1,86 @@
+name: Deploy webapp to Azure App Service
+
+# Mirrors deploy.ps1: build the same zip, push it to the same App Service.
+# Runs from a GitHub-hosted runner so we sidestep the office firewall that
+# kills long-running uploads to *.scm.azurewebsites.net.
+#
+# Triggers:
+#   - Auto on push to webapp-cache (only when files relevant to the webapp change)
+#   - Manual via the "Run workflow" button on any branch
+
+on:
+  push:
+    branches: [webapp-cache]
+    paths:
+      - "webapp/**"
+      - "reports/**"
+      - "core/**"
+      - "config/**"
+      - "data/**"
+      - "app.py"
+      - "wsgi.py"
+      - ".github/workflows/deploy-webapp.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-webapp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build app.zip (matches deploy.ps1)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Mirror the exclude list in deploy.ps1. Anything in this list is
+          # skipped wherever it appears in the path (top-level or nested).
+          EXCLUDES=(
+            ".env" ".env.example" "app.zip"
+            "deploy.ps1" "deploy-runbook.ps1"
+            ".azure" ".pytest_cache" ".git" ".cursor" ".github"
+            ".dockerignore" "Dockerfile"
+            "tests" "logs" "runbooks" "webapp-cache"
+            "SETUP_INSTRUCTIONS.txt"
+            "_history_backup" "_report_output" "__pycache__"
+            "app.db" "AchimReportsApp.zip" "_server.log"
+            "outbox"
+          )
+
+          # Build a `zip -x` list. zip patterns are glob-style; we exclude
+          # both the bare name and any nested occurrence.
+          ZIP_EXCLUDES=()
+          for name in "${EXCLUDES[@]}"; do
+            ZIP_EXCLUDES+=("-x" "${name}" "-x" "${name}/*" "-x" "*/${name}/*" "-x" "*/${name}")
+          done
+          # Also drop *.md (matches $excludeExt in deploy.ps1)
+          ZIP_EXCLUDES+=("-x" "*.md" "-x" "*/*.md")
+
+          rm -f app.zip
+          zip -r -q app.zip . "${ZIP_EXCLUDES[@]}"
+
+          # Oryx builder expects requirements.txt at the zip root.
+          if [ -f "webapp/requirements.txt" ]; then
+            cp webapp/requirements.txt requirements.txt
+            zip -q app.zip requirements.txt
+            rm -f requirements.txt
+          fi
+
+          ls -lh app.zip
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: achim-sales-reports
+          package: app.zip
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+
+      - name: Done
+        run: echo "Deployed to https://reports.achimonline.com -- give it 2-3 min to restart."
