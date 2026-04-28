@@ -76,25 +76,117 @@ def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
     return orders
 
 
+def fetch_order_lines_with_qty_breakdown(order_number: str) -> list[dict]:
+    """Single-order variant of ``fetch_orders_with_qty_breakdown``.
+
+    Skips the full date-range header pull (which is slow when no customer
+    is known yet -- as on the dashboard order detail page). Just fetches
+    the one order's header by SalesOrderNumber, runs the same classifier,
+    and returns just the line list.
+
+    Returns ``[]`` if the order isn't found or has no lines.
+    """
+    import pandas as pd
+
+    from core.dates import D365_GO_LIVE, get_today_eastern, PeriodSpec
+    from core.odata import fetch_odata_entity
+    from data.d365_entities import (
+        fetch_sales_order_lines,
+        fetch_whs_sales_lines,
+        fetch_packing_slip_trans,
+        rename_columns,
+    )
+    from data.field_maps import (
+        SALES_ORDER_HEADER_SELECT,
+        SALES_ORDER_HEADER_FIELD_MAP,
+    )
+    from reports.ordered.builder import build_report
+
+    base_url, token, company = get_d365_connection()
+
+    safe_num = order_number.replace("'", "''")
+    headers_df = fetch_odata_entity(
+        base_url, "SalesOrderHeadersV3", token,
+        select=SALES_ORDER_HEADER_SELECT,
+        filter_expr=f"SalesOrderNumber eq '{safe_num}'",
+        company_id=company,
+    )
+    if headers_df.empty:
+        return []
+    headers_df = rename_columns(headers_df, SALES_ORDER_HEADER_FIELD_MAP)
+
+    wanted = {order_number}
+    lines_df = fetch_sales_order_lines(base_url, token, wanted, company_id=company)
+    if lines_df.empty:
+        return []
+
+    inv_lot_ids = set()
+    if "InventoryLotId" in lines_df.columns:
+        inv_lot_ids = {str(x).strip() for x in lines_df["InventoryLotId"].dropna() if str(x).strip()}
+    whs_df = fetch_whs_sales_lines(base_url, token, inv_lot_ids, company_id=company) if inv_lot_ids else pd.DataFrame()
+    packing_df = fetch_packing_slip_trans(base_url, token, wanted, company_id=company)
+
+    period = PeriodSpec(
+        label="custom", start_date=D365_GO_LIVE, end_date=get_today_eastern(),
+        subfolder="custom", filename_tag="custom",
+    )
+    merged_df, _ = build_report(headers_df, lines_df, whs_df, packing_df, period)
+    if merged_df.empty:
+        return []
+
+    return [_line_dict_from_merged(r) for _, r in merged_df.iterrows()]
+
+
+def _line_dict_from_merged(r) -> dict:
+    """Convert a single merged-DF row into the line dict our templates expect.
+
+    ``total_ordered = sales_price * qty_ordered`` (original order amount).
+    ``total_shipped = sales_price * qty_shipped`` (what was actually invoiced).
+    ``total`` is an alias for ``total_shipped`` for backwards-compat with the
+    Customer's Last Order template.
+    """
+    qty_ordered  = float(r.get("QtyOrdered")   or 0)
+    qty_shipped  = float(r.get("QtyShipped")   or 0)
+    sales_price  = float(r.get("SalesPrice") or r.get("UnitPrice") or 0)
+    total_shipped = round(sales_price * qty_shipped, 2)
+    return {
+        "order_number":   str(r.get("SalesOrderNumber", "")).strip(),
+        "line_number":    r.get("LineNumber", ""),
+        "item":           str(r.get("Item#", "") or "").strip(),
+        "description":    str(r.get("LineDescription", "") or "").strip(),
+        "qty_ordered":    qty_ordered,
+        "qty_shipped":    qty_shipped,
+        "qty_cancelled":  float(r.get("QtyCancelled") or 0),
+        "sales_price":    sales_price,
+        "total_ordered":  round(sales_price * qty_ordered, 2),
+        "total_shipped":  total_shipped,
+        "total":          total_shipped,
+        "status":         str(r.get("RawLineStatus", "") or ""),
+    }
+
+
 def fetch_orders_with_qty_breakdown(
     customer_account: str,
     order_numbers: list[str],
 ) -> tuple[list[dict], list[dict]]:
-    """For a set of sales orders, pull headers + lines + WHS releases + packing
-    slips, then run the Ordered Report's classifier to get QtyShipped /
-    QtyCancelled per line.
+    """For a set of sales orders belonging to one customer, pull headers +
+    lines + WHS releases + packing slips, then run the Ordered Report's
+    classifier to get QtyShipped / QtyCancelled per line.
+
+    For looking up a single order without already knowing the customer,
+    use :func:`fetch_order_lines_with_qty_breakdown` instead -- it skips
+    the customer-scoped header pull which is slow.
 
     Returns ``(headers_list, lines_list)``.
 
-    Each header dict mirrors what ``fetch_order_with_lines`` produces (single
-    order header), so the template can render any of them. Each line dict
-    has the columns the Customer's Last Order view needs:
+    Each header dict mirrors what ``fetch_order_with_lines`` produces.
+    Each line dict has these columns:
 
-        order_number, item, description, qty_ordered, qty_shipped,
-        qty_cancelled, sales_price, total
+        order_number, line_number, item, description, qty_ordered,
+        qty_shipped, qty_cancelled, sales_price, total_ordered,
+        total_shipped, total, status
 
-    where ``total = sales_price * qty_shipped`` (matches the user spec for a
-    "what was actually invoiced" Total).
+    See :func:`_line_dict_from_merged` for what the totals mean.
     """
     import pandas as pd
 
@@ -146,21 +238,7 @@ def fetch_orders_with_qty_breakdown(
     if merged_df.empty:
         return _headers_to_list(headers_df), []
 
-    lines_out: list[dict] = []
-    for _, r in merged_df.iterrows():
-        qty_shipped = float(r.get("QtyShipped") or 0)
-        sales_price = float(r.get("SalesPrice") or r.get("UnitPrice") or 0)
-        lines_out.append({
-            "order_number":   str(r.get("SalesOrderNumber", "")).strip(),
-            "item":           str(r.get("Item#", "") or "").strip(),
-            "description":    str(r.get("LineDescription", "") or "").strip(),
-            "qty_ordered":    float(r.get("QtyOrdered") or 0),
-            "qty_shipped":    qty_shipped,
-            "qty_cancelled":  float(r.get("QtyCancelled") or 0),
-            "sales_price":    sales_price,
-            "total":          round(sales_price * qty_shipped, 2),
-        })
-
+    lines_out = [_line_dict_from_merged(r) for _, r in merged_df.iterrows()]
     return _headers_to_list(headers_df), lines_out
 
 

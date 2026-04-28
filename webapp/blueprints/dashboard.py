@@ -184,7 +184,7 @@ def order_detail(order_number):
     customer_account = ""
 
     try:
-        header, lines, customer_account = fetch_order_with_lines(order_number)
+        header, _basic_lines, customer_account = fetch_order_with_lines(order_number)
 
         if customer_account and not check_order_access(salesman_key, customer_account, is_admin=user_is_admin):
             if user_is_manager:
@@ -205,6 +205,21 @@ def order_detail(order_number):
             else:
                 flash("You do not have access to this order.", "error")
                 return redirect(url_for("dashboard.dashboard"))
+
+        from webapp.services.d365 import fetch_order_lines_with_qty_breakdown
+        try:
+            lines = fetch_order_lines_with_qty_breakdown(order_number)
+        except Exception:
+            log.exception("qty-breakdown fetch failed for %s; falling back to basic lines", order_number)
+            lines = _basic_lines
+
+        # Normalize so the template doesn't crash when the fallback path
+        # (basic lines without WHS / packing data) is in effect.
+        for ln in lines:
+            ln.setdefault("qty_shipped", 0)
+            ln.setdefault("qty_cancelled", 0)
+            ln.setdefault("total_ordered", ln.get("total") or 0)
+            ln.setdefault("total_shipped", 0)
 
     except Exception:
         log.exception("Failed to load order detail for %s", order_number)
