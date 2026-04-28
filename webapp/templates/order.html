@@ -59,7 +59,7 @@
         {% endif %}
         {% if header.customer_req %}
         <div class="detail-item">
-            <span class="detail-label">Customer Requisition</span>
+            <span class="detail-label">PO Number</span>
             <span class="detail-value">{{ header.customer_req }}</span>
         </div>
         {% endif %}
@@ -82,7 +82,7 @@
 
 <div class="table-wrapper">
     {% if lines %}
-    <table class="data-table detail-table" id="linesTable">
+    <table class="data-table detail-table sticky-col-first" id="linesTable">
         <thead>
             <tr>
                 <th>Item #</th>

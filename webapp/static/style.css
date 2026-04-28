@@ -907,6 +907,47 @@ body.dark-theme .status-no_data {
     white-space: nowrap;
 }
 
+/* ---------------------------------------------------------------------------
+ * Sticky first column for narrow viewports.
+ *
+ * Add `.sticky-col-first` to the <table> (alongside `.data-table`) to pin the
+ * first column when the user scrolls horizontally on phones. The first cell
+ * in each row stays visible so the rep can always see which customer/order
+ * the row refers to. Has to use opaque backgrounds so the underlying scrolled
+ * cells don't bleed through. Higher z-index on the header so both axes stack
+ * cleanly when scrolling.
+ * --------------------------------------------------------------------------- */
+.data-table.sticky-col-first th:first-child,
+.data-table.sticky-col-first td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+}
+.data-table.sticky-col-first td:first-child {
+    background: var(--card-bg);
+}
+.data-table.sticky-col-first tr:nth-child(even) td:first-child {
+    background: var(--bg);
+}
+.data-table.sticky-col-first tr:hover td:first-child {
+    background: var(--bg);
+}
+.data-table.sticky-col-first th:first-child {
+    background: var(--bg);
+    z-index: 2;
+}
+/* Right-edge separator so the sticky cell visually detaches from scrolling cells */
+.data-table.sticky-col-first th:first-child::after,
+.data-table.sticky-col-first td:first-child::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -1px;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+}
+
 .data-table th {
     background: var(--bg);
     font-weight: 600;
