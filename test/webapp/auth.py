@@ -70,6 +70,24 @@ def is_admin(user: dict[str, Any] | None = None) -> bool:
     return bool(u.get("is_admin"))
 
 
+def has_sharepoint_access(user: dict[str, Any] | None = None) -> bool:
+    """True when the user is admin OR has the sharepoint_access_enabled flag."""
+    u = user or current_user()
+    if not u:
+        return False
+    if u.get("is_admin"):
+        return True
+    email = (u.get("email") or "").strip().lower()
+    if not email:
+        return False
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT sharepoint_access_enabled FROM app_users WHERE email = ?",
+            (email,),
+        ).fetchone()
+    return bool(row and row["sharepoint_access_enabled"])
+
+
 def _wants_json() -> bool:
     """Heuristic: XHR / JSON API clients get 401 instead of a redirect."""
     if request.path.startswith("/api/"):

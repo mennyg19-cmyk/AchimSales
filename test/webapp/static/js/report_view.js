@@ -1,656 +1,1123 @@
-/* Sales Reports v2 -- Report Viewer
+/*
+ * Sales Reports v2 -- Report Viewer (mobile-first)
  *
- * Mobile-first multi-tab grid with:
- *   - deletable tabs and columns (both land in a bottom-sheet / side-panel drawer)
- *   - column restore gated by whether its source tab is still visible
- *   - Save as Preset (fully wired), Schedule / Email Now (stubs for now)
- *   - multi-sheet Excel export
+ * Layout goals:
+ *   - Table always at natural width (layout: fitDataTable). A horizontally-
+ *     scrollable wrapper handles overflow on phones so the page stays usable.
+ *   - Tabs are deletable (X button on each). Hidden tabs + hidden columns
+ *     both land in a shared "Hidden" panel with two sections.
+ *   - On desktop (>=769px) the panel is a sticky right sidebar that appears
+ *     only when something is hidden. On mobile (<=768px) it becomes a
+ *     bottom-drawer sheet opened via a floating "Hidden (N)" button.
+ *   - A deleted column cannot be restored while its parent tab is hidden
+ *     (the restore button is disabled with a reason).
+ *   - Action buttons: Export Excel, Send email now, Schedule, Save as preset.
  *
- * We use a *single* Tabulator instance and swap its data/columns when the
- * active tab changes. That keeps the DOM light on phones and avoids the
- * layout flicker you get from stacking multiple grids.
+ * We use one Tabulator instance per tab (created lazily on first activation).
+ * State lives on `state.tabs[key]` as { data, columnsMeta, hiddenFields,
+ * fieldOrder, grid }.
  */
 
 (function () {
     "use strict";
 
-    // ------------------------------------------------------------------
-    // Wiring
-    // ------------------------------------------------------------------
-
     const root = document.getElementById("reportView");
     if (!root) return;
 
+    // ---------- Config & DOM lookup --------------------------------------
     const cfg = {
-        reportKey:  root.dataset.reportKey,
-        reportName: root.dataset.reportName,
-        runUrl:     root.dataset.runUrl,
-        exportUrl:  root.dataset.exportUrl,
-        presetsUrl: root.dataset.presetsUrl,
-        homeUrl:    root.dataset.homeUrl,
-        params:     safeParseJSON(root.dataset.params, {}),
+        reportKey:      root.dataset.reportKey,
+        reportName:     root.dataset.reportName,
+        runUrl:         root.dataset.runUrl,
+        exportUrl:      root.dataset.exportUrl,
+        emailUrl:       root.dataset.emailUrl,
+        scheduleUrl:    root.dataset.scheduleUrl,
+        presetSaveUrl:  root.dataset.presetSaveUrl,
+        filterUrl:      root.dataset.filterUrl,
+        params:         safeParse(root.dataset.params, {}),
+        presetLayouts:  safeParse(root.dataset.presetLayouts, {}),
+        presetName:     root.dataset.presetName || "",
     };
 
+    const $ = (id) => document.getElementById(id);
     const els = {
-        tabStrip:           document.getElementById("tabStrip"),
-        gridRoot:           document.getElementById("gridRoot"),
-        loading:            document.getElementById("loading"),
-        generatedAt:        document.getElementById("generatedAt"),
-        runError:           document.getElementById("runError"),
-        exportBtn:          document.getElementById("exportXlsxBtn"),
-        saveBtn:            document.getElementById("savePresetBtn"),
-        scheduleBtn:        document.getElementById("scheduleBtn"),
-        emailBtn:           document.getElementById("emailNowBtn"),
+        tabStrip:           $("tabStrip"),
+        gridRoot:           $("gridRoot"),
+        status:             $("viewStatus"),
+        emptyState:         $("emptyState"),
+        emptyStateMsg:      $("emptyStateMsg"),
 
-        drawer:             document.getElementById("deletedDrawer"),
-        drawerHandle:       document.getElementById("drawerHandle"),
-        drawerCount:        document.getElementById("drawerCount"),
-        deletedTabsSection: document.getElementById("deletedTabsSection"),
-        deletedTabsList:    document.getElementById("deletedTabsList"),
-        deletedTabsCount:   document.getElementById("deletedTabsCount"),
-        deletedColsSection: document.getElementById("deletedColsSection"),
-        deletedColsList:    document.getElementById("deletedColsList"),
-        deletedColsCount:   document.getElementById("deletedColsCount"),
+        // Hidden panel (desktop)
+        panel:              $("hiddenPanel"),
+        panelTabsSec:       $("hiddenTabsSection"),
+        panelTabsList:      $("hiddenTabsList"),
+        panelColsSec:       $("hiddenColsSection"),
+        panelColsList:      $("hiddenColsList"),
+        restoreAllBtn:      $("restoreAllBtn"),
 
-        savePresetModal:    document.getElementById("savePresetModal"),
-        savePresetName:     document.getElementById("savePresetName"),
-        savePresetError:    document.getElementById("savePresetError"),
-        savePresetConfirm:  document.getElementById("savePresetConfirm"),
-        scheduleModal:      document.getElementById("scheduleModal"),
-        emailNowModal:      document.getElementById("emailNowModal"),
+        // Mobile FAB + drawer
+        fab:                $("hiddenFab"),
+        fabCount:           $("hiddenFabCount"),
+        drawerBackdrop:     $("drawerBackdrop"),
+        drawerSheet:        $("drawerSheet"),
+        drawerTabsSec:      $("hiddenTabsSectionM"),
+        drawerTabsList:     $("hiddenTabsListM"),
+        drawerColsSec:      $("hiddenColsSectionM"),
+        drawerColsList:     $("hiddenColsListM"),
+        restoreAllBtnM:     $("restoreAllBtnMobile"),
+
+        // Action buttons
+        exportBtn:          $("exportXlsxBtn"),
+        emailBtn:           $("emailNowBtn"),
+        scheduleBtn:        $("scheduleBtn"),
+        presetBtn:          $("savePresetBtn"),
+
+        // Modals
+        presetModal:        $("presetModal"),
+        presetNameInput:    $("presetNameInput"),
+        presetIncludeLayout:$("presetIncludeLayout"),
+        presetMsg:          $("presetMsg"),
+        presetSaveBtn:      $("presetSaveBtn"),
+
+        emailModal:         $("emailModal"),
+        emailRecipients:    $("emailRecipients"),
+        emailSubject:       $("emailSubject"),
+        emailMsg:           $("emailMsg"),
+        emailSendBtn:       $("emailSendBtn"),
+        emailSpCheck:       $("emailSharePointCheck"),
+        emailSpPicker:      $("emailSharePointPicker"),
+        emailSpPath:        $("emailSharePointPath"),
+        emailSpPickBtn:     $("emailSharePointPick"),
+
+        scheduleModal:      $("scheduleModal"),
+        cadenceGroup:       $("cadenceGroup"),
+        weeklyRow:          $("weeklyRow"),
+        weekdayGroup:       $("weekdayGroup"),
+        monthlyRow:         $("monthlyRow"),
+        monthdayGroup:      $("monthdayGroup"),
+        scheduleTime:       $("scheduleTime"),
+        scheduleStart:      $("scheduleStart"),
+        scheduleHasEnd:     $("scheduleHasEnd"),
+        scheduleEnd:        $("scheduleEnd"),
+        scheduleRecipients: $("scheduleRecipients"),
+        scheduleName:       $("scheduleName"),
+        schedulePreview:    $("schedulePreview"),
+        scheduleMsg:        $("scheduleMsg"),
+        scheduleSaveBtn:    $("scheduleSaveBtn"),
+        scheduleSpCheck:    $("scheduleSharePointCheck"),
+        scheduleSpPicker:   $("scheduleSharePointPicker"),
+        scheduleSpPath:     $("scheduleSharePointPath"),
+        scheduleSpPickBtn:  $("scheduleSharePointPick"),
     };
 
-    // ------------------------------------------------------------------
-    // State
-    // ------------------------------------------------------------------
+    // ---------- State ----------------------------------------------------
+    /** Shape:
+     *  {
+     *    generatedAt: ISO,
+     *    activeTab:   string | null,
+     *    tabs: {
+     *      <tabKey>: {
+     *        name:        string,
+     *        data:        [...rows],
+     *        columnsMeta: [{field, label, type}, ...],   // canonical source order
+     *        hiddenFields: Set<string>,
+     *        fieldOrder:  [field, ...],                  // current display order
+     *        grid:        Tabulator | null,
+     *        container:   HTMLDivElement,
+     *      }
+     *    },
+     *    tabOrder:    [tabKey, ...],
+     *    hiddenTabs:  Set<string>,
+     *    scheduleUi:  { cadence, weekdays: Set, monthday }
+     *  }
+     */
+    const state = {
+        generatedAt: null,
+        activeTab:   null,
+        tabs:        Object.create(null),
+        tabOrder:    [],
+        hiddenTabs:  new Set(),
+        scheduleUi:  { cadence: "daily", weekdays: new Set(["mon"]), monthdays: new Set([1]) },
+    };
 
-    /** @type {Object<string, {key:string, label:string, columns:Array, rows:Array,
-     *                          hiddenFields:Set<string>, order:string[]}>} */
-    let tabs = {};
-    let tabOrder = [];       // original ordering from the payload
-    let deletedTabs = new Set();
-    let activeKey   = null;
-    let grid        = null;  // Tabulator instance
-
-    // ------------------------------------------------------------------
-    // Kick off
-    // ------------------------------------------------------------------
-
-    runReport().catch((err) => {
-        console.error(err);
-        showError(err.message || "Could not run the report.");
+    // ---------- Boot -----------------------------------------------------
+    runReport().catch(function (err) {
+        showStatus("Could not load report: " + (err.message || err), true);
     });
+    wireActionButtons();
+    wireDrawer();
+    wireModals();
+    wireScheduleModal();
 
-    els.exportBtn.addEventListener("click", exportExcel);
-    els.saveBtn.addEventListener("click", openSavePreset);
-    els.scheduleBtn.addEventListener("click", () => openModal(els.scheduleModal));
-    els.emailBtn.addEventListener("click",    () => openModal(els.emailNowModal));
-    els.savePresetConfirm.addEventListener("click", submitSavePreset);
-
-    // Generic modal close handlers (data-close buttons and overlay click)
-    document.querySelectorAll(".modal-overlay").forEach((m) => {
-        m.addEventListener("click", (e) => {
-            if (e.target === m || e.target.closest("[data-close]")) closeModal(m);
-        });
-    });
-    document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") document.querySelectorAll(".modal-overlay.open").forEach(closeModal);
-    });
-
-    // Drawer toggle (mobile bottom-sheet). On desktop it's pinned open via CSS.
-    els.drawerHandle.addEventListener("click", () => els.drawer.classList.toggle("open"));
-
-    // ------------------------------------------------------------------
-    // Run the report
-    // ------------------------------------------------------------------
-
+    // ---------- Fetch & render ------------------------------------------
     async function runReport() {
-        els.loading.hidden = false;
-        const resp = await fetch(cfg.runUrl, {
-            method:  "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "same-origin",
-            body: JSON.stringify({ params: cfg.params }),
-        });
-        if (!resp.ok) {
-            throw new Error(`Report run failed (${resp.status}).`);
-        }
-        const payload = await resp.json();
-        ingestPayload(payload);
-    }
+        showStatus("Loading report…", false, true);
+        const payload = await postJson(cfg.runUrl, cfg.params);
 
-    function ingestPayload(payload) {
-        els.loading.hidden = true;
-        if (payload.generated_at) {
-            els.generatedAt.textContent =
-                "Generated " + formatDateTime(payload.generated_at);
-        }
+        state.generatedAt = payload.generated_at || null;
+        state.activeTab = null;
+        state.tabs = Object.create(null);
+        state.tabOrder = [];
+        state.hiddenTabs = new Set();
 
-        const incoming = Array.isArray(payload.tabs) ? payload.tabs : [];
-        tabs = {};
-        tabOrder = [];
-        incoming.forEach((t) => {
-            const columns = Array.isArray(t.columns) ? t.columns : [];
-            const key = String(t.key || ("tab_" + tabOrder.length));
-            tabs[key] = {
-                key,
-                label:        t.label || key,
-                columns,
-                rows:         Array.isArray(t.rows) ? t.rows : [],
+        (payload.tabs || []).forEach(function (t) {
+            state.tabs[t.key] = {
+                name:         t.name,
+                data:         Array.isArray(t.rows) ? t.rows : [],
+                columnsMeta:  Array.isArray(t.columns) ? t.columns.map(cloneCol) : [],
                 hiddenFields: new Set(),
-                order:        columns.map((c) => c.field),
+                fieldOrder:   (t.columns || []).map(function (c) { return c.field; }),
+                grid:         null,
+                container:    null,
             };
-            tabOrder.push(key);
+            state.tabOrder.push(t.key);
         });
 
-        if (!tabOrder.length) {
-            showError("The report returned no tabs.");
+        if (!state.tabOrder.length) {
+            showStatus("", false, false);
+            els.emptyState.hidden = false;
+            els.emptyStateMsg.textContent = "No tabs were returned.";
             return;
         }
 
-        // Everything ready: enable toolbar + show the first tab.
-        els.exportBtn.disabled    = false;
-        els.saveBtn.disabled      = false;
-        els.scheduleBtn.disabled  = false;
-        els.emailBtn.disabled     = false;
+        applyPresetLayouts();
 
-        renderTabStrip();
-        activateTab(tabOrder[0]);
-        renderDrawer();
+        buildTabStrip();
+        buildGridContainers();
+        const firstVisible = state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); })
+            || state.tabOrder[0];
+        activateTab(firstVisible);
+        refreshHiddenUi();
+
+        const tsLabel = state.generatedAt
+            ? ("Generated " + fmtLocal(state.generatedAt))
+            : "Generated just now";
+        showStatus(tsLabel, false, false);
     }
 
-    function showError(msg) {
-        els.loading.hidden = true;
-        els.runError.hidden = false;
-        const p = els.runError.querySelector("p");
-        if (p) p.textContent = msg;
+    function cloneCol(c) {
+        return { field: c.field, label: c.label || c.field, type: c.type || "text" };
     }
 
-    // ------------------------------------------------------------------
-    // Tab strip
-    // ------------------------------------------------------------------
+    // If we arrived from the home page's "Run preset" button, the server
+    // stamps a `data-preset-layouts` blob onto the root with the layout the
+    // user saved last time. Merge it into per-tab state *before* we build
+    // grids so the first paint already matches their saved layout.
+    function applyPresetLayouts() {
+        const layouts = cfg.presetLayouts || {};
+        if (!layouts || typeof layouts !== "object") return;
 
-    function renderTabStrip() {
+        Object.keys(layouts).forEach(function (tabKey) {
+            const saved = layouts[tabKey] || {};
+            const tab = state.tabs[tabKey];
+            if (!tab) return; // stale preset referencing a tab the report no longer has
+
+            if (saved.tab_hidden) {
+                state.hiddenTabs.add(tabKey);
+            }
+
+            const validFields = new Set(tab.columnsMeta.map(function (c) { return c.field; }));
+
+            if (Array.isArray(saved.hidden_fields)) {
+                saved.hidden_fields.forEach(function (f) {
+                    if (validFields.has(f)) tab.hiddenFields.add(f);
+                });
+            }
+
+            if (Array.isArray(saved.field_order) && saved.field_order.length) {
+                const ordered = [];
+                const seen = new Set();
+                saved.field_order.forEach(function (f) {
+                    if (validFields.has(f) && !seen.has(f)) {
+                        ordered.push(f);
+                        seen.add(f);
+                    }
+                });
+                // Append any new fields the report gained since the preset was saved
+                tab.columnsMeta.forEach(function (c) {
+                    if (!seen.has(c.field)) ordered.push(c.field);
+                });
+                tab.fieldOrder = ordered;
+            }
+        });
+    }
+
+    // ---------- Tabs -----------------------------------------------------
+    function buildTabStrip() {
         els.tabStrip.innerHTML = "";
-        const visibleKeys = tabOrder.filter((k) => !deletedTabs.has(k));
-
-        if (!visibleKeys.length) {
-            // No tabs visible -- tear down the grid.
-            if (grid) { grid.destroy(); grid = null; }
-            els.gridRoot.innerHTML = `
-                <div class="empty-state" style="margin:0;">
-                    <i data-feather="inbox"></i>
-                    <h2>No tabs visible</h2>
-                    <p>Restore a tab from the deleted drawer to show data.</p>
-                </div>`;
-            refreshFeather();
-            return;
-        }
-
-        visibleKeys.forEach((key) => {
-            const t = tabs[key];
+        state.tabOrder.forEach(function (key) {
+            if (state.hiddenTabs.has(key)) return;
+            const t = state.tabs[key];
             const btn = document.createElement("button");
             btn.type = "button";
-            btn.className = "tab-btn" + (key === activeKey ? " active" : "");
-            btn.dataset.tabKey = key;
+            btn.className = "viewer-tab";
             btn.setAttribute("role", "tab");
-
-            const label = document.createElement("span");
-            label.className = "tab-label";
-            label.textContent = t.label;
-
-            const close = document.createElement("button");
-            close.type = "button";
-            close.className = "tab-close";
-            close.title = "Delete tab";
-            close.innerHTML = `<i data-feather="x"></i>`;
-            close.addEventListener("click", (e) => {
-                e.stopPropagation();
-                deleteTab(key);
+            btn.dataset.key = key;
+            btn.innerHTML =
+                '<span class="viewer-tab-name"></span>' +
+                '<button type="button" class="viewer-tab-close" aria-label="Hide tab" title="Hide tab">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6L18 18M6 18L18 6"/></svg>' +
+                '</button>';
+            btn.querySelector(".viewer-tab-name").textContent = t.name;
+            btn.addEventListener("click", function (e) {
+                if (e.target.closest(".viewer-tab-close")) {
+                    e.stopPropagation();
+                    hideTab(key);
+                    return;
+                }
+                activateTab(key);
             });
-
-            btn.appendChild(label);
-            btn.appendChild(close);
-            btn.addEventListener("click", () => activateTab(key));
-
             els.tabStrip.appendChild(btn);
         });
-        refreshFeather();
     }
 
-    // ------------------------------------------------------------------
-    // Tab activation + grid swap
-    // ------------------------------------------------------------------
+    function buildGridContainers() {
+        els.gridRoot.innerHTML = "";
+        state.tabOrder.forEach(function (key) {
+            const div = document.createElement("div");
+            div.className = "grid-pane";
+            div.dataset.key = key;
+            const inner = document.createElement("div");
+            inner.className = "grid-container";
+            div.appendChild(inner);
+            els.gridRoot.appendChild(div);
+            state.tabs[key].container = inner;
+        });
+    }
 
     function activateTab(key) {
-        if (!tabs[key] || deletedTabs.has(key)) return;
-        activeKey = key;
+        if (!state.tabs[key] || state.hiddenTabs.has(key)) {
+            // Pick the first visible tab instead.
+            const fallback = state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); });
+            if (!fallback) {
+                state.activeTab = null;
+                els.gridRoot.querySelectorAll(".grid-pane").forEach(function (p) { p.classList.remove("active"); });
+                els.emptyState.hidden = false;
+                els.emptyStateMsg.textContent = "All tabs are hidden. Restore one from the Hidden panel to see data.";
+                return;
+            }
+            key = fallback;
+        }
+        els.emptyState.hidden = true;
+        state.activeTab = key;
 
-        // Update tab strip selection
-        els.tabStrip.querySelectorAll(".tab-btn").forEach((b) => {
-            b.classList.toggle("active", b.dataset.tabKey === key);
+        // Tab strip visual state
+        els.tabStrip.querySelectorAll(".viewer-tab").forEach(function (b) {
+            const active = b.dataset.key === key;
+            b.classList.toggle("active", active);
+            b.setAttribute("aria-selected", active ? "true" : "false");
         });
 
-        const t = tabs[key];
-        const columnDefs = buildColumnDefs(t);
+        // Show the matching pane, hide others
+        els.gridRoot.querySelectorAll(".grid-pane").forEach(function (p) {
+            p.classList.toggle("active", p.dataset.key === key);
+        });
 
-        if (!grid) {
-            // Build the grid DOM
-            els.gridRoot.innerHTML = `<div class="grid-container" id="gridContainer"></div>`;
-            const container = document.getElementById("gridContainer");
+        ensureGrid(key);
+        refreshHiddenUi();
+    }
 
-            grid = new Tabulator(container, {
-                data:           t.rows,
-                columns:        columnDefs,
-                layout:         "fitData",       // columns size to content
-                layoutColumnsOnNewData: false,
-                responsiveLayout: false,          // we want horizontal scroll, NOT column collapse
-                movableColumns: true,
-                reactiveData:   false,
-                virtualDomHoz:  true,
-                placeholder:    "No rows.",
-                columnDefaults: {
-                    resizable:  "header",
-                    tooltip:    true,
-                    headerMenu: headerMenu,
-                },
-            });
+    function ensureGrid(key) {
+        const t = state.tabs[key];
+        if (t.grid) return t.grid;
 
-            grid.on("columnMoved", (_col, components) => {
-                const current = tabs[activeKey];
-                if (!current) return;
-                current.order = components
-                    .map((c) => c.getField())
-                    .filter((f) => !!f);
-            });
-        } else {
-            grid.setColumns(columnDefs);
-            grid.replaceData(t.rows);
+        t.grid = new Tabulator(t.container, {
+            data:          t.data,
+            layout:        "fitDataTable",    // natural width -> grid-root scrolls
+            columnDefaults:{
+                headerHozAlign: "left",
+                hozAlign:       "left",
+                resizable:      true,
+                headerContextMenu: tabulatorHeaderCtxMenu(key),
+            },
+            columns:       buildColumnDefs(key),
+            movableColumns:true,
+            height:        "60vh",
+            placeholder:   "No rows for the selected filters.",
+            columnMoved:   function () { syncFieldOrder(key); },
+        });
+        return t.grid;
+    }
+
+    function buildColumnDefs(key) {
+        const t = state.tabs[key];
+        const hidden = t.hiddenFields;
+        return t.fieldOrder.map(function (field) {
+            const meta = t.columnsMeta.find(function (m) { return m.field === field; });
+            if (!meta) return null;
+            const isNumeric = (meta.type === "money" || meta.type === "int" || meta.type === "percent");
+            return {
+                title:        meta.label,
+                field:        meta.field,
+                visible:      !hidden.has(meta.field),
+                formatter:    columnFormatter(meta.type),
+                hozAlign:     isNumeric ? "right" : "left",
+                headerFilter: "input",                          // filterable
+                sorter:       columnSorter(meta.type),          // sortable
+            };
+        }).filter(Boolean);
+    }
+
+    function columnSorter(type) {
+        switch (type) {
+            case "money":
+            case "int":
+            case "percent": return "number";
+            case "date":    return "date";
+            default:        return "string";
         }
     }
 
-    // Header dropdown menu (works for touch + desktop)
-    function headerMenu() {
+    function tabulatorHeaderCtxMenu(key) {
         return [
             {
-                label: `<i data-feather="eye-off" style="width:14px;height:14px;vertical-align:-2px;"></i> Hide column`,
-                action: (_e, col) => {
-                    hideField(activeKey, col.getField());
+                label: "<i data-feather='eye-off' style='width:14px;height:14px;vertical-align:-2px;'></i>  Hide this column",
+                action: function (e, column) {
+                    hideColumn(key, column.getField());
                 },
             },
         ];
     }
 
-    // ------------------------------------------------------------------
-    // Column defs
-    // ------------------------------------------------------------------
-
-    function buildColumnDefs(tab) {
-        const inOrder = tab.order && tab.order.length
-            ? tab.order.map((f) => tab.columns.find((c) => c.field === f)).filter(Boolean)
-            : tab.columns.slice();
-
-        return inOrder.map((col) => ({
-            title:     col.title || col.field,
-            field:     col.field,
-            visible:   !tab.hiddenFields.has(col.field),
-            formatter: cellFormatter(col.type),
-            hozAlign:  alignFor(col.type),
-            sorter:    sorterFor(col.type),
-            minWidth:  minWidthFor(col.type),
-            contextMenu: [
-                {
-                    label: "Hide column",
-                    action: (_e, column) => hideField(tab.key, column.getField()),
-                },
-            ],
-        }));
-    }
-
-    function alignFor(type) {
-        return (type === "money" || type === "int" || type === "percent") ? "right" : "left";
-    }
-    function sorterFor(type) {
-        if (type === "date")                                 return "datetime";
-        if (type === "money" || type === "int" || type === "percent") return "number";
-        return "string";
-    }
-    function minWidthFor(type) {
-        if (type === "money")   return 110;
-        if (type === "percent") return 90;
-        if (type === "int")     return 80;
-        if (type === "date")    return 120;
-        return 100;
-    }
-
-    function cellFormatter(type) {
-        if (type === "money") {
-            return (cell) => {
-                const v = cell.getValue();
-                if (v === null || v === undefined || v === "") return "";
-                const n = Number(v);
-                if (!isFinite(n)) return "";
-                return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            };
+    function columnFormatter(type) {
+        switch (type) {
+            case "money":   return function (cell) { return fmtMoney(cell.getValue()); };
+            case "int":     return function (cell) { return fmtInt(cell.getValue()); };
+            case "percent": return function (cell) { return fmtPercent(cell.getValue()); };
+            case "date":    return function (cell) { return fmtDate(cell.getValue()); };
+            default:        return function (cell) { return escHtml(cell.getValue()); };
         }
-        if (type === "int") {
-            return (cell) => {
-                const v = cell.getValue();
-                if (v === null || v === undefined || v === "") return "";
-                const n = Number(v);
-                if (!isFinite(n)) return "";
-                return n.toLocaleString("en-US");
-            };
-        }
-        if (type === "percent") {
-            return (cell) => {
-                const v = cell.getValue();
-                if (v === null || v === undefined || v === "") return "";
-                const n = Number(v);
-                if (!isFinite(n)) return "";
-                return n.toFixed(1) + "%";
-            };
-        }
-        if (type === "date") {
-            return (cell) => {
-                const v = cell.getValue();
-                if (!v) return "";
-                const d = new Date(v);
-                if (isNaN(d.getTime())) return String(v);
-                return d.toLocaleDateString("en-US");
-            };
-        }
-        return (cell) => {
-            const v = cell.getValue();
-            return v === null || v === undefined ? "" : String(v);
-        };
     }
 
-    // ------------------------------------------------------------------
-    // Delete / restore
-    // ------------------------------------------------------------------
+    function syncFieldOrder(key) {
+        const t = state.tabs[key];
+        if (!t.grid) return;
+        t.fieldOrder = t.grid.getColumns().map(function (col) { return col.getField(); });
+    }
 
-    function hideField(tabKey, field) {
-        const t = tabs[tabKey];
-        if (!t || !field) return;
+    // ---------- Hide / restore: columns & tabs --------------------------
+    function hideColumn(tabKey, field) {
+        const t = state.tabs[tabKey];
+        if (!t) return;
         t.hiddenFields.add(field);
-        // If it's the active tab, update the live grid
-        if (tabKey === activeKey && grid) {
-            const col = grid.getColumn(field);
+        if (t.grid) {
+            const col = t.grid.getColumn(field);
             if (col) col.hide();
         }
-        renderDrawer();
+        refreshHiddenUi();
     }
 
-    function restoreField(tabKey, field) {
-        const t = tabs[tabKey];
+    function restoreColumn(tabKey, field) {
+        if (state.hiddenTabs.has(tabKey)) return;  // blocked
+        const t = state.tabs[tabKey];
         if (!t) return;
         t.hiddenFields.delete(field);
-        if (tabKey === activeKey && grid) {
-            const col = grid.getColumn(field);
+        if (t.grid) {
+            const col = t.grid.getColumn(field);
             if (col) col.show();
         }
-        renderDrawer();
+        refreshHiddenUi();
     }
 
-    function deleteTab(key) {
-        if (!tabs[key]) return;
-        deletedTabs.add(key);
-
-        // If the active tab was deleted, pick the next visible one
-        if (key === activeKey) {
-            const nextKey = tabOrder.find((k) => !deletedTabs.has(k));
-            if (nextKey) {
-                activateTab(nextKey);
-            } else {
-                activeKey = null;
+    function hideTab(key) {
+        if (state.hiddenTabs.has(key)) return;
+        state.hiddenTabs.add(key);
+        buildTabStrip();
+        if (state.activeTab === key) {
+            const next = state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); });
+            if (next) activateTab(next);
+            else {
+                state.activeTab = null;
+                els.gridRoot.querySelectorAll(".grid-pane").forEach(function (p) { p.classList.remove("active"); });
+                els.emptyState.hidden = false;
+                els.emptyStateMsg.textContent = "All tabs are hidden. Restore one from the Hidden panel to see data.";
             }
         }
-        renderTabStrip();
-        renderDrawer();
+        refreshHiddenUi();
     }
 
     function restoreTab(key) {
-        if (!deletedTabs.has(key)) return;
-        deletedTabs.delete(key);
-        if (!activeKey) activateTab(key);
-        renderTabStrip();
-        renderDrawer();
+        if (!state.hiddenTabs.has(key)) return;
+        state.hiddenTabs.delete(key);
+        buildTabStrip();
+        activateTab(key);
     }
 
-    // ------------------------------------------------------------------
-    // Drawer rendering
-    // ------------------------------------------------------------------
-
-    function renderDrawer() {
-        const deletedTabKeys = tabOrder.filter((k) => deletedTabs.has(k));
-        const deletedColumns = collectDeletedColumns();
-        const total = deletedTabKeys.length + deletedColumns.length;
-
-        if (total === 0) {
-            els.drawer.hidden = true;
-            els.drawer.classList.remove("open");
-            return;
-        }
-        els.drawer.hidden = false;
-        els.drawerCount.textContent = String(total);
-
-        // Tabs section
-        if (deletedTabKeys.length) {
-            els.deletedTabsSection.hidden = false;
-            els.deletedTabsCount.textContent = String(deletedTabKeys.length);
-            els.deletedTabsList.innerHTML = "";
-            deletedTabKeys.forEach((key) => {
-                const t = tabs[key];
-                const li = document.createElement("li");
-                li.className = "deleted-item";
-                li.innerHTML = `
-                    <div class="deleted-item-label">${escapeHtml(t.label)}</div>
-                    <button type="button" class="restore">Restore</button>`;
-                li.querySelector("button").addEventListener("click", () => restoreTab(key));
-                els.deletedTabsList.appendChild(li);
-            });
-        } else {
-            els.deletedTabsSection.hidden = true;
-            els.deletedTabsList.innerHTML = "";
-        }
-
-        // Columns section
-        if (deletedColumns.length) {
-            els.deletedColsSection.hidden = false;
-            els.deletedColsCount.textContent = String(deletedColumns.length);
-            els.deletedColsList.innerHTML = "";
-            deletedColumns.forEach((item) => {
-                const li = document.createElement("li");
-                li.className = "deleted-item";
-                const tabDeleted = deletedTabs.has(item.tabKey);
-                const restoreMarkup = tabDeleted
-                    ? `<span class="restore-hint">Restore tab first</span>`
-                    : `<button type="button" class="restore">Restore</button>`;
-                li.innerHTML = `
-                    <div class="deleted-item-label">
-                        ${escapeHtml(item.label)}
-                        <span class="deleted-item-sub">from ${escapeHtml(item.tabLabel)}</span>
-                    </div>
-                    ${restoreMarkup}`;
-                const btn = li.querySelector("button.restore");
-                if (btn) btn.addEventListener("click", () => restoreField(item.tabKey, item.field));
-                els.deletedColsList.appendChild(li);
-            });
-        } else {
-            els.deletedColsSection.hidden = true;
-            els.deletedColsList.innerHTML = "";
-        }
-    }
-
-    function collectDeletedColumns() {
-        const out = [];
-        tabOrder.forEach((key) => {
-            const t = tabs[key];
+    function restoreEverything() {
+        state.hiddenTabs.clear();
+        state.tabOrder.forEach(function (k) {
+            const t = state.tabs[k];
             if (!t) return;
-            t.hiddenFields.forEach((field) => {
-                const col = t.columns.find((c) => c.field === field);
-                if (!col) return;
-                out.push({
-                    tabKey:   key,
-                    tabLabel: t.label,
-                    field:    col.field,
-                    label:    col.title || col.field,
+            t.hiddenFields.clear();
+            if (t.grid) {
+                t.columnsMeta.forEach(function (m) {
+                    const c = t.grid.getColumn(m.field);
+                    if (c) c.show();
+                });
+            }
+        });
+        buildTabStrip();
+        if (state.tabOrder.length) activateTab(state.tabOrder[0]);
+        refreshHiddenUi();
+    }
+
+    // ---------- Hidden panel rendering ----------------------------------
+    function refreshHiddenUi() {
+        const hiddenTabKeys = state.tabOrder.filter(function (k) { return state.hiddenTabs.has(k); });
+        const hiddenCols = [];  // [{tabKey, tabName, field, label, tabHidden}]
+        state.tabOrder.forEach(function (k) {
+            const t = state.tabs[k];
+            if (!t) return;
+            t.hiddenFields.forEach(function (field) {
+                const meta = t.columnsMeta.find(function (m) { return m.field === field; });
+                hiddenCols.push({
+                    tabKey:    k,
+                    tabName:   t.name,
+                    field:     field,
+                    label:     meta ? meta.label : field,
+                    tabHidden: state.hiddenTabs.has(k),
                 });
             });
+        });
+
+        const anyHidden = hiddenTabKeys.length > 0 || hiddenCols.length > 0;
+        els.panel.hidden = !anyHidden;
+
+        // Desktop panel
+        renderHiddenSection(els.panelTabsSec, els.panelTabsList, hiddenTabKeys, hiddenCols, /*mobile*/ false);
+
+        // Mobile drawer duplicates
+        renderHiddenSection(els.drawerTabsSec, els.drawerTabsList, hiddenTabKeys, hiddenCols, /*mobile*/ true);
+
+        // FAB count
+        els.fab.style.display = ""; // CSS media query controls visibility
+        els.fabCount.textContent = String(hiddenTabKeys.length + hiddenCols.length);
+        if (!anyHidden) {
+            closeDrawer();
+        }
+    }
+
+    function renderHiddenSection(tabsSec, tabsList, hiddenTabs, hiddenCols, mobile) {
+        // --- Tabs section ---
+        tabsSec.hidden = hiddenTabs.length === 0;
+        tabsList.innerHTML = "";
+        hiddenTabs.forEach(function (key) {
+            const t = state.tabs[key];
+            const li = document.createElement("li");
+            li.innerHTML =
+                '<span class="name"></span>' +
+                '<button type="button" class="restore-btn" title="Restore tab">Restore</button>';
+            li.querySelector(".name").textContent = t.name;
+            li.querySelector(".restore-btn").addEventListener("click", function () {
+                restoreTab(key);
+                if (mobile) closeDrawer();
+            });
+            tabsList.appendChild(li);
+        });
+
+        // --- Columns section (shares the same hidden-section markup via the same wrapper block) ---
+        const colsSec  = mobile ? els.drawerColsSec  : els.panelColsSec;
+        const colsList = mobile ? els.drawerColsList : els.panelColsList;
+        colsSec.hidden = hiddenCols.length === 0;
+        colsList.innerHTML = "";
+        hiddenCols.forEach(function (row) {
+            const li = document.createElement("li");
+            if (row.tabHidden) li.classList.add("restore-blocked");
+
+            const tag = document.createElement("span");
+            tag.className = "tag";
+            tag.textContent = row.tabName;
+            li.appendChild(tag);
+
+            const name = document.createElement("span");
+            name.className = "name";
+            name.textContent = row.label;
+            li.appendChild(name);
+
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "restore-btn";
+            btn.textContent = "Restore";
+            if (row.tabHidden) {
+                btn.disabled = true;
+                btn.title = "Restore the parent tab first";
+            } else {
+                btn.addEventListener("click", function () {
+                    restoreColumn(row.tabKey, row.field);
+                    if (mobile) closeDrawer();
+                });
+            }
+            li.appendChild(btn);
+
+            if (row.tabHidden) {
+                const reason = document.createElement("div");
+                reason.className = "restore-reason";
+                reason.textContent = "Parent tab “" + row.tabName + "” is hidden.";
+                li.appendChild(reason);
+            }
+
+            colsList.appendChild(li);
+        });
+    }
+
+    function openDrawer() {
+        els.drawerBackdrop.classList.add("open");
+        els.drawerSheet.classList.add("open");
+    }
+    function closeDrawer() {
+        els.drawerBackdrop.classList.remove("open");
+        els.drawerSheet.classList.remove("open");
+    }
+
+    function wireDrawer() {
+        els.fab.addEventListener("click", openDrawer);
+        els.drawerBackdrop.addEventListener("click", closeDrawer);
+        els.restoreAllBtn.addEventListener("click", restoreEverything);
+        els.restoreAllBtnM.addEventListener("click", function () {
+            restoreEverything();
+            closeDrawer();
+        });
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape") closeDrawer();
+        });
+    }
+
+    // ---------- Action buttons ------------------------------------------
+    function wireActionButtons() {
+        els.exportBtn.addEventListener("click", exportExcel);
+        els.emailBtn.addEventListener("click", function () { openModal(els.emailModal, prepEmailModal); });
+        els.scheduleBtn.addEventListener("click", function () { openModal(els.scheduleModal, prepScheduleModal); });
+        els.presetBtn.addEventListener("click", function () { openModal(els.presetModal, prepPresetModal); });
+    }
+
+    function collectLayouts() {
+        // Snapshot of the current per-tab layout so we can send it to the
+        // export / preset / schedule endpoints.
+        const out = {};
+        state.tabOrder.forEach(function (key) {
+            const t = state.tabs[key];
+            out[key] = {
+                tab_hidden:    state.hiddenTabs.has(key),
+                hidden_fields: Array.from(t.hiddenFields),
+                field_order:   t.fieldOrder.slice(),
+            };
         });
         return out;
     }
 
-    // ------------------------------------------------------------------
-    // Excel export
-    // ------------------------------------------------------------------
-
     async function exportExcel() {
-        if (!tabOrder.length) return;
         els.exportBtn.disabled = true;
-        const originalHtml = els.exportBtn.innerHTML;
-        els.exportBtn.innerHTML = `<i data-feather="loader"></i> Exporting...`;
-        refreshFeather();
-
+        const old = els.exportBtn.innerHTML;
+        els.exportBtn.textContent = "Exporting…";
         try {
-            const layouts = {};
-            tabOrder.forEach((key) => {
-                if (deletedTabs.has(key)) return;
-                const t = tabs[key];
-                layouts[key] = {
-                    order:  t.order.slice(),
-                    hidden: Array.from(t.hiddenFields),
-                };
-            });
-
-            const resp = await fetch(cfg.exportUrl, {
-                method:  "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "same-origin",
-                body: JSON.stringify({
-                    params:  cfg.params,
-                    layouts,
-                    dropped_tabs: Array.from(deletedTabs),
-                }),
-            });
-            if (!resp.ok) throw new Error(`Export failed (${resp.status}).`);
-
-            const blob = await resp.blob();
-            const cd = resp.headers.get("Content-Disposition") || "";
-            const filename = filenameFromDisposition(cd, `${cfg.reportKey}.xlsx`);
-
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url; a.download = filename;
-            document.body.appendChild(a); a.click();
-            setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
-        } catch (err) {
-            alert(err.message || "Export failed.");
-        } finally {
-            els.exportBtn.disabled = false;
-            els.exportBtn.innerHTML = originalHtml;
-            refreshFeather();
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Save as Preset
-    // ------------------------------------------------------------------
-
-    function openSavePreset() {
-        els.savePresetError.hidden = true;
-        els.savePresetError.textContent = "";
-        els.savePresetName.value = "";
-        openModal(els.savePresetModal);
-        setTimeout(() => els.savePresetName.focus(), 50);
-    }
-
-    async function submitSavePreset() {
-        const name = (els.savePresetName.value || "").trim();
-        if (!name) {
-            els.savePresetError.textContent = "Please enter a name.";
-            els.savePresetError.hidden = false;
-            return;
-        }
-        els.savePresetConfirm.disabled = true;
-        try {
-            const resp = await fetch(cfg.presetsUrl, {
+            const res = await fetch(cfg.exportUrl, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify({
-                    name,
-                    report_key: cfg.reportKey,
-                    params:     cfg.params,
-                }),
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ params: cfg.params, layouts: collectLayouts() }),
             });
-            if (resp.status === 409) {
-                const data = await resp.json().catch(() => ({}));
-                els.savePresetError.textContent = data.error || "Name already in use.";
-                els.savePresetError.hidden = false;
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const blob = await res.blob();
+            const fname = fileNameFromHeader(res.headers.get("Content-Disposition"))
+                       || (cfg.reportKey + ".xlsx");
+            triggerDownload(blob, fname);
+        } catch (err) {
+            alert("Export failed: " + (err.message || err));
+        } finally {
+            els.exportBtn.innerHTML = old;
+            els.exportBtn.disabled = false;
+            if (typeof feather !== "undefined") feather.replace();
+        }
+    }
+
+    // ---------- Modals ---------------------------------------------------
+    function openModal(modalEl, prepFn) {
+        if (typeof prepFn === "function") prepFn();
+        modalEl.classList.add("open");
+    }
+    function closeModal(modalEl) { modalEl.classList.remove("open"); }
+
+    function wireModals() {
+        document.querySelectorAll("[data-close-modal]").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                const m = document.getElementById(btn.getAttribute("data-close-modal"));
+                if (m) closeModal(m);
+            });
+        });
+        [els.presetModal, els.emailModal, els.scheduleModal].forEach(function (m) {
+            m.addEventListener("click", function (e) {
+                if (e.target === m) closeModal(m);
+            });
+        });
+
+        // Save preset
+        els.presetSaveBtn.addEventListener("click", async function () {
+            els.presetMsg.style.display = "none";
+            const name = (els.presetNameInput.value || "").trim();
+            if (!name) {
+                els.presetMsg.style.display = "";
+                els.presetMsg.textContent = "Give it a name.";
                 return;
             }
-            if (!resp.ok) {
-                const data = await resp.json().catch(() => ({}));
-                throw new Error(data.error || `Save failed (${resp.status}).`);
+            const body = {
+                name:       name,
+                report_key: cfg.reportKey,
+                params:     cfg.params,
+                layouts:    els.presetIncludeLayout.checked ? collectLayouts() : {},
+            };
+            els.presetSaveBtn.disabled = true;
+            try {
+                const j = await postJson(cfg.presetSaveUrl, body);
+                if (j && j.id) {
+                    closeModal(els.presetModal);
+                    flashToast("Preset saved. It's on your home page now.");
+                } else {
+                    els.presetMsg.style.display = "";
+                    els.presetMsg.textContent = (j && j.error) || "Could not save preset.";
+                }
+            } catch (err) {
+                els.presetMsg.style.display = "";
+                els.presetMsg.textContent = err.message || String(err);
+            } finally {
+                els.presetSaveBtn.disabled = false;
             }
-            closeModal(els.savePresetModal);
-            toast(`Saved "${name}" to My Presets.`);
-        } catch (err) {
-            els.savePresetError.textContent = err.message || "Save failed.";
-            els.savePresetError.hidden = false;
-        } finally {
-            els.savePresetConfirm.disabled = false;
+        });
+
+        // Send email now
+        els.emailSendBtn.addEventListener("click", async function () {
+            els.emailMsg.style.display = "none";
+            const recips = (els.emailRecipients.value || "").trim();
+            const spOn   = !!(els.emailSpCheck && els.emailSpCheck.checked);
+            const spPath = spOn && els.emailSpPath ? (els.emailSpPath.value || "").trim() : "";
+            if (!recips && !spPath) {
+                els.emailMsg.style.display = "";
+                els.emailMsg.textContent =
+                  "Enter at least one email address, or pick a SharePoint folder.";
+                return;
+            }
+            if (spOn && !spPath) {
+                els.emailMsg.style.display = "";
+                els.emailMsg.textContent = "Pick a SharePoint folder (or uncheck the box).";
+                return;
+            }
+            const body = {
+                recipients:      recips,
+                subject:         (els.emailSubject.value || "").trim() || defaultEmailSubject(),
+                params:          cfg.params,
+                layouts:         collectLayouts(),
+                sharepoint_path: spPath || null,
+            };
+            els.emailSendBtn.disabled = true;
+            try {
+                const j = await postJson(cfg.emailUrl, body);
+                if (j && j.ok) {
+                    closeModal(els.emailModal);
+                    let msg = recips
+                      ? ("Email captured in outbox (" + (j.recipients_count || 0) + " recipient(s))")
+                      : "Report saved.";
+                    if (j.sharepoint_saved) msg += "; SharePoint: saved";
+                    flashToast(msg + ".");
+                } else {
+                    els.emailMsg.style.display = "";
+                    els.emailMsg.textContent = (j && j.error) || "Could not send.";
+                }
+            } catch (err) {
+                els.emailMsg.style.display = "";
+                els.emailMsg.textContent = err.message || String(err);
+            } finally {
+                els.emailSendBtn.disabled = false;
+            }
+        });
+
+        // ---- SharePoint picker wiring (email modal) --------------------
+        if (els.emailSpCheck && els.emailSpPicker) {
+            els.emailSpCheck.addEventListener("change", function () {
+                els.emailSpPicker.hidden = !els.emailSpCheck.checked;
+            });
+        }
+        if (els.emailSpPickBtn) {
+            els.emailSpPickBtn.addEventListener("click", async function () {
+                if (!window.openSharePointPicker) {
+                    alert("SharePoint picker not loaded.");
+                    return;
+                }
+                const p = await window.openSharePointPicker({
+                    initialPath: (els.emailSpPath && els.emailSpPath.value) || "",
+                });
+                if (p !== null && els.emailSpPath) els.emailSpPath.value = p;
+            });
+        }
+
+        // ---- SharePoint picker wiring (schedule modal) -----------------
+        if (els.scheduleSpCheck && els.scheduleSpPicker) {
+            els.scheduleSpCheck.addEventListener("change", function () {
+                els.scheduleSpPicker.hidden = !els.scheduleSpCheck.checked;
+            });
+        }
+        if (els.scheduleSpPickBtn) {
+            els.scheduleSpPickBtn.addEventListener("click", async function () {
+                if (!window.openSharePointPicker) {
+                    alert("SharePoint picker not loaded.");
+                    return;
+                }
+                const p = await window.openSharePointPicker({
+                    initialPath: (els.scheduleSpPath && els.scheduleSpPath.value) || "",
+                });
+                if (p !== null && els.scheduleSpPath) els.scheduleSpPath.value = p;
+            });
         }
     }
 
-    function toast(message) {
-        const t = document.createElement("div");
-        t.className = "alert alert-success";
-        t.style.cssText = "position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:600; box-shadow:var(--shadow-lg);";
-        t.textContent = message;
-        document.body.appendChild(t);
-        setTimeout(() => { t.style.transition = "opacity .3s"; t.style.opacity = "0"; }, 2200);
-        setTimeout(() => t.remove(), 2600);
+    function prepPresetModal() {
+        els.presetMsg.style.display = "none";
+        els.presetNameInput.value = defaultPresetName();
+        els.presetIncludeLayout.checked = hasAnyCustomisation();
+        setTimeout(function () { els.presetNameInput.focus(); els.presetNameInput.select(); }, 30);
     }
 
-    // ------------------------------------------------------------------
-    // Modal helpers
-    // ------------------------------------------------------------------
-
-    function openModal(modal) {
-        if (modal) modal.classList.add("open");
-    }
-    function closeModal(modal) {
-        if (modal) modal.classList.remove("open");
+    function prepEmailModal() {
+        els.emailMsg.style.display = "none";
+        if (!els.emailSubject.value) els.emailSubject.value = defaultEmailSubject();
     }
 
-    // ------------------------------------------------------------------
-    // Utils
-    // ------------------------------------------------------------------
-
-    function safeParseJSON(raw, fallback) {
-        try { return JSON.parse(raw); } catch (e) { return fallback; }
-    }
-    function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, (c) => ({
-            "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-        }[c]));
-    }
-    function formatDateTime(iso) {
-        const d = new Date(iso);
-        if (isNaN(d.getTime())) return iso;
-        return d.toLocaleString(undefined, {
-            year: "numeric", month: "short", day: "numeric",
-            hour: "numeric", minute: "2-digit",
+    function hasAnyCustomisation() {
+        if (state.hiddenTabs.size > 0) return true;
+        return state.tabOrder.some(function (k) {
+            const t = state.tabs[k];
+            if (!t) return false;
+            if (t.hiddenFields.size > 0) return true;
+            // Order different from canonical?
+            const canonical = t.columnsMeta.map(function (m) { return m.field; }).join("|");
+            return t.fieldOrder.join("|") !== canonical;
         });
     }
-    function filenameFromDisposition(header, fallback) {
-        const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(header || "");
-        return m ? decodeURIComponent(m[1]) : fallback;
+
+    function defaultPresetName() {
+        const now = new Date();
+        return cfg.reportName + " - " + now.toLocaleDateString();
     }
-    function refreshFeather() {
-        if (typeof feather !== "undefined") feather.replace();
+    function defaultEmailSubject() {
+        return cfg.reportName + " (test)";
+    }
+
+    // ---------- Schedule modal ------------------------------------------
+    function wireScheduleModal() {
+        // Cadence pills
+        els.cadenceGroup.addEventListener("click", function (e) {
+            const pill = e.target.closest(".pill");
+            if (!pill) return;
+            els.cadenceGroup.querySelectorAll(".pill").forEach(function (p) { p.classList.remove("active"); });
+            pill.classList.add("active");
+            state.scheduleUi.cadence = pill.dataset.cadence;
+            els.weeklyRow.hidden  = state.scheduleUi.cadence !== "weekly";
+            els.monthlyRow.hidden = state.scheduleUi.cadence !== "monthly";
+            updateSchedulePreview();
+        });
+
+        // Weekday chips
+        els.weekdayGroup.addEventListener("click", function (e) {
+            const b = e.target.closest(".weekday");
+            if (!b) return;
+            const d = b.dataset.day;
+            if (state.scheduleUi.weekdays.has(d)) {
+                state.scheduleUi.weekdays.delete(d);
+                b.classList.remove("active");
+            } else {
+                state.scheduleUi.weekdays.add(d);
+                b.classList.add("active");
+            }
+            updateSchedulePreview();
+        });
+
+        // Monthday buttons (multi-select like weekday)
+        els.monthdayGroup.addEventListener("click", function (e) {
+            const b = e.target.closest(".monthday");
+            if (!b) return;
+            const d = parseInt(b.dataset.day, 10);
+            if (state.scheduleUi.monthdays.has(d)) {
+                state.scheduleUi.monthdays.delete(d);
+                b.classList.remove("active");
+            } else {
+                state.scheduleUi.monthdays.add(d);
+                b.classList.add("active");
+            }
+            updateSchedulePreview();
+        });
+
+        // Time, dates
+        ["input", "change"].forEach(function (ev) {
+            els.scheduleTime.addEventListener(ev, updateSchedulePreview);
+            els.scheduleStart.addEventListener(ev, updateSchedulePreview);
+            els.scheduleEnd.addEventListener(ev, updateSchedulePreview);
+        });
+        els.scheduleHasEnd.addEventListener("change", function () {
+            els.scheduleEnd.disabled = !els.scheduleHasEnd.checked;
+            updateSchedulePreview();
+        });
+
+        els.scheduleSaveBtn.addEventListener("click", saveSchedule);
+    }
+
+    function prepScheduleModal() {
+        els.scheduleMsg.style.display = "none";
+
+        // Default weekdays = Monday preselected
+        els.weekdayGroup.querySelectorAll(".weekday").forEach(function (b) {
+            const on = state.scheduleUi.weekdays.has(b.dataset.day);
+            b.classList.toggle("active", on);
+        });
+
+        // Default monthdays = 1st preselected
+        els.monthdayGroup.querySelectorAll(".monthday").forEach(function (b) {
+            const d = parseInt(b.dataset.day, 10);
+            const on = state.scheduleUi.monthdays.has(d);
+            b.classList.toggle("active", on);
+        });
+
+        if (!els.scheduleStart.value) els.scheduleStart.value = todayIso();
+        if (!els.scheduleTime.value)  els.scheduleTime.value  = "07:00";
+        if (!els.scheduleName.value)  els.scheduleName.value  = defaultPresetName();
+
+        updateSchedulePreview();
+    }
+
+    function updateSchedulePreview() {
+        const c = state.scheduleUi.cadence;
+        const time = els.scheduleTime.value || "07:00";
+        const time12 = fmt12h(time);
+        const start = els.scheduleStart.value || todayIso();
+        let cadenceStr;
+        if (c === "daily") {
+            cadenceStr = "every day";
+        } else if (c === "weekly") {
+            const dayNames = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+            const pretty = dayNames.filter(function (d) { return state.scheduleUi.weekdays.has(d); })
+                                  .map(function (d) { return weekdayPretty(d); });
+            cadenceStr = pretty.length
+                ? "every week on " + prettyJoin(pretty)
+                : "weekly (pick a day!)";
+        } else if (c === "monthly") {
+            const days = Array.from(state.scheduleUi.monthdays).sort(function (a, b) { return a - b; });
+            if (!days.length) {
+                cadenceStr = "monthly (pick a day!)";
+            } else {
+                const dayStrs = days.map(function (d) { return d === -1 ? "last day" : String(d); });
+                cadenceStr = "on the " + prettyJoin(dayStrs) + " of every month";
+            }
+        } else {
+            cadenceStr = "one time only";
+        }
+        const endBit = els.scheduleHasEnd.checked && els.scheduleEnd.value
+            ? ", ending " + prettyDate(els.scheduleEnd.value)
+            : "";
+        const recips = (els.scheduleRecipients.value || "").trim();
+        const recipBit = recips
+            ? ", emailing " + recips
+            : ", emailing (no one yet -- add addresses below)";
+        els.schedulePreview.textContent =
+            "Runs " + cadenceStr + " at " + time12 +
+            " starting " + prettyDate(start) + endBit + recipBit + ".";
+    }
+
+    async function saveSchedule() {
+        els.scheduleMsg.style.display = "none";
+        const c = state.scheduleUi.cadence;
+        const recips = (els.scheduleRecipients.value || "").trim();
+        const name = (els.scheduleName.value || "").trim();
+        const spOn   = !!(els.scheduleSpCheck && els.scheduleSpCheck.checked);
+        const spPath = spOn && els.scheduleSpPath ? (els.scheduleSpPath.value || "").trim() : "";
+
+        if (!name) return scheduleError("Give the schedule a name.");
+        if (!recips && !spPath)
+            return scheduleError(
+                "Pick at least one delivery target: email recipients or SharePoint folder.");
+        if (spOn && !spPath) return scheduleError("Pick a SharePoint folder (or uncheck the box).");
+        if (!els.scheduleTime.value) return scheduleError("Pick a time of day.");
+        if (!els.scheduleStart.value) return scheduleError("Pick a start date.");
+        if (c === "weekly" && state.scheduleUi.weekdays.size === 0)
+            return scheduleError("Pick at least one day of the week.");
+        if (c === "monthly" && state.scheduleUi.monthdays.size === 0)
+            return scheduleError("Pick at least one day of the month.");
+
+        const body = {
+            name:            name,
+            report_key:      cfg.reportKey,
+            params:          cfg.params,
+            layouts:         collectLayouts(),
+            cadence:         c,
+            weekdays:        c === "weekly" ? Array.from(state.scheduleUi.weekdays).join(",") : "",
+            monthdays:       c === "monthly" ? Array.from(state.scheduleUi.monthdays).join(",") : "",
+            time_hhmm:       els.scheduleTime.value,
+            start_date:      els.scheduleStart.value,
+            end_date:        els.scheduleHasEnd.checked ? els.scheduleEnd.value : null,
+            recipients:      recips,
+            sharepoint_path: spPath || null,
+        };
+        els.scheduleSaveBtn.disabled = true;
+        try {
+            const j = await postJson(cfg.scheduleUrl, body);
+            if (j && j.id) {
+                closeModal(els.scheduleModal);
+                flashToast("Scheduled. It's saved under /schedules.");
+            } else {
+                scheduleError((j && j.error) || "Could not save schedule.");
+            }
+        } catch (err) {
+            scheduleError(err.message || String(err));
+        } finally {
+            els.scheduleSaveBtn.disabled = false;
+        }
+    }
+
+    function scheduleError(msg) {
+        els.scheduleMsg.style.display = "";
+        els.scheduleMsg.textContent = msg;
+    }
+
+    // ---------- Utils ----------------------------------------------------
+    function showStatus(msg, isError, spin) {
+        if (!msg) {
+            els.status.innerHTML = state.generatedAt
+                ? '<span class="subtle">Generated ' + escHtml(fmtLocal(state.generatedAt)) + '</span>'
+                : "";
+            return;
+        }
+        const cls = isError ? "subtle" : "subtle";
+        const spinner = spin ? '<span class="spinner-small"></span>' : "";
+        els.status.innerHTML = spinner + '<span class="' + cls + '" style="' +
+            (isError ? "color:var(--error);" : "") + '">' + escHtml(msg) + '</span>';
+    }
+
+    function postJson(url, payload) {
+        return fetch(url, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload || {}),
+        }).then(function (r) {
+            if (!r.ok) {
+                return r.text().then(function (t) {
+                    throw new Error("HTTP " + r.status + (t ? ": " + t.slice(0, 120) : ""));
+                });
+            }
+            const ct = r.headers.get("Content-Type") || "";
+            return ct.indexOf("application/json") >= 0 ? r.json() : r.text();
+        });
+    }
+
+    function safeParse(s, fallback) {
+        try { return JSON.parse(s || "{}"); } catch (_) { return fallback; }
+    }
+    function escHtml(s) {
+        if (s == null) return "";
+        return String(s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    function fmtLocal(iso) {
+        try {
+            const d = new Date(iso);
+            if (isNaN(d)) return iso;
+            return d.toLocaleString();
+        } catch (_) { return iso; }
+    }
+    function fmtMoney(v) {
+        if (v == null || v === "") return "";
+        const n = Number(v);
+        if (isNaN(n)) return escHtml(v);
+        return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+    }
+    function fmtInt(v) {
+        if (v == null || v === "") return "";
+        const n = Number(v);
+        if (isNaN(n)) return escHtml(v);
+        return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    }
+    function fmtPercent(v) {
+        if (v == null || v === "") return "";
+        const n = Number(v);
+        if (isNaN(n)) return escHtml(v);
+        return (n * 100).toFixed(1) + "%";
+    }
+    function fmtDate(v) {
+        if (!v) return "";
+        try {
+            const d = new Date(v);
+            if (isNaN(d)) return escHtml(v);
+            return d.toLocaleDateString();
+        } catch (_) { return escHtml(v); }
+    }
+    function fileNameFromHeader(h) {
+        if (!h) return null;
+        const m = /filename\*?=(?:UTF-8'')?\"?([^;\"]+)\"?/i.exec(h);
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+    function triggerDownload(blob, name) {
+        const a = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () {
+            URL.revokeObjectURL(url);
+            a.remove();
+        }, 100);
+    }
+    function flashToast(msg) {
+        // Very lightweight toast so we don't pull in a dependency.
+        const t = document.createElement("div");
+        t.textContent = msg;
+        t.style.cssText = [
+            "position:fixed",
+            "left:50%",
+            "bottom:110px",
+            "transform:translateX(-50%)",
+            "background:var(--primary)",
+            "color:#fff",
+            "padding:10px 14px",
+            "border-radius:10px",
+            "font-size:14px",
+            "box-shadow:var(--shadow-lg)",
+            "z-index:400",
+            "opacity:0",
+            "transition:opacity .2s",
+        ].join(";");
+        document.body.appendChild(t);
+        requestAnimationFrame(function () { t.style.opacity = "1"; });
+        setTimeout(function () {
+            t.style.opacity = "0";
+            setTimeout(function () { t.remove(); }, 300);
+        }, 2400);
+    }
+    function todayIso() {
+        const d = new Date();
+        return d.getFullYear() + "-" +
+               String(d.getMonth() + 1).padStart(2, "0") + "-" +
+               String(d.getDate()).padStart(2, "0");
+    }
+    function prettyDate(iso) {
+        try {
+            const d = new Date(iso + "T00:00:00");
+            if (isNaN(d)) return iso;
+            return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+        } catch (_) { return iso; }
+    }
+    function fmt12h(hhmm) {
+        const parts = (hhmm || "").split(":");
+        let h = parseInt(parts[0], 10);
+        const m = (parts[1] || "00").padStart(2, "0");
+        if (isNaN(h)) return hhmm;
+        const ampm = h >= 12 ? "PM" : "AM";
+        h = h % 12; if (h === 0) h = 12;
+        return h + ":" + m + " " + ampm;
+    }
+    function weekdayPretty(d) {
+        return { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" }[d] || d;
+    }
+    function prettyJoin(arr) {
+        if (arr.length <= 1) return arr[0] || "";
+        if (arr.length === 2) return arr[0] + " and " + arr[1];
+        return arr.slice(0, -1).join(", ") + ", and " + arr[arr.length - 1];
     }
 })();

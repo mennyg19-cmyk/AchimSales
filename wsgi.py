@@ -40,11 +40,13 @@ from test.webapp.app import create_app as _create_v2_app
 
 _v2_app = _create_v2_app()
 
-MOUNTS = {"/v2": _v2_app}
+# Mount prefix: /v2 for local dev, /test for Azure prod
+_V2_MOUNT = os.environ.get("V2_URL_PREFIX", "/v2")
+MOUNTS = {_V2_MOUNT: _v2_app}
 
 application = DispatcherMiddleware(live_app, MOUNTS)
 
-log.info("WSGI dispatcher ready: live -> /, v2 -> /v2")
+log.info("WSGI dispatcher ready: live -> /, v2 -> %s", _V2_MOUNT)
 
 
 if __name__ == "__main__":

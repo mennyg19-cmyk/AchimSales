@@ -1,15 +1,236 @@
 {% extends "base.html" %}
-{% block title %}Settings &middot; Sales Reports v2{% endblock %}
+{% block title %}Settings &middot; Sales Reports (test){% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1>Settings</h1>
-    <p class="page-subtitle">Account, preferences, and admin tools</p>
+    <p class="page-subtitle">Preferences, exclusions, and admin tools</p>
 </div>
 
-<div class="empty-state">
-    <i data-feather="settings"></i>
-    <h2>Coming soon</h2>
-    <p>You'll be able to pick your default home tab, manage email distributions,
-       and see app status here.</p>
-</div>
+{# ===== Appearance ==================================================== #}
+<section class="settings-section">
+    <h3 class="settings-section-title">
+        <i data-feather="moon" style="width:18px;height:18px;"></i>
+        Appearance
+    </h3>
+
+    <div class="settings-customer-item">
+        <div class="settings-cust-info">
+            <span class="settings-cust-account">Dark mode</span>
+            <span class="settings-cust-name">Switch between light and dark theme</span>
+        </div>
+        <label class="toggle-switch">
+            <input type="checkbox" id="prefThemeToggle"
+                   {% if prefs.theme == 'dark' %}checked{% endif %}>
+            <span class="toggle-slider"></span>
+        </label>
+    </div>
+
+    <div class="settings-customer-item">
+        <div class="settings-cust-info">
+            <span class="settings-cust-account">Landing page after login</span>
+            <span class="settings-cust-name">Which page to show when you sign in</span>
+        </div>
+        <select id="prefLandingPage" class="form-input" style="width:auto;min-width:160px;">
+            <option value="reports"    {% if prefs.landing_page == 'reports' %}selected{% endif %}>Reports</option>
+            <option value="dashboard"  {% if prefs.landing_page == 'dashboard' %}selected{% endif %}>Dashboard</option>
+            <option value="schedules"  {% if prefs.landing_page == 'schedules' %}selected{% endif %}>Schedules</option>
+        </select>
+    </div>
+
+    <div class="settings-customer-item">
+        <div class="settings-cust-info">
+            <span class="settings-cust-account">Default tab on Reports page</span>
+            <span class="settings-cust-name">Pick "My Presets" if you mostly use saved reports</span>
+        </div>
+        <select id="prefDefaultTab" class="form-input" style="width:auto;min-width:160px;">
+            <option value="all"     {% if prefs.default_tab == 'all' %}selected{% endif %}>All Reports</option>
+            <option value="presets" {% if prefs.default_tab == 'presets' %}selected{% endif %}>My Presets</option>
+        </select>
+    </div>
+</section>
+
+{# ===== Customer Exclusions =========================================== #}
+<section class="settings-section" style="margin-top:24px;">
+    <h3 class="settings-section-title collapsible collapsed" data-toggle="exclusionsBody">
+        <i data-feather="user-x" style="width:18px;height:18px;"></i>
+        Customer exclusions
+    </h3>
+    <div class="collapsible-body collapsed" id="exclusionsBody">
+        <p class="settings-section-desc">
+            Hide these customer accounts from your reports. Excluded accounts will not
+            appear in data pulls or scheduled emails.
+        </p>
+
+        <input type="text" id="exclusionsSearch" class="form-input" style="margin-bottom:12px;"
+               placeholder="Search customers...">
+
+        <div class="settings-save-bar" id="exclusionsSaveBar" style="display:none;">
+            <span>Unsaved changes</span>
+            <button class="btn btn-sm btn-primary" id="exclusionsSaveBtn">Save</button>
+        </div>
+
+        <div class="settings-customer-list" id="customerList">
+            {% for c in all_customers %}
+            <div class="settings-customer-item {% if c.key in exclusions %}excluded{% endif %}"
+                 data-account="{{ c.key }}">
+                <div class="settings-cust-info">
+                    <span class="settings-cust-account">{{ c.key }}</span>
+                    <span class="settings-cust-name">{{ c.name }}</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" class="exclusion-toggle"
+                           {% if c.key in exclusions %}checked{% endif %}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+{% if is_admin %}
+{# ===== Admin: Master Schedules link ================================== #}
+<section class="settings-section" style="margin-top:24px;">
+    <h3 class="settings-section-title">
+        <i data-feather="calendar" style="width:18px;height:18px;"></i>
+        Master schedules
+    </h3>
+    <p class="settings-section-desc">
+        Shared schedules visible to everyone. Admins can create, edit, and delete them.
+    </p>
+    <a href="{{ URL_PREFIX }}/master-schedules" class="btn btn-primary">
+        <i data-feather="external-link" style="width:14px;height:14px;"></i>
+        Manage master schedules
+    </a>
+    <div style="margin-top:12px;color:var(--text-muted);font-size:13px;">
+        {{ admin.master_schedules|length }} master schedule{{ '' if admin.master_schedules|length == 1 else 's' }} configured.
+    </div>
+</section>
+
+{# ===== Admin: Users & permissions ==================================== #}
+<section class="settings-section" style="margin-top:24px;">
+    <h3 class="settings-section-title collapsible collapsed" data-toggle="usersBody">
+        <i data-feather="users" style="width:18px;height:18px;"></i>
+        Users &amp; permissions
+    </h3>
+    <div class="collapsible-body collapsed" id="usersBody">
+        <p class="settings-section-desc">
+            Everyone who has signed in appears here. Toggle admin and SharePoint
+            access flags per user.
+        </p>
+        <div class="users-table-wrap">
+            <table class="users-table" id="usersTable">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Admin</th>
+                        <th>SharePoint</th>
+                        <th>Last login</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in admin.users %}
+                    <tr data-email="{{ u.email }}">
+                        <td>
+                            <div class="u-email">{{ u.email }}</div>
+                            {% if u.display_name %}
+                            <div class="u-name">{{ u.display_name }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <label class="toggle-switch">
+                                <input type="checkbox" class="perm-admin"
+                                       {% if u.is_admin %}checked{% endif %}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </td>
+                        <td>
+                            <label class="toggle-switch">
+                                <input type="checkbox" class="perm-sharepoint"
+                                       {% if u.sharepoint_access_enabled %}checked{% endif %}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </td>
+                        <td class="u-last">{{ (u.last_login_utc or '-')[:10] }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline perm-delete" type="button">
+                                <i data-feather="trash-2" style="width:14px;height:14px;"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+{# ===== Admin: Feature Flags ========================================== #}
+<section class="settings-section" style="margin-top:24px;">
+    <h3 class="settings-section-title collapsible collapsed" data-toggle="flagsBody">
+        <i data-feather="flag" style="width:18px;height:18px;"></i>
+        Feature flags
+    </h3>
+    <div class="collapsible-body collapsed" id="flagsBody">
+        <p class="settings-section-desc">App-wide on/off switches.</p>
+        {% for f in admin.feature_flags %}
+        <div class="settings-customer-item">
+            <div class="settings-cust-info">
+                <span class="settings-cust-account">{{ f.flag_key }}</span>
+                <span class="settings-cust-name">{{ f.description or '' }}</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" class="feature-flag-toggle"
+                       data-key="{{ f.flag_key }}"
+                       {% if f.enabled %}checked{% endif %}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+{# ===== Admin: Report Run Log ========================================= #}
+<section class="settings-section" style="margin-top:24px;">
+    <h3 class="settings-section-title collapsible collapsed" data-toggle="runLogBody">
+        <i data-feather="activity" style="width:18px;height:18px;"></i>
+        Report run log
+    </h3>
+    <div class="collapsible-body collapsed" id="runLogBody">
+        <p class="settings-section-desc">
+            Every interactive report run. Useful for debugging slow or failing reports.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button class="btn btn-sm btn-outline" type="button" id="runLogRefresh">Refresh</button>
+            <input type="text" id="runLogUser" class="form-input" style="flex:1;" placeholder="Filter by user email (optional)">
+        </div>
+        <div class="table-wrapper" style="max-height:420px;overflow:auto;">
+            <table class="users-table" id="runLogTable">
+                <thead>
+                    <tr>
+                        <th>Time (UTC)</th>
+                        <th>User</th>
+                        <th>Report</th>
+                        <th>Rows</th>
+                        <th>Duration</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="6" style="text-align:center;color:var(--text-muted);">Click Refresh to load.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endif %}
+
+{# Toast for save feedback #}
+<div id="settingsToast" class="settings-toast" style="display:none;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="{{ url_for('static', filename='js/settings.js') }}"></script>
 {% endblock %}

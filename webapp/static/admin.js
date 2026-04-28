@@ -91,6 +91,9 @@ function openUserPermModal(rowEl) {
     var dashToggle = document.getElementById('editUserDashboard');
     if (dashToggle) dashToggle.checked = !!u.dashboard_enabled;
 
+    var testToggle = document.getElementById('editUserTestAccess');
+    if (testToggle) testToggle.checked = !!u.test_access_enabled;
+
     var reports = u.reports || {};
     var reportToggles = document.querySelectorAll('[id^="editReport_"]');
     reportToggles.forEach(function(toggle) {
@@ -144,6 +147,17 @@ function saveEditUser() {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({email: email, enabled: dashToggle.checked})
+            }).then(function(r) { return r.json(); })
+        );
+    }
+
+    var testToggle = document.getElementById('editUserTestAccess');
+    if (testToggle) {
+        promises.push(
+            fetch('/api/admin/user-test-access', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email: email, enabled: testToggle.checked})
             }).then(function(r) { return r.json(); })
         );
     }

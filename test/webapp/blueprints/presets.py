@@ -22,6 +22,28 @@ from test.webapp.db import connect
 presets_bp = Blueprint("presets", __name__, url_prefix="/api/saved-reports")
 
 
+def load_presets_for(email: str) -> list[dict]:
+    """Return all presets for a given user email, newest first.
+
+    Used by the home-page route to decide whether to show the "My Presets"
+    tab (it's only visible when this list is non-empty).
+    """
+    email = (email or "").lower()
+    if not email:
+        return []
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, report_key, report_name, params_json, layouts_json, created_utc
+              FROM saved_reports
+             WHERE user_email = ?
+             ORDER BY created_utc DESC
+            """,
+            (email,),
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -39,12 +61,17 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         params = json.loads(row["params_json"] or "{}")
     except json.JSONDecodeError:
         params = {}
+    try:
+        layouts = json.loads(row["layouts_json"] or "{}")
+    except (json.JSONDecodeError, IndexError, KeyError):
+        layouts = {}
     return {
         "id":          row["id"],
         "name":        row["name"],
         "report_key":  row["report_key"],
         "report_name": row["report_name"],
         "params":      params,
+        "layouts":     layouts,
         "created_utc": row["created_utc"],
     }
 
@@ -61,7 +88,7 @@ def list_presets():
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, name, report_key, report_name, params_json, created_utc
+            SELECT id, name, report_key, report_name, params_json, layouts_json, created_utc
               FROM saved_reports
              WHERE user_email = ?
              ORDER BY created_utc DESC
@@ -80,6 +107,7 @@ def create_preset():
     name = (body.get("name") or "").strip()
     report_key = (body.get("report_key") or "").strip()
     params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    layouts = body.get("layouts") if isinstance(body.get("layouts"), dict) else {}
 
     if not name:
         return jsonify({"error": "Name is required."}), 400
@@ -99,10 +127,12 @@ def create_preset():
             cur = conn.execute(
                 """
                 INSERT INTO saved_reports
-                    (user_email, name, report_key, report_name, params_json, created_utc)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (user_email, name, report_key, report_name,
+                     params_json, layouts_json, created_utc)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (email, name, report_key, report.name, json.dumps(clean_params), now),
+                (email, name, report_key, report.name,
+                 json.dumps(clean_params), json.dumps(layouts), now),
             )
             new_id = cur.lastrowid
     except sqlite3.IntegrityError:
@@ -114,6 +144,7 @@ def create_preset():
         "report_key":  report_key,
         "report_name": report.name,
         "params":      clean_params,
+        "layouts":     layouts,
         "created_utc": now,
     }), 201
 

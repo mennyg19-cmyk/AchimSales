@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Run #{{ run.id }} &middot; {{ schedule.name or 'Schedule' }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Run #{{ run.id }}</h1>
+    <p class="page-subtitle">
+        {{ schedule.name or 'Schedule' }} &middot;
+        <a href="{{ URL_PREFIX }}{% if schedule_type == 'master' %}/master-schedules/{{ schedule.id }}/history{% else %}/schedules/{{ schedule.id }}/history{% endif %}">back to history</a>
+    </p>
+</div>
+
+<div class="run-meta-card">
+    <div class="run-meta-row">
+        <span class="run-meta-label">Status</span>
+        <span class="run-status run-{{ run.status }}">{{ run.status }}</span>
+    </div>
+    <div class="run-meta-row">
+        <span class="run-meta-label">Started</span>
+        <span>{{ (run.started_utc or '')[:19].replace('T', ' ') }} UTC</span>
+    </div>
+    <div class="run-meta-row">
+        <span class="run-meta-label">Finished</span>
+        <span>{{ (run.finished_utc or '')[:19].replace('T', ' ') if run.finished_utc else '(still running)' }}</span>
+    </div>
+    <div class="run-meta-row">
+        <span class="run-meta-label">Rows returned</span>
+        <span>{{ run.rows_returned if run.rows_returned is not none else '--' }}</span>
+    </div>
+    <div class="run-meta-row">
+        <span class="run-meta-label">Triggered by</span>
+        <span>{{ run.triggered_by or 'auto' }}</span>
+    </div>
+    <div class="run-meta-row">
+        <span class="run-meta-label">Email</span>
+        <span>{% if run.email_sent %}sent to {{ run.email_recipients }}{% else %}--{% endif %}</span>
+    </div>
+    <div class="run-meta-row">
+        <span class="run-meta-label">SharePoint</span>
+        <span>{% if run.sharepoint_saved %}saved to {{ run.sharepoint_path }}{% else %}--{% endif %}</span>
+    </div>
+    {% if run.error_message %}
+    <div class="run-meta-row">
+        <span class="run-meta-label">Error</span>
+        <span style="color:var(--error);">{{ run.error_message }}</span>
+    </div>
+    {% endif %}
+</div>
+
+<h3 style="margin:20px 0 8px 0;">Debug log</h3>
+<pre class="run-debug-log">{{ run.debug_log or '(empty)' }}</pre>
+{% endblock %}

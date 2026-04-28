@@ -17,13 +17,32 @@ def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-USE_MOCK_DATA: bool = _truthy(os.environ.get("USE_MOCK_DATA", "true"))
+USE_MOCK_DATA: bool = _truthy(os.environ.get("V2_USE_MOCK_DATA", os.environ.get("USE_MOCK_DATA", "true")))
 
-FLASK_SECRET: str = os.environ.get("V2_FLASK_SECRET") or os.environ.get(
-    "FLASK_SECRET", "change-me-in-prod"
+FLASK_SECRET: str = (
+    os.environ.get("V2_FLASK_SECRET")
+    or os.environ.get("FLASK_SECRET")
+    or os.environ.get("FLASK_SECRET_KEY")  # Azure App Service uses FLASK_SECRET_KEY
+    or "change-me-in-prod"
 )
 
-APP_DB_PATH: Path = Path(os.environ.get("V2_APP_DB") or (TEST_ROOT / "app.db"))
+# Azure App Service only persists /home/; use that for writable state if present.
+_AZURE_HOME = Path(os.environ.get("HOME", "")) / "site" / "v2data"
+_USE_AZURE_HOME = _AZURE_HOME.parent.exists()
+
+if _USE_AZURE_HOME:
+    _AZURE_HOME.mkdir(parents=True, exist_ok=True)
+
+APP_DB_PATH: Path = Path(
+    os.environ.get("V2_APP_DB")
+    or (_AZURE_HOME / "app.db" if _USE_AZURE_HOME else TEST_ROOT / "app.db")
+)
+
+# Email outbox folder (for test sandbox .eml files)
+OUTBOX_DIR: Path = Path(
+    os.environ.get("V2_OUTBOX_DIR")
+    or (_AZURE_HOME / "outbox" if _USE_AZURE_HOME else REPO_ROOT / "test" / "outbox")
+)
 
 URL_PREFIX: str = os.environ.get("V2_URL_PREFIX", "/v2")
 
@@ -37,16 +56,19 @@ AUTH_MODE: str = (os.environ.get("V2_AUTH_MODE") or "dev").strip().lower()
 AZURE_TENANT_ID: str = (
     os.environ.get("V2_AZURE_TENANT_ID")
     or os.environ.get("AZURE_TENANT_ID")
+    or os.environ.get("GRAPH_TENANT_ID")  # Azure App Service uses GRAPH_*
     or ""
 )
 AZURE_CLIENT_ID: str = (
     os.environ.get("V2_AZURE_CLIENT_ID")
     or os.environ.get("AZURE_CLIENT_ID")
+    or os.environ.get("GRAPH_CLIENT_ID")
     or ""
 )
 AZURE_CLIENT_SECRET: str = (
     os.environ.get("V2_AZURE_CLIENT_SECRET")
     or os.environ.get("AZURE_CLIENT_SECRET")
+    or os.environ.get("GRAPH_CLIENT_SECRET")
     or ""
 )
 AUTH_REDIRECT_PATH: str = os.environ.get("V2_AUTH_REDIRECT_PATH", "/auth/callback")

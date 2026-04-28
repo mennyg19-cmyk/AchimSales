@@ -15,8 +15,8 @@
     data-has-customer="{{ 'true' if report.customer_filter else 'false' }}">
 
     <div class="page-header">
-        <a href="{{ url_for('index') }}" class="back-link">
-            <i data-feather="arrow-left"></i> Back to reports
+        <a href="{{ url_for('reports.list_all') }}" class="back-link">
+            <i data-feather="arrow-left"></i> Back
         </a>
         <h1>{{ report.name }}</h1>
         <p class="page-subtitle">{{ report.description }}</p>
@@ -104,10 +104,15 @@
         {% endif %}
 
         <div class="form-actions">
-            <button type="submit" id="runBtn" class="btn btn-primary btn-lg btn-block">Run Report</button>
+            <button type="submit" id="runBtn" class="btn btn-primary btn-lg btn-block">
+                <i data-feather="play"></i>
+                Run Report
+            </button>
         </div>
     </form>
 </section>
 
+{% endblock %}
+{% block scripts %}
 <script src="{{ url_for('static', filename='js/report_form.js') }}"></script>
 {% endblock %}

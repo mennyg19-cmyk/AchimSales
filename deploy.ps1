@@ -1,4 +1,4 @@
-﻿# Deploy the webapp to Azure App Service via zip.
+# Deploy the webapp to Azure App Service via zip.
 # Prod setup: built-in Python 3.10 runtime, gunicorn app:app.
 #
 # Usage:
@@ -18,10 +18,12 @@ $exclude = @(
     "deploy.ps1", "deploy-runbook.ps1",
     ".azure", ".pytest_cache", ".git", ".cursor",
     ".dockerignore", "Dockerfile",
-    "tests", "test", "logs", "runbooks", "webapp-cache",
+    "tests", "logs", "runbooks", "webapp-cache",
     "SETUP_INSTRUCTIONS.txt",
     "_history_backup", "_report_output", "__pycache__",
-    "app.db", "AchimReportsApp.zip", "_server.log"
+    "app.db", "AchimReportsApp.zip", "_server.log",
+    # test/ subfolders we don't need in prod
+    "outbox"
 )
 $excludeExt = @(".md")
 

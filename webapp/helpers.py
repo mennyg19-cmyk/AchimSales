@@ -79,7 +79,9 @@ def inject_theme() -> dict:
     from webapp.db import get_feature_flag, get_db
     global_dash = get_feature_flag("dashboard_enabled", True)
     global_orders = get_feature_flag("order_entry_enabled", False)
+    global_test = get_feature_flag("test_site_enabled", False)
     user_dash = True
+    user_test = False
     try:
         user = get_current_user()
         if user:
@@ -87,9 +89,13 @@ def inject_theme() -> dict:
             if email:
                 conn = get_db()
                 try:
-                    row = conn.execute("SELECT dashboard_enabled FROM app_users WHERE email = ?", (email,)).fetchone()
+                    row = conn.execute(
+                        "SELECT dashboard_enabled, test_access_enabled FROM app_users WHERE email = ?",
+                        (email,)
+                    ).fetchone()
                     if row is not None:
                         user_dash = bool(row["dashboard_enabled"])
+                        user_test = bool(row["test_access_enabled"]) if row["test_access_enabled"] is not None else False
                 finally:
                     conn.close()
     except Exception:
@@ -98,4 +104,5 @@ def inject_theme() -> dict:
         "theme": session.get("theme", "light"),
         "dashboard_enabled": global_dash and user_dash,
         "order_entry_enabled": global_orders,
+        "test_site_enabled": global_test and user_test,
     }

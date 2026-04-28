@@ -35,11 +35,25 @@ Column types drive formatting in both the grid and the Excel export:
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 import random
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from test.webapp.services.mock_data import CUSTOMERS, SALESMEN, salesman_name
+from test.webapp.services.reports import ordered as ordered_builder
+from test.webapp.services import sql_client
+
+log = logging.getLogger(__name__)
+
+
+# Path to the JSON fixture stashed from the brother's test dump.
+# Used as a fallback when SQL isn't configured (local dev, tests).
+_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
+_ORDERED_FIXTURE = _FIXTURE_DIR / "ordered_dump.json"
 
 
 # ---------------------------------------------------------------------------
@@ -88,68 +102,111 @@ def _recent_date(r: random.Random, days_back: int = 90) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _load_ordered_fixture() -> list[dict] | None:
+    """Load the brother's test dump as the offline source-of-truth for the
+    ordered report. Returns None if the fixture is missing or unreadable.
+    """
+    if not _ORDERED_FIXTURE.exists():
+        return None
+    try:
+        with _ORDERED_FIXTURE.open(encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return data
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("Could not read ordered fixture %s: %s", _ORDERED_FIXTURE, exc)
+    return None
+
+
 def _build_ordered(params: dict, r: random.Random) -> list[dict]:
-    salesmen = _filtered_salesmen(params)
+    """Build the ordered report's multi-tab payload.
+
+    Source-selection order:
+        1. SQL Server (if SQL_CONN_STR / pyodbc are configured)
+        2. JSON fixture stashed in test/fixtures/ordered_dump.json
+        3. Random mock (last resort, only if neither SQL nor fixture exist)
+    """
+    rows: list[dict] | None = None
+
+    if sql_client.is_configured() and os.environ.get("SQL_USE_FOR_ORDERED", "1") != "0":
+        try:
+            rows = sql_client.fetch_report("ordered", params)
+            log.info("ordered report: pulled %d rows from SQL", len(rows))
+        except Exception as exc:
+            log.exception("SQL fetch for ordered failed, falling back to fixture: %s", exc)
+            rows = None
+
+    if rows is None:
+        rows = _load_ordered_fixture()
+        if rows is not None:
+            log.info("ordered report: using fixture (%d rows)", len(rows))
+            rows = _filter_ordered_fixture(rows, params)
+
+    if rows is not None:
+        return ordered_builder.build(rows)
+
+    # Last-resort random mock (kept so the app never crashes on a fresh checkout)
+    log.warning("ordered report: no SQL and no fixture, using random mock")
+    return _build_ordered_random_mock(params, r)
+
+
+def _filter_ordered_fixture(rows: list[dict], params: dict) -> list[dict]:
+    """Apply a few obvious filters to the fixture so the viewer reflects the
+    chosen filter values during local development.
+    """
+    out = rows
+    status = params.get("status")
+    if status:
+        out = [r for r in out if (r.get("SalesStatus") or "").lower() == str(status).lower()]
+    customers = params.get("customers")
+    if customers:
+        if isinstance(customers, str):
+            customers = [customers]
+        wanted = {str(c) for c in customers}
+        out = [r for r in out if str(r.get("CustomerAccount")) in wanted]
+    return out
+
+
+def _build_ordered_random_mock(params: dict, r: random.Random) -> list[dict]:
+    """Original Phase-3 random mock — kept as a final fallback."""
     customers = _filtered_customers(params)
-
-    summary_cols = [
-        {"field": "salesman",         "header": "Salesman",     "type": "text"},
-        {"field": "order_count",      "header": "# Orders",     "type": "int"},
-        {"field": "ordered_amount",   "header": "Ordered $",    "type": "money"},
-        {"field": "shipped_amount",   "header": "Shipped $",    "type": "money"},
-        {"field": "cancelled_amount", "header": "Cancelled $",  "type": "money"},
-        {"field": "remaining_amount", "header": "Remaining $",  "type": "money"},
-    ]
-    summary_rows = []
-    for s in salesmen:
-        ordered = _money(r, 40_000, 220_000)
-        cancelled = _money(r, 0, ordered * 0.05)
-        shipped = _money(r, 0, ordered - cancelled)
-        remaining = round(ordered - shipped - cancelled, 2)
-        summary_rows.append({
-            "salesman":         s["name"],
-            "order_count":      r.randint(8, 65),
-            "ordered_amount":   ordered,
-            "shipped_amount":   shipped,
-            "cancelled_amount": cancelled,
-            "remaining_amount": remaining,
-        })
-
-    detail_cols = [
-        {"field": "order_no",    "header": "Order #",     "type": "text"},
-        {"field": "order_date",  "header": "Order Date",  "type": "date"},
-        {"field": "customer",    "header": "Customer",    "type": "text"},
-        {"field": "salesman",    "header": "Salesman",    "type": "text"},
-        {"field": "status",      "header": "Status",      "type": "text"},
-        {"field": "qty_ordered", "header": "Qty Ordered", "type": "int"},
-        {"field": "qty_shipped", "header": "Qty Shipped", "type": "int"},
-        {"field": "ordered_amount",   "header": "Ordered $",   "type": "money"},
-        {"field": "shipped_amount",   "header": "Shipped $",   "type": "money"},
-    ]
     statuses = ["Open", "Shipped", "Partial", "Cancelled"]
-    detail_rows = []
     pool = customers or CUSTOMERS[:10]
+
+    fake_rows: list[dict] = []
     for i in range(min(40, max(10, len(pool) * 2))):
         c = r.choice(pool)
         qty = r.randint(5, 500)
-        shipped = r.randint(0, qty)
+        shipped_qty = r.randint(0, qty)
         unit = _money(r, 4, 55)
-        detail_rows.append({
-            "order_no":       f"SO{100000 + r.randint(0, 99999)}",
-            "order_date":     _recent_date(r, 60),
-            "customer":       f"{c['key']} — {c['name']}",
-            "salesman":       salesman_name(c["salesman"]),
-            "status":         r.choice(statuses),
-            "qty_ordered":    qty,
-            "qty_shipped":    shipped,
-            "ordered_amount": round(qty * unit, 2),
-            "shipped_amount": round(shipped * unit, 2),
+        ordered_amt = round(qty * unit, 2)
+        shipped_amt = round(shipped_qty * unit, 2)
+        cancelled_amt = 0.0
+        fake_rows.append({
+            "Company": "achm",
+            "CustomerAccount": c["key"],
+            "customername": c["name"],
+            "SalesOrderNumber": f"ORD{100000 + r.randint(0, 99999)}",
+            "CustomerRequisition": "",
+            "SalesGroup": salesman_name(c["salesman"]),
+            "LineNumber": i + 1,
+            "SalesStatus": r.choice(statuses),
+            "Item": f"AC-{1000 + r.randint(0, 999)}",
+            "ItemDescription": "Mock item",
+            "QuantityOrdered": qty,
+            "QuantityReserved": 0,
+            "ReleasedQuantity": shipped_qty,
+            "DeliveryRemainder": qty - shipped_qty,
+            "QuantityLefttoLoad": 0,
+            "SalesPrice": unit,
+            "Ordered $": ordered_amt,
+            "Shipped $": shipped_amt,
+            "Cancelled $": cancelled_amt,
+            "CreatedDateTime": _recent_date(r, 60),
+            "ShippingDateRequested": _recent_date(r, 60),
+            "InventoryTransactionID": str(r.randint(1_000_000, 9_999_999)),
         })
-
-    return [
-        {"key": "summary", "name": "Summary by Salesman", "columns": summary_cols, "rows": summary_rows},
-        {"key": "detail",  "name": "Order Detail",         "columns": detail_cols,  "rows": detail_rows},
-    ]
+    return ordered_builder.build(fake_rows)
 
 
 def _build_invoiced(params: dict, r: random.Random) -> list[dict]:

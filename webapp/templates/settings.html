@@ -230,7 +230,7 @@
             <div id="permUserList" class="settings-customer-list" style="max-height:600px;">
                 {% for u in perm_grid %}
                 <div class="perm-user-row" data-email="{{ u.email }}"
-                     data-user='{{ {'email': u.email, 'role': u.role, 'salesman_key': u.salesman_key or '', 'display_name': u.display_name or '', 'dashboard_enabled': u.dashboard_enabled, 'active': u.active if u.active is not none else 1, 'reports': u.reports, 'allowed_salesmen': u.allowed_salesmen}|tojson }}'>
+                     data-user='{{ {'email': u.email, 'role': u.role, 'salesman_key': u.salesman_key or '', 'display_name': u.display_name or '', 'dashboard_enabled': u.dashboard_enabled, 'test_access_enabled': u.test_access_enabled, 'active': u.active if u.active is not none else 1, 'reports': u.reports, 'allowed_salesmen': u.allowed_salesmen}|tojson }}'>
                     <div class="perm-user-info" style="flex:1;">
                         <span class="perm-user-name">{{ u.display_name or u.sm_name or u.email }}</span>
                         <span class="perm-user-email">{{ u.email }}</span>
@@ -326,6 +326,17 @@
                 </div>
                 <label class="toggle-switch">
                     <input type="checkbox" id="editUserDashboard">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-customer-item" style="min-height:38px;">
+                <div class="settings-cust-info">
+                    <span class="settings-cust-account" style="font-size:13px;">Test Site Access <button class="help-icon" data-help="settings-test-access" style="width:16px;height:16px;font-size:10px;">?</button></span>
+                    <span class="settings-cust-name" style="font-size:11px; color:var(--text-muted);">Can access /test/ sandbox</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="editUserTestAccess">
                     <span class="toggle-slider"></span>
                 </label>
             </div>

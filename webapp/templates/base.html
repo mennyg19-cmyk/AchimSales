@@ -75,12 +75,12 @@
             <span class="bottom-nav-label">Dashboard</span>
         </a>
         {% endif %}
-        {% if order_entry_enabled or (user.role == 'admin' or user.role == 'developer') %}
-        <a href="{{ url_for('orders.orders_list') }}" class="bottom-nav-item {% if active_tab == 'orders' %}active{% endif %}">
+        {% if test_site_enabled or (user.role == 'admin' or user.role == 'developer') %}
+        <a href="/v2/" class="bottom-nav-item" target="_blank">
             <div class="bottom-nav-icon">
-                <i data-feather="shopping-cart"></i>
+                <i data-feather="external-link"></i>
             </div>
-            <span class="bottom-nav-label">Orders</span>
+            <span class="bottom-nav-label">Test Site</span>
         </a>
         {% endif %}
         <a href="{{ url_for('settings.settings_page') }}" class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}">

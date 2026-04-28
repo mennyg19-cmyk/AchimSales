@@ -20,16 +20,16 @@ for _p in (str(_REPO_ROOT), str(_TEST_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from flask import Flask, render_template
+from flask import Flask, redirect, url_for
 
-from test.config.reports import list_reports
 from test.config.settings import AUTH_MODE, FLASK_SECRET, URL_PREFIX, USE_MOCK_DATA
 from test.webapp.auth import current_user, require_login
 from test.webapp.blueprints.auth_bp import auth_bp
 from test.webapp.blueprints.dashboard import dashboard_bp
 from test.webapp.blueprints.presets import presets_bp
-from test.webapp.blueprints.report_api import report_api_bp
+from test.webapp.blueprints.report_api import report_api_bp, sharepoint_api_bp
 from test.webapp.blueprints.reports import reports_bp
+from test.webapp.blueprints.schedules import schedules_bp
 from test.webapp.blueprints.settings_bp import settings_bp
 from test.webapp.db import init_db
 
@@ -54,17 +54,44 @@ def create_app() -> Flask:
 
     @app.context_processor
     def _inject_globals():
+        from test.webapp.auth import has_sharepoint_access as _has_sp
+        from test.webapp.db import get_user_preferences
+
+        user = current_user()
+        prefs = {}
+        if user and user.get("email"):
+            try:
+                prefs = get_user_preferences(user["email"])
+            except Exception:
+                prefs = {}
         return {
             "USE_MOCK_DATA": USE_MOCK_DATA,
             "URL_PREFIX": URL_PREFIX,
             "AUTH_MODE": AUTH_MODE,
-            "CURRENT_USER": current_user(),
+            "CURRENT_USER": user,
+            "USER_PREFS": prefs,
+            "HAS_SHAREPOINT_ACCESS": _has_sp(user) if user else False,
         }
+
+    _LANDING_ENDPOINTS = {
+        "reports":   "reports.list_all",
+        "dashboard": "dashboard.index",
+        "schedules": "schedules.index",
+    }
 
     @app.route("/")
     @require_login
     def index():
-        return render_template("index.html", reports=list_reports(), active_tab="reports")
+        from test.webapp.db import get_user_preferences
+        user = current_user() or {}
+        landing = "reports"
+        try:
+            prefs = get_user_preferences(user.get("email", ""))
+            landing = prefs.get("landing_page") or "reports"
+        except Exception:
+            pass
+        endpoint = _LANDING_ENDPOINTS.get(landing, "reports.list_all")
+        return redirect(url_for(endpoint))
 
     @app.route("/healthz")
     def healthz():
@@ -74,8 +101,13 @@ def create_app() -> Flask:
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(report_api_bp)
+    app.register_blueprint(sharepoint_api_bp)
     app.register_blueprint(presets_bp)
+    app.register_blueprint(schedules_bp)
     app.register_blueprint(settings_bp)
+
+    from test.webapp.blueprints.master_schedules import master_schedules_bp
+    app.register_blueprint(master_schedules_bp)
 
     init_db()
 
