@@ -33,6 +33,163 @@ def fetch_customer_info(account: str) -> dict:
     return cust_info
 
 
+def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
+    """Return the customer's last *limit* invoiced orders, newest first.
+
+    Used by the Customer's Last Order picker. Each dict has order_number,
+    order_date, customer_req (PO), order_name, and a rough order_total
+    pulled from the header (no line-level totals -- that's the slow part).
+    """
+    base_url, token, company = get_d365_connection()
+    from data.d365_entities import fetch_sales_order_headers
+    from core.dates import D365_GO_LIVE, get_today_eastern, convert_d365_dates_to_eastern
+
+    today = get_today_eastern()
+    headers_df = fetch_sales_order_headers(
+        base_url, token, D365_GO_LIVE, today,
+        company_id=company, customer_account=account,
+    )
+    if headers_df.empty:
+        return []
+
+    if "OrderStatus" in headers_df.columns:
+        # Match either "Invoiced" or anything containing it (e.g. "Partially invoiced")
+        status = headers_df["OrderStatus"].fillna("").astype(str).str.lower()
+        headers_df = headers_df[status.str.contains("invoiced")]
+    if headers_df.empty:
+        return []
+
+    if "OrderDate" in headers_df.columns:
+        headers_df["OrderDate"] = convert_d365_dates_to_eastern(headers_df["OrderDate"])
+    headers_df = headers_df.sort_values("OrderDate", ascending=False).head(limit)
+
+    orders: list[dict] = []
+    for _, row in headers_df.iterrows():
+        od = row.get("OrderDate")
+        orders.append({
+            "order_number":   str(row.get("SalesOrderNumber", "")),
+            "order_date":     od.strftime("%Y-%m-%d") if hasattr(od, "strftime") else str(od)[:10] if od else "",
+            "status":         str(row.get("OrderStatus", "")),
+            "customer_req":   str(row.get("CustomerRequisition", "")),
+            "order_name":     str(row.get("SalesOrderName", "")),
+        })
+    return orders
+
+
+def fetch_orders_with_qty_breakdown(
+    customer_account: str,
+    order_numbers: list[str],
+) -> tuple[list[dict], list[dict]]:
+    """For a set of sales orders, pull headers + lines + WHS releases + packing
+    slips, then run the Ordered Report's classifier to get QtyShipped /
+    QtyCancelled per line.
+
+    Returns ``(headers_list, lines_list)``.
+
+    Each header dict mirrors what ``fetch_order_with_lines`` produces (single
+    order header), so the template can render any of them. Each line dict
+    has the columns the Customer's Last Order view needs:
+
+        order_number, item, description, qty_ordered, qty_shipped,
+        qty_cancelled, sales_price, total
+
+    where ``total = sales_price * qty_shipped`` (matches the user spec for a
+    "what was actually invoiced" Total).
+    """
+    import pandas as pd
+
+    from data.d365_entities import (
+        fetch_sales_order_headers,
+        fetch_sales_order_lines,
+        fetch_whs_sales_lines,
+        fetch_packing_slip_trans,
+    )
+    from core.dates import D365_GO_LIVE, get_today_eastern, PeriodSpec
+    from reports.ordered.builder import build_report
+
+    if not order_numbers:
+        return [], []
+
+    base_url, token, company = get_d365_connection()
+    today = get_today_eastern()
+
+    headers_df = fetch_sales_order_headers(
+        base_url, token, D365_GO_LIVE, today,
+        company_id=company, customer_account=customer_account,
+    )
+    if headers_df.empty:
+        return [], []
+
+    wanted = {str(x).strip() for x in order_numbers if str(x).strip()}
+    headers_df = headers_df[
+        headers_df["SalesOrderNumber"].astype(str).str.strip().isin(wanted)
+    ].copy()
+    if headers_df.empty:
+        return [], []
+
+    lines_df = fetch_sales_order_lines(base_url, token, wanted, company_id=company)
+    if lines_df.empty:
+        return _headers_to_list(headers_df), []
+
+    inv_lot_ids = set()
+    if "InventoryLotId" in lines_df.columns:
+        inv_lot_ids = {str(x).strip() for x in lines_df["InventoryLotId"].dropna() if str(x).strip()}
+    whs_df = fetch_whs_sales_lines(base_url, token, inv_lot_ids, company_id=company) if inv_lot_ids else pd.DataFrame()
+    packing_df = fetch_packing_slip_trans(base_url, token, wanted, company_id=company)
+
+    period = PeriodSpec(
+        label="custom", start_date=D365_GO_LIVE, end_date=today,
+        subfolder="custom", filename_tag="custom",
+    )
+    merged_df, _empty_reason = build_report(headers_df, lines_df, whs_df, packing_df, period)
+
+    if merged_df.empty:
+        return _headers_to_list(headers_df), []
+
+    lines_out: list[dict] = []
+    for _, r in merged_df.iterrows():
+        qty_shipped = float(r.get("QtyShipped") or 0)
+        sales_price = float(r.get("SalesPrice") or r.get("UnitPrice") or 0)
+        lines_out.append({
+            "order_number":   str(r.get("SalesOrderNumber", "")).strip(),
+            "item":           str(r.get("Item#", "") or "").strip(),
+            "description":    str(r.get("LineDescription", "") or "").strip(),
+            "qty_ordered":    float(r.get("QtyOrdered") or 0),
+            "qty_shipped":    qty_shipped,
+            "qty_cancelled":  float(r.get("QtyCancelled") or 0),
+            "sales_price":    sales_price,
+            "total":          round(sales_price * qty_shipped, 2),
+        })
+
+    return _headers_to_list(headers_df), lines_out
+
+
+def _headers_to_list(headers_df) -> list[dict]:
+    """Sort headers newest-first and convert to plain dicts for templates."""
+    from core.dates import convert_d365_dates_to_eastern
+
+    df = headers_df.copy()
+    if "OrderDate" in df.columns:
+        df["OrderDate"] = convert_d365_dates_to_eastern(df["OrderDate"])
+        df = df.sort_values("OrderDate", ascending=False)
+
+    out: list[dict] = []
+    for _, r in df.iterrows():
+        od = r.get("OrderDate")
+        out.append({
+            "order_number":      str(r.get("SalesOrderNumber", "")).strip(),
+            "order_date":        od.strftime("%Y-%m-%d") if hasattr(od, "strftime") else str(od)[:10] if od else "",
+            "status":            str(r.get("OrderStatus", "") or ""),
+            "processing_status": str(r.get("OrderProcessingStatus", "") or ""),
+            "customer_account":  str(r.get("CustomerAccount", "") or ""),
+            "customer_name":     str(r.get("CustomerName", "") or ""),
+            "salesman":          str(r.get("Salesman", "") or ""),
+            "customer_req":      str(r.get("CustomerRequisition", "") or ""),
+            "order_name":        str(r.get("SalesOrderName", "") or ""),
+        })
+    return out
+
+
 def fetch_customer_orders(account: str, start_date: date, end_date: date,
                           last_n: int | None = None) -> list[dict]:
     """Return a list of order dicts for *account* between the given dates."""

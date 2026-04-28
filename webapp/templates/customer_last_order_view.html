@@ -19,12 +19,12 @@
 <div class="detail-card">
     <p style="color:var(--danger);">Could not load order data from D365: {{ error }}</p>
 </div>
-{% elif not header %}
+{% elif not primary %}
 <div class="detail-card">
     <div class="empty-state" style="padding:24px;">
         <i data-feather="package" width="40" height="40"></i>
-        <h3>No orders found</h3>
-        <p>This customer has no orders on record.</p>
+        <h3>No invoiced orders found</h3>
+        <p>This customer has no invoiced orders on record.</p>
     </div>
 </div>
 {% else %}
@@ -32,96 +32,105 @@
 <!-- Order Header Card -->
 <div class="detail-card">
     <div class="detail-section-header" style="margin-bottom:8px;">
-        <h3 class="dash-section-title">Last Order</h3>
-        <a href="{{ url_for('dashboard.order_detail', order_number=header.order_number) }}"
-           class="btn btn-sm btn-outline" title="Open full order page">
-            Open <i data-feather="external-link" style="width:14px;height:14px;"></i>
-        </a>
+        <h3 class="dash-section-title">
+            {% if headers|length > 1 %}
+                Invoiced Orders ({{ headers|length }} merged)
+            {% else %}
+                Last Invoiced Order
+            {% endif %}
+        </h3>
+        <button type="button" id="addPrevOrderBtn" class="btn btn-sm btn-outline">
+            <i data-feather="plus" style="width:14px;height:14px;"></i>
+            Add previous order
+        </button>
     </div>
     <div class="detail-grid">
         <div class="detail-item">
-            <span class="detail-label">Order Number</span>
-            <span class="detail-value" style="font-weight:700;">{{ header.order_number }}</span>
+            <span class="detail-label">Order Number{% if headers|length > 1 %} (latest){% endif %}</span>
+            <span class="detail-value" style="font-weight:700;">
+                <a href="{{ url_for('dashboard.order_detail', order_number=primary.order_number) }}"
+                   style="color:var(--primary); text-decoration:none;">{{ primary.order_number }}</a>
+            </span>
         </div>
         <div class="detail-item">
             <span class="detail-label">Order Date</span>
-            <span class="detail-value">{{ header.order_date or '—' }}</span>
+            <span class="detail-value">{{ primary.order_date or '—' }}</span>
         </div>
-        <div class="detail-item">
-            <span class="detail-label">Status</span>
-            <span class="detail-value">{{ header.status or '—' }}</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">Processing</span>
-            <span class="detail-value">{{ header.processing_status or '—' }}</span>
-        </div>
-        {% if header.customer_req %}
+        {% if display_po %}
         <div class="detail-item">
             <span class="detail-label">PO #</span>
-            <span class="detail-value">{{ header.customer_req }}</span>
+            <span class="detail-value">{{ display_po }}</span>
         </div>
         {% endif %}
-        {% if header.order_name %}
-        <div class="detail-item">
-            <span class="detail-label">Order Name</span>
-            <span class="detail-value">{{ header.order_name }}</span>
-        </div>
-        {% endif %}
-        {% if header.salesman %}
+        {% if primary.salesman %}
         <div class="detail-item">
             <span class="detail-label">Salesman</span>
-            <span class="detail-value">{{ header.salesman }}</span>
+            <span class="detail-value">{{ primary.salesman }}</span>
         </div>
         {% endif %}
     </div>
+
+    {% if headers|length > 1 %}
+    <div class="merged-orders-list">
+        <span class="merged-orders-label">Includes orders:</span>
+        <ul>
+            {% for h in headers %}
+            <li>
+                <a href="{{ url_for('dashboard.order_detail', order_number=h.order_number) }}">{{ h.order_number }}</a>
+                {% if h.order_date %}<span class="muted"> &middot; {{ h.order_date }}</span>{% endif %}
+                {% if h.customer_req %}<span class="muted"> &middot; PO {{ h.customer_req }}</span>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 </div>
 
-<!-- Line Items -->
+<!-- Line Items (rolled up) -->
 <div class="detail-section-header">
-    <h3 class="dash-section-title">Line Items</h3>
-    {% if lines %}
-    <span class="detail-count">{{ lines|length }} item{{ 's' if lines|length != 1 else '' }}</span>
+    <h3 class="dash-section-title">Items</h3>
+    {% if rolled_lines %}
+    <span class="detail-count">{{ rolled_lines|length }} unique item{{ 's' if rolled_lines|length != 1 else '' }}</span>
     {% endif %}
 </div>
 
 <div class="table-wrapper">
-    {% if lines %}
+    {% if rolled_lines %}
     <table class="data-table detail-table">
         <thead>
             <tr>
-                <th>Line</th>
                 <th>Item #</th>
                 <th>Description</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Total</th>
-                <th>Status</th>
+                <th class="num">Qty Ordered</th>
+                <th class="num">Qty Shipped</th>
+                <th class="num">Qty Cancelled</th>
+                <th class="num">Sales Price</th>
+                <th class="num">Total</th>
             </tr>
         </thead>
         <tbody>
-            {% for l in lines %}
+            {% for l in rolled_lines %}
             <tr>
-                <td class="num">{{ l.line_number }}</td>
                 <td class="cell-nowrap" style="font-weight:600;">{{ l.item }}</td>
                 <td>{{ l.description }}</td>
-                <td class="num">{{ l.qty_ordered }}</td>
-                <td class="num">${{ "%.2f"|format(l.sales_price|float) if l.sales_price else '—' }}</td>
-                <td class="num">${{ "%.2f"|format(l.total|float) if l.total else '—' }}</td>
-                <td>{{ l.status }}</td>
+                <td class="num">{{ "%g"|format(l.qty_ordered) }}</td>
+                <td class="num">{{ "%g"|format(l.qty_shipped) }}</td>
+                <td class="num">{{ "%g"|format(l.qty_cancelled) }}</td>
+                <td class="num">${{ "%.2f"|format(l.sales_price|float) }}</td>
+                <td class="num">${{ "%.2f"|format(l.total|float) }}</td>
             </tr>
             {% endfor %}
         </tbody>
-        {% if lines|length >= 1 %}
         <tfoot>
             <tr style="font-weight:700; background:var(--bg);">
-                <td colspan="3" style="text-align:right; padding-right:12px;">Order Totals</td>
-                <td class="num">{{ lines|sum(attribute='qty_ordered')|round(0, 'common')|int }}</td>
+                <td colspan="2" style="text-align:right; padding-right:12px;">Totals</td>
+                <td class="num">{{ "%g"|format(totals.qty_ordered) }}</td>
+                <td class="num">{{ "%g"|format(totals.qty_shipped) }}</td>
+                <td class="num">{{ "%g"|format(totals.qty_cancelled) }}</td>
                 <td></td>
-                <td class="num">${{ "%.2f"|format(lines|sum(attribute='total')|float) }}</td>
-                <td></td>
+                <td class="num">${{ "%.2f"|format(totals.total|float) }}</td>
             </tr>
         </tfoot>
-        {% endif %}
     </table>
     {% else %}
     <div class="empty-state" style="padding:24px;">
@@ -132,6 +141,121 @@
     {% endif %}
 </div>
 
-{% endif %}
+<!-- Add-previous-order modal -->
+<div id="prevOrderModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="prevOrderModalTitle">
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel">
+        <div class="modal-header">
+            <h3 id="prevOrderModalTitle">Pick orders to view together</h3>
+            <button type="button" class="modal-close" id="prevOrderClose" aria-label="Close">
+                <i data-feather="x"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="prevOrderBody">
+            <p class="muted" id="prevOrderLoading">Loading recent invoiced orders…</p>
+            <div id="prevOrderList" hidden></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="prevOrderCancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="prevOrderApply">Apply</button>
+        </div>
+    </div>
+</div>
 
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if primary %}
+<script>
+(function () {
+    "use strict";
+
+    var ACCOUNT = {{ customer.account|tojson }};
+    var SELECTED = {{ selected_orders|tojson }};
+
+    var btn       = document.getElementById('addPrevOrderBtn');
+    var modal     = document.getElementById('prevOrderModal');
+    var closeBtn  = document.getElementById('prevOrderClose');
+    var cancelBtn = document.getElementById('prevOrderCancel');
+    var applyBtn  = document.getElementById('prevOrderApply');
+    var listEl    = document.getElementById('prevOrderList');
+    var loadingEl = document.getElementById('prevOrderLoading');
+
+    if (!btn || !modal) return;
+
+    var loaded = false;
+
+    function openModal() {
+        modal.removeAttribute('hidden');
+        document.body.style.overflow = 'hidden';
+        if (!loaded) loadOrders();
+    }
+    function closeModal() {
+        modal.setAttribute('hidden', '');
+        document.body.style.overflow = '';
+    }
+
+    function loadOrders() {
+        loadingEl.textContent = 'Loading recent invoiced orders…';
+        listEl.setAttribute('hidden', '');
+        var url = '/api/report/customer-last-order/' + encodeURIComponent(ACCOUNT) + '/recent-invoiced';
+        fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var orders = (data && data.orders) || [];
+                if (!orders.length) {
+                    loadingEl.textContent = 'No invoiced orders found for this customer.';
+                    return;
+                }
+                var html = '';
+                orders.forEach(function (o) {
+                    var checked = SELECTED.indexOf(o.order_number) !== -1;
+                    var poBit = o.customer_req ? '<span class="muted"> &middot; PO ' + escapeHtml(o.customer_req) + '</span>' : '';
+                    html += '<label class="prev-order-row">' +
+                        '<input type="checkbox" value="' + escapeHtml(o.order_number) + '"' + (checked ? ' checked' : '') + '>' +
+                        '<span class="prev-order-num">' + escapeHtml(o.order_number) + '</span>' +
+                        '<span class="muted"> &middot; ' + escapeHtml(o.order_date) + '</span>' +
+                        poBit +
+                        '</label>';
+                });
+                listEl.innerHTML = html;
+                listEl.removeAttribute('hidden');
+                loadingEl.style.display = 'none';
+                loaded = true;
+            })
+            .catch(function () {
+                loadingEl.textContent = 'Could not load invoiced orders. Try again.';
+            });
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    function applySelection() {
+        var checks = listEl.querySelectorAll('input[type="checkbox"]:checked');
+        var nums = [];
+        for (var i = 0; i < checks.length; i++) nums.push(checks[i].value);
+        if (!nums.length) {
+            alert('Pick at least one order.');
+            return;
+        }
+        var url = window.location.pathname + '?orders=' + encodeURIComponent(nums.join(','));
+        window.location.href = url;
+    }
+
+    btn.addEventListener('click', openModal);
+    closeBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+    applyBtn.addEventListener('click', applySelection);
+    modal.querySelector('.modal-backdrop').addEventListener('click', closeModal);
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !modal.hasAttribute('hidden')) closeModal();
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

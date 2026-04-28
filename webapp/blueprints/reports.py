@@ -96,15 +96,135 @@ def customer_last_order_pick():
     )
 
 
+def _check_customer_access_for_last_order(user, account, cust_info):
+    """Salesman can only see their own book; manager only assigned books.
+
+    Returns True if access is allowed. Flashes + returns False otherwise.
+    """
+    from webapp.db import normalize_key
+
+    if is_admin(user):
+        return True
+    cust_sg = (cust_info.get("sales_group") or "").strip()
+    norm_cust = normalize_key(cust_sg)
+    if is_manager(user):
+        allowed = {normalize_key(k) for k in get_user_salesman_access(user.get("email", ""))}
+        if norm_cust in allowed:
+            return True
+    elif get_salesman_key(user):
+        if normalize_key(get_salesman_key(user)) == norm_cust:
+            return True
+    return False
+
+
+def _common_po_prefix(pos: list[str]) -> str:
+    """Return the longest shared prefix across the given POs, stripped of
+    trailing dashes/underscores. Falls back to the first PO when nothing
+    meaningful is shared.
+
+    Used to render a clean PO header when merged orders look like
+    'PO12345' + 'PO12345-addon'.
+    """
+    pos = [p.strip() for p in pos if p and p.strip()]
+    if not pos:
+        return ""
+    if len(pos) == 1:
+        return pos[0]
+    prefix = pos[0]
+    for p in pos[1:]:
+        i = 0
+        while i < len(prefix) and i < len(p) and prefix[i] == p[i]:
+            i += 1
+        prefix = prefix[:i]
+    prefix = prefix.rstrip("-_ ").strip()
+    return prefix or pos[0]
+
+
+def _rollup_lines(lines: list[dict]) -> list[dict]:
+    """Combine identical (item, sales_price) rows across orders. Different
+    items, or same item at different prices, stay as separate rows so the
+    rep can see the price discrepancy.
+    """
+    grouped: dict[tuple[str, float], dict] = {}
+    order_for_key: dict[tuple[str, float], list[str]] = {}
+    for ln in lines:
+        key = (ln["item"], round(float(ln["sales_price"] or 0), 4))
+        if key not in grouped:
+            grouped[key] = {
+                "item":          ln["item"],
+                "description":   ln["description"],
+                "qty_ordered":   0.0,
+                "qty_shipped":   0.0,
+                "qty_cancelled": 0.0,
+                "sales_price":   ln["sales_price"],
+                "total":         0.0,
+            }
+            order_for_key[key] = []
+        g = grouped[key]
+        g["qty_ordered"]   += float(ln["qty_ordered"]   or 0)
+        g["qty_shipped"]   += float(ln["qty_shipped"]   or 0)
+        g["qty_cancelled"] += float(ln["qty_cancelled"] or 0)
+        g["total"]         += float(ln["total"]         or 0)
+        if ln.get("order_number") and ln["order_number"] not in order_for_key[key]:
+            order_for_key[key].append(ln["order_number"])
+    rows = list(grouped.values())
+    for r, k in zip(rows, grouped.keys()):
+        r["qty_ordered"]   = round(r["qty_ordered"], 2)
+        r["qty_shipped"]   = round(r["qty_shipped"], 2)
+        r["qty_cancelled"] = round(r["qty_cancelled"], 2)
+        r["total"]         = round(r["total"], 2)
+        r["from_orders"]   = order_for_key[k]
+    rows.sort(key=lambda r: r["item"])
+    return rows
+
+
+@reports_bp.route("/api/report/customer-last-order/<account>/recent-invoiced")
+@require_login
+def api_customer_last_order_recent_invoiced(account):
+    """Return the customer's last 10 invoiced orders, for the picker modal."""
+    from webapp.services.d365 import fetch_customer_info, fetch_recent_invoiced_orders
+
+    user = get_current_user()
+    available = get_available_reports(user)
+    if "customer_last_order" not in available:
+        return jsonify({"error": "forbidden"}), 403
+
+    cust_info = {}
+    try:
+        cust_info = fetch_customer_info(account) or {}
+    except Exception:
+        log.exception("customer info fetch failed for %s", account)
+
+    if not _check_customer_access_for_last_order(user, account, cust_info):
+        return jsonify({"error": "forbidden"}), 403
+
+    try:
+        orders = fetch_recent_invoiced_orders(account, limit=10)
+    except Exception:
+        log.exception("recent invoiced fetch failed for %s", account)
+        return jsonify({"error": "Could not load invoiced orders."}), 500
+    return jsonify({"orders": orders})
+
+
 @reports_bp.route("/report/customer-last-order/<account>")
 @require_login
 def customer_last_order_view(account):
-    """Show the most-recent order header + line items for one customer.
+    """Show the customer's last invoiced order, with the option to merge in
+    earlier invoiced orders ("addon" pattern).
 
-    Pulls live from D365 (no Excel runner, no history record). Designed
-    to be fast enough to flip open during an in-store visit.
+    Pulls live from D365 and runs the Ordered Report's classifier so the
+    Qty Shipped / Qty Cancelled columns match the Excel report exactly.
+    Designed to be fast enough to flip open during an in-store visit.
+
+    Query params:
+        ``orders=ORD123,ORD456`` -- explicit list of orders to merge.
+        Omit to auto-load just the most recent invoiced order.
     """
-    from webapp.helpers import get_d365_connection
+    from webapp.services.d365 import (
+        fetch_customer_info,
+        fetch_recent_invoiced_orders,
+        fetch_orders_with_qty_breakdown,
+    )
 
     user = get_current_user()
     available = get_available_reports(user)
@@ -112,63 +232,56 @@ def customer_last_order_view(account):
         flash("You do not have access to this report.", "error")
         return redirect(url_for("reports.reports_list"))
 
-    salesman_key = get_salesman_key(user)
-    user_is_admin = is_admin(user)
-    user_is_manager = is_manager(user)
-
-    # Customer-access guard: salesman = own book only; manager = assigned books.
     cust_info = {"account": account, "name": account, "sales_group": ""}
     try:
-        from webapp.services.d365 import fetch_customer_info
         cust_info = fetch_customer_info(account) or cust_info
     except Exception:
         log.exception("Failed to fetch customer info for %s", account)
 
-    cust_sg = (cust_info.get("sales_group") or "").strip()
-    if not user_is_admin:
-        from webapp.db import normalize_key
-        norm_cust = normalize_key(cust_sg)
-        if user_is_manager:
-            allowed = {normalize_key(k) for k in get_user_salesman_access(user.get("email", ""))}
-            if norm_cust not in allowed:
-                flash("You do not have access to this customer.", "error")
-                return redirect(url_for("reports.customer_last_order_pick"))
-        elif salesman_key:
-            if normalize_key(salesman_key) != norm_cust:
-                flash("You do not have access to this customer.", "error")
-                return redirect(url_for("reports.customer_last_order_pick"))
+    if not _check_customer_access_for_last_order(user, account, cust_info):
+        flash("You do not have access to this customer.", "error")
+        return redirect(url_for("reports.customer_last_order_pick"))
 
-    header = {}
-    lines = []
+    requested_orders = [
+        o.strip() for o in (request.args.get("orders") or "").split(",")
+        if o.strip()
+    ]
+
+    headers: list[dict] = []
+    lines: list[dict] = []
     error = None
     try:
-        from core.dates import D365_GO_LIVE, get_today_eastern
-        base_url, token, company = get_d365_connection()
-        from data.d365_entities import fetch_sales_order_headers
-        from core.dates import convert_d365_dates_to_eastern
+        if not requested_orders:
+            recent = fetch_recent_invoiced_orders(account, limit=1)
+            if recent:
+                requested_orders = [recent[0]["order_number"]]
 
-        headers_df = fetch_sales_order_headers(
-            base_url, token, D365_GO_LIVE, get_today_eastern(),
-            company_id=company, customer_account=account,
-        )
-
-        if not headers_df.empty:
-            if "OrderDate" in headers_df.columns:
-                headers_df["OrderDate"] = convert_d365_dates_to_eastern(headers_df["OrderDate"])
-            headers_df = headers_df.sort_values("OrderDate", ascending=False)
-            top = headers_df.iloc[0]
-            order_number = str(top.get("SalesOrderNumber", "")).strip()
-            if order_number:
-                from webapp.services.d365 import fetch_order_with_lines
-                header, lines, _ = fetch_order_with_lines(order_number)
+        if requested_orders:
+            headers, lines = fetch_orders_with_qty_breakdown(account, requested_orders)
     except Exception as e:
-        log.exception("Customer last order fetch failed for %s", account)
+        log.exception("Customer last order fetch failed for %s (orders=%s)",
+                      account, requested_orders)
         error = str(e)
+
+    rolled = _rollup_lines(lines) if lines else []
+    primary = headers[0] if headers else {}
+
+    pos = [h.get("customer_req", "") for h in headers if h.get("customer_req")]
+    display_po = _common_po_prefix(pos) if pos else (primary.get("customer_req") or "")
+
+    totals = {
+        "qty_ordered":   round(sum(r["qty_ordered"]   for r in rolled), 2),
+        "qty_shipped":   round(sum(r["qty_shipped"]   for r in rolled), 2),
+        "qty_cancelled": round(sum(r["qty_cancelled"] for r in rolled), 2),
+        "total":         round(sum(r["total"]         for r in rolled), 2),
+    }
 
     return render_template(
         "customer_last_order_view.html",
         user=user, customer=cust_info,
-        header=header, lines=lines, error=error,
+        headers=headers, primary=primary, display_po=display_po,
+        rolled_lines=rolled, totals=totals,
+        selected_orders=requested_orders, error=error,
         active_tab="reports",
     )
 
