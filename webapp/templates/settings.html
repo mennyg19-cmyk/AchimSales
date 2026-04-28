@@ -389,7 +389,7 @@
 </div>
 {% endif %}
 
-{% if user.role == 'developer' %}
+{% if user.role == 'developer' or user._dev %}
 <div class="settings-section" style="margin-top:24px; border:1px dashed var(--border);">
     <h3 class="settings-section-title">
         <i data-feather="terminal" style="width:18px;height:18px;"></i>

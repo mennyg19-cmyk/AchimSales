@@ -38,7 +38,16 @@ def is_salesman(user_info: dict) -> bool:
 
 
 def is_developer(user_info: dict) -> bool:
-    return user_info.get("role") == "developer"
+    """True for accounts whose underlying role is 'developer'.
+
+    Also returns True when a developer is currently impersonating
+    another user via the role-picker (``_dev`` flag in the session
+    dict). The active 'role' key is whatever they're impersonating
+    -- usually 'salesman' or 'admin' -- but developer-only tools like
+    the DB explorer should still be reachable so we don't lose access
+    to debugging just because we wanted to see what a salesman sees.
+    """
+    return user_info.get("role") == "developer" or bool(user_info.get("_dev"))
 
 
 def get_salesman_key(user_info: dict) -> str | None:
