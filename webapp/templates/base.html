@@ -172,6 +172,98 @@
             if (overlay) overlay.remove();
             _navPending = false;
         });
+
+        /* ---------------------------------------------------------------
+         * Pull-to-refresh (touch devices only).
+         *
+         * iOS Safari's native PTR is blocked because the viewport meta
+         * uses user-scalable=no, so we implement our own. On the
+         * dashboard we call triggerDashRefresh() to actually re-fetch
+         * D365 data; everywhere else a normal page reload is correct.
+         * --------------------------------------------------------------- */
+        (function() {
+            if (!('ontouchstart' in window)) return;
+
+            var THRESHOLD = 70;
+            var MAX_PULL = 110;
+
+            var indicator = document.createElement('div');
+            indicator.className = 'ptr-indicator';
+            indicator.innerHTML = '<span class="ptr-spinner"></span><span class="ptr-label">Pull to refresh</span>';
+            document.body.appendChild(indicator);
+
+            var startY = 0;
+            var pulling = false;
+            var pulled = 0;
+            var refreshing = false;
+
+            function setPullDistance(d) {
+                var y = Math.min(d, MAX_PULL);
+                indicator.style.transform = 'translateY(' + (y - 60) + 'px)';
+                indicator.style.opacity = String(Math.min(1, d / THRESHOLD));
+                var label = indicator.querySelector('.ptr-label');
+                if (label) {
+                    label.textContent = d > THRESHOLD ? 'Release to refresh' : 'Pull to refresh';
+                }
+                indicator.classList.toggle('ptr-armed', d > THRESHOLD);
+            }
+
+            function reset() {
+                indicator.classList.add('ptr-snapping');
+                indicator.style.transform = '';
+                indicator.style.opacity = '';
+                indicator.classList.remove('ptr-armed');
+                setTimeout(function() { indicator.classList.remove('ptr-snapping'); }, 250);
+            }
+
+            function doRefresh() {
+                refreshing = true;
+                indicator.classList.add('ptr-refreshing');
+                indicator.style.transform = 'translateY(10px)';
+                indicator.style.opacity = '1';
+                var label = indicator.querySelector('.ptr-label');
+                if (label) label.textContent = 'Refreshing\u2026';
+
+                if (typeof window.triggerDashRefresh === 'function') {
+                    try { window.triggerDashRefresh(); } catch (e) { /* fall back */ }
+                    setTimeout(reset, 600);
+                    return;
+                }
+                setTimeout(function() { window.location.reload(); }, 150);
+            }
+
+            window.addEventListener('touchstart', function(e) {
+                if (refreshing) return;
+                if (window.scrollY > 0) return;
+                startY = e.touches[0].clientY;
+                pulling = true;
+                pulled = 0;
+            }, { passive: true });
+
+            window.addEventListener('touchmove', function(e) {
+                if (!pulling || refreshing) return;
+                if (window.scrollY > 0) { pulling = false; reset(); return; }
+                pulled = e.touches[0].clientY - startY;
+                if (pulled <= 0) { pulled = 0; return; }
+                setPullDistance(pulled);
+            }, { passive: true });
+
+            window.addEventListener('touchend', function() {
+                if (!pulling || refreshing) { pulling = false; return; }
+                pulling = false;
+                if (pulled > THRESHOLD) {
+                    doRefresh();
+                } else {
+                    reset();
+                }
+                pulled = 0;
+            });
+
+            window.addEventListener('touchcancel', function() {
+                pulling = false;
+                if (!refreshing) reset();
+            });
+        })();
     </script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
     <script src="{{ url_for('static', filename='table_tools.js') }}"></script>
