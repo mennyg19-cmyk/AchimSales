@@ -222,6 +222,13 @@ var HELP = {
               "Turn it off if this user doesn't need to see dashboard data."
     },
 
+    "settings-external-user": {
+        title: "External Login (magic link)",
+        body: "Use this for sales reps outside Achim who don't have a Microsoft account on our tenant.<br><br>" +
+              "When checked, the user signs in by entering their email on the login page; we send them a one-time link from <strong>reports@achimonline.com</strong>. The link expires in 15 minutes and works once.<br><br>" +
+              "Internal Achim staff should leave this unchecked &mdash; they sign in with Microsoft."
+    },
+
     /* ===== Schedules ===== */
 
     "schedules-sync": {

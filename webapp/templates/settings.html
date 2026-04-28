@@ -219,9 +219,16 @@
                         <label class="form-label">Display Name</label>
                         <input type="text" id="newUserDisplayName" class="form-input" placeholder="Optional">
                     </div>
-                    <div>
+                    <div style="flex:0 1 auto;">
                         <button class="btn btn-primary btn-sm" onclick="addUser()">Add</button>
                     </div>
+                </div>
+                <div id="newUserExternalWrap" style="margin-top:8px; font-size:13px;">
+                    <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+                        <input type="checkbox" id="newUserIsExternal">
+                        <span>External (sign in via emailed magic link instead of Microsoft)</span>
+                        <button class="help-icon" data-help="settings-external-user" style="width:16px;height:16px;font-size:10px;">?</button>
+                    </label>
                 </div>
                 <div id="addUserMsg" style="margin-top:6px; font-size:13px; display:none;"></div>
             </details>
@@ -230,7 +237,7 @@
             <div id="permUserList" class="settings-customer-list" style="max-height:600px;">
                 {% for u in perm_grid %}
                 <div class="perm-user-row" data-email="{{ u.email }}"
-                     data-user='{{ {'email': u.email, 'role': u.role, 'salesman_key': u.salesman_key or '', 'display_name': u.display_name or '', 'dashboard_enabled': u.dashboard_enabled, 'test_access_enabled': u.test_access_enabled, 'active': u.active if u.active is not none else 1, 'reports': u.reports, 'allowed_salesmen': u.allowed_salesmen}|tojson }}'>
+                     data-user='{{ {'email': u.email, 'role': u.role, 'salesman_key': u.salesman_key or '', 'display_name': u.display_name or '', 'dashboard_enabled': u.dashboard_enabled, 'test_access_enabled': u.test_access_enabled, 'is_external': u.is_external, 'active': u.active if u.active is not none else 1, 'reports': u.reports, 'allowed_salesmen': u.allowed_salesmen}|tojson }}'>
                     <div class="perm-user-info" style="flex:1;">
                         <span class="perm-user-name">{{ u.display_name or u.sm_name or u.email }}</span>
                         <span class="perm-user-email">{{ u.email }}</span>
@@ -239,6 +246,9 @@
                         {% endif %}
                     </div>
                     <div style="display:flex; align-items:center; gap:6px;">
+                        {% if u.is_external %}
+                        <span class="badge badge-manager" style="font-size:10px;" title="Signs in via emailed magic link, not Microsoft">External</span>
+                        {% endif %}
                         <span class="badge {% if u.role in ('admin','developer') %}badge-admin{% elif u.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}" style="font-size:10px;">{{ u.role }}</span>
                         <i data-feather="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
                     </div>
@@ -316,6 +326,17 @@
                 </div>
                 <label class="toggle-switch">
                     <input type="checkbox" id="editUserActive">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-customer-item" id="editUserExternalRow" style="min-height:38px;">
+                <div class="settings-cust-info">
+                    <span class="settings-cust-account" style="font-size:13px;">External Login <button class="help-icon" data-help="settings-external-user" style="width:16px;height:16px;font-size:10px;">?</button></span>
+                    <span class="settings-cust-name" style="font-size:11px; color:var(--text-muted);">Sign in via emailed magic link instead of Microsoft</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="editUserIsExternal">
                     <span class="toggle-slider"></span>
                 </label>
             </div>

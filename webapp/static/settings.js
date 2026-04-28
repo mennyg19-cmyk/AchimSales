@@ -90,6 +90,18 @@ function toggleSalesmanField(prefix) {
     if (wrap) wrap.style.display = role === 'salesman' ? '' : 'none';
     var smAssign = document.getElementById(prefix + 'AssignedSalesmenWrap');
     if (smAssign) smAssign.style.display = role === 'manager' ? '' : 'none';
+    // The "External (magic-link)" option only makes sense for salesmen.
+    // Hide it for any other role to avoid mismatched configs.
+    var extWrap = (prefix === 'new')
+        ? document.getElementById('newUserExternalWrap')
+        : document.getElementById('editUserExternalRow');
+    if (extWrap) extWrap.style.display = role === 'salesman' ? '' : 'none';
+    if (role !== 'salesman') {
+        var newCb = document.getElementById('newUserIsExternal');
+        if (newCb && prefix === 'new') newCb.checked = false;
+        var editCb = document.getElementById('editUserIsExternal');
+        if (editCb && prefix === 'edit') editCb.checked = false;
+    }
 }
 
 function showMsg(elId, msg, isError) {
@@ -105,13 +117,15 @@ function addUser() {
     var role = document.getElementById('newUserRole').value;
     var key = document.getElementById('newUserSalesmanKey').value.trim();
     var name = document.getElementById('newUserDisplayName').value.trim();
+    var isExt = !!(document.getElementById('newUserIsExternal') || {}).checked;
 
     if (!email) { showMsg('addUserMsg', 'Email is required', true); return; }
 
     fetch('/api/users', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({email: email, role: role, salesman_key: key, display_name: name})
+        body: JSON.stringify({email: email, role: role, salesman_key: key,
+                              display_name: name, is_external: isExt})
     })
     .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {

@@ -177,6 +177,70 @@ def role_picker():
                            grouped_users=grouped, dev_email=dev_email)
 
 
+@auth_bp.route("/login/magic-link", methods=["POST"])
+def request_magic_link():
+    """Email an external sales rep a one-time sign-in link.
+
+    Always shows the same generic flash message regardless of whether the
+    email is in our system, so attackers can't enumerate registered users.
+    """
+    email = (request.form.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        flash("Please enter a valid email address.", "error")
+        return redirect(url_for("auth.login"))
+
+    user = get_user(email)
+    if user and user.get("role") == "salesman":
+        from webapp.db import get_user_by_email, create_magic_link_token
+        from webapp.services.magic_link import send_magic_link_email, MagicLinkError
+
+        row = get_user_by_email(email) or {}
+        if row.get("is_external"):
+            try:
+                token = create_magic_link_token(email)
+                link_url = url_for("auth.consume_magic_link",
+                                   token=token, _external=True)
+                send_magic_link_email(email, link_url)
+                log.info("Magic-link sent to %s", email)
+            except MagicLinkError:
+                log.exception("Magic-link send failed for %s", email)
+            except Exception:
+                log.exception("Unexpected magic-link error for %s", email)
+
+    # Generic response: don't reveal whether the email is registered.
+    flash("If that email is registered as an external sales rep, "
+          "you'll get a sign-in link in a minute.", "info")
+    return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/login/magic-link/<token>")
+def consume_magic_link(token):
+    """Consume a one-time login token and sign the user in."""
+    from webapp.db import consume_magic_link_token, get_setting
+
+    email = consume_magic_link_token(token)
+    if not email:
+        flash("That sign-in link is invalid or has expired. "
+              "Please request a new one.", "error")
+        return redirect(url_for("auth.login"))
+
+    user_info = get_user(email)
+    if not user_info:
+        log.warning("Magic-link token consumed for unknown email %s", email)
+        flash("Account not found.", "error")
+        return redirect(url_for("auth.login"))
+
+    session["user"] = {
+        "email": email,
+        "name": user_info.get("display_name") or email,
+        "role": user_info["role"],
+        "salesman_key": user_info.get("salesman_key"),
+    }
+    session["theme"] = get_setting(email, "theme", "light")
+    log.info("Magic-link sign-in: %s", email)
+    return redirect(url_for("reports.reports_list"))
+
+
 @auth_bp.route("/logout")
 def logout():
     session.clear()

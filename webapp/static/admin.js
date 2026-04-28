@@ -94,6 +94,9 @@ function openUserPermModal(rowEl) {
     var testToggle = document.getElementById('editUserTestAccess');
     if (testToggle) testToggle.checked = !!u.test_access_enabled;
 
+    var extToggle = document.getElementById('editUserIsExternal');
+    if (extToggle) extToggle.checked = !!u.is_external;
+
     var reports = u.reports || {};
     var reportToggles = document.querySelectorAll('[id^="editReport_"]');
     reportToggles.forEach(function(toggle) {
@@ -120,11 +123,15 @@ function saveEditUser() {
 
     var promises = [];
 
+    var extToggle = document.getElementById('editUserIsExternal');
+    var isExt = !!(extToggle && extToggle.checked);
+
     promises.push(
         fetch('/api/users/' + encodeURIComponent(email), {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({role: role, salesman_key: key, display_name: name})
+            body: JSON.stringify({role: role, salesman_key: key,
+                                  display_name: name, is_external: isExt})
         }).then(function(r) { return r.json(); })
     );
 

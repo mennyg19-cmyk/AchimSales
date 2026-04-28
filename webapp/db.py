@@ -117,7 +117,20 @@ CREATE TABLE IF NOT EXISTS app_users (
     salesman_key  TEXT,
     display_name  TEXT,
     dashboard_enabled INTEGER DEFAULT 1,
-    test_access_enabled INTEGER DEFAULT 0
+    test_access_enabled INTEGER DEFAULT 0,
+    is_external   INTEGER DEFAULT 0
+);
+
+-- One-time login tokens for external (magic-link) sign-in. We store a
+-- random opaque token (URL-safe), the user's email, expiry, and a flag
+-- so we can mark it consumed after the first successful click. Unused
+-- tokens auto-expire after 15 minutes.
+CREATE TABLE IF NOT EXISTS magic_link_tokens (
+    token         TEXT PRIMARY KEY,
+    email         TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL,
+    consumed_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS report_runs (
@@ -353,6 +366,9 @@ def init_db():
             conn.commit()
         if "test_access_enabled" not in cols:
             conn.execute("ALTER TABLE app_users ADD COLUMN test_access_enabled INTEGER DEFAULT 0")
+            conn.commit()
+        if "is_external" not in cols:
+            conn.execute("ALTER TABLE app_users ADD COLUMN is_external INTEGER DEFAULT 0")
             conn.commit()
         notif_cols = [r[1] for r in conn.execute("PRAGMA table_info(notifications)").fetchall()]
         if notif_cols and "dismissed_at" not in notif_cols:
@@ -1051,7 +1067,7 @@ def get_users_permission_grid() -> list[dict]:
     try:
         users = conn.execute(
             """SELECT u.id, u.email, u.role, u.salesman_key, u.display_name,
-                      u.dashboard_enabled, u.test_access_enabled,
+                      u.dashboard_enabled, u.test_access_enabled, u.is_external,
                       s.number AS sm_number, s.full_name AS sm_name, s.active
                FROM app_users u
                LEFT JOIN salesmen s ON u.salesman_key = s.key
@@ -1146,7 +1162,8 @@ def get_user_by_email(email: str) -> dict | None:
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id, email, role, salesman_key, display_name FROM app_users WHERE email = ?",
+            """SELECT id, email, role, salesman_key, display_name, is_external
+               FROM app_users WHERE email = ?""",
             (email.lower().strip(),)
         ).fetchone()
         return dict(row) if row else None
@@ -1155,13 +1172,15 @@ def get_user_by_email(email: str) -> dict | None:
 
 
 def add_user(email: str, role: str, salesman_key: str | None = None,
-             display_name: str | None = None) -> bool:
+             display_name: str | None = None,
+             is_external: bool = False) -> bool:
     conn = get_db()
     try:
         conn.execute(
-            """INSERT INTO app_users (email, role, salesman_key, display_name)
-               VALUES (?, ?, ?, ?)""",
-            (email.lower().strip(), role, salesman_key or None, display_name or None),
+            """INSERT INTO app_users (email, role, salesman_key, display_name, is_external)
+               VALUES (?, ?, ?, ?, ?)""",
+            (email.lower().strip(), role, salesman_key or None,
+             display_name or None, 1 if is_external else 0),
         )
         conn.commit()
         return True
@@ -1172,16 +1191,92 @@ def add_user(email: str, role: str, salesman_key: str | None = None,
 
 
 def update_user(email: str, role: str, salesman_key: str | None = None,
-                display_name: str | None = None) -> bool:
+                display_name: str | None = None,
+                is_external: bool | None = None) -> bool:
+    """Update a user. ``is_external=None`` leaves the existing value alone."""
     conn = get_db()
     try:
-        cur = conn.execute(
-            """UPDATE app_users SET role = ?, salesman_key = ?, display_name = ?
-               WHERE email = ?""",
-            (role, salesman_key or None, display_name or None, email.lower().strip()),
-        )
+        if is_external is None:
+            cur = conn.execute(
+                """UPDATE app_users SET role = ?, salesman_key = ?, display_name = ?
+                   WHERE email = ?""",
+                (role, salesman_key or None, display_name or None, email.lower().strip()),
+            )
+        else:
+            cur = conn.execute(
+                """UPDATE app_users SET role = ?, salesman_key = ?, display_name = ?,
+                       is_external = ?
+                   WHERE email = ?""",
+                (role, salesman_key or None, display_name or None,
+                 1 if is_external else 0, email.lower().strip()),
+            )
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
+    """Generate a fresh one-time login token for *email*. Returns the token.
+
+    The token is URL-safe and 32 random bytes (~43 chars base64), opaque to
+    the user. We also clean out any expired tokens for the same email so
+    the table doesn't grow forever.
+    """
+    import secrets
+    from datetime import datetime, timedelta, timezone
+
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(minutes=ttl_minutes)
+    email_norm = email.lower().strip()
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "DELETE FROM magic_link_tokens WHERE email = ? AND (expires_at < ? OR consumed_at IS NOT NULL)",
+            (email_norm, now.isoformat()),
+        )
+        conn.execute(
+            """INSERT INTO magic_link_tokens (token, email, created_at, expires_at)
+               VALUES (?, ?, ?, ?)""",
+            (token, email_norm, now.isoformat(), expires.isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return token
+
+
+def consume_magic_link_token(token: str) -> str | None:
+    """Validate a token and mark it consumed. Returns the email if valid,
+    None if the token is unknown, expired, or already used.
+    """
+    from datetime import datetime, timezone
+
+    if not token or len(token) < 16:
+        return None
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """SELECT email, expires_at, consumed_at FROM magic_link_tokens
+               WHERE token = ?""",
+            (token,),
+        ).fetchone()
+        if not row:
+            return None
+        if row["consumed_at"]:
+            return None
+        if row["expires_at"] < now:
+            return None
+        conn.execute(
+            "UPDATE magic_link_tokens SET consumed_at = ? WHERE token = ?",
+            (now, token),
+        )
+        conn.commit()
+        return row["email"]
     finally:
         conn.close()
 

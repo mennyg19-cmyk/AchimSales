@@ -8,16 +8,38 @@
             <i data-feather="bar-chart-2" width="48" height="48"></i>
         </div>
         <h1>Sales Reports</h1>
-        <p class="login-subtitle">Sign in with your company account to access reports</p>
-        <a href="{{ url_for('auth.login_start') }}" class="btn btn-primary btn-lg btn-block">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 21 21" style="margin-right: 8px; vertical-align: middle;">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-            </svg>
-            Sign in with Microsoft
-        </a>
+
+        <!-- Internal Achim users: Microsoft sign-in -->
+        <div class="login-section">
+            <p class="login-section-label">Achim employees</p>
+            <a href="{{ url_for('auth.login_start') }}" class="btn btn-primary btn-lg btn-block">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 21 21" style="margin-right: 8px; vertical-align: middle;">
+                    <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                    <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                    <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                </svg>
+                Sign in with Microsoft
+            </a>
+        </div>
+
+        <div class="login-divider"><span>or</span></div>
+
+        <!-- External sales reps: email magic-link -->
+        <div class="login-section">
+            <p class="login-section-label">External sales reps</p>
+            <p class="login-section-help">
+                Enter your email and we'll send you a one-time sign-in link.
+            </p>
+            <form method="POST" action="{{ url_for('auth.request_magic_link') }}" class="login-magic-form">
+                <input type="email" name="email" required
+                       placeholder="you@company.com"
+                       class="form-input login-magic-input">
+                <button type="submit" class="btn btn-outline btn-lg btn-block">
+                    Email me a sign-in link
+                </button>
+            </form>
+        </div>
     </div>
 </div>
 {% endblock %}

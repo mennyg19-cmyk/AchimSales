@@ -179,6 +179,7 @@ def api_add_user():
     role = data.get("role", "salesman")
     salesman_key = data.get("salesman_key", "").strip() or None
     display_name = data.get("display_name", "").strip() or None
+    is_external = bool(data.get("is_external", False))
 
     if not email or "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
@@ -186,8 +187,10 @@ def api_add_user():
         return jsonify({"error": "Role must be admin, salesman, manager, or developer"}), 400
     if role == "salesman" and not salesman_key:
         return jsonify({"error": "Salesman key is required for salesman role"}), 400
+    if is_external and role != "salesman":
+        return jsonify({"error": "External (magic-link) login is only for salesmen"}), 400
 
-    ok = db_add_user(email, role, salesman_key, display_name)
+    ok = db_add_user(email, role, salesman_key, display_name, is_external=is_external)
     if not ok:
         return jsonify({"error": "User already exists"}), 409
     return jsonify({"success": True})
@@ -203,13 +206,18 @@ def api_update_user(email):
     role = data.get("role", "salesman")
     salesman_key = data.get("salesman_key", "").strip() or None
     display_name = data.get("display_name", "").strip() or None
+    is_external = data.get("is_external")
+    if is_external is not None:
+        is_external = bool(is_external)
 
     if role not in ("admin", "salesman", "developer", "manager"):
         return jsonify({"error": "Role must be admin, salesman, manager, or developer"}), 400
     if role == "salesman" and not salesman_key:
         return jsonify({"error": "Salesman key is required for salesman role"}), 400
+    if is_external and role != "salesman":
+        return jsonify({"error": "External (magic-link) login is only for salesmen"}), 400
 
-    ok = db_update_user(email, role, salesman_key, display_name)
+    ok = db_update_user(email, role, salesman_key, display_name, is_external=is_external)
     if not ok:
         return jsonify({"error": "User not found"}), 404
     return jsonify({"success": True})
