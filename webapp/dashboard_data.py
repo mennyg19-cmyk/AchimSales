@@ -253,10 +253,10 @@ def refresh_cache(salesman_key: str | None = None):
             pass
         log.info("Dashboard cache refreshed: %d customers (scope: %s)", len(metrics), scope_label)
 
-        # -- Product catalog, addresses, and trade agreement prices --
-        _refresh_product_cache(base_url, token, company, _step)
-        _refresh_address_cache(base_url, token, company, _step)
-        _refresh_price_cache(base_url, token, company, _step)
+        # Product / address / price caches were dropped along with the
+        # disabled order-entry feature. Skip those refresh steps. If
+        # order entry comes back, recreate the tables and re-enable
+        # these calls.
 
         # -- Runbook history sync --
         try:
