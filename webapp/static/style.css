@@ -972,18 +972,29 @@ body.dark-theme .status-no_data {
     left: 0;
     z-index: 1;
 }
+/* Sticky cells MUST be fully opaque or the cells they overlap during
+ * horizontal scroll bleed through. Use the same opaque card colour as
+ * the row's natural background. Hover/zebra/header overrides below. */
 .data-table.sticky-col-first td:first-child {
-    background: var(--card-bg);
-}
-.data-table.sticky-col-first tr:nth-child(even) td:first-child {
-    background: var(--bg);
-}
-.data-table.sticky-col-first tr:hover td:first-child {
-    background: var(--bg);
+    background: var(--bg-card);
 }
 .data-table.sticky-col-first th:first-child {
     background: var(--bg);
     z-index: 2;
+}
+.data-table.sticky-col-first tr:hover td:first-child {
+    background: var(--bg);
+}
+/* Dark theme has translucent zebra striping on even rows. Layering a
+ * translucent colour onto a sticky cell would let scrolled cells show
+ * through, so we paint an opaque base and stack the same tint on top. */
+body.dark-theme .data-table.sticky-col-first tr:nth-child(even) td:first-child {
+    background:
+        linear-gradient(rgba(255,255,255,0.03), rgba(255,255,255,0.03)),
+        var(--bg-card);
+}
+body.dark-theme .data-table.sticky-col-first tr:hover td:first-child {
+    background: var(--bg);
 }
 /* Right-edge separator so the sticky cell visually detaches from scrolling cells */
 .data-table.sticky-col-first th:first-child::after,
