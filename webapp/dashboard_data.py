@@ -342,53 +342,59 @@ def _refresh_price_cache(base_url, token, company, _step):
         log.exception("Price cache refresh failed (non-fatal)")
 
 
-def _generate_overdue_notifications(metrics: list[dict]):
-    """Create overdue-customer notifications for real app users."""
+def _send_overdue_for_user(email: str, custs: list[dict],
+                           *, dry_run: bool = False) -> dict:
+    """Generate overdue-customer notifications for a single *email*.
+
+    Returns a dict that always reports counts, plus -- for dry runs --
+    the per-customer skip reasons so the diagnostic page can show why
+    a notification didn't get created. Real (non-dry) runs only return
+    the counts; we don't need the audit trail in the hot path.
+    """
     from webapp.db import (
-        get_notifications, get_users_by_salesman_key, get_all_users,
+        get_notifications, get_recently_dismissed_accounts,
     )
 
-    overdue = [m for m in metrics if m["status"] == "overdue"]
-    if not overdue:
-        return
+    excluded = set(get_excluded_customers(email) or [])
+    existing_notifs = get_notifications(email, dismissed=False)
+    existing_accts = {
+        n.get("data", {}).get("customer_account")
+        for n in existing_notifs
+        if n["type"] == "overdue_customer"
+    }
+    cooldown_accts = get_recently_dismissed_accounts(email, days=7)
 
-    by_group: dict[str, list[dict]] = {}
-    for m in overdue:
-        sg = m["sales_group"]
-        if sg:
-            by_group.setdefault(sg, []).append(m)
+    created = 0
+    skipped: list[dict] = []
 
-    all_users = get_all_users()
-    admin_emails = [
-        u["email"] for u in all_users
-        if u["role"] in ("admin", "developer")
-    ]
+    for c in custs:
+        acct = c["customer_account"]
+        if acct in excluded:
+            if dry_run:
+                skipped.append({"customer_account": acct,
+                                "customer_name": c.get("customer_name"),
+                                "reason": "excluded"})
+            continue
+        if acct in existing_accts:
+            if dry_run:
+                skipped.append({"customer_account": acct,
+                                "customer_name": c.get("customer_name"),
+                                "reason": "already_has_unread_notification"})
+            continue
+        if acct in cooldown_accts:
+            if dry_run:
+                skipped.append({"customer_account": acct,
+                                "customer_name": c.get("customer_name"),
+                                "reason": "dismissed_within_7_days"})
+            continue
 
-    def _send_for_user(email: str, custs: list[dict]):
-        from webapp.db import get_recently_dismissed_accounts
-        excluded = get_excluded_customers(email)
-        existing_notifs = get_notifications(email, dismissed=False)
-        existing_accts = {
-            n.get("data", {}).get("customer_account")
-            for n in existing_notifs
-            if n["type"] == "overdue_customer"
-        }
-        cooldown_accts = get_recently_dismissed_accounts(email, days=7)
-
-        for c in custs:
-            if c["customer_account"] in excluded:
-                continue
-            if c["customer_account"] in existing_accts:
-                continue
-            if c["customer_account"] in cooldown_accts:
-                continue
-
+        if not dry_run:
             avg = c.get("avg_gap_days") or 0
             days = c.get("days_since_last") or 0
             avg_weeks = round(avg / 7, 1)
             days_weeks = round(days / 7, 1)
 
-            title = f"{c['customer_name'] or c['customer_account']} is overdue"
+            title = f"{c['customer_name'] or acct} is overdue"
             message = (
                 f"Usually orders every ~{avg_weeks} weeks, "
                 f"but it has been {days_weeks} weeks since their last order."
@@ -399,19 +405,50 @@ def _generate_overdue_notifications(metrics: list[dict]):
                 ntype="overdue_customer",
                 title=title,
                 message=message,
-                data={"customer_account": c["customer_account"],
-                      "customer_name": c["customer_name"]},
+                data={"customer_account": acct,
+                      "customer_name": c.get("customer_name")},
             )
+        created += 1
+
+    return {"created": created, "skipped": skipped,
+            "candidate_count": len(custs)}
+
+
+def _group_overdue_by_sales_group(metrics: list[dict]) -> dict[str, list[dict]]:
+    """Bucket overdue customers by their raw sales_group string."""
+    by_group: dict[str, list[dict]] = {}
+    for m in metrics:
+        if m.get("status") != "overdue":
+            continue
+        sg = m.get("sales_group")
+        if sg:
+            by_group.setdefault(sg, []).append(m)
+    return by_group
+
+
+def _generate_overdue_notifications(metrics: list[dict]):
+    """Create overdue-customer notifications for real app users."""
+    from webapp.db import get_users_by_salesman_key, get_all_users
+
+    by_group = _group_overdue_by_sales_group(metrics)
+    if not by_group:
+        return
+
+    all_users = get_all_users()
+    admin_emails = [
+        u["email"] for u in all_users
+        if u["role"] in ("admin", "developer")
+    ]
 
     all_overdue_custs = []
     for sg_key, custs in by_group.items():
         all_overdue_custs.extend(custs)
         matched_users = get_users_by_salesman_key(sg_key)
         for u in matched_users:
-            _send_for_user(u["email"], custs)
+            _send_overdue_for_user(u["email"], custs)
 
     for admin_email in admin_emails:
-        _send_for_user(admin_email, all_overdue_custs)
+        _send_overdue_for_user(admin_email, all_overdue_custs)
 
 
 def get_dashboard_data(salesman_key: str | None = None,

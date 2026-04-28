@@ -402,6 +402,13 @@
         </div>
         <a href="{{ url_for('db_explorer.db_explorer_page') }}" class="btn btn-sm btn-outline">Open</a>
     </div>
+    <div class="settings-customer-item">
+        <div class="settings-cust-info">
+            <span class="settings-cust-account">Notification Diagnostic</span>
+            <span class="settings-cust-name" style="font-size:12px; color:var(--text-muted);">See why a user does/doesn't get overdue-customer notifications</span>
+        </div>
+        <a href="{{ url_for('db_explorer.notif_diagnostic_page') }}" class="btn btn-sm btn-outline">Open</a>
+    </div>
 </div>
 {% endif %}
 

@@ -348,6 +348,158 @@ def api_delete_row(table):
         conn.close()
 
 
+@db_explorer_bp.route("/dev/notif-diagnostic")
+@require_login
+def notif_diagnostic_page():
+    """Page that diagnoses why a user does/doesn't get overdue notifications."""
+    user = get_current_user()
+    if not is_developer(user):
+        return ("Forbidden", 403)
+    from webapp.db import get_all_users
+    return render_template("notif_diagnostic.html",
+                           all_users=get_all_users())
+
+
+@db_explorer_bp.route("/api/dev/notif-diagnostic/<path:email>")
+@require_login
+def api_notif_diagnostic(email):
+    """Inspect the overdue-notification pipeline for a single user.
+
+    Returns everything needed to answer "why don't I see notifications":
+    * The user's row (esp. role + salesman_key)
+    * The matching dashboard_cache rows (case-insensitive match on
+      sales_group), broken down by status
+    * What the live overdue-notification logic *would* do for this
+      user right now (dry run via _send_overdue_for_user)
+    * Their existing notifications (active and dismissed)
+    """
+    guard = _require_developer()
+    if guard is not None:
+        return guard
+
+    from webapp.db import (
+        get_user_by_email, normalize_key, get_notifications,
+        get_recently_dismissed_accounts, get_excluded_customers,
+        get_all_users,
+    )
+    from webapp.dashboard_data import (
+        get_dashboard_data, get_last_refresh,
+        _send_overdue_for_user, _group_overdue_by_sales_group,
+    )
+
+    email = email.lower().strip()
+    row = get_user_by_email(email)
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+
+    salesman_key = row.get("salesman_key")
+    role = row.get("role")
+    is_admin_role = role in ("admin", "developer")
+
+    # Pull this user's customers from cache. Admins/devs see all, the
+    # same way the real notification job sends them all_overdue_custs.
+    if is_admin_role:
+        cust_rows = get_dashboard_data()
+    elif salesman_key:
+        cust_rows = get_dashboard_data(salesman_key=salesman_key)
+    else:
+        cust_rows = []
+
+    overdue_custs = [c for c in cust_rows if c.get("status") == "overdue"]
+
+    # Run the same per-user logic in dry-run mode -- this is the
+    # ground truth for "what notifications WOULD be created right now".
+    dry = _send_overdue_for_user(email, overdue_custs, dry_run=True)
+
+    # Also show how the cache groups overdues by sales_group so the
+    # admin can spot key-mismatch issues at a glance.
+    all_overdue = [c for c in get_dashboard_data() if c.get("status") == "overdue"]
+    by_group = _group_overdue_by_sales_group(all_overdue)
+    group_summary = sorted(
+        [{"sales_group": k,
+          "raw_value": k,
+          "normalized": normalize_key(k),
+          "matches_user": (normalize_key(k) == normalize_key(salesman_key or "")),
+          "count": len(v)}
+         for k, v in by_group.items()],
+        key=lambda d: d["count"], reverse=True,
+    )
+
+    notifs_active = get_notifications(email, dismissed=False)
+    notifs_dismissed = get_notifications(email, dismissed=True)
+    cooldown = sorted(get_recently_dismissed_accounts(email, days=7))
+    excluded = get_excluded_customers(email) or []
+
+    return jsonify({
+        "user": {
+            "email": email,
+            "role": role,
+            "salesman_key": salesman_key,
+            "salesman_key_normalized": normalize_key(salesman_key or ""),
+            "display_name": row.get("display_name"),
+            "is_external": bool(row.get("is_external")),
+        },
+        "scope": "all customers (admin/dev)" if is_admin_role
+                 else f"customers with sales_group ~= {salesman_key!r}",
+        "cache": {
+            "last_refresh": get_last_refresh(),
+            "matched_customers": len(cust_rows),
+            "overdue_count": len(overdue_custs),
+        },
+        "all_groups_summary": group_summary,
+        "would_create": dry["created"],
+        "would_skip": dry["skipped"],
+        "candidate_count": dry["candidate_count"],
+        "active_notifications": [
+            {"id": n["id"], "type": n["type"], "title": n["title"],
+             "created_at": n["created_at"],
+             "customer_account": n.get("data", {}).get("customer_account")}
+            for n in notifs_active
+        ],
+        "dismissed_notification_count": len(notifs_dismissed),
+        "cooldown_accounts": cooldown,
+        "excluded_accounts": excluded,
+    })
+
+
+@db_explorer_bp.route("/api/dev/notif-diagnostic/<path:email>/run", methods=["POST"])
+@require_login
+def api_notif_diagnostic_run(email):
+    """Actually generate the overdue notifications for *email* now.
+
+    Uses the same logic as the scheduled job but scoped to one user, so
+    we can verify a fix without waiting up to four hours for the next
+    background refresh.
+    """
+    guard = _require_developer()
+    if guard is not None:
+        return guard
+
+    from webapp.db import get_user_by_email
+    from webapp.dashboard_data import (
+        get_dashboard_data, _send_overdue_for_user,
+    )
+
+    email = email.lower().strip()
+    row = get_user_by_email(email)
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+
+    role = row.get("role")
+    if role in ("admin", "developer"):
+        cust_rows = get_dashboard_data()
+    elif row.get("salesman_key"):
+        cust_rows = get_dashboard_data(salesman_key=row["salesman_key"])
+    else:
+        return jsonify({"error": "User has no salesman_key and is not an admin -- nothing to send"}), 400
+
+    overdue_custs = [c for c in cust_rows if c.get("status") == "overdue"]
+    result = _send_overdue_for_user(email, overdue_custs)
+    log.info("notif diagnostic: created %d overdue notifications for %s",
+             result["created"], email)
+    return jsonify({"success": True, **result})
+
+
 @db_explorer_bp.route("/api/dev/db/table/<table>/row", methods=["POST"])
 @require_login
 def api_insert_row(table):
