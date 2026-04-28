@@ -1408,9 +1408,27 @@ body.dark-theme .alert-error {
     margin-bottom: 20px;
 }
 
+/* Phones get 2 cols, small tablets get 3, anything desktop-ish gets all 5
+   on one row -- five short tiles look way better than four-plus-an-orphan. */
 @media (min-width: 600px) {
     .dash-summary-cards {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (min-width: 900px) {
+    .dash-summary-cards {
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+    }
+    .dash-card {
+        padding: 10px 12px;
+    }
+    .dash-card-value {
+        font-size: 24px;
+    }
+    .dash-card-label {
+        font-size: 10px;
     }
 }
 
