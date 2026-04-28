@@ -195,74 +195,11 @@ CREATE TABLE IF NOT EXISTS schedules (
     updated_at            TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS draft_orders (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_email          TEXT NOT NULL,
-    customer_account    TEXT,
-    customer_name       TEXT,
-    ship_date           TEXT,
-    delivery_address_id INTEGER,
-    delivery_address_text TEXT,
-    ship_method         TEXT,
-    po_number           TEXT,
-    status              TEXT NOT NULL DEFAULT 'draft',
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS draft_order_lines (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    draft_order_id      INTEGER NOT NULL REFERENCES draft_orders(id) ON DELETE CASCADE,
-    item_number         TEXT NOT NULL,
-    item_name           TEXT,
-    upc                 TEXT,
-    qty                 INTEGER NOT NULL DEFAULT 0,
-    case_pack           INTEGER NOT NULL DEFAULT 1,
-    unit_price          REAL NOT NULL DEFAULT 0,
-    custom_price        REAL,
-    update_customer_price INTEGER DEFAULT 0,
-    book_price          REAL,
-    extended_price      REAL NOT NULL DEFAULT 0,
-    is_matrix_entry     INTEGER DEFAULT 0,
-    variant_color       TEXT,
-    variant_size        TEXT,
-    sort_order          INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS customer_addresses (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_account    TEXT NOT NULL,
-    address_id          TEXT,
-    label               TEXT,
-    address_text        TEXT NOT NULL,
-    street              TEXT,
-    city                TEXT,
-    state               TEXT,
-    zip_code            TEXT,
-    country             TEXT,
-    is_default          INTEGER DEFAULT 0,
-    source              TEXT DEFAULT 'manual',
-    UNIQUE(customer_account, label)
-);
-
-CREATE TABLE IF NOT EXISTS product_cache (
-    item_number         TEXT PRIMARY KEY,
-    product_name        TEXT,
-    description         TEXT,
-    sales_price         REAL DEFAULT 0,
-    product_group       TEXT,
-    last_refreshed      TEXT
-);
-
-CREATE TABLE IF NOT EXISTS price_cache (
-    customer_account    TEXT NOT NULL,
-    item_number         TEXT NOT NULL,
-    price               REAL NOT NULL DEFAULT 0,
-    currency            TEXT,
-    min_qty             REAL DEFAULT 0,
-    last_refreshed      TEXT,
-    PRIMARY KEY (customer_account, item_number, min_qty)
-);
+-- The order-entry feature is currently disabled. Its supporting
+-- tables (draft_orders, draft_order_lines, customer_addresses,
+-- product_cache, price_cache) used to live here but were removed and
+-- are dropped by a one-shot migration in init_db(). If the feature is
+-- ever revived, recreate them here AND remove the DROP statements.
 
 CREATE TABLE IF NOT EXISTS runbook_history (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -334,11 +271,6 @@ CREATE INDEX IF NOT EXISTS idx_cache_group ON dashboard_cache(sales_group);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email);
 CREATE INDEX IF NOT EXISTS idx_report_runs_started ON report_runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_user_report_access ON user_report_access(user_email);
-CREATE INDEX IF NOT EXISTS idx_draft_orders_user ON draft_orders(user_email, status);
-CREATE INDEX IF NOT EXISTS idx_draft_order_lines_order ON draft_order_lines(draft_order_id);
-CREATE INDEX IF NOT EXISTS idx_customer_addresses_account ON customer_addresses(customer_account);
-CREATE INDEX IF NOT EXISTS idx_price_cache_customer ON price_cache(customer_account);
-CREATE INDEX IF NOT EXISTS idx_price_cache_item ON price_cache(item_number);
 CREATE INDEX IF NOT EXISTS idx_user_salesman_access_email ON user_salesman_access(user_email);
 """
 
@@ -357,6 +289,18 @@ def init_db():
     print(f"[db] init_db: using database at {DB_PATH} (exists={os.path.isfile(DB_PATH)})", flush=True)
     conn = get_db()
     try:
+        # One-shot cleanup of the order-entry tables. The feature is
+        # disabled and these tables were taking up schema space and
+        # confusing the DB explorer. ``DROP TABLE IF EXISTS`` is safe
+        # to run repeatedly -- on a fresh DB the tables never existed
+        # and nothing happens. Run BEFORE executescript so any
+        # foreign-key references (draft_order_lines -> draft_orders)
+        # don't block the drops.
+        for tbl in ("draft_order_lines", "draft_orders",
+                    "customer_addresses", "price_cache", "product_cache"):
+            conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+        conn.commit()
+
         conn.executescript(_SCHEMA)
         conn.commit()
         # Add dashboard_enabled column if missing (upgrade from older schema)
@@ -379,28 +323,6 @@ def init_db():
         if sched_cols and "month_days" not in sched_cols:
             conn.execute("ALTER TABLE schedules ADD COLUMN month_days TEXT DEFAULT ''")
             conn.commit()
-        # Migrate customer_addresses: add structured address columns
-        addr_cols = [r[1] for r in conn.execute("PRAGMA table_info(customer_addresses)").fetchall()]
-        for col, typedef in [("address_id", "TEXT"), ("street", "TEXT"), ("city", "TEXT"),
-                             ("state", "TEXT"), ("zip_code", "TEXT"), ("country", "TEXT"),
-                             ("source", "TEXT DEFAULT 'manual'")]:
-            if col not in addr_cols:
-                conn.execute(f"ALTER TABLE customer_addresses ADD COLUMN {col} {typedef}")
-        conn.commit()
-        # Migrate product_cache: add description column
-        prod_cols = [r[1] for r in conn.execute("PRAGMA table_info(product_cache)").fetchall()]
-        if prod_cols and "description" not in prod_cols:
-            conn.execute("ALTER TABLE product_cache ADD COLUMN description TEXT")
-            conn.commit()
-        # Ensure unique constraint on customer_addresses for idempotent seeding
-        try:
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_custaddr_uniq "
-                "ON customer_addresses(customer_account, label)"
-            )
-            conn.commit()
-        except Exception:
-            pass  # index already exists or table has duplicates
         # Migrate email_distributions: add scheduling columns
         ed_cols = [r[1] for r in conn.execute("PRAGMA table_info(email_distributions)").fetchall()]
         for col, typedef in [("trigger_mode", "TEXT NOT NULL DEFAULT 'after_reports'"),

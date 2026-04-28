@@ -9,7 +9,6 @@ import logging
 from flask import Blueprint, flash, redirect, render_template, url_for
 
 from webapp.helpers import get_current_user, require_login
-from webapp.user_map import is_admin
 from webapp.db import (
     get_feature_flag, get_draft_orders, get_draft_order,
     get_draft_order_lines,
@@ -21,9 +20,14 @@ orders_bp = Blueprint("orders", __name__)
 
 
 def _check_order_entry_access(user: dict) -> bool:
-    """Return True if the user may access order entry, False otherwise."""
-    if is_admin(user):
-        return True
+    """Return True if the user may access order entry, False otherwise.
+
+    The feature is currently off and the underlying tables have been
+    dropped to clean up the database. Admins used to bypass the flag for
+    debugging, but that path is now a guaranteed crash, so the gate is
+    flag-only. Re-enable by recreating the order tables and flipping
+    ``order_entry_enabled``.
+    """
     return get_feature_flag("order_entry_enabled", False)
 
 
