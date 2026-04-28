@@ -368,46 +368,9 @@ body {
     margin-bottom: 24px;
 }
 
-/* Two-section login: "Achim employees" (Microsoft) and
- * "External sales reps" (magic link). Each section gets a small label
- * so users can quickly find the path that applies to them. */
-.login-section {
-    margin-top: 18px;
-    text-align: left;
-}
-.login-section:first-of-type {
-    margin-top: 8px;
-}
-.login-section-label {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-    margin: 0 0 8px;
-}
-.login-section-help {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin: 0 0 12px;
-}
-.login-divider {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin: 22px 0 4px;
-    color: var(--text-muted);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-.login-divider::before,
-.login-divider::after {
-    content: "";
-    flex: 1 1 auto;
-    height: 1px;
-    background: var(--border);
-}
+/* Magic-link email input on the External Rep Login popup. The
+ * surrounding form/buttons are styled inline; we just need the input
+ * to be full-width inside the flex column. */
 .login-magic-form {
     display: flex;
     flex-direction: column;

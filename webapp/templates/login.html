@@ -1,6 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Sign In - Sales Reports{% endblock %}
 
+{% block head %}
+<style>
+    /* Self-contained modal for the magic-link request. The global
+     * .modal-backdrop / .modal-panel classes are designed for the
+     * admin Settings popups and assume a different DOM, so we keep
+     * the login modal isolated to avoid fighting them. */
+    .ext-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .ext-modal-panel {
+        background: var(--bg-card);
+        color: var(--text);
+        border-radius: 12px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+        width: min(440px, 100%);
+        padding: 24px;
+        position: relative;
+    }
+    .ext-modal-close {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        background: none;
+        border: none;
+        font-size: 24px;
+        line-height: 1;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 4px 8px;
+    }
+    .ext-modal-close:hover { color: var(--text); }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="login-page">
     <div class="login-card">
@@ -8,38 +48,74 @@
             <i data-feather="bar-chart-2" width="48" height="48"></i>
         </div>
         <h1>Sales Reports</h1>
+        <p class="login-subtitle">Sign in to continue</p>
 
-        <!-- Internal Achim users: Microsoft sign-in -->
-        <div class="login-section">
-            <p class="login-section-label">Achim employees</p>
-            <a href="{{ url_for('auth.login_start') }}" class="btn btn-primary btn-lg btn-block">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 21 21" style="margin-right: 8px; vertical-align: middle;">
-                    <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                    <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                    <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-                </svg>
-                Sign in with Microsoft
-            </a>
-        </div>
+        <a href="{{ url_for('auth.login_start') }}" class="btn btn-primary btn-lg btn-block">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 21 21" style="margin-right: 8px; vertical-align: middle;">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+            </svg>
+            Achim Sign In
+        </a>
 
-        <div class="login-divider"><span>or</span></div>
-
-        <!-- External sales reps: email magic-link -->
-        <div class="login-section">
-            <p class="login-section-label">External sales reps</p>
-            <p class="login-section-help">
-                Enter your email and we'll send you a one-time sign-in link.
-            </p>
-            <form method="POST" action="{{ url_for('auth.request_magic_link') }}" class="login-magic-form">
-                <input type="email" name="email" required
-                       placeholder="you@company.com"
-                       class="form-input login-magic-input">
-                <button type="submit" class="btn btn-outline btn-lg btn-block">
-                    Email me a sign-in link
-                </button>
-            </form>
-        </div>
+        <button type="button" id="externalLoginBtn"
+                class="btn btn-outline btn-lg btn-block"
+                style="margin-top: 10px;">
+            External Rep Login
+        </button>
     </div>
 </div>
+
+<!-- Magic-link request popup. Hidden by default; opens on the
+     "External Rep Login" button. Submitting POSTs to the existing
+     auth.request_magic_link route, which flashes a generic message
+     and redirects back to /login. -->
+<div id="externalLoginModal" class="ext-modal-backdrop" style="display:none;"
+     onclick="if(event.target === this) closeExternalLogin()">
+    <div class="ext-modal-panel" role="dialog" aria-labelledby="extLoginTitle">
+        <button type="button" class="ext-modal-close" onclick="closeExternalLogin()" aria-label="Close">&times;</button>
+        <h2 id="extLoginTitle" style="margin: 0 0 8px;">External Rep Login</h2>
+        <p style="color: var(--text-muted); font-size: 14px; margin: 0 0 16px;">
+            Enter the email your account is registered with. We'll send you a
+            one-time sign-in link from <strong>reports@achimonline.com</strong>.
+            The link expires in 15 minutes.
+        </p>
+        <form method="POST" action="{{ url_for('auth.request_magic_link') }}" class="login-magic-form">
+            <input type="email" name="email" required autofocus
+                   placeholder="you@company.com"
+                   class="form-input login-magic-input">
+            <div style="display:flex; gap:8px; margin-top: 12px;">
+                <button type="button" class="btn btn-outline" onclick="closeExternalLogin()" style="flex:1;">
+                    Cancel
+                </button>
+                <button type="submit" class="btn btn-primary" style="flex:2;">
+                    Send sign-in link
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    (function() {
+        var btn = document.getElementById('externalLoginBtn');
+        var modal = document.getElementById('externalLoginModal');
+        var emailInput = modal.querySelector('input[name="email"]');
+
+        btn.addEventListener('click', function() {
+            modal.style.display = 'flex';
+            setTimeout(function() { emailInput.focus(); }, 50);
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && modal.style.display === 'flex') {
+                closeExternalLogin();
+            }
+        });
+        window.closeExternalLogin = function() {
+            modal.style.display = 'none';
+        };
+    })();
+</script>
 {% endblock %}
