@@ -952,9 +952,37 @@ def _execute_runner(entry, argv, display):
     return exit_code, error_msg, runner_instance
 
 
-def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, token, alert_ctx):
-    """Run a single report. Returns (exit_code, duration, error_msg, runner_instance_or_None)."""
+def _upload_incremental(drive_id, token, direct_reports, root_path):
+    """Upload any files in direct_reports to SharePoint and clear the local dir.
+
+    Returns (count, [urls]).  Used between period passes so earlier periods
+    are safely on SharePoint before the next (bigger) period runs.
+    """
+    if not os.path.isdir(direct_reports) or not os.listdir(direct_reports):
+        return 0, []
+    cloud_reports = f"{root_path}/Direct Reports" if root_path else "Direct Reports"
+    try:
+        count, urls = _sp_upload_tree(drive_id, cloud_reports, direct_reports, token)
+        log.info("Incremental upload: %d files to SharePoint", count)
+        shutil.rmtree(direct_reports, ignore_errors=True)
+        os.makedirs(direct_reports, exist_ok=True)
+        return count, urls
+    except Exception:
+        log.exception("Incremental upload failed (non-fatal, files remain for final upload)")
+        return 0, []
+
+
+def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, token, alert_ctx,
+                    direct_reports="", root_path=""):
+    """Run a single report. Returns (exit_code, duration, error_msg, runner_instance_or_None).
+
+    When direct_reports/root_path are provided, performs incremental uploads
+    between period passes (for memory-safe multi-period mode). Stores URLs
+    of incrementally-uploaded files in ``_incremental_urls`` attribute on the
+    returned runner_instance (if any), or logs them for the heartbeat.
+    """
     display = entry["display_name"]
+    _inc_uploaded_urls: list[str] = []
 
     default_args = entry.get("default_args", "") or ""
     merged_args = f"{default_args} {extra_args}".strip()
@@ -971,10 +999,19 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     catchup_result = _maybe_inject_catchup_args(argv, merged_args, log_path, display)
 
     # Two-pass catch-up: for no-period runs with a gap, run the catch-up
-    # daily pass first (missed days), then the normal all-periods pass.
+    # daily pass first (missed days), then each period individually to keep
+    # memory bounded (each period gets its own fetch + GC cycle).
     do_two_pass = (isinstance(catchup_result, tuple)
                    and len(catchup_result) == 3
                    and catchup_result[0] == _CATCHUP_THEN_NORMAL)
+
+    # Multi-period split: when no --period is specified (nightly all-periods run),
+    # run each period as a separate invocation so memory is reclaimed between them.
+    # This avoids fetching the entire YTD dataset and holding it in RAM while writing
+    # all periods (which exceeds the 400 MB sandbox limit for growing datasets).
+    is_no_period_run = (not do_two_pass and "--period" not in merged_args
+                        and "--from" not in merged_args and "--to" not in merged_args
+                        and "--date" not in merged_args)
 
     start = time.monotonic()
     exit_code = 0
@@ -995,12 +1032,79 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
                 f"{display} catch-up pass failed (--from {catch_from} --to {catch_to}).\n\nError:\n{err1}",
                 **alert_ctx,
             )
+        # Upload catch-up files immediately so they're safe
+        if direct_reports:
+            _cnt, _urls = _upload_incremental(drive_id, token, direct_reports, root_path)
+            _inc_uploaded_urls.extend(_urls)
+        import gc
+        gc.collect()
 
-        log.info(">>> Running REGULAR SCHEDULED all-periods pass for '%s'", display)
-        code2, err2, inst2 = _execute_runner(entry, argv, display)
-        runner_instance = inst2 or inst1
-        exit_code = code2
-        error_msg = err2
+        # Run each period independently instead of one massive all-periods pass.
+        # This keeps peak memory to the single largest period (YTD) rather than
+        # loading YTD and holding it while also writing Daily/MTD/Last7.
+        _ALL_PERIODS_ORDERED = ["daily", "last_7_days", "mtd", "ytd"]
+        log.info(">>> Running REGULAR SCHEDULED periods individually for '%s' (memory-safe mode)",
+                 display)
+        for period_name in _ALL_PERIODS_ORDERED:
+            period_argv = list(argv) + ["--period", period_name]
+            log.info(">>> [%s] Period pass: %s", display, period_name)
+            code_p, err_p, inst_p = _execute_runner(entry, period_argv, display)
+            if inst_p is not None:
+                runner_instance = inst_p
+            if code_p != 0:
+                log.warning("[%s] Period '%s' failed (code=%d): %s",
+                            display, period_name, code_p, err_p[:200] if err_p else "")
+                if not exit_code:
+                    exit_code = code_p
+                    error_msg = f"Period '{period_name}' failed: {err_p}"
+                _send_alert(
+                    f"FAILURE: {display} ({period_name})",
+                    f"{display} period '{period_name}' failed.\n\nError:\n{err_p}",
+                    **alert_ctx,
+                )
+            else:
+                log.info(">>> [%s] Period '%s' completed successfully", display, period_name)
+            # Upload completed period files immediately so they're safe on SP
+            if direct_reports:
+                _cnt, _urls = _upload_incremental(drive_id, token, direct_reports, root_path)
+                _inc_uploaded_urls.extend(_urls)
+            # Force garbage collection between periods to reclaim DataFrames
+            import gc
+            gc.collect()
+
+        merged_args_display = merged_args or ""
+
+    elif is_no_period_run:
+        # No catch-up needed but still a nightly all-periods run:
+        # split into individual periods for memory safety.
+        _ALL_PERIODS_ORDERED = ["daily", "last_7_days", "mtd", "ytd"]
+        log.info(">>> Running ALL PERIODS individually for '%s' (memory-safe mode)", display)
+        for period_name in _ALL_PERIODS_ORDERED:
+            period_argv = list(argv) + ["--period", period_name]
+            log.info(">>> [%s] Period pass: %s", display, period_name)
+            code_p, err_p, inst_p = _execute_runner(entry, period_argv, display)
+            if inst_p is not None:
+                runner_instance = inst_p
+            if code_p != 0:
+                log.warning("[%s] Period '%s' failed (code=%d): %s",
+                            display, period_name, code_p, err_p[:200] if err_p else "")
+                if not exit_code:
+                    exit_code = code_p
+                    error_msg = f"Period '{period_name}' failed: {err_p}"
+                _send_alert(
+                    f"FAILURE: {display} ({period_name})",
+                    f"{display} period '{period_name}' failed.\n\nError:\n{err_p}",
+                    **alert_ctx,
+                )
+            else:
+                log.info(">>> [%s] Period '%s' completed successfully", display, period_name)
+            # Upload completed period files immediately so they're safe on SP
+            if direct_reports:
+                _cnt, _urls = _upload_incremental(drive_id, token, direct_reports, root_path)
+                _inc_uploaded_urls.extend(_urls)
+            import gc
+            gc.collect()
+
         merged_args_display = merged_args or ""
     else:
         argv = catchup_result if isinstance(catchup_result, list) else argv
@@ -1046,7 +1150,7 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         )
 
     log.info("--- %s: %s in %.0fs ---", display, status, elapsed)
-    return exit_code, elapsed, error_msg, runner_instance
+    return exit_code, elapsed, error_msg, runner_instance, _inc_uploaded_urls
 
 
 # ---------------------------------------------------------------------------
@@ -1160,6 +1264,53 @@ def _upload_webapp_pickup(drive_id, token_mgr, direct_reports, record_id, root_p
         log.info("Webapp pickup uploaded successfully: %s", dest_path)
     except Exception:
         log.exception("Failed to upload webapp pickup file")
+
+
+def _upload_webapp_pickup_from_url(drive_id, token_mgr, uploaded_urls, record_id, root_path):
+    """Copy the first uploaded xlsx to the webapp pickup folder using a server-side copy.
+
+    Since we now clear local files after upload, this uses the Graph API to
+    copy from the already-uploaded SharePoint file to the pickup location.
+    """
+    xlsx_urls = [u for u in uploaded_urls if u.lower().endswith(".xlsx")]
+    if not xlsx_urls:
+        log.warning("No .xlsx URLs in uploaded_urls for webapp pickup")
+        return
+
+    pickup_folder = f"{root_path}/webapp_reports" if root_path else "webapp_reports"
+    dest_path = f"{pickup_folder}/{record_id}.xlsx"
+    source_url = xlsx_urls[0]
+    log.info("Webapp pickup (from URL): copying first xlsx to %s", dest_path)
+
+    try:
+        import requests
+        t = _resolve_token(token_mgr)
+        # Download the source file content and re-upload to pickup path
+        # (Graph copy API is async and complex; simple download+reupload is reliable)
+        source_path = source_url.split("/sites/")[1].split("/", 1)[1] if "/sites/" in source_url else None
+        if not source_path:
+            log.warning("Could not parse source path from URL: %s", source_url)
+            return
+
+        # Use the item download URL directly
+        dl_url = f"{GRAPH_BASE}/drives/{drive_id}/root:/{source_path}:/content"
+        dl_resp = requests.get(dl_url, headers={"Authorization": f"Bearer {t}"}, timeout=UPLOAD_TIMEOUT)
+        if dl_resp.status_code != 200:
+            log.warning("Webapp pickup download failed: %d", dl_resp.status_code)
+            return
+
+        _sp_ensure_folder(drive_id, pickup_folder, token_mgr)
+        up_url = f"{GRAPH_BASE}/drives/{drive_id}/root:/{dest_path}:/content"
+        up_resp = requests.put(up_url, headers={
+            "Authorization": f"Bearer {t}",
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }, data=dl_resp.content, timeout=UPLOAD_TIMEOUT)
+        if up_resp.status_code in (200, 201):
+            log.info("Webapp pickup uploaded successfully: %s", dest_path)
+        else:
+            log.warning("Webapp pickup upload returned %d", up_resp.status_code)
+    except Exception:
+        log.exception("Failed to upload webapp pickup from URL")
 
 
 def _classify_guard_action(extra_args):
@@ -1552,42 +1703,61 @@ def main():
     total_reports = len(reports_to_run)
 
     runner_instances = []
+    uploaded_urls: list[str] = []
+    files_uploaded = 0
+
     for idx, key in enumerate(reports_to_run):
         entry = registry[key]
         display = entry["display_name"]
         if total_reports > 1:
             log.info("========== Report %d/%d: %s ==========", idx + 1, total_reports, display)
         log.info("[Step 5/7] Running report: %s (args: %s)...", display, extra_args or entry.get("default_args") or "(none)")
-        code, elapsed, err, runner_inst = _run_one_report(
+        code, elapsed, err, runner_inst, inc_urls = _run_one_report(
             key, entry, extra_args, scripts_local, drive_id, token_mgr, alert_ctx,
+            direct_reports=direct_reports, root_path=root_path,
         )
         if runner_inst is not None:
             runner_instances.append(runner_inst)
+        # Collect URLs from incremental uploads done within _run_one_report
+        if inc_urls:
+            uploaded_urls.extend(inc_urls)
+            files_uploaded += len(inc_urls)
         status = "SUCCESS" if code == 0 else "FAILED"
         summary_lines.append(f"  {display}: {status} ({elapsed:.0f}s)")
         if code != 0:
             overall_exit = 1
-    log.info("[Step 6/7] Uploading Direct Reports to SharePoint...")
-    files_uploaded = 0
-    uploaded_urls: list[str] = []
-    if os.path.isdir(direct_reports) and os.listdir(direct_reports):
-        cloud_reports = f"{root_path}/Direct Reports" if root_path else "Direct Reports"
-        log.info("  Target: %s", cloud_reports)
-        try:
-            files_uploaded, uploaded_urls = _sp_upload_tree(drive_id, cloud_reports, direct_reports, token_mgr)
-            log.info("Uploaded %d files to SharePoint", files_uploaded)
-            summary_lines.append(f"  Upload: {files_uploaded} files")
-        except Exception:
-            log.exception("SharePoint upload failed")
-            _send_alert("FAILURE: SharePoint upload", traceback.format_exc(), **alert_ctx)
-            summary_lines.append("  Upload: FAILED")
-            overall_exit = 1
+
+        # Upload immediately after each report so files are safe on SharePoint
+        # even if a later report or the YTD pass OOMs the sandbox.
+        if os.path.isdir(direct_reports) and os.listdir(direct_reports):
+            cloud_reports = f"{root_path}/Direct Reports" if root_path else "Direct Reports"
+            log.info("[Step 6/7] Uploading Direct Reports to SharePoint (incremental after %s)...", display)
+            log.info("  Target: %s", cloud_reports)
+            try:
+                count, urls = _sp_upload_tree(drive_id, cloud_reports, direct_reports, token_mgr)
+                files_uploaded += count
+                uploaded_urls.extend(urls)
+                log.info("Uploaded %d files to SharePoint (total so far: %d)", count, files_uploaded)
+            except Exception:
+                log.exception("SharePoint upload failed after %s", display)
+                _send_alert("FAILURE: SharePoint upload", traceback.format_exc(), **alert_ctx)
+                summary_lines.append(f"  Upload after {display}: FAILED")
+                overall_exit = 1
+            # Clear the local output dir so files aren't re-uploaded next iteration
+            # and to free disk/memory.
+            shutil.rmtree(direct_reports, ignore_errors=True)
+            os.makedirs(direct_reports, exist_ok=True)
+
+    if files_uploaded:
+        summary_lines.append(f"  Upload: {files_uploaded} files")
     else:
         summary_lines.append("  Upload: no output files")
 
     # Upload to webapp pickup folder if triggered by the webapp
-    if webapp_record_id and os.path.isdir(direct_reports):
-        _upload_webapp_pickup(drive_id, token_mgr, direct_reports, webapp_record_id, root_path)
+    if webapp_record_id and uploaded_urls:
+        # Re-download the first xlsx from SharePoint for webapp pickup
+        # (since we cleared local dir above). Upload the first URL directly.
+        _upload_webapp_pickup_from_url(drive_id, token_mgr, uploaded_urls, webapp_record_id, root_path)
 
     # Flush deferred salesman emails with SharePoint links
     if runner_instances and uploaded_urls:
