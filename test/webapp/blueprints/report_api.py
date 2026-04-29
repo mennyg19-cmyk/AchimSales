@@ -156,21 +156,34 @@ def preview_body(key: str):
 
 
 def _params_from_request() -> dict:
-    """Accept params either from JSON body or URL query.
+    """Accept params from any reasonable shape the client might send.
+
+    Resolution order (first match wins):
+        1. JSON body ``{"params": {...}}``  (preferred -- matches the
+           export/email/schedule envelope used elsewhere).
+        2. JSON body that IS the params dict directly (the run-report
+           call has historically sent this shape; keep accepting it so
+           we don't 500 on cached page loads after a deploy).
+        3. URL query string (for GET-style preview calls).
 
     Multi-value fields (currently just ``customers``) come back as lists.
     """
-    body = request.get_json(silent=True) or {}
-    source = body.get("params") if isinstance(body.get("params"), dict) else None
+    body = request.get_json(silent=True)
 
-    if source is not None:
-        # JSON body -- trust the shape as-is.
-        params = {k: v for k, v in source.items() if v not in (None, "")}
-    else:
-        params = {k: v for k, v in request.args.items() if v != ""}
-        customers = [c for c in request.args.getlist("customers") if c]
-        if customers:
-            params["customers"] = customers
+    # Shape 1: envelope { "params": {...} }
+    if isinstance(body, dict) and isinstance(body.get("params"), dict):
+        return {k: v for k, v in body["params"].items() if v not in (None, "")}
+
+    # Shape 2: bare params dict. Reject envelope-only keys so we don't
+    # treat e.g. {"layouts": {...}} as filter params.
+    if isinstance(body, dict) and body and "params" not in body and "layouts" not in body:
+        return {k: v for k, v in body.items() if v not in (None, "")}
+
+    # Shape 3: URL query string.
+    params = {k: v for k, v in request.args.items() if v != ""}
+    customers = [c for c in request.args.getlist("customers") if c]
+    if customers:
+        params["customers"] = customers
     return params
 
 

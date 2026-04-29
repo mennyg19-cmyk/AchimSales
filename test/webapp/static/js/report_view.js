@@ -213,7 +213,7 @@
     // ---------- Fetch & render ------------------------------------------
     async function runReport() {
         showStatus("Loading report…", false, true);
-        const payload = await postJson(cfg.runUrl, cfg.params);
+        const payload = await postJson(cfg.runUrl, { params: cfg.params });
 
         renderSourceBadge(payload.data_source);
         state.generatedAt = payload.generated_at || null;
