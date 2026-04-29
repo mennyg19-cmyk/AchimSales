@@ -46,6 +46,7 @@
         status:             $("viewStatus"),
         emptyState:         $("emptyState"),
         emptyStateMsg:      $("emptyStateMsg"),
+        sourceBadge:        $("dataSourceBadge"),
 
         // Hidden panel (desktop)
         panel:              $("hiddenPanel"),
@@ -149,11 +150,41 @@
     wireModals();
     wireScheduleModal();
 
+    // ---------- Data-source badge --------------------------------------
+    function renderSourceBadge(meta) {
+        const el = els.sourceBadge;
+        if (!el) return;
+
+        if (!meta || !meta.source) {
+            el.hidden = true;
+            return;
+        }
+        const known = {
+            reporting_api:        { cls: "src-live",    text: "LIVE DATA" },
+            reporting_api_failed: { cls: "src-error",   text: "API FAILED" },
+            fixture:              { cls: "src-fixture", text: "TEST DATA (fixture)" },
+            random_mock:          { cls: "src-mock",    text: "MOCK DATA" },
+        };
+        const info = known[meta.source] || { cls: "src-mock", text: meta.source };
+
+        el.className = "data-source-badge " + info.cls;
+        el.textContent = info.text;
+        const tipParts = [meta.label || ""];
+        if (meta.rows_fetched != null) tipParts.push("Rows: " + meta.rows_fetched);
+        if (meta.endpoint) tipParts.push("Endpoint: " + meta.endpoint);
+        if (meta.fixture_file) tipParts.push("File: " + meta.fixture_file);
+        if (meta.api_error) tipParts.push("Last API error: " + meta.api_error);
+        if (meta.error) tipParts.push("Error: " + meta.error);
+        el.title = tipParts.filter(Boolean).join("\n");
+        el.hidden = false;
+    }
+
     // ---------- Fetch & render ------------------------------------------
     async function runReport() {
         showStatus("Loading report…", false, true);
         const payload = await postJson(cfg.runUrl, cfg.params);
 
+        renderSourceBadge(payload.data_source);
         state.generatedAt = payload.generated_at || null;
         state.activeTab = null;
         state.tabs = Object.create(null);

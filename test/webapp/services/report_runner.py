@@ -45,7 +45,7 @@ from typing import Any
 
 from test.webapp.services.mock_data import CUSTOMERS, SALESMEN, salesman_name
 from test.webapp.services.reports import ordered as ordered_builder
-from test.webapp.services import sql_client
+from test.webapp.services import reporting_api
 
 log = logging.getLogger(__name__)
 
@@ -118,36 +118,70 @@ def _load_ordered_fixture() -> list[dict] | None:
     return None
 
 
-def _build_ordered(params: dict, r: random.Random) -> list[dict]:
-    """Build the ordered report's multi-tab payload.
+def _build_ordered(params: dict, r: random.Random) -> tuple[list[dict], dict]:
+    """Build the ordered report's multi-tab payload + source metadata.
+
+    Returns ``(tabs, source_meta)``. ``source_meta`` describes where the
+    rows came from so the viewer can show a "Source: ..." badge.
 
     Source-selection order:
-        1. SQL Server (if SQL_CONN_STR / pyodbc are configured)
-        2. JSON fixture stashed in test/fixtures/ordered_dump.json
-        3. Random mock (last resort, only if neither SQL nor fixture exist)
+        1. Reporting API (on-prem via Hybrid Connection) — preferred
+           when REPORTING_API_BASE_URL is set. The client also handles
+           fresh + stale caching internally.
+        2. JSON fixture stashed in test/fixtures/ordered_dump.json — used
+           in local dev (no env vars) or if the API is unreachable AND
+           no stale cache exists.
+        3. Random mock as a final last resort.
     """
     rows: list[dict] | None = None
+    source: dict[str, Any] = {"source": "unknown"}
 
-    if sql_client.is_configured() and os.environ.get("SQL_USE_FOR_ORDERED", "1") != "0":
+    if reporting_api.is_configured() and os.environ.get("USE_REPORTING_API_ORDERED", "1") != "0":
         try:
-            rows = sql_client.fetch_report("ordered", params)
-            log.info("ordered report: pulled %d rows from SQL", len(rows))
+            rows = reporting_api.run("ordered", params)
+            log.info("ordered report: pulled %d rows from reporting API", len(rows))
+            source = {
+                "source":      "reporting_api",
+                "label":       "Reporting API (live data)",
+                "rows_fetched": len(rows),
+                "endpoint":    f"{os.environ.get('REPORTING_API_BASE_URL', '').rstrip('/')}/api/reports/salesline_release/run",
+            }
         except Exception as exc:
-            log.exception("SQL fetch for ordered failed, falling back to fixture: %s", exc)
+            log.exception(
+                "Reporting API fetch for ordered failed, falling back to fixture: %s", exc
+            )
             rows = None
+            source = {
+                "source": "reporting_api_failed",
+                "label":  "API call failed — see fallback below",
+                "error":  str(exc),
+            }
 
     if rows is None:
-        rows = _load_ordered_fixture()
-        if rows is not None:
-            log.info("ordered report: using fixture (%d rows)", len(rows))
-            rows = _filter_ordered_fixture(rows, params)
+        fixture_rows = _load_ordered_fixture()
+        if fixture_rows is not None:
+            log.info("ordered report: using fixture (%d rows)", len(fixture_rows))
+            rows = _filter_ordered_fixture(fixture_rows, params)
+            previous_error = source.get("error") if source.get("source") == "reporting_api_failed" else None
+            source = {
+                "source": "fixture",
+                "label":  "Fixture (test data dump) — not real data",
+                "rows_fetched": len(rows),
+                "fixture_file": str(_ORDERED_FIXTURE),
+            }
+            if previous_error:
+                source["api_error"] = previous_error
 
     if rows is not None:
-        return ordered_builder.build(rows)
+        return ordered_builder.build(rows), source
 
-    # Last-resort random mock (kept so the app never crashes on a fresh checkout)
-    log.warning("ordered report: no SQL and no fixture, using random mock")
-    return _build_ordered_random_mock(params, r)
+    log.warning("ordered report: no API + no fixture, using random mock")
+    tabs = _build_ordered_random_mock(params, r)
+    source = {
+        "source": "random_mock",
+        "label":  "Random mock data — totally synthetic",
+    }
+    return tabs, source
 
 
 def _filter_ordered_fixture(rows: list[dict], params: dict) -> list[dict]:
@@ -498,7 +532,18 @@ def run_report(report_key: str, report_name: str, params: dict) -> dict[str, Any
         raise KeyError(f"No mock runner for report '{report_key}'")
 
     r = _seed(report_key, params)
-    tabs = builder(params, r)
+    result = builder(params, r)
+
+    # Builders may return either `tabs` (legacy mock builders) or
+    # `(tabs, source_meta)` (the data-aware ordered builder).
+    if isinstance(result, tuple):
+        tabs, source_meta = result
+    else:
+        tabs = result
+        source_meta = {
+            "source": "random_mock",
+            "label":  "Random mock data — totally synthetic",
+        }
 
     return {
         "report_key":   report_key,
@@ -506,4 +551,5 @@ def run_report(report_key: str, report_name: str, params: dict) -> dict[str, Any
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "params":       params,
         "tabs":         tabs,
+        "data_source":  source_meta,
     }

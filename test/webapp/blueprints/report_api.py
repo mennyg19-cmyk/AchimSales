@@ -31,6 +31,7 @@ from test.webapp.services.email_outbox import send_report_email
 from test.webapp.services.mock_data import CUSTOMERS, SALESMEN, customers_by_salesman
 from test.webapp.services.report_export import build_workbook
 from test.webapp.services.report_runner import run_report
+from test.webapp.services import reporting_api
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,13 @@ def _ensure_report(key: str):
 @require_login
 def list_salesmen(key: str):
     _ensure_report(key)
+
+    if reporting_api.is_configured():
+        try:
+            return jsonify(reporting_api.list_salesmen())
+        except Exception:
+            log.exception("reporting_api.list_salesmen failed; falling back to mock")
+
     return jsonify(SALESMEN)
 
 
@@ -84,6 +92,13 @@ def list_customers(key: str):
     """All customers, or one salesman's book via ``?salesman=``."""
     _ensure_report(key)
     salesman = (request.args.get("salesman") or "").strip()
+
+    if reporting_api.is_configured():
+        try:
+            return jsonify(reporting_api.list_customers(salesman or None))
+        except Exception:
+            log.exception("reporting_api.list_customers failed; falling back to mock")
+
     rows = customers_by_salesman(salesman) if salesman else list(CUSTOMERS)
     return jsonify([{"key": c["key"], "name": c["name"]} for c in rows])
 
