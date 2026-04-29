@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
+import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from flask import abort, jsonify, redirect, request, session, url_for
@@ -36,6 +39,98 @@ log = logging.getLogger(__name__)
 
 SESSION_KEY = "v2_user"
 AUTH_FLOW_KEY = "v2_auth_flow"
+
+
+# ---------------------------------------------------------------------------
+# Admin resolution: env list + test-app DB + live-app DB
+# ---------------------------------------------------------------------------
+
+
+def _live_app_db_path() -> Path | None:
+    """Where is the live app's app.db on this host?
+
+    On Azure App Service the live app writes to /home/data/app.db.
+    Locally it sits next to the live webapp module.
+    Override via V2_LIVE_APP_DB env var.
+    """
+    explicit = os.environ.get("V2_LIVE_APP_DB")
+    if explicit:
+        p = Path(explicit)
+        return p if p.exists() else None
+
+    if os.environ.get("WEBSITE_SITE_NAME"):
+        p = Path("/home/data/app.db")
+        return p if p.exists() else None
+
+    repo_root = Path(__file__).resolve().parents[2]
+    p = repo_root / "webapp" / "app.db"
+    return p if p.exists() else None
+
+
+def _is_admin_in_test_db(email: str) -> bool:
+    """Check the test app's own app_users table."""
+    if not email:
+        return False
+    try:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT is_admin FROM app_users WHERE email = ?",
+                (email,),
+            ).fetchone()
+        return bool(row and row["is_admin"])
+    except Exception:
+        log.exception("is_admin: test db lookup failed for %s", email)
+        return False
+
+
+def _is_admin_in_live_db(email: str) -> bool:
+    """Check the live app's app_users table (read-only, opportunistic).
+
+    The live app uses a `role` column with values like 'admin', 'developer',
+    'manager', 'salesman'. We treat admin + developer as admins on the
+    test site. Failures are silently ignored (returns False) so a missing
+    or locked live DB never breaks the test app.
+    """
+    if not email:
+        return False
+    db_path = _live_app_db_path()
+    if db_path is None:
+        return False
+    try:
+        # Read-only URI so we never lock the live DB.
+        uri = f"file:{db_path}?mode=ro"
+        with sqlite3.connect(uri, uri=True, timeout=2) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT role FROM app_users WHERE lower(email) = ?",
+                (email.strip().lower(),),
+            ).fetchone()
+        if not row:
+            return False
+        return (row["role"] or "").strip().lower() in {"admin", "developer"}
+    except Exception:
+        log.debug("is_admin: live db lookup failed for %s", email, exc_info=True)
+        return False
+
+
+def resolve_admin(email: str | None) -> bool:
+    """True if the email should be treated as an admin on the test site.
+
+    Resolution order:
+      1. V2_ADMIN_EMAILS env var (legacy)
+      2. test app's own app_users.is_admin = 1
+      3. live app's app_users.role IN ('admin', 'developer')
+    """
+    if not email:
+        return False
+    e = email.strip().lower()
+    if e in ADMIN_EMAILS:
+        return True
+    if _is_admin_in_test_db(e):
+        return True
+    if _is_admin_in_live_db(e):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +159,31 @@ def current_user_email() -> str:
 
 
 def is_admin(user: dict[str, Any] | None = None) -> bool:
-    u = user or current_user()
+    """Authoritative admin check.
+
+    Trusts the live state, not the (potentially stale) session cookie:
+    we always re-resolve via env-list / test-db / live-db. The result is
+    cached back into the session for the duration of the request so
+    subsequent calls don't re-hit the database.
+    """
+    u = user if user is not None else current_user()
     if not u:
         return False
-    return bool(u.get("is_admin"))
+    email = (u.get("email") or "").strip().lower()
+    if not email:
+        return False
+
+    # If the caller passed a user dict explicitly, just use the flag on it.
+    if user is not None:
+        return bool(u.get("is_admin"))
+
+    flag = resolve_admin(email)
+    # Update the session in place so templates/blueprints that already
+    # read user["is_admin"] see the fresh value without a re-login.
+    if u.get("is_admin") != flag:
+        u["is_admin"] = flag
+        session[SESSION_KEY] = u
+    return flag
 
 
 def has_sharepoint_access(user: dict[str, Any] | None = None) -> bool:
@@ -142,9 +258,16 @@ def require_admin(view: Callable) -> Callable:
 
 
 def _upsert_user(email: str, display_name: str | None) -> None:
+    """Insert or update the test app's app_users row.
+
+    On first insert we seed `is_admin` from the env list / live DB so a
+    brand-new admin doesn't have to be promoted manually. On update we
+    leave the existing flag alone (so admins can manage it via the
+    settings UI without sign-in resetting it).
+    """
     email = email.strip().lower()
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    admin = 1 if email in ADMIN_EMAILS else 0
+    seed_admin = 1 if resolve_admin(email) else 0
     with connect() as conn:
         existing = conn.execute(
             "SELECT email FROM app_users WHERE email = ?", (email,),
@@ -156,18 +279,17 @@ def _upsert_user(email: str, display_name: str | None) -> None:
                   (email, display_name, is_admin, first_login_utc, last_login_utc)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (email, display_name, admin, now, now),
+                (email, display_name, seed_admin, now, now),
             )
         else:
             conn.execute(
                 """
                 UPDATE app_users
                    SET display_name   = COALESCE(?, display_name),
-                       is_admin       = ?,
                        last_login_utc = ?
                  WHERE email = ?
                 """,
-                (display_name, admin, now, email),
+                (display_name, now, email),
             )
 
 
@@ -177,7 +299,7 @@ def _sign_in(email: str, display_name: str | None, *, dev_bypass: bool) -> dict[
     user = {
         "email": email,
         "name": display_name or email,
-        "is_admin": email in ADMIN_EMAILS,
+        "is_admin": resolve_admin(email),
         "dev_bypass": bool(dev_bypass),
         "logged_in_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
