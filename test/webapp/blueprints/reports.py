@@ -75,9 +75,12 @@ def list_all():
 def filter_form(report_key: str):
     if report_key not in REPORTS:
         abort(404)
+    report = get_report(report_key)
+    if not report.enabled:
+        abort(404, description=f"Report '{report_key}' is not yet wired to a data source")
     return render_template(
         "report_form.html",
-        report=get_report(report_key),
+        report=report,
         active_tab="reports",
     )
 
@@ -87,6 +90,8 @@ def filter_form(report_key: str):
 def view(report_key: str):
     if report_key not in REPORTS:
         abort(404)
+    if not get_report(report_key).enabled:
+        abort(404, description=f"Report '{report_key}' is not yet wired to a data source")
 
     # Pull filter params off the query string. `customers` is multi-valued.
     params: dict = {}

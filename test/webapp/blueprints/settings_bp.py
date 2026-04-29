@@ -33,7 +33,7 @@ from test.webapp.db import (
     set_user_preferences,
     update_app_user,
 )
-from test.webapp.services.mock_data import CUSTOMERS
+from test.webapp.services import reporting_api
 
 log = logging.getLogger(__name__)
 
@@ -61,12 +61,24 @@ def index():
             "master_schedules": list_master_schedules(),
         }
 
+    # Pull the customer list from the reporting API (cached). If the API
+    # is unreachable, fall back to whatever exclusions the user has
+    # already saved so the UI still renders rows for them.
+    all_customers: list[dict] = []
+    if reporting_api.is_configured():
+        try:
+            all_customers = reporting_api.list_customers()
+        except Exception:
+            log.exception("settings: list_customers from reporting API failed")
+    if not all_customers and exclusions:
+        all_customers = [{"key": c, "name": c} for c in exclusions]
+
     return render_template(
         "settings.html",
         active_tab="settings",
         prefs=prefs,
         exclusions=exclusions,
-        all_customers=[{"key": c["key"], "name": c["name"]} for c in CUSTOMERS],
+        all_customers=all_customers,
         is_admin=is_admin,
         admin=admin_ctx,
     )

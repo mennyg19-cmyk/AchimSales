@@ -404,36 +404,123 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
 _LOOKUP_BASE_REPORT = "ordered"  # which in-app report key to source from
 
 
-def _lookup_rows() -> list[dict]:
-    """Get the cached row list used to build the filter dropdowns.
+# ---------------------------------------------------------------------------
+# Filter dropdown lookups (non-blocking)
+# ---------------------------------------------------------------------------
+#
+# Until the brother delivers the dedicated salesman/customer SPs, the dropdown
+# data is derived from an unfiltered salesline_release call. That call is
+# slow (30-120s) so we MUST NOT block the form's HTTP request on it -- the
+# user reported the live preview panel was getting stuck behind it.
+#
+# Strategy:
+#   - lookup_status() / list_salesmen() / list_customers() never block. They
+#     return (status, []) the first time, kick off a background populate,
+#     and return real rows on subsequent calls once the populate completes.
+#   - When the new lookup SPs land we'll just rewrite these to call them
+#     directly (and the dropdowns will populate in one round-trip).
 
-    Uses the same report cache as the run() flow, so a fresh report run
-    primes the lookup cache for free.
+_LOOKUP_KEY = f"__lookups__:{_LOOKUP_BASE_REPORT}"
+
+# Tracks the in-flight populate, if any. Guarded by _LOOKUP_LOCK.
+_LOOKUP_LOCK = threading.Lock()
+_lookup_thread: threading.Thread | None = None
+_lookup_state: dict[str, Any] = {
+    "status": "idle",     # idle | loading | ready | error
+    "started_at": None,
+    "finished_at": None,
+    "elapsed_ms": None,
+    "row_count": 0,
+    "error": None,
+}
+
+
+def _populate_lookups_blocking() -> None:
+    """Background-thread worker: fetch lookup rows and stuff them into the
+    cache. Updates _lookup_state with progress.
     """
-    cache_key = f"__lookups__:{_LOOKUP_BASE_REPORT}"
+    global _lookup_thread
+    started = time.monotonic()
+    _lookup_state.update(
+        status="loading",
+        started_at=time.time(),
+        finished_at=None,
+        elapsed_ms=None,
+        row_count=0,
+        error=None,
+    )
+    try:
+        rows = run(_LOOKUP_BASE_REPORT, {})
+        _cache.set(_LOOKUP_KEY, rows)
+        elapsed = int((time.monotonic() - started) * 1000)
+        _lookup_state.update(
+            status="ready",
+            finished_at=time.time(),
+            elapsed_ms=elapsed,
+            row_count=len(rows),
+            error=None,
+        )
+        log.info("lookup populate ok: %d rows in %d ms", len(rows), elapsed)
+    except Exception as exc:
+        elapsed = int((time.monotonic() - started) * 1000)
+        _lookup_state.update(
+            status="error",
+            finished_at=time.time(),
+            elapsed_ms=elapsed,
+            error=str(exc),
+        )
+        log.exception("lookup populate failed after %d ms: %s", elapsed, exc)
+    finally:
+        with _LOOKUP_LOCK:
+            _lookup_thread = None
 
-    fresh = _cache.get(cache_key, max_age_s=_lookup_ttl())
+
+def _kick_lookup_populate() -> None:
+    """Start a background populate if one isn't already in flight."""
+    global _lookup_thread
+    if not is_configured():
+        return
+    with _LOOKUP_LOCK:
+        if _lookup_thread is not None and _lookup_thread.is_alive():
+            return  # already loading
+        t = threading.Thread(
+            target=_populate_lookups_blocking,
+            name="reporting-api-lookups",
+            daemon=True,
+        )
+        _lookup_thread = t
+        t.start()
+
+
+def _cached_lookup_rows() -> list[dict]:
+    """Return the cached lookup rows (or [] if not ready yet)."""
+    fresh = _cache.get(_LOOKUP_KEY, max_age_s=_lookup_ttl())
     if fresh is not None:
         return fresh
+    return _cache.get(_LOOKUP_KEY, max_age_s=_stale_ttl()) or []
 
-    if not is_configured():
-        raise ReportingApiNotConfigured(
-            "REPORTING_API_BASE_URL is not set; cannot derive lookups"
-        )
 
-    rows = run(_LOOKUP_BASE_REPORT, {})
-    _cache.set(cache_key, rows)
-    return rows
+def lookup_status() -> dict[str, Any]:
+    """Snapshot of the lookup populate state. The form polls this so it
+    can show "Loading..." / row count / error text.
+    """
+    state = dict(_lookup_state)
+    state["configured"] = is_configured()
+    state["cached_row_count"] = len(_cached_lookup_rows())
+    return state
 
 
 def list_salesmen() -> list[dict]:
-    """Distinct salesmen (SalesGroup) seen in salesline_release.
+    """Distinct salesmen (SalesGroup) from cached lookup rows.
 
-    Returns [{"key": "<group>", "name": "<group>"}] sorted by name.
-    Blank/NULL salesmen are dropped (the dump shows 'NULL' for some
-    rows; until master data is available we just skip them).
+    NEVER blocks. Returns whatever's cached today; kicks off a background
+    populate if nothing is cached yet.
     """
-    rows = _lookup_rows()
+    rows = _cached_lookup_rows()
+    if not rows:
+        _kick_lookup_populate()
+        return []
+
     seen: set[str] = set()
     for r in rows:
         sg = r.get("SalesGroup")
@@ -444,13 +531,12 @@ def list_salesmen() -> list[dict]:
 
 
 def list_customers(salesman: str | None = None) -> list[dict]:
-    """Distinct customers (CustomerAccount + customername) seen in
-    salesline_release. Optionally filter to one salesman group.
+    """Distinct customers from cached lookup rows. NEVER blocks."""
+    rows = _cached_lookup_rows()
+    if not rows:
+        _kick_lookup_populate()
+        return []
 
-    Returns [{"key": "<account>", "name": "<account> - <customername>",
-              "salesman": "<group>"}] sorted by name.
-    """
-    rows = _lookup_rows()
     seen: dict[str, dict] = {}
     sm_filter = (salesman or "").strip() or None
 

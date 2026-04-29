@@ -11,18 +11,19 @@
     if (!root) return;
 
     const cfg = {
-        reportKey:    root.dataset.reportKey,
-        reportName:   root.dataset.reportName,
-        salesmenUrl:  root.dataset.salesmenUrl,
-        customersUrl: root.dataset.customersUrl,
-        yearsUrl:     root.dataset.yearsUrl,
-        viewUrl:      root.dataset.viewUrl,
-        previewUrl:   root.dataset.previewUrl,
-        hasPeriod:    root.dataset.hasPeriod   === "true",
-        hasStatus:    root.dataset.hasStatus   === "true",
-        hasYear:      root.dataset.hasYear     === "true",
-        hasSalesman:  root.dataset.hasSalesman === "true",
-        hasCustomer:  root.dataset.hasCustomer === "true",
+        reportKey:        root.dataset.reportKey,
+        reportName:       root.dataset.reportName,
+        salesmenUrl:      root.dataset.salesmenUrl,
+        customersUrl:     root.dataset.customersUrl,
+        yearsUrl:         root.dataset.yearsUrl,
+        viewUrl:          root.dataset.viewUrl,
+        previewUrl:       root.dataset.previewUrl,
+        lookupStatusUrl:  root.dataset.lookupStatusUrl,
+        hasPeriod:        root.dataset.hasPeriod   === "true",
+        hasStatus:        root.dataset.hasStatus   === "true",
+        hasYear:          root.dataset.hasYear     === "true",
+        hasSalesman:      root.dataset.hasSalesman === "true",
+        hasCustomer:      root.dataset.hasCustomer === "true",
     };
 
     const $ = (id) => document.getElementById(id);
@@ -80,48 +81,72 @@
         }
     }
 
-    // ---- Salesman dropdown --------------------------------------------
-    async function initSalesman() {
+    // ---- Salesman + Customer dropdowns --------------------------------
+    //
+    // The lookup data lives behind a slow API call. We must NOT block any
+    // other UI work on it (especially the live API-preview panel). So:
+    //   1. Fire salesman + customer fetches in the background, ignore failures.
+    //   2. Poll /lookups/status while they're loading so the user sees
+    //      progress instead of silence.
+    //   3. When the brother delivers the dedicated lookup SPs, this whole
+    //      polling dance can collapse to a single round-trip.
+
+    function initSalesmanShell() {
+        // Just wire up the change handler; the options come from kickoffLookups().
+        if (!cfg.hasSalesman) return;
+        if (cfg.hasCustomer) {
+            const sel = $("salesmanSelect");
+            sel.addEventListener("change", () => loadCustomers());
+        }
+    }
+
+    function applySalesmen(rows) {
         if (!cfg.hasSalesman) return;
         const sel = $("salesmanSelect");
-        try {
-            const rows = await fetchJson(cfg.salesmenUrl);
-            const opts = ['<option value="">All Salesmen</option>'].concat(
-                rows.map((r) => `<option value="${esc(r.key)}">${esc(r.name)}</option>`),
-            );
-            sel.innerHTML = opts.join("");
-        } catch {
-            // Leave the existing "All Salesmen" option in place.
-        }
-
-        // When the salesman changes, reload the customer list (if shown).
-        if (cfg.hasCustomer) {
-            sel.addEventListener("change", loadCustomers);
-        }
+        const current = sel.value;
+        const opts = ['<option value="">All Salesmen</option>'].concat(
+            rows.map((r) => `<option value="${esc(r.key)}">${esc(r.name)}</option>`),
+        );
+        sel.innerHTML = opts.join("");
+        if (current) sel.value = current; // preserve user's selection
     }
 
     // ---- Customer multi-select ----------------------------------------
     const customerState = {
         all: [],         // [{key, name}]
         selected: new Map(),  // key -> name
+        lastFetchUrl: null,
     };
 
     async function loadCustomers() {
         if (!cfg.hasCustomer) return;
         const list = $("customerList");
-        list.innerHTML = '<div class="customer-picker-loading">Loading customers&hellip;</div>';
-        customerState.selected.clear();
-        renderChips();
 
         let url = cfg.customersUrl;
         const sm = cfg.hasSalesman ? ($("salesmanSelect")?.value || "") : "";
         if (sm) url += (url.includes("?") ? "&" : "?") + "salesman=" + encodeURIComponent(sm);
+        customerState.lastFetchUrl = url;
+
+        if (list && customerState.all.length === 0) {
+            list.innerHTML = '<div class="customer-picker-loading">Waiting for customer list&hellip;</div>';
+        }
 
         try {
-            customerState.all = await fetchJson(url);
-            renderList(customerState.all);
+            const rows = await fetchJson(url);
+            // Bail out if a newer fetch superseded this one.
+            if (customerState.lastFetchUrl !== url) return;
+            customerState.all = rows;
+            // Drop selections that aren't in the new salesman's book.
+            const valid = new Set(rows.map((r) => r.key));
+            for (const key of [...customerState.selected.keys()]) {
+                if (!valid.has(key)) customerState.selected.delete(key);
+            }
+            renderChips();
+            renderList(rows);
         } catch (e) {
-            list.innerHTML = `<div class="customer-picker-empty">Could not load customers (${esc(e.message || e)}).</div>`;
+            if (list) {
+                list.innerHTML = `<div class="customer-picker-empty">Could not load customers (${esc(e.message || e)}).</div>`;
+            }
         }
     }
 
@@ -283,11 +308,94 @@
     }
     function cssEsc(s) { return String(s ?? "").replace(/(["\\])/g, "\\$1"); }
 
+    // ---- Lookup polling -----------------------------------------------
+    // The first time anyone hits the form, the server kicks off a slow
+    // populate. We poll status until it's ready, then fill the dropdowns.
+    let lookupPollTimer = null;
+    let lookupReady = false;
+
+    function setLookupBanner(text, kind) {
+        const el = $("lookupBanner");
+        if (!el) return;
+        if (!text) {
+            el.hidden = true;
+            el.textContent = "";
+            el.className = "lookup-banner";
+            return;
+        }
+        el.hidden = false;
+        el.textContent = text;
+        el.className = "lookup-banner" + (kind ? (" lookup-banner-" + kind) : "");
+    }
+
+    async function pollLookupStatus() {
+        if (!cfg.lookupStatusUrl) return;
+        try {
+            const status = await fetchJson(cfg.lookupStatusUrl);
+
+            if (!status.configured) {
+                setLookupBanner("Reporting API not configured. Type in a salesman/customer if you need to filter.", "warn");
+                lookupReady = true; // Stop polling; nothing to wait for.
+                return;
+            }
+
+            if (status.cached_row_count > 0 && !lookupReady) {
+                // Data is available now; fetch the dropdowns once.
+                lookupReady = true;
+                setLookupBanner("", null);
+                if (cfg.hasSalesman) {
+                    fetchJson(cfg.salesmenUrl).then(applySalesmen).catch(() => {});
+                }
+                if (cfg.hasCustomer) {
+                    loadCustomers();
+                }
+                return;
+            }
+
+            if (status.status === "loading") {
+                const elapsed = status.started_at
+                    ? Math.round((Date.now() / 1000 - status.started_at)) : 0;
+                setLookupBanner(`Loading customer/salesman list from server\u2026 (${elapsed}s)`, "info");
+                schedulePoll(2000);
+                return;
+            }
+
+            if (status.status === "error") {
+                setLookupBanner(
+                    "Couldn't load the customer/salesman list (" + (status.error || "unknown error") +
+                    "). The form still works; just type the values you need.",
+                    "warn"
+                );
+                // Try again in 30s in case the API comes back.
+                schedulePoll(30000);
+                return;
+            }
+
+            // Idle / unknown -- give the server a chance to start by
+            // hitting the dropdown endpoints (which kick the populate).
+            if (cfg.hasSalesman) fetchJson(cfg.salesmenUrl).then(applySalesmen).catch(() => {});
+            if (cfg.hasCustomer) loadCustomers();
+            schedulePoll(2000);
+        } catch (e) {
+            // Network or auth error on the status endpoint itself; back off.
+            schedulePoll(10000);
+        }
+    }
+
+    function schedulePoll(delayMs) {
+        clearTimeout(lookupPollTimer);
+        lookupPollTimer = setTimeout(pollLookupStatus, delayMs);
+    }
+
     // ---- Boot ---------------------------------------------------------
+    // Order matters: kick the API preview off FIRST so the panel fills in
+    // immediately even while the slow lookup populate is in flight.
+    refreshApiPreview();
     initPeriod();
     initStatus();
     initYear();
-    initSalesman();
-    if (cfg.hasCustomer) { initCustomerSearch(); loadCustomers(); }
-    refreshApiPreview();
+    initSalesmanShell();
+    if (cfg.hasCustomer) initCustomerSearch();
+    // Lookup populate runs in parallel with everything else.
+    if (cfg.hasSalesman || cfg.hasCustomer) pollLookupStatus();
 })();

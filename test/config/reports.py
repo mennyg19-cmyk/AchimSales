@@ -27,6 +27,11 @@ class Report:
     salesman_filter: bool  = False
     customer_filter: bool  = False
 
+    # Has the report been wired to a real data source? Disabled reports
+    # are hidden from the homepage and refuse to render the filter form.
+    # Flip to True as each one gets its on-prem stored procedure.
+    enabled: bool = False
+
 
 REPORTS: dict[str, Report] = {
     r.key: r
@@ -40,6 +45,7 @@ REPORTS: dict[str, Report] = {
             has_status=True,
             salesman_filter=True,
             customer_filter=True,
+            enabled=True,   # <-- wired to salesline_release
         ),
         Report(
             key="invoiced",
@@ -89,9 +95,12 @@ REPORTS: dict[str, Report] = {
 }
 
 
-def list_reports() -> list[Report]:
-    """Reports in display order."""
-    return list(REPORTS.values())
+def list_reports(*, include_disabled: bool = False) -> list[Report]:
+    """Reports in display order. By default only enabled (wired) ones."""
+    rs = list(REPORTS.values())
+    if include_disabled:
+        return rs
+    return [r for r in rs if r.enabled]
 
 
 def get_report(key: str) -> Report:

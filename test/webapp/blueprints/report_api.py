@@ -28,7 +28,6 @@ from test.config.reports import REPORTS, get_report
 from test.webapp.auth import current_user, has_sharepoint_access, require_login
 from test.webapp.db import log_report_run
 from test.webapp.services.email_outbox import send_report_email
-from test.webapp.services.mock_data import CUSTOMERS, SALESMEN, customers_by_salesman
 from test.webapp.services.report_export import build_workbook
 from test.webapp.services.report_runner import run_report
 from test.webapp.services import reporting_api
@@ -65,6 +64,8 @@ def _normalise_layouts(raw) -> tuple[dict, set[str]]:
 def _ensure_report(key: str):
     if key not in REPORTS:
         abort(404, description=f"Unknown report '{key}'")
+    if not REPORTS[key].enabled:
+        abort(404, description=f"Report '{key}' is not yet wired to a data source")
 
 
 # ---------------------------------------------------------------------------
@@ -75,32 +76,36 @@ def _ensure_report(key: str):
 @report_api_bp.get("/<key>/salesmen")
 @require_login
 def list_salesmen(key: str):
+    """Salesman dropdown source.
+
+    Pulls distinct salesmen from the reporting API. Returns an empty
+    list (NOT mock data) if the API is unreachable so the UI never
+    silently shows fake names. The form falls back to a free-text
+    input in that case.
+    """
     _ensure_report(key)
-
-    if reporting_api.is_configured():
-        try:
-            return jsonify(reporting_api.list_salesmen())
-        except Exception:
-            log.exception("reporting_api.list_salesmen failed; falling back to mock")
-
-    return jsonify(SALESMEN)
+    if not reporting_api.is_configured():
+        return jsonify([])
+    try:
+        return jsonify(reporting_api.list_salesmen())
+    except Exception:
+        log.exception("reporting_api.list_salesmen failed")
+        return jsonify([])
 
 
 @report_api_bp.get("/<key>/customers")
 @require_login
 def list_customers(key: str):
-    """All customers, or one salesman's book via ``?salesman=``."""
+    """Customer dropdown source. ``?salesman=`` narrows the list."""
     _ensure_report(key)
     salesman = (request.args.get("salesman") or "").strip()
-
-    if reporting_api.is_configured():
-        try:
-            return jsonify(reporting_api.list_customers(salesman or None))
-        except Exception:
-            log.exception("reporting_api.list_customers failed; falling back to mock")
-
-    rows = customers_by_salesman(salesman) if salesman else list(CUSTOMERS)
-    return jsonify([{"key": c["key"], "name": c["name"]} for c in rows])
+    if not reporting_api.is_configured():
+        return jsonify([])
+    try:
+        return jsonify(reporting_api.list_customers(salesman or None))
+    except Exception:
+        log.exception("reporting_api.list_customers failed")
+        return jsonify([])
 
 
 @report_api_bp.get("/<key>/years")
@@ -109,6 +114,26 @@ def list_years(key: str):
     _ensure_report(key)
     current = date.today().year
     return jsonify([{"key": str(y), "name": str(y)} for y in range(current, 2019, -1)])
+
+
+@report_api_bp.get("/lookups/status")
+@require_login
+def lookup_status():
+    """Where is the salesman/customer lookup populate up to?
+
+    The form polls this every few seconds while loading. Response shape:
+        {
+          "configured": bool,
+          "status": "idle"|"loading"|"ready"|"error",
+          "started_at": <epoch>|null,
+          "finished_at": <epoch>|null,
+          "elapsed_ms": int|null,
+          "row_count": int,            # last populate's row count
+          "cached_row_count": int,     # what's available right now
+          "error": str|null
+        }
+    """
+    return jsonify(reporting_api.lookup_status())
 
 
 @report_api_bp.get("/<key>/preview-body")

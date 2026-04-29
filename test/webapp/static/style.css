@@ -4054,6 +4054,30 @@ body.dark-theme .tabulator .tabulator-row:hover,
     border-color: rgba(220, 38, 38, 0.45);
 }
 
+/* Lookup-loading banner on the filter form. Sits above the form fields and
+   tells the user "loading customer/salesman list..." so they don't think
+   the empty dropdowns are broken. */
+.lookup-banner {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-soft, #ddd);
+    background: var(--card-soft-bg, rgba(0,0,0,0.04));
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text-muted, #555);
+}
+.lookup-banner-info {
+    background: rgba(59, 130, 246, 0.10);
+    border-color: rgba(59, 130, 246, 0.35);
+    color: #1d4ed8;
+}
+.lookup-banner-warn {
+    background: rgba(234, 179, 8, 0.12);
+    border-color: rgba(234, 179, 8, 0.45);
+    color: #92400e;
+}
+
 /* Reporting-API request preview (used on filter form + report viewer). */
 .api-preview-panel {
     margin-top: 14px;

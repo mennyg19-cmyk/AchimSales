@@ -13,7 +13,8 @@
     data-has-year="{{ 'true' if report.has_year else 'false' }}"
     data-has-salesman="{{ 'true' if report.salesman_filter else 'false' }}"
     data-has-customer="{{ 'true' if report.customer_filter else 'false' }}"
-    data-preview-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/preview-body">
+    data-preview-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/preview-body"
+    data-lookup-status-url="{{ URL_PREFIX }}/api/reports/lookups/status">
 
     <div class="page-header">
         <a href="{{ url_for('reports.list_all') }}" class="back-link">
@@ -24,6 +25,10 @@
     </div>
 
     <form id="reportForm" class="report-form" autocomplete="off" novalidate>
+
+        {% if report.salesman_filter or report.customer_filter %}
+        <div id="lookupBanner" class="lookup-banner" hidden></div>
+        {% endif %}
 
         {% set has_any = report.has_period or report.has_year or report.has_status
                          or report.salesman_filter or report.customer_filter %}
