@@ -188,6 +188,12 @@ function _renderSelectedChips() {
 }
 
 function initCustomerSearch() {
+    /* The report-form's customer picker shares an input id ("customerSearch")
+       with the standalone last-order pick page. This handler renders into
+       #customerList in the report-form style (customer-item rows), which
+       clobbers the last-order page's own anchor list. Gate on the same
+       flag loadCustomers() uses so we only attach on report-form pages. */
+    if (typeof HAS_CUSTOMER_FILTER === 'undefined' || !HAS_CUSTOMER_FILTER) return;
     var searchInput = document.getElementById('customerSearch');
     if (!searchInput) return;
     searchInput.addEventListener('input', function () {
