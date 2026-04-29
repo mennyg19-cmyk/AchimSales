@@ -41,6 +41,17 @@
             {% endfor %}
         </div>
         {% endif %}
+
+        <details class="api-preview-panel" id="apiSentPanel" hidden>
+            <summary>
+                <span>Request sent to the reporting API</span>
+                <span class="api-preview-hint" id="apiSentHint"></span>
+            </summary>
+            <div class="api-preview-meta">
+                <div><strong>POST</strong> <span id="apiSentUrl">&mdash;</span></div>
+            </div>
+            <pre class="api-preview-body" id="apiSentBody">{}</pre>
+        </details>
     </div>
 
     <div class="view-actions">

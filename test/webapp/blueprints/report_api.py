@@ -111,6 +111,20 @@ def list_years(key: str):
     return jsonify([{"key": str(y), "name": str(y)} for y in range(current, 2019, -1)])
 
 
+@report_api_bp.get("/<key>/preview-body")
+@require_login
+def preview_body(key: str):
+    """Show the exact body that would be POSTed to the reporting API for
+    the given filter params, without actually running the report.
+
+    Filters can come from either the URL query string (the form's natural
+    output) or a JSON body (programmatic callers).
+    """
+    _ensure_report(key)
+    params = _params_from_request()
+    return jsonify(reporting_api.preview(key, params))
+
+
 # ---------------------------------------------------------------------------
 # Run + export
 # ---------------------------------------------------------------------------

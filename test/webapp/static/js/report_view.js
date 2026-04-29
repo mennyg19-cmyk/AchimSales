@@ -47,6 +47,10 @@
         emptyState:         $("emptyState"),
         emptyStateMsg:      $("emptyStateMsg"),
         sourceBadge:        $("dataSourceBadge"),
+        apiSentPanel:       $("apiSentPanel"),
+        apiSentUrl:         $("apiSentUrl"),
+        apiSentBody:        $("apiSentBody"),
+        apiSentHint:        $("apiSentHint"),
 
         // Hidden panel (desktop)
         panel:              $("hiddenPanel"),
@@ -151,7 +155,29 @@
     wireScheduleModal();
 
     // ---------- Data-source badge --------------------------------------
+    function renderApiSentPanel(meta) {
+        const panel = els.apiSentPanel;
+        if (!panel) return;
+        const body = (meta && meta.request_body) || null;
+        const url  = (meta && meta.endpoint) || null;
+        if (!body && !url) {
+            panel.hidden = true;
+            return;
+        }
+        if (els.apiSentUrl)  els.apiSentUrl.textContent  = url || "(no URL)";
+        if (els.apiSentBody) els.apiSentBody.textContent = JSON.stringify(body || {}, null, 2);
+        if (els.apiSentHint) {
+            const keys = body ? Object.keys(body).length : 0;
+            els.apiSentHint.textContent = keys
+                ? `(${keys} param${keys === 1 ? "" : "s"})`
+                : "(no params)";
+        }
+        panel.hidden = false;
+    }
+
     function renderSourceBadge(meta) {
+        renderApiSentPanel(meta);
+
         const el = els.sourceBadge;
         if (!el) return;
 

@@ -138,6 +138,10 @@ def _build_ordered(params: dict, r: random.Random) -> tuple[list[dict], dict]:
     source: dict[str, Any] = {"source": "unknown"}
 
     if reporting_api.is_configured() and os.environ.get("USE_REPORTING_API_ORDERED", "1") != "0":
+        # Pre-compute the body we'll send so we can show it on the UI even
+        # if the call fails or falls back. Mirrors what reporting_api.run()
+        # does internally.
+        request_preview = reporting_api.preview("ordered", params)
         api_started = time.monotonic()
         try:
             rows = reporting_api.run("ordered", params)
@@ -150,7 +154,8 @@ def _build_ordered(params: dict, r: random.Random) -> tuple[list[dict], dict]:
                 "rows_fetched": len(rows),
                 "elapsed_ms":   elapsed_ms,
                 "timeout_s":    int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
-                "endpoint":     f"{os.environ.get('REPORTING_API_BASE_URL', '').rstrip('/')}/api/reports/salesline_release/run",
+                "endpoint":     request_preview.get("url"),
+                "request_body": request_preview.get("body"),
             }
         except Exception as exc:
             elapsed_ms = int((time.monotonic() - api_started) * 1000)
@@ -160,11 +165,13 @@ def _build_ordered(params: dict, r: random.Random) -> tuple[list[dict], dict]:
             )
             rows = None
             source = {
-                "source":     "reporting_api_failed",
-                "label":      "API call failed — see fallback below",
-                "error":      str(exc),
-                "elapsed_ms": elapsed_ms,
-                "timeout_s":  int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
+                "source":       "reporting_api_failed",
+                "label":        "API call failed — see fallback below",
+                "error":        str(exc),
+                "elapsed_ms":   elapsed_ms,
+                "timeout_s":    int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
+                "endpoint":     request_preview.get("url"),
+                "request_body": request_preview.get("body"),
             }
 
     if rows is None:
@@ -185,6 +192,10 @@ def _build_ordered(params: dict, r: random.Random) -> tuple[list[dict], dict]:
                     source["elapsed_ms"] = previous["elapsed_ms"]
                 if previous.get("timeout_s") is not None:
                     source["timeout_s"] = previous["timeout_s"]
+                if previous.get("request_body") is not None:
+                    source["request_body"] = previous["request_body"]
+                if previous.get("endpoint"):
+                    source["endpoint"] = previous["endpoint"]
 
     if rows is not None:
         return ordered_builder.build(rows), source

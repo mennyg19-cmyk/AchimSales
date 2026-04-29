@@ -17,6 +17,7 @@
         customersUrl: root.dataset.customersUrl,
         yearsUrl:     root.dataset.yearsUrl,
         viewUrl:      root.dataset.viewUrl,
+        previewUrl:   root.dataset.previewUrl,
         hasPeriod:    root.dataset.hasPeriod   === "true",
         hasStatus:    root.dataset.hasStatus   === "true",
         hasYear:      root.dataset.hasYear     === "true",
@@ -220,6 +221,48 @@
         window.location.href = cfg.viewUrl + (qs ? "?" + qs : "");
     });
 
+    // ---- API preview --------------------------------------------------
+    let previewTimer = null;
+    function refreshApiPreview() {
+        if (!cfg.previewUrl) return;
+        const urlEl  = $("apiPreviewUrl");
+        const bodyEl = $("apiPreviewBody");
+        const hintEl = $("apiPreviewHint");
+        if (!bodyEl) return;
+
+        const qs = buildQueryString();
+        fetch(cfg.previewUrl + (qs ? "?" + qs : ""), {
+            credentials: "same-origin",
+            headers: { Accept: "application/json" },
+        })
+        .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+        .then((preview) => {
+            urlEl.textContent  = preview.url || "(REPORTING_API_BASE_URL not set)";
+            bodyEl.textContent = JSON.stringify(preview.body || {}, null, 2);
+            const keys = Object.keys(preview.body || {}).length;
+            const cfgState = preview.configured ? "" : " — API not configured";
+            hintEl.textContent = keys
+                ? `(${keys} param${keys === 1 ? "" : "s"})${cfgState}`
+                : `(no params)${cfgState}`;
+        })
+        .catch((e) => {
+            bodyEl.textContent = "// preview failed: " + e.message;
+        });
+    }
+    function schedulePreviewRefresh() {
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(refreshApiPreview, 200);
+    }
+    // Anything that changes a filter should re-fire the preview.
+    form.addEventListener("input",  schedulePreviewRefresh);
+    form.addEventListener("change", schedulePreviewRefresh);
+    form.addEventListener("click",  (e) => {
+        if (e.target.closest(".period-btn") || e.target.closest(".status-btn")
+            || e.target.closest(".customer-pill") || e.target.closest(".customer-card")) {
+            schedulePreviewRefresh();
+        }
+    });
+
     // ---- Helpers ------------------------------------------------------
     function fetchJson(url) {
         return fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } })
@@ -246,4 +289,5 @@
     initYear();
     initSalesman();
     if (cfg.hasCustomer) { initCustomerSearch(); loadCustomers(); }
+    refreshApiPreview();
 })();

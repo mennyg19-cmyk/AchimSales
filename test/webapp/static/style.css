@@ -4054,6 +4054,61 @@ body.dark-theme .tabulator .tabulator-row:hover,
     border-color: rgba(220, 38, 38, 0.45);
 }
 
+/* Reporting-API request preview (used on filter form + report viewer). */
+.api-preview-panel {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-soft, #ddd);
+    border-radius: 6px;
+    background: var(--card-soft-bg, rgba(0,0,0,0.02));
+    font-size: 13px;
+}
+.api-preview-panel summary {
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    list-style: none;
+}
+.api-preview-panel summary::-webkit-details-marker { display: none; }
+.api-preview-panel summary::before {
+    content: "▸ ";
+    display: inline-block;
+    margin-right: 4px;
+    transition: transform 0.15s;
+}
+.api-preview-panel[open] summary::before { content: "▾ "; }
+.api-preview-panel .api-preview-hint {
+    color: var(--text-muted, #777);
+    font-weight: 400;
+    font-size: 12px;
+}
+.api-preview-panel .api-preview-meta {
+    margin-top: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-muted, #555);
+    word-break: break-all;
+}
+.api-preview-panel .api-preview-meta strong {
+    color: #228b43;
+    margin-right: 6px;
+}
+.api-preview-panel .api-preview-body {
+    margin: 8px 0 0 0;
+    background: var(--code-bg, rgba(0,0,0,0.05));
+    padding: 10px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 320px;
+    overflow: auto;
+}
+
 /* Reporting API diagnostics page */
 .diag-page .diag-env-table {
     width: 100%;

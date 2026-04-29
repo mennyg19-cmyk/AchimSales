@@ -232,6 +232,45 @@ REPORT_ID_MAP: dict[str, tuple[str, Callable[[dict], dict]]] = {
 }
 
 
+def preview(report_key: str, filter_params: dict) -> dict[str, Any]:
+    """Return the exact request that *would* be sent to the reporting API
+    for these filters, without actually calling the API.
+
+    Used by the filter form (live preview) and the report viewer (audit).
+    Returns:
+        {
+          "report_id":  "salesline_release",
+          "url":        "http://aic-inordera:8080/api/reports/.../run",
+          "method":     "POST",
+          "body":       {<PascalCase SP params>},
+          "configured": True/False,    // is REPORTING_API_BASE_URL set?
+        }
+    """
+    entry = REPORT_ID_MAP.get(report_key)
+    if entry is None:
+        return {
+            "report_id":  None,
+            "url":        None,
+            "method":     "POST",
+            "body":       {},
+            "configured": is_configured(),
+            "warning":    f"No reporting-API mapping for report '{report_key}'",
+        }
+    report_id, translator = entry
+    body = translator(filter_params or {})
+
+    base = (os.environ.get("REPORTING_API_BASE_URL") or "").rstrip("/")
+    url = f"{base}/api/reports/{report_id}/run" if base else None
+
+    return {
+        "report_id":  report_id,
+        "url":        url,
+        "method":     "POST",
+        "body":       body,
+        "configured": is_configured(),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Cache (in-process, per worker)
 # ---------------------------------------------------------------------------

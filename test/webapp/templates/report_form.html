@@ -12,7 +12,8 @@
     data-has-status="{{ 'true' if report.has_status else 'false' }}"
     data-has-year="{{ 'true' if report.has_year else 'false' }}"
     data-has-salesman="{{ 'true' if report.salesman_filter else 'false' }}"
-    data-has-customer="{{ 'true' if report.customer_filter else 'false' }}">
+    data-has-customer="{{ 'true' if report.customer_filter else 'false' }}"
+    data-preview-url="{{ URL_PREFIX }}/api/reports/{{ report.key }}/preview-body">
 
     <div class="page-header">
         <a href="{{ url_for('reports.list_all') }}" class="back-link">
@@ -110,6 +111,17 @@
             </button>
         </div>
     </form>
+
+    <details class="api-preview-panel" id="apiPreviewPanel">
+        <summary>
+            <span>What will be sent to the reporting API</span>
+            <span class="api-preview-hint" id="apiPreviewHint"></span>
+        </summary>
+        <div class="api-preview-meta">
+            <div><strong>POST</strong> <span id="apiPreviewUrl">&mdash;</span></div>
+        </div>
+        <pre class="api-preview-body" id="apiPreviewBody">{}</pre>
+    </details>
 </section>
 
 {% endblock %}
