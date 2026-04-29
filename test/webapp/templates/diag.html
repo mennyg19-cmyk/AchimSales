@@ -61,9 +61,15 @@
             <button type="button" class="btn btn-outline diag-preset-btn"
                     data-payload="{}">Empty body</button>
             <button type="button" class="btn btn-outline diag-preset-btn"
+                    data-payload='{"SalesOrderNumber":"ORD00795476"}'>1 order</button>
+            <button type="button" class="btn btn-outline diag-preset-btn"
                     data-payload='{"CustomerAccount":"11528"}'>1 customer</button>
             <button type="button" class="btn btn-outline diag-preset-btn"
-                    data-payload='{"SalesOrderNumber":"ORD00795476"}'>1 order</button>
+                    data-period="daily">Yesterday only</button>
+            <button type="button" class="btn btn-outline diag-preset-btn"
+                    data-period="last_7_days">Last 7 days</button>
+            <button type="button" class="btn btn-outline diag-preset-btn"
+                    data-period="mtd">This month (MTD)</button>
         </div>
 
         <div class="diag-actions">
@@ -84,9 +90,42 @@
     const status = $("diagStatus");
     const result = $("diagResult");
 
+    function isoDate(d) {
+        const m = (d.getMonth() + 1).toString().padStart(2, "0");
+        const day = d.getDate().toString().padStart(2, "0");
+        return d.getFullYear() + "-" + m + "-" + day;
+    }
+    function periodPayload(period) {
+        const today = new Date();
+        let start, end;
+        if (period === "daily") {
+            const y = new Date(today); y.setDate(y.getDate() - 1);
+            start = end = y;
+        } else if (period === "last_7_days") {
+            start = new Date(today); start.setDate(start.getDate() - 6);
+            end = today;
+        } else if (period === "mtd") {
+            start = new Date(today.getFullYear(), today.getMonth(), 1);
+            end = today;
+        } else if (period === "ytd") {
+            start = new Date(today.getFullYear(), 0, 1);
+            end = today;
+        } else {
+            return {};
+        }
+        return {
+            CreatedDateTimeFrom: isoDate(start),
+            CreatedDateTimeTo:   isoDate(end),
+        };
+    }
+
     document.querySelectorAll(".diag-preset-btn").forEach(function (b) {
         b.addEventListener("click", function () {
-            $("diagParams").value = this.dataset.payload || "{}";
+            if (this.dataset.period) {
+                $("diagParams").value = JSON.stringify(periodPayload(this.dataset.period), null, 2);
+            } else {
+                $("diagParams").value = this.dataset.payload || "{}";
+            }
         });
     });
 

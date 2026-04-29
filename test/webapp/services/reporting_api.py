@@ -147,15 +147,68 @@ def _csv(value: Any) -> str | None:
     return s or None
 
 
+def _resolve_period(p: dict) -> tuple[str | None, str | None]:
+    """Resolve the form's period selector into (date_from_iso, date_to_iso).
+
+    The filter form sends:
+        period=daily|last_7_days|mtd|ytd|all_time|custom
+        start_date=YYYY-MM-DD  (custom only)
+        end_date=YYYY-MM-DD    (custom only)
+
+    Mirrors core.dates.parse_period() so the test app uses the exact
+    same period semantics as the live app.
+    """
+    period = (p.get("period") or "").strip().lower()
+    start = (p.get("start_date") or "").strip()
+    end   = (p.get("end_date") or "").strip()
+
+    # Custom: dates picked manually
+    if period == "custom" or (start and end and not period):
+        return (start or None, end or None)
+
+    # All time: no date filter at all (let the SP decide)
+    if period in ("all_time", ""):
+        return (None, None)
+
+    # Named period: defer to core.dates.parse_period()
+    try:
+        from core.dates import parse_period
+        spec = parse_period(period)
+        return (spec.start_date.isoformat(), spec.end_date.isoformat())
+    except Exception as exc:
+        log.warning("Could not resolve period %r: %s", period, exc)
+        return (None, None)
+
+
 def _translate_ordered(p: dict) -> dict[str, Any]:
     """In-app filter dict -> salesline_release SP params.
 
-    The on-prem SP supports the params shown in the project dump:
-      Company, CustomerAccount, customername, SalesOrderNumber,
-      CustomerRequisition, SalesGroup, LineNumber, SalesStatus,
-      Item, ShippingDateRequestedFrom/To, ReleasedQuantityMin/Max, ...
+    Source filter shape (what the run endpoint hands us):
+        period      : daily|last_7_days|mtd|ytd|all_time|custom
+        start_date  : YYYY-MM-DD  (when period=custom)
+        end_date    : YYYY-MM-DD  (when period=custom)
+        customers   : list[str] of CustomerAccount values
+        salesman    : SalesGroup string
+        status      : SalesStatus string
+        order_no    : SalesOrderNumber (free text, optional)
+        item        : Item code (free text, optional)
+        company     : Company code (defaults to whatever the SP uses)
+
+    SP target body (PascalCase, exactly as documented in the API dump):
+        CreatedDateTimeFrom / CreatedDateTimeTo  (mapped from period)
+        CustomerAccount, SalesGroup, SalesStatus,
+        SalesOrderNumber, Item, Company
+
+    Empty / unset fields are dropped so the SP can fall back to its
+    own defaults.
     """
     out: dict[str, Any] = {}
+
+    date_from, date_to = _resolve_period(p)
+    if date_from:
+        out["CreatedDateTimeFrom"] = date_from
+    if date_to:
+        out["CreatedDateTimeTo"] = date_to
 
     if v := _csv(p.get("customers")):
         out["CustomerAccount"] = v
@@ -163,10 +216,6 @@ def _translate_ordered(p: dict) -> dict[str, Any]:
         out["SalesGroup"] = v
     if v := _csv(p.get("status")):
         out["SalesStatus"] = v
-    if v := _csv(p.get("date_from")):
-        out["ShippingDateRequestedFrom"] = v
-    if v := _csv(p.get("date_to")):
-        out["ShippingDateRequestedTo"] = v
     if v := _csv(p.get("order_no")):
         out["SalesOrderNumber"] = v
     if v := _csv(p.get("item")):
