@@ -109,6 +109,9 @@ def create_app() -> Flask:
     from test.webapp.blueprints.master_schedules import master_schedules_bp
     app.register_blueprint(master_schedules_bp)
 
+    from test.webapp.blueprints.diag import diag_bp
+    app.register_blueprint(diag_bp)
+
     init_db()
 
     log.info("v2 app created (USE_MOCK_DATA=%s prefix=%s)", USE_MOCK_DATA, URL_PREFIX)

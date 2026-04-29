@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import random
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -137,24 +138,33 @@ def _build_ordered(params: dict, r: random.Random) -> tuple[list[dict], dict]:
     source: dict[str, Any] = {"source": "unknown"}
 
     if reporting_api.is_configured() and os.environ.get("USE_REPORTING_API_ORDERED", "1") != "0":
+        api_started = time.monotonic()
         try:
             rows = reporting_api.run("ordered", params)
-            log.info("ordered report: pulled %d rows from reporting API", len(rows))
+            elapsed_ms = int((time.monotonic() - api_started) * 1000)
+            log.info("ordered report: pulled %d rows from reporting API in %d ms",
+                     len(rows), elapsed_ms)
             source = {
-                "source":      "reporting_api",
-                "label":       "Reporting API (live data)",
+                "source":       "reporting_api",
+                "label":        "Reporting API (live data)",
                 "rows_fetched": len(rows),
-                "endpoint":    f"{os.environ.get('REPORTING_API_BASE_URL', '').rstrip('/')}/api/reports/salesline_release/run",
+                "elapsed_ms":   elapsed_ms,
+                "timeout_s":    int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
+                "endpoint":     f"{os.environ.get('REPORTING_API_BASE_URL', '').rstrip('/')}/api/reports/salesline_release/run",
             }
         except Exception as exc:
+            elapsed_ms = int((time.monotonic() - api_started) * 1000)
             log.exception(
-                "Reporting API fetch for ordered failed, falling back to fixture: %s", exc
+                "Reporting API fetch for ordered failed after %d ms, falling back to fixture: %s",
+                elapsed_ms, exc,
             )
             rows = None
             source = {
-                "source": "reporting_api_failed",
-                "label":  "API call failed — see fallback below",
-                "error":  str(exc),
+                "source":     "reporting_api_failed",
+                "label":      "API call failed — see fallback below",
+                "error":      str(exc),
+                "elapsed_ms": elapsed_ms,
+                "timeout_s":  int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
             }
 
     if rows is None:
@@ -162,15 +172,19 @@ def _build_ordered(params: dict, r: random.Random) -> tuple[list[dict], dict]:
         if fixture_rows is not None:
             log.info("ordered report: using fixture (%d rows)", len(fixture_rows))
             rows = _filter_ordered_fixture(fixture_rows, params)
-            previous_error = source.get("error") if source.get("source") == "reporting_api_failed" else None
+            previous = source if source.get("source") == "reporting_api_failed" else None
             source = {
                 "source": "fixture",
                 "label":  "Fixture (test data dump) — not real data",
                 "rows_fetched": len(rows),
                 "fixture_file": str(_ORDERED_FIXTURE),
             }
-            if previous_error:
-                source["api_error"] = previous_error
+            if previous:
+                source["api_error"] = previous.get("error")
+                if previous.get("elapsed_ms") is not None:
+                    source["elapsed_ms"] = previous["elapsed_ms"]
+                if previous.get("timeout_s") is not None:
+                    source["timeout_s"] = previous["timeout_s"]
 
     if rows is not None:
         return ordered_builder.build(rows), source

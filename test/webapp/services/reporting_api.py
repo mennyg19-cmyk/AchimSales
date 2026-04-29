@@ -100,9 +100,9 @@ def _headers() -> dict[str, str]:
 
 def _timeout() -> int:
     try:
-        return int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "60"))
+        return int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120"))
     except ValueError:
-        return 60
+        return 120
 
 
 def _fresh_ttl() -> int:

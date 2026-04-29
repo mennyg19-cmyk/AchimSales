@@ -171,6 +171,11 @@
         el.textContent = info.text;
         const tipParts = [meta.label || ""];
         if (meta.rows_fetched != null) tipParts.push("Rows: " + meta.rows_fetched);
+        if (meta.elapsed_ms != null) {
+            const secs = (meta.elapsed_ms / 1000).toFixed(1);
+            const tip = "API call: " + meta.elapsed_ms + " ms (" + secs + " s)";
+            tipParts.push(meta.timeout_s ? tip + " of " + meta.timeout_s + " s timeout" : tip);
+        }
         if (meta.endpoint) tipParts.push("Endpoint: " + meta.endpoint);
         if (meta.fixture_file) tipParts.push("File: " + meta.fixture_file);
         if (meta.api_error) tipParts.push("Last API error: " + meta.api_error);

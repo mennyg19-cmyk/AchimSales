@@ -4053,3 +4053,72 @@ body.dark-theme .tabulator .tabulator-row:hover,
     color: #b91c1c;
     border-color: rgba(220, 38, 38, 0.45);
 }
+
+/* Reporting API diagnostics page */
+.diag-page .diag-env-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.diag-page .diag-env-table th,
+.diag-page .diag-env-table td {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-soft, #ddd);
+    vertical-align: middle;
+}
+.diag-page .diag-env-table th {
+    font-weight: 600;
+    width: 40%;
+}
+.diag-page code {
+    background: var(--code-bg, rgba(0,0,0,0.05));
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+}
+.diag-good { color: #228b43; font-weight: 600; }
+.diag-bad  { color: #b91c1c; font-weight: 600; }
+
+.diag-page .diag-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.diag-page .diag-params-label { grid-column: 1 / -1; }
+.diag-page .diag-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+}
+.diag-page .diag-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+.diag-page .diag-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.diag-page .diag-status {
+    font-size: 13px;
+    font-weight: 600;
+}
+.diag-page .diag-result {
+    background: var(--code-bg, rgba(0,0,0,0.05));
+    padding: 12px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 60vh;
+    overflow: auto;
+}

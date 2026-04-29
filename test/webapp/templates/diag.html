@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Reporting API Diagnostics &middot; Sales Reports (test){% endblock %}
+
+{% block content %}
+<section class="page diag-page">
+    <div class="page-header">
+        <h1>Reporting API Diagnostics</h1>
+        <p class="page-subtitle">
+            Live ping against the on-prem reporting API. Useful for narrowing
+            down timeouts, auth failures, and bad payloads without redeploying.
+        </p>
+    </div>
+
+    <section class="settings-section">
+        <h2>Environment</h2>
+        <table class="diag-env-table">
+            <tbody>
+                {% for k, v in env_status.items() %}
+                <tr>
+                    <th>{{ k }}</th>
+                    <td>
+                        {% if v == "NOT SET" %}
+                        <span class="diag-bad">{{ v }}</span>
+                        {% elif v is sameas false %}
+                        <span class="diag-bad">false</span>
+                        {% elif v is sameas true %}
+                        <span class="diag-good">true</span>
+                        {% else %}
+                        <code>{{ v }}</code>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="settings-section">
+        <h2>Run a live API call</h2>
+
+        <div class="diag-controls">
+            <label>
+                Report ID
+                <input id="diagReportId" type="text" value="salesline_release"
+                       class="form-input" />
+            </label>
+            <label>
+                Timeout (seconds)
+                <input id="diagTimeout" type="number" min="5" max="600" value="30"
+                       class="form-input" />
+            </label>
+            <label class="diag-params-label">
+                Body params (raw JSON, sent as-is)
+                <textarea id="diagParams" rows="4"
+                          class="form-input"
+                          placeholder='{"CustomerAccount": "11528"}'>{}</textarea>
+            </label>
+        </div>
+
+        <div class="diag-presets">
+            <button type="button" class="btn btn-outline diag-preset-btn"
+                    data-payload="{}">Empty body</button>
+            <button type="button" class="btn btn-outline diag-preset-btn"
+                    data-payload='{"CustomerAccount":"11528"}'>1 customer</button>
+            <button type="button" class="btn btn-outline diag-preset-btn"
+                    data-payload='{"SalesOrderNumber":"ORD00795476"}'>1 order</button>
+        </div>
+
+        <div class="diag-actions">
+            <button type="button" class="btn btn-primary" id="diagRunBtn">
+                <i data-feather="zap"></i> Run test
+            </button>
+            <span id="diagStatus" class="diag-status"></span>
+        </div>
+
+        <pre id="diagResult" class="diag-result" hidden></pre>
+    </section>
+</section>
+
+<script>
+(function () {
+    const $ = (id) => document.getElementById(id);
+    const runBtn = $("diagRunBtn");
+    const status = $("diagStatus");
+    const result = $("diagResult");
+
+    document.querySelectorAll(".diag-preset-btn").forEach(function (b) {
+        b.addEventListener("click", function () {
+            $("diagParams").value = this.dataset.payload || "{}";
+        });
+    });
+
+    runBtn.addEventListener("click", async function () {
+        let parsed;
+        try {
+            parsed = JSON.parse($("diagParams").value || "{}");
+        } catch (e) {
+            status.textContent = "Body params must be valid JSON: " + e.message;
+            status.className = "diag-status diag-bad";
+            return;
+        }
+        const body = {
+            report_id: $("diagReportId").value.trim() || "salesline_release",
+            params:    parsed,
+            timeout_s: Number($("diagTimeout").value) || 30,
+        };
+        status.textContent = "Running… (this is a live API call, not cached)";
+        status.className = "diag-status";
+        result.hidden = true;
+        runBtn.disabled = true;
+
+        const t0 = performance.now();
+        let payload, errText = null;
+        try {
+            const resp = await fetch("{{ URL_PREFIX }}/diag/api/ping", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            });
+            payload = await resp.json();
+        } catch (e) {
+            errText = e.message || String(e);
+        }
+        const dt = Math.round(performance.now() - t0);
+        runBtn.disabled = false;
+
+        if (errText) {
+            status.textContent = "Browser-side error after " + dt + "ms: " + errText;
+            status.className = "diag-status diag-bad";
+            return;
+        }
+        const ok = payload.ok;
+        const summary = ok
+            ? `OK — HTTP ${payload.http_status}, ${payload.row_count} rows, ${payload.elapsed_ms} ms`
+            : `FAIL (${payload.stage}) — ${payload.error || ("HTTP " + payload.http_status)} after ${payload.elapsed_ms || dt} ms`;
+        status.textContent = summary;
+        status.className = "diag-status " + (ok ? "diag-good" : "diag-bad");
+        result.textContent = JSON.stringify(payload, null, 2);
+        result.hidden = false;
+    });
+})();
+</script>
+{% endblock %}
