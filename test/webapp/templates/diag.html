@@ -46,7 +46,7 @@
             </label>
             <label>
                 Timeout (seconds)
-                <input id="diagTimeout" type="number" min="5" max="600" value="30"
+                <input id="diagTimeout" type="number" min="5" max="600" value="120"
                        class="form-input" />
             </label>
             <label class="diag-params-label">
@@ -90,39 +90,38 @@
     const status = $("diagStatus");
     const result = $("diagResult");
 
-    function isoDate(d) {
-        const m = (d.getMonth() + 1).toString().padStart(2, "0");
-        const day = d.getDate().toString().padStart(2, "0");
-        return d.getFullYear() + "-" + m + "-" + day;
-    }
-    function periodPayload(period) {
-        const today = new Date();
-        let start, end;
-        if (period === "daily") {
-            const y = new Date(today); y.setDate(y.getDate() - 1);
-            start = end = y;
-        } else if (period === "last_7_days") {
-            start = new Date(today); start.setDate(start.getDate() - 6);
-            end = today;
-        } else if (period === "mtd") {
-            start = new Date(today.getFullYear(), today.getMonth(), 1);
-            end = today;
-        } else if (period === "ytd") {
-            start = new Date(today.getFullYear(), 0, 1);
-            end = today;
-        } else {
-            return {};
-        }
-        return {
-            CreatedDateTimeFrom: isoDate(start),
-            CreatedDateTimeTo:   isoDate(end),
-        };
+    /* Period presets ask the server to translate them, so the diag page
+       always tests with the EXACT same body the real /run path sends.
+       (Otherwise the diag page can succeed with one format while the
+       real run fails with another -- we hit that bug once already.) */
+    const PREVIEW_URL = "{{ URL_PREFIX }}/api/reports/ordered/preview-body";
+
+    async function periodPayload(period) {
+        const url = PREVIEW_URL + "?period=" + encodeURIComponent(period);
+        const r = await fetch(url, {
+            credentials: "same-origin",
+            headers: { Accept: "application/json" },
+        });
+        if (!r.ok) throw new Error("preview HTTP " + r.status);
+        const data = await r.json();
+        return data.body || {};
     }
 
     document.querySelectorAll(".diag-preset-btn").forEach(function (b) {
-        b.addEventListener("click", function () {
+        b.addEventListener("click", async function () {
             if (this.dataset.period) {
-                $("diagParams").value = JSON.stringify(periodPayload(this.dataset.period), null, 2);
+                const orig = this.textContent;
+                this.disabled = true;
+                this.textContent = "loading...";
+                try {
+                    const body = await periodPayload(this.dataset.period);
+                    $("diagParams").value = JSON.stringify(body, null, 2);
+                } catch (e) {
+                    $("diagParams").value = "/* preview failed: " + (e.message || e) + " */";
+                } finally {
+                    this.textContent = orig;
+                    this.disabled = false;
+                }
             } else {
                 $("diagParams").value = this.dataset.payload || "{}";
             }
@@ -141,7 +140,7 @@
         const body = {
             report_id: $("diagReportId").value.trim() || "salesline_release",
             params:    parsed,
-            timeout_s: Number($("diagTimeout").value) || 30,
+            timeout_s: Number($("diagTimeout").value) || 120,
         };
         status.textContent = "Running… (this is a live API call, not cached)";
         status.className = "diag-status";
