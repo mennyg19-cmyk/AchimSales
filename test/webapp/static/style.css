@@ -3203,6 +3203,24 @@ body.col-resizing * {
 .view-actions .btn {
     flex: 0 0 auto;
 }
+/* Sits next to "Export Excel" and shows live "X rows" or "X of Y rows"
+   so users know exactly what the export will contain. */
+.export-row-count {
+    align-self: center;
+    margin-left: -2px;
+    margin-right: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: var(--card-soft-bg, rgba(0, 0, 0, 0.05));
+    color: var(--text-muted, #555);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.export-row-count.is-filtered {
+    background: rgba(234, 179, 8, 0.15);
+    color: #92400e;
+}
 .view-status {
     display: flex;
     gap: 12px;

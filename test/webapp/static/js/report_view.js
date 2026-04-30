@@ -72,7 +72,10 @@
         restoreAllBtnM:     $("restoreAllBtnMobile"),
 
         // Action buttons
+        refreshBtn:         $("refreshDataBtn"),
+        resetBtn:           $("resetViewBtn"),
         exportBtn:          $("exportXlsxBtn"),
+        exportRowCount:     $("exportRowCount"),
         emailBtn:           $("emailNowBtn"),
         scheduleBtn:        $("scheduleBtn"),
         presetBtn:          $("savePresetBtn"),
@@ -143,6 +146,10 @@
         tabOrder:    [],
         hiddenTabs:  new Set(),
         scheduleUi:  { cadence: "daily", weekdays: new Set(["mon"]), monthdays: new Set([1]) },
+        // Snapshot of the layout right after the first runReport() so
+        // "Reset to default view" can restore it. Populated by
+        // captureDefaultLayout() once on first load.
+        defaultLayout: null,
     };
 
     // ---------- Boot -----------------------------------------------------
@@ -211,8 +218,21 @@
     }
 
     // ---------- Fetch & render ------------------------------------------
-    async function runReport() {
-        showStatus("Loading report…", false, true);
+    /**
+     * Fetch the report and build the grid.
+     *
+     * @param {object} [opts]
+     * @param {boolean} [opts.preserveLayout] If true, the user's current
+     *        column hides / column order / hidden tabs are kept after
+     *        the new data lands. Used by the "Refresh data" button.
+     */
+    async function runReport(opts) {
+        opts = opts || {};
+        const preserveLayout = !!opts.preserveLayout;
+        // Snapshot the layout BEFORE wiping state so we can restore it.
+        const snapshot = preserveLayout ? snapshotLayout() : null;
+
+        showStatus(preserveLayout ? "Refreshing data…" : "Loading report…", false, true);
         const payload = await postJson(cfg.runUrl, { params: cfg.params });
 
         renderSourceBadge(payload.data_source);
@@ -242,19 +262,96 @@
             return;
         }
 
-        applyPresetLayouts();
+        if (snapshot) {
+            applyLayoutSnapshot(snapshot);
+        } else {
+            applyPresetLayouts();
+        }
 
         buildTabStrip();
         buildGridContainers();
-        const firstVisible = state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); })
-            || state.tabOrder[0];
+        const firstVisible = (snapshot && state.tabs[snapshot.activeTab] && !state.hiddenTabs.has(snapshot.activeTab))
+            ? snapshot.activeTab
+            : (state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); }) || state.tabOrder[0]);
         activateTab(firstVisible);
         refreshHiddenUi();
+
+        // First load only: stash the original layout so the "Reset to
+        // default view" button can put it back.
+        if (!preserveLayout && !state.defaultLayout) {
+            state.defaultLayout = snapshotLayout();
+        }
+        updateChangedState();
+        updateExportRowCount();
 
         const tsLabel = state.generatedAt
             ? ("Generated " + fmtLocal(state.generatedAt))
             : "Generated just now";
         showStatus(tsLabel, false, false);
+    }
+
+    /** Capture the user's current per-tab visibility / order / sort /
+     *  filter / active-tab state so it can be re-applied (Refresh data)
+     *  or compared against (Reset visibility / changed-marker). */
+    function snapshotLayout() {
+        const snap = {
+            activeTab:  state.activeTab,
+            hiddenTabs: Array.from(state.hiddenTabs),
+            tabs:       {},
+        };
+        state.tabOrder.forEach(function (key) {
+            const t = state.tabs[key];
+            if (!t) return;
+            const sorters = (t.grid ? t.grid.getSorters() : []) || [];
+            const filters = (t.grid ? t.grid.getHeaderFilters() : []) || [];
+            snap.tabs[key] = {
+                hidden_fields: Array.from(t.hiddenFields),
+                field_order:   t.fieldOrder.slice(),
+                sorters:       sorters.map(function (s) { return { column: s.field || s.column, dir: s.dir }; }),
+                filters:       filters.map(function (f) { return { field: f.field, value: f.value }; }),
+            };
+        });
+        return snap;
+    }
+
+    /** Push a snapshot back onto fresh state. Anything that no longer
+     *  exists in the new payload (a column the SP dropped, a tab that
+     *  isn't returned anymore) is silently skipped. */
+    function applyLayoutSnapshot(snap) {
+        if (!snap) return;
+        state.hiddenTabs = new Set(snap.hiddenTabs.filter(function (k) { return !!state.tabs[k]; }));
+
+        Object.keys(snap.tabs).forEach(function (tabKey) {
+            const t = state.tabs[tabKey];
+            const saved = snap.tabs[tabKey];
+            if (!t || !saved) return;
+
+            const validFields = new Set(t.columnsMeta.map(function (c) { return c.field; }));
+            (saved.hidden_fields || []).forEach(function (f) {
+                if (validFields.has(f)) t.hiddenFields.add(f);
+            });
+            if (Array.isArray(saved.field_order) && saved.field_order.length) {
+                const ordered = [];
+                const seen = new Set();
+                saved.field_order.forEach(function (f) {
+                    if (validFields.has(f) && !seen.has(f)) {
+                        ordered.push(f); seen.add(f);
+                    }
+                });
+                t.columnsMeta.forEach(function (c) {
+                    if (!seen.has(c.field)) ordered.push(c.field);
+                });
+                t.fieldOrder = ordered;
+            }
+            // Sorts + filters get re-applied AFTER the grid is built; we
+            // stash them on the tab so ensureGrid() can pick them up.
+            t._restoreSorters = (saved.sorters || []).filter(function (s) {
+                return validFields.has(s.column);
+            });
+            t._restoreFilters = (saved.filters || []).filter(function (f) {
+                return validFields.has(f.field);
+            });
+        });
     }
 
     function cloneCol(c) {
@@ -377,6 +474,7 @@
 
         ensureGrid(key);
         refreshHiddenUi();
+        updateExportRowCount();
     }
 
     function ensureGrid(key) {
@@ -396,8 +494,24 @@
             movableColumns:true,
             height:        "60vh",
             placeholder:   "No rows for the selected filters.",
-            columnMoved:   function () { syncFieldOrder(key); },
+            columnMoved:   function () { syncFieldOrder(key); updateChangedState(); },
+            dataFiltered:  function () {
+                if (key === state.activeTab) updateExportRowCount();
+                updateChangedState();
+            },
+            dataSorted:    function () { updateChangedState(); },
         });
+        // Restore any sorters/filters captured by a Refresh-data snapshot.
+        if (Array.isArray(t._restoreSorters) && t._restoreSorters.length) {
+            try { t.grid.setSort(t._restoreSorters); } catch (_) {}
+        }
+        if (Array.isArray(t._restoreFilters) && t._restoreFilters.length) {
+            t._restoreFilters.forEach(function (f) {
+                try { t.grid.setHeaderFilterValue(f.field, f.value); } catch (_) {}
+            });
+        }
+        delete t._restoreSorters;
+        delete t._restoreFilters;
         return t.grid;
     }
 
@@ -557,6 +671,9 @@
         if (!anyHidden) {
             closeDrawer();
         }
+
+        updateChangedState();
+        updateExportRowCount();
     }
 
     function renderHiddenSection(tabsSec, tabsList, hiddenTabs, hiddenCols, mobile) {
@@ -646,6 +763,8 @@
 
     // ---------- Action buttons ------------------------------------------
     function wireActionButtons() {
+        if (els.refreshBtn) els.refreshBtn.addEventListener("click", refreshData);
+        if (els.resetBtn)   els.resetBtn.addEventListener("click", resetView);
         els.exportBtn.addEventListener("click", exportExcel);
         els.emailBtn.addEventListener("click", function () { openModal(els.emailModal, prepEmailModal); });
         els.scheduleBtn.addEventListener("click", function () { openModal(els.scheduleModal, prepScheduleModal); });
@@ -667,32 +786,184 @@
         return out;
     }
 
+    // ---------- Refresh / Reset ----------------------------------------
+    async function refreshData() {
+        if (!els.refreshBtn) return;
+        els.refreshBtn.disabled = true;
+        const old = els.refreshBtn.innerHTML;
+        els.refreshBtn.textContent = "Refreshing…";
+        try {
+            await runReport({ preserveLayout: true });
+        } catch (err) {
+            alert("Refresh failed: " + (err.message || err));
+        } finally {
+            els.refreshBtn.innerHTML = old;
+            els.refreshBtn.disabled = false;
+            if (typeof feather !== "undefined") feather.replace();
+        }
+    }
+
+    function resetView() {
+        if (!state.defaultLayout) return;
+        const def = state.defaultLayout;
+
+        // Restore tab visibility + per-tab column hides + column order.
+        state.hiddenTabs = new Set(def.hiddenTabs.filter(function (k) { return !!state.tabs[k]; }));
+
+        state.tabOrder.forEach(function (key) {
+            const t = state.tabs[key];
+            const saved = (def.tabs && def.tabs[key]) || {};
+            if (!t) return;
+
+            // Hidden fields
+            t.hiddenFields = new Set((saved.hidden_fields || []).filter(function (f) {
+                return t.columnsMeta.some(function (c) { return c.field === f; });
+            }));
+            // Field order
+            if (Array.isArray(saved.field_order) && saved.field_order.length) {
+                const valid = new Set(t.columnsMeta.map(function (c) { return c.field; }));
+                const ordered = [];
+                const seen = new Set();
+                saved.field_order.forEach(function (f) {
+                    if (valid.has(f) && !seen.has(f)) { ordered.push(f); seen.add(f); }
+                });
+                t.columnsMeta.forEach(function (c) {
+                    if (!seen.has(c.field)) ordered.push(c.field);
+                });
+                t.fieldOrder = ordered;
+            }
+
+            // Wipe sorters/filters and rebuild grid so column order
+            // takes effect cleanly.
+            if (t.grid) {
+                try { t.grid.destroy(); } catch (_) {}
+                t.grid = null;
+            }
+        });
+
+        buildTabStrip();
+        const target = (state.tabs[def.activeTab] && !state.hiddenTabs.has(def.activeTab))
+            ? def.activeTab
+            : (state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); }) || state.tabOrder[0]);
+        activateTab(target);
+        refreshHiddenUi();
+    }
+
+    /** Compares current layout against the default snapshot and toggles
+     *  the "Reset to default view" button + updates row-count chip. */
+    function updateChangedState() {
+        if (!els.resetBtn) return;
+        const changed = state.defaultLayout ? layoutHasChanged() : false;
+        els.resetBtn.hidden = !changed;
+    }
+
+    function layoutHasChanged() {
+        const def = state.defaultLayout;
+        if (!def) return false;
+
+        // Tab visibility
+        const curHidden = Array.from(state.hiddenTabs).sort().join("|");
+        const defHidden = (def.hiddenTabs || []).slice().sort().join("|");
+        if (curHidden !== defHidden) return true;
+
+        // Per-tab column hides + order + active sorters/filters
+        for (let i = 0; i < state.tabOrder.length; i++) {
+            const key = state.tabOrder[i];
+            const t = state.tabs[key];
+            const saved = (def.tabs && def.tabs[key]) || {};
+            if (!t) continue;
+
+            const ch = Array.from(t.hiddenFields).sort().join("|");
+            const dh = (saved.hidden_fields || []).slice().sort().join("|");
+            if (ch !== dh) return true;
+
+            const co = (t.fieldOrder || []).join("|");
+            const dor = (saved.field_order || []).join("|");
+            if (co && dor && co !== dor) return true;
+
+            if (t.grid) {
+                const sorters = t.grid.getSorters() || [];
+                if (sorters.length) return true;
+                const filters = t.grid.getHeaderFilters() || [];
+                if (filters.some(function (f) { return f.value !== "" && f.value != null; })) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Update the chip next to "Export Excel" with row counts for the
+     *  active tab. Filtered? Show "X of Y rows" in amber. Otherwise
+     *  just "Y rows" in neutral grey. */
+    function updateExportRowCount() {
+        const el = els.exportRowCount;
+        if (!el) return;
+        const key = state.activeTab;
+        const t = key ? state.tabs[key] : null;
+        if (!t) {
+            el.hidden = true;
+            return;
+        }
+        const total = (t.data || []).length;
+        let visible = total;
+        let filtered = false;
+        if (t.grid) {
+            const filters = t.grid.getHeaderFilters() || [];
+            filtered = filters.some(function (f) { return f.value !== "" && f.value != null; });
+            try {
+                visible = t.grid.getDataCount("active");
+            } catch (_) {
+                visible = total;
+            }
+        }
+        el.hidden = false;
+        el.classList.toggle("is-filtered", filtered);
+        el.textContent = filtered
+            ? ("Exporting " + fmtInt(visible) + " of " + fmtInt(total) + " rows")
+            : ("Exporting " + fmtInt(total) + " row" + (total === 1 ? "" : "s"));
+    }
+
+    // ---------- Excel export (client-side, WYSIWYG) ----------------------
+    /**
+     * Build an .xlsx in the browser using ExcelJS so the file mirrors
+     * exactly what the user sees:
+     *   - one sheet per VISIBLE tab (hidden tabs skipped)
+     *   - column order matches what's on screen
+     *   - hidden columns excluded
+     *   - rows respect the current sort + header filters
+     *   - cell formatting (money / int / percent / date) preserved
+     */
     async function exportExcel() {
+        if (typeof ExcelJS === "undefined") {
+            alert("Excel library failed to load. Check your network and try again.");
+            return;
+        }
         els.exportBtn.disabled = true;
         const old = els.exportBtn.innerHTML;
         els.exportBtn.textContent = "Exporting…";
         try {
-            const res = await fetch(cfg.exportUrl, {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ params: cfg.params, layouts: collectLayouts() }),
-            });
-            if (!res.ok) {
-                // Pull a useful message off the server's JSON error body
-                // (the export endpoint sets these on 500/502).
-                let detail = "HTTP " + res.status;
-                try {
-                    const errBody = await res.json();
-                    if (errBody && errBody.error) {
-                        detail = errBody.error + (errBody.stage ? " (stage: " + errBody.stage + ")" : "");
-                    }
-                } catch (_) { /* not JSON; keep the HTTP code */ }
-                throw new Error(detail);
+            const wb = new ExcelJS.Workbook();
+            wb.creator = "Sales Reports v2";
+            wb.created = new Date();
+
+            const visibleTabKeys = state.tabOrder.filter(function (k) { return !state.hiddenTabs.has(k); });
+            if (!visibleTabKeys.length) {
+                throw new Error("No visible tabs to export.");
             }
-            const blob = await res.blob();
-            const fname = fileNameFromHeader(res.headers.get("Content-Disposition"))
-                       || (cfg.reportKey + ".xlsx");
+
+            const usedSheetNames = new Set();
+            visibleTabKeys.forEach(function (key) {
+                const t = state.tabs[key];
+                if (!t) return;
+                addTabAsSheet(wb, t, usedSheetNames);
+            });
+
+            const buf = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buf], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            });
+            const fname = (cfg.reportName || cfg.reportKey || "report")
+                .replace(/[\\/?*:[\]]/g, "_")
+                .replace(/\s+/g, "_") + ".xlsx";
             triggerDownload(blob, fname);
         } catch (err) {
             alert("Export failed: " + (err.message || err));
@@ -701,6 +972,125 @@
             els.exportBtn.disabled = false;
             if (typeof feather !== "undefined") feather.replace();
         }
+    }
+
+    function addTabAsSheet(wb, tab, usedNames) {
+        // Pull the rows in the user's current visible order. If the
+        // grid hasn't been built (the tab was never activated), fall
+        // back to the raw data.
+        let rows;
+        if (tab.grid) {
+            // getData("active") = post-filter, post-sort. Exactly WYSIWYG.
+            rows = tab.grid.getData("active") || [];
+        } else {
+            rows = (tab.data || []).slice();
+        }
+
+        // Build the visible columns in their on-screen order.
+        const fields = tab.fieldOrder.filter(function (f) {
+            return !tab.hiddenFields.has(f) && tab.columnsMeta.some(function (c) { return c.field === f; });
+        });
+        const visibleCols = fields.map(function (f) {
+            return tab.columnsMeta.find(function (c) { return c.field === f; });
+        }).filter(Boolean);
+
+        if (!visibleCols.length) {
+            // Edge case: every column on this tab is hidden. Skip the sheet.
+            return;
+        }
+
+        const sheetName = uniqueSheetName(tab.name || "Sheet", usedNames);
+        const ws = wb.addWorksheet(sheetName, {
+            views: [{ state: "frozen", ySplit: 1 }],
+        });
+
+        ws.columns = visibleCols.map(function (col) {
+            return {
+                header: col.label || col.field,
+                key:    col.field,
+                width:  excelColumnWidth(col),
+                style:  excelColumnStyle(col),
+            };
+        });
+
+        // Header styling: white text on dark navy, bold.
+        const headerRow = ws.getRow(1);
+        headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        headerRow.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF1F4E78" },
+        };
+        headerRow.alignment = { vertical: "middle", horizontal: "left" };
+
+        // Data rows.
+        rows.forEach(function (row) {
+            const out = {};
+            visibleCols.forEach(function (col) {
+                out[col.field] = coerceForExcel(row[col.field], col.type);
+            });
+            ws.addRow(out);
+        });
+    }
+
+    function uniqueSheetName(name, used) {
+        // Excel sheet names: max 31 chars, none of these: : \ / ? * [ ]
+        let base = String(name || "Sheet").replace(/[\\/?*:[\]]/g, "_").trim() || "Sheet";
+        if (base.length > 31) base = base.slice(0, 31);
+        if (!used.has(base)) { used.add(base); return base; }
+        let i = 2;
+        while (true) {
+            const candidate = (base.slice(0, 27) + " (" + i + ")").slice(0, 31);
+            if (!used.has(candidate)) { used.add(candidate); return candidate; }
+            i += 1;
+        }
+    }
+
+    function excelColumnWidth(col) {
+        const headerLen = String(col.label || col.field || "").length;
+        const typeGuess = ({
+            money:   14,
+            int:     10,
+            percent: 10,
+            date:    12,
+            text:    22,
+        })[col.type || "text"] || 16;
+        return Math.min(42, Math.max(headerLen + 3, typeGuess));
+    }
+
+    function excelColumnStyle(col) {
+        switch (col.type) {
+            case "money":
+                return { numFmt: '"$"#,##0.00;[Red]-"$"#,##0.00', alignment: { horizontal: "right" } };
+            case "int":
+                return { numFmt: "#,##0", alignment: { horizontal: "right" } };
+            case "percent":
+                return { numFmt: "0.00%", alignment: { horizontal: "right" } };
+            case "date":
+                return { numFmt: "mm/dd/yyyy", alignment: { horizontal: "left" } };
+            default:
+                return { alignment: { horizontal: "left" } };
+        }
+    }
+
+    function coerceForExcel(value, type) {
+        if (value === null || value === undefined || value === "") return null;
+        if (type === "money" || type === "int" || type === "percent") {
+            const n = typeof value === "number" ? value : parseFloat(value);
+            if (!isFinite(n) || isNaN(n)) return null;
+            return n;
+        }
+        if (type === "date") {
+            if (value instanceof Date) return value;
+            // ISO date string -> Date (local; ExcelJS treats it as a real date)
+            const s = String(value).slice(0, 10);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+                const parts = s.split("-");
+                return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+            }
+            return String(value);
+        }
+        return String(value);
     }
 
     // ---------- Modals ---------------------------------------------------

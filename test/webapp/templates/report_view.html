@@ -55,9 +55,18 @@
     </div>
 
     <div class="view-actions">
+        <button type="button" class="btn btn-outline" id="refreshDataBtn"
+                title="Re-fetch the data while keeping your current view">
+            <i data-feather="refresh-cw"></i> Refresh data
+        </button>
+        <button type="button" class="btn btn-outline" id="resetViewBtn" hidden
+                title="Restore hidden columns/tabs, sorts and filters to the report's defaults">
+            <i data-feather="rotate-ccw"></i> Reset to default view
+        </button>
         <button type="button" class="btn btn-outline" id="exportXlsxBtn">
             <i data-feather="download"></i> Export Excel
         </button>
+        <span id="exportRowCount" class="export-row-count" hidden></span>
         <button type="button" class="btn btn-outline" id="emailNowBtn">
             <i data-feather="send"></i> Send email now
         </button>
@@ -286,5 +295,8 @@
 
 {% block scripts %}
 <script src="https://unpkg.com/tabulator-tables@6.2.5/dist/js/tabulator.min.js"></script>
+<!-- ExcelJS: client-side .xlsx generation so Export shows exactly the
+     screen content (column order, hidden columns, sorts, filters). -->
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="{{ url_for('static', filename='js/report_view.js') }}"></script>
 {% endblock %}
