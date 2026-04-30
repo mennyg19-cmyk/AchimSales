@@ -147,37 +147,100 @@ def _csv(value: Any) -> str | None:
     return s or None
 
 
+# America/New_York handles DST automatically -- emits -04:00 in DST and
+# -05:00 the rest of the year. Loaded once at import; cheap to reuse.
+try:
+    from zoneinfo import ZoneInfo
+    _EASTERN = ZoneInfo("America/New_York")
+except Exception:  # pragma: no cover -- only hits if tzdata is unavailable
+    log.warning("zoneinfo unavailable; falling back to fixed -05:00 (no DST)")
+    from datetime import timezone as _tz, timedelta as _td
+    _EASTERN = _tz(_td(hours=-5), name="EST")
+
+
+def _format_eastern(dt) -> str:
+    """Format a date-or-datetime as 'YYYY-MM-DD HH:MM:SS-OFFSET' anchored
+    in America/New_York. Date-only inputs are anchored at 00:00:00 in
+    Eastern Time -- callers should pass a real datetime if they want
+    end-of-day.
+    """
+    from datetime import date, datetime, time
+    if isinstance(dt, datetime):
+        d = dt if dt.tzinfo else dt.replace(tzinfo=_EASTERN)
+        d = d.astimezone(_EASTERN)
+    elif isinstance(dt, date):
+        d = datetime.combine(dt, time(0, 0, 0), tzinfo=_EASTERN)
+    else:
+        raise TypeError(f"Cannot format non-date value: {dt!r}")
+
+    # SP wants 'YYYY-MM-DD HH:MM:SS-04:00' (space separator, explicit
+    # offset, no microseconds, no T).
+    base = d.strftime("%Y-%m-%d %H:%M:%S")
+    off  = d.strftime("%z")  # "-0400" or "-0500"
+    if off and len(off) == 5:
+        off = off[:3] + ":" + off[3:]  # -0400 -> -04:00
+    return base + off
+
+
 def _resolve_period(p: dict) -> tuple[str | None, str | None]:
-    """Resolve the form's period selector into (date_from_iso, date_to_iso).
+    """Resolve the form's period selector into (date_from, date_to)
+    formatted strings ready for the SP's CreatedDateTimeFrom / To.
 
     The filter form sends:
         period=daily|last_7_days|mtd|ytd|all_time|custom
         start_date=YYYY-MM-DD  (custom only)
         end_date=YYYY-MM-DD    (custom only)
 
-    Mirrors core.dates.parse_period() so the test app uses the exact
-    same period semantics as the live app.
+    The SP expects 24-hour datetimes in Eastern Time:
+        from: 'YYYY-MM-DD 00:00:00-04:00'  (start of the first day)
+        to:   'YYYY-MM-DD 23:59:59-04:00'  (end of the last day)
+
+    The offset is whichever Eastern offset is current (handles DST).
+    Mirrors core.dates.parse_period() for the date math itself.
     """
+    from datetime import date, datetime, time
+
     period = (p.get("period") or "").strip().lower()
-    start = (p.get("start_date") or "").strip()
-    end   = (p.get("end_date") or "").strip()
+    start_raw = (p.get("start_date") or "").strip()
+    end_raw   = (p.get("end_date") or "").strip()
 
-    # Custom: dates picked manually
-    if period == "custom" or (start and end and not period):
-        return (start or None, end or None)
-
-    # All time: no date filter at all (let the SP decide)
+    # All time: no date filter at all (let the SP decide).
     if period in ("all_time", ""):
         return (None, None)
 
-    # Named period: defer to core.dates.parse_period()
-    try:
-        from core.dates import parse_period
-        spec = parse_period(period)
-        return (spec.start_date.isoformat(), spec.end_date.isoformat())
-    except Exception as exc:
-        log.warning("Could not resolve period %r: %s", period, exc)
-        return (None, None)
+    start_date: date | None = None
+    end_date: date | None = None
+
+    # Custom: dates picked manually.
+    if period == "custom" or (start_raw and end_raw and not period):
+        try:
+            if start_raw:
+                start_date = datetime.strptime(start_raw[:10], "%Y-%m-%d").date()
+            if end_raw:
+                end_date = datetime.strptime(end_raw[:10], "%Y-%m-%d").date()
+        except ValueError as exc:
+            log.warning("Could not parse custom date range %r..%r: %s",
+                        start_raw, end_raw, exc)
+            return (None, None)
+    else:
+        # Named period: defer to core.dates.parse_period().
+        try:
+            from core.dates import parse_period
+            spec = parse_period(period)
+            start_date = spec.start_date
+            end_date   = spec.end_date
+        except Exception as exc:
+            log.warning("Could not resolve period %r: %s", period, exc)
+            return (None, None)
+
+    # Anchor each side to the right wall-clock moment in Eastern time.
+    out_from = _format_eastern(
+        datetime.combine(start_date, time(0, 0, 0), tzinfo=_EASTERN)
+    ) if start_date else None
+    out_to = _format_eastern(
+        datetime.combine(end_date, time(23, 59, 59), tzinfo=_EASTERN)
+    ) if end_date else None
+    return (out_from, out_to)
 
 
 def _translate_ordered(p: dict) -> dict[str, Any]:

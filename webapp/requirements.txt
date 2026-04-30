@@ -13,3 +13,7 @@ SQLAlchemy>=2.0,<3
 pyodbc>=5.1
 APScheduler>=3.10,<4
 Jinja2>=3.1
+# tzdata is the cross-platform fallback when the OS doesn't ship the
+# IANA zoneinfo database (matters on slim Docker images, harmless on
+# regular Linux/Azure App Service).
+tzdata>=2024.1
