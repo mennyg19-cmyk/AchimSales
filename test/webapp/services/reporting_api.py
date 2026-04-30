@@ -159,10 +159,14 @@ except Exception:  # pragma: no cover -- only hits if tzdata is unavailable
 
 
 def _format_eastern(dt) -> str:
-    """Format a date-or-datetime as 'YYYY-MM-DD HH:MM:SS-OFFSET' anchored
-    in America/New_York. Date-only inputs are anchored at 00:00:00 in
-    Eastern Time -- callers should pass a real datetime if they want
-    end-of-day.
+    """Format a date-or-datetime as 'YYYY-MM-DD HH:MM:SS' (Eastern wall
+    clock, no offset suffix). The SP's date params are SQL Server
+    `datetime`, which rejects offset suffixes -- it interprets whatever
+    we send as already-Eastern, so we just convert the moment into
+    Eastern wall-clock and strip the offset.
+
+    Date-only inputs are anchored at 00:00:00 in Eastern Time --
+    callers should pass a real datetime if they want end-of-day.
     """
     from datetime import date, datetime, time
     if isinstance(dt, datetime):
@@ -173,13 +177,9 @@ def _format_eastern(dt) -> str:
     else:
         raise TypeError(f"Cannot format non-date value: {dt!r}")
 
-    # SP wants 'YYYY-MM-DD HH:MM:SS-04:00' (space separator, explicit
-    # offset, no microseconds, no T).
-    base = d.strftime("%Y-%m-%d %H:%M:%S")
-    off  = d.strftime("%z")  # "-0400" or "-0500"
-    if off and len(off) == 5:
-        off = off[:3] + ":" + off[3:]  # -0400 -> -04:00
-    return base + off
+    # 'YYYY-MM-DD HH:MM:SS' -- space separator, no microseconds, no T,
+    # no offset (SP doesn't accept it).
+    return d.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _resolve_period(p: dict) -> tuple[str | None, str | None]:
