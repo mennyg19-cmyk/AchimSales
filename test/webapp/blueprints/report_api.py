@@ -242,6 +242,9 @@ def export_xlsx(key: str):
         }
 
     Any tab with ``tab_hidden=true`` is dropped entirely (no sheet).
+
+    On failure returns a JSON body { "error": "...", "stage": "..." }
+    so the client `alert()` shows something useful instead of "HTTP 500".
     """
     _ensure_report(key)
     report = get_report(key)
@@ -251,12 +254,45 @@ def export_xlsx(key: str):
     layouts_raw = body.get("layouts") if isinstance(body.get("layouts"), dict) else {}
     layouts, dropped = _normalise_layouts(layouts_raw)
 
-    payload = run_report(key, report.name, params or {})
+    log.info(
+        "export_xlsx: key=%s params=%s layouts_tabs=%s dropped=%s",
+        key, params, sorted(layouts.keys()), sorted(dropped),
+    )
+
+    # 1) Fetch the data. Same path as /run, so it'll hit the API client's
+    #    fresh cache if the user just ran the report.
+    try:
+        payload = run_report(key, report.name, params or {})
+    except Exception as exc:
+        log.exception("export_xlsx: run_report failed for %s", key)
+        return jsonify({
+            "error": f"Could not fetch report data: {exc}",
+            "stage": "fetch",
+        }), 502
+
     if dropped:
         payload = dict(payload)
         payload["tabs"] = [t for t in payload.get("tabs", []) if str(t.get("key")) not in dropped]
 
-    xlsx_bytes = build_workbook(payload, layouts)
+    tabs = payload.get("tabs") or []
+    log.info(
+        "export_xlsx: building workbook for %s with %d tabs (rows: %s)",
+        key, len(tabs),
+        {t.get("key"): len(t.get("rows") or []) for t in tabs},
+    )
+
+    # 2) Build the .xlsx. openpyxl raises ValueError on stuff like NaN /
+    #    inf / unsupported types -- catch it so the client sees a useful
+    #    message instead of a generic 500.
+    try:
+        xlsx_bytes = build_workbook(payload, layouts)
+    except Exception as exc:
+        log.exception("export_xlsx: build_workbook failed for %s", key)
+        return jsonify({
+            "error": f"Could not build the Excel file: {exc}",
+            "stage": "build",
+            "tab_summary": {t.get("key"): len(t.get("rows") or []) for t in tabs},
+        }), 500
 
     filename = f"{report.name.replace(' ', '_')}.xlsx"
     return Response(

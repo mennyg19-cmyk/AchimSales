@@ -678,7 +678,18 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ params: cfg.params, layouts: collectLayouts() }),
             });
-            if (!res.ok) throw new Error("HTTP " + res.status);
+            if (!res.ok) {
+                // Pull a useful message off the server's JSON error body
+                // (the export endpoint sets these on 500/502).
+                let detail = "HTTP " + res.status;
+                try {
+                    const errBody = await res.json();
+                    if (errBody && errBody.error) {
+                        detail = errBody.error + (errBody.stage ? " (stage: " + errBody.stage + ")" : "");
+                    }
+                } catch (_) { /* not JSON; keep the HTTP code */ }
+                throw new Error(detail);
+            }
             const blob = await res.blob();
             const fname = fileNameFromHeader(res.headers.get("Content-Disposition"))
                        || (cfg.reportKey + ".xlsx");

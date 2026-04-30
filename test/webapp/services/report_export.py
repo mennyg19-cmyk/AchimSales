@@ -7,12 +7,19 @@ client, and writes one sheet per tab with formatted values.
 
 from __future__ import annotations
 
+import math
+import re
 from datetime import date, datetime
 from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+# Excel max chars per cell; anything longer will raise IllegalCharacterError.
+_MAX_CELL_CHARS = 32767
+# Excel chokes on certain ASCII control characters in cell values.
+_BAD_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -50,21 +57,46 @@ def _apply_layout(tab: dict, layout: dict | None) -> tuple[list[dict], list[dict
 
 
 def _coerce_for_cell(value, col_type: str):
+    """Best-effort coercion + sanitisation for an Excel cell.
+
+    openpyxl raises on:
+      - NaN / +inf / -inf floats
+      - strings with ASCII control chars (\\x00, etc.)
+      - strings longer than 32_767 chars
+      - non-jsonable types like Decimal in some versions
+    Whatever this function returns must be safe for openpyxl.
+    """
     if value is None or value == "":
         return None
+
     if col_type == "date":
         if isinstance(value, (date, datetime)):
             return value
         try:
             return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
         except Exception:
-            return value
+            return _sanitise_text(value)
+
     if col_type in ("money", "int", "percent"):
         try:
-            return float(value)
+            f = float(value)
         except (TypeError, ValueError):
-            return value
-    return value
+            return _sanitise_text(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+
+    return _sanitise_text(value)
+
+
+def _sanitise_text(value):
+    """Strip control chars and clamp length so openpyxl is happy."""
+    s = str(value)
+    if _BAD_CTRL.search(s):
+        s = _BAD_CTRL.sub("", s)
+    if len(s) > _MAX_CELL_CHARS:
+        s = s[: _MAX_CELL_CHARS - 1] + "\u2026"
+    return s
 
 
 def _safe_sheet_name(name: str, used: set[str]) -> str:
