@@ -277,9 +277,28 @@
         refreshHiddenUi();
 
         // First load only: stash the original layout so the "Reset to
-        // default view" button can put it back.
+        // default view" button can put it back. Defer so the active
+        // tab's grid has finished building (otherwise getSorters /
+        // getHeaderFilters aren't attached yet -- snapshotLayout's
+        // safe-getters would just record empty results, which is wrong
+        // for a default snapshot we want to compare against later).
         if (!preserveLayout && !state.defaultLayout) {
-            state.defaultLayout = snapshotLayout();
+            const activeTab = state.activeTab;
+            const activeGrid = activeTab ? state.tabs[activeTab] && state.tabs[activeTab].grid : null;
+            const stash = function () {
+                if (!state.defaultLayout) {
+                    state.defaultLayout = snapshotLayout();
+                    updateChangedState();
+                }
+            };
+            if (activeGrid && typeof activeGrid.getSorters === "function") {
+                stash();
+            } else if (activeGrid && typeof activeGrid.on === "function") {
+                activeGrid.on("tableBuilt", stash);
+            } else {
+                // No active grid (no tabs case) -- snapshot what we have.
+                stash();
+            }
         }
         updateChangedState();
         updateExportRowCount();
@@ -292,7 +311,13 @@
 
     /** Capture the user's current per-tab visibility / order / sort /
      *  filter / active-tab state so it can be re-applied (Refresh data)
-     *  or compared against (Reset visibility / changed-marker). */
+     *  or compared against (Reset visibility / changed-marker).
+     *
+     *  Tabulator builds asynchronously: t.grid exists immediately after
+     *  `new Tabulator(...)` but its method mixins (getSorters, etc.)
+     *  aren't attached until the `tableBuilt` event fires. We feature-
+     *  test before calling so a snapshot taken mid-build still works
+     *  -- it just records empty sorters/filters for that tab. */
     function snapshotLayout() {
         const snap = {
             activeTab:  state.activeTab,
@@ -302,16 +327,32 @@
         state.tabOrder.forEach(function (key) {
             const t = state.tabs[key];
             if (!t) return;
-            const sorters = (t.grid ? t.grid.getSorters() : []) || [];
-            const filters = (t.grid ? t.grid.getHeaderFilters() : []) || [];
             snap.tabs[key] = {
                 hidden_fields: Array.from(t.hiddenFields),
                 field_order:   t.fieldOrder.slice(),
-                sorters:       sorters.map(function (s) { return { column: s.field || s.column, dir: s.dir }; }),
-                filters:       filters.map(function (f) { return { field: f.field, value: f.value }; }),
+                sorters:       safeGetSorters(t.grid),
+                filters:       safeGetHeaderFilters(t.grid),
             };
         });
         return snap;
+    }
+
+    function safeGetSorters(grid) {
+        if (!grid || typeof grid.getSorters !== "function") return [];
+        try {
+            return (grid.getSorters() || []).map(function (s) {
+                return { column: s.field || s.column, dir: s.dir };
+            });
+        } catch (_) { return []; }
+    }
+
+    function safeGetHeaderFilters(grid) {
+        if (!grid || typeof grid.getHeaderFilters !== "function") return [];
+        try {
+            return (grid.getHeaderFilters() || []).map(function (f) {
+                return { field: f.field, value: f.value };
+            });
+        } catch (_) { return []; }
     }
 
     /** Push a snapshot back onto fresh state. Anything that no longer
@@ -501,17 +542,27 @@
             },
             dataSorted:    function () { updateChangedState(); },
         });
-        // Restore any sorters/filters captured by a Refresh-data snapshot.
-        if (Array.isArray(t._restoreSorters) && t._restoreSorters.length) {
-            try { t.grid.setSort(t._restoreSorters); } catch (_) {}
-        }
-        if (Array.isArray(t._restoreFilters) && t._restoreFilters.length) {
-            t._restoreFilters.forEach(function (f) {
-                try { t.grid.setHeaderFilterValue(f.field, f.value); } catch (_) {}
-            });
-        }
-        delete t._restoreSorters;
-        delete t._restoreFilters;
+
+        // Tabulator builds asynchronously. Sorts/filters can only be set
+        // (and the default-layout snapshot taken) once the grid emits
+        // `tableBuilt`. Anything that needs the full API has to live
+        // inside this listener.
+        t.grid.on("tableBuilt", function () {
+            if (Array.isArray(t._restoreSorters) && t._restoreSorters.length) {
+                try { t.grid.setSort(t._restoreSorters); } catch (_) {}
+            }
+            if (Array.isArray(t._restoreFilters) && t._restoreFilters.length) {
+                t._restoreFilters.forEach(function (f) {
+                    try { t.grid.setHeaderFilterValue(f.field, f.value); } catch (_) {}
+                });
+            }
+            delete t._restoreSorters;
+            delete t._restoreFilters;
+            // Now that this grid is fully built, refresh chip + change marker.
+            if (key === state.activeTab) updateExportRowCount();
+            updateChangedState();
+        });
+
         return t.grid;
     }
 
@@ -882,10 +933,18 @@
             if (co && dor && co !== dor) return true;
 
             if (t.grid) {
-                const sorters = t.grid.getSorters() || [];
-                if (sorters.length) return true;
-                const filters = t.grid.getHeaderFilters() || [];
-                if (filters.some(function (f) { return f.value !== "" && f.value != null; })) return true;
+                if (typeof t.grid.getSorters === "function") {
+                    try {
+                        const sorters = t.grid.getSorters() || [];
+                        if (sorters.length) return true;
+                    } catch (_) {}
+                }
+                if (typeof t.grid.getHeaderFilters === "function") {
+                    try {
+                        const filters = t.grid.getHeaderFilters() || [];
+                        if (filters.some(function (f) { return f && f.value !== "" && f.value != null; })) return true;
+                    } catch (_) {}
+                }
             }
         }
         return false;
@@ -906,14 +965,21 @@
         const total = (t.data || []).length;
         let visible = total;
         let filtered = false;
-        if (t.grid) {
-            const filters = t.grid.getHeaderFilters() || [];
-            filtered = filters.some(function (f) { return f.value !== "" && f.value != null; });
+        if (t.grid && typeof t.grid.getHeaderFilters === "function") {
             try {
-                visible = t.grid.getDataCount("active");
-            } catch (_) {
-                visible = total;
-            }
+                const filters = t.grid.getHeaderFilters() || [];
+                filtered = filters.some(function (f) {
+                    return f && f.value !== "" && f.value != null;
+                });
+            } catch (_) { filtered = false; }
+        }
+        if (t.grid && typeof t.grid.getData === "function") {
+            try {
+                // "active" = post-filter rows (Tabulator's term for
+                // visible data after header filters are applied).
+                const activeRows = t.grid.getData("active");
+                if (Array.isArray(activeRows)) visible = activeRows.length;
+            } catch (_) { visible = total; }
         }
         el.hidden = false;
         el.classList.toggle("is-filtered", filtered);
