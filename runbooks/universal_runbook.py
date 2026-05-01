@@ -1743,6 +1743,22 @@ def main():
                 _send_alert("FAILURE: SharePoint upload", traceback.format_exc(), **alert_ctx)
                 summary_lines.append(f"  Upload after {display}: FAILED")
                 overall_exit = 1
+
+            # Flush this runner's pending salesman emails BEFORE deleting local
+            # files. The deferred-email runners (e.g. Salesman Report) attach
+            # by local file path, so the rmtree below would otherwise leave
+            # every rep with an empty-attachment email.  Idempotent: if there
+            # are no pending emails the call is a no-op.
+            if runner_inst is not None and hasattr(runner_inst, "flush_pending_emails"):
+                flush_url_map = {}
+                for u in uploaded_urls:
+                    basename = u.rsplit("/", 1)[-1] if "/" in u else u
+                    flush_url_map[unquote(basename)] = u
+                try:
+                    runner_inst.flush_pending_emails(flush_url_map)
+                except Exception:
+                    log.exception("flush_pending_emails failed for %s", display)
+
             # Clear the local output dir so files aren't re-uploaded next iteration
             # and to free disk/memory.
             shutil.rmtree(direct_reports, ignore_errors=True)
