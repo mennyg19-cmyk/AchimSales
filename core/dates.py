@@ -121,12 +121,13 @@ def parse_period(period: str, today: date | None = None) -> PeriodSpec:
         first_of_this_month = get_month_start(today)
         last_of_prior_month = first_of_this_month - timedelta(days=1)
         first_of_prior_month = last_of_prior_month.replace(day=1)
+        month_year = first_of_prior_month.strftime("%B_%Y")  # e.g. "April_2026"
         spec = PeriodSpec(
             label=f"Last Month ({first_of_prior_month.strftime('%b %Y')})",
             start_date=first_of_prior_month,
             end_date=last_of_prior_month,
-            subfolder="Last Month",
-            filename_tag=f"LastMonth_{first_of_prior_month.strftime('%Y-%m')}",
+            subfolder="Monthly",
+            filename_tag=month_year,
         )
     elif period == "ytd":
         spec = PeriodSpec(
