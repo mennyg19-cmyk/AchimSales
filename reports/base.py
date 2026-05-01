@@ -32,7 +32,7 @@ class BaseReportRunner(ABC):
 
     def build_arg_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(description=self.report_name)
-        parser.add_argument("--period", type=str, choices=["daily", "yesterday", "mtd", "ytd", "last_7_days", "all_time"],
+        parser.add_argument("--period", type=str, choices=["daily", "yesterday", "mtd", "last_month", "ytd", "last_7_days", "all_time"],
                             help="Named period (default: all periods)")
         parser.add_argument("--date", type=str, help="Single date YYYY-MM-DD")
         parser.add_argument("--from", dest="from_date", type=str, metavar="DATE", help="Range start YYYY-MM-DD")

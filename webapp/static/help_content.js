@@ -61,6 +61,7 @@ var HELP = {
               "<strong>Yesterday</strong> — just yesterday's activity.<br>" +
               "<strong>Last 7 Days</strong> — the past week.<br>" +
               "<strong>This Month</strong> — from the 1st of this month until today.<br>" +
+              "<strong>Last Month</strong> — the full previous calendar month (1st through last day). Useful for monthly schedules that fire on the 1st.<br>" +
               "<strong>Year to Date</strong> — from January 1st until today.<br>" +
               "<strong>Custom Range</strong> — you pick the exact start and end dates.<br><br>" +
               "<strong>Important:</strong> On the Ordered Report, if you pick \"Open Orders Only\", the time period is ignored — it will show all open orders no matter when they were placed."

@@ -113,6 +113,21 @@ def parse_period(period: str, today: date | None = None) -> PeriodSpec:
             subfolder="MTD",
             filename_tag=f"MTD_{today.isoformat()}",
         )
+    elif period == "last_month":
+        # Full prior calendar month -- e.g. running on May 1 -> Apr 1..Apr 30.
+        # Doesn't depend on today's day-of-month, so a 1st-of-month schedule
+        # picks up the *complete* prior month even if invoices keep posting
+        # into the morning of the 1st (we're date-bounded, not clock-bounded).
+        first_of_this_month = get_month_start(today)
+        last_of_prior_month = first_of_this_month - timedelta(days=1)
+        first_of_prior_month = last_of_prior_month.replace(day=1)
+        spec = PeriodSpec(
+            label=f"Last Month ({first_of_prior_month.strftime('%b %Y')})",
+            start_date=first_of_prior_month,
+            end_date=last_of_prior_month,
+            subfolder="Last Month",
+            filename_tag=f"LastMonth_{first_of_prior_month.strftime('%Y-%m')}",
+        )
     elif period == "ytd":
         spec = PeriodSpec(
             label="YTD",
