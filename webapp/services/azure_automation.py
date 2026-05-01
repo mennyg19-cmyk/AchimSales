@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from azure.core.exceptions import HttpResponseError
 from azure.identity import ClientSecretCredential
 from azure.mgmt.automation import AutomationClient
 from azure.mgmt.automation.models import (
@@ -25,6 +26,23 @@ from azure.mgmt.automation.models import (
 from config.settings import get_client_id, get_client_secret, get_tenant_id
 
 log = logging.getLogger(__name__)
+
+
+def _is_no_content_204(exc: Exception) -> bool:
+    """Return True if *exc* is the SDK's spurious 204-on-delete error.
+
+    azure-mgmt-automation 1.0.0 has a bug: ``schedule.delete`` and
+    ``job_schedule.delete`` both validate against ``[200]`` even though the
+    Azure REST API returns 204 No Content on successful delete. The SDK
+    therefore raises ``HttpResponseError`` with message "Operation returned
+    an invalid status 'No Content'" on every successful delete. Treat this
+    as success so callers can rely on raise-on-real-failure semantics.
+    """
+    if not isinstance(exc, HttpResponseError):
+        return False
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None)
+    return code == 204
 
 RESOURCE_GROUP = os.environ.get("AZURE_RESOURCE_GROUP", "Daily_Invoiced_Report")
 AUTOMATION_ACCOUNT = os.environ.get("AZURE_AUTOMATION_ACCOUNT", "DailyInvoicedReport")
@@ -158,9 +176,13 @@ def update_schedule_enabled(name: str, enabled: bool) -> dict:
 
 
 def delete_schedule(name: str) -> None:
-    """Delete a schedule by name. Raises on failure."""
+    """Delete a schedule by name. Raises on real failure (404, 401, 5xx)."""
     client = get_client()
-    client.schedule.delete(RESOURCE_GROUP, AUTOMATION_ACCOUNT, name)
+    try:
+        client.schedule.delete(RESOURCE_GROUP, AUTOMATION_ACCOUNT, name)
+    except HttpResponseError as e:
+        if not _is_no_content_204(e):
+            raise
     log.info("Deleted schedule: %s", name)
 
 
@@ -219,11 +241,15 @@ def link_schedule_to_runbook(
 
 
 def unlink_schedule_from_runbook(job_schedule_id: str) -> None:
-    """Remove a job-schedule link. Raises on failure."""
+    """Remove a job-schedule link. Raises on real failure (404, 401, 5xx)."""
     client = get_client()
-    client.job_schedule.delete(
-        RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_schedule_id
-    )
+    try:
+        client.job_schedule.delete(
+            RESOURCE_GROUP, AUTOMATION_ACCOUNT, job_schedule_id
+        )
+    except HttpResponseError as e:
+        if not _is_no_content_204(e):
+            raise
     log.info("Unlinked job schedule: %s", job_schedule_id)
 
 
