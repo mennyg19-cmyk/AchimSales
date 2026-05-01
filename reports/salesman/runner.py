@@ -200,7 +200,16 @@ class SalesmanReportRunner(BaseReportRunner):
 
     @property
     def _send_emails(self) -> bool:
-        """True when ``--email`` was passed on the command line."""
+        """True when ``--email`` was passed on the command line.
+
+        TEMPORARY KILL-SWITCH (May 2026): emails are force-disabled while the
+        Monthly Salesman Report output is being verified. The Apr 30 nightly
+        run sent empty-attachment emails to every rep due to a runbook flush
+        ordering bug (now fixed) and we don't want any further send-outs
+        until someone confirms the data is right. To re-enable, delete the
+        ``return False`` line below.
+        """
+        return False
         cli = getattr(self, "_cli_args", None)
         return bool(getattr(cli, "email", False))
 
