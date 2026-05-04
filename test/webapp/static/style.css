@@ -3299,6 +3299,135 @@ body.col-resizing * {
     height: 14px;
 }
 
+/* Sort & Group toolbar (between the tab strip and the grid) ---------- */
+.sortgroup-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0;
+    font-size: 13px;
+    color: var(--text);
+}
+.sortgroup-section {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.sortgroup-label {
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-right: 2px;
+}
+.sortgroup-chips {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.sortgroup-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px 3px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft, rgba(34,197,94,0.12));
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: grab;
+    user-select: none;
+    border: 1px solid var(--border);
+}
+.sortgroup-chip[draggable="true"]:active { cursor: grabbing; }
+.sortgroup-chip.drag-over { outline: 2px dashed var(--primary); outline-offset: -1px; }
+.sortgroup-chip-rank {
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 10px;
+    background: var(--bg-card);
+    border-radius: 999px;
+    padding: 1px 5px;
+    line-height: 1;
+}
+.sortgroup-chip-dir {
+    appearance: none;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0 2px;
+    font-size: 12px;
+}
+.sortgroup-chip-dir:hover { color: var(--primary); }
+.sortgroup-chip-x {
+    appearance: none;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0 2px;
+    line-height: 1;
+    font-size: 14px;
+}
+.sortgroup-chip-x:hover { color: var(--error); }
+.sortgroup-add-select {
+    appearance: auto;
+    font-size: 12px;
+    padding: 3px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    cursor: pointer;
+}
+.sortgroup-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+.sortgroup-hint kbd {
+    font-family: inherit;
+    background: var(--card-soft-bg, rgba(0,0,0,.06));
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 4px;
+    font-size: 11px;
+}
+
+/* Tabulator total / spacer rows (Summary tab + grouped tabs) --------- */
+.tabulator .tabulator-row.row-total {
+    background: var(--card-soft-bg, rgba(0,0,0,.05)) !important;
+    font-weight: 700;
+}
+.tabulator .tabulator-row.row-total .tabulator-cell {
+    border-top: 2px solid var(--border);
+    border-bottom: 2px solid var(--border);
+}
+.tabulator .tabulator-row.row-grand-total {
+    background: var(--accent-soft, rgba(34,197,94,0.18)) !important;
+    font-weight: 800;
+}
+.tabulator .tabulator-row.row-grand-total .tabulator-cell {
+    border-top: 3px double var(--text);
+    border-bottom: 3px double var(--text);
+}
+.tabulator .tabulator-row.row-spacer {
+    background: transparent !important;
+    height: 12px !important;
+    min-height: 12px !important;
+}
+.tabulator .tabulator-row.row-spacer .tabulator-cell {
+    background: transparent !important;
+    border: none !important;
+}
+
 /* Grid shell: full-width, horizontally scrollable -------------------- */
 .viewer-shell {
     display: flex;

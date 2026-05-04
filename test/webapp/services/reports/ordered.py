@@ -1,28 +1,40 @@
 """Ordered report builder.
 
-Transforms the flat sales-order-line dump from SQL (or the JSON fixture
-fallback) into the multi-tab payload the report viewer / Excel export
-already understand.
+Mirrors the live ``reports/ordered/writer.py`` shape so the test sandbox
+shows the same columns, the same tabs, and the same totals the users
+already trust. Source data is the ``salesline_release`` SP (HTTP
+Reporting API) -- a flat sales-order-line dump.
 
-Input shape (one dict per sales order line) — based on the test dump
-and the existing live runbook:
+Field mapping from SP -> live-style column names::
 
-    Company, CustomerAccount, customername, SalesOrderNumber,
-    CustomerRequisition, SalesGroup, LineNumber, SalesStatus,
-    Item, ItemDescription,
-    QuantityOrdered, QuantityReserved, ReleasedQuantity,
-    DeliveryRemainder, QuantityLefttoLoad,
-    SalesPrice, "Ordered $", "Shipped $", "Cancelled $",
-    CreatedDateTime, ShippingDateRequested,
-    InventoryTransactionID, SalesLineRecordHash, WHSSalesLineRecordHash
+    SalesGroup       -> Salesman
+    customername     -> CustomerName
+    Item             -> Item#
+    ItemDescription  -> ItemName
+    SalesStatus      -> Status
+    SalesPrice       -> UnitPrice
+    CreatedDateTime  -> OrderDate
+    CustomerRequisition -> PO #   (only on the By Order tab)
 
-Output tabs (modeled after reports/ordered/writer.py in the live app):
+The SP doesn't return separate Shipped/Cancelled/Released/Open quantities
+so we derive them from the dollar columns it DOES return + status::
 
-    1. Summary     — totals + status mix
-    2. By Customer — one row per customer with rolled-up dollars
-    3. By Item     — one row per item with rolled-up dollars
-    4. By Order    — one row per sales order
-    5. Full Data   — every line, all columns
+    QtyCancelled = QuantityOrdered          when SalesStatus == 'Cancelled', else 0
+    QtyShipped   = QuantityOrdered - DeliveryRemainder - QuantityLefttoLoad - QtyCancelled
+    QtyReleased  = ReleasedQuantity
+    QtyOpen      = max(0, QuantityOrdered - QtyShipped - QtyCancelled)
+    Released $   = QtyReleased * UnitPrice
+    Open $       = max(0, Ordered $ - Shipped $ - Cancelled $)
+
+Tabs (in order):
+    1. Summary     -- live-shape: grouped by Customer with per-customer
+                      Total + spacer + GRAND TOTAL.
+    2. By Customer -- one row per (Customer, Salesman) with Fulfillment %.
+    3. By Item     -- one row per item with Fulfillment %.
+    4. By Order    -- one row per sales order; CustomerRequisition shown
+                      as "PO #".
+    5. By Salesman -- one row per salesman with Fulfillment %.
+    6. Full Data   -- every line, in FULL_DATA_ORDER.
 """
 from __future__ import annotations
 
@@ -31,82 +43,112 @@ from typing import Any, Iterable
 
 
 # ---------------------------------------------------------------------------
-# Column definitions
+# Column definitions (live names; live order)
 # ---------------------------------------------------------------------------
 
 
-# Full Data: mirror the SP output 1-for-1 so users can see / hide / move
-# every column. Order matches the SP field order, not the dump order, so
-# the most important fields land first.
+# Order matches reports/ordered/builder.py FULL_DATA_ORDER.
 FULL_DATA_COLS: list[dict[str, str]] = [
-    {"field": "Company",                "header": "Company",            "type": "text"},
-    {"field": "CustomerAccount",        "header": "Customer #",         "type": "text"},
-    {"field": "customername",           "header": "Customer Name",      "type": "text"},
-    {"field": "SalesOrderNumber",       "header": "Sales Order #",      "type": "text"},
-    {"field": "CustomerRequisition",    "header": "Customer PO",        "type": "text"},
-    {"field": "SalesGroup",             "header": "Salesman",           "type": "text"},
-    {"field": "LineNumber",             "header": "Line #",             "type": "int"},
-    {"field": "SalesStatus",            "header": "Status",             "type": "text"},
-    {"field": "Item",                   "header": "Item",               "type": "text"},
-    {"field": "ItemDescription",        "header": "Description",        "type": "text"},
-    {"field": "QuantityOrdered",        "header": "Qty Ordered",        "type": "int"},
-    {"field": "QuantityReserved",       "header": "Qty Reserved",       "type": "int"},
-    {"field": "ReleasedQuantity",       "header": "Qty Released",       "type": "int"},
-    {"field": "DeliveryRemainder",      "header": "Qty Remaining",      "type": "int"},
-    {"field": "QuantityLefttoLoad",     "header": "Qty Left to Load",   "type": "int"},
-    {"field": "SalesPrice",             "header": "Sales Price",        "type": "money"},
-    {"field": "OrderedAmount",          "header": "Ordered $",          "type": "money"},
-    {"field": "ShippedAmount",          "header": "Shipped $",          "type": "money"},
-    {"field": "CancelledAmount",        "header": "Cancelled $",        "type": "money"},
-    {"field": "RemainingAmount",        "header": "Remaining $",        "type": "money"},
-    {"field": "CreatedDateTime",        "header": "Created",            "type": "date"},
-    {"field": "ShippingDateRequested",  "header": "Ship Date Requested","type": "date"},
-    {"field": "InventoryTransactionID", "header": "Inventory Trans ID", "type": "text"},
+    {"field": "SalesOrderNumber",  "header": "SalesOrderNumber",  "type": "text"},
+    {"field": "CustomerAccount",   "header": "CustomerAccount",   "type": "text"},
+    {"field": "CustomerName",      "header": "CustomerName",      "type": "text"},
+    {"field": "Salesman",          "header": "Salesman",          "type": "text"},
+    {"field": "OrderDate",         "header": "OrderDate",         "type": "date"},
+    {"field": "PO #",              "header": "PO #",              "type": "text"},
+    {"field": "LineNumber",        "header": "LineNumber",        "type": "int"},
+    {"field": "Item#",             "header": "Item#",             "type": "text"},
+    {"field": "ItemName",          "header": "ItemName",          "type": "text"},
+    {"field": "UnitPrice",         "header": "UnitPrice",         "type": "money"},
+    {"field": "Status",            "header": "Status",            "type": "text"},
+    {"field": "Fulfillment %",     "header": "Fulfillment %",     "type": "percent"},
+    {"field": "QtyOrdered",        "header": "QtyOrdered",        "type": "int"},
+    {"field": "QtyShipped",        "header": "QtyShipped",        "type": "int"},
+    {"field": "QtyCancelled",      "header": "QtyCancelled",      "type": "int"},
+    {"field": "QtyReleased",       "header": "QtyReleased",       "type": "int"},
+    {"field": "QtyOpen",           "header": "QtyOpen",           "type": "int"},
+    {"field": "Ordered $",         "header": "Ordered $",         "type": "money"},
+    {"field": "Shipped $",         "header": "Shipped $",         "type": "money"},
+    {"field": "Cancelled $",       "header": "Cancelled $",       "type": "money"},
+    {"field": "Released $",        "header": "Released $",        "type": "money"},
+    {"field": "Open $",            "header": "Open $",            "type": "money"},
 ]
 
-BY_CUSTOMER_COLS = [
-    {"field": "CustomerAccount",  "header": "Customer #",     "type": "text"},
-    {"field": "customername",     "header": "Customer Name",  "type": "text"},
-    {"field": "SalesGroup",       "header": "Salesman",       "type": "text"},
-    {"field": "OrderCount",       "header": "# Orders",       "type": "int"},
-    {"field": "LineCount",        "header": "# Lines",        "type": "int"},
-    {"field": "QuantityOrdered",  "header": "Qty Ordered",    "type": "int"},
-    {"field": "OrderedAmount",    "header": "Ordered $",      "type": "money"},
-    {"field": "ShippedAmount",    "header": "Shipped $",      "type": "money"},
-    {"field": "CancelledAmount",  "header": "Cancelled $",    "type": "money"},
-    {"field": "RemainingAmount",  "header": "Remaining $",    "type": "money"},
+
+# Aggregated tabs: Customer / Salesman lead + dollar columns + Fulfillment %.
+_AGG_QTY_COLS = [
+    {"field": "QtyOrdered",   "header": "QtyOrdered",   "type": "int"},
+    {"field": "QtyShipped",   "header": "QtyShipped",   "type": "int"},
+    {"field": "QtyCancelled", "header": "QtyCancelled", "type": "int"},
+    {"field": "QtyReleased",  "header": "QtyReleased",  "type": "int"},
+    {"field": "QtyOpen",      "header": "QtyOpen",      "type": "int"},
+]
+_AGG_DOL_COLS = [
+    {"field": "Ordered $",    "header": "Ordered $",    "type": "money"},
+    {"field": "Shipped $",    "header": "Shipped $",    "type": "money"},
+    {"field": "Cancelled $",  "header": "Cancelled $",  "type": "money"},
+    {"field": "Released $",   "header": "Released $",   "type": "money"},
+    {"field": "Open $",       "header": "Open $",       "type": "money"},
 ]
 
-BY_ITEM_COLS = [
-    {"field": "Item",             "header": "Item",           "type": "text"},
-    {"field": "ItemDescription",  "header": "Description",    "type": "text"},
-    {"field": "OrderCount",       "header": "# Orders",       "type": "int"},
-    {"field": "QuantityOrdered",  "header": "Qty Ordered",    "type": "int"},
-    {"field": "OrderedAmount",    "header": "Ordered $",      "type": "money"},
-    {"field": "ShippedAmount",    "header": "Shipped $",      "type": "money"},
-    {"field": "CancelledAmount",  "header": "Cancelled $",    "type": "money"},
-    {"field": "RemainingAmount",  "header": "Remaining $",    "type": "money"},
-]
+BY_CUSTOMER_COLS = (
+    [
+        {"field": "CustomerAccount", "header": "CustomerAccount", "type": "text"},
+        {"field": "CustomerName",    "header": "CustomerName",    "type": "text"},
+        {"field": "Salesman",        "header": "Salesman",        "type": "text"},
+        {"field": "Fulfillment %",   "header": "Fulfillment %",   "type": "percent"},
+    ]
+    + _AGG_QTY_COLS
+    + _AGG_DOL_COLS
+)
 
-BY_ORDER_COLS = [
-    {"field": "SalesOrderNumber",    "header": "Sales Order #",   "type": "text"},
-    {"field": "CreatedDateTime",     "header": "Created",         "type": "date"},
-    {"field": "CustomerAccount",     "header": "Customer #",      "type": "text"},
-    {"field": "customername",        "header": "Customer Name",   "type": "text"},
-    {"field": "CustomerRequisition", "header": "Customer PO",     "type": "text"},
-    {"field": "SalesGroup",          "header": "Salesman",        "type": "text"},
-    {"field": "SalesStatus",         "header": "Status",          "type": "text"},
-    {"field": "LineCount",           "header": "# Lines",         "type": "int"},
-    {"field": "QuantityOrdered",     "header": "Qty Ordered",     "type": "int"},
-    {"field": "OrderedAmount",       "header": "Ordered $",       "type": "money"},
-    {"field": "ShippedAmount",       "header": "Shipped $",       "type": "money"},
-    {"field": "CancelledAmount",     "header": "Cancelled $",     "type": "money"},
-    {"field": "RemainingAmount",     "header": "Remaining $",     "type": "money"},
-]
+BY_ITEM_COLS = (
+    [
+        {"field": "Item#",          "header": "Item#",          "type": "text"},
+        {"field": "ItemName",       "header": "ItemName",       "type": "text"},
+        {"field": "Fulfillment %",  "header": "Fulfillment %",  "type": "percent"},
+    ]
+    + _AGG_QTY_COLS
+    + _AGG_DOL_COLS
+)
 
+BY_ORDER_COLS = (
+    [
+        {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
+        {"field": "OrderDate",        "header": "OrderDate",        "type": "date"},
+        {"field": "CustomerAccount",  "header": "CustomerAccount",  "type": "text"},
+        {"field": "CustomerName",     "header": "CustomerName",     "type": "text"},
+        {"field": "Salesman",         "header": "Salesman",         "type": "text"},
+        {"field": "PO #",             "header": "PO #",             "type": "text"},
+        {"field": "Status",           "header": "Status",           "type": "text"},
+        {"field": "Fulfillment %",    "header": "Fulfillment %",    "type": "percent"},
+    ]
+    + _AGG_QTY_COLS
+    + _AGG_DOL_COLS
+)
+
+BY_SALESMAN_COLS = (
+    [
+        {"field": "Salesman",        "header": "Salesman",        "type": "text"},
+        {"field": "Fulfillment %",   "header": "Fulfillment %",   "type": "percent"},
+    ]
+    + _AGG_QTY_COLS
+    + _AGG_DOL_COLS
+)
+
+# Live-shape Summary: per-customer rolled up to (item) lines, with
+# `_is_total` / `_is_spacer` flag rows so the grid + Excel export can
+# render them as bold totals + skipped rows.
 SUMMARY_COLS = [
-    {"field": "Metric", "header": "Metric", "type": "text"},
-    {"field": "Value",  "header": "Value",  "type": "text"},
+    {"field": "Customer Name",            "header": "Customer Name",            "type": "text"},
+    {"field": "Salesman",                 "header": "Salesman",                 "type": "text"},
+    {"field": "Item Number",              "header": "Item Number",              "type": "text"},
+    {"field": "Line Description",         "header": "Line Description",         "type": "text"},
+    {"field": "QtyOrdered",               "header": "QtyOrdered",               "type": "int"},
+    {"field": "QtyCancelled",             "header": "QtyCancelled",             "type": "int"},
+    {"field": "QtyRemainder",             "header": "QtyRemainder",             "type": "int"},
+    {"field": "Net Price",                "header": "Net Price",                "type": "money"},
+    {"field": "Extended Price - Ordered", "header": "Extended Price - Ordered", "type": "money"},
+    {"field": "Extended Price Remainder", "header": "Extended Price Remainder", "type": "money"},
 ]
 
 
@@ -135,69 +177,99 @@ def _str(v: Any) -> str:
     return str(v)
 
 
+def _date_only(v: Any) -> str:
+    """Trim 'YYYY-MM-DDTHH:MM:SS' to 'YYYY-MM-DD' for OrderDate."""
+    s = _str(v)
+    return s[:10] if len(s) >= 10 else s
+
+
 def _norm_row(raw: dict) -> dict:
-    """Normalise a SP row: rename `Ordered $` -> `OrderedAmount`, fill blanks,
-    derive `RemainingAmount = Ordered - Shipped - Cancelled`.
-    """
-    ordered = _num(raw.get("Ordered $"))
-    shipped = _num(raw.get("Shipped $"))
-    cancelled = _num(raw.get("Cancelled $"))
-    remaining = round(ordered - shipped - cancelled, 2)
+    """Map an SP row onto live-style column names + derive the missing qty/$ columns."""
+    qty_ord     = _int(raw.get("QuantityOrdered"))
+    qty_release = _int(raw.get("ReleasedQuantity"))
+    qty_remain  = _int(raw.get("DeliveryRemainder"))
+    qty_load    = _int(raw.get("QuantityLefttoLoad"))
+    status      = _str(raw.get("SalesStatus"))
+
+    ordered_d   = round(_num(raw.get("Ordered $")), 2)
+    shipped_d   = round(_num(raw.get("Shipped $")), 2)
+    cancelled_d = round(_num(raw.get("Cancelled $")), 2)
+    unit_price  = round(_num(raw.get("SalesPrice")), 4)
+
+    is_cancelled = status.lower() == "cancelled"
+    qty_cancelled = qty_ord if is_cancelled else 0
+    qty_shipped = max(0, qty_ord - qty_remain - qty_load - qty_cancelled)
+    qty_open    = max(0, qty_ord - qty_shipped - qty_cancelled)
+    released_d  = round(qty_release * unit_price, 2)
+    open_d      = round(max(0.0, ordered_d - shipped_d - cancelled_d), 2)
+
+    fulfillment = (qty_ord - qty_cancelled) / qty_ord if qty_ord > 0 else None
 
     return {
-        "Company":              _str(raw.get("Company")),
-        "CustomerAccount":      _str(raw.get("CustomerAccount")),
-        "customername":         _str(raw.get("customername")),
-        "SalesOrderNumber":     _str(raw.get("SalesOrderNumber")),
-        "CustomerRequisition":  _str(raw.get("CustomerRequisition")),
-        "SalesGroup":           _str(raw.get("SalesGroup")),
-        "LineNumber":           _int(raw.get("LineNumber")),
-        "SalesStatus":          _str(raw.get("SalesStatus")),
-        "Item":                 _str(raw.get("Item")),
-        "ItemDescription":      _str(raw.get("ItemDescription")),
-        "QuantityOrdered":      _int(raw.get("QuantityOrdered")),
-        "QuantityReserved":     _int(raw.get("QuantityReserved")),
-        "ReleasedQuantity":     _int(raw.get("ReleasedQuantity")),
-        "DeliveryRemainder":    _int(raw.get("DeliveryRemainder")),
-        "QuantityLefttoLoad":   _int(raw.get("QuantityLefttoLoad")),
-        "SalesPrice":           round(_num(raw.get("SalesPrice")), 4),
-        "OrderedAmount":        round(ordered, 2),
-        "ShippedAmount":        round(shipped, 2),
-        "CancelledAmount":      round(cancelled, 2),
-        "RemainingAmount":      remaining,
-        "CreatedDateTime":      _str(raw.get("CreatedDateTime")),
-        "ShippingDateRequested":_str(raw.get("ShippingDateRequested")),
-        "InventoryTransactionID": _str(raw.get("InventoryTransactionID")),
+        "Company":           _str(raw.get("Company")),
+        "CustomerAccount":   _str(raw.get("CustomerAccount")),
+        "CustomerName":      _str(raw.get("customername")),
+        "Salesman":          _str(raw.get("SalesGroup")),
+        "SalesOrderNumber":  _str(raw.get("SalesOrderNumber")),
+        "PO #":              _str(raw.get("CustomerRequisition")),
+        "LineNumber":        _int(raw.get("LineNumber")),
+        "Status":            status,
+        "Item#":             _str(raw.get("Item")),
+        "ItemName":          _str(raw.get("ItemDescription")),
+        "UnitPrice":         unit_price,
+        "OrderDate":         _date_only(raw.get("CreatedDateTime")),
+
+        "QtyOrdered":        qty_ord,
+        "QtyShipped":        qty_shipped,
+        "QtyCancelled":      qty_cancelled,
+        "QtyReleased":       qty_release,
+        "QtyOpen":           qty_open,
+
+        "Ordered $":         ordered_d,
+        "Shipped $":         shipped_d,
+        "Cancelled $":       cancelled_d,
+        "Released $":        released_d,
+        "Open $":            open_d,
+
+        "Fulfillment %":     fulfillment,
     }
 
 
-_DOLLAR_FIELDS = ("OrderedAmount", "ShippedAmount", "CancelledAmount", "RemainingAmount")
+_SUM_QTY_FIELDS = ("QtyOrdered", "QtyShipped", "QtyCancelled", "QtyReleased", "QtyOpen")
+_SUM_DOL_FIELDS = ("Ordered $", "Shipped $", "Cancelled $", "Released $", "Open $")
 
 
 def _empty_bucket() -> dict[str, Any]:
     return {
-        "QuantityOrdered": 0,
-        "OrderedAmount":   0.0,
-        "ShippedAmount":   0.0,
-        "CancelledAmount": 0.0,
-        "RemainingAmount": 0.0,
-        "_orders":         set(),
-        "LineCount":       0,
+        **{f: 0   for f in _SUM_QTY_FIELDS},
+        **{f: 0.0 for f in _SUM_DOL_FIELDS},
+        "_orders": set(),
     }
 
 
 def _accumulate(bucket: dict, line: dict) -> None:
-    bucket["QuantityOrdered"] += line["QuantityOrdered"]
-    for f in _DOLLAR_FIELDS:
+    for f in _SUM_QTY_FIELDS:
+        bucket[f] += line[f]
+    for f in _SUM_DOL_FIELDS:
         bucket[f] += line[f]
     bucket["_orders"].add(line["SalesOrderNumber"])
-    bucket["LineCount"] += 1
 
 
-def _round_money(d: dict) -> None:
-    for f in _DOLLAR_FIELDS:
-        if f in d:
-            d[f] = round(d[f], 2)
+def _round_bucket(b: dict) -> None:
+    for f in _SUM_DOL_FIELDS:
+        b[f] = round(b[f], 2)
+
+
+def _ff_pct(qty_ord: float, qty_cancelled: float) -> float | None:
+    """Same formula as live's `_fulfillment_score` but at aggregate level."""
+    if qty_ord <= 1e-6:
+        return None
+    score = (qty_ord - qty_cancelled) / qty_ord
+    if score < 0:
+        score = 0.0
+    if score > 1:
+        score = 1.0
+    return round(score, 4)
 
 
 # ---------------------------------------------------------------------------
@@ -215,35 +287,32 @@ def _build_full_data(lines: list[dict]) -> dict:
 
 
 def _build_by_customer(lines: list[dict]) -> dict:
-    buckets: dict[str, dict] = {}
-    meta: dict[str, dict] = {}
+    buckets: dict[tuple, dict] = {}
+    meta: dict[tuple, dict] = {}
     for ln in lines:
-        cust = ln["CustomerAccount"] or "(none)"
-        if cust not in buckets:
-            buckets[cust] = _empty_bucket()
-            meta[cust] = {
-                "customername": ln["customername"],
-                "SalesGroup":   ln["SalesGroup"],
+        key = (ln["CustomerAccount"] or "(none)", ln["Salesman"] or "")
+        if key not in buckets:
+            buckets[key] = _empty_bucket()
+            meta[key] = {
+                "CustomerName": ln["CustomerName"],
+                "Salesman":     ln["Salesman"],
             }
-        _accumulate(buckets[cust], ln)
+        _accumulate(buckets[key], ln)
 
     rows = []
-    for cust, b in buckets.items():
-        m = meta[cust]
+    for (cust, _), b in buckets.items():
+        _round_bucket(b)
+        m = meta[(cust, _)]
         rows.append({
             "CustomerAccount": cust,
-            "customername":    m["customername"],
-            "SalesGroup":      m["SalesGroup"],
-            "OrderCount":      len(b["_orders"]),
-            "LineCount":       b["LineCount"],
-            "QuantityOrdered": b["QuantityOrdered"],
-            "OrderedAmount":   round(b["OrderedAmount"], 2),
-            "ShippedAmount":   round(b["ShippedAmount"], 2),
-            "CancelledAmount": round(b["CancelledAmount"], 2),
-            "RemainingAmount": round(b["RemainingAmount"], 2),
+            "CustomerName":    m["CustomerName"],
+            "Salesman":        m["Salesman"],
+            "Fulfillment %":   _ff_pct(b["QtyOrdered"], b["QtyCancelled"]),
+            **{f: b[f] for f in _SUM_QTY_FIELDS},
+            **{f: b[f] for f in _SUM_DOL_FIELDS},
         })
 
-    rows.sort(key=lambda r: -r["OrderedAmount"])
+    rows.sort(key=lambda r: -float(r["Ordered $"] or 0))
     return {
         "key":     "by_customer",
         "name":    "By Customer",
@@ -256,25 +325,23 @@ def _build_by_item(lines: list[dict]) -> dict:
     buckets: dict[str, dict] = {}
     meta: dict[str, dict] = {}
     for ln in lines:
-        item = ln["Item"] or "(none)"
+        item = ln["Item#"] or "(none)"
         if item not in buckets:
             buckets[item] = _empty_bucket()
-            meta[item] = {"ItemDescription": ln["ItemDescription"]}
+            meta[item] = {"ItemName": ln["ItemName"]}
         _accumulate(buckets[item], ln)
 
     rows = []
     for item, b in buckets.items():
+        _round_bucket(b)
         rows.append({
-            "Item":            item,
-            "ItemDescription": meta[item]["ItemDescription"],
-            "OrderCount":      len(b["_orders"]),
-            "QuantityOrdered": b["QuantityOrdered"],
-            "OrderedAmount":   round(b["OrderedAmount"], 2),
-            "ShippedAmount":   round(b["ShippedAmount"], 2),
-            "CancelledAmount": round(b["CancelledAmount"], 2),
-            "RemainingAmount": round(b["RemainingAmount"], 2),
+            "Item#":         item,
+            "ItemName":      meta[item]["ItemName"],
+            "Fulfillment %": _ff_pct(b["QtyOrdered"], b["QtyCancelled"]),
+            **{f: b[f] for f in _SUM_QTY_FIELDS},
+            **{f: b[f] for f in _SUM_DOL_FIELDS},
         })
-    rows.sort(key=lambda r: -r["OrderedAmount"])
+    rows.sort(key=lambda r: -float(r["Ordered $"] or 0))
     return {
         "key":     "by_item",
         "name":    "By Item",
@@ -291,34 +358,32 @@ def _build_by_order(lines: list[dict]) -> dict:
         if so not in buckets:
             buckets[so] = _empty_bucket()
             meta[so] = {
-                "CreatedDateTime":     ln["CreatedDateTime"],
-                "CustomerAccount":     ln["CustomerAccount"],
-                "customername":        ln["customername"],
-                "CustomerRequisition": ln["CustomerRequisition"],
-                "SalesGroup":          ln["SalesGroup"],
-                "SalesStatus":         ln["SalesStatus"],
+                "OrderDate":       ln["OrderDate"],
+                "CustomerAccount": ln["CustomerAccount"],
+                "CustomerName":    ln["CustomerName"],
+                "PO #":            ln["PO #"],
+                "Salesman":        ln["Salesman"],
+                "Status":          ln["Status"],
             }
         _accumulate(buckets[so], ln)
 
     rows = []
     for so, b in buckets.items():
+        _round_bucket(b)
         m = meta[so]
         rows.append({
-            "SalesOrderNumber":    so,
-            "CreatedDateTime":     m["CreatedDateTime"],
-            "CustomerAccount":     m["CustomerAccount"],
-            "customername":        m["customername"],
-            "CustomerRequisition": m["CustomerRequisition"],
-            "SalesGroup":          m["SalesGroup"],
-            "SalesStatus":         m["SalesStatus"],
-            "LineCount":           b["LineCount"],
-            "QuantityOrdered":     b["QuantityOrdered"],
-            "OrderedAmount":       round(b["OrderedAmount"], 2),
-            "ShippedAmount":       round(b["ShippedAmount"], 2),
-            "CancelledAmount":     round(b["CancelledAmount"], 2),
-            "RemainingAmount":     round(b["RemainingAmount"], 2),
+            "SalesOrderNumber": so,
+            "OrderDate":        m["OrderDate"],
+            "CustomerAccount":  m["CustomerAccount"],
+            "CustomerName":     m["CustomerName"],
+            "Salesman":         m["Salesman"],
+            "PO #":             m["PO #"],
+            "Status":           m["Status"],
+            "Fulfillment %":    _ff_pct(b["QtyOrdered"], b["QtyCancelled"]),
+            **{f: b[f] for f in _SUM_QTY_FIELDS},
+            **{f: b[f] for f in _SUM_DOL_FIELDS},
         })
-    rows.sort(key=lambda r: r["CreatedDateTime"], reverse=True)
+    rows.sort(key=lambda r: r["OrderDate"] or "", reverse=True)
     return {
         "key":     "by_order",
         "name":    "By Order",
@@ -327,35 +392,144 @@ def _build_by_order(lines: list[dict]) -> dict:
     }
 
 
-def _build_summary(lines: list[dict]) -> dict:
-    if not lines:
-        rows = [
-            {"Metric": "Lines", "Value": "0"},
-        ]
-        return {"key": "summary", "name": "Summary", "columns": SUMMARY_COLS, "rows": rows}
-
-    total = _empty_bucket()
-    statuses: dict[str, float] = defaultdict(float)
+def _build_by_salesman(lines: list[dict]) -> dict:
+    buckets: dict[str, dict] = {}
     for ln in lines:
-        _accumulate(total, ln)
-        statuses[ln["SalesStatus"] or "(blank)"] += ln["OrderedAmount"]
+        key = ln["Salesman"] or "(none)"
+        if key not in buckets:
+            buckets[key] = _empty_bucket()
+        _accumulate(buckets[key], ln)
 
-    def _money(v: float) -> str:
-        return f"${v:,.2f}"
+    rows = []
+    for sm, b in buckets.items():
+        _round_bucket(b)
+        rows.append({
+            "Salesman":      sm,
+            "Fulfillment %": _ff_pct(b["QtyOrdered"], b["QtyCancelled"]),
+            **{f: b[f] for f in _SUM_QTY_FIELDS},
+            **{f: b[f] for f in _SUM_DOL_FIELDS},
+        })
+    rows.sort(key=lambda r: -float(r["Ordered $"] or 0))
+    return {
+        "key":     "by_salesman",
+        "name":    "By Salesman",
+        "columns": BY_SALESMAN_COLS,
+        "rows":    rows,
+    }
 
-    rows = [
-        {"Metric": "Lines",          "Value": f"{total['LineCount']:,}"},
-        {"Metric": "Distinct Orders","Value": f"{len(total['_orders']):,}"},
-        {"Metric": "Qty Ordered",    "Value": f"{total['QuantityOrdered']:,}"},
-        {"Metric": "Ordered $",      "Value": _money(total["OrderedAmount"])},
-        {"Metric": "Shipped $",      "Value": _money(total["ShippedAmount"])},
-        {"Metric": "Cancelled $",    "Value": _money(total["CancelledAmount"])},
-        {"Metric": "Remaining $",    "Value": _money(total["RemainingAmount"])},
-    ]
-    for status, amt in sorted(statuses.items(), key=lambda kv: -kv[1]):
-        rows.append({"Metric": f"Status: {status}", "Value": _money(amt)})
 
-    return {"key": "summary", "name": "Summary", "columns": SUMMARY_COLS, "rows": rows}
+def _build_summary(lines: list[dict]) -> dict:
+    """Live-shape Summary: rolled up to (Customer, Item) with per-customer
+    Total + spacer + GRAND TOTAL.
+
+    Output rows include two synthetic flags:
+      - ``_is_total``  -> render bold (used for per-customer Total + GRAND TOTAL)
+      - ``_is_spacer`` -> render as a blank row
+    """
+    if not lines:
+        return {
+            "key": "summary", "name": "Summary",
+            "columns": SUMMARY_COLS, "rows": [],
+        }
+
+    # Roll up to (customer, item)
+    grouped: dict[tuple, dict] = {}
+    for ln in lines:
+        cust = ln["CustomerName"] or ln["CustomerAccount"] or "(blank)"
+        item = ln["Item#"] or "(blank)"
+        key = (cust, item)
+        if key not in grouped:
+            grouped[key] = {
+                "Customer Name":            cust,
+                "Salesman":                 ln["Salesman"],
+                "Item Number":              item,
+                "Line Description":         ln["ItemName"],
+                "QtyOrdered":               0,
+                "QtyCancelled":             0,
+                "QtyRemainder":             0,
+                "Extended Price - Ordered": 0.0,
+                "Extended Price Remainder": 0.0,
+            }
+        g = grouped[key]
+        g["QtyOrdered"]               += ln["QtyOrdered"]
+        g["QtyCancelled"]             += ln["QtyCancelled"]
+        g["QtyRemainder"]             += ln["QtyOpen"]  # remainder = open
+        g["Extended Price - Ordered"] += ln["Ordered $"]
+        g["Extended Price Remainder"] += ln["Open $"]
+
+    # Net Price = Ext Ordered / QtyOrdered (mirrors live)
+    for g in grouped.values():
+        qo = g["QtyOrdered"]
+        g["Net Price"] = round(g["Extended Price - Ordered"] / qo, 4) if qo else 0.0
+        g["Extended Price - Ordered"] = round(g["Extended Price - Ordered"], 2)
+        g["Extended Price Remainder"] = round(g["Extended Price Remainder"], 2)
+
+    # Sort by Customer then Item, then walk and inject totals + spacers.
+    sorted_rows = sorted(grouped.values(), key=lambda r: (r["Customer Name"], r["Item Number"]))
+
+    out: list[dict] = []
+    by_cust: dict[str, list[dict]] = defaultdict(list)
+    for r in sorted_rows:
+        by_cust[r["Customer Name"]].append(r)
+
+    grand = defaultdict(float)
+    for cust in by_cust:  # preserves insertion order = sorted order
+        cust_rows = by_cust[cust]
+        for r in cust_rows:
+            r["_is_total"]  = False
+            r["_is_spacer"] = False
+            out.append(r)
+
+        # per-customer Total
+        total = {c["field"]: "" for c in SUMMARY_COLS}
+        total["Customer Name"]            = cust
+        total["Salesman"]                 = cust_rows[0]["Salesman"] if cust_rows else ""
+        total["Item Number"]              = "TOTALS"
+        total["Line Description"]         = ""
+        total["QtyOrdered"]               = sum(r["QtyOrdered"]   for r in cust_rows)
+        total["QtyCancelled"]             = sum(r["QtyCancelled"] for r in cust_rows)
+        total["QtyRemainder"]             = sum(r["QtyRemainder"] for r in cust_rows)
+        total["Net Price"]                = ""
+        total["Extended Price - Ordered"] = round(sum(r["Extended Price - Ordered"] for r in cust_rows), 2)
+        total["Extended Price Remainder"] = round(sum(r["Extended Price Remainder"] for r in cust_rows), 2)
+        total["_is_total"]  = True
+        total["_is_spacer"] = False
+        out.append(total)
+
+        # spacer row
+        spacer = {c["field"]: "" for c in SUMMARY_COLS}
+        spacer["_is_total"]  = False
+        spacer["_is_spacer"] = True
+        out.append(spacer)
+
+        # accumulate grand totals
+        grand["QtyOrdered"]               += total["QtyOrdered"]
+        grand["QtyCancelled"]             += total["QtyCancelled"]
+        grand["QtyRemainder"]             += total["QtyRemainder"]
+        grand["Extended Price - Ordered"] += total["Extended Price - Ordered"]
+        grand["Extended Price Remainder"] += total["Extended Price Remainder"]
+
+    grand_row = {c["field"]: "" for c in SUMMARY_COLS}
+    grand_row["Customer Name"]            = "GRAND TOTAL"
+    grand_row["Salesman"]                 = ""
+    grand_row["Item Number"]              = ""
+    grand_row["Line Description"]         = ""
+    grand_row["QtyOrdered"]               = int(grand["QtyOrdered"])
+    grand_row["QtyCancelled"]             = int(grand["QtyCancelled"])
+    grand_row["QtyRemainder"]             = int(grand["QtyRemainder"])
+    grand_row["Net Price"]                = ""
+    grand_row["Extended Price - Ordered"] = round(grand["Extended Price - Ordered"], 2)
+    grand_row["Extended Price Remainder"] = round(grand["Extended Price Remainder"], 2)
+    grand_row["_is_total"]  = True
+    grand_row["_is_spacer"] = False
+    out.append(grand_row)
+
+    return {
+        "key":     "summary",
+        "name":    "Summary",
+        "columns": SUMMARY_COLS,
+        "rows":    out,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -371,5 +545,6 @@ def build(rows: Iterable[dict]) -> list[dict]:
         _build_by_customer(lines),
         _build_by_item(lines),
         _build_by_order(lines),
+        _build_by_salesman(lines),
         _build_full_data(lines),
     ]

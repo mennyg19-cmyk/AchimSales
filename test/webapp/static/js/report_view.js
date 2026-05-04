@@ -80,6 +80,13 @@
         scheduleBtn:        $("scheduleBtn"),
         presetBtn:          $("savePresetBtn"),
 
+        // Sort & Group toolbar
+        sortGroupBar:       $("sortGroupBar"),
+        sortChips:          $("sortChips"),
+        groupChips:         $("groupChips"),
+        addSortSelect:      $("addSortSelect"),
+        addGroupSelect:     $("addGroupSelect"),
+
         // Modals
         presetModal:        $("presetModal"),
         presetNameInput:    $("presetNameInput"),
@@ -160,6 +167,7 @@
     wireDrawer();
     wireModals();
     wireScheduleModal();
+    wireSortGroupBar();
 
     // ---------- Data-source badge --------------------------------------
     function renderApiSentPanel(meta) {
@@ -251,6 +259,14 @@
                 fieldOrder:   (t.columns || []).map(function (c) { return c.field; }),
                 grid:         null,
                 container:    null,
+                // User-driven sort + group state. Each level is
+                // {field, dir} for sort and a bare field name for group.
+                sortLevels:   [],
+                groupLevels:  [],
+                // True when the server already shipped totals/spacer
+                // rows in `data` (e.g. the Summary tab). We don't add
+                // group breaks on top of those.
+                serverShapedTotals: hasServerTotals(t.rows),
             };
             state.tabOrder.push(t.key);
         });
@@ -291,12 +307,11 @@
                     updateChangedState();
                 }
             };
-            if (activeGrid && typeof activeGrid.getSorters === "function") {
+            if (activeGrid && typeof activeGrid.getHeaderFilters === "function") {
                 stash();
             } else if (activeGrid && typeof activeGrid.on === "function") {
                 activeGrid.on("tableBuilt", stash);
             } else {
-                // No active grid (no tabs case) -- snapshot what we have.
                 stash();
             }
         }
@@ -330,20 +345,12 @@
             snap.tabs[key] = {
                 hidden_fields: Array.from(t.hiddenFields),
                 field_order:   t.fieldOrder.slice(),
-                sorters:       safeGetSorters(t.grid),
+                sort_levels:   (t.sortLevels || []).map(function (s) { return { field: s.field, dir: s.dir }; }),
+                group_levels:  (t.groupLevels || []).slice(),
                 filters:       safeGetHeaderFilters(t.grid),
             };
         });
         return snap;
-    }
-
-    function safeGetSorters(grid) {
-        if (!grid || typeof grid.getSorters !== "function") return [];
-        try {
-            return (grid.getSorters() || []).map(function (s) {
-                return { column: s.field || s.column, dir: s.dir };
-            });
-        } catch (_) { return []; }
     }
 
     function safeGetHeaderFilters(grid) {
@@ -384,11 +391,15 @@
                 });
                 t.fieldOrder = ordered;
             }
-            // Sorts + filters get re-applied AFTER the grid is built; we
-            // stash them on the tab so ensureGrid() can pick them up.
-            t._restoreSorters = (saved.sorters || []).filter(function (s) {
-                return validFields.has(s.column);
+            // Sort + group state can be restored synchronously since we
+            // own the data pipeline.
+            t.sortLevels = (saved.sort_levels || []).filter(function (s) {
+                return validFields.has(s.field);
+            }).map(function (s) { return { field: s.field, dir: s.dir || "asc" }; });
+            t.groupLevels = (saved.group_levels || []).filter(function (f) {
+                return validFields.has(f);
             });
+            // Filters still need the post-tableBuilt restore.
             t._restoreFilters = (saved.filters || []).filter(function (f) {
                 return validFields.has(f.field);
             });
@@ -397,6 +408,16 @@
 
     function cloneCol(c) {
         return { field: c.field, label: c.label || c.field, type: c.type || "text" };
+    }
+
+    /** Does this row payload already contain server-shaped total/spacer
+     *  rows? Currently only the Summary tab uses this. */
+    function hasServerTotals(rows) {
+        if (!Array.isArray(rows) || !rows.length) return false;
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i] && (rows[i]._is_total || rows[i]._is_spacer)) return true;
+        }
+        return false;
     }
 
     // If we arrived from the home page's "Run preset" button, the server
@@ -515,6 +536,7 @@
 
         ensureGrid(key);
         refreshHiddenUi();
+        renderSortGroupBar();
         updateExportRowCount();
     }
 
@@ -522,48 +544,282 @@
         const t = state.tabs[key];
         if (t.grid) return t.grid;
 
+        // We compute sorted/grouped display rows ourselves so we can
+        // inject totals + spacer rows on group breaks. Tabulator just
+        // renders + handles header filters / column moves / hides.
         t.grid = new Tabulator(t.container, {
-            data:          t.data,
+            data:          computeDisplayRows(t),
             layout:        "fitDataTable",    // natural width -> grid-root scrolls
             columnDefaults:{
                 headerHozAlign: "left",
                 hozAlign:       "left",
                 resizable:      true,
                 headerContextMenu: tabulatorHeaderCtxMenu(key),
+                headerSort:     false,        // we handle sort ourselves
             },
             columns:       buildColumnDefs(key),
             movableColumns:true,
             height:        "60vh",
             placeholder:   "No rows for the selected filters.",
+            // Style server-shipped totals/spacers (Summary tab) and
+            // user-driven group breaks identically: bold+border for
+            // totals, blank-row for spacers, double-border for grand.
+            rowFormatter:  decorateRow,
             columnMoved:   function () { syncFieldOrder(key); updateChangedState(); },
             dataFiltered:  function () {
                 if (key === state.activeTab) updateExportRowCount();
                 updateChangedState();
             },
-            dataSorted:    function () { updateChangedState(); },
         });
 
-        // Tabulator builds asynchronously. Sorts/filters can only be set
-        // (and the default-layout snapshot taken) once the grid emits
-        // `tableBuilt`. Anything that needs the full API has to live
-        // inside this listener.
-        t.grid.on("tableBuilt", function () {
-            if (Array.isArray(t._restoreSorters) && t._restoreSorters.length) {
-                try { t.grid.setSort(t._restoreSorters); } catch (_) {}
+        // Custom header click handler -> our own sort-level state.
+        // Plain click  = replace sort (1 level, descending if numeric/percent
+        //                else ascending); a second click on same column flips dir.
+        // Shift+click  = add a new level (or flip dir of an existing level).
+        t.grid.on("headerClick", function (ev, column) {
+            // Tabs with server-baked totals (Summary) come pre-sorted
+            // by the builder; user sorting would scramble the layout.
+            if (t.serverShapedTotals) return;
+            const field = column.getField();
+            if (!field) return;
+            const meta = t.columnsMeta.find(function (c) { return c.field === field; });
+            if (!meta) return;
+
+            const existing = t.sortLevels.find(function (s) { return s.field === field; });
+            if (ev.shiftKey) {
+                if (existing) {
+                    existing.dir = (existing.dir === "asc") ? "desc" : "asc";
+                } else {
+                    t.sortLevels.push({ field: field, dir: defaultDirFor(meta.type) });
+                }
+            } else {
+                if (existing && t.sortLevels.length === 1) {
+                    existing.dir = (existing.dir === "asc") ? "desc" : "asc";
+                } else {
+                    t.sortLevels = [{ field: field, dir: defaultDirFor(meta.type) }];
+                }
             }
+            applySortGroupChange(key);
+        });
+
+        t.grid.on("tableBuilt", function () {
             if (Array.isArray(t._restoreFilters) && t._restoreFilters.length) {
                 t._restoreFilters.forEach(function (f) {
                     try { t.grid.setHeaderFilterValue(f.field, f.value); } catch (_) {}
                 });
             }
-            delete t._restoreSorters;
+            delete t._restoreSorters;  // legacy: sort now lives on tab.sortLevels
             delete t._restoreFilters;
-            // Now that this grid is fully built, refresh chip + change marker.
-            if (key === state.activeTab) updateExportRowCount();
+            if (key === state.activeTab) {
+                renderSortGroupBar();
+                updateExportRowCount();
+            }
             updateChangedState();
         });
 
         return t.grid;
+    }
+
+    function defaultDirFor(type) {
+        return (type === "money" || type === "int" || type === "percent" || type === "date")
+            ? "desc"
+            : "asc";
+    }
+
+    /** Tabulator rowFormatter: paint totals / spacer rows distinctly so
+     *  the on-screen preview matches what Excel will render. */
+    function decorateRow(row) {
+        const data = row.getData();
+        const el = row.getElement();
+        el.classList.remove("row-total", "row-grand-total", "row-spacer");
+        if (!data) return;
+        if (data._is_spacer) {
+            el.classList.add("row-spacer");
+            return;
+        }
+        if (data._is_total) {
+            el.classList.add("row-total");
+            // Heuristic: GRAND TOTAL rows are styled extra-bold. The
+            // builder marks them by putting "GRAND TOTAL" in the first
+            // text column.
+            const txt = JSON.stringify(data || {}).toUpperCase();
+            if (txt.indexOf("GRAND TOTAL") >= 0) {
+                el.classList.add("row-grand-total");
+            }
+        }
+    }
+
+    /** Compute the list of rows Tabulator should render for tab `t`,
+     *  honouring the user's sortLevels + groupLevels. If the server
+     *  already shipped totals/spacer rows (Summary tab), we leave them
+     *  untouched -- those are "baked-in" totals the builder owns.
+     *
+     *  Optionally pre-filter the raw rows with `filterFn(row) -> bool`
+     *  so totals reflect only the visible subset. Used by the header-
+     *  filter listener to keep totals consistent with what's on screen. */
+    function computeDisplayRows(t, filterFn) {
+        const rawAll = (t.data || []).slice();
+        if (t.serverShapedTotals) return rawAll;
+
+        let raw = rawAll.filter(function (r) { return !(r && (r._is_total || r._is_spacer)); });
+        if (typeof filterFn === "function") {
+            raw = raw.filter(filterFn);
+        }
+
+        // Sort: group levels first (they always win), then user sorts.
+        const sortKeys = (t.groupLevels || []).map(function (f) {
+            return { field: f, dir: "asc" };
+        }).concat(t.sortLevels || []);
+        if (sortKeys.length) {
+            const cmp = compareByKeys(t, sortKeys);
+            raw.sort(cmp);
+        }
+
+        if (!t.groupLevels || !t.groupLevels.length) return raw;
+
+        // Walk and inject per-group-level totals + spacer at each break.
+        return injectGroupTotals(t, raw);
+    }
+
+    function compareByKeys(t, keys) {
+        const typeOf = {};
+        t.columnsMeta.forEach(function (c) { typeOf[c.field] = c.type; });
+        return function (a, b) {
+            for (let i = 0; i < keys.length; i++) {
+                const k = keys[i];
+                const va = a[k.field];
+                const vb = b[k.field];
+                let c = compareVals(va, vb, typeOf[k.field] || "text");
+                if (k.dir === "desc") c = -c;
+                if (c !== 0) return c;
+            }
+            return 0;
+        };
+    }
+
+    function compareVals(a, b, type) {
+        // Empty / null sorts last, regardless of direction (consistent w/ Excel).
+        const aEmpty = (a === null || a === undefined || a === "");
+        const bEmpty = (b === null || b === undefined || b === "");
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+        if (type === "money" || type === "int" || type === "percent") {
+            const na = Number(a), nb = Number(b);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        }
+        if (type === "date") {
+            const da = Date.parse(a), db = Date.parse(b);
+            if (!isNaN(da) && !isNaN(db)) return da - db;
+        }
+        const sa = String(a).toLowerCase();
+        const sb = String(b).toLowerCase();
+        if (sa < sb) return -1;
+        if (sa > sb) return 1;
+        return 0;
+    }
+
+    /** Walk pre-sorted rows. Whenever any of the group-level keys
+     *  changes (most-significant first), close out the corresponding
+     *  level by emitting a totals row plus a spacer row. Each level
+     *  tracks its own startIdx; when an outer level breaks, every
+     *  inner level's startIdx also resets to the outer break point.
+     *
+     *  Totals rows are emitted INNER -> OUTER (most-specific first)
+     *  so the visual order matches Excel's pivot-style subtotal layout. */
+    function injectGroupTotals(t, rows) {
+        if (!rows.length) return rows;
+        const levels = t.groupLevels.slice();
+        const numericFields = t.columnsMeta
+            .filter(function (c) { return c.type === "money" || c.type === "int"; })
+            .map(function (c) { return c.field; });
+
+        // Per-level: index of the first row of this level's current run.
+        const startIdx = levels.map(function () { return 0; });
+        const out = [];
+
+        function emitTotals(level, fromIdx, toIdx, isGrand) {
+            const slice = rows.slice(fromIdx, toIdx);
+            if (!slice.length) return;
+            const total = {};
+            const firstText = (t.columnsMeta.find(function (c) { return c.type !== "money" && c.type !== "int" && c.type !== "percent"; }) || t.columnsMeta[0]);
+            t.columnsMeta.forEach(function (col) {
+                if (numericFields.indexOf(col.field) >= 0) {
+                    total[col.field] = slice.reduce(function (s, r) {
+                        const v = Number(r[col.field]);
+                        return s + (isNaN(v) ? 0 : v);
+                    }, 0);
+                } else {
+                    total[col.field] = "";
+                }
+            });
+            if (isGrand) {
+                total[firstText.field] = "GRAND TOTAL";
+            } else {
+                const gField = levels[level];
+                const gVal = slice[0][gField];
+                total[firstText.field] = (gVal === null || gVal === undefined || gVal === "")
+                    ? "TOTALS"
+                    : String(gVal) + " (Total)";
+            }
+            total._is_total  = true;
+            total._is_spacer = false;
+            if (isGrand) total._is_grand = true;
+            out.push(total);
+            const spacer = {};
+            t.columnsMeta.forEach(function (c) { spacer[c.field] = ""; });
+            spacer._is_spacer = true;
+            out.push(spacer);
+        }
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            row._is_total = false;
+            row._is_spacer = false;
+            if (i > 0) {
+                // Find the outer-most level that broke. Inner levels
+                // implicitly break when an outer level breaks (we
+                // never have to check them separately).
+                let brokeAt = -1;
+                for (let lvl = 0; lvl < levels.length; lvl++) {
+                    if (rows[i][levels[lvl]] !== rows[i - 1][levels[lvl]]) {
+                        brokeAt = lvl;
+                        break;
+                    }
+                }
+                if (brokeAt >= 0) {
+                    // Emit totals INNER -> OUTER for every level that broke.
+                    for (let close = levels.length - 1; close >= brokeAt; close--) {
+                        emitTotals(close, startIdx[close], i, false);
+                    }
+                    // Reset inner levels' startIdx to the new break point
+                    // so their next totals only cover from here on.
+                    for (let close = levels.length - 1; close >= brokeAt; close--) {
+                        startIdx[close] = i;
+                    }
+                }
+            }
+            out.push(row);
+        }
+
+        // Close every open group at the end of data, INNER -> OUTER.
+        for (let close = levels.length - 1; close >= 0; close--) {
+            emitTotals(close, startIdx[close], rows.length, false);
+        }
+        emitTotals(0, 0, rows.length, true);
+
+        return out;
+    }
+
+    function applySortGroupChange(key) {
+        const t = state.tabs[key];
+        if (!t || !t.grid) return;
+        try {
+            t.grid.setData(computeDisplayRows(t));
+        } catch (_) {}
+        renderSortGroupBar();
+        updateChangedState();
+        updateExportRowCount();
     }
 
     function buildColumnDefs(key) {
@@ -579,10 +835,21 @@
                 visible:      !hidden.has(meta.field),
                 formatter:    columnFormatter(meta.type),
                 hozAlign:     isNumeric ? "right" : "left",
-                headerFilter: "input",                          // filterable
-                sorter:       columnSorter(meta.type),          // sortable
+                headerFilter: "input",
+                headerFilterFunc: passthroughHeaderFilter,
+                sorter:       columnSorter(meta.type),
             };
         }).filter(Boolean);
+    }
+
+    /** Custom header filter: substring match (case-insensitive), but
+     *  total/spacer rows ALWAYS pass through so the grouped layout
+     *  stays intact while users filter. */
+    function passthroughHeaderFilter(filterVal, cellVal, rowData) {
+        if (rowData && (rowData._is_total || rowData._is_spacer)) return true;
+        if (filterVal === "" || filterVal == null) return true;
+        if (cellVal == null) return false;
+        return String(cellVal).toLowerCase().indexOf(String(filterVal).toLowerCase()) >= 0;
     }
 
     function columnSorter(type) {
@@ -812,6 +1079,167 @@
         });
     }
 
+    // ---------- Sort & Group toolbar ------------------------------------
+    function renderSortGroupBar() {
+        const bar = els.sortGroupBar;
+        if (!bar) return;
+        const key = state.activeTab;
+        const t = key ? state.tabs[key] : null;
+        if (!t || t.serverShapedTotals) {
+            // Summary tab (or any tab the server pre-formats with
+            // totals + spacers) has a fixed layout; the toolbar would
+            // be misleading.
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        renderChips(els.sortChips, t, /*kind*/ "sort");
+        renderChips(els.groupChips, t, /*kind*/ "group");
+        populateAddSelect(els.addSortSelect,  t, /*kind*/ "sort");
+        populateAddSelect(els.addGroupSelect, t, /*kind*/ "group");
+    }
+
+    function renderChips(ul, t, kind) {
+        if (!ul) return;
+        ul.innerHTML = "";
+        const list = (kind === "sort") ? t.sortLevels : t.groupLevels.map(function (f) { return { field: f }; });
+        list.forEach(function (item, idx) {
+            const meta = t.columnsMeta.find(function (c) { return c.field === item.field; });
+            const label = meta ? meta.label : item.field;
+
+            const li = document.createElement("li");
+            li.className = "sortgroup-chip";
+            li.draggable = true;
+            li.dataset.idx = String(idx);
+            li.dataset.kind = kind;
+
+            const rank = document.createElement("span");
+            rank.className = "sortgroup-chip-rank";
+            rank.textContent = String(idx + 1);
+            li.appendChild(rank);
+
+            const name = document.createElement("span");
+            name.textContent = label;
+            li.appendChild(name);
+
+            if (kind === "sort") {
+                const dirBtn = document.createElement("button");
+                dirBtn.type = "button";
+                dirBtn.className = "sortgroup-chip-dir";
+                dirBtn.title = "Toggle direction";
+                dirBtn.textContent = (item.dir === "desc") ? "↓" : "↑";
+                dirBtn.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    item.dir = (item.dir === "asc") ? "desc" : "asc";
+                    applySortGroupChange(state.activeTab);
+                });
+                li.appendChild(dirBtn);
+            }
+
+            const x = document.createElement("button");
+            x.type = "button";
+            x.className = "sortgroup-chip-x";
+            x.title = (kind === "sort") ? "Remove sort level" : "Remove group level";
+            x.textContent = "×";
+            x.addEventListener("click", function (e) {
+                e.stopPropagation();
+                if (kind === "sort") {
+                    t.sortLevels.splice(idx, 1);
+                } else {
+                    t.groupLevels.splice(idx, 1);
+                }
+                applySortGroupChange(state.activeTab);
+            });
+            li.appendChild(x);
+
+            // Drag-to-reorder
+            li.addEventListener("dragstart", function (e) {
+                e.dataTransfer.setData("text/plain", String(idx) + "|" + kind);
+                e.dataTransfer.effectAllowed = "move";
+            });
+            li.addEventListener("dragover", function (e) {
+                e.preventDefault();
+                li.classList.add("drag-over");
+            });
+            li.addEventListener("dragleave", function () { li.classList.remove("drag-over"); });
+            li.addEventListener("drop", function (e) {
+                e.preventDefault();
+                li.classList.remove("drag-over");
+                const data = String(e.dataTransfer.getData("text/plain") || "");
+                const parts = data.split("|");
+                if (parts.length !== 2 || parts[1] !== kind) return;
+                const fromIdx = parseInt(parts[0], 10);
+                const toIdx = idx;
+                if (isNaN(fromIdx) || fromIdx === toIdx) return;
+                const arr = (kind === "sort") ? t.sortLevels : t.groupLevels;
+                const [moved] = arr.splice(fromIdx, 1);
+                arr.splice(toIdx, 0, moved);
+                applySortGroupChange(state.activeTab);
+            });
+
+            ul.appendChild(li);
+        });
+    }
+
+    function populateAddSelect(sel, t, kind) {
+        if (!sel) return;
+        const used = new Set(
+            kind === "sort"
+                ? t.sortLevels.map(function (s) { return s.field; })
+                : t.groupLevels
+        );
+        sel.innerHTML = "";
+        const ph = document.createElement("option");
+        ph.value = "";
+        ph.textContent = (kind === "sort") ? "+ Add sort level…" : "+ Add group level…";
+        sel.appendChild(ph);
+        // Server-shaped tabs (Summary) are pre-sorted + pre-grouped by
+        // the builder; user sort/group would scramble it. Hide both.
+        if (t.serverShapedTotals) {
+            sel.disabled = true;
+            sel.parentElement.style.display = "none";
+            return;
+        }
+        sel.disabled = false;
+        sel.parentElement.style.display = "";
+        t.columnsMeta.forEach(function (c) {
+            if (used.has(c.field)) return;
+            // Don't offer numeric columns as group keys (rarely useful;
+            // sorting on them is fine).
+            if (kind === "group" && (c.type === "money" || c.type === "int" || c.type === "percent")) return;
+            const opt = document.createElement("option");
+            opt.value = c.field;
+            opt.textContent = c.label;
+            sel.appendChild(opt);
+        });
+    }
+
+    function wireSortGroupBar() {
+        if (els.addSortSelect) {
+            els.addSortSelect.addEventListener("change", function () {
+                const f = els.addSortSelect.value;
+                if (!f) return;
+                const t = state.tabs[state.activeTab];
+                if (!t) return;
+                const meta = t.columnsMeta.find(function (c) { return c.field === f; });
+                t.sortLevels.push({ field: f, dir: defaultDirFor(meta ? meta.type : "text") });
+                els.addSortSelect.value = "";
+                applySortGroupChange(state.activeTab);
+            });
+        }
+        if (els.addGroupSelect) {
+            els.addGroupSelect.addEventListener("change", function () {
+                const f = els.addGroupSelect.value;
+                if (!f) return;
+                const t = state.tabs[state.activeTab];
+                if (!t) return;
+                t.groupLevels.push(f);
+                els.addGroupSelect.value = "";
+                applySortGroupChange(state.activeTab);
+            });
+        }
+    }
+
     // ---------- Action buttons ------------------------------------------
     function wireActionButtons() {
         if (els.refreshBtn) els.refreshBtn.addEventListener("click", refreshData);
@@ -883,8 +1311,11 @@
                 });
                 t.fieldOrder = ordered;
             }
+            // Restore sort + group levels
+            t.sortLevels  = (saved.sort_levels || []).map(function (s) { return { field: s.field, dir: s.dir }; });
+            t.groupLevels = (saved.group_levels || []).slice();
 
-            // Wipe sorters/filters and rebuild grid so column order
+            // Wipe filters and rebuild grid so column order
             // takes effect cleanly.
             if (t.grid) {
                 try { t.grid.destroy(); } catch (_) {}
@@ -932,19 +1363,20 @@
             const dor = (saved.field_order || []).join("|");
             if (co && dor && co !== dor) return true;
 
-            if (t.grid) {
-                if (typeof t.grid.getSorters === "function") {
-                    try {
-                        const sorters = t.grid.getSorters() || [];
-                        if (sorters.length) return true;
-                    } catch (_) {}
-                }
-                if (typeof t.grid.getHeaderFilters === "function") {
-                    try {
-                        const filters = t.grid.getHeaderFilters() || [];
-                        if (filters.some(function (f) { return f && f.value !== "" && f.value != null; })) return true;
-                    } catch (_) {}
-                }
+            // Sort levels
+            const cs = (t.sortLevels || []).map(function (s) { return s.field + ":" + s.dir; }).join("|");
+            const ds = (saved.sort_levels || []).map(function (s) { return s.field + ":" + s.dir; }).join("|");
+            if (cs !== ds) return true;
+            // Group levels
+            const cg = (t.groupLevels || []).join("|");
+            const dg = (saved.group_levels || []).join("|");
+            if (cg !== dg) return true;
+
+            if (t.grid && typeof t.grid.getHeaderFilters === "function") {
+                try {
+                    const filters = t.grid.getHeaderFilters() || [];
+                    if (filters.some(function (f) { return f && f.value !== "" && f.value != null; })) return true;
+                } catch (_) {}
             }
         }
         return false;
@@ -962,7 +1394,10 @@
             el.hidden = true;
             return;
         }
-        const total = (t.data || []).length;
+        // Count only "real" rows (not server-baked or group-injected
+        // totals / spacer rows) so the chip stays meaningful.
+        const isReal = function (r) { return r && !r._is_total && !r._is_spacer; };
+        const total = (t.data || []).filter(isReal).length;
         let visible = total;
         let filtered = false;
         if (t.grid && typeof t.grid.getHeaderFilters === "function") {
@@ -975,10 +1410,10 @@
         }
         if (t.grid && typeof t.grid.getData === "function") {
             try {
-                // "active" = post-filter rows (Tabulator's term for
-                // visible data after header filters are applied).
                 const activeRows = t.grid.getData("active");
-                if (Array.isArray(activeRows)) visible = activeRows.length;
+                if (Array.isArray(activeRows)) {
+                    visible = activeRows.filter(isReal).length;
+                }
             } catch (_) { visible = total; }
         }
         el.hidden = false;
@@ -1091,11 +1526,28 @@
 
         // Data rows.
         rows.forEach(function (row) {
+            if (row && row._is_spacer) {
+                ws.addRow({});  // visually blank line, mirrors screen spacer
+                return;
+            }
             const out = {};
             visibleCols.forEach(function (col) {
                 out[col.field] = coerceForExcel(row[col.field], col.type);
             });
-            ws.addRow(out);
+            const r = ws.addRow(out);
+            if (row && row._is_total) {
+                const isGrand = row._is_grand
+                    || JSON.stringify(row).toUpperCase().indexOf("GRAND TOTAL") >= 0;
+                r.font = { bold: true, color: isGrand ? { argb: "FF000000" } : undefined };
+                r.fill = {
+                    type: "pattern", pattern: "solid",
+                    fgColor: { argb: isGrand ? "FFFFE69C" : "FFEFEFEF" },
+                };
+                r.border = {
+                    top:    { style: isGrand ? "double" : "thin" },
+                    bottom: { style: isGrand ? "double" : "thin" },
+                };
+            }
         });
     }
 

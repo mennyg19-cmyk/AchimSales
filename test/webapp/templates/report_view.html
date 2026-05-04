@@ -85,6 +85,29 @@
 
     <div class="viewer-tabs" id="tabStrip" role="tablist" aria-label="Report tabs"></div>
 
+    <!-- Sort & Group toolbar: per-active-tab. Built dynamically by report_view.js. -->
+    <div class="sortgroup-bar" id="sortGroupBar" hidden>
+        <div class="sortgroup-section">
+            <span class="sortgroup-label">Sort:</span>
+            <ul class="sortgroup-chips" id="sortChips"></ul>
+            <div class="sortgroup-add">
+                <select class="sortgroup-add-select" id="addSortSelect" aria-label="Add sort level">
+                    <option value="">+ Add sort level&hellip;</option>
+                </select>
+            </div>
+            <div class="sortgroup-hint">Tip: <kbd>Shift</kbd>+click a column header to add a sort level.</div>
+        </div>
+        <div class="sortgroup-section">
+            <span class="sortgroup-label">Group with totals:</span>
+            <ul class="sortgroup-chips" id="groupChips"></ul>
+            <div class="sortgroup-add">
+                <select class="sortgroup-add-select" id="addGroupSelect" aria-label="Add group level">
+                    <option value="">+ Add group level&hellip;</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
     <div class="viewer-shell" id="viewerShell">
         <div class="viewer-main">
             <div id="gridRoot" class="grid-root"></div>
