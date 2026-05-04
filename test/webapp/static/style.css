@@ -3401,6 +3401,96 @@ body.col-resizing * {
     font-size: 11px;
 }
 
+/* Per-column header filter widget ------------------------------------
+   Layout: [op-pill] [value input(s)] inside Tabulator's filter cell.
+   The op-pill opens a tiny popover (.hf-menu) with the operator list. */
+.hf-wrap {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+    min-width: 0;
+}
+.hf-op {
+    appearance: none;
+    background: var(--card-soft-bg, rgba(0,0,0,.06));
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    cursor: pointer;
+    padding: 2px 5px;
+    font-size: 11px;
+    line-height: 1;
+    flex: 0 0 auto;
+    min-width: 22px;
+    text-align: center;
+    font-weight: 600;
+}
+.hf-op:hover { background: var(--accent-soft, rgba(34,197,94,.18)); }
+.hf-val {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+.hf-input {
+    appearance: none;
+    width: 100%;
+    min-width: 40px;
+    padding: 2px 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-card);
+    color: var(--text);
+    font-size: 12px;
+    box-sizing: border-box;
+}
+.hf-input:focus { outline: 1px solid var(--primary); outline-offset: -1px; }
+.hf-sep {
+    color: var(--text-muted);
+    font-size: 11px;
+    flex: 0 0 auto;
+}
+.hf-menu {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-lg, 0 8px 20px rgba(0,0,0,.15));
+    min-width: 200px;
+    padding: 4px;
+    font-size: 13px;
+    color: var(--text);
+}
+.hf-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text);
+}
+.hf-menu-item:hover { background: var(--card-soft-bg, rgba(0,0,0,.05)); }
+.hf-menu-item.active {
+    background: var(--accent-soft, rgba(34,197,94,.18));
+    color: var(--primary);
+    font-weight: 600;
+}
+.hf-menu-short {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-weight: 700;
+    color: var(--text-muted);
+    flex: 0 0 26px;
+    text-align: center;
+}
+.hf-menu-item.active .hf-menu-short { color: var(--primary); }
+.hf-menu-label { flex: 1 1 auto; }
+
 /* Tabulator total / spacer rows (Summary tab + grouped tabs) --------- */
 .tabulator .tabulator-row.row-total {
     background: var(--card-soft-bg, rgba(0,0,0,.05)) !important;

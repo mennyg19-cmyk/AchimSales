@@ -828,21 +828,337 @@
                 visible:      !hidden.has(meta.field),
                 formatter:    columnFormatter(meta.type),
                 hozAlign:     isNumeric ? "right" : "left",
-                headerFilter: "input",
-                headerFilterFunc: passthroughHeaderFilter,
+                headerFilter: function (cell, onRendered, success, cancel, params) {
+                    return buildHeaderFilterEditor(meta, success, params);
+                },
+                headerFilterFunc: function (filterVal, cellVal, rowData) {
+                    return applyHeaderFilter(meta, filterVal, cellVal, rowData);
+                },
+                headerFilterLiveFilter: false,
                 sorter:       columnSorter(meta.type),
             };
         }).filter(Boolean);
     }
 
-    /** Custom header filter: substring match (case-insensitive), but
-     *  total/spacer rows ALWAYS pass through so the grouped layout
-     *  stays intact while users filter. */
-    function passthroughHeaderFilter(filterVal, cellVal, rowData) {
+    // ---------- Per-column header filter widgets -----------------------
+    //
+    // Tabulator stores ONE value per column header filter. Ours is an
+    // object: { op: <operator>, v: <string|number|[lo,hi]|string[]> }.
+    // The `success(filterValue)` callback hands that object back to
+    // Tabulator, which then invokes our headerFilterFunc on every row.
+    //
+    // Operators per column type:
+    //   text:    contains, equals, starts, ends, in (multi), empty, notEmpty
+    //   number:  eq, ne, gt, ge, lt, le, between, empty, notEmpty
+    //   date:    on, before, after, between, empty, notEmpty
+    //
+    // A tiny operator-picker pill on the left swaps the value editor on
+    // the right (one input vs. two-input range vs. comma-list vs. nothing).
+
+    const TEXT_OPS   = [
+        { op: "contains", label: "contains",  short: "⌕"  },
+        { op: "equals",   label: "equals",    short: "="  },
+        { op: "starts",   label: "starts with", short: "a…" },
+        { op: "ends",     label: "ends with", short: "…z" },
+        { op: "in",       label: "is one of (comma-separated)", short: "{ }" },
+        { op: "empty",    label: "is empty",     short: "∅"  },
+        { op: "notEmpty", label: "is not empty", short: "!∅" },
+    ];
+    const NUM_OPS    = [
+        { op: "eq",       label: "equals",        short: "="  },
+        { op: "ne",       label: "not equal",     short: "≠"  },
+        { op: "gt",       label: "greater than",  short: ">"  },
+        { op: "ge",       label: "greater or eq", short: "≥"  },
+        { op: "lt",       label: "less than",     short: "<"  },
+        { op: "le",       label: "less or eq",    short: "≤"  },
+        { op: "between",  label: "between",       short: "↔"  },
+        { op: "empty",    label: "is empty",      short: "∅"  },
+        { op: "notEmpty", label: "is not empty",  short: "!∅" },
+    ];
+    const DATE_OPS   = [
+        { op: "on",       label: "on",            short: "="  },
+        { op: "before",   label: "before",        short: "<"  },
+        { op: "after",    label: "after",         short: ">"  },
+        { op: "between",  label: "between",       short: "↔"  },
+        { op: "empty",    label: "is empty",      short: "∅"  },
+        { op: "notEmpty", label: "is not empty",  short: "!∅" },
+    ];
+
+    function operatorsFor(type) {
+        if (type === "money" || type === "int" || type === "percent") return NUM_OPS;
+        if (type === "date") return DATE_OPS;
+        return TEXT_OPS;
+    }
+
+    /** Build the DOM for a single column's header filter cell.
+     *  Layout: [ op-button ][ value input(s) ] */
+    function buildHeaderFilterEditor(meta, success, params) {
+        const ops = operatorsFor(meta.type);
+        const wrap = document.createElement("div");
+        wrap.className = "hf-wrap";
+
+        const opBtn = document.createElement("button");
+        opBtn.type = "button";
+        opBtn.className = "hf-op";
+        opBtn.tabIndex = -1;
+        wrap.appendChild(opBtn);
+
+        const valHost = document.createElement("span");
+        valHost.className = "hf-val";
+        wrap.appendChild(valHost);
+
+        // Filter state lives on the wrap node so re-renders preserve it.
+        const state = wrap.__hfState = { op: ops[0].op, v: emptyValueFor(ops[0].op) };
+
+        function setOp(newOp) {
+            state.op = newOp;
+            state.v = emptyValueFor(newOp);
+            renderOpBtn();
+            renderValEditor();
+            commit();
+        }
+
+        function renderOpBtn() {
+            const def = ops.find(function (o) { return o.op === state.op; }) || ops[0];
+            opBtn.textContent = def.short;
+            opBtn.title = def.label;
+        }
+
+        function renderValEditor() {
+            valHost.innerHTML = "";
+            if (state.op === "empty" || state.op === "notEmpty") {
+                // No value input -- the operator alone is the filter.
+                return;
+            }
+            if (state.op === "between") {
+                const lo = mkInput(meta.type === "date" ? "date" : "number", "min");
+                const sep = document.createElement("span");
+                sep.className = "hf-sep";
+                sep.textContent = "–";
+                const hi = mkInput(meta.type === "date" ? "date" : "number", "max");
+                lo.value = (Array.isArray(state.v) && state.v[0] != null) ? state.v[0] : "";
+                hi.value = (Array.isArray(state.v) && state.v[1] != null) ? state.v[1] : "";
+                lo.addEventListener("input", function () {
+                    state.v = [lo.value, hi.value];
+                    commit();
+                });
+                hi.addEventListener("input", function () {
+                    state.v = [lo.value, hi.value];
+                    commit();
+                });
+                valHost.appendChild(lo);
+                valHost.appendChild(sep);
+                valHost.appendChild(hi);
+                return;
+            }
+            const inputType = (meta.type === "date") ? "date"
+                : (meta.type === "money" || meta.type === "int" || meta.type === "percent") ? "number"
+                : "text";
+            const inp = mkInput(inputType, state.op === "in" ? "a, b, c…" : "");
+            inp.value = state.v != null ? String(state.v) : "";
+            inp.addEventListener("input", function () {
+                state.v = inp.value;
+                commit();
+            });
+            valHost.appendChild(inp);
+        }
+
+        function mkInput(type, placeholder) {
+            const el = document.createElement("input");
+            el.type = type;
+            el.className = "hf-input";
+            if (placeholder) el.placeholder = placeholder;
+            // Don't let header filter inputs trigger header click sort.
+            el.addEventListener("click", function (e) { e.stopPropagation(); });
+            el.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+            return el;
+        }
+
+        function commit() {
+            // Empty-value filter = no filter.
+            if (isEmptyFilter(state)) {
+                success("");
+                return;
+            }
+            success({ op: state.op, v: state.v });
+        }
+
+        // Operator picker -- a tiny custom popover.
+        opBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            openOpMenu(opBtn, ops, state.op, setOp);
+        });
+        // Don't let the op button trigger column sort on header click.
+        opBtn.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+
+        renderOpBtn();
+        renderValEditor();
+        return wrap;
+    }
+
+    function emptyValueFor(op) {
+        if (op === "between") return ["", ""];
+        if (op === "in")      return "";
+        if (op === "empty" || op === "notEmpty") return null;
+        return "";
+    }
+
+    function isEmptyFilter(s) {
+        if (s.op === "empty" || s.op === "notEmpty") return false;  // op IS the filter
+        if (Array.isArray(s.v)) {
+            return s.v.every(function (x) { return x === "" || x == null; });
+        }
+        return s.v === "" || s.v == null;
+    }
+
+    /** Floating popover with the operator list. Positioned under the
+     *  operator button. Closes on outside-click or selection. */
+    function openOpMenu(anchor, ops, currentOp, onPick) {
+        // Close any existing menu first.
+        document.querySelectorAll(".hf-menu").forEach(function (m) { m.remove(); });
+
+        const rect = anchor.getBoundingClientRect();
+        const menu = document.createElement("div");
+        menu.className = "hf-menu";
+        menu.style.position = "fixed";
+        menu.style.top  = (rect.bottom + 2) + "px";
+        menu.style.left = rect.left + "px";
+        menu.style.zIndex = "1000";
+
+        ops.forEach(function (o) {
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = "hf-menu-item" + (o.op === currentOp ? " active" : "");
+            item.innerHTML = '<span class="hf-menu-short">' + escHtml(o.short) + '</span>'
+                           + '<span class="hf-menu-label">' + escHtml(o.label) + '</span>';
+            item.addEventListener("click", function (e) {
+                e.stopPropagation();
+                menu.remove();
+                document.removeEventListener("click", onDocClick, true);
+                onPick(o.op);
+            });
+            menu.appendChild(item);
+        });
+
+        function onDocClick(ev) {
+            if (!menu.contains(ev.target) && ev.target !== anchor) {
+                menu.remove();
+                document.removeEventListener("click", onDocClick, true);
+            }
+        }
+        setTimeout(function () {
+            document.addEventListener("click", onDocClick, true);
+        }, 0);
+
+        document.body.appendChild(menu);
+    }
+
+    /** Decide whether a row passes the per-column filter. Total / spacer
+     *  rows always pass so grouped layouts stay intact. */
+    function applyHeaderFilter(meta, filterVal, cellVal, rowData) {
         if (rowData && (rowData._is_total || rowData._is_spacer)) return true;
         if (filterVal === "" || filterVal == null) return true;
-        if (cellVal == null) return false;
-        return String(cellVal).toLowerCase().indexOf(String(filterVal).toLowerCase()) >= 0;
+
+        // Backwards compat: if Tabulator hands us a bare string (e.g.
+        // from setHeaderFilterValue restored from a saved layout where
+        // the filter was just a string), fall back to substring match.
+        if (typeof filterVal === "string") {
+            return matchText("contains", filterVal, cellVal);
+        }
+
+        const op = filterVal.op;
+        const v  = filterVal.v;
+
+        if (op === "empty")    return cellVal == null || cellVal === "";
+        if (op === "notEmpty") return !(cellVal == null || cellVal === "");
+
+        const t = meta.type;
+        if (t === "money" || t === "int" || t === "percent") {
+            return matchNumber(op, v, cellVal);
+        }
+        if (t === "date") {
+            return matchDate(op, v, cellVal);
+        }
+        return matchText(op, v, cellVal);
+    }
+
+    function matchText(op, v, cellVal) {
+        const cell = (cellVal == null) ? "" : String(cellVal);
+        const cellLc = cell.toLowerCase();
+        if (op === "in") {
+            const needles = String(v || "").split(",")
+                .map(function (s) { return s.trim().toLowerCase(); })
+                .filter(Boolean);
+            if (!needles.length) return true;
+            return needles.indexOf(cellLc) >= 0;
+        }
+        const needle = String(v || "").toLowerCase();
+        if (!needle) return true;
+        if (op === "equals")   return cellLc === needle;
+        if (op === "starts")   return cellLc.indexOf(needle) === 0;
+        if (op === "ends")     return cellLc.lastIndexOf(needle) === cellLc.length - needle.length && cellLc.length >= needle.length;
+        return cellLc.indexOf(needle) >= 0;  // contains (default)
+    }
+
+    function matchNumber(op, v, cellVal) {
+        const cell = (cellVal === "" || cellVal == null) ? null : Number(cellVal);
+        if (op === "between") {
+            const lo = (Array.isArray(v) && v[0] !== "" && v[0] != null) ? Number(v[0]) : null;
+            const hi = (Array.isArray(v) && v[1] !== "" && v[1] != null) ? Number(v[1]) : null;
+            if (lo == null && hi == null) return true;
+            if (cell == null || isNaN(cell)) return false;
+            if (lo != null && cell < lo) return false;
+            if (hi != null && cell > hi) return false;
+            return true;
+        }
+        const n = Number(v);
+        if (v === "" || v == null || isNaN(n)) return true;
+        if (cell == null || isNaN(cell)) return false;
+        switch (op) {
+            case "eq": return cell === n;
+            case "ne": return cell !== n;
+            case "gt": return cell >  n;
+            case "ge": return cell >= n;
+            case "lt": return cell <  n;
+            case "le": return cell <= n;
+        }
+        return true;
+    }
+
+    function matchDate(op, v, cellVal) {
+        const cell = parseDateMs(cellVal);
+        if (op === "between") {
+            const lo = (Array.isArray(v) && v[0]) ? parseDateMs(v[0]) : null;
+            const hi = (Array.isArray(v) && v[1]) ? parseDateMs(v[1]) : null;
+            if (lo == null && hi == null) return true;
+            if (cell == null) return false;
+            if (lo != null && cell < lo) return false;
+            // "between" is inclusive; bump hi to end-of-day so the
+            // user picking the same date for both bounds matches that day.
+            if (hi != null && cell > hi + (24 * 3600 * 1000 - 1)) return false;
+            return true;
+        }
+        if (!v) return true;
+        const target = parseDateMs(v);
+        if (target == null) return true;
+        if (cell == null) return false;
+        if (op === "on")     return cell >= target && cell < target + 24 * 3600 * 1000;
+        if (op === "before") return cell <  target;
+        if (op === "after")  return cell >= target + 24 * 3600 * 1000;
+        return true;
+    }
+
+    function parseDateMs(v) {
+        if (v == null || v === "") return null;
+        if (v instanceof Date) return v.getTime();
+        const s = String(v);
+        // YYYY-MM-DD or YYYY-MM-DDTHH:...
+        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+        if (m) {
+            return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+        }
+        const t = Date.parse(s);
+        return isNaN(t) ? null : t;
     }
 
     function columnSorter(type) {
