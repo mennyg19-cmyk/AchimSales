@@ -32,6 +32,15 @@ class Report:
     # Flip to True as each one gets its on-prem stored procedure.
     enabled: bool = False
 
+    # ``in_app_only`` reports skip the standard filter-form -> viewer
+    # flow. Their card on the homepage links straight to a custom
+    # route. Used for things like "Customer's Last Order" where the
+    # interaction model is "pick a customer, see their detail page".
+    in_app_only: bool = False
+    # Endpoint name for the custom landing route (only consulted when
+    # in_app_only is True).
+    in_app_endpoint: str = ""
+
 
 REPORTS: dict[str, Report] = {
     r.key: r
@@ -82,6 +91,15 @@ REPORTS: dict[str, Report] = {
             description="All customers with last order info, split by salesman.",
             icon="activity",
             salesman_filter=True,
+        ),
+        Report(
+            key="customer_last_order",
+            name="Customer's Last Order",
+            description="Pick a customer, see their last invoiced order.",
+            icon="user-check",
+            enabled=True,           # wired to salesline_release SP (invoiced filter)
+            in_app_only=True,
+            in_app_endpoint="customer_last_order.pick",
         ),
         Report(
             key="customer_aging",

@@ -43,7 +43,12 @@
          {% if start_tab == 'presets' %}hidden{% endif %}>
     <div class="report-grid">
         {% for report in reports %}
-        <a href="{{ url_for('reports.filter_form', report_key=report.key) }}" class="report-card">
+            {% if report.in_app_only and report.in_app_endpoint %}
+                {% set _href = url_for(report.in_app_endpoint) %}
+            {% else %}
+                {% set _href = url_for('reports.filter_form', report_key=report.key) %}
+            {% endif %}
+        <a href="{{ _href }}" class="report-card">
             <div class="report-card-icon">
                 <i data-feather="{{ report.icon or 'file-text' }}"></i>
             </div>

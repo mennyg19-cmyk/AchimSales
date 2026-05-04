@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.name or customer.account }} &middot; Last Order (test){% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.2.5/dist/css/tabulator_midnight.min.css">
+{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('customer_last_order.pick') }}" class="back-link">
+    <i data-feather="arrow-left" style="width:16px;height:16px;"></i>
+    Pick a different customer
+</a>
+
+<div class="page-header">
+    <h1>{{ customer.name or customer.account }}</h1>
+    <p class="page-subtitle">
+        Account: {{ customer.account }}
+        {%- if customer.salesman %} &middot; Salesman: {{ customer.salesman }}{% endif %}
+    </p>
+</div>
+
+{% if no_data %}
+<div class="detail-card">
+    <div class="empty-state" style="padding:24px;">
+        <i data-feather="package" width="40" height="40"></i>
+        <h3>No invoiced orders found</h3>
+        <p>This customer has no invoiced orders in the reporting database.</p>
+    </div>
+</div>
+{% else %}
+
+<div class="detail-card">
+    <div class="detail-section-header" style="margin-bottom:8px;">
+        <h3 class="dash-section-title">
+            {% if is_merged -%}
+                Invoiced Orders ({{ headers|length }} merged)
+            {%- else -%}
+                Last Invoiced Order
+            {%- endif %}
+        </h3>
+        <button type="button" id="addPrevOrderBtn" class="btn btn-sm btn-outline">
+            <i data-feather="plus" style="width:14px;height:14px;"></i>
+            Add previous order
+        </button>
+    </div>
+    <div class="detail-grid">
+        <div class="detail-item">
+            <span class="detail-label">
+                Order Number{% if is_merged %} (latest){% endif %}
+            </span>
+            <span class="detail-value" style="font-weight:700;">
+                {{ headers[0].order_number }}
+            </span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">Order Date</span>
+            <span class="detail-value">{{ headers[0].order_date or '—' }}</span>
+        </div>
+        {% if banner.customer_req %}
+        <div class="detail-item">
+            <span class="detail-label">PO #</span>
+            <span class="detail-value">{{ banner.customer_req }}</span>
+        </div>
+        {% endif %}
+        {% if headers[0].salesman %}
+        <div class="detail-item">
+            <span class="detail-label">Salesman</span>
+            <span class="detail-value">{{ headers[0].salesman }}</span>
+        </div>
+        {% endif %}
+        <div class="detail-item">
+            <span class="detail-label">Status</span>
+            <span class="detail-value">{{ headers[0].status or '—' }}</span>
+        </div>
+    </div>
+
+    {% if is_merged %}
+    <div class="merged-orders-list">
+        <span class="merged-orders-label">Includes orders:</span>
+        <ul>
+            {% for h in headers %}
+            <li>
+                <strong>{{ h.order_number }}</strong>
+                {% if h.order_date %}<span class="muted"> &middot; {{ h.order_date }}</span>{% endif %}
+                {% if h.customer_req %}<span class="muted"> &middot; PO {{ h.customer_req }}</span>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+
+<div class="detail-section-header">
+    <h3 class="dash-section-title">Items</h3>
+    {% if lines %}
+    <span class="detail-count">
+        {{ lines|length }} unique item{{ 's' if lines|length != 1 else '' }}
+    </span>
+    {% endif %}
+</div>
+
+<div class="detail-card" style="padding:0;">
+    <div id="linesGrid"
+         data-lines='{{ lines|tojson }}'
+         data-totals='{{ totals|tojson }}'></div>
+</div>
+
+<div id="prevOrderModal" class="modal" hidden role="dialog" aria-modal="true"
+     aria-labelledby="prevOrderModalTitle">
+    <div class="modal-backdrop"></div>
+    <div class="modal-panel">
+        <div class="modal-header">
+            <h3 id="prevOrderModalTitle">Pick orders to view together</h3>
+            <button type="button" class="modal-close" id="prevOrderClose" aria-label="Close">
+                <i data-feather="x"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="prevOrderBody">
+            <p class="muted" id="prevOrderLoading">Loading recent invoiced orders&hellip;</p>
+            <div id="prevOrderList" hidden></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" id="prevOrderCancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="prevOrderApply">Apply</button>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not no_data %}
+<script src="https://unpkg.com/tabulator-tables@6.2.5/dist/js/tabulator.min.js"></script>
+<script>
+(function () {
+    "use strict";
+
+    var URL_PREFIX = {{ URL_PREFIX|tojson }};
+    var ACCOUNT    = {{ customer.account|tojson }};
+    var SELECTED   = {{ order_numbers|tojson }};
+
+    var gridEl = document.getElementById("linesGrid");
+    if (!gridEl) return;
+
+    var lines  = JSON.parse(gridEl.dataset.lines  || "[]");
+    var totals = JSON.parse(gridEl.dataset.totals || "{}");
+
+    function fmtMoney(cell) {
+        var v = cell.getValue();
+        if (v == null || v === "") return "";
+        var n = Number(v);
+        if (!isFinite(n)) return v;
+        return "$" + n.toLocaleString("en-US",
+            { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function fmtNum(cell) {
+        var v = cell.getValue();
+        if (v == null || v === "") return "";
+        var n = Number(v);
+        if (!isFinite(n)) return v;
+        // Trim trailing zeros after the decimal, like the live %g format.
+        return n.toLocaleString("en-US",
+            { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+    }
+
+    var columns = [
+        { title: "Item #",         field: "item",
+          headerSort: true, frozen: true,
+          formatter: function (c) { return "<strong>" + (c.getValue() || "") + "</strong>"; } },
+        { title: "Description",    field: "description", headerSort: true, widthGrow: 2 },
+        { title: "Qty Ordered",    field: "qty_ordered",   formatter: fmtNum,   hozAlign: "right" },
+        { title: "Qty Shipped",    field: "qty_shipped",   formatter: fmtNum,   hozAlign: "right" },
+        { title: "Qty Cancelled",  field: "qty_cancelled", formatter: fmtNum,   hozAlign: "right" },
+        { title: "Sales Price",    field: "sales_price",   formatter: fmtMoney, hozAlign: "right" },
+        { title: "Total",          field: "total",         formatter: fmtMoney, hozAlign: "right" },
+    ];
+
+    var totalsRow = {
+        item:          "Totals",
+        description:   "",
+        qty_ordered:   totals.qty_ordered,
+        qty_shipped:   totals.qty_shipped,
+        qty_cancelled: totals.qty_cancelled,
+        sales_price:   "",
+        total:         totals.total,
+        _isTotal:      true,
+    };
+
+    new Tabulator("#linesGrid", {
+        data: lines.concat([totalsRow]),
+        columns: columns,
+        layout: "fitDataStretch",
+        height: "auto",
+        headerFilterPlaceholder: "Filter…",
+        rowFormatter: function (row) {
+            if (row.getData()._isTotal) {
+                row.getElement().style.fontWeight = "700";
+                row.getElement().style.background = "var(--bg)";
+            }
+        },
+        // Keep the totals row pinned to the bottom regardless of sort
+        // direction (Tabulator's standard sort would push it around).
+        dataSorting: function (sorters) { /* no-op: rely on rowFormatter */ },
+    });
+
+    // ---- Add-previous-order modal -----------------------------------------
+    var btn       = document.getElementById("addPrevOrderBtn");
+    var modal     = document.getElementById("prevOrderModal");
+    var closeBtn  = document.getElementById("prevOrderClose");
+    var cancelBtn = document.getElementById("prevOrderCancel");
+    var applyBtn  = document.getElementById("prevOrderApply");
+    var listEl    = document.getElementById("prevOrderList");
+    var loadingEl = document.getElementById("prevOrderLoading");
+
+    var loaded = false;
+
+    function escapeHtml(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+
+    function openModal() {
+        modal.removeAttribute("hidden");
+        document.body.style.overflow = "hidden";
+        if (!loaded) loadOrders();
+    }
+    function closeModal() {
+        modal.setAttribute("hidden", "");
+        document.body.style.overflow = "";
+    }
+
+    function loadOrders() {
+        loadingEl.textContent = "Loading recent invoiced orders…";
+        listEl.setAttribute("hidden", "");
+        var url = URL_PREFIX
+            + "/report/customer-last-order/" + encodeURIComponent(ACCOUNT)
+            + "/recent-invoiced.json";
+        fetch(url, { credentials: "same-origin" })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var orders = Array.isArray(data) ? data : [];
+                if (!orders.length) {
+                    loadingEl.textContent = "No invoiced orders found for this customer.";
+                    return;
+                }
+                var html = "";
+                orders.forEach(function (o) {
+                    var checked = SELECTED.indexOf(o.order_number) !== -1;
+                    var poBit = o.customer_req
+                        ? '<span class="muted"> &middot; PO ' + escapeHtml(o.customer_req) + '</span>'
+                        : '';
+                    var totalBit = o.order_total
+                        ? '<span class="muted"> &middot; $' +
+                          Number(o.order_total).toLocaleString("en-US",
+                              { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+                          '</span>'
+                        : '';
+                    html += '<label class="prev-order-row">' +
+                        '<input type="checkbox" value="' + escapeHtml(o.order_number) + '"' +
+                            (checked ? " checked" : "") + '>' +
+                        '<span class="prev-order-num">' + escapeHtml(o.order_number) + '</span>' +
+                        '<span class="muted"> &middot; ' + escapeHtml(o.order_date) + '</span>' +
+                        poBit + totalBit +
+                        '</label>';
+                });
+                listEl.innerHTML = html;
+                listEl.removeAttribute("hidden");
+                loadingEl.style.display = "none";
+                loaded = true;
+            })
+            .catch(function () {
+                loadingEl.textContent = "Could not load invoiced orders. Try again.";
+            });
+    }
+
+    function applySelection() {
+        var checks = listEl.querySelectorAll('input[type="checkbox"]:checked');
+        var nums = [];
+        for (var i = 0; i < checks.length; i++) nums.push(checks[i].value);
+        if (!nums.length) {
+            alert("Pick at least one order.");
+            return;
+        }
+        window.location.href = window.location.pathname
+            + "?orders=" + encodeURIComponent(nums.join(","));
+    }
+
+    if (btn) {
+        btn.addEventListener("click", openModal);
+        closeBtn.addEventListener("click", closeModal);
+        cancelBtn.addEventListener("click", closeModal);
+        applyBtn.addEventListener("click", applySelection);
+        modal.querySelector(".modal-backdrop").addEventListener("click", closeModal);
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && !modal.hasAttribute("hidden")) closeModal();
+        });
+    }
+})();
+</script>
+{% endif %}
+{% endblock %}

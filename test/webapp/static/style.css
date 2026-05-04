@@ -4438,3 +4438,155 @@ body.dark-theme .tabulator .tabulator-row:hover,
     max-height: 60vh;
     overflow: auto;
 }
+
+/* ================================================================
+   Customer's Last Order report
+   Picker page (customer search list) + view page (order header,
+   merged-orders strip, "add previous order" modal). Mirrors the
+   live app's CSS so the two reports look identical.
+   ================================================================ */
+.customer-pick-list {
+    margin-top: 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: var(--card-bg);
+}
+.customer-pick-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    text-decoration: none;
+    color: var(--text);
+    transition: background 0.1s;
+}
+.customer-pick-row:last-child { border-bottom: none; }
+.customer-pick-row:hover { background: var(--bg); }
+.customer-pick-acct {
+    font-weight: 600;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+}
+.customer-pick-name {
+    color: var(--text);
+    flex: 1 1 auto;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.customer-pick-more {
+    padding: 10px 14px;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.merged-orders-list {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+    font-size: 13px;
+}
+.merged-orders-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-right: 6px;
+}
+.merged-orders-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 6px 0 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.merged-orders-list li { color: var(--text); }
+.merged-orders-list li .muted { color: var(--text-muted); }
+
+/* Lightweight modal used by Customer's Last Order. (The rest of the
+   test app uses .modal-overlay/.modal-content; this one mirrors the
+   live app's .modal/.modal-backdrop/.modal-panel naming so the live
+   templates port over with no JS changes.) */
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.modal[hidden] { display: none; }
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+}
+.modal-panel {
+    position: relative;
+    background: var(--card-bg);
+    color: var(--text);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    width: min(560px, 92vw);
+    max-height: 84vh;
+    display: flex;
+    flex-direction: column;
+}
+.modal-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.modal-header h3 { margin: 0; font-size: 16px; }
+.modal-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px;
+    display: flex;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+}
+.modal-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.prev-order-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 14px;
+}
+.prev-order-row:last-child { border-bottom: none; }
+.prev-order-row input[type="checkbox"] {
+    margin: 0;
+    flex: 0 0 auto;
+}
+.prev-order-row .prev-order-num {
+    font-weight: 600;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+}
+.prev-order-row .muted { color: var(--text-muted); }

@@ -25,6 +25,7 @@ from flask import Flask, redirect, url_for
 from test.config.settings import AUTH_MODE, FLASK_SECRET, URL_PREFIX, USE_MOCK_DATA
 from test.webapp.auth import current_user, require_login
 from test.webapp.blueprints.auth_bp import auth_bp
+from test.webapp.blueprints.customer_last_order import bp as customer_last_order_bp
 from test.webapp.blueprints.dashboard import dashboard_bp
 from test.webapp.blueprints.presets import presets_bp
 from test.webapp.blueprints.report_api import report_api_bp, sharepoint_api_bp
@@ -105,6 +106,7 @@ def create_app() -> Flask:
     app.register_blueprint(presets_bp)
     app.register_blueprint(schedules_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(customer_last_order_bp)
 
     from test.webapp.blueprints.master_schedules import master_schedules_bp
     app.register_blueprint(master_schedules_bp)

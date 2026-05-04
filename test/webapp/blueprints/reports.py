@@ -78,6 +78,12 @@ def filter_form(report_key: str):
     report = get_report(report_key)
     if not report.enabled:
         abort(404, description=f"Report '{report_key}' is not yet wired to a data source")
+    # In-app-only reports skip the standard filter form -> viewer flow.
+    # If somebody hits this URL directly (bookmark, old link), bounce
+    # them to the report's dedicated landing page.
+    if report.in_app_only and report.in_app_endpoint:
+        from flask import redirect, url_for
+        return redirect(url_for(report.in_app_endpoint))
     return render_template(
         "report_form.html",
         report=report,
