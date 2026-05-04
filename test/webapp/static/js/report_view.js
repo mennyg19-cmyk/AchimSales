@@ -251,6 +251,18 @@
         state.hiddenTabs = new Set();
 
         (payload.tabs || []).forEach(function (t) {
+            // The server can hint at a starting sort/group layout for a
+            // tab (the Summary tab uses this to come pre-grouped by
+            // Customer Name). The user can edit/remove these like any
+            // other sort/group level via the toolbar.
+            const seed = t.default_layout || {};
+            const seedSort = Array.isArray(seed.sort_levels)
+                ? seed.sort_levels.map(function (s) { return { field: s.field, dir: s.dir || "asc" }; })
+                : [];
+            const seedGroup = Array.isArray(seed.group_levels)
+                ? seed.group_levels.slice()
+                : [];
+
             state.tabs[t.key] = {
                 name:         t.name,
                 data:         Array.isArray(t.rows) ? t.rows : [],
@@ -261,12 +273,8 @@
                 container:    null,
                 // User-driven sort + group state. Each level is
                 // {field, dir} for sort and a bare field name for group.
-                sortLevels:   [],
-                groupLevels:  [],
-                // True when the server already shipped totals/spacer
-                // rows in `data` (e.g. the Summary tab). We don't add
-                // group breaks on top of those.
-                serverShapedTotals: hasServerTotals(t.rows),
+                sortLevels:   seedSort,
+                groupLevels:  seedGroup,
             };
             state.tabOrder.push(t.key);
         });
@@ -410,15 +418,6 @@
         return { field: c.field, label: c.label || c.field, type: c.type || "text" };
     }
 
-    /** Does this row payload already contain server-shaped total/spacer
-     *  rows? Currently only the Summary tab uses this. */
-    function hasServerTotals(rows) {
-        if (!Array.isArray(rows) || !rows.length) return false;
-        for (let i = 0; i < rows.length; i++) {
-            if (rows[i] && (rows[i]._is_total || rows[i]._is_spacer)) return true;
-        }
-        return false;
-    }
 
     // If we arrived from the home page's "Run preset" button, the server
     // stamps a `data-preset-layouts` blob onto the root with the layout the
@@ -577,9 +576,6 @@
         //                else ascending); a second click on same column flips dir.
         // Shift+click  = add a new level (or flip dir of an existing level).
         t.grid.on("headerClick", function (ev, column) {
-            // Tabs with server-baked totals (Summary) come pre-sorted
-            // by the builder; user sorting would scramble the layout.
-            if (t.serverShapedTotals) return;
             const field = column.getField();
             if (!field) return;
             const meta = t.columnsMeta.find(function (c) { return c.field === field; });
@@ -650,17 +646,14 @@
     }
 
     /** Compute the list of rows Tabulator should render for tab `t`,
-     *  honouring the user's sortLevels + groupLevels. If the server
-     *  already shipped totals/spacer rows (Summary tab), we leave them
-     *  untouched -- those are "baked-in" totals the builder owns.
+     *  honouring the user's sortLevels + groupLevels. Totals + spacer
+     *  rows are injected on group breaks (none if the user has cleared
+     *  the group levels).
      *
      *  Optionally pre-filter the raw rows with `filterFn(row) -> bool`
-     *  so totals reflect only the visible subset. Used by the header-
-     *  filter listener to keep totals consistent with what's on screen. */
+     *  so totals reflect only the visible subset. */
     function computeDisplayRows(t, filterFn) {
         const rawAll = (t.data || []).slice();
-        if (t.serverShapedTotals) return rawAll;
-
         let raw = rawAll.filter(function (r) { return !(r && (r._is_total || r._is_spacer)); });
         if (typeof filterFn === "function") {
             raw = raw.filter(filterFn);
@@ -1085,10 +1078,7 @@
         if (!bar) return;
         const key = state.activeTab;
         const t = key ? state.tabs[key] : null;
-        if (!t || t.serverShapedTotals) {
-            // Summary tab (or any tab the server pre-formats with
-            // totals + spacers) has a fixed layout; the toolbar would
-            // be misleading.
+        if (!t) {
             bar.hidden = true;
             return;
         }
@@ -1193,13 +1183,6 @@
         ph.value = "";
         ph.textContent = (kind === "sort") ? "+ Add sort level…" : "+ Add group level…";
         sel.appendChild(ph);
-        // Server-shaped tabs (Summary) are pre-sorted + pre-grouped by
-        // the builder; user sort/group would scramble it. Hide both.
-        if (t.serverShapedTotals) {
-            sel.disabled = true;
-            sel.parentElement.style.display = "none";
-            return;
-        }
         sel.disabled = false;
         sel.parentElement.style.display = "";
         t.columnsMeta.forEach(function (c) {

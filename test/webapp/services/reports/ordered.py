@@ -38,7 +38,6 @@ Tabs (in order):
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any, Iterable
 
 
@@ -419,20 +418,23 @@ def _build_by_salesman(lines: list[dict]) -> dict:
 
 
 def _build_summary(lines: list[dict]) -> dict:
-    """Live-shape Summary: rolled up to (Customer, Item) with per-customer
-    Total + spacer + GRAND TOTAL.
+    """Live-shape Summary: aggregated rows by (Customer, Item).
 
-    Output rows include two synthetic flags:
-      - ``_is_total``  -> render bold (used for per-customer Total + GRAND TOTAL)
-      - ``_is_spacer`` -> render as a blank row
+    The per-customer Total + spacer + GRAND TOTAL are NOT baked in here;
+    the client renders them at runtime via the same group-injection
+    pipeline used for user-driven grouping. We just hand the client the
+    raw aggregate rows + a ``default_layout`` hint that says "default
+    grouping = Customer Name; default sort = Customer Name asc, Item
+    Number asc". That way the user can edit / remove the grouping like
+    on any other tab.
     """
     if not lines:
         return {
             "key": "summary", "name": "Summary",
             "columns": SUMMARY_COLS, "rows": [],
+            "default_layout": _summary_default_layout(),
         }
 
-    # Roll up to (customer, item)
     grouped: dict[tuple, dict] = {}
     for ln in lines:
         cust = ln["CustomerName"] or ln["CustomerAccount"] or "(blank)"
@@ -464,71 +466,23 @@ def _build_summary(lines: list[dict]) -> dict:
         g["Extended Price - Ordered"] = round(g["Extended Price - Ordered"], 2)
         g["Extended Price Remainder"] = round(g["Extended Price Remainder"], 2)
 
-    # Sort by Customer then Item, then walk and inject totals + spacers.
-    sorted_rows = sorted(grouped.values(), key=lambda r: (r["Customer Name"], r["Item Number"]))
-
-    out: list[dict] = []
-    by_cust: dict[str, list[dict]] = defaultdict(list)
-    for r in sorted_rows:
-        by_cust[r["Customer Name"]].append(r)
-
-    grand = defaultdict(float)
-    for cust in by_cust:  # preserves insertion order = sorted order
-        cust_rows = by_cust[cust]
-        for r in cust_rows:
-            r["_is_total"]  = False
-            r["_is_spacer"] = False
-            out.append(r)
-
-        # per-customer Total
-        total = {c["field"]: "" for c in SUMMARY_COLS}
-        total["Customer Name"]            = cust
-        total["Salesman"]                 = cust_rows[0]["Salesman"] if cust_rows else ""
-        total["Item Number"]              = "TOTALS"
-        total["Line Description"]         = ""
-        total["QtyOrdered"]               = sum(r["QtyOrdered"]   for r in cust_rows)
-        total["QtyCancelled"]             = sum(r["QtyCancelled"] for r in cust_rows)
-        total["QtyRemainder"]             = sum(r["QtyRemainder"] for r in cust_rows)
-        total["Net Price"]                = ""
-        total["Extended Price - Ordered"] = round(sum(r["Extended Price - Ordered"] for r in cust_rows), 2)
-        total["Extended Price Remainder"] = round(sum(r["Extended Price Remainder"] for r in cust_rows), 2)
-        total["_is_total"]  = True
-        total["_is_spacer"] = False
-        out.append(total)
-
-        # spacer row
-        spacer = {c["field"]: "" for c in SUMMARY_COLS}
-        spacer["_is_total"]  = False
-        spacer["_is_spacer"] = True
-        out.append(spacer)
-
-        # accumulate grand totals
-        grand["QtyOrdered"]               += total["QtyOrdered"]
-        grand["QtyCancelled"]             += total["QtyCancelled"]
-        grand["QtyRemainder"]             += total["QtyRemainder"]
-        grand["Extended Price - Ordered"] += total["Extended Price - Ordered"]
-        grand["Extended Price Remainder"] += total["Extended Price Remainder"]
-
-    grand_row = {c["field"]: "" for c in SUMMARY_COLS}
-    grand_row["Customer Name"]            = "GRAND TOTAL"
-    grand_row["Salesman"]                 = ""
-    grand_row["Item Number"]              = ""
-    grand_row["Line Description"]         = ""
-    grand_row["QtyOrdered"]               = int(grand["QtyOrdered"])
-    grand_row["QtyCancelled"]             = int(grand["QtyCancelled"])
-    grand_row["QtyRemainder"]             = int(grand["QtyRemainder"])
-    grand_row["Net Price"]                = ""
-    grand_row["Extended Price - Ordered"] = round(grand["Extended Price - Ordered"], 2)
-    grand_row["Extended Price Remainder"] = round(grand["Extended Price Remainder"], 2)
-    grand_row["_is_total"]  = True
-    grand_row["_is_spacer"] = False
-    out.append(grand_row)
-
     return {
         "key":     "summary",
         "name":    "Summary",
         "columns": SUMMARY_COLS,
-        "rows":    out,
+        "rows":    list(grouped.values()),
+        "default_layout": _summary_default_layout(),
+    }
+
+
+def _summary_default_layout() -> dict:
+    """The client uses this to seed the Sort & Group toolbar on first load."""
+    return {
+        "group_levels": ["Customer Name"],
+        "sort_levels":  [
+            {"field": "Customer Name", "dir": "asc"},
+            {"field": "Item Number",   "dir": "asc"},
+        ],
     }
 
 
