@@ -87,7 +87,19 @@ def fetch_sales_order_headers(
                 cust_filter = " or ".join(parts) if len(parts) > 1 else parts[0]
                 filter_expr = f"({filter_expr}) and ({cust_filter})"
             if status_filter and status_filter.lower() == "open":
-                filter_expr = f"({filter_expr}) and SalesOrderStatus ne 'Invoiced' and SalesOrderStatus ne 'Canceled'"
+                # SalesOrderStatus is the Microsoft.Dynamics.DataEntities.SalesStatus
+                # enum (Backorder/Delivered/Invoiced/Canceled). D365 OData rejects
+                # bare-string comparison against an enum -- you get HTTP 400 with
+                # "A binary operator with incompatible types was detected" -- so
+                # the literal must be namespace-qualified. Note the namespace ends
+                # in `SalesStatus`, *not* `SalesOrderStatus` (that's the field
+                # name, not the enum type).
+                ns = "Microsoft.Dynamics.DataEntities.SalesStatus"
+                filter_expr = (
+                    f"({filter_expr})"
+                    f" and SalesOrderStatus ne {ns}'Invoiced'"
+                    f" and SalesOrderStatus ne {ns}'Canceled'"
+                )
             try:
                 df = fetch_odata_entity(
                     base_url, "SalesOrderHeadersV3", token,
@@ -97,8 +109,14 @@ def fetch_sales_order_headers(
                 )
                 log.info("SalesOrderHeadersV3: filter on %s succeeded", date_field)
                 break
-            except Exception:
-                log.debug("SalesOrderHeadersV3: filter on %s failed, trying next", date_field, exc_info=True)
+            except Exception as exc:
+                # Status-filter failures are likely a query bug, not just a wrong
+                # date column, so we surface them at WARNING. Without this, a 400
+                # from a bad enum literal would be silently swallowed and the
+                # runner would report "no open orders found".
+                level = logging.WARNING if status_filter else logging.DEBUG
+                log.log(level, "SalesOrderHeadersV3: filter on %s failed (%s), trying next",
+                        date_field, exc, exc_info=(level == logging.DEBUG))
         if df is not None and not df.empty:
             break
         if select_list == SALES_ORDER_HEADER_SELECT:
