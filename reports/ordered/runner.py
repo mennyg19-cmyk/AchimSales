@@ -272,7 +272,7 @@ class OrderedReportRunner(BaseReportRunner):
                 continue
 
             test_tag = "_TEST" if self.test_mode else ""
-            filename = f"{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
+            filename = f"{period.filename_prefix}{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
             out_path = get_output_path(REPORT_NAME, out_subfolder, filename)
 
             log.info("Writing %s (%d rows)", out_path, len(df))
@@ -347,7 +347,7 @@ class OrderedReportRunner(BaseReportRunner):
                         continue
 
                     test_tag = "_TEST" if self.test_mode else ""
-                    filename = f"{file_prefix}_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
+                    filename = f"{period.filename_prefix}{file_prefix}_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
                     out_path = os.path.join(tmp_dir, filename)
 
                     log.info("Writing %s (%d rows)", out_path, len(df))
@@ -399,7 +399,7 @@ class OrderedReportRunner(BaseReportRunner):
                 continue
 
             test_tag = "_TEST" if self.test_mode else ""
-            filename = f"{file_prefix}_{period.filename_tag}{test_tag}.xlsx"
+            filename = f"{period.filename_prefix}{file_prefix}_{period.filename_tag}{test_tag}.xlsx"
             out_path = get_output_path(REPORT_NAME, period.subfolder, filename)
 
             log.info("Writing %s (%d rows)", out_path, len(df))

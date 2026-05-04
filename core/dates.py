@@ -83,6 +83,18 @@ class PeriodSpec:
     start_datetime: datetime | None = None
     end_datetime: datetime | None = None
 
+    @property
+    def filename_prefix(self) -> str:
+        """Optional prefix for output filenames based on this period's cadence.
+
+        Currently only ``last_month`` runs (subfolder=="Monthly") get a
+        ``Monthly_`` prefix so a quick scan of the Monthly folder reads
+        naturally -- "Monthly Invoiced Report April 2026.xlsx" beats
+        "Invoiced_Report_April_2026.xlsx" when sorted alphabetically next
+        to other months. All other periods return ``""``.
+        """
+        return "Monthly_" if self.subfolder == "Monthly" else ""
+
 
 @dataclass
 class FetchPlan:

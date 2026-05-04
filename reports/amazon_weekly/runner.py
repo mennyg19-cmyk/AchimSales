@@ -90,7 +90,7 @@ def run(send_email: bool = False, test_mode: bool = False) -> None:
         return
 
     test_tag = "_TEST" if test_mode else ""
-    filename = f"Amazon_Weekly_Report_{period.filename_tag}{test_tag}.xlsx"
+    filename = f"{period.filename_prefix}Amazon_Weekly_Report_{period.filename_tag}{test_tag}.xlsx"
     out_path = get_output_path(REPORT_NAME, period.subfolder, filename)
     log.info("Writing %s (%d rows)", out_path, len(df))
     write_report(df, out_path, report_variant="amazon_weekly")

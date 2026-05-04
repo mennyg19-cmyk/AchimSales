@@ -235,7 +235,7 @@ class InvoicedReportRunner(BaseReportRunner):
                         continue
 
                     test_tag = "_TEST" if self.test_mode else ""
-                    filename = f"Shipped_Report_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
+                    filename = f"{period.filename_prefix}Shipped_Report_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
                     out_path = os.path.join(tmp_dir, filename)
 
                     self._write_period_report(
@@ -332,14 +332,7 @@ class InvoicedReportRunner(BaseReportRunner):
             suffix = ("_" + "_".join(suffix_parts)) if suffix_parts else ""
 
             test_tag = "_TEST" if self.test_mode else ""
-            # last_month uses a `Monthly_<Report>_<Month>_<Year>.xlsx` naming
-            # convention so a quick scan of the Monthly folder reads naturally
-            # ("Monthly Invoiced Report April 2026"). Other periods stick with
-            # the standard `<Report>_<PeriodTag>.xlsx` shape.
-            if period.subfolder == "Monthly":
-                filename = f"Monthly_{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
-            else:
-                filename = f"{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
+            filename = f"{period.filename_prefix}{file_prefix}_{period.filename_tag}{suffix}{test_tag}.xlsx"
             out_subfolder = self._resolve_out_subfolder(period, subfolder_base)
             out_path = get_output_path(report_dir_name, out_subfolder, filename, sub_report=sub_report)
 
