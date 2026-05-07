@@ -352,6 +352,30 @@
                 return;
             }
 
+            // If the in-process cache is empty but we have rows in the
+            // local SQLite mirror, the dropdowns will work -- just from
+            // a slightly stale source. Load them and show a soft "offline
+            // mirror" hint instead of an alarming error banner.
+            const mirrorRows = status.mirror_row_count || 0;
+            if (mirrorRows > 0 && !lookupReady) {
+                lookupReady = true;
+                setLookupBanner(
+                    "Showing the offline customer/salesman list (last refreshed nightly). " +
+                    "Live data isn't reachable right now.",
+                    "info"
+                );
+                if (cfg.hasSalesman) {
+                    fetchJson(cfg.salesmenUrl).then(applySalesmen).catch(() => {});
+                }
+                if (cfg.hasCustomer) {
+                    loadCustomers();
+                }
+                // Still poll once a minute in case the API comes back so
+                // we can swap in fresh data without a page reload.
+                schedulePoll(60000);
+                return;
+            }
+
             if (status.status === "loading") {
                 const elapsed = status.started_at
                     ? Math.round((Date.now() / 1000 - status.started_at)) : 0;
@@ -362,8 +386,8 @@
 
             if (status.status === "error") {
                 setLookupBanner(
-                    "Couldn't load the customer/salesman list (" + (status.error || "unknown error") +
-                    "). The form still works; just type the values you need.",
+                    "Couldn't load the customer/salesman list and there's no offline copy yet. " +
+                    "The form still works -- just type the values you need.",
                     "warn"
                 );
                 // Try again in 30s in case the API comes back.

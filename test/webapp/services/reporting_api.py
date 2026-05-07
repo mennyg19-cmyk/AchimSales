@@ -289,11 +289,14 @@ def _translate_ordered(p: dict) -> dict[str, Any]:
     return out
 
 
+_DEFAULT_COMPANY = (os.environ.get("REPORTING_API_DEFAULT_COMPANY") or "ACHM").strip()
+
+
 def _translate_customer_master(p: dict) -> dict[str, Any]:
     """In-app filter dict -> usp_customer_master SP params.
 
     The Customer Master SP exposes these PascalCase parameters (all
-    optional, see customer_master_frontend_handoff.md):
+    documented as optional, see customer_master_frontend_handoff.md):
 
         Company, AccountNum, CustomerAccount, CustomerNameContains,
         CustGroup, Currency, SalesGroup, PartyState, MarkupGroup,
@@ -301,15 +304,22 @@ def _translate_customer_master(p: dict) -> dict[str, Any]:
         CreditMaxMin, CreditMaxMax,
         CreatedDateTimeFrom, CreatedDateTimeTo
 
-    For the dropdown / mirror use case we always call this with no
-    filters (full customer master snapshot). The translator is still
-    written to handle a populated dict so we can wire a Customer
-    Master filter form later without changing the API contract.
-    """
-    if not p:
-        return {}
+    Defensive default: when no filters are supplied (the dropdown /
+    nightly-mirror snapshot use case) we still send ``Company`` so the
+    on-prem API has at least one parameter to bind. An empty body has
+    been observed to 500 even though the spec calls all params
+    optional, so this avoids relying on that promise.
 
+    The default company comes from REPORTING_API_DEFAULT_COMPANY
+    (falls back to ``ACHM``) and is only injected when the caller
+    didn't already specify one.
+    """
     out: dict[str, Any] = {}
+
+    if not p:
+        if _DEFAULT_COMPANY:
+            out["Company"] = _DEFAULT_COMPANY
+        return out
 
     # Pass through anything already in PascalCase.
     _PASCAL_KEYS = {
@@ -345,6 +355,12 @@ def _translate_customer_master(p: dict) -> dict[str, Any]:
             out["CreatedDateTimeFrom"] = date_from
         if date_to:
             out["CreatedDateTimeTo"] = date_to
+
+    # Always send Company (the on-prem API has been observed to 500 on
+    # certain shapes when Company is omitted). Caller can override with
+    # an explicit Company if they really need a different tenant.
+    if "Company" not in out and _DEFAULT_COMPANY:
+        out["Company"] = _DEFAULT_COMPANY
 
     return out
 
@@ -561,7 +577,22 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
             json=sp_params,
             timeout=_timeout(),
         )
-        resp.raise_for_status()
+        # Surface the server's error body in our own exception so the
+        # diagnostic page (and the lookup-status banner) can show the
+        # actual SQL/SP error instead of just "500 Server Error".
+        if not resp.ok:
+            snippet = ""
+            try:
+                snippet = (resp.text or "").strip()
+            except Exception:
+                snippet = ""
+            if snippet:
+                snippet = snippet[:500]
+                raise requests.HTTPError(
+                    f"{resp.status_code} {resp.reason} from {url}: {snippet}",
+                    response=resp,
+                )
+            resp.raise_for_status()
         body = resp.json()
     except (requests.RequestException, ValueError) as exc:
         log.warning("reporting_api: call to %s failed: %s", url, exc)
@@ -703,14 +734,22 @@ def _populate_lookups_blocking() -> None:
         rows = run(_LOOKUP_BASE_REPORT, {})
         _cache.set(_LOOKUP_KEY, rows)
         elapsed = int((time.monotonic() - started) * 1000)
+        # ``run()`` may have served from the SQLite mirror after an API
+        # failure. Either way the in-process cache now has rows, so we
+        # report ``ready`` to the UI; the data-source label on the
+        # report viewer still reflects where the bytes came from.
+        last = last_run_source()
+        source = last.get("source") if isinstance(last, dict) else None
         _lookup_state.update(
             status="ready",
             finished_at=time.time(),
             elapsed_ms=elapsed,
             row_count=len(rows),
             error=None,
+            source=source or "api",
         )
-        log.info("lookup populate ok: %d rows in %d ms", len(rows), elapsed)
+        log.info("lookup populate ok: %d rows in %d ms (source=%s)",
+                 len(rows), elapsed, source)
     except Exception as exc:
         elapsed = int((time.monotonic() - started) * 1000)
         _lookup_state.update(
