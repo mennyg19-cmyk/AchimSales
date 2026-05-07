@@ -199,6 +199,13 @@ def api_list_users():
 @settings_bp.post("/api/settings/admin/users/add")
 @require_admin
 def api_add_user():
+    """Add an admin / developer / manager user.
+
+    Salesman users come in via ``/api/settings/admin/salesmen`` (which
+    creates the salesman row + the linked user in one shot). Calling
+    this endpoint with ``role='salesman'`` and no ``salesman_key`` is
+    explicitly an error.
+    """
     body = request.get_json(silent=True) or {}
     email = (body.get("email") or "").strip().lower()
     if not email or "@" not in email:
@@ -207,17 +214,16 @@ def api_add_user():
     if role not in VALID_ROLES:
         return jsonify({"error": f"Role must be one of {VALID_ROLES}"}), 400
     salesman_key = (body.get("salesman_key") or "").strip() or None
-    if role == "salesman" and not salesman_key:
-        return jsonify({"error": "Salesman key is required for salesman role"}), 400
     is_external = bool(body.get("is_external", False))
-    if is_external and role != "salesman":
-        return jsonify({"error": "External (magic-link) login is only for salesmen"}), 400
     display_name = (body.get("display_name") or "").strip() or None
 
-    ok = add_app_user(
-        email, role=role, salesman_key=salesman_key,
-        display_name=display_name, is_external=is_external,
-    )
+    try:
+        ok = add_app_user(
+            email, role=role, salesman_key=salesman_key,
+            display_name=display_name, is_external=is_external,
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     if not ok:
         return jsonify({"error": "User already exists"}), 409
     return jsonify({"ok": True, **_perm_grid_payload()})
@@ -343,6 +349,12 @@ def api_list_salesmen():
 @settings_bp.post("/api/settings/admin/salesmen")
 @require_admin
 def api_upsert_salesman():
+    """Create or update a salesman row.
+
+    Returns the merged perm_grid + salesmen list because adding a
+    salesman implicitly creates/renames a user row and the UI needs
+    both to re-render.
+    """
     body = request.get_json(silent=True) or {}
     if not (body.get("key") or "").strip():
         return jsonify({"error": "key is required"}), 400
@@ -350,12 +362,13 @@ def api_upsert_salesman():
         upsert_salesman_record(body)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify({"ok": True, "salesmen": list_salesman_map()})
+    return jsonify({"ok": True, **_perm_grid_payload()})
 
 
 @settings_bp.post("/api/settings/admin/salesmen/delete")
 @require_admin
 def api_delete_salesman():
+    """Delete a salesman row + cascade-delete the linked user."""
     body = request.get_json(silent=True) or {}
     key = (body.get("key") or "").strip()
     if not key:
@@ -363,7 +376,7 @@ def api_delete_salesman():
     ok = delete_salesman_record(key)
     if not ok:
         return jsonify({"error": "Not found"}), 404
-    return jsonify({"ok": True, "salesmen": list_salesman_map()})
+    return jsonify({"ok": True, **_perm_grid_payload()})
 
 
 # ---------------------------------------------------------------------------

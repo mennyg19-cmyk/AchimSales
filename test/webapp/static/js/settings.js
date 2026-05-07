@@ -157,7 +157,7 @@
   });
 
   // ---------------------------------------------------------------------
-  // Admin: users + permissions (mirrors live admin/settings)
+  // Admin: users + permissions (unified -- salesmen are users too)
   // ---------------------------------------------------------------------
 
   function escape(s) {
@@ -165,17 +165,34 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
-  // Hide / show the salesman dropdown based on selected role.
+  // Show / hide form sections based on the selected role.
+  // ``prefix`` is "new" (the add-user form) or "edit" (the modal).
   function syncRoleVisibility(prefix) {
     const roleSel = $("#" + prefix + "UserRole");
-    const smWrap  = $("#" + (prefix === "new" ? "newUserSalesmanWrap" : "editSalesmanWrap"));
-    const assignedWrap = prefix === "edit" ? $("#editAssignedWrap") : null;
-    const externalRow = prefix === "edit" ? $("#editUserExternalRow") : null;
     if (!roleSel) return;
     const role = roleSel.value;
-    if (smWrap) smWrap.style.display = (role === "salesman") ? "" : "none";
-    if (assignedWrap) assignedWrap.style.display = (role === "manager") ? "" : "none";
-    if (externalRow) externalRow.style.display = (role === "salesman") ? "" : "none";
+
+    if (prefix === "new") {
+      // The add form has two mutually-exclusive field sets:
+      //   - newSalesmanFields  (salesman: id #, name, email, etc.)
+      //   - newUserFields      (admin/dev/manager: just email + name)
+      const smFields = $("#newSalesmanFields");
+      const baseFields = $("#newUserFields");
+      if (smFields) smFields.style.display = (role === "salesman") ? "" : "none";
+      if (baseFields) baseFields.style.display = (role === "salesman") ? "none" : "";
+    } else {
+      // Edit modal: salesman dropdown + identity fields are visible only
+      // for salesman users, assigned-salesmen list only for managers,
+      // external-login only for salesmen.
+      const smWrap   = $("#editSalesmanWrap");
+      const smIdent  = $("#editSalesmanFields");
+      const assigned = $("#editAssignedWrap");
+      const extRow   = $("#editUserExternalRow");
+      if (smWrap)   smWrap.style.display   = (role === "salesman") ? "" : "none";
+      if (smIdent)  smIdent.style.display  = (role === "salesman") ? "" : "none";
+      if (assigned) assigned.style.display = (role === "manager")  ? "" : "none";
+      if (extRow)   extRow.style.display   = (role === "salesman") ? "" : "none";
+    }
   }
 
   const newRoleSel = $("#newUserRole");
@@ -184,34 +201,111 @@
     syncRoleVisibility("new");
   }
 
-  // ---- Add new user ----
+  // ---- Add new user / salesman ----
+  // Admins see one combined form. Picking "Salesman" shows the salesman
+  // identity fields (id #, full name, etc.) -- saving those creates
+  // BOTH the app_salesmen row and the linked app_users row in one shot.
+  // Picking another role shows only email + display name.
   const newUserAddBtn = $("#newUserAddBtn");
   if (newUserAddBtn) {
     newUserAddBtn.addEventListener("click", async () => {
-      const email = ($("#newUserEmail").value || "").trim().toLowerCase();
-      const role  = $("#newUserRole").value;
-      const sk    = ($("#newUserSalesmanKey") || {}).value || "";
-      const dn    = ($("#newUserDisplayName") || {}).value || "";
-      const ext   = !!($("#newUserIsExternal") || {}).checked;
-      const msg   = $("#newUserMsg");
-      if (!email) {
-        if (msg) { msg.style.display = "block"; msg.style.color = "var(--error)"; msg.textContent = "Email required"; }
-        return;
+      const role = $("#newUserRole").value;
+      const msg  = $("#newUserMsg");
+      function clearMsg() {
+        if (msg) { msg.style.color = ""; msg.textContent = ""; }
       }
+      function setError(text) {
+        if (msg) { msg.style.color = "var(--error)"; msg.textContent = text; }
+      }
+      function setSuccess(text) {
+        if (msg) { msg.style.color = "var(--success, #2c7a3a)"; msg.textContent = text; }
+      }
+      clearMsg();
+
       try {
-        const r = await apiPost("/api/settings/admin/users/add", {
-          email, role, salesman_key: sk || null,
-          display_name: dn || null, is_external: ext,
-        });
-        rebuildUserList(r.perm_grid || []);
-        $("#newUserEmail").value = "";
-        $("#newUserDisplayName").value = "";
-        if (msg) { msg.style.display = "block"; msg.style.color = "var(--success, #2c7a3a)"; msg.textContent = "Added " + email; }
-        showToast("User added.");
+        if (role === "salesman") {
+          // Salesman flow -- creates the salesman + the linked user.
+          const email     = ($("#newSmEmail").value || "").trim().toLowerCase();
+          const fullName  = ($("#newSmFullName").value || "").trim();
+          if (!email)    { setError("Email is required"); return; }
+          if (!fullName) { setError("Full name is required"); return; }
+          let key = ($("#newSmKey").value || "").trim().toLowerCase()
+                       .replace(/[^a-z0-9]+/g, "");
+          if (!key) {
+            // Auto-derive from full name -- mirror the live ``_norm_key``.
+            key = fullName.toLowerCase().replace(/[^a-z0-9]+/g, "");
+          }
+          const payload = {
+            key,
+            number:         ($("#newSmNumber").value || "").trim(),
+            full_name:      fullName,
+            display_name:   ($("#newSmDisplayName").value || "").trim() || fullName,
+            email,
+            commission_pct: parseFloat($("#newSmCommission").value || "0") || 0,
+            active:         true,
+          };
+          await apiPost("/api/settings/admin/salesmen", payload);
+          // The salesman save already created the user. If the admin
+          // ticked the "external" box, push that on top.
+          if ($("#newSmExternal") && $("#newSmExternal").checked) {
+            await apiPost("/api/settings/admin/users",
+                          { email, is_external: true });
+          }
+          // Reload the merged grid.
+          const r = await apiGet("/api/settings/admin/users");
+          rebuildUserList(r.perm_grid || []);
+          updateSalesmanDropdowns(r.salesmen || []);
+          ["newSmKey","newSmNumber","newSmFullName","newSmDisplayName",
+           "newSmEmail","newSmCommission"]
+            .forEach((id) => { const el = $("#" + id); if (el) el.value = ""; });
+          setSuccess("Added salesman " + email);
+          showToast("Salesman added.");
+        } else {
+          // Bare user flow (admin/developer/manager).
+          const email = ($("#newUserEmail").value || "").trim().toLowerCase();
+          const dn    = ($("#newUserDisplayName").value || "").trim() || null;
+          if (!email) { setError("Email is required"); return; }
+          const r = await apiPost("/api/settings/admin/users/add", {
+            email, role, display_name: dn, is_external: false,
+          });
+          rebuildUserList(r.perm_grid || []);
+          $("#newUserEmail").value = "";
+          $("#newUserDisplayName").value = "";
+          setSuccess("Added " + email);
+          showToast("User added.");
+        }
       } catch (e) {
-        if (msg) { msg.style.display = "block"; msg.style.color = "var(--error)"; msg.textContent = e.message; }
+        setError(e.message || "Save failed");
       }
     });
+  }
+
+  // Refresh the dropdowns sourced from app_salesmen anywhere on the page.
+  function updateSalesmanDropdowns(salesmen) {
+    const sels = [
+      $("#editUserSalesmanKey"),
+    ];
+    sels.forEach((sel) => {
+      if (!sel) return;
+      const cur = sel.value;
+      const head = '<option value="">— Select —</option>';
+      const opts = salesmen.map((sm) => {
+        const label = (sm.full_name || sm.key) +
+                      (sm.number ? " (#" + sm.number + ")" : "");
+        return `<option value="${escape(sm.key)}">${escape(label)}</option>`;
+      }).join("");
+      sel.innerHTML = head + opts;
+      if (cur && salesmen.some((sm) => sm.key === cur)) sel.value = cur;
+    });
+    // Manager assigned-salesmen list lives in the modal; rebuild from scratch.
+    const assigned = $("#editAssignedList");
+    if (assigned) {
+      assigned.innerHTML = salesmen.map((sm) => `
+        <label class="settings-customer-item" style="min-height:34px;">
+          <span style="font-size:13px;">${escape(sm.full_name || sm.key)}${sm.number ? " #" + escape(sm.number) : ""}</span>
+          <input type="checkbox" class="assigned-sm-toggle" data-sm-key="${escape(sm.key)}">
+        </label>`).join("");
+    }
   }
 
   // ---- Render the user list from a permGrid array ----
@@ -281,6 +375,14 @@
     $("#editUserIsExternal").checked = !!u.is_external;
     $("#editUserDashboard").checked = !!u.dashboard_enabled;
     $("#editUserSharepoint").checked = !!u.sharepoint_access_enabled;
+
+    // Salesman identity fields. The perm-grid payload includes the
+    // joined salesman columns so we can render them inline.
+    $("#editSmNumber").value      = u.sm_number || "";
+    $("#editSmFullName").value    = u.sm_name || u.display_name || "";
+    $("#editSmDisplayName").value = u.display_name || "";
+    $("#editSmCommission").value  = (u.commission_pct == null ? "" : u.commission_pct);
+
     syncRoleVisibility("edit");
 
     // Per-report overrides: u.reports is the *effective* permission. Compare
@@ -319,18 +421,45 @@
     const role     = $("#editUserRole").value;
     const sk       = ($("#editUserSalesmanKey").value || "").trim() || null;
     const dn       = ($("#editUserDisplayName").value || "").trim() || null;
-    const patch = {
-      email,
-      role,
-      salesman_key: sk,
-      display_name: dn,
-      active:                    $("#editUserActive").checked,
-      is_external:               $("#editUserIsExternal").checked,
-      dashboard_enabled:         $("#editUserDashboard").checked,
-      sharepoint_access_enabled: $("#editUserSharepoint").checked,
-    };
-    if (newEmail && newEmail !== email) patch.new_email = newEmail;
     try {
+      // ---- Order matters when the user is a salesman ----
+      // We persist the salesman row first (it owns the canonical
+      // email + display_name) so the user-update step doesn't fight
+      // it. The salesman upsert auto-renames the linked user, so the
+      // subsequent users PATCH only carries permission-related diffs.
+      let identityEmail = email; // email *after* the salesman rename, if any
+      if (role === "salesman" && sk) {
+        const smPayload = {
+          key:            sk,
+          number:         ($("#editSmNumber").value || "").trim(),
+          full_name:      ($("#editSmFullName").value || "").trim() || dn || newEmail || email,
+          display_name:   ($("#editSmDisplayName").value || "").trim() ||
+                          ($("#editSmFullName").value || "").trim() ||
+                          dn || "",
+          email:          newEmail || email,
+          commission_pct: parseFloat($("#editSmCommission").value || "0") || 0,
+          active:         $("#editUserActive").checked,
+        };
+        await apiPost("/api/settings/admin/salesmen", smPayload);
+        identityEmail = smPayload.email;
+      }
+
+      const patch = {
+        email: identityEmail,
+        role,
+        salesman_key: sk,
+        display_name: dn,
+        active:                    $("#editUserActive").checked,
+        is_external:               $("#editUserIsExternal").checked,
+        dashboard_enabled:         $("#editUserDashboard").checked,
+        sharepoint_access_enabled: $("#editUserSharepoint").checked,
+      };
+      // If the admin renamed the email AND the user is NOT a salesman
+      // (the salesman upsert above already cascaded), apply the rename
+      // here.
+      if (role !== "salesman" && newEmail && newEmail !== email) {
+        patch.new_email = newEmail;
+      }
       const r = await apiPost("/api/settings/admin/users", patch);
       const targetEmail = (newEmail && newEmail !== email) ? newEmail : email;
       // Push per-report overrides (only those where the admin chose Allow/Deny).
@@ -357,6 +486,7 @@
       }
       const finalGrid = await apiGet("/api/settings/admin/users");
       rebuildUserList(finalGrid.perm_grid || r.perm_grid || []);
+      updateSalesmanDropdowns(finalGrid.salesmen || []);
       closeEditUser();
       showToast("User saved.");
     } catch (e) {
@@ -379,145 +509,8 @@
   });
 
   // ---------------------------------------------------------------------
-  // Admin: salesman map
+  // (Salesman map was merged into Users & Permissions above.)
   // ---------------------------------------------------------------------
-
-  function rebuildSalesmenList(salesmen) {
-    const list = $("#salesmenList");
-    if (!list) return;
-    list.innerHTML = "";
-    salesmen.forEach((sm) => {
-      const row = document.createElement("div");
-      row.className = "perm-user-row";
-      row.setAttribute("data-sm-key", sm.key);
-      row.setAttribute("data-sm", JSON.stringify(sm));
-      const badges = [];
-      if (!sm.active) badges.push('<span class="badge badge-inactive">Inactive</span>');
-      if (sm.commission_pct) badges.push(`<span class="badge badge-salesman" title="Commission %">${(+sm.commission_pct).toFixed(2)}%</span>`);
-      row.innerHTML = `
-        <div class="perm-user-info">
-          <span class="perm-user-name">${escape(sm.full_name || sm.key)}</span>
-          <span class="perm-user-email">${escape(sm.email || "— no email —")}</span>
-          <span class="perm-user-key">${escape(sm.key)}${sm.number ? " #" + escape(sm.number) : ""}</span>
-        </div>
-        <div class="perm-user-meta">
-          ${badges.join("")}
-          <i data-feather="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
-        </div>`;
-      row.addEventListener("click", () => openEditSm(sm));
-      list.appendChild(row);
-    });
-    if (typeof feather !== "undefined") feather.replace();
-  }
-
-  $all("#salesmenList .perm-user-row").forEach((row) => {
-    let sm;
-    try { sm = JSON.parse(row.getAttribute("data-sm") || "{}"); }
-    catch (_) { sm = { key: row.getAttribute("data-sm-key") }; }
-    row.addEventListener("click", () => openEditSm(sm));
-  });
-
-  const smSearch = $("#salesmenSearch");
-  if (smSearch) {
-    smSearch.addEventListener("input", () => {
-      const q = smSearch.value.trim().toLowerCase();
-      $all("#salesmenList .perm-user-row").forEach((row) => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = !q || text.includes(q) ? "" : "none";
-      });
-    });
-  }
-
-  const smModal = $("#editSmModal");
-  let _editingSm = null;
-  function openEditSm(sm) {
-    _editingSm = sm;
-    $("#editSmKey").value         = sm.key || "";
-    $("#editSmNumber").value      = sm.number || "";
-    $("#editSmFullName").value    = sm.full_name || "";
-    $("#editSmDisplayName").value = sm.display_name || "";
-    $("#editSmEmail").value       = sm.email || "";
-    $("#editSmCommission").value  = (sm.commission_pct == null ? "" : sm.commission_pct);
-    $("#editSmCc").value          = (sm.cc_list || []).join("; ");
-    $("#editSmBcc").value         = (sm.bcc_list || []).join("; ");
-    $("#editSmActive").checked    = !!sm.active;
-    const subs = sm.subscriptions || {};
-    $all("#editSmSubsList .sm-sub-toggle").forEach((cb) => {
-      cb.checked = !!subs[cb.getAttribute("data-report-key")];
-    });
-    smModal.hidden = false;
-  }
-  function closeEditSm() { smModal.hidden = true; _editingSm = null; }
-  if ($("#editSmClose")) $("#editSmClose").addEventListener("click", closeEditSm);
-
-  if ($("#editSmSave")) $("#editSmSave").addEventListener("click", async () => {
-    if (!_editingSm) return;
-    const subs = {};
-    $all("#editSmSubsList .sm-sub-toggle").forEach((cb) => {
-      subs[cb.getAttribute("data-report-key")] = cb.checked;
-    });
-    const payload = {
-      key:            _editingSm.key,
-      number:         $("#editSmNumber").value.trim(),
-      full_name:      $("#editSmFullName").value.trim(),
-      display_name:   $("#editSmDisplayName").value.trim(),
-      email:          $("#editSmEmail").value.trim(),
-      commission_pct: parseFloat($("#editSmCommission").value || "0") || 0,
-      cc:             $("#editSmCc").value.trim(),
-      bcc:            $("#editSmBcc").value.trim(),
-      active:         $("#editSmActive").checked,
-      subscriptions:  subs,
-    };
-    try {
-      const r = await apiPost("/api/settings/admin/salesmen", payload);
-      rebuildSalesmenList(r.salesmen || []);
-      closeEditSm();
-      showToast("Salesman saved.");
-    } catch (e) {
-      showToast("Save failed: " + e.message, "error");
-    }
-  });
-
-  if ($("#editSmDelete")) $("#editSmDelete").addEventListener("click", async () => {
-    if (!_editingSm) return;
-    if (!confirm("Delete salesman " + _editingSm.key + "?")) return;
-    try {
-      const r = await apiPost("/api/settings/admin/salesmen/delete", { key: _editingSm.key });
-      rebuildSalesmenList(r.salesmen || []);
-      closeEditSm();
-      showToast("Salesman deleted.");
-    } catch (e) {
-      showToast("Delete failed: " + e.message, "error");
-    }
-  });
-
-  if ($("#newSmAddBtn")) $("#newSmAddBtn").addEventListener("click", async () => {
-    const key = ($("#newSmKey").value || "").trim();
-    const msg = $("#newSmMsg");
-    if (!key) {
-      if (msg) { msg.style.display = "block"; msg.style.color = "var(--error)"; msg.textContent = "Key required"; }
-      return;
-    }
-    const payload = {
-      key,
-      number:         $("#newSmNumber").value.trim(),
-      full_name:      $("#newSmFullName").value.trim(),
-      display_name:   $("#newSmDisplayName").value.trim(),
-      email:          $("#newSmEmail").value.trim(),
-      commission_pct: parseFloat($("#newSmCommission").value || "0") || 0,
-      active:         true,
-    };
-    try {
-      const r = await apiPost("/api/settings/admin/salesmen", payload);
-      rebuildSalesmenList(r.salesmen || []);
-      ["newSmKey","newSmNumber","newSmFullName","newSmDisplayName","newSmEmail","newSmCommission"]
-        .forEach((id) => { const el = $("#" + id); if (el) el.value = ""; });
-      if (msg) { msg.style.display = "block"; msg.style.color = "var(--success, #2c7a3a)"; msg.textContent = "Added"; }
-      showToast("Salesman added.");
-    } catch (e) {
-      if (msg) { msg.style.display = "block"; msg.style.color = "var(--error)"; msg.textContent = e.message; }
-    }
-  });
 
   // ---------------------------------------------------------------------
   // Customer exclusions: add-by-account-number

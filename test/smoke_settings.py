@@ -1,11 +1,20 @@
-"""End-to-end smoke test for the new settings admin endpoints.
+"""End-to-end smoke test for the unified Users & Permissions admin.
 
 Run from the repo root:
 
     python -m test.smoke_settings
 
 Boots the Flask app in dev mode (disabled scheduler), seeds an admin in
-the session, and exercises every new endpoint we just added.
+the session, and exercises every endpoint that backs the merged
+Users/Salesman-map admin section.
+
+Design contract being verified:
+  * Adding a salesman creates the salesman row AND a linked app_users
+    row (role=salesman, salesman_key=<key>).
+  * Salesmen without an email are rejected.
+  * Renaming a salesman's email cascades to the linked user.
+  * Deleting a user with role=salesman drops the linked salesman row.
+  * Deleting a salesman drops the linked user.
 """
 
 from __future__ import annotations
@@ -67,6 +76,17 @@ def _expect_ok(label: str, resp) -> dict:
     return body
 
 
+def _expect_status(label: str, resp, expected: int) -> dict:
+    if resp.status_code != expected:
+        _print(FAIL, f"{label}: HTTP {resp.status_code} (expected {expected}) {resp.data[:200]!r}")
+        sys.exit(1)
+    _print(OK, f"{label}: {expected} as expected")
+    try:
+        return resp.get_json() or {}
+    except Exception:
+        return {}
+
+
 def main() -> None:
     _print(INFO, f"using temp DB: {os.environ['V2_APP_DB']}")
     app = create_app()
@@ -75,22 +95,40 @@ def main() -> None:
 
     _login(client)
 
-    # Settings page renders with the new sections.
+    # Settings page renders. Salesman map should NOT be a separate
+    # section anymore -- it lives inside Users & Permissions.
     r = client.get("/settings")
     assert r.status_code == 200, f"GET /settings -> {r.status_code}"
     body = r.get_data(as_text=True)
-    for needle in ("Salesman map", "Users &amp; permissions", "Per-report access"):
+    for needle in ("Users &amp; permissions", "Per-report access"):
         if needle not in body:
             _print(FAIL, f"settings.html missing: {needle}")
             sys.exit(1)
-    _print(OK, "settings page renders with new sections")
+    if "Salesman map" in body:
+        _print(FAIL, "settings.html still has the standalone 'Salesman map' section")
+        sys.exit(1)
+    _print(OK, "settings page renders, no separate Salesman map")
 
-    # /api/settings/admin/users returns the perm grid + report metadata.
+    # /api/settings/admin/users returns the perm grid + report meta + salesmen.
     body = _expect_ok("GET admin/users", client.get("/api/settings/admin/users"))
-    assert "perm_grid" in body and "report_meta" in body, body
-    _print(INFO, f"perm_grid has {len(body['perm_grid'])} user(s)")
+    for k in ("perm_grid", "report_meta", "salesmen"):
+        if k not in body:
+            _print(FAIL, f"GET admin/users missing key: {k}")
+            sys.exit(1)
+    _print(INFO, f"perm_grid has {len(body['perm_grid'])} user(s) at start")
 
-    # Add a salesman.
+    # ----- Salesman without email is rejected -----
+    r = client.post(
+        "/api/settings/admin/salesmen",
+        data=json.dumps({
+            "key": "noemail", "number": "001",
+            "full_name": "No Email Person",
+        }),
+        content_type="application/json",
+    )
+    _expect_status("POST admin/salesmen (no email)", r, 400)
+
+    # ----- Add a real salesman -- this should also create the user -----
     body = _expect_ok(
         "POST admin/salesmen (add)",
         client.post(
@@ -103,103 +141,114 @@ def main() -> None:
                 "email": "smoketest@achimonline.com",
                 "commission_pct": 7.5,
                 "active": True,
-                "subscriptions": {"ordered": True, "invoiced": False},
             }),
             content_type="application/json",
         ),
     )
     sm_keys = [s["key"] for s in body.get("salesmen", [])]
     assert "smoketest" in sm_keys, sm_keys
+    # Linked user must exist.
+    user_emails = {u["email"] for u in body["perm_grid"]}
+    assert "smoketest@achimonline.com" in user_emails, (
+        "salesman add did not create a user; perm_grid emails: " + repr(user_emails)
+    )
+    sm_user = next(u for u in body["perm_grid"]
+                   if u["email"] == "smoketest@achimonline.com")
+    assert sm_user["role"] == "salesman", sm_user
+    assert sm_user["salesman_key"] == "smoketest", sm_user
+    assert sm_user["sm_number"] == "999", sm_user
+    assert abs((sm_user.get("commission_pct") or 0) - 7.5) < 0.01, sm_user
+    _print(OK, "salesman add created the linked user")
 
-    # Update the salesman.
+    # ----- Update salesman email -- must rename the user too -----
     body = _expect_ok(
-        "POST admin/salesmen (update)",
+        "POST admin/salesmen (rename email)",
         client.post(
             "/api/settings/admin/salesmen",
             data=json.dumps({
                 "key": "smoketest",
                 "number": "999",
-                "full_name": "Smoke Test Salesman (updated)",
-                "email": "smoketest@achimonline.com",
+                "full_name": "Smoke Test Salesman (renamed)",
+                "display_name": "SmokeTest",
+                "email": "smoketest2@achimonline.com",
                 "commission_pct": 9.99,
                 "active": True,
             }),
             content_type="application/json",
         ),
     )
-    sm = next(s for s in body["salesmen"] if s["key"] == "smoketest")
-    assert sm["full_name"].endswith("(updated)"), sm
+    user_emails = {u["email"] for u in body["perm_grid"]}
+    assert "smoketest@achimonline.com" not in user_emails, (
+        "old email still present: " + repr(user_emails)
+    )
+    assert "smoketest2@achimonline.com" in user_emails, (
+        "renamed email missing: " + repr(user_emails)
+    )
+    _print(OK, "salesman email rename cascaded to the user row")
 
-    # Add a salesman user (role=salesman, salesman_key=smoketest).
+    # ----- Add a NON-salesman user (admin) via /users/add -----
     body = _expect_ok(
-        "POST admin/users/add",
+        "POST admin/users/add (manager)",
         client.post(
             "/api/settings/admin/users/add",
             data=json.dumps({
-                "email": "salesperson@achimonline.com",
-                "role": "salesman",
-                "salesman_key": "smoketest",
-                "display_name": "Sales Person",
+                "email": "manager@achimonline.com",
+                "role": "manager",
+                "display_name": "Manager Person",
                 "is_external": False,
             }),
             content_type="application/json",
         ),
     )
     perm = next(u for u in body["perm_grid"]
-                if u["email"] == "salesperson@achimonline.com")
-    assert perm["role"] == "salesman", perm
-    assert perm["salesman_key"] == "smoketest", perm
-    assert perm["sm_name"] is not None, perm
+                if u["email"] == "manager@achimonline.com")
+    assert perm["role"] == "manager", perm
 
-    # Adding the same email again should 409.
+    # ----- /users/add with role=salesman is rejected (use /salesmen) -----
     r = client.post(
         "/api/settings/admin/users/add",
         data=json.dumps({
-            "email": "salesperson@achimonline.com",
+            "email": "another@achimonline.com",
             "role": "salesman",
-            "salesman_key": "smoketest",
         }),
         content_type="application/json",
     )
-    assert r.status_code == 409, f"expected 409, got {r.status_code}"
-    _print(OK, "POST admin/users/add (duplicate): 409 as expected")
+    _expect_status("POST admin/users/add (role=salesman, no key)", r, 400)
 
-    # Promote them to manager + assign a salesman.
-    body = _expect_ok(
-        "POST admin/users (role=manager)",
-        client.post(
-            "/api/settings/admin/users",
-            data=json.dumps({
-                "email": "salesperson@achimonline.com",
-                "role": "manager",
-                "salesman_key": None,
-                "active": True,
-            }),
-            content_type="application/json",
-        ),
+    # ----- Adding the same email twice -> 409 -----
+    r = client.post(
+        "/api/settings/admin/users/add",
+        data=json.dumps({
+            "email": "manager@achimonline.com",
+            "role": "manager",
+        }),
+        content_type="application/json",
     )
+    _expect_status("POST admin/users/add (duplicate)", r, 409)
+
+    # ----- Manager assignment -----
     body = _expect_ok(
         "POST admin/users/salesman-access",
         client.post(
             "/api/settings/admin/users/salesman-access",
             data=json.dumps({
-                "email": "salesperson@achimonline.com",
+                "email": "manager@achimonline.com",
                 "keys": ["smoketest"],
             }),
             content_type="application/json",
         ),
     )
     perm = next(u for u in body["perm_grid"]
-                if u["email"] == "salesperson@achimonline.com")
+                if u["email"] == "manager@achimonline.com")
     assert "smoketest" in perm["allowed_salesmen"], perm
 
-    # Add a per-report deny override.
+    # ----- Per-report deny override + clear -----
     body = _expect_ok(
         "POST admin/users/report-access (deny)",
         client.post(
             "/api/settings/admin/users/report-access",
             data=json.dumps({
-                "email": "salesperson@achimonline.com",
+                "email": "manager@achimonline.com",
                 "report_key": "ordered",
                 "allowed": False,
             }),
@@ -207,48 +256,33 @@ def main() -> None:
         ),
     )
     perm = next(u for u in body["perm_grid"]
-                if u["email"] == "salesperson@achimonline.com")
+                if u["email"] == "manager@achimonline.com")
     assert perm["reports"].get("ordered") is False, perm["reports"]
 
-    # Clear the override.
     body = _expect_ok(
         "POST admin/users/report-access (clear)",
         client.post(
             "/api/settings/admin/users/report-access",
             data=json.dumps({
-                "email": "salesperson@achimonline.com",
+                "email": "manager@achimonline.com",
                 "report_key": "ordered",
             }),
             content_type="application/json",
         ),
     )
     perm = next(u for u in body["perm_grid"]
-                if u["email"] == "salesperson@achimonline.com")
+                if u["email"] == "manager@achimonline.com")
     assert perm["reports"].get("ordered") is True, perm["reports"]
 
-    # Validation: salesman role without a key is rejected.
-    r = client.post(
-        "/api/settings/admin/users",
-        data=json.dumps({
-            "email": "salesperson@achimonline.com",
-            "role": "salesman",
-            "salesman_key": None,
-        }),
-        content_type="application/json",
-    )
-    assert r.status_code == 400, f"expected 400, got {r.status_code}: {r.data!r}"
-    _print(OK, "POST admin/users (salesman without key): 400 as expected")
-
-    # Self-demotion is blocked.
+    # ----- Self-demotion blocked -----
     r = client.post(
         "/api/settings/admin/users",
         data=json.dumps({"email": ADMIN_EMAIL, "role": "salesman"}),
         content_type="application/json",
     )
-    assert r.status_code == 400, f"expected 400, got {r.status_code}: {r.data!r}"
-    _print(OK, "self-demotion: 400 as expected")
+    _expect_status("POST admin/users (self-demotion)", r, 400)
 
-    # Run-log endpoint returns rows after a fake insert.
+    # ----- Run log -----
     from test.webapp.db import log_report_run
     log_report_run(
         user_email=ADMIN_EMAIL, report_key="ordered", report_name="Ordered Report",
@@ -260,9 +294,8 @@ def main() -> None:
         client.get("/api/settings/admin/report-log"),
     )
     assert body["rows"], "report-log returned no rows after insert"
-    _print(INFO, f"run-log has {len(body['rows'])} entry/entries")
 
-    # Non-admin gets 403.
+    # ----- Non-admin -> 403 -----
     with client.session_transaction() as s:
         u = s.get("v2_user") or {}
         u["is_admin"] = False
@@ -271,16 +304,48 @@ def main() -> None:
         s["v2_user"] = u
     r = client.get("/api/settings/admin/users",
                    headers={"Accept": "application/json"})
-    assert r.status_code == 403, f"expected 403, got {r.status_code}"
-    _print(OK, "non-admin: 403 as expected")
-
-    # Delete the salesman + the user we created.
+    _expect_status("GET admin/users (non-admin)", r, 403)
     _login(client)
+
+    # ----- Delete the user via /users/delete -- since they're a       -----
+    # salesman, the linked salesman row must also be gone.
     body = _expect_ok(
-        "POST admin/users/delete",
+        "POST admin/users/delete (salesman cascade)",
         client.post(
             "/api/settings/admin/users/delete",
-            data=json.dumps({"email": "salesperson@achimonline.com"}),
+            data=json.dumps({"email": "smoketest2@achimonline.com"}),
+            content_type="application/json",
+        ),
+    )
+    sm_keys = [s["key"] for s in body["salesmen"]]
+    assert "smoketest" not in sm_keys, (
+        "salesman row was not cascaded on user delete: " + repr(sm_keys)
+    )
+    user_emails = {u["email"] for u in body["perm_grid"]}
+    assert "smoketest2@achimonline.com" not in user_emails
+
+    # ----- Delete the manager user -----
+    body = _expect_ok(
+        "POST admin/users/delete (manager)",
+        client.post(
+            "/api/settings/admin/users/delete",
+            data=json.dumps({"email": "manager@achimonline.com"}),
+            content_type="application/json",
+        ),
+    )
+    user_emails = {u["email"] for u in body["perm_grid"]}
+    assert "manager@achimonline.com" not in user_emails
+
+    # ----- Salesman delete also drops the user (re-add then delete via /salesmen) -----
+    _expect_ok(
+        "POST admin/salesmen (re-add for delete test)",
+        client.post(
+            "/api/settings/admin/salesmen",
+            data=json.dumps({
+                "key": "smoke3",
+                "full_name": "Smoke Three",
+                "email": "smoke3@achimonline.com",
+            }),
             content_type="application/json",
         ),
     )
@@ -288,11 +353,16 @@ def main() -> None:
         "POST admin/salesmen/delete",
         client.post(
             "/api/settings/admin/salesmen/delete",
-            data=json.dumps({"key": "smoketest"}),
+            data=json.dumps({"key": "smoke3"}),
             content_type="application/json",
         ),
     )
-    assert all(s["key"] != "smoketest" for s in body["salesmen"])
+    sm_keys = [s["key"] for s in body["salesmen"]]
+    assert "smoke3" not in sm_keys
+    user_emails = {u["email"] for u in body["perm_grid"]}
+    assert "smoke3@achimonline.com" not in user_emails, (
+        "user row not cascaded on salesman delete: " + repr(user_emails)
+    )
 
     print()
     _print(OK, "All settings smoke-tests passed.")

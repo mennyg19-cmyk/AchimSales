@@ -197,10 +197,11 @@ SCHEMA_STATEMENTS = [
     )
     """,
     # ---- Salesman map (replaces config/salesman_map.xlsx for the test app) ----
-    # Mirrors the live Excel schema 1:1: identity (key/number/names/email),
-    # commission %, plus per-report subscription flags and CC/BCC. Editable
-    # entirely from the admin Settings page so we never have to redeploy
-    # to update commissions or fix a salesman email.
+    # Trimmed schema: identity (key/number/names/email), commission %, and
+    # active flag. CC/BCC and per-report subscriptions live on the email
+    # schedules, not here. Every salesman row MUST have an email -- a
+    # salesman without an email isn't a real user we can talk to. The
+    # boot-time prune in ``_prune_salesmen_without_email`` enforces this.
     """
     CREATE TABLE IF NOT EXISTS app_salesmen (
         key            TEXT PRIMARY KEY,           -- normalized lookup key (lowercase, alnum-only)
@@ -209,10 +210,7 @@ SCHEMA_STATEMENTS = [
         display_name   TEXT NOT NULL DEFAULT '',
         email          TEXT NOT NULL DEFAULT '',
         commission_pct REAL NOT NULL DEFAULT 0,
-        cc             TEXT NOT NULL DEFAULT '',   -- semicolon-separated
-        bcc            TEXT NOT NULL DEFAULT '',   -- semicolon-separated
         active         INTEGER NOT NULL DEFAULT 1,
-        subs_json      TEXT NOT NULL DEFAULT '{}', -- {report_key: bool}
         updated_utc    TEXT
     )
     """,
@@ -358,31 +356,138 @@ def _seed_salesmen_from_xlsx(conn: sqlite3.Connection) -> None:
         log.info("salesman_map seed: live xlsx loaded 0 records (probably missing)")
         return
     now = _now_utc()
+    inserted = skipped = 0
     for key, rec in recs.items():
+        # Salesmen without an email aren't real users for us -- skip
+        # them at seed so the merged Users & Permissions list stays
+        # clean. Admins can add them manually if needed.
+        email = (rec.email or "").strip()
+        if not email:
+            skipped += 1
+            continue
         try:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO app_salesmen
                   (key, number, full_name, display_name, email, commission_pct,
-                   cc, bcc, active, subs_json, updated_utc)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                   active, updated_utc)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
                 """,
                 (
                     key,
                     rec.number or "",
                     rec.full_name or "",
                     rec.display_name or "",
-                    rec.email or "",
+                    email,
                     float(rec.commission_pct or 0.0),
-                    "; ".join(rec.cc or []),
-                    "; ".join(rec.bcc or []),
-                    json.dumps(rec.subscriptions or {}),
                     now,
                 ),
             )
+            inserted += 1
         except Exception:
             log.exception("salesman_map seed: row %s failed", key)
-    log.info("salesman_map seed: inserted %d rows from xlsx", len(recs))
+    log.info(
+        "salesman_map seed: inserted %d rows from xlsx (skipped %d without email)",
+        inserted, skipped,
+    )
+
+
+def _prune_salesmen_without_email(conn: sqlite3.Connection) -> None:
+    """Remove any app_salesmen rows that don't have an email.
+
+    Idempotent. Runs on every boot so a stray ``UPDATE`` that blanks the
+    email column gets self-healed and we never end up with dropdown
+    entries for unreachable phantoms. Anything pruned here also removes
+    the corresponding user (since the salesman key was the user's link
+    to their identity) and any manager-assignment overrides that
+    referenced it.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT key FROM app_salesmen WHERE email IS NULL OR email = ''"
+        ).fetchall()
+    except Exception:
+        return
+    if not rows:
+        return
+    for r in rows:
+        sk = r["key"]
+        try:
+            conn.execute("DELETE FROM app_salesmen WHERE key = ?", (sk,))
+            # Remove the linked user -- a salesman without an email
+            # cannot have signed in / received a magic link.
+            conn.execute(
+                "DELETE FROM app_users WHERE role = 'salesman' AND salesman_key = ?",
+                (sk,),
+            )
+            conn.execute(
+                "DELETE FROM user_salesman_access WHERE salesman_key = ?",
+                (sk,),
+            )
+        except Exception:
+            log.exception("prune salesmen: failed for key=%s", sk)
+    log.info("prune salesmen: removed %d rows without email", len(rows))
+
+
+def _sync_salesman_users(conn: sqlite3.Connection) -> None:
+    """For every salesman row, make sure an app_users row exists with
+    role=salesman and salesman_key=<key>. Idempotent.
+
+    We use email as the user primary key, so:
+      * if a user with that email already exists, update its role to
+        salesman and link it to the salesman row;
+      * if not, create a fresh row.
+
+    Manual admin/developer/manager users keep their roles; we only
+    promote to salesman when the existing role would otherwise be
+    'salesman' anyway, or when it's empty (no role assigned yet).
+    """
+    try:
+        rows = conn.execute(
+            "SELECT key, full_name, display_name, email FROM app_salesmen "
+            "WHERE email IS NOT NULL AND email != ''"
+        ).fetchall()
+    except Exception:
+        return
+    created = linked = 0
+    for r in rows:
+        email = (r["email"] or "").strip().lower()
+        if not email:
+            continue
+        existing = conn.execute(
+            "SELECT email, role, salesman_key FROM app_users WHERE email = ?",
+            (email,),
+        ).fetchone()
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO app_users
+                  (email, display_name, role, salesman_key, is_admin, is_external,
+                   active, dashboard_enabled, test_access_enabled)
+                VALUES (?, ?, 'salesman', ?, 0, 0, 1, 1, 1)
+                """,
+                (email, r["display_name"] or r["full_name"] or None, r["key"]),
+            )
+            created += 1
+        else:
+            # Only auto-link when the user has no salesman_key yet OR
+            # already points at a (possibly stale) salesman. We never
+            # overwrite an admin/developer/manager account that just
+            # happens to share an email with a salesman row.
+            cur_role = (existing["role"] or "").strip().lower()
+            cur_key  = (existing["salesman_key"] or "").strip()
+            if cur_role in ("", "salesman") and cur_key != r["key"]:
+                conn.execute(
+                    "UPDATE app_users SET role = 'salesman', salesman_key = ? "
+                    "WHERE email = ?",
+                    (r["key"], email),
+                )
+                linked += 1
+    if created or linked:
+        log.info(
+            "salesman/user sync: created %d new user rows, linked %d existing",
+            created, linked,
+        )
 
 
 def _connect() -> sqlite3.Connection:
@@ -416,6 +521,8 @@ def init_db() -> None:
         _seed_feature_flags(conn)
         _backfill_user_roles(conn)
         _seed_salesmen_from_xlsx(conn)
+        _prune_salesmen_without_email(conn)
+        _sync_salesman_users(conn)
         log.info("v2 db initialized at %s", APP_DB_PATH)
     # Ensure offline-fallback mirror tables exist (separate module so
     # the import doesn't add to the top-level circular import surface).
@@ -588,11 +695,42 @@ def add_app_user(
     role: str = "salesman", salesman_key: str | None = None,
     display_name: str | None = None, is_external: bool = False,
 ) -> bool:
-    """Create a new app_users row. Returns False if the email already exists."""
+    """Create a new app_users row.
+
+    Returns False if the email already exists. Raises ``ValueError`` for
+    invalid input.
+
+    Salesman users are 1:1 with ``app_salesmen`` rows; the recommended
+    way to add one is ``upsert_salesman_record`` (which creates both
+    rows). When this function is called with ``role='salesman'`` it
+    requires an existing salesman_key and silently aligns the email
+    with that salesman's email.
+    """
     email = _norm_email(email)
-    if not email or role not in VALID_ROLES:
-        return False
+    if not email:
+        raise ValueError("email is required")
+    if role not in VALID_ROLES:
+        raise ValueError(f"role must be one of {VALID_ROLES}")
     with connect() as conn:
+        if role == "salesman":
+            if not salesman_key:
+                raise ValueError(
+                    "Add a salesman via the Salesman flow -- it creates the "
+                    "user automatically."
+                )
+            sm = conn.execute(
+                "SELECT email FROM app_salesmen WHERE key = ?", (salesman_key,),
+            ).fetchone()
+            if not sm or not sm["email"]:
+                raise ValueError(f"Unknown salesman key: {salesman_key}")
+            sm_email = sm["email"].strip().lower()
+            if sm_email and sm_email != email:
+                # Trust the salesman row as the source of truth for
+                # email so we don't end up with two users for one
+                # salesman.
+                email = sm_email
+        if is_external and role != "salesman":
+            raise ValueError("External (magic-link) login is only for salesmen")
         existing = conn.execute(
             "SELECT 1 FROM app_users WHERE email = ?", (email,),
         ).fetchone()
@@ -689,13 +827,55 @@ def update_app_user(email: str, **kwargs: Any) -> None:
                 except sqlite3.OperationalError:
                     pass
 
+        # Mirror identity-style edits back to the linked salesman row,
+        # but ONLY when the caller was acting on a salesman user. We
+        # use the post-update salesman_key so a fresh role assignment
+        # picks up the link too.
+        target_email = new_email if (new_email and new_email != email) else email
+        post = conn.execute(
+            "SELECT role, salesman_key, display_name, active "
+            "FROM app_users WHERE email = ?", (target_email,),
+        ).fetchone()
+        if post and (post["role"] or "").lower() == "salesman" and post["salesman_key"]:
+            sk = post["salesman_key"]
+            sm_sets, sm_params = [], []
+            if new_email and new_email != email:
+                sm_sets.append("email = ?"); sm_params.append(target_email)
+            if "display_name" in kwargs and post["display_name"]:
+                sm_sets.append("display_name = ?")
+                sm_params.append(post["display_name"])
+            if "active" in kwargs:
+                sm_sets.append("active = ?"); sm_params.append(int(post["active"] or 0))
+            if sm_sets:
+                sm_params.append(sk)
+                try:
+                    conn.execute(
+                        f"UPDATE app_salesmen SET {', '.join(sm_sets)}, "
+                        f"updated_utc = '{_now_utc()}' WHERE key = ?",
+                        sm_params,
+                    )
+                except sqlite3.OperationalError:
+                    log.exception("update_app_user: salesman mirror failed")
+
 
 def delete_app_user(email: str) -> None:
+    """Delete a user. If the user is a salesman, also delete the
+    paired ``app_salesmen`` row (the relationship is 1:1 in this app).
+    """
     email = _norm_email(email)
     if not email:
         return
     with connect() as conn:
+        row = conn.execute(
+            "SELECT role, salesman_key FROM app_users WHERE email = ?", (email,),
+        ).fetchone()
         conn.execute("DELETE FROM app_users WHERE email = ?", (email,))
+        if row and (row["role"] or "").lower() == "salesman" and row["salesman_key"]:
+            sk = row["salesman_key"]
+            conn.execute("DELETE FROM app_salesmen WHERE key = ?", (sk,))
+            conn.execute(
+                "DELETE FROM user_salesman_access WHERE salesman_key = ?", (sk,),
+            )
 
 
 def has_sharepoint_access(email: str) -> bool:
@@ -971,21 +1151,9 @@ def _norm_salesman_key(s: str) -> str:
     return _re.sub(r"[^a-z0-9]+", "", str(s or "").strip().lower())
 
 
-def _split_email_list(s: str | None) -> list[str]:
-    if not s:
-        return []
-    return [e.strip() for e in str(s).replace(",", ";").split(";") if e.strip()]
-
-
 def _salesman_row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
-    try:
-        d["subscriptions"] = json.loads(d.get("subs_json") or "{}")
-    except Exception:
-        d["subscriptions"] = {}
-    d["cc_list"]  = _split_email_list(d.get("cc"))
-    d["bcc_list"] = _split_email_list(d.get("bcc"))
-    d["active"]   = bool(d.get("active", 1))
+    d["active"] = bool(d.get("active", 1))
     try:
         d["commission_pct"] = float(d.get("commission_pct") or 0.0)
     except Exception:
@@ -994,13 +1162,16 @@ def _salesman_row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def list_salesman_map(*, active_only: bool = False) -> list[dict]:
-    sql = "SELECT * FROM app_salesmen"
-    params: list[Any] = []
+    """Salesmen, ordered by name. Empty-email rows are filtered out
+    defensively even though the prune in init_db should have removed
+    them already.
+    """
+    sql = "SELECT * FROM app_salesmen WHERE email IS NOT NULL AND email != ''"
     if active_only:
-        sql += " WHERE active = 1"
+        sql += " AND active = 1"
     sql += " ORDER BY full_name COLLATE NOCASE, key"
     with connect() as conn:
-        rows = conn.execute(sql, params).fetchall()
+        rows = conn.execute(sql).fetchall()
     return [_salesman_row_to_dict(r) for r in rows]
 
 
@@ -1016,62 +1187,190 @@ def get_salesman_record(key: str) -> dict | None:
 
 
 def upsert_salesman_record(data: dict) -> str:
-    """Insert or update a salesman row. Returns the normalized key."""
+    """Insert or update a salesman row + keep the linked user in sync.
+
+    Email is REQUIRED -- we do not allow phantom salesmen anymore.
+    Side effects:
+
+      * Creates/updates a matching ``app_users`` row keyed by the
+        salesman's email (role=salesman, salesman_key=<key>).
+      * If the salesman's email changed, the user's email is renamed
+        and any per-user data keyed by the old email cascades.
+
+    Returns the normalized salesman key.
+    Raises ``ValueError`` on missing key/email/full_name.
+    """
     raw_key = data.get("key") or ""
     k = _norm_salesman_key(raw_key)
     if not k:
-        raise ValueError("key is required")
+        raise ValueError("salesman key is required")
 
     number       = str(data.get("number") or "").strip()
     full_name    = str(data.get("full_name") or "").strip()
     display_name = str(data.get("display_name") or "").strip() or full_name
-    email        = str(data.get("email") or "").strip()
+    email        = str(data.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise ValueError("salesman email is required and must be a valid address")
+    if not full_name:
+        raise ValueError("salesman full_name is required")
     try:
         commission_pct = float(data.get("commission_pct") or 0.0)
     except (TypeError, ValueError):
         commission_pct = 0.0
-    cc  = "; ".join(_split_email_list(data.get("cc")))
-    bcc = "; ".join(_split_email_list(data.get("bcc")))
     active = 1 if (data.get("active", True) in (True, 1, "1", "true", "True")) else 0
-
-    subs = data.get("subscriptions") or {}
-    if not isinstance(subs, dict):
-        subs = {}
-    subs = {str(k2): bool(v) for k2, v in subs.items()}
-    subs_json = json.dumps(subs)
 
     now = _now_utc()
     with connect() as conn:
+        # Capture the previous email (if any) so we can rename the
+        # linked user atomically.
+        prev = conn.execute(
+            "SELECT email FROM app_salesmen WHERE key = ?", (k,),
+        ).fetchone()
+        prev_email = (prev["email"].strip().lower() if prev and prev["email"] else "")
+
+        # Refuse to attach to an email that's already used by a non-salesman
+        # account (admin/developer/manager). The admin would have to demote
+        # that account first; silently overwriting their role would be
+        # surprising.
+        clash = conn.execute(
+            "SELECT email, role, salesman_key FROM app_users "
+            " WHERE email = ? AND role NOT IN ('salesman','')",
+            (email,),
+        ).fetchone()
+        if clash and (prev_email != email):
+            raise ValueError(
+                f"{email} is already a non-salesman user (role={clash['role']}). "
+                "Demote that user first or pick a different email."
+            )
+
         conn.execute(
             """
             INSERT INTO app_salesmen
               (key, number, full_name, display_name, email, commission_pct,
-               cc, bcc, active, subs_json, updated_utc)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               active, updated_utc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
               number         = excluded.number,
               full_name      = excluded.full_name,
               display_name   = excluded.display_name,
               email          = excluded.email,
               commission_pct = excluded.commission_pct,
-              cc             = excluded.cc,
-              bcc            = excluded.bcc,
               active         = excluded.active,
-              subs_json      = excluded.subs_json,
               updated_utc    = excluded.updated_utc
             """,
-            (k, number, full_name, display_name, email, commission_pct,
-             cc, bcc, active, subs_json, now),
+            (k, number, full_name, display_name, email, commission_pct, active, now),
         )
+
+        # ----- keep the linked app_users row in sync -----
+        if prev_email and prev_email != email:
+            # Rename: cascade the old email to the new one across every
+            # per-user table. We can't call update_app_user() here -- it
+            # would open a second SQLite connection and (under WAL with
+            # an open writer) deadlock. Inline the work instead.
+            existing_old = conn.execute(
+                "SELECT email FROM app_users WHERE email = ?", (prev_email,),
+            ).fetchone()
+            if existing_old:
+                # Remove any pre-existing row at the new email so the
+                # rename UPDATE doesn't violate the PK.
+                conn.execute(
+                    "DELETE FROM app_users WHERE email = ? AND email != ?",
+                    (email, prev_email),
+                )
+                conn.execute(
+                    "UPDATE app_users "
+                    "   SET email = ?, role = 'salesman', salesman_key = ?, "
+                    "       display_name = COALESCE(?, display_name), active = ? "
+                    " WHERE email = ?",
+                    (email, k, display_name or None, active, prev_email),
+                )
+                for tbl, col in (
+                    ("user_preferences",   "user_email"),
+                    ("user_exclusions",    "user_email"),
+                    ("saved_reports",      "user_email"),
+                    ("schedules",          "user_email"),
+                    ("report_run_log",     "user_email"),
+                    ("outbox",             "user_email"),
+                    ("user_report_access", "user_email"),
+                    ("user_salesman_access","user_email"),
+                ):
+                    try:
+                        conn.execute(
+                            f"UPDATE {tbl} SET {col} = ? WHERE {col} = ?",
+                            (email, prev_email),
+                        )
+                    except sqlite3.OperationalError:
+                        pass
+            else:
+                # No old user row -- create the new one.
+                conn.execute(
+                    """
+                    INSERT INTO app_users
+                      (email, display_name, role, salesman_key, is_admin,
+                       is_external, active, dashboard_enabled, test_access_enabled)
+                    VALUES (?, ?, 'salesman', ?, 0, 0, ?, 1, 1)
+                    """,
+                    (email, display_name or None, k, active),
+                )
+        else:
+            existing = conn.execute(
+                "SELECT email, role FROM app_users WHERE email = ?", (email,),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO app_users
+                      (email, display_name, role, salesman_key, is_admin,
+                       is_external, active, dashboard_enabled, test_access_enabled)
+                    VALUES (?, ?, 'salesman', ?, 0, 0, ?, 1, 1)
+                    """,
+                    (email, display_name or None, k, active),
+                )
+            else:
+                # Only auto-assign salesman role if the user doesn't
+                # already hold a stronger role.
+                if (existing["role"] or "").lower() in ("", "salesman"):
+                    conn.execute(
+                        "UPDATE app_users SET role = 'salesman', salesman_key = ?, "
+                        "display_name = COALESCE(display_name, ?), active = ? "
+                        "WHERE email = ?",
+                        (k, display_name or None, active, email),
+                    )
+                else:
+                    # User has an admin/developer/manager role: just link
+                    # the salesman key without changing anything else.
+                    conn.execute(
+                        "UPDATE app_users SET salesman_key = ? WHERE email = ?",
+                        (k, email),
+                    )
     return k
 
 
 def delete_salesman_record(key: str) -> bool:
+    """Delete a salesman row. Cascades to the linked user.
+
+    The salesman <-> user relationship is one-to-one, so removing the
+    salesman also removes their user (you can't have a salesman role
+    user with no salesman to point at). Manager assignments that
+    reference this key are pruned too.
+    """
     k = _norm_salesman_key(key)
     if not k:
         return False
     with connect() as conn:
+        sm_row = conn.execute(
+            "SELECT email FROM app_salesmen WHERE key = ?", (k,),
+        ).fetchone()
         cur = conn.execute("DELETE FROM app_salesmen WHERE key = ?", (k,))
+        if sm_row and sm_row["email"]:
+            email = sm_row["email"].strip().lower()
+            conn.execute(
+                "DELETE FROM app_users WHERE email = ? AND role = 'salesman'",
+                (email,),
+            )
+        conn.execute(
+            "DELETE FROM user_salesman_access WHERE salesman_key = ?", (k,),
+        )
         return cur.rowcount > 0
 
 
@@ -1183,7 +1482,8 @@ def get_users_permission_grid(report_keys: list[str]) -> list[dict]:
         ).fetchall():
             sm_access_by_user.setdefault(r["user_email"], []).append(r["salesman_key"])
         for r in conn.execute(
-            "SELECT key, number, full_name FROM app_salesmen"
+            "SELECT key, number, full_name, display_name, commission_pct, email "
+            "FROM app_salesmen"
         ).fetchall():
             salesmen_by_key[r["key"]] = dict(r)
 
@@ -1203,7 +1503,8 @@ def get_users_permission_grid(report_keys: list[str]) -> list[dict]:
         d["allowed_salesmen"] = sm_access_by_user.get(d["email"], [])
 
         sm = salesmen_by_key.get(d.get("salesman_key") or "")
-        d["sm_number"] = sm["number"] if sm else None
-        d["sm_name"]   = sm["full_name"] if sm else None
+        d["sm_number"]      = sm["number"] if sm else None
+        d["sm_name"]        = sm["full_name"] if sm else None
+        d["commission_pct"] = float(sm["commission_pct"] or 0.0) if sm else None
         enriched.append(d)
     return enriched
