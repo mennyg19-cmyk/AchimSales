@@ -1,0 +1,682 @@
+"""Local SQLite mirror for the on-prem reporting API.
+
+This module is the test app's offline safety net. Whenever the
+reporting API succeeds, every row that came back is upserted into a
+local SQLite table here. If the API is later unreachable, lookups,
+dropdowns, and the Customer's Last Order viewer can keep working from
+the mirror with a clear "showing cached data" badge.
+
+Scope (matches the user's spec):
+
+* ``mirror_customers``      -- full customer master snapshot (every row
+                               is small, so we keep them all and never
+                               prune).
+* ``mirror_salesline``      -- order-line rows from salesline_release,
+                               capped to a rolling 60-day window. Old
+                               rows get pruned on every refresh so the
+                               mirror stays small.
+* ``mirror_refresh_runs``   -- audit trail of every snapshot refresh
+                               (manual button or daily 00:00 ET cron).
+
+Upsert semantics:
+    * Match incoming rows on a stable key (CustomerAccount for
+      customers, SalesOrderNumber+LineNumber for order lines).
+    * If the row exists and the snapshot's data differs from the
+      mirror, UPDATE.
+    * If the row doesn't exist, INSERT.
+    * Rows in the mirror that the API didn't return are LEFT ALONE
+      (we don't know if they were deleted upstream or if the caller
+      just used a narrower filter). The daily full-snapshot refresh
+      is what cleans up genuinely stale rows.
+
+Read-back (fallback) semantics:
+    * Customer / salesman lookups: return whatever's in
+      ``mirror_customers`` -- the master list never expires.
+    * salesline fallback for the Ordered Report and Customer's Last
+      Order: only the past 60 days. If a request needs older data we
+      raise ``MirrorWindowExceeded`` so the caller can show a clear
+      plain-English error instead of silently lying.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+import threading
+from datetime import datetime, timedelta, timezone
+from typing import Any, Iterable
+
+from test.webapp.db import connect
+
+log = logging.getLogger(__name__)
+
+
+# Rolling window for salesline mirror (in days). Two months as the
+# user specified -- anything older than this is intentionally not
+# available offline. We use 62 days so end-of-month + leap noise
+# never trips a user up.
+SALESLINE_WINDOW_DAYS = 62
+
+
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
+
+
+_MIRROR_SCHEMA = [
+    """
+    CREATE TABLE IF NOT EXISTS mirror_customers (
+        customer_account TEXT PRIMARY KEY,
+        company          TEXT,
+        account_num      TEXT,
+        customer_name    TEXT,
+        cust_group       TEXT,
+        currency         TEXT,
+        sales_group      TEXT,
+        party_state      TEXT,
+        markup_group     TEXT,
+        dlv_mode         TEXT,
+        dlv_term         TEXT,
+        invent_site_id   TEXT,
+        credit_max       REAL,
+        created_at       TEXT,
+        raw_json         TEXT NOT NULL,
+        first_seen_utc   TEXT NOT NULL,
+        last_seen_utc    TEXT NOT NULL,
+        row_hash         TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mirror_customers_sales_group ON mirror_customers(sales_group)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_customers_name ON mirror_customers(customer_name)",
+    """
+    CREATE TABLE IF NOT EXISTS mirror_salesline (
+        sales_order_number TEXT NOT NULL,
+        line_number        INTEGER NOT NULL,
+        customer_account   TEXT,
+        customer_name      TEXT,
+        sales_group        TEXT,
+        order_date         TEXT,         -- YYYY-MM-DD (Eastern)
+        created_datetime   TEXT,         -- raw CreatedDateTime from SP
+        po_number          TEXT,
+        item_number        TEXT,
+        item_name          TEXT,
+        unit_price         REAL,
+        status             TEXT,
+        qty_ordered        REAL,
+        qty_shipped        REAL,
+        qty_cancelled      REAL,
+        ordered_dollars    REAL,
+        shipped_dollars    REAL,
+        cancelled_dollars  REAL,
+        raw_json           TEXT NOT NULL,
+        first_seen_utc     TEXT NOT NULL,
+        last_seen_utc      TEXT NOT NULL,
+        row_hash           TEXT NOT NULL,
+        PRIMARY KEY (sales_order_number, line_number)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_customer ON mirror_salesline(customer_account)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_orderdate ON mirror_salesline(order_date)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_status ON mirror_salesline(status)",
+    """
+    CREATE TABLE IF NOT EXISTS mirror_refresh_runs (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope            TEXT    NOT NULL,    -- 'customers' | 'salesline' | 'piggyback'
+        trigger          TEXT    NOT NULL,    -- 'manual' | 'cron' | 'piggyback'
+        started_utc      TEXT    NOT NULL,
+        finished_utc     TEXT,
+        status           TEXT    NOT NULL,    -- 'running' | 'success' | 'failed'
+        rows_in          INTEGER,
+        rows_inserted    INTEGER,
+        rows_updated     INTEGER,
+        rows_pruned      INTEGER,
+        error_message    TEXT,
+        triggered_by     TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mirror_refresh_runs_started ON mirror_refresh_runs(started_utc DESC)",
+]
+
+
+_init_lock = threading.Lock()
+_init_done = False
+
+
+def init_mirror_db() -> None:
+    """Idempotent: ensure mirror tables exist. Safe on every boot."""
+    global _init_done
+    with _init_lock:
+        if _init_done:
+            return
+        with connect() as conn:
+            for stmt in _MIRROR_SCHEMA:
+                conn.execute(stmt)
+        _init_done = True
+    log.info("mirror tables ready")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+class MirrorWindowExceeded(RuntimeError):
+    """Raised when a fallback request asks for data older than the
+    mirror window. Caller is expected to show this verbatim to the user.
+    """
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _hash_row(payload: dict) -> str:
+    """Stable digest of the payload so we can skip writes when the row
+    hasn't changed. (Hashing is much cheaper than writing.)"""
+    import hashlib
+    canonical = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha1(canonical.encode("utf-8")).hexdigest()
+
+
+def _to_float(v: Any) -> float | None:
+    if v in (None, "", "NULL"):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int(v: Any) -> int | None:
+    if v in (None, "", "NULL"):
+        return None
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_str(v: Any) -> str:
+    if v in (None, "NULL"):
+        return ""
+    return str(v).strip()
+
+
+def _date_only(v: Any) -> str:
+    """Extract YYYY-MM-DD from a CreatedDateTime style value."""
+    s = _to_str(v)
+    return s[:10] if s else ""
+
+
+def _within_window(date_str: str, days: int) -> bool:
+    """``date_str`` is YYYY-MM-DD. True iff within the past *days* days."""
+    if not date_str:
+        return False
+    try:
+        d = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+    return d >= cutoff
+
+
+# ---------------------------------------------------------------------------
+# Customer master upsert
+# ---------------------------------------------------------------------------
+
+
+def _normalize_customer_row(raw: dict) -> dict:
+    """Pull the columns we care about out of an SP customer-master row."""
+    acct = (
+        _to_str(raw.get("CustomerAccount"))
+        or _to_str(raw.get("AccountNum"))
+    )
+    return {
+        "customer_account": acct,
+        "company":          _to_str(raw.get("Company")),
+        "account_num":      _to_str(raw.get("AccountNum")) or acct,
+        "customer_name":    _to_str(raw.get("CustomerName")),
+        "cust_group":       _to_str(raw.get("CustGroup")),
+        "currency":         _to_str(raw.get("Currency")),
+        "sales_group":      _to_str(raw.get("SalesGroup")),
+        "party_state":      _to_str(raw.get("PartyState")),
+        "markup_group":     _to_str(raw.get("MarkupGroup")),
+        "dlv_mode":         _to_str(raw.get("DlvMode")),
+        "dlv_term":         _to_str(raw.get("DlvTerm")),
+        "invent_site_id":   _to_str(raw.get("InventSiteId")),
+        "credit_max":       _to_float(raw.get("CreditMax")),
+        "created_at":       _to_str(raw.get("CreatedDateTime")),
+    }
+
+
+def upsert_customers(rows: Iterable[dict], *, trigger: str = "piggyback",
+                     triggered_by: str | None = None) -> dict[str, int]:
+    """Mirror a batch of customer-master rows.
+
+    Returns ``{rows_in, inserted, updated, unchanged}`` for logging.
+    """
+    init_mirror_db()
+    rows = list(rows or [])
+    run_id = _start_refresh_run(scope="customers", trigger=trigger,
+                                triggered_by=triggered_by)
+
+    inserted = updated = unchanged = 0
+    now = _utcnow()
+    err: str | None = None
+    try:
+        with connect() as conn:
+            for raw in rows:
+                norm = _normalize_customer_row(raw)
+                if not norm["customer_account"]:
+                    continue
+                row_hash = _hash_row(norm)
+                existing = conn.execute(
+                    "SELECT row_hash FROM mirror_customers WHERE customer_account = ?",
+                    (norm["customer_account"],),
+                ).fetchone()
+                if existing is None:
+                    conn.execute(
+                        """
+                        INSERT INTO mirror_customers (
+                            customer_account, company, account_num, customer_name,
+                            cust_group, currency, sales_group, party_state,
+                            markup_group, dlv_mode, dlv_term, invent_site_id,
+                            credit_max, created_at, raw_json,
+                            first_seen_utc, last_seen_utc, row_hash
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            norm["customer_account"], norm["company"],
+                            norm["account_num"], norm["customer_name"],
+                            norm["cust_group"], norm["currency"],
+                            norm["sales_group"], norm["party_state"],
+                            norm["markup_group"], norm["dlv_mode"],
+                            norm["dlv_term"], norm["invent_site_id"],
+                            norm["credit_max"], norm["created_at"],
+                            json.dumps(raw, default=str),
+                            now, now, row_hash,
+                        ),
+                    )
+                    inserted += 1
+                elif existing["row_hash"] != row_hash:
+                    conn.execute(
+                        """
+                        UPDATE mirror_customers SET
+                            company=?, account_num=?, customer_name=?,
+                            cust_group=?, currency=?, sales_group=?, party_state=?,
+                            markup_group=?, dlv_mode=?, dlv_term=?, invent_site_id=?,
+                            credit_max=?, created_at=?, raw_json=?,
+                            last_seen_utc=?, row_hash=?
+                        WHERE customer_account = ?
+                        """,
+                        (
+                            norm["company"], norm["account_num"],
+                            norm["customer_name"], norm["cust_group"],
+                            norm["currency"], norm["sales_group"],
+                            norm["party_state"], norm["markup_group"],
+                            norm["dlv_mode"], norm["dlv_term"],
+                            norm["invent_site_id"], norm["credit_max"],
+                            norm["created_at"], json.dumps(raw, default=str),
+                            now, row_hash, norm["customer_account"],
+                        ),
+                    )
+                    updated += 1
+                else:
+                    conn.execute(
+                        "UPDATE mirror_customers SET last_seen_utc=? WHERE customer_account=?",
+                        (now, norm["customer_account"]),
+                    )
+                    unchanged += 1
+    except Exception as exc:
+        err = str(exc)
+        log.exception("upsert_customers failed")
+    finally:
+        _finish_refresh_run(
+            run_id,
+            status="failed" if err else "success",
+            rows_in=len(rows),
+            rows_inserted=inserted,
+            rows_updated=updated,
+            error_message=err,
+        )
+
+    return {
+        "rows_in":   len(rows),
+        "inserted":  inserted,
+        "updated":   updated,
+        "unchanged": unchanged,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Salesline upsert
+# ---------------------------------------------------------------------------
+
+
+def _normalize_salesline_row(raw: dict) -> dict:
+    """Pull the columns we care about out of an SP salesline_release row."""
+    so = _to_str(raw.get("SalesOrderNumber"))
+    ln = _to_int(raw.get("LineNumber")) or 0
+    return {
+        "sales_order_number": so,
+        "line_number":        ln,
+        "customer_account":   _to_str(raw.get("CustomerAccount")),
+        "customer_name":      _to_str(raw.get("customername") or raw.get("CustomerName")),
+        "sales_group":        _to_str(raw.get("SalesGroup")),
+        "order_date":         _date_only(raw.get("CreatedDateTime")),
+        "created_datetime":   _to_str(raw.get("CreatedDateTime")),
+        "po_number":          _to_str(raw.get("CustomerRequisition")),
+        "item_number":        _to_str(raw.get("Item")),
+        "item_name":          _to_str(raw.get("ItemDescription")),
+        "unit_price":         _to_float(raw.get("SalesPrice")),
+        "status":             _to_str(raw.get("SalesStatus")),
+        "qty_ordered":        _to_float(raw.get("QuantityOrdered")),
+        "qty_shipped":        _to_float(raw.get("QuantityShipped")),
+        "qty_cancelled":      _to_float(raw.get("QuantityCancelled")),
+        "ordered_dollars":    _to_float(raw.get("Ordered $")),
+        "shipped_dollars":    _to_float(raw.get("Shipped $")),
+        "cancelled_dollars":  _to_float(raw.get("Cancelled $")),
+    }
+
+
+def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
+                     prune_window_days: int = SALESLINE_WINDOW_DAYS,
+                     triggered_by: str | None = None) -> dict[str, int]:
+    """Mirror a batch of salesline_release rows.
+
+    Only rows whose ``order_date`` is within the past ``prune_window_days``
+    are stored -- older rows are silently dropped on the way in. The
+    daily cron also prunes anything that's now older than the window.
+    """
+    init_mirror_db()
+    rows = list(rows or [])
+    run_id = _start_refresh_run(scope="salesline", trigger=trigger,
+                                triggered_by=triggered_by)
+
+    inserted = updated = unchanged = pruned = 0
+    now = _utcnow()
+    err: str | None = None
+    try:
+        with connect() as conn:
+            for raw in rows:
+                norm = _normalize_salesline_row(raw)
+                if not norm["sales_order_number"]:
+                    continue
+                if not _within_window(norm["order_date"], prune_window_days):
+                    continue
+                row_hash = _hash_row(norm)
+                existing = conn.execute(
+                    "SELECT row_hash FROM mirror_salesline "
+                    "WHERE sales_order_number=? AND line_number=?",
+                    (norm["sales_order_number"], norm["line_number"]),
+                ).fetchone()
+                if existing is None:
+                    conn.execute(
+                        """
+                        INSERT INTO mirror_salesline (
+                            sales_order_number, line_number, customer_account,
+                            customer_name, sales_group, order_date, created_datetime,
+                            po_number, item_number, item_name, unit_price, status,
+                            qty_ordered, qty_shipped, qty_cancelled,
+                            ordered_dollars, shipped_dollars, cancelled_dollars,
+                            raw_json, first_seen_utc, last_seen_utc, row_hash
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            norm["sales_order_number"], norm["line_number"],
+                            norm["customer_account"], norm["customer_name"],
+                            norm["sales_group"], norm["order_date"],
+                            norm["created_datetime"], norm["po_number"],
+                            norm["item_number"], norm["item_name"],
+                            norm["unit_price"], norm["status"],
+                            norm["qty_ordered"], norm["qty_shipped"],
+                            norm["qty_cancelled"], norm["ordered_dollars"],
+                            norm["shipped_dollars"], norm["cancelled_dollars"],
+                            json.dumps(raw, default=str), now, now, row_hash,
+                        ),
+                    )
+                    inserted += 1
+                elif existing["row_hash"] != row_hash:
+                    conn.execute(
+                        """
+                        UPDATE mirror_salesline SET
+                            customer_account=?, customer_name=?, sales_group=?,
+                            order_date=?, created_datetime=?, po_number=?,
+                            item_number=?, item_name=?, unit_price=?, status=?,
+                            qty_ordered=?, qty_shipped=?, qty_cancelled=?,
+                            ordered_dollars=?, shipped_dollars=?, cancelled_dollars=?,
+                            raw_json=?, last_seen_utc=?, row_hash=?
+                        WHERE sales_order_number=? AND line_number=?
+                        """,
+                        (
+                            norm["customer_account"], norm["customer_name"],
+                            norm["sales_group"], norm["order_date"],
+                            norm["created_datetime"], norm["po_number"],
+                            norm["item_number"], norm["item_name"],
+                            norm["unit_price"], norm["status"],
+                            norm["qty_ordered"], norm["qty_shipped"],
+                            norm["qty_cancelled"], norm["ordered_dollars"],
+                            norm["shipped_dollars"], norm["cancelled_dollars"],
+                            json.dumps(raw, default=str), now, row_hash,
+                            norm["sales_order_number"], norm["line_number"],
+                        ),
+                    )
+                    updated += 1
+                else:
+                    conn.execute(
+                        "UPDATE mirror_salesline SET last_seen_utc=? "
+                        "WHERE sales_order_number=? AND line_number=?",
+                        (now, norm["sales_order_number"], norm["line_number"]),
+                    )
+                    unchanged += 1
+
+            # Prune anything older than the window so the mirror stays
+            # bounded. We do this AFTER the upsert so today's data is
+            # never accidentally pruned.
+            cutoff = (datetime.now(timezone.utc)
+                      - timedelta(days=prune_window_days)).date().isoformat()
+            cur = conn.execute(
+                "DELETE FROM mirror_salesline WHERE order_date < ?",
+                (cutoff,),
+            )
+            pruned = cur.rowcount or 0
+    except Exception as exc:
+        err = str(exc)
+        log.exception("upsert_salesline failed")
+    finally:
+        _finish_refresh_run(
+            run_id,
+            status="failed" if err else "success",
+            rows_in=len(rows),
+            rows_inserted=inserted,
+            rows_updated=updated,
+            rows_pruned=pruned,
+            error_message=err,
+        )
+
+    return {
+        "rows_in":   len(rows),
+        "inserted":  inserted,
+        "updated":   updated,
+        "unchanged": unchanged,
+        "pruned":    pruned,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Read-back / fallback
+# ---------------------------------------------------------------------------
+
+
+def get_customers_fallback(salesman: str | None = None) -> list[dict]:
+    """Customer dropdown rows from the mirror.
+
+    Returns the same shape ``reporting_api.list_customers`` returns:
+    ``[{key, name, salesman}, ...]``. Sorted by display name.
+    """
+    init_mirror_db()
+    sql = ("SELECT customer_account, customer_name, sales_group "
+           "FROM mirror_customers")
+    params: tuple = ()
+    if salesman:
+        sql += " WHERE sales_group = ?"
+        params = (salesman.strip(),)
+    out = []
+    with connect() as conn:
+        for r in conn.execute(sql, params):
+            acct = r["customer_account"]
+            cname = r["customer_name"] or ""
+            display = f"{acct} - {cname}".strip(" -") if cname else acct
+            out.append({
+                "key":      acct,
+                "name":     display,
+                "salesman": r["sales_group"] or "",
+            })
+    out.sort(key=lambda c: c["name"].lower())
+    return out
+
+
+def get_salesmen_fallback() -> list[dict]:
+    """Distinct salesmen (SalesGroup) from the customer mirror."""
+    init_mirror_db()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT sales_group FROM mirror_customers "
+            "WHERE sales_group IS NOT NULL AND sales_group != '' "
+            "ORDER BY sales_group"
+        ).fetchall()
+    return [{"key": r["sales_group"], "name": r["sales_group"]} for r in rows]
+
+
+def get_salesline_fallback(*, customer_account: str | None = None,
+                           date_from: str | None = None,
+                           date_to: str | None = None,
+                           status: str | None = None) -> list[dict]:
+    """Serve salesline rows from the mirror.
+
+    Filters mirror the ones the SP supports. Returns rows in roughly the
+    same shape the SP would (raw_json is replayed verbatim) so callers
+    can run them through the existing _norm_row helper.
+
+    Raises ``MirrorWindowExceeded`` if the request reaches outside the
+    mirror's rolling window. The error message is plain English so the
+    caller can surface it to the user without rewording.
+    """
+    init_mirror_db()
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=SALESLINE_WINDOW_DAYS)).date().isoformat()
+    if date_from and date_from[:10] < cutoff:
+        raise MirrorWindowExceeded(
+            "We're showing cached data because the live data source is "
+            "unreachable, and the cache only goes back "
+            f"{SALESLINE_WINDOW_DAYS} days (to {cutoff}). "
+            "Please pick a date range starting on or after that date, or "
+            "try again later when the live data source is back."
+        )
+
+    where: list[str] = []
+    params: list[Any] = []
+    if customer_account:
+        where.append("customer_account = ?")
+        params.append(customer_account.strip())
+    if date_from:
+        where.append("order_date >= ?")
+        params.append(date_from[:10])
+    if date_to:
+        where.append("order_date <= ?")
+        params.append(date_to[:10])
+    if status:
+        where.append("status = ?")
+        params.append(status.strip())
+
+    sql = "SELECT raw_json FROM mirror_salesline"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY order_date DESC, sales_order_number, line_number"
+
+    out: list[dict] = []
+    with connect() as conn:
+        for r in conn.execute(sql, params):
+            try:
+                out.append(json.loads(r["raw_json"]))
+            except Exception:
+                pass
+    return out
+
+
+def mirror_freshness() -> dict[str, Any]:
+    """Quick diagnostic snapshot for the admin diag page + UI badge."""
+    init_mirror_db()
+    with connect() as conn:
+        cust = conn.execute(
+            "SELECT COUNT(*) AS n, MAX(last_seen_utc) AS latest "
+            "FROM mirror_customers"
+        ).fetchone()
+        sal = conn.execute(
+            "SELECT COUNT(*) AS n, MAX(last_seen_utc) AS latest, "
+            "MIN(order_date) AS earliest_date, MAX(order_date) AS latest_date "
+            "FROM mirror_salesline"
+        ).fetchone()
+        last_run = conn.execute(
+            "SELECT scope, status, started_utc, finished_utc, error_message "
+            "FROM mirror_refresh_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    return {
+        "customers": {
+            "rows":            cust["n"] if cust else 0,
+            "last_seen_utc":   (cust["latest"] if cust else None),
+        },
+        "salesline": {
+            "rows":            sal["n"] if sal else 0,
+            "last_seen_utc":   (sal["latest"] if sal else None),
+            "earliest_date":   (sal["earliest_date"] if sal else None),
+            "latest_date":     (sal["latest_date"] if sal else None),
+            "window_days":     SALESLINE_WINDOW_DAYS,
+        },
+        "last_run": dict(last_run) if last_run else None,
+    }
+
+
+def list_recent_refresh_runs(limit: int = 25) -> list[dict]:
+    """For admin debugging: most recent refresh runs."""
+    init_mirror_db()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM mirror_refresh_runs "
+            "ORDER BY id DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Refresh-run audit trail
+# ---------------------------------------------------------------------------
+
+
+def _start_refresh_run(*, scope: str, trigger: str,
+                       triggered_by: str | None = None) -> int:
+    init_mirror_db()
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO mirror_refresh_runs "
+            "(scope, trigger, started_utc, status, triggered_by) "
+            "VALUES (?,?,?,?,?)",
+            (scope, trigger, _utcnow(), "running", triggered_by),
+        )
+        return int(cur.lastrowid)
+
+
+def _finish_refresh_run(run_id: int, *, status: str,
+                        rows_in: int = 0, rows_inserted: int = 0,
+                        rows_updated: int = 0, rows_pruned: int = 0,
+                        error_message: str | None = None) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE mirror_refresh_runs SET "
+            "finished_utc=?, status=?, rows_in=?, rows_inserted=?, "
+            "rows_updated=?, rows_pruned=?, error_message=? "
+            "WHERE id=?",
+            (_utcnow(), status, rows_in, rows_inserted,
+             rows_updated, rows_pruned, error_message, run_id),
+        )

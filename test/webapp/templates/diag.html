@@ -36,6 +36,97 @@
     </section>
 
     <section class="settings-section">
+        <h2>Offline Mirror</h2>
+        <p class="page-subtitle" style="margin-top:0;">
+            Local SQLite copy used when the reporting API is unreachable.
+            Refreshes automatically every night at <strong>00:00 America/New_York</strong>.
+        </p>
+
+        <table class="diag-env-table">
+            <tbody>
+                <tr>
+                    <th>Customer master</th>
+                    <td>
+                        <strong>{{ '{:,}'.format(mirror_freshness.customers.rows or 0) }}</strong> rows
+                        {% if mirror_freshness.customers.last_seen_utc %}
+                            &middot; last touched <code>{{ mirror_freshness.customers.last_seen_utc }}</code>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Salesline release</th>
+                    <td>
+                        <strong>{{ '{:,}'.format(mirror_freshness.salesline.rows or 0) }}</strong> rows
+                        ({{ mirror_freshness.salesline.window_days }}-day window)
+                        {% if mirror_freshness.salesline.earliest_date %}
+                            &middot; <code>{{ mirror_freshness.salesline.earliest_date }}</code>
+                            &rarr; <code>{{ mirror_freshness.salesline.latest_date }}</code>
+                        {% endif %}
+                        {% if mirror_freshness.salesline.last_seen_utc %}
+                            &middot; last touched <code>{{ mirror_freshness.salesline.last_seen_utc }}</code>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Next scheduled refresh</th>
+                    <td>
+                        {% if mirror_next_run %}
+                            <code>{{ mirror_next_run }}</code>
+                        {% else %}
+                            <span class="diag-bad">scheduler not running on this worker</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="diag-actions" style="margin-top:12px;">
+            <button type="button" class="btn btn-primary" id="diagMirrorRefreshBtn">
+                <i data-feather="refresh-cw"></i> Refresh mirror now
+            </button>
+            <span id="diagMirrorStatus" class="diag-status"></span>
+        </div>
+
+        {% if mirror_recent_runs %}
+        <details style="margin-top:12px;">
+            <summary>Recent refresh runs ({{ mirror_recent_runs|length }})</summary>
+            <table class="diag-env-table" style="margin-top:8px;">
+                <thead>
+                    <tr>
+                        <th>Started</th><th>Scope</th><th>Trigger</th>
+                        <th>Status</th><th>In</th><th>Ins</th>
+                        <th>Upd</th><th>Pruned</th><th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in mirror_recent_runs %}
+                    <tr>
+                        <td><code>{{ r.started_utc }}</code></td>
+                        <td>{{ r.scope }}</td>
+                        <td>{{ r.trigger }}</td>
+                        <td>
+                            {% if r.status == 'success' %}
+                            <span class="diag-good">success</span>
+                            {% elif r.status == 'running' %}
+                            <span>running</span>
+                            {% else %}
+                            <span class="diag-bad">{{ r.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ r.rows_in or 0 }}</td>
+                        <td>{{ r.rows_inserted or 0 }}</td>
+                        <td>{{ r.rows_updated or 0 }}</td>
+                        <td>{{ r.rows_pruned or 0 }}</td>
+                        <td>{% if r.error_message %}<code>{{ r.error_message }}</code>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
+        {% endif %}
+    </section>
+
+    <section class="settings-section">
         <h2>Run a live API call</h2>
 
         <div class="diag-controls">
@@ -105,6 +196,47 @@
         if (!r.ok) throw new Error("preview HTTP " + r.status);
         const data = await r.json();
         return data.body || {};
+    }
+
+    /* Mirror manual-refresh button */
+    const mirrorBtn    = $("diagMirrorRefreshBtn");
+    const mirrorStatus = $("diagMirrorStatus");
+    if (mirrorBtn) {
+        mirrorBtn.addEventListener("click", async function () {
+            mirrorBtn.disabled = true;
+            mirrorStatus.textContent = "Refreshing... (this calls the SP for every report)";
+            mirrorStatus.className = "diag-status";
+            try {
+                const resp = await fetch("{{ URL_PREFIX }}/diag/api/mirror/refresh", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                });
+                const j = await resp.json();
+                const errs = (j && j.errors) || [];
+                const cust = (j && j.customers) || {};
+                const sales = (j && j.salesline) || {};
+                const summary =
+                    "customers: in=" + (cust.rows_in || 0) +
+                    " ins=" + (cust.inserted || 0) +
+                    " upd=" + (cust.updated || 0) +
+                    " | salesline: in=" + (sales.rows_in || 0) +
+                    " ins=" + (sales.inserted || 0) +
+                    " upd=" + (sales.updated || 0) +
+                    " pruned=" + (sales.pruned || 0);
+                if (errs.length) {
+                    mirrorStatus.textContent = "Done with errors: " + errs.join(" | ") + " (" + summary + ")";
+                    mirrorStatus.className = "diag-status diag-bad";
+                } else {
+                    mirrorStatus.textContent = "Done. " + summary + ". Reload the page to see updated tallies.";
+                    mirrorStatus.className = "diag-status diag-good";
+                }
+            } catch (e) {
+                mirrorStatus.textContent = "Refresh failed: " + (e.message || String(e));
+                mirrorStatus.className = "diag-status diag-bad";
+            } finally {
+                mirrorBtn.disabled = false;
+            }
+        });
     }
 
     document.querySelectorAll(".diag-preset-btn").forEach(function (b) {

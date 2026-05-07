@@ -2275,13 +2275,26 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload || {}),
         }).then(function (r) {
+            const ct = r.headers.get("Content-Type") || "";
+            const isJson = ct.indexOf("application/json") >= 0;
             if (!r.ok) {
+                if (isJson) {
+                    return r.json().then(function (j) {
+                        // Server-shaped errors carry a friendly message
+                        // (e.g. mirror window exceeded). Surface that
+                        // verbatim so users see plain English.
+                        const msg = (j && (j.message || j.error)) || ("HTTP " + r.status);
+                        const err = new Error(msg);
+                        err.stage = j && j.stage;
+                        err.status = r.status;
+                        throw err;
+                    });
+                }
                 return r.text().then(function (t) {
                     throw new Error("HTTP " + r.status + (t ? ": " + t.slice(0, 120) : ""));
                 });
             }
-            const ct = r.headers.get("Content-Type") || "";
-            return ct.indexOf("application/json") >= 0 ? r.json() : r.text();
+            return isJson ? r.json() : r.text();
         });
     }
 

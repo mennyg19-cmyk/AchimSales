@@ -289,9 +289,70 @@ def _translate_ordered(p: dict) -> dict[str, Any]:
     return out
 
 
+def _translate_customer_master(p: dict) -> dict[str, Any]:
+    """In-app filter dict -> usp_customer_master SP params.
+
+    The Customer Master SP exposes these PascalCase parameters (all
+    optional, see customer_master_frontend_handoff.md):
+
+        Company, AccountNum, CustomerAccount, CustomerNameContains,
+        CustGroup, Currency, SalesGroup, PartyState, MarkupGroup,
+        DlvMode, DlvTerm, InventSiteId,
+        CreditMaxMin, CreditMaxMax,
+        CreatedDateTimeFrom, CreatedDateTimeTo
+
+    For the dropdown / mirror use case we always call this with no
+    filters (full customer master snapshot). The translator is still
+    written to handle a populated dict so we can wire a Customer
+    Master filter form later without changing the API contract.
+    """
+    if not p:
+        return {}
+
+    out: dict[str, Any] = {}
+
+    # Pass through anything already in PascalCase.
+    _PASCAL_KEYS = {
+        "Company", "AccountNum", "CustomerAccount", "CustomerNameContains",
+        "CustGroup", "Currency", "SalesGroup", "PartyState", "MarkupGroup",
+        "DlvMode", "DlvTerm", "InventSiteId",
+        "CreditMaxMin", "CreditMaxMax",
+        "CreatedDateTimeFrom", "CreatedDateTimeTo",
+    }
+    for k in _PASCAL_KEYS:
+        if k in p and p[k] not in (None, ""):
+            out[k] = p[k]
+
+    # snake_case aliases used elsewhere in this app's filter forms.
+    if not out.get("CustomerNameContains"):
+        if v := (p.get("name_contains") or p.get("customer_name_contains")):
+            out["CustomerNameContains"] = str(v).strip()
+    if not out.get("CustomerAccount"):
+        if v := (p.get("customer_account") or p.get("customers")):
+            out["CustomerAccount"] = _csv(v) if isinstance(v, list) else str(v).strip()
+    if not out.get("SalesGroup"):
+        if v := (p.get("salesman") or p.get("sales_group")):
+            out["SalesGroup"] = _csv(v) if isinstance(v, list) else str(v).strip()
+    if not out.get("PartyState"):
+        if v := p.get("state"):
+            out["PartyState"] = str(v).strip()
+
+    # Date range in the form's period vocabulary collapses into From/To
+    # using the same Eastern-time helpers as the ordered translator.
+    if "CreatedDateTimeFrom" not in out and "CreatedDateTimeTo" not in out:
+        date_from, date_to = _resolve_period(p)
+        if date_from:
+            out["CreatedDateTimeFrom"] = date_from
+        if date_to:
+            out["CreatedDateTimeTo"] = date_to
+
+    return out
+
+
 # (report_id, translator) keyed by in-app report key.
 REPORT_ID_MAP: dict[str, tuple[str, Callable[[dict], dict]]] = {
-    "ordered": ("salesline_release", _translate_ordered),
+    "ordered":         ("salesline_release", _translate_ordered),
+    "customer_master": ("customer_master",   _translate_customer_master),
 }
 
 
@@ -382,6 +443,24 @@ class _Cache:
 _cache = _Cache()
 
 
+# Per-thread record of the most recent run()'s effective data source.
+# Used by report builders to decorate the data_source badge with
+# "served from offline mirror" notices when relevant.
+_thread_local = threading.local()
+
+
+def last_run_source() -> dict[str, Any] | None:
+    """Return metadata about the last run() call on this thread, e.g.
+    ``{"source": "api"|"fresh_cache"|"stale_cache"|"mirror"|"mirror_after_failure",
+       "rows": <int>, "error": <optional>}``.
+    """
+    return getattr(_thread_local, "last_source", None)
+
+
+def _set_last_source(**kw) -> None:
+    _thread_local.last_source = kw
+
+
 def clear_cache() -> None:
     """Drop all cached responses (for tests / admin actions)."""
     _cache.clear()
@@ -392,15 +471,44 @@ def clear_cache() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _kick_mirror_upsert(report_id: str, rows: list[dict]) -> None:
+    """Fire-and-forget: mirror the rows into local SQLite in a worker
+    thread so the user's request is never blocked on the write. Failures
+    are logged but never raised.
+    """
+    if not rows:
+        return
+
+    def _worker() -> None:
+        try:
+            from test.webapp.services import mirror
+            if report_id == "customer_master":
+                stats = mirror.upsert_customers(rows, trigger="piggyback")
+                log.info("mirror piggyback (customers): %s", stats)
+            elif report_id == "salesline_release":
+                stats = mirror.upsert_salesline(rows, trigger="piggyback")
+                log.info("mirror piggyback (salesline): %s", stats)
+        except Exception:
+            log.exception("mirror piggyback failed for %s", report_id)
+
+    t = threading.Thread(target=_worker, name=f"mirror-upsert-{report_id}",
+                         daemon=True)
+    t.start()
+
+
 def run(report_key: str, filter_params: dict) -> list[dict]:
     """Fetch flat rows for a report from the reporting API.
 
     Resolution order:
-        1. Fresh cache hit (<= REPORTING_API_CACHE_TTL_SECONDS).
-        2. HTTP call to the reporting API; on success, cache + return.
-        3. On API failure, stale cache hit (<= STALE_TTL).
-        4. Re-raise the API error so the caller can decide what to do
-           (report_runner falls back to the JSON fixture from there).
+        1. Fresh in-process cache hit (<= REPORTING_API_CACHE_TTL_SECONDS).
+        2. HTTP call to the reporting API; on success, cache the rows,
+           mirror them to local SQLite in the background, and return.
+        3. On API failure, in-process stale cache hit (<= STALE_TTL).
+        4. Local SQLite mirror fallback (raises MirrorWindowExceeded if
+           the request is for data older than the mirror keeps).
+        5. Re-raise ``ReportingApiError`` so the caller can decide what
+           to do (report_runner falls back to the JSON fixture from
+           there for some reports).
     """
     entry = REPORT_ID_MAP.get(report_key)
     if entry is None:
@@ -413,9 +521,32 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
     fresh = _cache.get(cache_key, max_age_s=_fresh_ttl())
     if fresh is not None:
         log.info("reporting_api: fresh cache hit for %s (%d rows)", report_id, len(fresh))
+        _set_last_source(source="fresh_cache", rows=len(fresh))
         return fresh
 
     if not is_configured():
+        # Not configured -- skip the HTTP attempt entirely and fall
+        # straight through to the SQLite mirror so the dev shell can
+        # still serve cached lookups / customer-last-order pages.
+        from test.webapp.services.mirror import MirrorWindowExceeded
+        try:
+            mirror_rows = _serve_from_mirror(report_id, sp_params)
+        except MirrorWindowExceeded:
+            _set_last_source(source="failed",
+                             error="mirror window exceeded; API not configured")
+            raise
+        except Exception:
+            log.exception("reporting_api: mirror fallback failed (not configured path)")
+            mirror_rows = None
+        if mirror_rows is not None:
+            log.info(
+                "reporting_api: API not configured -- serving %d rows from mirror for %s",
+                len(mirror_rows), report_id,
+            )
+            _set_last_source(source="mirror_no_api", rows=len(mirror_rows),
+                             reason="API not configured")
+            return mirror_rows
+        _set_last_source(source="failed", error="API not configured")
         raise ReportingApiNotConfigured(
             "REPORTING_API_BASE_URL is not set; cannot call the reporting API"
         )
@@ -440,7 +571,32 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
                 "reporting_api: serving stale cache for %s (%d rows) after API failure",
                 report_id, len(stale),
             )
+            _set_last_source(source="stale_cache", rows=len(stale),
+                             reason=str(exc))
             return stale
+        # Try the local mirror. ``MirrorWindowExceeded`` is intentionally
+        # NOT caught here -- it carries a plain-English message that
+        # callers should surface to the user verbatim, and the API
+        # round-trip clearly isn't going to fix it.
+        from test.webapp.services.mirror import MirrorWindowExceeded
+        try:
+            mirror_rows = _serve_from_mirror(report_id, sp_params)
+        except MirrorWindowExceeded:
+            _set_last_source(source="failed",
+                             error="mirror window exceeded; live API down")
+            raise
+        except Exception:
+            log.exception("reporting_api: mirror fallback failed after API error")
+            mirror_rows = None
+        if mirror_rows is not None:
+            log.info(
+                "reporting_api: serving %d rows from mirror for %s after API failure",
+                len(mirror_rows), report_id,
+            )
+            _set_last_source(source="mirror_after_failure",
+                             rows=len(mirror_rows), reason=str(exc))
+            return mirror_rows
+        _set_last_source(source="failed", error=str(exc))
         raise ReportingApiError(f"Reporting API call failed: {exc}") from exc
 
     rows = body.get("rows") if isinstance(body, dict) else None
@@ -451,37 +607,68 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
 
     log.info("reporting_api: %s returned %d rows", report_id, len(rows))
     _cache.set(cache_key, rows)
+    _kick_mirror_upsert(report_id, rows)
+    _set_last_source(source="api", rows=len(rows))
     return rows
 
 
-# ---------------------------------------------------------------------------
-# Derived lookup lists (salesmen + customers)
-# ---------------------------------------------------------------------------
-#
-# We don't have dedicated lookup endpoints yet. To populate the filter
-# dropdowns on the report form we ask salesline_release for an unfiltered
-# row dump and pull the distinct customer + salesman values out. Cached
-# for an hour so we don't redo this on every page load.
+def _serve_from_mirror(report_id: str, sp_params: dict) -> list[dict] | None:
+    """Best-effort fallback to the local SQLite mirror.
 
+    Returns None if there's no mirror data for this report. Raises
+    ``mirror.MirrorWindowExceeded`` (which the caller surfaces verbatim
+    to the user) if the request asks for data older than the cache.
+    """
+    from test.webapp.services import mirror
 
-_LOOKUP_BASE_REPORT = "ordered"  # which in-app report key to source from
+    if report_id == "customer_master":
+        # Customer master is a small, simple snapshot. We treat the
+        # mirror as the full universe and let the caller filter
+        # in-process if it wants -- the lookup paths here (customer
+        # & salesman dropdowns) ignore filters anyway.
+        rows = []
+        try:
+            from test.webapp.db import connect as _conn
+            with _conn() as c:
+                for r in c.execute("SELECT raw_json FROM mirror_customers"):
+                    try:
+                        rows.append(json.loads(r["raw_json"]))
+                    except Exception:
+                        pass
+        except Exception:
+            log.exception("mirror customer fallback read failed")
+            return None
+        return rows or None
+
+    if report_id == "salesline_release":
+        rows = mirror.get_salesline_fallback(
+            customer_account=sp_params.get("CustomerAccount") or None,
+            date_from=sp_params.get("CreatedDateTimeFrom") or None,
+            date_to=sp_params.get("CreatedDateTimeTo") or None,
+            status=sp_params.get("SalesStatus") or None,
+        )
+        return rows or None
+
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Filter dropdown lookups (non-blocking)
 # ---------------------------------------------------------------------------
 #
-# Until the brother delivers the dedicated salesman/customer SPs, the dropdown
-# data is derived from an unfiltered salesline_release call. That call is
-# slow (30-120s) so we MUST NOT block the form's HTTP request on it -- the
-# user reported the live preview panel was getting stuck behind it.
+# Customer + salesman dropdowns on the filter form pull from
+# rpt.usp_customer_master (the dedicated customer-master SP). We used to
+# derive these from an unfiltered salesline_release dump, which was slow
+# (30-120s) AND missed customers that hadn't placed orders recently.
 #
 # Strategy:
-#   - lookup_status() / list_salesmen() / list_customers() never block. They
-#     return (status, []) the first time, kick off a background populate,
-#     and return real rows on subsequent calls once the populate completes.
-#   - When the new lookup SPs land we'll just rewrite these to call them
-#     directly (and the dropdowns will populate in one round-trip).
+#   - lookup_status() / list_salesmen() / list_customers() never block.
+#     They return whatever's cached today, kick off a background populate
+#     if nothing is cached, and serve from the local SQLite mirror as a
+#     final fallback so the dropdowns keep working when the API is down.
+
+
+_LOOKUP_BASE_REPORT = "customer_master"  # which in-app report key to source from
 
 _LOOKUP_KEY = f"__lookups__:{_LOOKUP_BASE_REPORT}"
 
@@ -569,59 +756,99 @@ def lookup_status() -> dict[str, Any]:
     """
     state = dict(_lookup_state)
     state["configured"] = is_configured()
-    state["cached_row_count"] = len(_cached_lookup_rows())
+    cached = len(_cached_lookup_rows())
+    state["cached_row_count"] = cached
+    # If we have nothing in process but the SQLite mirror has rows,
+    # tell the UI it can stop showing "loading" -- the dropdowns will
+    # be served from the mirror.
+    if cached == 0:
+        try:
+            from test.webapp.services import mirror
+            mirror_count = (mirror.mirror_freshness().get("customers") or {}).get("rows", 0)
+            state["mirror_row_count"] = mirror_count
+            if mirror_count and state.get("status") != "loading":
+                state["fallback_source"] = "mirror"
+        except Exception:
+            log.debug("lookup_status: mirror_freshness failed", exc_info=True)
     return state
 
 
-def list_salesmen() -> list[dict]:
-    """Distinct salesmen (SalesGroup) from cached lookup rows.
+def _customer_name_of(row: dict) -> str:
+    """Customer name lookup that handles both customer_master
+    (``CustomerName``) and salesline_release (``customername``) shapes.
+    """
+    return str(
+        row.get("CustomerName")
+        or row.get("customername")
+        or ""
+    ).strip()
 
-    NEVER blocks. Returns whatever's cached today; kicks off a background
-    populate if nothing is cached yet.
+
+def list_salesmen() -> list[dict]:
+    """Distinct salesmen (SalesGroup). NEVER blocks.
+
+    Sources, in order of preference:
+        1. The in-process cache (populated by a background fetch from
+           rpt.usp_customer_master).
+        2. The local SQLite mirror, so the dropdown keeps working when
+           the API is down.
     """
     rows = _cached_lookup_rows()
-    if not rows:
-        _kick_lookup_populate()
-        return []
+    if rows:
+        seen: set[str] = set()
+        for r in rows:
+            sg = r.get("SalesGroup")
+            if sg in (None, "", "NULL"):
+                continue
+            seen.add(str(sg).strip())
+        if seen:
+            return [{"key": s, "name": s} for s in sorted(seen)]
 
-    seen: set[str] = set()
-    for r in rows:
-        sg = r.get("SalesGroup")
-        if sg in (None, "", "NULL"):
-            continue
-        seen.add(str(sg).strip())
-    return [{"key": s, "name": s} for s in sorted(seen)]
+    # Nothing fresh in process. Kick off a background populate AND
+    # serve whatever's in the local mirror so the user isn't blocked.
+    _kick_lookup_populate()
+    try:
+        from test.webapp.services import mirror
+        return mirror.get_salesmen_fallback()
+    except Exception:
+        log.exception("list_salesmen: mirror fallback failed")
+        return []
 
 
 def list_customers(salesman: str | None = None) -> list[dict]:
-    """Distinct customers from cached lookup rows. NEVER blocks."""
+    """Distinct customers. NEVER blocks.
+
+    Same fallback chain as list_salesmen.
+    """
     rows = _cached_lookup_rows()
-    if not rows:
-        _kick_lookup_populate()
+    if rows:
+        seen: dict[str, dict] = {}
+        sm_filter = (salesman or "").strip() or None
+        for r in rows:
+            acct = r.get("CustomerAccount") or r.get("AccountNum")
+            if acct in (None, "", "NULL"):
+                continue
+            sg = r.get("SalesGroup")
+            sg_str = "" if sg in (None, "", "NULL") else str(sg).strip()
+            if sm_filter and sg_str != sm_filter:
+                continue
+            acct_key = str(acct).strip()
+            if acct_key in seen:
+                continue
+            cname = _customer_name_of(r)
+            display = f"{acct_key} - {cname}".strip(" -") if cname else acct_key
+            seen[acct_key] = {
+                "key": acct_key,
+                "name": display,
+                "salesman": sg_str,
+            }
+        if seen:
+            return sorted(seen.values(), key=lambda c: c["name"].lower())
+
+    _kick_lookup_populate()
+    try:
+        from test.webapp.services import mirror
+        return mirror.get_customers_fallback(salesman=salesman)
+    except Exception:
+        log.exception("list_customers: mirror fallback failed")
         return []
-
-    seen: dict[str, dict] = {}
-    sm_filter = (salesman or "").strip() or None
-
-    for r in rows:
-        acct = r.get("CustomerAccount")
-        if acct in (None, "", "NULL"):
-            continue
-        sg = r.get("SalesGroup")
-        sg_str = "" if sg in (None, "", "NULL") else str(sg).strip()
-        if sm_filter and sg_str != sm_filter:
-            continue
-
-        acct_key = str(acct).strip()
-        if acct_key in seen:
-            continue
-
-        cname = r.get("customername") or ""
-        display = f"{acct_key} - {cname}".strip(" -") if cname else acct_key
-        seen[acct_key] = {
-            "key": acct_key,
-            "name": display,
-            "salesman": sg_str,
-        }
-
-    return sorted(seen.values(), key=lambda c: c["name"].lower())

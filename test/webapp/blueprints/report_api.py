@@ -201,6 +201,10 @@ def run(key: str):
         payload = run_report(key, report.name, params)
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
+        # Special-case the mirror-window-exceeded message so users see
+        # the plain-English explanation instead of a generic 500.
+        from test.webapp.services.mirror import MirrorWindowExceeded
+        is_window = isinstance(exc, MirrorWindowExceeded)
         try:
             log_report_run(
                 user_email=user_email, report_key=key, report_name=report.name,
@@ -209,6 +213,12 @@ def run(key: str):
             )
         except Exception:
             log.exception("failed to record failed run_report log")
+        if is_window:
+            return jsonify({
+                "error":   str(exc),
+                "stage":   "mirror_window",
+                "message": str(exc),
+            }), 422
         raise
 
     duration_ms = int((time.time() - started) * 1000)

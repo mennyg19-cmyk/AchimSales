@@ -58,10 +58,39 @@ def _env_status() -> dict[str, Any]:
 @diag_bp.get("")
 @require_admin
 def diag_home():
+    from test.webapp.services import mirror, mirror_scheduler
     return render_template(
         "diag.html",
         env_status=_env_status(),
+        mirror_freshness=mirror.mirror_freshness(),
+        mirror_recent_runs=mirror.list_recent_refresh_runs(limit=20),
+        mirror_next_run=mirror_scheduler.next_run_at(),
     )
+
+
+@diag_bp.post("/api/mirror/refresh")
+@require_admin
+def diag_mirror_refresh():
+    """Manually kick the daily refresh. Returns the result synchronously
+    so the admin can see exactly what happened.
+    """
+    from flask import session
+    from test.webapp.services import mirror_scheduler
+
+    triggered_by = (session.get("v2_user") or {}).get("email")
+    result = mirror_scheduler.run_now(triggered_by=triggered_by)
+    return jsonify(result)
+
+
+@diag_bp.get("/api/mirror/status")
+@require_admin
+def diag_mirror_status():
+    from test.webapp.services import mirror, mirror_scheduler
+    return jsonify({
+        "freshness":   mirror.mirror_freshness(),
+        "recent_runs": mirror.list_recent_refresh_runs(limit=20),
+        "next_run":    mirror_scheduler.next_run_at(),
+    })
 
 
 @diag_bp.post("/api/ping")

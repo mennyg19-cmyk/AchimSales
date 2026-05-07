@@ -263,6 +263,13 @@ def init_db() -> None:
         _ensure_columns(conn)
         _seed_feature_flags(conn)
         log.info("v2 db initialized at %s", APP_DB_PATH)
+    # Ensure offline-fallback mirror tables exist (separate module so
+    # the import doesn't add to the top-level circular import surface).
+    try:
+        from test.webapp.services.mirror import init_mirror_db
+        init_mirror_db()
+    except Exception:
+        log.exception("init_db: mirror init failed (non-fatal)")
 
 
 # ---------------------------------------------------------------------------

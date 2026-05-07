@@ -114,17 +114,31 @@ def _build_ordered(params: dict) -> tuple[list[dict], dict]:
         try:
             rows = reporting_api.run("ordered", params)
             elapsed_ms = int((time.monotonic() - api_started) * 1000)
-            log.info("ordered report: pulled %d rows from reporting API in %d ms",
-                     len(rows), elapsed_ms)
+            actual = reporting_api.last_run_source() or {}
+            actual_source = actual.get("source", "api")
+            log.info("ordered report: pulled %d rows (effective source=%s) in %d ms",
+                     len(rows), actual_source, elapsed_ms)
+            # Translate the internal source code into a user-friendly
+            # label so the data-source badge tells the truth even when
+            # we end up serving from cache or the offline mirror.
+            label_map = {
+                "api":                  "Reporting API (live data)",
+                "fresh_cache":          "Reporting API (cached, less than a few minutes old)",
+                "stale_cache":          "Cached snapshot (live API was unreachable)",
+                "mirror_after_failure": "Offline mirror (live API was unreachable)",
+                "mirror_no_api":        "Offline mirror (API not configured)",
+            }
             source = {
-                "source":       "reporting_api",
-                "label":        "Reporting API (live data)",
+                "source":       actual_source,
+                "label":        label_map.get(actual_source, "Reporting API"),
                 "rows_fetched": len(rows),
                 "elapsed_ms":   elapsed_ms,
                 "timeout_s":    int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
                 "endpoint":     request_preview.get("url"),
                 "request_body": request_preview.get("body"),
             }
+            if actual.get("reason"):
+                source["fallback_reason"] = actual["reason"]
         except Exception as exc:
             elapsed_ms = int((time.monotonic() - api_started) * 1000)
             log.exception(
