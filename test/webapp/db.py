@@ -196,6 +196,47 @@ SCHEMA_STATEMENTS = [
         description TEXT
     )
     """,
+    # ---- Salesman map (replaces config/salesman_map.xlsx for the test app) ----
+    # Mirrors the live Excel schema 1:1: identity (key/number/names/email),
+    # commission %, plus per-report subscription flags and CC/BCC. Editable
+    # entirely from the admin Settings page so we never have to redeploy
+    # to update commissions or fix a salesman email.
+    """
+    CREATE TABLE IF NOT EXISTS app_salesmen (
+        key            TEXT PRIMARY KEY,           -- normalized lookup key (lowercase, alnum-only)
+        number         TEXT NOT NULL DEFAULT '',
+        full_name      TEXT NOT NULL DEFAULT '',
+        display_name   TEXT NOT NULL DEFAULT '',
+        email          TEXT NOT NULL DEFAULT '',
+        commission_pct REAL NOT NULL DEFAULT 0,
+        cc             TEXT NOT NULL DEFAULT '',   -- semicolon-separated
+        bcc            TEXT NOT NULL DEFAULT '',   -- semicolon-separated
+        active         INTEGER NOT NULL DEFAULT 1,
+        subs_json      TEXT NOT NULL DEFAULT '{}', -- {report_key: bool}
+        updated_utc    TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_app_salesmen_active
+        ON app_salesmen(active, full_name)
+    """,
+    # ---- Per-user report-access overrides (mirrors live user_report_access) ----
+    """
+    CREATE TABLE IF NOT EXISTS user_report_access (
+        user_email  TEXT NOT NULL,
+        report_key  TEXT NOT NULL,
+        allowed     INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (user_email, report_key)
+    )
+    """,
+    # ---- Per-manager assigned-salesmen list (mirrors live user_salesman_access) ----
+    """
+    CREATE TABLE IF NOT EXISTS user_salesman_access (
+        user_email   TEXT NOT NULL,
+        salesman_key TEXT NOT NULL,
+        PRIMARY KEY (user_email, salesman_key)
+    )
+    """,
 ]
 
 
@@ -207,6 +248,18 @@ _COLUMN_MIGRATIONS = [
     ("schedules",     "sharepoint_path", "TEXT"),
     ("outbox",        "sharepoint_saved", "INTEGER NOT NULL DEFAULT 0"),
     ("outbox",        "sharepoint_path",  "TEXT"),
+    # ---- Live-app role/permission parity ----
+    # role: admin | developer | manager | salesman (4 roles, same as live).
+    # salesman_key: the lookup key into app_salesmen. Required for role=salesman.
+    # is_external: signs in via emailed magic link instead of Microsoft.
+    # active: shown in dropdowns; toggled off for ex-employees.
+    # dashboard_enabled / test_access_enabled: per-user feature flags.
+    ("app_users", "role",                "TEXT NOT NULL DEFAULT 'salesman'"),
+    ("app_users", "salesman_key",        "TEXT"),
+    ("app_users", "is_external",         "INTEGER NOT NULL DEFAULT 0"),
+    ("app_users", "active",              "INTEGER NOT NULL DEFAULT 1"),
+    ("app_users", "dashboard_enabled",   "INTEGER NOT NULL DEFAULT 1"),
+    ("app_users", "test_access_enabled", "INTEGER NOT NULL DEFAULT 1"),
 ]
 
 
@@ -231,6 +284,105 @@ def _seed_feature_flags(conn: sqlite3.Connection) -> None:
             "INSERT OR IGNORE INTO feature_flags (flag_key, enabled, description) VALUES (?, ?, ?)",
             (key, enabled, desc),
         )
+
+
+def _backfill_user_roles(conn: sqlite3.Connection) -> None:
+    """For users created before the role column existed, derive the role
+    from the legacy ``is_admin`` flag so admins keep their access.
+
+    Rows whose role is empty (never set explicitly) get either ``admin``
+    (if ``is_admin=1``) or ``salesman`` (default).
+    """
+    try:
+        conn.execute(
+            "UPDATE app_users SET role = 'admin' "
+            " WHERE (role IS NULL OR role = '') AND is_admin = 1"
+        )
+        conn.execute(
+            "UPDATE app_users SET role = 'salesman' "
+            " WHERE role IS NULL OR role = ''"
+        )
+    except Exception:
+        log.exception("backfill: app_users.role")
+
+
+def _seed_salesmen_from_xlsx(conn: sqlite3.Connection) -> None:
+    """Idempotent first-boot seed of the app_salesmen table.
+
+    Runs only when the table is empty so an admin can edit rows without
+    having them blown away by the next deploy. The xlsx in the live app
+    is the canonical source of truth at seed time; after that the test
+    app owns its own copy in SQLite.
+    """
+    row = conn.execute("SELECT COUNT(*) AS n FROM app_salesmen").fetchone()
+    if row and row["n"]:
+        return
+
+    # The live xlsx loader lives at <repo_root>/config/salesman_excel.py.
+    # Python's package resolution may shadow the bare ``config`` name with
+    # the test app's own config package, so we load the live module by
+    # absolute file path instead of relying on ``import config.*``.
+    import importlib.util
+    from pathlib import Path as _Path
+    repo_root = _Path(__file__).resolve().parents[2]
+    live_xlsx = repo_root / "config" / "salesman_excel.py"
+    if not live_xlsx.is_file():
+        log.warning("salesman_map seed: %s not found, skipping", live_xlsx)
+        return
+
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_live_salesman_excel", str(live_xlsx),
+        )
+        if not spec or not spec.loader:
+            raise ImportError("no spec")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception:
+        log.warning("salesman_map seed: could not load live xlsx loader (%s); "
+                    "skipping seed (admins can add rows manually).",
+                    live_xlsx, exc_info=False)
+        return
+
+    load_salesman_map = getattr(mod, "load_salesman_map", None)
+    if load_salesman_map is None:
+        log.warning("salesman_map seed: load_salesman_map() not found; skipping")
+        return
+
+    try:
+        recs = load_salesman_map()
+    except Exception:
+        log.exception("salesman_map seed: load_salesman_map() failed")
+        return
+    if not recs:
+        log.info("salesman_map seed: live xlsx loaded 0 records (probably missing)")
+        return
+    now = _now_utc()
+    for key, rec in recs.items():
+        try:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO app_salesmen
+                  (key, number, full_name, display_name, email, commission_pct,
+                   cc, bcc, active, subs_json, updated_utc)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (
+                    key,
+                    rec.number or "",
+                    rec.full_name or "",
+                    rec.display_name or "",
+                    rec.email or "",
+                    float(rec.commission_pct or 0.0),
+                    "; ".join(rec.cc or []),
+                    "; ".join(rec.bcc or []),
+                    json.dumps(rec.subscriptions or {}),
+                    now,
+                ),
+            )
+        except Exception:
+            log.exception("salesman_map seed: row %s failed", key)
+    log.info("salesman_map seed: inserted %d rows from xlsx", len(recs))
 
 
 def _connect() -> sqlite3.Connection:
@@ -262,6 +414,8 @@ def init_db() -> None:
             conn.execute(stmt)
         _ensure_columns(conn)
         _seed_feature_flags(conn)
+        _backfill_user_roles(conn)
+        _seed_salesmen_from_xlsx(conn)
         log.info("v2 db initialized at %s", APP_DB_PATH)
     # Ensure offline-fallback mirror tables exist (separate module so
     # the import doesn't add to the top-level circular import surface).
@@ -380,17 +534,41 @@ def upsert_user_login(email: str, display_name: str | None = None) -> None:
         )
 
 
+VALID_ROLES = ("admin", "developer", "manager", "salesman")
+
+
+def _user_select_cols() -> str:
+    return (
+        "email, display_name, role, salesman_key, is_admin, sharepoint_access_enabled, "
+        "is_external, active, dashboard_enabled, test_access_enabled, "
+        "first_login_utc, last_login_utc"
+    )
+
+
+def _user_row_to_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["is_admin"]                  = bool(d.get("is_admin"))
+    d["sharepoint_access_enabled"] = bool(d.get("sharepoint_access_enabled"))
+    d["is_external"]               = bool(d.get("is_external"))
+    d["active"]                    = bool(d.get("active", 1))
+    d["dashboard_enabled"]         = bool(d.get("dashboard_enabled", 1))
+    d["test_access_enabled"]       = bool(d.get("test_access_enabled", 1))
+    return d
+
+
 def list_app_users() -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
-            """
-            SELECT email, display_name, is_admin, sharepoint_access_enabled,
-                   first_login_utc, last_login_utc
+            f"""
+            SELECT {_user_select_cols()}
             FROM app_users
-            ORDER BY is_admin DESC, email
+            ORDER BY CASE WHEN role IN ('admin','developer') THEN 0
+                          WHEN role = 'manager' THEN 1
+                          ELSE 2 END,
+                     email
             """
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [_user_row_to_dict(r) for r in rows]
 
 
 def get_app_user(email: str) -> dict | None:
@@ -399,40 +577,117 @@ def get_app_user(email: str) -> dict | None:
         return None
     with connect() as conn:
         row = conn.execute(
-            """
-            SELECT email, display_name, is_admin, sharepoint_access_enabled,
-                   first_login_utc, last_login_utc
-            FROM app_users WHERE email = ?
-            """,
+            f"SELECT {_user_select_cols()} FROM app_users WHERE email = ?",
             (email,),
         ).fetchone()
-    return dict(row) if row else None
+    return _user_row_to_dict(row) if row else None
 
 
-def update_app_user(email: str, *, display_name: str | None = None,
-                    is_admin: bool | None = None,
-                    sharepoint_access_enabled: bool | None = None) -> None:
+def add_app_user(
+    email: str, *,
+    role: str = "salesman", salesman_key: str | None = None,
+    display_name: str | None = None, is_external: bool = False,
+) -> bool:
+    """Create a new app_users row. Returns False if the email already exists."""
+    email = _norm_email(email)
+    if not email or role not in VALID_ROLES:
+        return False
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT 1 FROM app_users WHERE email = ?", (email,),
+        ).fetchone()
+        if existing:
+            return False
+        conn.execute(
+            """
+            INSERT INTO app_users
+              (email, role, salesman_key, display_name, is_admin, is_external,
+               active, dashboard_enabled, test_access_enabled)
+            VALUES (?, ?, ?, ?, ?, ?, 1, 1, 1)
+            """,
+            (
+                email,
+                role,
+                (salesman_key or None),
+                display_name,
+                1 if role in ("admin", "developer") else 0,
+                1 if is_external else 0,
+            ),
+        )
+    return True
+
+
+def update_app_user(email: str, **kwargs: Any) -> None:
+    """Generic update. Accepts any combination of:
+
+    display_name, role, salesman_key, is_admin, sharepoint_access_enabled,
+    is_external, active, dashboard_enabled, test_access_enabled, new_email.
+    """
     email = _norm_email(email)
     if not email:
         return
+
+    int_fields = (
+        "is_admin", "sharepoint_access_enabled", "is_external",
+        "active", "dashboard_enabled", "test_access_enabled",
+    )
+    str_fields = ("display_name", "role", "salesman_key")
+
+    if "role" in kwargs:
+        new_role = kwargs["role"]
+        if new_role not in VALID_ROLES:
+            raise ValueError(f"Invalid role: {new_role}")
+        # Keep is_admin in sync with role so legacy callers still work.
+        kwargs.setdefault("is_admin", new_role in ("admin", "developer"))
+
     sets, params = [], []
-    if display_name is not None:
-        sets.append("display_name = ?"); params.append(display_name)
-    if is_admin is not None:
-        sets.append("is_admin = ?"); params.append(1 if is_admin else 0)
-    if sharepoint_access_enabled is not None:
-        sets.append("sharepoint_access_enabled = ?")
-        params.append(1 if sharepoint_access_enabled else 0)
+    for f in str_fields:
+        if f in kwargs:
+            v = kwargs[f]
+            sets.append(f"{f} = ?"); params.append(v if v else None)
+    for f in int_fields:
+        if f in kwargs:
+            sets.append(f"{f} = ?"); params.append(1 if kwargs[f] else 0)
+
+    new_email = kwargs.get("new_email")
+    if new_email is not None:
+        new_email = _norm_email(str(new_email))
+        if not new_email or "@" not in new_email:
+            raise ValueError("new_email must be a valid email")
+        if new_email != email:
+            sets.append("email = ?"); params.append(new_email)
+
     if not sets:
         return
     params.append(email)
     with connect() as conn:
-        existing = conn.execute("SELECT 1 FROM app_users WHERE email = ?", (email,)).fetchone()
+        existing = conn.execute(
+            "SELECT 1 FROM app_users WHERE email = ?", (email,),
+        ).fetchone()
         if not existing:
-            conn.execute(
-                "INSERT INTO app_users (email) VALUES (?)", (email,)
-            )
-        conn.execute(f"UPDATE app_users SET {', '.join(sets)} WHERE email = ?", params)
+            conn.execute("INSERT INTO app_users (email) VALUES (?)", (email,))
+        conn.execute(
+            f"UPDATE app_users SET {', '.join(sets)} WHERE email = ?", params,
+        )
+        if new_email and new_email != email:
+            # Cascade rename to all rows keyed by user_email.
+            for tbl, col in (
+                ("user_preferences",   "user_email"),
+                ("user_exclusions",    "user_email"),
+                ("saved_reports",      "user_email"),
+                ("schedules",          "user_email"),
+                ("report_run_log",     "user_email"),
+                ("outbox",             "user_email"),
+                ("user_report_access", "user_email"),
+                ("user_salesman_access","user_email"),
+            ):
+                try:
+                    conn.execute(
+                        f"UPDATE {tbl} SET {col} = ? WHERE {col} = ?",
+                        (new_email, email),
+                    )
+                except sqlite3.OperationalError:
+                    pass
 
 
 def delete_app_user(email: str) -> None:
@@ -455,7 +710,11 @@ def has_sharepoint_access(email: str) -> bool:
 
 def is_admin_email(email: str) -> bool:
     u = get_app_user(email)
-    return bool(u and u.get("is_admin"))
+    if not u:
+        return False
+    if u.get("role") in ("admin", "developer"):
+        return True
+    return bool(u.get("is_admin"))
 
 
 # -- Feature flags ----------------------------------------------------------
@@ -698,3 +957,253 @@ def get_report_run_log(limit: int = 500, user_email: str | None = None) -> list[
     with connect() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Salesman map (DB-backed; admins edit via Settings page)
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+
+def _norm_salesman_key(s: str) -> str:
+    """Mirror the live ``_norm_key`` (lowercase, alphanumeric only)."""
+    return _re.sub(r"[^a-z0-9]+", "", str(s or "").strip().lower())
+
+
+def _split_email_list(s: str | None) -> list[str]:
+    if not s:
+        return []
+    return [e.strip() for e in str(s).replace(",", ";").split(";") if e.strip()]
+
+
+def _salesman_row_to_dict(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    try:
+        d["subscriptions"] = json.loads(d.get("subs_json") or "{}")
+    except Exception:
+        d["subscriptions"] = {}
+    d["cc_list"]  = _split_email_list(d.get("cc"))
+    d["bcc_list"] = _split_email_list(d.get("bcc"))
+    d["active"]   = bool(d.get("active", 1))
+    try:
+        d["commission_pct"] = float(d.get("commission_pct") or 0.0)
+    except Exception:
+        d["commission_pct"] = 0.0
+    return d
+
+
+def list_salesman_map(*, active_only: bool = False) -> list[dict]:
+    sql = "SELECT * FROM app_salesmen"
+    params: list[Any] = []
+    if active_only:
+        sql += " WHERE active = 1"
+    sql += " ORDER BY full_name COLLATE NOCASE, key"
+    with connect() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_salesman_row_to_dict(r) for r in rows]
+
+
+def get_salesman_record(key: str) -> dict | None:
+    k = _norm_salesman_key(key)
+    if not k:
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM app_salesmen WHERE key = ?", (k,),
+        ).fetchone()
+    return _salesman_row_to_dict(row) if row else None
+
+
+def upsert_salesman_record(data: dict) -> str:
+    """Insert or update a salesman row. Returns the normalized key."""
+    raw_key = data.get("key") or ""
+    k = _norm_salesman_key(raw_key)
+    if not k:
+        raise ValueError("key is required")
+
+    number       = str(data.get("number") or "").strip()
+    full_name    = str(data.get("full_name") or "").strip()
+    display_name = str(data.get("display_name") or "").strip() or full_name
+    email        = str(data.get("email") or "").strip()
+    try:
+        commission_pct = float(data.get("commission_pct") or 0.0)
+    except (TypeError, ValueError):
+        commission_pct = 0.0
+    cc  = "; ".join(_split_email_list(data.get("cc")))
+    bcc = "; ".join(_split_email_list(data.get("bcc")))
+    active = 1 if (data.get("active", True) in (True, 1, "1", "true", "True")) else 0
+
+    subs = data.get("subscriptions") or {}
+    if not isinstance(subs, dict):
+        subs = {}
+    subs = {str(k2): bool(v) for k2, v in subs.items()}
+    subs_json = json.dumps(subs)
+
+    now = _now_utc()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_salesmen
+              (key, number, full_name, display_name, email, commission_pct,
+               cc, bcc, active, subs_json, updated_utc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+              number         = excluded.number,
+              full_name      = excluded.full_name,
+              display_name   = excluded.display_name,
+              email          = excluded.email,
+              commission_pct = excluded.commission_pct,
+              cc             = excluded.cc,
+              bcc            = excluded.bcc,
+              active         = excluded.active,
+              subs_json      = excluded.subs_json,
+              updated_utc    = excluded.updated_utc
+            """,
+            (k, number, full_name, display_name, email, commission_pct,
+             cc, bcc, active, subs_json, now),
+        )
+    return k
+
+
+def delete_salesman_record(key: str) -> bool:
+    k = _norm_salesman_key(key)
+    if not k:
+        return False
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM app_salesmen WHERE key = ?", (k,))
+        return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Per-user report-access overrides + per-manager assigned-salesmen list
+# ---------------------------------------------------------------------------
+
+def get_user_report_overrides(email: str) -> dict[str, bool]:
+    """Returns ``{report_key: allowed}`` overrides for a user."""
+    e = _norm_email(email)
+    if not e:
+        return {}
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT report_key, allowed FROM user_report_access WHERE user_email = ?",
+            (e,),
+        ).fetchall()
+    return {r["report_key"]: bool(r["allowed"]) for r in rows}
+
+
+def set_user_report_override(email: str, report_key: str, allowed: bool) -> None:
+    e = _norm_email(email)
+    rk = (report_key or "").strip()
+    if not e or not rk:
+        return
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO user_report_access (user_email, report_key, allowed)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_email, report_key)
+              DO UPDATE SET allowed = excluded.allowed
+            """,
+            (e, rk, 1 if allowed else 0),
+        )
+
+
+def clear_user_report_override(email: str, report_key: str) -> None:
+    e = _norm_email(email)
+    rk = (report_key or "").strip()
+    if not e or not rk:
+        return
+    with connect() as conn:
+        conn.execute(
+            "DELETE FROM user_report_access WHERE user_email = ? AND report_key = ?",
+            (e, rk),
+        )
+
+
+def get_user_salesman_access(email: str) -> list[str]:
+    """Salesman keys a manager is allowed to run reports for."""
+    e = _norm_email(email)
+    if not e:
+        return []
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT salesman_key FROM user_salesman_access WHERE user_email = ?",
+            (e,),
+        ).fetchall()
+    return [r["salesman_key"] for r in rows]
+
+
+def set_user_salesman_access(email: str, keys: list[str]) -> None:
+    """Replace the salesman-access set for a user with *keys*."""
+    e = _norm_email(email)
+    if not e:
+        return
+    cleaned = sorted({_norm_salesman_key(k) for k in (keys or []) if _norm_salesman_key(k)})
+    with connect() as conn:
+        conn.execute(
+            "DELETE FROM user_salesman_access WHERE user_email = ?", (e,),
+        )
+        if cleaned:
+            conn.executemany(
+                "INSERT OR IGNORE INTO user_salesman_access (user_email, salesman_key) VALUES (?, ?)",
+                [(e, k) for k in cleaned],
+            )
+
+
+def get_users_permission_grid(report_keys: list[str]) -> list[dict]:
+    """Return every app_user with role/salesman info, per-report effective
+    permissions, and (for managers) the assigned-salesmen list.
+
+    *report_keys* is the canonical ordered list of report keys the UI
+    cares about. Effective permissions:
+
+      * admin/developer/manager → all reports allowed by default
+      * salesman               → only reports that don't require admin
+                                 (currently we treat all listed reports
+                                 as available to salesmen unless an
+                                 override says otherwise)
+      * any per-user override wins
+    """
+    rk_list = list(report_keys or [])
+    users = list_app_users()
+    if not users:
+        return []
+
+    overrides_by_user: dict[str, dict[str, bool]] = {}
+    sm_access_by_user: dict[str, list[str]] = {}
+    salesmen_by_key: dict[str, dict] = {}
+    with connect() as conn:
+        for r in conn.execute(
+            "SELECT user_email, report_key, allowed FROM user_report_access"
+        ).fetchall():
+            overrides_by_user.setdefault(r["user_email"], {})[r["report_key"]] = bool(r["allowed"])
+        for r in conn.execute(
+            "SELECT user_email, salesman_key FROM user_salesman_access"
+        ).fetchall():
+            sm_access_by_user.setdefault(r["user_email"], []).append(r["salesman_key"])
+        for r in conn.execute(
+            "SELECT key, number, full_name FROM app_salesmen"
+        ).fetchall():
+            salesmen_by_key[r["key"]] = dict(r)
+
+    enriched = []
+    for u in users:
+        d = dict(u)
+        ovr = overrides_by_user.get(d["email"], {})
+        is_priv = d.get("role") in ("admin", "developer", "manager")
+
+        reports: dict[str, bool] = {}
+        for rk in rk_list:
+            if rk in ovr:
+                reports[rk] = ovr[rk]
+            else:
+                reports[rk] = True if is_priv else True
+        d["reports"] = reports
+        d["allowed_salesmen"] = sm_access_by_user.get(d["email"], [])
+
+        sm = salesmen_by_key.get(d.get("salesman_key") or "")
+        d["sm_number"] = sm["number"] if sm else None
+        d["sm_name"]   = sm["full_name"] if sm else None
+        enriched.append(d)
+    return enriched

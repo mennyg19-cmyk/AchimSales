@@ -59,11 +59,17 @@
     <div class="collapsible-body collapsed" id="exclusionsBody">
         <p class="settings-section-desc">
             Hide these customer accounts from your reports. Excluded accounts will not
-            appear in data pulls or scheduled emails.
+            appear in data pulls or scheduled emails. The list comes from the live
+            customer master.
         </p>
 
-        <input type="text" id="exclusionsSearch" class="form-input" style="margin-bottom:12px;"
-               placeholder="Search customers...">
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <input type="text" id="exclusionsSearch" class="form-input" style="flex:1;"
+                   placeholder="Search customers by name or account #…">
+            <input type="text" id="exclusionsAddInput" class="form-input" style="width:160px;"
+                   placeholder="Add account #">
+            <button class="btn btn-sm btn-outline" type="button" id="exclusionsAddBtn">Add</button>
+        </div>
 
         <div class="settings-save-bar" id="exclusionsSaveBar" style="display:none;">
             <span>Unsaved changes</span>
@@ -108,64 +114,317 @@
     </div>
 </section>
 
-{# ===== Admin: Users & permissions ==================================== #}
+{# ===== Admin: Users & permissions (mirrors live admin/settings) ====== #}
 <section class="settings-section" style="margin-top:24px;">
     <h3 class="settings-section-title collapsible collapsed" data-toggle="usersBody">
         <i data-feather="users" style="width:18px;height:18px;"></i>
         Users &amp; permissions
+        <span style="margin-left:6px;font-size:12px;font-weight:normal;color:var(--text-muted);">({{ admin.perm_grid|length }})</span>
     </h3>
     <div class="collapsible-body collapsed" id="usersBody">
         <p class="settings-section-desc">
-            Everyone who has signed in appears here. Toggle admin and SharePoint
-            access flags per user.
+            Roles match the live app exactly. <b>Admin</b> / <b>Developer</b> see everything,
+            <b>Manager</b> sees only their assigned salesmen's customers, and <b>Salesman</b>
+            sees only their own. Tap a row to edit.
         </p>
-        <div class="users-table-wrap">
-            <table class="users-table" id="usersTable">
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        <th>Admin</th>
-                        <th>SharePoint</th>
-                        <th>Last login</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for u in admin.users %}
-                    <tr data-email="{{ u.email }}">
-                        <td>
-                            <div class="u-email">{{ u.email }}</div>
-                            {% if u.display_name %}
-                            <div class="u-name">{{ u.display_name }}</div>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <label class="toggle-switch">
-                                <input type="checkbox" class="perm-admin"
-                                       {% if u.is_admin %}checked{% endif %}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </td>
-                        <td>
-                            <label class="toggle-switch">
-                                <input type="checkbox" class="perm-sharepoint"
-                                       {% if u.sharepoint_access_enabled %}checked{% endif %}>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </td>
-                        <td class="u-last">{{ (u.last_login_utc or '-')[:10] }}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline perm-delete" type="button">
-                                <i data-feather="trash-2" style="width:14px;height:14px;"></i>
-                            </button>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+
+        {# -- Add new user (collapsed by default) -- #}
+        <details style="margin-bottom:14px;">
+            <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--accent);">
+                + Add new user
+            </summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:10px;align-items:end;">
+                <div>
+                    <label class="form-label">Email</label>
+                    <input type="email" id="newUserEmail" class="form-input" placeholder="user@achimonline.com">
+                </div>
+                <div>
+                    <label class="form-label">Role</label>
+                    <select id="newUserRole" class="form-input">
+                        {% for r in admin.valid_roles %}
+                        <option value="{{ r }}" {% if r == 'salesman' %}selected{% endif %}>{{ r|title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div id="newUserSalesmanWrap">
+                    <label class="form-label">Salesman</label>
+                    <select id="newUserSalesmanKey" class="form-input">
+                        <option value="">— Select —</option>
+                        {% for sm in admin.salesmen %}
+                        <option value="{{ sm.key }}">{{ sm.full_name or sm.key }}{% if sm.number %} (#{{ sm.number }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Display name</label>
+                    <input type="text" id="newUserDisplayName" class="form-input" placeholder="Optional">
+                </div>
+                <div>
+                    <button class="btn btn-primary btn-sm" type="button" id="newUserAddBtn">Add</button>
+                </div>
+            </div>
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="newUserIsExternal">
+                <span>External (sign in via emailed magic link)</span>
+            </label>
+            <div id="newUserMsg" style="margin-top:6px;font-size:13px;display:none;"></div>
+        </details>
+
+        <input type="text" id="permGridSearch" class="form-input" style="margin-bottom:10px;"
+               placeholder="Search by name, email, salesman key…">
+
+        <div id="permUserList" class="users-list">
+            {% for u in admin.perm_grid %}
+            <div class="perm-user-row" data-email="{{ u.email }}"
+                 data-user='{{ u|tojson }}'>
+                <div class="perm-user-info">
+                    <span class="perm-user-name">{{ u.display_name or u.sm_name or u.email }}</span>
+                    <span class="perm-user-email">{{ u.email }}</span>
+                    {% if u.salesman_key %}
+                    <span class="perm-user-key">{{ u.salesman_key }}{% if u.sm_number %} #{{ u.sm_number }}{% endif %}</span>
+                    {% endif %}
+                </div>
+                <div class="perm-user-meta">
+                    {% if u.is_external %}<span class="badge badge-external" title="Magic-link sign-in">External</span>{% endif %}
+                    {% if not u.active %}<span class="badge badge-inactive" title="Hidden from dropdowns">Inactive</span>{% endif %}
+                    <span class="badge badge-{{ 'admin' if u.role in ('admin','developer') else ('manager' if u.role == 'manager' else 'salesman') }}">{{ u.role }}</span>
+                    <i data-feather="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
+                </div>
+            </div>
+            {% endfor %}
         </div>
     </div>
 </section>
+
+{# Edit user modal -- populated by settings.js -- #}
+<div id="editUserModal" class="modal-overlay" hidden>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 style="margin:0;">Edit user</h3>
+            <button class="btn btn-sm btn-outline" type="button" id="editUserClose">
+                <i data-feather="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+        <input type="hidden" id="editUserEmail">
+        <div class="modal-body">
+            <div class="form-row">
+                <label class="form-label">Email</label>
+                <input type="email" id="editUserEmailDisplay" class="form-input">
+                <p class="form-hint">Renaming cascades to schedules, presets, exclusions, and the run log.</p>
+            </div>
+            <div class="form-row">
+                <label class="form-label">Role</label>
+                <select id="editUserRole" class="form-input">
+                    {% for r in admin.valid_roles %}
+                    <option value="{{ r }}">{{ r|title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row" id="editSalesmanWrap">
+                <label class="form-label">Salesman</label>
+                <select id="editUserSalesmanKey" class="form-input">
+                    <option value="">— Select —</option>
+                    {% for sm in admin.salesmen %}
+                    <option value="{{ sm.key }}">{{ sm.full_name or sm.key }}{% if sm.number %} (#{{ sm.number }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row" id="editAssignedWrap">
+                <label class="form-label">Assigned salesmen</label>
+                <p class="form-hint">Which salesmen this manager can run reports for.</p>
+                <div id="editAssignedList" class="assigned-salesmen-list">
+                    {% for sm in admin.salesmen %}
+                    <label class="settings-customer-item" style="min-height:34px;">
+                        <span style="font-size:13px;">{{ sm.full_name or sm.key }}{% if sm.number %} #{{ sm.number }}{% endif %}</span>
+                        <input type="checkbox" class="assigned-sm-toggle" data-sm-key="{{ sm.key }}">
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="form-row">
+                <label class="form-label">Display name</label>
+                <input type="text" id="editUserDisplayName" class="form-input" placeholder="Optional">
+            </div>
+
+            <div class="form-row">
+                <label class="form-label">Toggles</label>
+                <div class="settings-customer-item"><span>Active in dropdowns</span>
+                    <label class="toggle-switch"><input type="checkbox" id="editUserActive"><span class="toggle-slider"></span></label>
+                </div>
+                <div class="settings-customer-item" id="editUserExternalRow"><span>External login (magic link)</span>
+                    <label class="toggle-switch"><input type="checkbox" id="editUserIsExternal"><span class="toggle-slider"></span></label>
+                </div>
+                <div class="settings-customer-item"><span>Dashboard access</span>
+                    <label class="toggle-switch"><input type="checkbox" id="editUserDashboard"><span class="toggle-slider"></span></label>
+                </div>
+                <div class="settings-customer-item"><span>SharePoint save access</span>
+                    <label class="toggle-switch"><input type="checkbox" id="editUserSharepoint"><span class="toggle-slider"></span></label>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <label class="form-label">Per-report access</label>
+                <p class="form-hint">Override the default. Leave neutral to inherit role defaults.</p>
+                <div id="editUserReportsList" class="report-overrides">
+                    {% for rk in admin.report_meta %}
+                    <div class="settings-customer-item" style="min-height:34px;">
+                        <span style="font-size:13px;">{{ rk.name }}</span>
+                        <select class="form-input report-access-select" data-report-key="{{ rk.key }}" style="width:auto;min-width:130px;">
+                            <option value="">Inherit</option>
+                            <option value="1">Allow</option>
+                            <option value="0">Deny</option>
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline btn-sm" type="button" id="editUserDelete">Delete user</button>
+            <button class="btn btn-primary btn-sm" type="button" id="editUserSave">Save changes</button>
+        </div>
+    </div>
+</div>
+
+{# ===== Admin: Salesman map (replaces salesman_map.xlsx) =============== #}
+<section class="settings-section" style="margin-top:24px;">
+    <h3 class="settings-section-title collapsible collapsed" data-toggle="salesmenBody">
+        <i data-feather="award" style="width:18px;height:18px;"></i>
+        Salesman map
+        <span style="margin-left:6px;font-size:12px;font-weight:normal;color:var(--text-muted);">({{ admin.salesmen|length }})</span>
+    </h3>
+    <div class="collapsible-body collapsed" id="salesmenBody">
+        <p class="settings-section-desc">
+            Identity, commission %, and email subscriptions per salesman. This is the
+            same data as <code>config/salesman_map.xlsx</code> on the live site, ported
+            into the database so you can edit it without a redeploy.
+        </p>
+
+        <details style="margin-bottom:12px;">
+            <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--accent);">
+                + Add new salesman
+            </summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px;align-items:end;">
+                <div>
+                    <label class="form-label">Key</label>
+                    <input type="text" id="newSmKey" class="form-input" placeholder="e.g. mkolko">
+                </div>
+                <div>
+                    <label class="form-label">Number</label>
+                    <input type="text" id="newSmNumber" class="form-input" placeholder="012">
+                </div>
+                <div>
+                    <label class="form-label">Full name</label>
+                    <input type="text" id="newSmFullName" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Display name</label>
+                    <input type="text" id="newSmDisplayName" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Email</label>
+                    <input type="email" id="newSmEmail" class="form-input">
+                </div>
+                <div>
+                    <label class="form-label">Commission %</label>
+                    <input type="number" step="0.01" id="newSmCommission" class="form-input" placeholder="0">
+                </div>
+                <div>
+                    <button class="btn btn-primary btn-sm" type="button" id="newSmAddBtn">Add</button>
+                </div>
+            </div>
+            <div id="newSmMsg" style="margin-top:6px;font-size:13px;display:none;"></div>
+        </details>
+
+        <input type="text" id="salesmenSearch" class="form-input" style="margin-bottom:10px;"
+               placeholder="Search by key, name, or number…">
+
+        <div id="salesmenList" class="users-list">
+            {% for sm in admin.salesmen %}
+            <div class="perm-user-row" data-sm-key="{{ sm.key }}" data-sm='{{ sm|tojson }}'>
+                <div class="perm-user-info">
+                    <span class="perm-user-name">{{ sm.full_name or sm.key }}</span>
+                    <span class="perm-user-email">{{ sm.email or '— no email —' }}</span>
+                    <span class="perm-user-key">{{ sm.key }}{% if sm.number %} #{{ sm.number }}{% endif %}</span>
+                </div>
+                <div class="perm-user-meta">
+                    {% if not sm.active %}<span class="badge badge-inactive">Inactive</span>{% endif %}
+                    {% if sm.commission_pct %}<span class="badge badge-salesman" title="Commission %">{{ '%.2f'|format(sm.commission_pct) }}%</span>{% endif %}
+                    <i data-feather="chevron-right" style="width:14px;height:14px;color:var(--text-muted);"></i>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+{# Edit salesman modal -- populated by settings.js -- #}
+<div id="editSmModal" class="modal-overlay" hidden>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 style="margin:0;">Edit salesman</h3>
+            <button class="btn btn-sm btn-outline" type="button" id="editSmClose">
+                <i data-feather="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-row">
+                <label class="form-label">Key (lookup)</label>
+                <input type="text" id="editSmKey" class="form-input" disabled>
+                <p class="form-hint">Lookup key. Cannot be changed; delete &amp; re-add to rename.</p>
+            </div>
+            <div class="form-row">
+                <label class="form-label">Number</label>
+                <input type="text" id="editSmNumber" class="form-input">
+            </div>
+            <div class="form-row">
+                <label class="form-label">Full name</label>
+                <input type="text" id="editSmFullName" class="form-input">
+            </div>
+            <div class="form-row">
+                <label class="form-label">Display name (short)</label>
+                <input type="text" id="editSmDisplayName" class="form-input">
+            </div>
+            <div class="form-row">
+                <label class="form-label">Email</label>
+                <input type="email" id="editSmEmail" class="form-input">
+            </div>
+            <div class="form-row">
+                <label class="form-label">Commission %</label>
+                <input type="number" step="0.01" id="editSmCommission" class="form-input">
+            </div>
+            <div class="form-row">
+                <label class="form-label">CC (semicolon-separated)</label>
+                <input type="text" id="editSmCc" class="form-input">
+            </div>
+            <div class="form-row">
+                <label class="form-label">BCC (semicolon-separated)</label>
+                <input type="text" id="editSmBcc" class="form-input">
+            </div>
+            <div class="form-row">
+                <label class="form-label">Active</label>
+                <label class="toggle-switch"><input type="checkbox" id="editSmActive"><span class="toggle-slider"></span></label>
+                <p class="form-hint">Inactive salesmen disappear from dropdowns.</p>
+            </div>
+            <div class="form-row">
+                <label class="form-label">Email subscriptions</label>
+                <p class="form-hint">Reports they receive automatically when scheduled.</p>
+                <div id="editSmSubsList" class="report-overrides">
+                    {% for rk in admin.report_meta %}
+                    <label class="settings-customer-item" style="min-height:34px;cursor:pointer;">
+                        <span style="font-size:13px;">{{ rk.name }}</span>
+                        <input type="checkbox" class="sm-sub-toggle" data-report-key="{{ rk.key }}">
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline btn-sm" type="button" id="editSmDelete">Delete</button>
+            <button class="btn btn-primary btn-sm" type="button" id="editSmSave">Save</button>
+        </div>
+    </div>
+</div>
 
 {# ===== Admin: Feature Flags ========================================== #}
 <section class="settings-section" style="margin-top:24px;">
@@ -219,7 +478,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td colspan="6" style="text-align:center;color:var(--text-muted);">Click Refresh to load.</td></tr>
+                    <tr><td colspan="6" style="text-align:center;color:var(--text-muted);">Open this section to load runs.</td></tr>
                 </tbody>
             </table>
         </div>

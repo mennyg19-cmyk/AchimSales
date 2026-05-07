@@ -4590,3 +4590,133 @@ body.dark-theme .tabulator .tabulator-row:hover,
     font-variant-numeric: tabular-nums;
 }
 .prev-order-row .muted { color: var(--text-muted); }
+
+/* ─── Settings: users & permissions admin section ──────────────────── */
+
+.users-list {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-card, #fff);
+}
+
+.perm-user-row .perm-user-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.perm-user-row .perm-user-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.perm-user-row .perm-user-email {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.perm-user-row .perm-user-key {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.perm-user-row .perm-user-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+/* Role badges: reuse existing .badge plus role-specific colors. */
+.badge-salesman {
+    background: var(--bg);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+.badge-external {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+    font-size: 10px;
+}
+body.dark-theme .badge-external {
+    background: rgba(252, 211, 77, 0.15);
+    color: #fbbf24;
+    border-color: rgba(252, 211, 77, 0.4);
+}
+.badge-inactive {
+    background: var(--bg);
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    font-size: 10px;
+}
+
+/* Edit-user modal layout helpers (uses the existing .modal-overlay/.modal-content). */
+#editUserModal .modal-content,
+#editSmModal   .modal-content {
+    max-width: 520px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+#editUserModal .modal-header,
+#editSmModal   .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+}
+#editUserModal .modal-body,
+#editSmModal   .modal-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    max-height: calc(100vh - 220px);
+}
+#editUserModal .modal-footer,
+#editSmModal   .modal-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+#editUserModal[hidden],
+#editSmModal[hidden] { display: none !important; }
+
+.form-row {
+    margin-bottom: 12px;
+}
+.form-row .form-label {
+    display: block;
+    margin-bottom: 4px;
+}
+.form-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+}
+.assigned-salesmen-list,
+.report-overrides {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: var(--bg);
+}
+.report-overrides .settings-customer-item,
+.assigned-salesmen-list .settings-customer-item {
+    border-bottom: 1px solid var(--border);
+}
+.report-overrides .settings-customer-item:last-child,
+.assigned-salesmen-list .settings-customer-item:last-child {
+    border-bottom: none;
+}

@@ -18,20 +18,30 @@ import logging
 
 from flask import Blueprint, abort, jsonify, render_template, request
 
+from test.config.reports import REPORTS
 from test.webapp.auth import current_user, require_admin, require_login
 from test.webapp.db import (
     DEFAULT_PREFERENCES,
+    VALID_ROLES,
+    add_app_user,
+    clear_user_report_override,
     delete_app_user,
+    delete_salesman_record,
     get_report_run_log,
     get_user_exclusions,
     get_user_preferences,
+    get_users_permission_grid,
     list_app_users,
     list_feature_flags,
     list_master_schedules,
+    list_salesman_map,
     set_feature_flag,
     set_user_exclusions,
     set_user_preferences,
+    set_user_report_override,
+    set_user_salesman_access,
     update_app_user,
+    upsert_salesman_record,
 )
 from test.webapp.services import reporting_api
 
@@ -53,12 +63,21 @@ def index():
     exclusions = get_user_exclusions(user.get("email", ""))
     is_admin = bool(user.get("is_admin"))
 
+    # Reports the perm grid should show. We use the full registry (incl.
+    # disabled ones) so admins can pre-grant access ahead of go-live.
+    report_keys = [r.key for r in REPORTS.values()]
+    report_meta = [{"key": r.key, "name": r.name} for r in REPORTS.values()]
+
     admin_ctx = {}
     if is_admin:
         admin_ctx = {
             "feature_flags":    list_feature_flags(),
             "users":            list_app_users(),
             "master_schedules": list_master_schedules(),
+            "salesmen":         list_salesman_map(),
+            "perm_grid":        get_users_permission_grid(report_keys),
+            "report_meta":      report_meta,
+            "valid_roles":      list(VALID_ROLES),
         }
 
     # Pull the customer list from the reporting API (cached). If the API
@@ -159,10 +178,49 @@ def api_set_flag():
 # ---------------------------------------------------------------------------
 
 
+def _perm_grid_payload() -> dict:
+    """Common payload returned after any user/permission mutation so the
+    UI can re-render the table without a second round-trip."""
+    report_keys = [r.key for r in REPORTS.values()]
+    return {
+        "users":      list_app_users(),
+        "perm_grid":  get_users_permission_grid(report_keys),
+        "salesmen":   list_salesman_map(),
+        "report_meta":[{"key": r.key, "name": r.name} for r in REPORTS.values()],
+    }
+
+
 @settings_bp.get("/api/settings/admin/users")
 @require_admin
 def api_list_users():
-    return jsonify({"users": list_app_users()})
+    return jsonify({"ok": True, **_perm_grid_payload()})
+
+
+@settings_bp.post("/api/settings/admin/users/add")
+@require_admin
+def api_add_user():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"error": "Valid email is required"}), 400
+    role = (body.get("role") or "salesman").strip().lower()
+    if role not in VALID_ROLES:
+        return jsonify({"error": f"Role must be one of {VALID_ROLES}"}), 400
+    salesman_key = (body.get("salesman_key") or "").strip() or None
+    if role == "salesman" and not salesman_key:
+        return jsonify({"error": "Salesman key is required for salesman role"}), 400
+    is_external = bool(body.get("is_external", False))
+    if is_external and role != "salesman":
+        return jsonify({"error": "External (magic-link) login is only for salesmen"}), 400
+    display_name = (body.get("display_name") or "").strip() or None
+
+    ok = add_app_user(
+        email, role=role, salesman_key=salesman_key,
+        display_name=display_name, is_external=is_external,
+    )
+    if not ok:
+        return jsonify({"error": "User already exists"}), 409
+    return jsonify({"ok": True, **_perm_grid_payload()})
 
 
 @settings_bp.post("/api/settings/admin/users")
@@ -173,24 +231,54 @@ def api_update_user():
     if not email:
         return jsonify({"error": "email is required"}), 400
 
-    kwargs = {}
+    kwargs: dict = {}
     if "display_name" in body:
         kwargs["display_name"] = (body.get("display_name") or None)
-    if "is_admin" in body:
-        kwargs["is_admin"] = bool(body["is_admin"])
-    if "sharepoint_access_enabled" in body:
-        kwargs["sharepoint_access_enabled"] = bool(body["sharepoint_access_enabled"])
+    if "role" in body:
+        role = (body.get("role") or "").strip().lower()
+        if role not in VALID_ROLES:
+            return jsonify({"error": f"Role must be one of {VALID_ROLES}"}), 400
+        kwargs["role"] = role
+    if "salesman_key" in body:
+        kwargs["salesman_key"] = (body.get("salesman_key") or "").strip() or None
+    for f in ("is_admin", "sharepoint_access_enabled", "is_external",
+              "active", "dashboard_enabled", "test_access_enabled"):
+        if f in body:
+            kwargs[f] = bool(body[f])
+    if "new_email" in body:
+        new_email = (body.get("new_email") or "").strip().lower() or None
+        if new_email and "@" not in new_email:
+            return jsonify({"error": "new_email must be a valid email"}), 400
+        kwargs["new_email"] = new_email
 
     if not kwargs:
         return jsonify({"error": "no fields to update"}), 400
 
-    # Prevent an admin from removing their own admin flag by mistake.
     me = (current_user() or {}).get("email", "").lower()
-    if email == me and "is_admin" in kwargs and not kwargs["is_admin"]:
-        return jsonify({"error": "You cannot remove your own admin access."}), 400
+    if email == me:
+        # Don't let an admin lock themselves out by demoting their own role
+        # or clearing the admin flag.
+        if kwargs.get("role") == "salesman":
+            return jsonify({"error": "You cannot change your own role to salesman."}), 400
+        if "is_admin" in kwargs and not kwargs["is_admin"]:
+            return jsonify({"error": "You cannot remove your own admin access."}), 400
 
-    update_app_user(email, **kwargs)
-    return jsonify({"ok": True, "users": list_app_users()})
+    if kwargs.get("role") == "salesman":
+        # If they aren't simultaneously assigning a salesman_key, require
+        # that one already exists.
+        if "salesman_key" in kwargs:
+            sk = kwargs["salesman_key"]
+        else:
+            from test.webapp.db import get_app_user as _g
+            sk = (_g(email) or {}).get("salesman_key")
+        if not sk:
+            return jsonify({"error": "Salesman key is required for salesman role"}), 400
+
+    try:
+        update_app_user(email, **kwargs)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True, **_perm_grid_payload()})
 
 
 @settings_bp.post("/api/settings/admin/users/delete")
@@ -204,7 +292,78 @@ def api_delete_user():
     if email == me:
         return jsonify({"error": "You cannot delete your own account."}), 400
     delete_app_user(email)
-    return jsonify({"ok": True, "users": list_app_users()})
+    return jsonify({"ok": True, **_perm_grid_payload()})
+
+
+# ---------------------------------------------------------------------------
+# API: Admin -- per-user report access overrides
+# ---------------------------------------------------------------------------
+
+
+@settings_bp.post("/api/settings/admin/users/report-access")
+@require_admin
+def api_set_user_report_access():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip().lower()
+    report_key = (body.get("report_key") or "").strip()
+    if not email or not report_key:
+        return jsonify({"error": "email and report_key are required"}), 400
+    if "allowed" not in body:
+        clear_user_report_override(email, report_key)
+    else:
+        set_user_report_override(email, report_key, bool(body.get("allowed")))
+    return jsonify({"ok": True, **_perm_grid_payload()})
+
+
+@settings_bp.post("/api/settings/admin/users/salesman-access")
+@require_admin
+def api_set_user_salesman_access():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip().lower()
+    keys = body.get("keys") or []
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+    if not isinstance(keys, list):
+        return jsonify({"error": "keys must be a list"}), 400
+    set_user_salesman_access(email, [str(k) for k in keys])
+    return jsonify({"ok": True, **_perm_grid_payload()})
+
+
+# ---------------------------------------------------------------------------
+# API: Admin -- salesman map (replaces salesman_map.xlsx for the test app)
+# ---------------------------------------------------------------------------
+
+
+@settings_bp.get("/api/settings/admin/salesmen")
+@require_admin
+def api_list_salesmen():
+    return jsonify({"ok": True, "salesmen": list_salesman_map()})
+
+
+@settings_bp.post("/api/settings/admin/salesmen")
+@require_admin
+def api_upsert_salesman():
+    body = request.get_json(silent=True) or {}
+    if not (body.get("key") or "").strip():
+        return jsonify({"error": "key is required"}), 400
+    try:
+        upsert_salesman_record(body)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True, "salesmen": list_salesman_map()})
+
+
+@settings_bp.post("/api/settings/admin/salesmen/delete")
+@require_admin
+def api_delete_salesman():
+    body = request.get_json(silent=True) or {}
+    key = (body.get("key") or "").strip()
+    if not key:
+        return jsonify({"error": "key is required"}), 400
+    ok = delete_salesman_record(key)
+    if not ok:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify({"ok": True, "salesmen": list_salesman_map()})
 
 
 # ---------------------------------------------------------------------------

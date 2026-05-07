@@ -68,16 +68,25 @@ def _live_app_db_path() -> Path | None:
 
 
 def _is_admin_in_test_db(email: str) -> bool:
-    """Check the test app's own app_users table."""
+    """Check the test app's own app_users table.
+
+    A user is admin on the test site if either:
+      * legacy ``is_admin`` flag is on, OR
+      * ``role`` is admin or developer (the live-app convention).
+    """
     if not email:
         return False
     try:
         with connect() as conn:
             row = conn.execute(
-                "SELECT is_admin FROM app_users WHERE email = ?",
+                "SELECT is_admin, role FROM app_users WHERE email = ?",
                 (email,),
             ).fetchone()
-        return bool(row and row["is_admin"])
+        if not row:
+            return False
+        if row["is_admin"]:
+            return True
+        return (row["role"] or "").strip().lower() in ("admin", "developer")
     except Exception:
         log.exception("is_admin: test db lookup failed for %s", email)
         return False
