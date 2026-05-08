@@ -3,7 +3,7 @@ description: Always commit and push to git after every substantive edit so histo
 alwaysApply: true
 ---
 
-# Always Commit & Push After Edits
+# Always Commit & Push After Each Edit Prompt
 
 This repo lives inside a OneDrive-synced SharePoint folder. Without explicit
 git commits, changes only exist on one machine's local disk and any cross-
@@ -13,10 +13,11 @@ commit was live when a job ran matters a lot.
 
 ## Rules
 
-1. **After every substantive code change** (a feature, a bug fix, a refactor,
-   or any edit the user asked for), commit to git **before ending your turn**.
-   Do not wait to be reminded. Do not batch multiple unrelated tasks into one
-   commit -- one logical change, one commit.
+1. **After every user prompt that results in a completed file edit** (a feature,
+   a bug fix, a refactor, CSS/layout tweak, config change, test update, docs
+   edit, or rule change), commit to git **before ending your turn**. Do not
+   wait to be reminded. Do not batch multiple unrelated tasks into one commit
+   -- one logical change, one commit.
 
 2. **Push immediately after committing.** A local commit that hasn't been
    pushed is invisible to the rest of the team and will be lost if the laptop
@@ -36,8 +37,13 @@ commit was live when a job ran matters a lot.
    explicitly republished.
 
 6. **Trivial, in-progress edits don't need their own commit** (e.g. iterating
-   on a single function while debugging). But the moment the change is
-   working and the user has moved on, commit and push.
+   on a single function while debugging). But the moment the requested prompt
+   is working, verified as much as practical, and ready to hand back, commit
+   and push in the same turn.
+
+7. If a user asks "why didn't you push?", treat that as confirmation that this
+   workflow applies broadly in this repo. Commit and push the completed work
+   immediately unless the user explicitly says to hold, not commit, or not push.
 
 ## Workflow
 

@@ -4661,7 +4661,8 @@ body.dark-theme .badge-external {
 /* Edit-user modal layout helpers (uses the existing .modal-overlay/.modal-content). */
 #editUserModal .modal-content,
 #editSmModal   .modal-content {
-    max-width: 520px;
+    max-width: 640px;
+    width: min(640px, calc(100vw - 32px));
     padding: 0;
     display: flex;
     flex-direction: column;
@@ -4698,6 +4699,10 @@ body.dark-theme .badge-external {
     display: block;
     margin-bottom: 4px;
 }
+#editUserModal .form-row,
+#editSmModal .form-row {
+    display: block;
+}
 .form-hint {
     font-size: 11px;
     color: var(--text-muted);
@@ -4712,6 +4717,25 @@ body.dark-theme .badge-external {
     padding: 4px 8px;
     background: var(--bg);
 }
+#editUserModal .settings-customer-item {
+    gap: 12px;
+}
+#editUserModal .settings-customer-item > span {
+    min-width: 0;
+}
+#editUserModal .settings-customer-item .toggle-switch,
+#editUserModal .settings-customer-item .report-access-select {
+    flex: 0 0 auto;
+}
+#editUserModal .report-overrides {
+    max-height: 260px;
+}
+#editUserReportsList .settings-customer-item > span {
+    flex: 1 1 auto;
+}
+#editUserReportsList .report-access-select {
+    min-width: 140px !important;
+}
 .report-overrides .settings-customer-item,
 .assigned-salesmen-list .settings-customer-item {
     border-bottom: 1px solid var(--border);
@@ -4719,4 +4743,19 @@ body.dark-theme .badge-external {
 .report-overrides .settings-customer-item:last-child,
 .assigned-salesmen-list .settings-customer-item:last-child {
     border-bottom: none;
+}
+
+@media (max-width: 540px) {
+    #editUserModal .modal-content,
+    #editSmModal   .modal-content {
+        width: 100vw;
+        max-width: 100vw;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    #editUserModal .modal-body,
+    #editSmModal   .modal-body {
+        max-height: calc(100vh - 140px);
+    }
 }
