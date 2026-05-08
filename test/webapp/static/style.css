@@ -901,11 +901,6 @@ body.dark-theme .status-no_data {
 
 /* -- Data Table ---------------------------------------------------------- */
 
-/* Make container full-width when it contains a table wrapper */
-.container:has(.table-wrapper) {
-    max-width: none;
-}
-
 .table-wrapper {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
