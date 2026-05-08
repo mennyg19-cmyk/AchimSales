@@ -764,14 +764,20 @@ def _populate_lookups_blocking() -> None:
             _lookup_thread = None
 
 
-def _kick_lookup_populate() -> None:
-    """Start a background populate if one isn't already in flight."""
+def _kick_lookup_populate() -> bool:
+    """Start a background populate if one isn't already in flight.
+
+    Returns True when this call started a new worker. Existing callers can
+    ignore the return value; lookup_status() uses it to report "loading"
+    immediately instead of letting the browser fall through to stale mirror
+    rows while the API call is still getting started.
+    """
     global _lookup_thread
     if not is_configured():
-        return
+        return False
     with _LOOKUP_LOCK:
         if _lookup_thread is not None and _lookup_thread.is_alive():
-            return  # already loading
+            return False  # already loading
         t = threading.Thread(
             target=_populate_lookups_blocking,
             name="reporting-api-lookups",
@@ -779,6 +785,7 @@ def _kick_lookup_populate() -> None:
         )
         _lookup_thread = t
         t.start()
+        return True
 
 
 def _cached_lookup_rows() -> list[dict]:
@@ -797,9 +804,37 @@ def lookup_status() -> dict[str, Any]:
     state["configured"] = is_configured()
     cached = len(_cached_lookup_rows())
     state["cached_row_count"] = cached
-    # If we have nothing in process but the SQLite mirror has rows,
-    # tell the UI it can stop showing "loading" -- the dropdowns will
-    # be served from the mirror.
+
+    # If the UI asks for lookup status and there is no cached lookup data,
+    # make that status request itself kick/retry the live API populate.
+    # Previously the browser had to hit /salesmen or /customers to start
+    # the worker, but those endpoints intentionally serve the SQLite mirror
+    # immediately. That made the filter page show stale data while the live
+    # API was merely slow. Status polling should prefer "still loading /
+    # retrying" over "fallback" until the frontend grace period expires.
+    if state["configured"] and cached == 0 and state.get("status") != "loading":
+        now = time.time()
+        finished_at = state.get("finished_at")
+        retry_due = (
+            state.get("status") != "error"
+            or not finished_at
+            or (now - float(finished_at)) >= 15
+        )
+        if retry_due and _kick_lookup_populate():
+            state = dict(_lookup_state)
+            state["configured"] = True
+            state["cached_row_count"] = cached
+            # The worker sets this too, but thread scheduling is not
+            # guaranteed to run before this request returns.
+            if state.get("status") not in ("loading", "ready"):
+                state["status"] = "loading"
+                state["started_at"] = now
+                state["finished_at"] = None
+                state["error"] = None
+
+    # If we have nothing in process but the SQLite mirror has rows, tell
+    # the UI the fallback exists. The frontend decides when to use it so
+    # slow live API calls get a fair chance first.
     if cached == 0:
         try:
             from test.webapp.services import mirror
