@@ -3148,18 +3148,14 @@ body.col-resizing * {
          desktop   -> right-side sidebar (only when non-empty)
          mobile    -> bottom drawer, opened via FAB, shopping-cart style
 */
-/* Make the container full-width for wide app pages. */
-.container:has(.report-view-page),
-.container:has(.settings-page),
-.container:has(.schedules-page) {
+/* Make the container full-width when showing the report viewer */
+.container:has(.report-view-page) {
     max-width: none;
     padding-left: 16px;
     padding-right: 16px;
 }
 @media (min-width: 768px) {
-    .container:has(.report-view-page),
-    .container:has(.settings-page),
-    .container:has(.schedules-page) {
+    .container:has(.report-view-page) {
         padding-left: 32px;
         padding-right: 32px;
     }
