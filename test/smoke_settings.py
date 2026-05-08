@@ -100,14 +100,17 @@ def main() -> None:
     r = client.get("/settings")
     assert r.status_code == 200, f"GET /settings -> {r.status_code}"
     body = r.get_data(as_text=True)
-    for needle in ("Users &amp; permissions", "Per-report access"):
+    for needle in ("Users &amp; permissions", "Per-report access", "Add master schedule"):
         if needle not in body:
             _print(FAIL, f"settings.html missing: {needle}")
             sys.exit(1)
     if "Salesman map" in body:
         _print(FAIL, "settings.html still has the standalone 'Salesman map' section")
         sys.exit(1)
-    _print(OK, "settings page renders, no separate Salesman map")
+    if "Manage master schedules" in body:
+        _print(FAIL, "settings.html still links out to the master schedules page")
+        sys.exit(1)
+    _print(OK, "settings page renders with inline master schedules")
 
     # /api/settings/admin/users returns the perm grid + report meta + salesmen.
     body = _expect_ok("GET admin/users", client.get("/api/settings/admin/users"))

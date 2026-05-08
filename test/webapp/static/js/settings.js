@@ -157,6 +157,182 @@
   });
 
   // ---------------------------------------------------------------------
+  // Admin: master schedules (inline on Settings)
+  // ---------------------------------------------------------------------
+  const msList = $("#masterSchedulesList");
+  if (msList) {
+    msList.addEventListener("click", function (ev) {
+      const item = ev.target.closest(".history-item");
+      if (!item) return;
+      const id = item.getAttribute("data-id");
+
+      if (ev.target.closest(".ms-run-btn")) {
+        if (!confirm("Run this master schedule now?")) return;
+        const btn = ev.target.closest(".ms-run-btn");
+        btn.disabled = true;
+        apiPost("/master-schedules/api/" + id + "/run", {})
+          .then((j) => {
+            showToast("Run complete. Rows: " + (j.rows_returned || 0));
+          })
+          .catch((e) => showToast("Run failed: " + e.message, "error"))
+          .finally(() => { btn.disabled = false; });
+      }
+
+      if (ev.target.closest(".ms-delete-btn")) {
+        if (!confirm("Delete this master schedule?")) return;
+        fetch(PREFIX + "/master-schedules/api/" + id, { method: "DELETE" })
+          .then((r) => r.json().then((j) => ({ r, j })).catch(() => ({ r, j: {} })))
+          .then((p) => {
+            if (p.r.ok && p.j.ok) {
+              item.remove();
+              showToast("Master schedule deleted.");
+            } else {
+              showToast("Delete failed: " + (p.j.error || ("HTTP " + p.r.status)), "error");
+            }
+          })
+          .catch((e) => showToast("Delete failed: " + e.message, "error"));
+      }
+
+      if (ev.target.closest(".ms-edit-btn")) {
+        try {
+          const sched = JSON.parse(item.getAttribute("data-schedule") || "{}");
+          openMasterScheduleModal(sched);
+        } catch (e) {
+          showToast("Could not read schedule row: " + e.message, "error");
+        }
+      }
+    });
+  }
+
+  const msOverlay = $("#msModalOverlay");
+  const msForm = $("#msForm");
+  let msEditingId = null;
+
+  function msField(name) {
+    return msForm ? msForm.querySelector(`[name="${name}"]`) : null;
+  }
+
+  function updateMasterScheduleCadenceUI() {
+    if (!msForm) return;
+    const cadence = (msField("cadence") || {}).value || "daily";
+    const weekdays = $("#msWeekdays");
+    const monthdays = $("#msMonthdays");
+    if (weekdays) weekdays.style.display = (cadence === "weekly") ? "" : "none";
+    if (monthdays) monthdays.style.display = (cadence === "monthly") ? "" : "none";
+  }
+
+  function todayIso() {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 10);
+  }
+
+  function openMasterScheduleModal(sched) {
+    if (!msOverlay || !msForm) return;
+    msEditingId = sched ? sched.id : null;
+    msForm.reset();
+    const errBox = $("#msFormError");
+    if (errBox) errBox.style.display = "none";
+    const title = $("#msModalTitle");
+    if (title) title.textContent = sched ? ("Edit: " + sched.name) : "New master schedule";
+
+    if (sched) {
+      msField("name").value = sched.name || "";
+      msField("report_key").value = sched.report_key || "";
+      msField("cadence").value = sched.cadence || "daily";
+      msField("time_hhmm").value = sched.time_hhmm || "07:00";
+      msField("start_date").value = sched.start_date || "";
+      msField("end_date").value = sched.end_date || "";
+      msField("recipients").value = sched.recipients || "";
+      msField("sharepoint_path").value = sched.sharepoint_path || "";
+      (sched.weekdays || "").split(",").filter(Boolean).forEach((w) => {
+        const cb = msForm.querySelector(`[name="weekday"][value="${w}"]`);
+        if (cb) cb.checked = true;
+      });
+      (sched.monthdays || "").split(",").filter(Boolean).forEach((d) => {
+        const cb = msForm.querySelector(`[name="monthday"][value="${d}"]`);
+        if (cb) cb.checked = true;
+      });
+    } else {
+      msField("time_hhmm").value = "07:00";
+      msField("start_date").value = todayIso();
+    }
+
+    updateMasterScheduleCadenceUI();
+    msOverlay.style.display = "flex";
+  }
+
+  function closeMasterScheduleModal() {
+    if (msOverlay) msOverlay.style.display = "none";
+    msEditingId = null;
+  }
+
+  $("#msCreateBtn")?.addEventListener("click", () => openMasterScheduleModal(null));
+  $("#msCancelBtn")?.addEventListener("click", closeMasterScheduleModal);
+  $("#msModalClose")?.addEventListener("click", closeMasterScheduleModal);
+  msField("cadence")?.addEventListener("change", updateMasterScheduleCadenceUI);
+
+  $("#msPickSpBtn")?.addEventListener("click", async () => {
+    if (!window.openSharePointPicker) {
+      showToast("SharePoint picker not loaded.", "error");
+      return;
+    }
+    const p = await window.openSharePointPicker({
+      initialPath: (msField("sharepoint_path") || {}).value || "",
+    });
+    if (p !== null && msField("sharepoint_path")) {
+      msField("sharepoint_path").value = p;
+    }
+  });
+
+  $("#msClearSpBtn")?.addEventListener("click", () => {
+    if (msField("sharepoint_path")) msField("sharepoint_path").value = "";
+  });
+
+  if (msForm) {
+    msForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const errBox = $("#msFormError");
+      if (errBox) errBox.style.display = "none";
+
+      const weekdays = $all('[name="weekday"]:checked', msForm)
+        .map((c) => c.value).join(",");
+      const monthdays = $all('[name="monthday"]:checked', msForm)
+        .map((c) => c.value).join(",");
+      const body = {
+        name:            msField("name").value.trim(),
+        report_key:      msField("report_key").value,
+        cadence:         msField("cadence").value,
+        weekdays:        weekdays,
+        monthdays:       monthdays,
+        time_hhmm:       msField("time_hhmm").value,
+        start_date:      msField("start_date").value,
+        end_date:        msField("end_date").value || null,
+        recipients:      msField("recipients").value.trim(),
+        sharepoint_path: msField("sharepoint_path").value.trim(),
+        params:          {},
+        layouts:         {},
+      };
+      const path = msEditingId
+        ? "/master-schedules/api/" + msEditingId
+        : "/master-schedules/api";
+      try {
+        await apiPost(path, body);
+        closeMasterScheduleModal();
+        showToast("Master schedule saved.");
+        window.location.reload();
+      } catch (e) {
+        if (errBox) {
+          errBox.textContent = e.message;
+          errBox.style.display = "block";
+        } else {
+          showToast("Save failed: " + e.message, "error");
+        }
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // Admin: users + permissions (unified -- salesmen are users too)
   // ---------------------------------------------------------------------
 

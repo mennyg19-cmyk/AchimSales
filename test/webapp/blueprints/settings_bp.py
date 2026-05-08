@@ -74,6 +74,7 @@ def index():
             "feature_flags":    list_feature_flags(),
             "users":            list_app_users(),
             "master_schedules": list_master_schedules(),
+            "reports":          [{"key": k, "name": r.name} for k, r in REPORTS.items()],
             "salesmen":         list_salesman_map(),
             "perm_grid":        get_users_permission_grid(report_keys),
             "report_meta":      report_meta,

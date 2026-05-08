@@ -96,23 +96,186 @@
 </section>
 
 {% if is_admin %}
-{# ===== Admin: Master Schedules link ================================== #}
+{# ===== Admin: Master Schedules ======================================= #}
 <section class="settings-section" style="margin-top:24px;">
-    <h3 class="settings-section-title">
+    <h3 class="settings-section-title collapsible collapsed" data-toggle="masterSchedulesBody">
         <i data-feather="calendar" style="width:18px;height:18px;"></i>
         Master schedules
+        <span style="margin-left:6px;font-size:12px;font-weight:normal;color:var(--text-muted);">({{ admin.master_schedules|length }})</span>
     </h3>
-    <p class="settings-section-desc">
-        Shared schedules visible to everyone. Admins can create, edit, and delete them.
-    </p>
-    <a href="{{ URL_PREFIX }}/master-schedules" class="btn btn-primary">
-        <i data-feather="external-link" style="width:14px;height:14px;"></i>
-        Manage master schedules
-    </a>
-    <div style="margin-top:12px;color:var(--text-muted);font-size:13px;">
-        {{ admin.master_schedules|length }} master schedule{{ '' if admin.master_schedules|length == 1 else 's' }} configured.
+    <div class="collapsible-body collapsed" id="masterSchedulesBody">
+        <p class="settings-section-desc">
+            Shared schedules visible to everyone. Admins can create, edit, run, and delete them here.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;justify-content:space-between;">
+            <button type="button" class="btn btn-primary btn-sm" id="msCreateBtn">
+                <i data-feather="plus" style="width:14px;height:14px;"></i>
+                Add master schedule
+            </button>
+            <span style="color:var(--text-muted);font-size:13px;">
+                {{ admin.master_schedules|length }} configured
+            </span>
+        </div>
+
+        {% if not admin.master_schedules %}
+        <div class="empty-state" style="margin:8px 0;">
+            <i data-feather="calendar" width="36" height="36"></i>
+            <h3>No master schedules yet</h3>
+            <p>Click <strong>Add master schedule</strong> to create one.</p>
+        </div>
+        {% else %}
+        <div class="history-list" id="masterSchedulesList">
+            {% for s in admin.master_schedules %}
+            <div class="history-item" data-id="{{ s.id }}" data-schedule='{{ s | tojson }}'>
+                <div class="history-item-main">
+                    <div class="history-item-header">
+                        <span class="history-report-name">{{ s.name }}</span>
+                        <span class="status-badge {{ 'status-completed' if s.active else 'status-inactive' }}">
+                            {{ 'Active' if s.active else 'Paused' }}
+                        </span>
+                        <span class="history-timestamp">by {{ s.created_by }}</span>
+                    </div>
+                    <div class="history-summary-line">
+                        <span class="history-stat">Report: <strong>{{ s.report_name }}</strong></span>
+                        <span class="history-stat">
+                            Cadence:
+                            <strong>
+                                {% if s.cadence == 'daily' %}Daily
+                                {% elif s.cadence == 'weekly' %}Weekly ({{ s.weekdays }})
+                                {% elif s.cadence == 'monthly' %}
+                                    Monthly (days: {{ s.monthdays.replace('-1', 'last') }})
+                                {% elif s.cadence == 'once' %}One-time
+                                {% endif %}
+                            </strong>
+                        </span>
+                        <span class="history-stat">Time: <strong>{{ s.time_hhmm }}</strong></span>
+                    </div>
+                    <div class="history-params">
+                        {% if s.recipients %}
+                        <span class="history-param-tag">To: {{ s.recipients }}</span>
+                        {% endif %}
+                        {% if s.sharepoint_path %}
+                        <span class="history-param-tag">SharePoint: {{ s.sharepoint_path }}</span>
+                        {% endif %}
+                    </div>
+                    {% if s.last_run_utc %}
+                    <div class="history-meta">Last run: {{ s.last_run_utc[:16].replace('T', ' ') }} UTC</div>
+                    {% endif %}
+                </div>
+                <div class="history-item-actions">
+                    <button type="button" class="btn btn-sm btn-outline ms-run-btn" title="Run now">
+                        <i data-feather="play" style="width:14px;height:14px;"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline ms-edit-btn" title="Edit">
+                        <i data-feather="edit-2" style="width:14px;height:14px;"></i>
+                    </button>
+                    <a href="{{ url_for('master_schedules.history_page', sched_id=s.id) }}"
+                       class="btn btn-sm btn-outline" title="Run history">
+                        <i data-feather="list" style="width:14px;height:14px;"></i>
+                    </a>
+                    <button type="button" class="btn btn-sm btn-outline ms-delete-btn" title="Delete">
+                        <i data-feather="trash-2" style="width:14px;height:14px;"></i>
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
 </section>
+
+{# Create/Edit master schedule modal -- populated by settings.js -- #}
+<div class="v2-modal-overlay" id="msModalOverlay" style="display:none;">
+    <div class="v2-modal" role="dialog" aria-modal="true">
+        <div class="v2-modal-header">
+            <h3 id="msModalTitle">New master schedule</h3>
+            <button type="button" class="sp-picker-close" id="msModalClose" aria-label="Close">&times;</button>
+        </div>
+        <form class="v2-modal-body" id="msForm">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" class="form-input" name="name" required maxlength="120">
+            </div>
+            <div class="form-group">
+                <label>Report</label>
+                <select class="form-input" name="report_key" required>
+                    <option value="">-- choose --</option>
+                    {% for r in admin.reports %}
+                    <option value="{{ r.key }}">{{ r.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Cadence</label>
+                    <select class="form-input" name="cadence" id="msCadence" required>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="once">One-time</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Time (24h)</label>
+                    <input type="time" class="form-input" name="time_hhmm" value="07:00" required>
+                </div>
+            </div>
+            <div id="msWeekdays" class="form-group" style="display:none;">
+                <label>Weekdays</label>
+                <div class="weekday-row">
+                    {% for d in ['mon','tue','wed','thu','fri','sat','sun'] %}
+                    <label class="weekday-chip">
+                        <input type="checkbox" name="weekday" value="{{ d }}"> {{ d|capitalize }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div id="msMonthdays" class="form-group" style="display:none;">
+                <label>Days of month</label>
+                <div class="monthday-grid">
+                    {% for d in range(1, 32) %}
+                    <label class="monthday-chip">
+                        <input type="checkbox" name="monthday" value="{{ d }}"> {{ d }}
+                    </label>
+                    {% endfor %}
+                    <label class="monthday-chip monthday-last">
+                        <input type="checkbox" name="monthday" value="-1"> Last
+                    </label>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Start date</label>
+                    <input type="date" class="form-input" name="start_date" required>
+                </div>
+                <div class="form-group">
+                    <label>End date <span style="color:var(--text-muted);font-size:12px;">(optional)</span></label>
+                    <input type="date" class="form-input" name="end_date">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Recipients <span style="color:var(--text-muted);font-size:12px;">(comma-separated)</span></label>
+                <input type="text" class="form-input" name="recipients" placeholder="alice@achim.com, bob@achim.com">
+            </div>
+            <div class="form-group">
+                <label>SharePoint folder</label>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" class="form-input" name="sharepoint_path" readonly placeholder="(none)">
+                    <button type="button" class="btn btn-outline" id="msPickSpBtn">Choose...</button>
+                    <button type="button" class="btn btn-outline" id="msClearSpBtn">Clear</button>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                    Under <em>Direct Reports</em>. Leave blank to email-only.
+                </div>
+            </div>
+            <div class="v2-modal-error" id="msFormError" style="display:none;"></div>
+            <div class="actions">
+                <button type="button" class="btn btn-outline" id="msCancelBtn">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="msSaveBtn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 {# ===== Admin: Users & permissions ==================================== #}
 {# This section is the unified admin home: every user is shown here,    #}
