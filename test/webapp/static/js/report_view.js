@@ -265,6 +265,8 @@
 
             state.tabs[t.key] = {
                 name:         t.name,
+                sourceTabKey: t.duplicate_of || t.key,
+                isDuplicate:  !!t.duplicate_of,
                 data:         Array.isArray(t.rows) ? t.rows : [],
                 columnsMeta:  Array.isArray(t.columns) ? t.columns.map(cloneCol) : [],
                 hiddenFields: new Set(),
@@ -356,6 +358,8 @@
                 sort_levels:   (t.sortLevels || []).map(function (s) { return { field: s.field, dir: s.dir }; }),
                 group_levels:  (t.groupLevels || []).slice(),
                 filters:       safeGetHeaderFilters(t.grid),
+                duplicate_of:  t.isDuplicate ? (t.sourceTabKey || null) : null,
+                tab_name:      t.name || "",
             };
         });
         return snap;
@@ -375,6 +379,18 @@
      *  isn't returned anymore) is silently skipped. */
     function applyLayoutSnapshot(snap) {
         if (!snap) return;
+        Object.keys(snap.tabs || {}).forEach(function (tabKey) {
+            if (state.tabs[tabKey]) return;
+            const saved = snap.tabs[tabKey] || {};
+            const sourceKey = saved.duplicate_of;
+            if (!sourceKey || !state.tabs[sourceKey]) return;
+            state.tabs[tabKey] = cloneTabState(
+                state.tabs[sourceKey],
+                saved.tab_name || state.tabs[sourceKey].name,
+                sourceKey,
+            );
+            state.tabOrder.push(tabKey);
+        });
         state.hiddenTabs = new Set(snap.hiddenTabs.filter(function (k) { return !!state.tabs[k]; }));
 
         Object.keys(snap.tabs).forEach(function (tabKey) {
@@ -426,6 +442,7 @@
     function applyPresetLayouts() {
         const layouts = cfg.presetLayouts || {};
         if (!layouts || typeof layouts !== "object") return;
+        materializePresetDuplicateTabs(layouts);
 
         Object.keys(layouts).forEach(function (tabKey) {
             const saved = layouts[tabKey] || {};
@@ -459,7 +476,51 @@
                 });
                 tab.fieldOrder = ordered;
             }
+            if (Array.isArray(saved.sort_levels)) {
+                tab.sortLevels = saved.sort_levels.map(function (s) {
+                    return { field: s.field, dir: s.dir || "asc" };
+                });
+            }
+            if (Array.isArray(saved.group_levels)) {
+                tab.groupLevels = saved.group_levels.slice();
+            }
+            if (Array.isArray(saved.filters)) {
+                tab._restoreFilters = saved.filters.filter(function (f) {
+                    return f && validFields.has(f.field);
+                });
+            }
         });
+    }
+
+    function materializePresetDuplicateTabs(layouts) {
+        Object.keys(layouts).forEach(function (tabKey) {
+            if (state.tabs[tabKey]) return;
+            const saved = layouts[tabKey] || {};
+            const sourceKey = saved.duplicate_of || saved.source_tab_key;
+            if (!sourceKey || !state.tabs[sourceKey]) return;
+            state.tabs[tabKey] = cloneTabState(
+                state.tabs[sourceKey],
+                saved.tab_name || state.tabs[sourceKey].name,
+                sourceKey,
+            );
+            state.tabOrder.push(tabKey);
+        });
+    }
+
+    function cloneTabState(source, name, sourceKey) {
+        return {
+            name:         name || source.name,
+            sourceTabKey: sourceKey || source.sourceTabKey || null,
+            isDuplicate:  true,
+            data:         (source.data || []).map(function (r) { return Object.assign({}, r); }),
+            columnsMeta:  (source.columnsMeta || []).map(cloneCol),
+            hiddenFields: new Set(Array.from(source.hiddenFields || [])),
+            fieldOrder:   (source.fieldOrder || []).slice(),
+            grid:         null,
+            container:    null,
+            sortLevels:   (source.sortLevels || []).map(function (s) { return { field: s.field, dir: s.dir || "asc" }; }),
+            groupLevels:  (source.groupLevels || []).slice(),
+        };
     }
 
     // ---------- Tabs -----------------------------------------------------
@@ -475,11 +536,19 @@
             btn.dataset.key = key;
             btn.innerHTML =
                 '<span class="viewer-tab-name"></span>' +
+                '<button type="button" class="viewer-tab-dup" aria-label="Duplicate tab" title="Duplicate tab">' +
+                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"></rect><rect x="4" y="4" width="11" height="11" rx="2"></rect></svg>' +
+                '</button>' +
                 '<button type="button" class="viewer-tab-close" aria-label="Hide tab" title="Hide tab">' +
                     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6L18 18M6 18L18 6"/></svg>' +
                 '</button>';
             btn.querySelector(".viewer-tab-name").textContent = t.name;
             btn.addEventListener("click", function (e) {
+                if (e.target.closest(".viewer-tab-dup")) {
+                    e.stopPropagation();
+                    duplicateTabWithPrompt(key);
+                    return;
+                }
                 if (e.target.closest(".viewer-tab-close")) {
                     e.stopPropagation();
                     hideTab(key);
@@ -566,6 +635,7 @@
             rowFormatter:  decorateRow,
             columnMoved:   function () { syncFieldOrder(key); updateChangedState(); },
             dataFiltered:  function () {
+                rebuildGridDataFromFilters(key);
                 if (key === state.activeTab) updateExportRowCount();
                 updateChangedState();
             },
@@ -606,6 +676,9 @@
             }
             delete t._restoreSorters;  // legacy: sort now lives on tab.sortLevels
             delete t._restoreFilters;
+            const f = activeHeaderFilters(t);
+            t._hasActiveFilters = f.length > 0;
+            t._filteredRawCount = applyHeaderFiltersToRaw(t, f).length;
             if (key === state.activeTab) {
                 renderSortGroupBar();
                 updateExportRowCount();
@@ -672,6 +745,49 @@
 
         // Walk and inject per-group-level totals + spacer at each break.
         return injectGroupTotals(t, raw);
+    }
+
+    function activeHeaderFilters(t) {
+        if (!t || !t.grid || typeof t.grid.getHeaderFilters !== "function") return [];
+        try {
+            return (t.grid.getHeaderFilters() || []).filter(function (f) {
+                return f && f.value !== "" && f.value != null;
+            });
+        } catch (_) {
+            return [];
+        }
+    }
+
+    function applyHeaderFiltersToRaw(t, filters) {
+        const raw = (t.data || []).filter(function (r) { return r && !r._is_total && !r._is_spacer; });
+        if (!filters || !filters.length) return raw;
+        return raw.filter(function (row) {
+            return filters.every(function (f) {
+                const meta = t.columnsMeta.find(function (c) { return c.field === f.field; });
+                if (!meta) return true;
+                return applyHeaderFilter(meta, f.value, row[f.field], row);
+            });
+        });
+    }
+
+    function rebuildGridDataFromFilters(key) {
+        const t = state.tabs[key];
+        if (!t || !t.grid || t._rebuildingData) return;
+        const filters = activeHeaderFilters(t);
+        const filteredRaw = applyHeaderFiltersToRaw(t, filters);
+        t._hasActiveFilters = filters.length > 0;
+        t._filteredRawCount = filteredRaw.length;
+        t._rebuildingData = true;
+        try {
+            const display = computeDisplayRows(t, function (r) {
+                return filteredRaw.indexOf(r) >= 0;
+            });
+            t.grid.setData(display);
+        } catch (_) {
+            // ignore
+        } finally {
+            t._rebuildingData = false;
+        }
     }
 
     function compareByKeys(t, keys) {
@@ -808,7 +924,11 @@
         const t = state.tabs[key];
         if (!t || !t.grid) return;
         try {
-            t.grid.setData(computeDisplayRows(t));
+            const filters = activeHeaderFilters(t);
+            const filteredRaw = applyHeaderFiltersToRaw(t, filters);
+            t._hasActiveFilters = filters.length > 0;
+            t._filteredRawCount = filteredRaw.length;
+            t.grid.setData(computeDisplayRows(t, function (r) { return filteredRaw.indexOf(r) >= 0; }));
         } catch (_) {}
         renderSortGroupBar();
         updateChangedState();
@@ -1053,10 +1173,8 @@
         document.body.appendChild(menu);
     }
 
-    /** Decide whether a row passes the per-column filter. Total / spacer
-     *  rows always pass so grouped layouts stay intact. */
+    /** Decide whether a row passes the per-column filter. */
     function applyHeaderFilter(meta, filterVal, cellVal, rowData) {
-        if (rowData && (rowData._is_total || rowData._is_spacer)) return true;
         if (filterVal === "" || filterVal == null) return true;
 
         // Backwards compat: if Tabulator hands us a bare string (e.g.
@@ -1237,6 +1355,42 @@
             }
         }
         refreshHiddenUi();
+    }
+
+    function duplicateTabWithPrompt(key) {
+        const src = state.tabs[key];
+        if (!src) return;
+        const raw = window.prompt("Duplicate tab name:", src.name + " (Copy)");
+        if (raw == null) return;
+        const name = String(raw || "").trim();
+        if (!name) {
+            alert("Tab name is required.");
+            return;
+        }
+        const dupKey = makeDuplicateTabKey(key);
+        state.tabs[dupKey] = cloneTabState(src, name, key);
+        state.tabOrder.push(dupKey);
+        const div = document.createElement("div");
+        div.className = "grid-pane";
+        div.dataset.key = dupKey;
+        const inner = document.createElement("div");
+        inner.className = "grid-container";
+        div.appendChild(inner);
+        els.gridRoot.appendChild(div);
+        state.tabs[dupKey].container = inner;
+        buildTabStrip();
+        activateTab(dupKey);
+        refreshHiddenUi();
+        updateChangedState();
+    }
+
+    function makeDuplicateTabKey(sourceKey) {
+        let n = 1;
+        while (true) {
+            const k = String(sourceKey) + "__dup" + n;
+            if (!state.tabs[k]) return k;
+            n += 1;
+        }
     }
 
     function restoreTab(key) {
@@ -1559,6 +1713,11 @@
                 tab_hidden:    state.hiddenTabs.has(key),
                 hidden_fields: Array.from(t.hiddenFields),
                 field_order:   t.fieldOrder.slice(),
+                sort_levels:   (t.sortLevels || []).map(function (s) { return { field: s.field, dir: s.dir || "asc" }; }),
+                group_levels:  (t.groupLevels || []).slice(),
+                filters:       safeGetHeaderFilters(t.grid),
+                duplicate_of:  t.isDuplicate ? (t.sourceTabKey || null) : null,
+                tab_name:      t.name || "",
             };
         });
         return out;
@@ -1584,6 +1743,15 @@
     function resetView() {
         if (!state.defaultLayout) return;
         const def = state.defaultLayout;
+        state.tabOrder = state.tabOrder.filter(function (k) { return !!(def.tabs && def.tabs[k]); });
+        Object.keys(state.tabs).forEach(function (k) {
+            if (def.tabs && def.tabs[k]) return;
+            const t = state.tabs[k];
+            if (t && t.grid) {
+                try { t.grid.destroy(); } catch (_) {}
+            }
+            delete state.tabs[k];
+        });
 
         // Restore tab visibility + per-tab column hides + column order.
         state.hiddenTabs = new Set(def.hiddenTabs.filter(function (k) { return !!state.tabs[k]; }));
@@ -1697,29 +1865,12 @@
         // totals / spacer rows) so the chip stays meaningful.
         const isReal = function (r) { return r && !r._is_total && !r._is_spacer; };
         const total = (t.data || []).filter(isReal).length;
-        let visible = total;
-        let filtered = false;
-        if (t.grid && typeof t.grid.getHeaderFilters === "function") {
-            try {
-                const filters = t.grid.getHeaderFilters() || [];
-                filtered = filters.some(function (f) {
-                    return f && f.value !== "" && f.value != null;
-                });
-            } catch (_) { filtered = false; }
-        }
-        if (t.grid && typeof t.grid.getData === "function") {
-            try {
-                const activeRows = t.grid.getData("active");
-                if (Array.isArray(activeRows)) {
-                    visible = activeRows.filter(isReal).length;
-                }
-            } catch (_) { visible = total; }
-        }
+        const filters = activeHeaderFilters(t);
+        const filtered = !!(t._hasActiveFilters || filters.length);
+        const visible = filtered ? (t._filteredRawCount != null ? t._filteredRawCount : applyHeaderFiltersToRaw(t, filters).length) : total;
         el.hidden = false;
         el.classList.toggle("is-filtered", filtered);
-        el.textContent = filtered
-            ? ("Exporting " + fmtInt(visible) + " of " + fmtInt(total) + " rows")
-            : ("Exporting " + fmtInt(total) + " row" + (total === 1 ? "" : "s"));
+        el.textContent = "Exporting " + fmtInt(visible) + " of " + fmtInt(total) + " rows";
     }
 
     // ---------- Excel export (client-side, WYSIWYG) ----------------------
@@ -1779,12 +1930,9 @@
         // grid hasn't been built (the tab was never activated), fall
         // back to the raw data.
         let rows;
-        if (tab.grid) {
-            // getData("active") = post-filter, post-sort. Exactly WYSIWYG.
-            rows = tab.grid.getData("active") || [];
-        } else {
-            rows = (tab.data || []).slice();
-        }
+        const filters = activeHeaderFilters(tab);
+        const filteredRaw = applyHeaderFiltersToRaw(tab, filters);
+        rows = computeDisplayRows(tab, function (r) { return filteredRaw.indexOf(r) >= 0; });
 
         // Build the visible columns in their on-screen order.
         const fields = tab.fieldOrder.filter(function (f) {

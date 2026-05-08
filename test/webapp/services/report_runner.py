@@ -201,6 +201,21 @@ _BUILDERS = {
 }
 
 
+def _apply_tab_rules(report_key: str, params: dict, tabs: list[dict]) -> list[dict]:
+    """Apply live-style tab visibility rules.
+
+    Ordered report parity:
+      - when a concrete salesman filter is applied, omit the "By Salesman" tab
+        (the workbook is already scoped to one/many salesmen).
+    """
+    out = list(tabs or [])
+    if report_key == "ordered":
+        has_salesman_scope = bool((params or {}).get("salesman") or (params or {}).get("salesman_list"))
+        if has_salesman_scope:
+            out = [t for t in out if str(t.get("key")) != "by_salesman"]
+    return out
+
+
 def run_report(report_key: str, report_name: str, params: dict) -> dict[str, Any]:
     """Return the full multi-tab payload for a report.
 
@@ -222,6 +237,6 @@ def run_report(report_key: str, report_name: str, params: dict) -> dict[str, Any
         "report_name":  report_name,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "params":       params,
-        "tabs":         tabs,
+        "tabs":         _apply_tab_rules(report_key, params, tabs),
         "data_source":  source_meta,
     }

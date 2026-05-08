@@ -19,6 +19,9 @@ class Report:
     name: str
     description: str
     icon: str = "file-text"
+    # Optional role-specific labels for salesman users.
+    name_salesman: str = ""
+    description_salesman: str = ""
 
     # Filter-page capabilities (match the old app's per-report flags).
     has_period: bool       = False
@@ -60,6 +63,8 @@ REPORTS: dict[str, Report] = {
             key="invoiced",
             name="Invoiced Report",
             description="Invoices with commissions and freight details.",
+            name_salesman="Shipped Report",
+            description_salesman="Your shipped orders with commissions and freight details.",
             icon="file-text",
             has_period=True,
             salesman_filter=True,
@@ -71,7 +76,7 @@ REPORTS: dict[str, Report] = {
             description="Monthly salesman comparison: current vs prior year.",
             icon="users",
             has_year=True,
-            salesman_filter=True,
+            salesman_filter=False,
         ),
         Report(
             key="number_4",
@@ -105,6 +110,8 @@ REPORTS: dict[str, Report] = {
             key="customer_aging",
             name="Customer Aging Report",
             description="Aged balances by customer with buckets (Current, 30, 60, 90, 91+).",
+            name_salesman="Customer Aging",
+            description_salesman="Your customers' aged balances with aging buckets.",
             icon="clock",
             salesman_filter=True,
             customer_filter=True,

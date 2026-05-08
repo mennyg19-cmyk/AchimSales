@@ -12,10 +12,11 @@ import json
 
 from flask import Blueprint, abort, render_template, request
 
-from test.config.reports import REPORTS, get_report, list_reports
+from test.config.reports import REPORTS
 from test.webapp.auth import current_user, require_login
 from test.webapp.blueprints.presets import load_presets_for
 from test.webapp.db import connect
+from test.webapp.services.report_access import can_access_report, get_report_for_user, list_accessible_reports
 
 reports_bp = Blueprint("reports", __name__)
 
@@ -61,9 +62,10 @@ def list_all():
     # If the user prefers presets but has none yet, fall back to "all".
     if default_tab == "presets" and not presets:
         default_tab = "all"
+    email = (u.get("email") or "").lower()
     return render_template(
         "reports.html",
-        reports=list_reports(),
+        reports=list_accessible_reports(email, include_disabled=False),
         presets=presets,
         active_tab="reports",
         default_reports_tab=default_tab,
@@ -75,7 +77,11 @@ def list_all():
 def filter_form(report_key: str):
     if report_key not in REPORTS:
         abort(404)
-    report = get_report(report_key)
+    u = current_user() or {}
+    email = (u.get("email") or "").lower()
+    if not can_access_report(email, report_key):
+        abort(403, description="You do not have access to this report.")
+    report = get_report_for_user(email, report_key)
     if not report.enabled:
         abort(404, description=f"Report '{report_key}' is not yet wired to a data source")
     # In-app-only reports skip the standard filter form -> viewer flow.
@@ -96,7 +102,12 @@ def filter_form(report_key: str):
 def view(report_key: str):
     if report_key not in REPORTS:
         abort(404)
-    if not get_report(report_key).enabled:
+    u = current_user() or {}
+    email = (u.get("email") or "").lower()
+    if not can_access_report(email, report_key):
+        abort(403, description="You do not have access to this report.")
+    report = get_report_for_user(email, report_key)
+    if not report.enabled:
         abort(404, description=f"Report '{report_key}' is not yet wired to a data source")
 
     # Pull filter params off the query string. `customers` is multi-valued.
@@ -111,12 +122,12 @@ def view(report_key: str):
     preset_name = (request.args.get("preset_name") or "").strip()
     preset_id = request.args.get("preset") or ""
 
-    user_email = (current_user() or {}).get("email", "")
+    user_email = email
     preset_layouts = _preset_layouts_for(preset_id, user_email) if preset_id else {}
 
     return render_template(
         "report_view.html",
-        report=get_report(report_key),
+        report=report,
         params=params,
         # Serialised for the data-params attribute so the client can POST
         # it back to /run without re-parsing the URL.

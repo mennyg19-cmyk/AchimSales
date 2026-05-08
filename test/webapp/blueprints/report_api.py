@@ -24,13 +24,19 @@ from datetime import date
 
 from flask import Blueprint, Response, abort, jsonify, request
 
-from test.config.reports import REPORTS, get_report
+from test.config.reports import REPORTS
 from test.webapp.auth import current_user, has_sharepoint_access, require_login
 from test.webapp.db import log_report_run
 from test.webapp.services.email_outbox import send_report_email
+from test.webapp.services.report_layouts import expand_duplicate_tabs, normalise_layouts
 from test.webapp.services.report_export import build_workbook
 from test.webapp.services.report_runner import run_report
 from test.webapp.services import reporting_api
+from test.webapp.services.report_access import (
+    can_access_report,
+    get_report_for_user,
+    scope_params_for_user,
+)
 
 log = logging.getLogger(__name__)
 
@@ -40,30 +46,13 @@ report_api_bp = Blueprint("report_api", __name__, url_prefix="/api/reports")
 sharepoint_api_bp = Blueprint("sharepoint_api", __name__, url_prefix="/api/sharepoint")
 
 
-def _normalise_layouts(raw) -> tuple[dict, set[str]]:
-    """Convert the client's {tab_hidden, hidden_fields, field_order} shape into
-    the {order, hidden} shape that ``report_export`` wants, and pull out the
-    set of tab keys that were deleted entirely."""
-    out: dict[str, dict] = {}
-    dropped: set[str] = set()
-    if not isinstance(raw, dict):
-        return out, dropped
-    for tab_key, entry in raw.items():
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("tab_hidden"):
-            dropped.add(str(tab_key))
-            continue
-        out[str(tab_key)] = {
-            "order":  list(entry.get("field_order") or entry.get("order") or []),
-            "hidden": list(entry.get("hidden_fields") or entry.get("hidden") or []),
-        }
-    return out, dropped
-
-
 def _ensure_report(key: str):
+    u = current_user() or {}
+    email = (u.get("email") or "").lower()
     if key not in REPORTS:
         abort(404, description=f"Unknown report '{key}'")
+    if not can_access_report(email, key):
+        abort(403, description="You do not have access to this report.")
     if not REPORTS[key].enabled:
         abort(404, description=f"Report '{key}' is not yet wired to a data source")
 
@@ -191,11 +180,14 @@ def _params_from_request() -> dict:
 @require_login
 def run(key: str):
     _ensure_report(key)
-    report = get_report(key)
-    params = _params_from_request()
-
     user = current_user() or {}
-    user_email = user.get("email") or ""
+    user_email = (user.get("email") or "").lower()
+    report = get_report_for_user(user_email, key)
+    params = _params_from_request()
+    try:
+        params = scope_params_for_user(user_email, report, params)
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 403
     started = time.time()
     try:
         payload = run_report(key, report.name, params)
@@ -257,12 +249,18 @@ def export_xlsx(key: str):
     so the client `alert()` shows something useful instead of "HTTP 500".
     """
     _ensure_report(key)
-    report = get_report(key)
+    user = current_user() or {}
+    user_email = (user.get("email") or "").lower()
+    report = get_report_for_user(user_email, key)
 
     body = request.get_json(silent=True) or {}
     params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    try:
+        params = scope_params_for_user(user_email, report, params)
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 403
     layouts_raw = body.get("layouts") if isinstance(body.get("layouts"), dict) else {}
-    layouts, dropped = _normalise_layouts(layouts_raw)
+    layouts, dropped = normalise_layouts(layouts_raw)
 
     log.info(
         "export_xlsx: key=%s params=%s layouts_tabs=%s dropped=%s",
@@ -283,6 +281,7 @@ def export_xlsx(key: str):
     if dropped:
         payload = dict(payload)
         payload["tabs"] = [t for t in payload.get("tabs", []) if str(t.get("key")) not in dropped]
+    payload, layouts = expand_duplicate_tabs(payload, layouts)
 
     tabs = payload.get("tabs") or []
     log.info(
@@ -327,28 +326,34 @@ def email_now(key: str):
     what the live app would send.
     """
     _ensure_report(key)
-    report = get_report(key)
+    u = current_user() or {}
+    user_email = (u.get("email") or "").lower()
+    report = get_report_for_user(user_email, key)
 
     body = request.get_json(silent=True) or {}
     params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    try:
+        params = scope_params_for_user(user_email, report, params)
+    except PermissionError as exc:
+        return jsonify({"error": str(exc)}), 403
     layouts_raw = body.get("layouts") if isinstance(body.get("layouts"), dict) else {}
     subject = (body.get("subject") or "").strip() or f"{report.name} (test)"
     recipients_raw = (body.get("recipients") or "").strip()
     sharepoint_path = (body.get("sharepoint_path") or "").strip() or None
 
-    u = current_user() or {}
     if sharepoint_path and not has_sharepoint_access(u):
         return jsonify({"error": "SharePoint access is not enabled for your account."}), 403
 
     if not recipients_raw and not sharepoint_path:
         return jsonify({"error": "Pick at least one delivery option (email recipients or SharePoint folder)."}), 400
 
-    layouts, dropped = _normalise_layouts(layouts_raw)
+    layouts, dropped = normalise_layouts(layouts_raw)
 
     payload = run_report(key, report.name, params or {})
     if dropped:
         payload = dict(payload)
         payload["tabs"] = [t for t in payload.get("tabs", []) if str(t.get("key")) not in dropped]
+    payload, layouts = expand_duplicate_tabs(payload, layouts)
 
     xlsx_bytes = build_workbook(payload, layouts)
     filename = f"{report.name.replace(' ', '_')}.xlsx"

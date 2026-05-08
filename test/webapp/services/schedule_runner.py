@@ -26,28 +26,12 @@ from test.webapp.db import (
     update_personal_schedule_last_run,
 )
 from test.webapp.services.email_outbox import send_report_email
+from test.webapp.services.report_layouts import expand_duplicate_tabs, normalise_layouts
 from test.webapp.services.report_export import build_workbook
 from test.webapp.services.report_runner import run_report
+from test.webapp.services.report_access import get_report_for_user, scope_params_for_user
 
 log = logging.getLogger(__name__)
-
-
-def _normalise_layouts(raw) -> tuple[dict, set[str]]:
-    out: dict[str, dict] = {}
-    dropped: set[str] = set()
-    if not isinstance(raw, dict):
-        return out, dropped
-    for tab_key, entry in raw.items():
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("tab_hidden"):
-            dropped.add(str(tab_key))
-            continue
-        out[str(tab_key)] = {
-            "order":  list(entry.get("field_order") or entry.get("order") or []),
-            "hidden": list(entry.get("hidden_fields") or entry.get("hidden") or []),
-        }
-    return out, dropped
 
 
 def _load_json(s: str | None, default: Any) -> Any:
@@ -99,8 +83,17 @@ def run_schedule(
         recipients  = (schedule.get("recipients") or "").strip()
         sp_path     = (schedule.get("sharepoint_path") or "").strip() or None
 
+        principal_email = (
+            (schedule.get("created_by") if schedule_type == "master" else schedule.get("user_email"))
+            or (triggered_by or "")
+        ).strip().lower()
         try:
             get_report(report_key)
+            effective_report = get_report_for_user(principal_email, report_key)
+            report_name = effective_report.name
+            params = scope_params_for_user(principal_email, effective_report, params)
+        except PermissionError as exc:
+            raise RuntimeError(str(exc))
         except Exception:
             raise RuntimeError(f"Unknown report key: {report_key!r}")
 
@@ -110,7 +103,7 @@ def run_schedule(
                 f"recipients={'yes' if recipients else 'no'}; "
                 f"sharepoint={'yes' if sp_path else 'no'}")
 
-        layouts, dropped = _normalise_layouts(layouts_raw)
+        layouts, dropped = normalise_layouts(layouts_raw)
         if dropped:
             logline(f"Dropping {len(dropped)} hidden tab(s): {sorted(dropped)}")
 
@@ -122,6 +115,7 @@ def run_schedule(
                 t for t in payload.get("tabs", [])
                 if str(t.get("key")) not in dropped
             ]
+        payload, layouts = expand_duplicate_tabs(payload, layouts)
         rows_total = sum(len(t.get("rows") or []) for t in payload.get("tabs", []))
         logline(f"Report returned {rows_total} total rows across {len(payload.get('tabs', []))} tab(s)")
 

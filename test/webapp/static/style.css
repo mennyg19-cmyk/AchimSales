@@ -3333,6 +3333,24 @@ body.col-resizing * {
     padding: 0;
     margin-left: 2px;
 }
+.viewer-tab-dup {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    padding: 0;
+}
+.viewer-tab-dup:hover {
+    background: var(--primary-light);
+    color: var(--primary);
+}
 .viewer-tab-close:hover {
     background: var(--error-light);
     color: var(--error);
@@ -3340,6 +3358,10 @@ body.col-resizing * {
 .viewer-tab-close svg {
     width: 14px;
     height: 14px;
+}
+.viewer-tab-dup svg {
+    width: 13px;
+    height: 13px;
 }
 
 /* Sort & Group toolbar (between the tab strip and the grid) ---------- */
@@ -3797,6 +3819,17 @@ body.col-resizing * {
     background: var(--bg);
     border-right: 1px solid var(--border);
     color: var(--text);
+}
+.report-view-page .tabulator .tabulator-header,
+.report-view-page .tabulator .tabulator-header .tabulator-col,
+.report-view-page .tabulator .tabulator-header .tabulator-col .tabulator-col-content {
+    color: var(--text) !important;
+}
+.report-view-page .tabulator .tabulator-header .tabulator-col input,
+.report-view-page .tabulator .tabulator-header .tabulator-col select {
+    color: var(--text) !important;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
 }
 .tabulator .tabulator-row {
     background: var(--bg-card);
