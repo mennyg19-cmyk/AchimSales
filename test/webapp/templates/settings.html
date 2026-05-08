@@ -7,6 +7,13 @@
     <p class="page-subtitle">Preferences, exclusions, and admin tools</p>
 </div>
 
+<div class="settings-layout-section">
+    <div class="settings-group-header">
+        <h2>My Settings</h2>
+        <p>Preferences that affect only your test-app experience.</p>
+    </div>
+    <div class="settings-card-grid">
+
 {# ===== Appearance ==================================================== #}
 <section class="settings-section">
     <h3 class="settings-section-title">
@@ -95,7 +102,17 @@
     </div>
 </section>
 
+    </div>
+</div>
+
 {% if is_admin %}
+<div class="settings-layout-section settings-layout-section-admin">
+    <div class="settings-group-header">
+        <h2>Admin Settings</h2>
+        <p>Controls that affect shared schedules, users, permissions, and diagnostics.</p>
+    </div>
+    <div class="settings-card-grid">
+
 {# ===== Admin: Master Schedules ======================================= #}
 <section class="settings-section" style="margin-top:24px;">
     <h3 class="settings-section-title collapsible collapsed" data-toggle="masterSchedulesBody">
@@ -573,6 +590,8 @@
         </div>
     </div>
 </section>
+    </div>
+</div>
 {% endif %}
 
 {# Toast for save feedback #}

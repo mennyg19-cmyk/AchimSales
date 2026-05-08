@@ -100,7 +100,10 @@ def main() -> None:
     r = client.get("/settings")
     assert r.status_code == 200, f"GET /settings -> {r.status_code}"
     body = r.get_data(as_text=True)
-    for needle in ("Users &amp; permissions", "Per-report access", "Add master schedule"):
+    for needle in (
+        "My Settings", "Admin Settings",
+        "Users &amp; permissions", "Per-report access", "Add master schedule",
+    ):
         if needle not in body:
             _print(FAIL, f"settings.html missing: {needle}")
             sys.exit(1)
