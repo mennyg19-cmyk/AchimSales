@@ -536,25 +536,22 @@
             btn.dataset.key = key;
             btn.innerHTML =
                 '<span class="viewer-tab-name"></span>' +
-                '<button type="button" class="viewer-tab-dup" aria-label="Duplicate tab" title="Duplicate tab">' +
-                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"></rect><rect x="4" y="4" width="11" height="11" rx="2"></rect></svg>' +
-                '</button>' +
                 '<button type="button" class="viewer-tab-close" aria-label="Hide tab" title="Hide tab">' +
                     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6L18 18M6 18L18 6"/></svg>' +
                 '</button>';
             btn.querySelector(".viewer-tab-name").textContent = t.name;
             btn.addEventListener("click", function (e) {
-                if (e.target.closest(".viewer-tab-dup")) {
-                    e.stopPropagation();
-                    duplicateTabWithPrompt(key);
-                    return;
-                }
                 if (e.target.closest(".viewer-tab-close")) {
                     e.stopPropagation();
                     hideTab(key);
                     return;
                 }
                 activateTab(key);
+            });
+            btn.addEventListener("contextmenu", function (e) {
+                if (e.target.closest(".viewer-tab-close")) return;
+                e.preventDefault();
+                duplicateTabWithPrompt(key);
             });
             els.tabStrip.appendChild(btn);
         });
@@ -1341,6 +1338,11 @@
     }
 
     function hideTab(key) {
+        const t = state.tabs[key];
+        if (t && t.isDuplicate) {
+            deleteTabPermanently(key);
+            return;
+        }
         if (state.hiddenTabs.has(key)) return;
         state.hiddenTabs.add(key);
         buildTabStrip();
@@ -1355,6 +1357,33 @@
             }
         }
         refreshHiddenUi();
+    }
+
+    function deleteTabPermanently(key) {
+        const t = state.tabs[key];
+        if (!t) return;
+        if (t.grid) {
+            try { t.grid.destroy(); } catch (_) {}
+        }
+        delete state.tabs[key];
+        state.hiddenTabs.delete(key);
+        state.tabOrder = state.tabOrder.filter(function (k) { return k !== key; });
+        const pane = els.gridRoot.querySelector('.grid-pane[data-key="' + cssEsc(key) + '"]');
+        if (pane && pane.parentNode) pane.parentNode.removeChild(pane);
+        buildTabStrip();
+        if (state.activeTab === key) {
+            const next = state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); });
+            if (next) activateTab(next);
+            else {
+                state.activeTab = null;
+                els.gridRoot.querySelectorAll(".grid-pane").forEach(function (p) { p.classList.remove("active"); });
+                els.emptyState.hidden = false;
+                els.emptyStateMsg.textContent = "No tabs are available.";
+            }
+        }
+        refreshHiddenUi();
+        updateChangedState();
+        updateExportRowCount();
     }
 
     function duplicateTabWithPrompt(key) {
