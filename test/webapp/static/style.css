@@ -1614,6 +1614,11 @@ body.dark-theme .alert-error {
 
 /* -- Settings ------------------------------------------------------------ */
 
+.container:has(.settings-layout-section) {
+    width: 94vw;
+    max-width: 1280px;
+}
+
 .settings-layout-section {
     margin-top: 24px;
 }
@@ -1627,7 +1632,7 @@ body.dark-theme .alert-error {
 }
 
 .settings-group-header {
-    max-width: 1120px;
+    width: min(100%, 1180px);
     margin: 0 auto 12px;
 }
 
@@ -1646,10 +1651,10 @@ body.dark-theme .alert-error {
 
 .settings-card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 540px));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, clamp(340px, 42vw, 560px)), 1fr));
     justify-content: center;
-    gap: 20px;
-    max-width: 1120px;
+    gap: clamp(14px, 2vw, 24px);
+    width: min(100%, 1180px);
     margin-inline: auto;
 }
 
