@@ -66,7 +66,6 @@
         <button type="button" class="btn btn-outline" id="exportXlsxBtn">
             <i data-feather="download"></i> Export Excel
         </button>
-        <span id="exportRowCount" class="export-row-count" hidden></span>
         <button type="button" class="btn btn-outline" id="emailNowBtn">
             <i data-feather="send"></i> Send email now
         </button>
@@ -81,6 +80,9 @@
     <div class="view-status" id="viewStatus">
         <span class="spinner-small"></span>
         <span>Loading report&hellip;</span>
+    </div>
+    <div class="view-status-meta">
+        <span id="exportRowCount" class="export-row-count" hidden></span>
     </div>
 
     <div class="viewer-tabs" id="tabStrip" role="tablist" aria-label="Report tabs"></div>

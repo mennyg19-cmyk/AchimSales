@@ -534,27 +534,60 @@
             btn.className = "viewer-tab";
             btn.setAttribute("role", "tab");
             btn.dataset.key = key;
-            btn.innerHTML =
-                '<span class="viewer-tab-name"></span>' +
-                '<button type="button" class="viewer-tab-close" aria-label="Hide tab" title="Hide tab">' +
-                    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6L18 18M6 18L18 6"/></svg>' +
-                '</button>';
+            btn.innerHTML = '<span class="viewer-tab-name"></span>';
             btn.querySelector(".viewer-tab-name").textContent = t.name;
             btn.addEventListener("click", function (e) {
-                if (e.target.closest(".viewer-tab-close")) {
-                    e.stopPropagation();
-                    hideTab(key);
-                    return;
-                }
                 activateTab(key);
             });
             btn.addEventListener("contextmenu", function (e) {
-                if (e.target.closest(".viewer-tab-close")) return;
                 e.preventDefault();
-                duplicateTabWithPrompt(key);
+                openTabContextMenu(key, e.clientX, e.clientY);
             });
             els.tabStrip.appendChild(btn);
         });
+    }
+
+    let tabContextMenuEl = null;
+    function closeTabContextMenu() {
+        if (tabContextMenuEl && tabContextMenuEl.parentNode) {
+            tabContextMenuEl.parentNode.removeChild(tabContextMenuEl);
+        }
+        tabContextMenuEl = null;
+    }
+
+    function openTabContextMenu(key, x, y) {
+        closeTabContextMenu();
+        const t = state.tabs[key];
+        if (!t) return;
+        const menu = document.createElement("div");
+        menu.className = "tab-context-menu";
+        const mkBtn = function (label, onClick, danger) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "tab-context-item" + (danger ? " danger" : "");
+            b.textContent = label;
+            b.addEventListener("click", function (ev) {
+                ev.preventDefault();
+                closeTabContextMenu();
+                onClick();
+            });
+            return b;
+        };
+        menu.appendChild(mkBtn("Duplicate tab", function () { duplicateTabWithPrompt(key); }, false));
+        menu.appendChild(
+            mkBtn(t.isDuplicate ? "Delete tab" : "Hide tab", function () { hideTab(key); }, !!t.isDuplicate),
+        );
+        menu.style.left = Math.max(8, x) + "px";
+        menu.style.top = Math.max(8, y) + "px";
+        document.body.appendChild(menu);
+        tabContextMenuEl = menu;
+        setTimeout(function () {
+            document.addEventListener("click", closeTabContextMenu, { once: true, capture: true });
+            document.addEventListener("contextmenu", closeTabContextMenu, { once: true, capture: true });
+            document.addEventListener("keydown", function escClose(ev) {
+                if (ev.key === "Escape") closeTabContextMenu();
+            }, { once: true, capture: true });
+        }, 0);
     }
 
     function buildGridContainers() {

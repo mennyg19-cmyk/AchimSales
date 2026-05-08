@@ -3246,12 +3246,18 @@ body.col-resizing * {
 .view-actions .btn {
     flex: 0 0 auto;
 }
-/* Sits next to "Export Excel" and shows live "X rows" or "X of Y rows"
+.view-status-meta {
+    min-height: 18px;
+    margin-top: -4px;
+    margin-bottom: 8px;
+}
+/* Sits under generated-time status and shows live "X rows" or "X of Y rows"
    so users know exactly what the export will contain. */
 .export-row-count {
-    align-self: center;
-    margin-left: -2px;
-    margin-right: 6px;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0;
+    margin-right: 0;
     padding: 4px 10px;
     border-radius: 12px;
     background: var(--card-soft-bg, rgba(0, 0, 0, 0.05));
@@ -3295,11 +3301,11 @@ body.col-resizing * {
 }
 .viewer-tab {
     appearance: none;
-    background: transparent;
-    border: 1px solid transparent;
-    border-bottom: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     border-radius: 10px 10px 0 0;
-    padding: 8px 10px 8px 14px;
+    padding: 8px 12px 8px 12px;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-muted);
@@ -3311,35 +3317,45 @@ body.col-resizing * {
     bottom: -1px;
     white-space: nowrap;
 }
-.viewer-tab:hover { color: var(--text); }
+.viewer-tab:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-card) 85%, transparent);
+}
 .viewer-tab.active {
     background: var(--bg-card);
     color: var(--primary);
     border-color: var(--border);
     border-bottom: 1px solid var(--bg-card);
 }
-.viewer-tab-close {
+.tab-context-menu {
+    position: fixed;
+    z-index: 1200;
+    min-width: 170px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+    padding: 6px;
+}
+.tab-context-item {
+    display: block;
+    width: 100%;
     appearance: none;
-    background: transparent;
     border: none;
-    color: var(--text-muted);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    font-size: 13px;
+    border-radius: 8px;
+    padding: 8px 10px;
     cursor: pointer;
-    width: 20px;
-    height: 20px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    padding: 0;
-    margin-left: 2px;
 }
-.viewer-tab-close:hover {
-    background: var(--error-light);
-    color: var(--error);
+.tab-context-item:hover {
+    background: var(--primary-light);
+    color: var(--primary);
 }
-.viewer-tab-close svg {
-    width: 14px;
-    height: 14px;
+.tab-context-item.danger {
+    color: var(--error, #b91c1c);
 }
 
 /* Sort & Group toolbar (between the tab strip and the grid) ---------- */
