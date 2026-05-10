@@ -86,6 +86,15 @@
         groupChips:         $("groupChips"),
         addSortSelect:      $("addSortSelect"),
         addGroupSelect:     $("addGroupSelect"),
+        columnFiltersBtn:       $("columnFiltersBtn"),
+        columnFiltersBadge:     $("columnFiltersBadge"),
+        columnFilterRoot:       $("columnFilterDialogRoot"),
+        columnFilterDismiss:    $("columnFilterDismissHitbox"),
+        columnFilterDialogPanel:$("columnFiltersDialogPanel"),
+        columnFilterBody:       $("columnFilterDialogBody"),
+        columnFilterApplyBtn:   $("columnFilterApplyBtn"),
+        columnFilterCancelBtn:  $("columnFilterCancelBtn"),
+        columnFilterClearBtn:   $("columnFilterClearBtn"),
 
         // Modals
         presetModal:        $("presetModal"),
@@ -168,6 +177,7 @@
     wireModals();
     wireScheduleModal();
     wireSortGroupBar();
+    wireColumnFilterDialog();
 
     // ---------- Data-source badge --------------------------------------
     function renderApiSentPanel(meta) {
@@ -277,6 +287,7 @@
                 // {field, dir} for sort and a bare field name for group.
                 sortLevels:   seedSort,
                 groupLevels:  seedGroup,
+                columnFilters: Object.create(null),
             };
             state.tabOrder.push(t.key);
         });
@@ -303,27 +314,12 @@
         refreshHiddenUi();
 
         // First load only: stash the original layout so the "Reset to
-        // default view" button can put it back. Defer so the active
-        // tab's grid has finished building (otherwise getSorters /
-        // getHeaderFilters aren't attached yet -- snapshotLayout's
-        // safe-getters would just record empty results, which is wrong
-        // for a default snapshot we want to compare against later).
+        // default view" button can put it back. Sort / group / column
+        // filters all live on tab state, so this can run without waiting
+        // for Tabulator to finish building.
         if (!preserveLayout && !state.defaultLayout) {
-            const activeTab = state.activeTab;
-            const activeGrid = activeTab ? state.tabs[activeTab] && state.tabs[activeTab].grid : null;
-            const stash = function () {
-                if (!state.defaultLayout) {
-                    state.defaultLayout = snapshotLayout();
-                    updateChangedState();
-                }
-            };
-            if (activeGrid && typeof activeGrid.getHeaderFilters === "function") {
-                stash();
-            } else if (activeGrid && typeof activeGrid.on === "function") {
-                activeGrid.on("tableBuilt", stash);
-            } else {
-                stash();
-            }
+            state.defaultLayout = snapshotLayout();
+            updateChangedState();
         }
         updateChangedState();
         updateExportRowCount();
@@ -337,12 +333,8 @@
     /** Capture the user's current per-tab visibility / order / sort /
      *  filter / active-tab state so it can be re-applied (Refresh data)
      *  or compared against (Reset visibility / changed-marker).
-     *
-     *  Tabulator builds asynchronously: t.grid exists immediately after
-     *  `new Tabulator(...)` but its method mixins (getSorters, etc.)
-     *  aren't attached until the `tableBuilt` event fires. We feature-
-     *  test before calling so a snapshot taken mid-build still works
-     *  -- it just records empty sorters/filters for that tab. */
+     *  Sort, group, and column filters all live on tab state, so a
+     *  snapshot is meaningful even before grids finish building. */
     function snapshotLayout() {
         const snap = {
             activeTab:  state.activeTab,
@@ -357,21 +349,12 @@
                 field_order:   t.fieldOrder.slice(),
                 sort_levels:   (t.sortLevels || []).map(function (s) { return { field: s.field, dir: s.dir }; }),
                 group_levels:  (t.groupLevels || []).slice(),
-                filters:       safeGetHeaderFilters(t.grid),
+                filters:       filtersSnapshotForPersist(t),
                 duplicate_of:  t.isDuplicate ? (t.sourceTabKey || null) : null,
                 tab_name:      t.name || "",
             };
         });
         return snap;
-    }
-
-    function safeGetHeaderFilters(grid) {
-        if (!grid || typeof grid.getHeaderFilters !== "function") return [];
-        try {
-            return (grid.getHeaderFilters() || []).map(function (f) {
-                return { field: f.field, value: f.value };
-            });
-        } catch (_) { return []; }
     }
 
     /** Push a snapshot back onto fresh state. Anything that no longer
@@ -423,10 +406,12 @@
             t.groupLevels = (saved.group_levels || []).filter(function (f) {
                 return validFields.has(f);
             });
-            // Filters still need the post-tableBuilt restore.
-            t._restoreFilters = (saved.filters || []).filter(function (f) {
-                return validFields.has(f.field);
-            });
+            resetColumnFiltersFromSaved(
+                t,
+                (saved.filters || []).filter(function (f) {
+                    return validFields.has(f.field);
+                }),
+            );
         });
     }
 
@@ -485,9 +470,12 @@
                 tab.groupLevels = saved.group_levels.slice();
             }
             if (Array.isArray(saved.filters)) {
-                tab._restoreFilters = saved.filters.filter(function (f) {
-                    return f && validFields.has(f.field);
-                });
+                resetColumnFiltersFromSaved(
+                    tab,
+                    saved.filters.filter(function (f) {
+                        return f && validFields.has(f.field);
+                    }),
+                );
             }
         });
     }
@@ -520,6 +508,15 @@
             container:    null,
             sortLevels:   (source.sortLevels || []).map(function (s) { return { field: s.field, dir: s.dir || "asc" }; }),
             groupLevels:  (source.groupLevels || []).slice(),
+            columnFilters:(function () {
+                const s = source.columnFilters;
+                const out = Object.create(null);
+                if (!s || typeof s !== "object") return out;
+                Object.keys(s).forEach(function (k) {
+                    out[k] = cloneFilterVal(s[k]);
+                });
+                return out;
+            })(),
         };
     }
 
@@ -699,13 +696,7 @@
         });
 
         t.grid.on("tableBuilt", function () {
-            if (Array.isArray(t._restoreFilters) && t._restoreFilters.length) {
-                t._restoreFilters.forEach(function (f) {
-                    try { t.grid.setHeaderFilterValue(f.field, f.value); } catch (_) {}
-                });
-            }
             delete t._restoreSorters;  // legacy: sort now lives on tab.sortLevels
-            delete t._restoreFilters;
             const f = activeHeaderFilters(t);
             t._hasActiveFilters = f.length > 0;
             t._filteredRawCount = applyHeaderFiltersToRaw(t, f).length;
@@ -777,15 +768,58 @@
         return injectGroupTotals(t, raw);
     }
 
-    function activeHeaderFilters(t) {
-        if (!t || !t.grid || typeof t.grid.getHeaderFilters !== "function") return [];
-        try {
-            return (t.grid.getHeaderFilters() || []).filter(function (f) {
-                return f && f.value !== "" && f.value != null;
-            });
-        } catch (_) {
-            return [];
+    function ensureColumnFilters(t) {
+        if (!t) return;
+        if (!t.columnFilters) t.columnFilters = Object.create(null);
+    }
+
+    function cloneFilterVal(v) {
+        if (v && typeof v === "object" && v.op) {
+            if (Array.isArray(v.v)) return { op: v.op, v: v.v.slice() };
+            return { op: v.op, v: v.v };
         }
+        return v;
+    }
+
+    function resetColumnFiltersFromSaved(t, list) {
+        ensureColumnFilters(t);
+        Object.keys(t.columnFilters).forEach(function (k) {
+            delete t.columnFilters[k];
+        });
+        const valid = new Set((t.columnsMeta || []).map(function (c) { return c.field; }));
+        (list || []).forEach(function (f) {
+            if (!f || !valid.has(f.field)) return;
+            if (f.value === "" || f.value == null) return;
+            t.columnFilters[f.field] = cloneFilterVal(f.value);
+        });
+    }
+
+    function filtersSnapshotForPersist(t) {
+        return activeHeaderFilters(t).map(function (f) {
+            return { field: f.field, value: cloneFilterVal(f.value) };
+        });
+    }
+
+    function serializeFiltersForCompare(filtersArr) {
+        return (filtersArr || []).filter(function (f) {
+            return f && f.field && f.value !== "" && f.value != null;
+        }).map(function (f) {
+            return f.field + ":" + JSON.stringify(f.value);
+        }).sort().join("|");
+    }
+
+    /** Active filters for the grid pipeline (stored on tab `columnFilters`). */
+    function activeHeaderFilters(t) {
+        if (!t) return [];
+        ensureColumnFilters(t);
+        var out = [];
+        Object.keys(t.columnFilters).forEach(function (field) {
+            var val = t.columnFilters[field];
+            if (val === "" || val == null) return;
+            if (typeof val === "object" && val.op && isEmptyFilter(val)) return;
+            out.push({ field: field, value: val });
+        });
+        return out;
     }
 
     function applyHeaderFiltersToRaw(t, filters) {
@@ -978,24 +1012,18 @@
                 visible:      !hidden.has(meta.field),
                 formatter:    columnFormatter(meta.type),
                 hozAlign:     isNumeric ? "right" : "left",
-                headerFilter: function (cell, onRendered, success, cancel, params) {
-                    return buildHeaderFilterEditor(meta, success, params);
-                },
-                headerFilterFunc: function (filterVal, cellVal, rowData) {
-                    return applyHeaderFilter(meta, filterVal, cellVal, rowData);
-                },
-                headerFilterLiveFilter: false,
                 sorter:       columnSorter(meta.type),
             };
         }).filter(Boolean);
     }
 
-    // ---------- Per-column header filter widgets -----------------------
+    // ---------- Column filter editors (dialog UI) ---------------------
     //
-    // Tabulator stores ONE value per column header filter. Ours is an
-    // object: { op: <operator>, v: <string|number|[lo,hi]|string[]> }.
-    // The `success(filterValue)` callback hands that object back to
-    // Tabulator, which then invokes our headerFilterFunc on every row.
+    // Each column filter is an object stored on `tab.columnFilters[field]`:
+    //   { op: <operator>, v: <string|number|[lo,hi]|string[]> }.
+    // The grid pipeline applies these in `activeHeaderFilters()` before
+    // sort/group injection. Optional `success(cb)` is legacy for Tabulator;
+    // dialog usage passes `success = null` so commits only run on Apply.
     //
     // Operators per column type:
     //   text:    contains, equals, starts, ends, in (multi), empty, notEmpty
@@ -1040,9 +1068,8 @@
         return TEXT_OPS;
     }
 
-    /** Build the DOM for a single column's header filter cell.
-     *  Layout: [ op-button ][ value input(s) ] */
-    function buildHeaderFilterEditor(meta, success, params) {
+    /** Layout: [ op-button ][ value input(s) ]. State on `wrap.__hfState`. */
+    function buildColumnFilterEditor(meta, success, initialValue) {
         const ops = operatorsFor(meta.type);
         const wrap = document.createElement("div");
         wrap.className = "hf-wrap";
@@ -1050,50 +1077,66 @@
         const opBtn = document.createElement("button");
         opBtn.type = "button";
         opBtn.className = "hf-op";
-        opBtn.tabIndex = -1;
+        opBtn.tabIndex = 0;
         wrap.appendChild(opBtn);
 
         const valHost = document.createElement("span");
         valHost.className = "hf-val";
         wrap.appendChild(valHost);
 
-        // Filter state lives on the wrap node so re-renders preserve it.
-        const state = wrap.__hfState = { op: ops[0].op, v: emptyValueFor(ops[0].op) };
+        const filtState = wrap.__hfState = { op: ops[0].op, v: emptyValueFor(ops[0].op) };
+
+        if (initialValue != null && initialValue !== "") {
+            if (typeof initialValue === "object" && initialValue.op != null) {
+                const known = ops.some(function (o) { return o.op === initialValue.op; });
+                if (known) {
+                    filtState.op = initialValue.op;
+                    filtState.v = (initialValue.v !== undefined && initialValue.v !== null)
+                        ? initialValue.v
+                        : emptyValueFor(initialValue.op);
+                    if (filtState.op === "between" && !Array.isArray(filtState.v)) {
+                        filtState.v = ["", ""];
+                    }
+                }
+            } else if (typeof initialValue === "string") {
+                filtState.op = "contains";
+                filtState.v = initialValue;
+            }
+        }
 
         function setOp(newOp) {
-            state.op = newOp;
-            state.v = emptyValueFor(newOp);
+            filtState.op = newOp;
+            filtState.v = emptyValueFor(newOp);
             renderOpBtn();
             renderValEditor();
             commit();
         }
 
         function renderOpBtn() {
-            const def = ops.find(function (o) { return o.op === state.op; }) || ops[0];
+            const def = ops.find(function (o) { return o.op === filtState.op; }) || ops[0];
             opBtn.textContent = def.short;
             opBtn.title = def.label;
         }
 
         function renderValEditor() {
             valHost.innerHTML = "";
-            if (state.op === "empty" || state.op === "notEmpty") {
-                // No value input -- the operator alone is the filter.
+            if (filtState.op === "empty" || filtState.op === "notEmpty") {
                 return;
             }
-            if (state.op === "between") {
+            if (filtState.op === "between") {
                 const lo = mkInput(meta.type === "date" ? "date" : "number", "min");
                 const sep = document.createElement("span");
                 sep.className = "hf-sep";
                 sep.textContent = "–";
                 const hi = mkInput(meta.type === "date" ? "date" : "number", "max");
-                lo.value = (Array.isArray(state.v) && state.v[0] != null) ? state.v[0] : "";
-                hi.value = (Array.isArray(state.v) && state.v[1] != null) ? state.v[1] : "";
+                lo.value = (Array.isArray(filtState.v) && filtState.v[0] != null) ? filtState.v[0] : "";
+                hi.value = (Array.isArray(filtState.v) && filtState.v[1] != null) ? filtState.v[1] : "";
                 lo.addEventListener("input", function () {
-                    state.v = [lo.value, hi.value];
+                    filtState.v = [lo.value, hi.value];
                     commit();
                 });
                 hi.addEventListener("input", function () {
-                    state.v = [lo.value, hi.value];
+                    filtState.v = [lo.value, hi.value];
                     commit();
                 });
                 valHost.appendChild(lo);
@@ -1104,10 +1147,10 @@
             const inputType = (meta.type === "date") ? "date"
                 : (meta.type === "money" || meta.type === "int" || meta.type === "percent") ? "number"
                 : "text";
-            const inp = mkInput(inputType, state.op === "in" ? "a, b, c…" : "");
-            inp.value = state.v != null ? String(state.v) : "";
+            const inp = mkInput(inputType, filtState.op === "in" ? "a, b, c…" : "");
+            inp.value = filtState.v != null ? String(filtState.v) : "";
             inp.addEventListener("input", function () {
-                state.v = inp.value;
+                filtState.v = inp.value;
                 commit();
             });
             valHost.appendChild(inp);
@@ -1118,27 +1161,24 @@
             el.type = type;
             el.className = "hf-input";
             if (placeholder) el.placeholder = placeholder;
-            // Don't let header filter inputs trigger header click sort.
             el.addEventListener("click", function (e) { e.stopPropagation(); });
             el.addEventListener("mousedown", function (e) { e.stopPropagation(); });
             return el;
         }
 
         function commit() {
-            // Empty-value filter = no filter.
-            if (isEmptyFilter(state)) {
+            if (!success || typeof success !== "function") return;
+            if (isEmptyFilter(filtState)) {
                 success("");
                 return;
             }
-            success({ op: state.op, v: state.v });
+            success({ op: filtState.op, v: filtState.v });
         }
 
-        // Operator picker -- a tiny custom popover.
         opBtn.addEventListener("click", function (e) {
             e.stopPropagation();
-            openOpMenu(opBtn, ops, state.op, setOp);
+            openOpMenu(opBtn, ops, filtState.op, setOp);
         });
-        // Don't let the op button trigger column sort on header click.
         opBtn.addEventListener("mousedown", function (e) { e.stopPropagation(); });
 
         renderOpBtn();
@@ -1207,9 +1247,8 @@
     function applyHeaderFilter(meta, filterVal, cellVal, rowData) {
         if (filterVal === "" || filterVal == null) return true;
 
-        // Backwards compat: if Tabulator hands us a bare string (e.g.
-        // from setHeaderFilterValue restored from a saved layout where
-        // the filter was just a string), fall back to substring match.
+        // Backwards compat: older saved layouts stored a bare string —
+        // treat it as substring (contains).
         if (typeof filterVal === "string") {
             return matchText("contains", filterVal, cellVal);
         }
@@ -1600,7 +1639,9 @@
             closeDrawer();
         });
         document.addEventListener("keydown", function (e) {
-            if (e.key === "Escape") closeDrawer();
+            if (e.key !== "Escape") return;
+            if (columnFilterDialogIsOpen()) return;
+            closeDrawer();
         });
     }
 
@@ -1619,6 +1660,17 @@
         renderChips(els.groupChips, t, /*kind*/ "group");
         populateAddSelect(els.addSortSelect,  t, /*kind*/ "sort");
         populateAddSelect(els.addGroupSelect, t, /*kind*/ "group");
+
+        if (els.columnFiltersBtn) {
+            const n = activeHeaderFilters(t).length;
+            els.columnFiltersBtn.classList.toggle("has-active-filters", n > 0);
+            if (els.columnFiltersBadge) {
+                els.columnFiltersBadge.hidden = !n;
+                els.columnFiltersBadge.textContent = String(n);
+                els.columnFiltersBadge.setAttribute("aria-hidden", n ? "false" : "true");
+            }
+        }
+        if (typeof feather !== "undefined") feather.replace();
     }
 
     function renderChips(ul, t, kind) {
@@ -1755,6 +1807,128 @@
         }
     }
 
+    function columnFilterDialogIsOpen() {
+        return !!(els.columnFilterRoot && !els.columnFilterRoot.hidden);
+    }
+
+    function openColumnFiltersDialog() {
+        const key = state.activeTab;
+        const tab = key ? state.tabs[key] : null;
+        const body = els.columnFilterBody;
+        const root = els.columnFilterRoot;
+        const panel = els.columnFilterDialogPanel;
+        if (!tab || !body || !root || !panel) return;
+
+        body.innerHTML = "";
+        const fields = (tab.fieldOrder || []).filter(function (f) { return !tab.hiddenFields.has(f); });
+        if (!fields.length) {
+            const p = document.createElement("p");
+            p.className = "column-filter-dialog-empty";
+            p.textContent = "No visible columns — unhide columns to filter them.";
+            body.appendChild(p);
+        }
+        fields.forEach(function (field) {
+            const meta = tab.columnsMeta.find(function (c) { return c.field === field; });
+            if (!meta) return;
+
+            const row = document.createElement("div");
+            row.className = "column-filter-dialog-row";
+            row.dataset.field = field;
+
+            const lab = document.createElement("label");
+            lab.className = "column-filter-dialog-label";
+            lab.textContent = meta.label;
+            row.appendChild(lab);
+
+            const wrapHost = document.createElement("div");
+            wrapHost.className = "column-filter-dialog-control";
+            wrapHost.appendChild(buildColumnFilterEditor(meta, null, tab.columnFilters && tab.columnFilters[field]));
+            row.appendChild(wrapHost);
+
+            body.appendChild(row);
+        });
+
+        root.hidden = false;
+        root.setAttribute("aria-hidden", "false");
+        if (els.columnFiltersBtn) els.columnFiltersBtn.setAttribute("aria-expanded", "true");
+
+        const applyBtn = els.columnFilterApplyBtn;
+        if (applyBtn) applyBtn.focus();
+        if (typeof feather !== "undefined") feather.replace();
+    }
+
+    function closeColumnFiltersDialog() {
+        if (!els.columnFilterRoot) return;
+        els.columnFilterRoot.hidden = true;
+        els.columnFilterRoot.setAttribute("aria-hidden", "true");
+        if (els.columnFiltersBtn) els.columnFiltersBtn.setAttribute("aria-expanded", "false");
+    }
+
+    function applyColumnFiltersDialog() {
+        const key = state.activeTab;
+        const tab = key ? state.tabs[key] : null;
+        const body = els.columnFilterBody;
+        if (!tab || !body) return;
+        ensureColumnFilters(tab);
+
+        body.querySelectorAll(".column-filter-dialog-row").forEach(function (row) {
+            const field = row.dataset.field;
+            const wrap = row.querySelector(".hf-wrap");
+            const filt = wrap && wrap.__hfState;
+            if (!field || !filt) return;
+            if (isEmptyFilter(filt)) delete tab.columnFilters[field];
+            else {
+                tab.columnFilters[field] = {
+                    op: filt.op,
+                    v: Array.isArray(filt.v) ? filt.v.slice() : filt.v,
+                };
+            }
+        });
+
+        rebuildGridDataFromFilters(key);
+        closeColumnFiltersDialog();
+        renderSortGroupBar();
+        updateExportRowCount();
+        updateChangedState();
+    }
+
+    function clearAllTabColumnFiltersThenRefresh() {
+        const key = state.activeTab;
+        const tab = key ? state.tabs[key] : null;
+        if (!tab) return;
+        resetColumnFiltersFromSaved(tab, []);
+        rebuildGridDataFromFilters(key);
+        closeColumnFiltersDialog();
+        renderSortGroupBar();
+        updateExportRowCount();
+        updateChangedState();
+    }
+
+    function wireColumnFilterDialog() {
+        if (els.columnFiltersBtn) {
+            els.columnFiltersBtn.addEventListener("click", openColumnFiltersDialog);
+        }
+        if (els.columnFilterDismiss && els.columnFilterRoot) {
+            els.columnFilterDismiss.addEventListener("click", closeColumnFiltersDialog);
+        }
+        if (els.columnFilterCancelBtn) {
+            els.columnFilterCancelBtn.addEventListener("click", closeColumnFiltersDialog);
+        }
+        if (els.columnFilterApplyBtn) {
+            els.columnFilterApplyBtn.addEventListener("click", applyColumnFiltersDialog);
+        }
+        if (els.columnFilterClearBtn) {
+            els.columnFilterClearBtn.addEventListener("click", clearAllTabColumnFiltersThenRefresh);
+        }
+
+        document.addEventListener("keydown", function columnFilterEscape(ev) {
+            if (!columnFilterDialogIsOpen()) return;
+            if (ev.key !== "Escape") return;
+            ev.preventDefault();
+            closeColumnFiltersDialog();
+        });
+    }
+
     // ---------- Action buttons ------------------------------------------
     function wireActionButtons() {
         if (els.refreshBtn) els.refreshBtn.addEventListener("click", refreshData);
@@ -1777,7 +1951,7 @@
                 field_order:   t.fieldOrder.slice(),
                 sort_levels:   (t.sortLevels || []).map(function (s) { return { field: s.field, dir: s.dir || "asc" }; }),
                 group_levels:  (t.groupLevels || []).slice(),
-                filters:       safeGetHeaderFilters(t.grid),
+                filters:       filtersSnapshotForPersist(t),
                 duplicate_of:  t.isDuplicate ? (t.sourceTabKey || null) : null,
                 tab_name:      t.name || "",
             };
@@ -1843,9 +2017,10 @@
             // Restore sort + group levels
             t.sortLevels  = (saved.sort_levels || []).map(function (s) { return { field: s.field, dir: s.dir }; });
             t.groupLevels = (saved.group_levels || []).slice();
+            resetColumnFiltersFromSaved(t, saved.filters || []);
 
-            // Wipe filters and rebuild grid so column order
-            // takes effect cleanly.
+            // Tear down the Tabulator instance so column order and
+            // restored filters take effect on the next build.
             if (t.grid) {
                 try { t.grid.destroy(); } catch (_) {}
                 t.grid = null;
@@ -1901,12 +2076,9 @@
             const dg = (saved.group_levels || []).join("|");
             if (cg !== dg) return true;
 
-            if (t.grid && typeof t.grid.getHeaderFilters === "function") {
-                try {
-                    const filters = t.grid.getHeaderFilters() || [];
-                    if (filters.some(function (f) { return f && f.value !== "" && f.value != null; })) return true;
-                } catch (_) {}
-            }
+            const curFil = serializeFiltersForCompare(activeHeaderFilters(t));
+            const defFil = serializeFiltersForCompare(saved.filters || []);
+            if (curFil !== defFil) return true;
         }
         return false;
     }
@@ -2516,6 +2688,12 @@
         return String(s)
             .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    function cssEsc(s) {
+        if (s == null) return "";
+        const str = String(s);
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(str);
+        return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     }
     function fmtLocal(iso) {
         try {
