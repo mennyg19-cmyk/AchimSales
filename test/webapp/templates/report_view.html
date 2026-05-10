@@ -108,37 +108,6 @@
                 </select>
             </div>
         </div>
-        <div class="sortgroup-section sortgroup-actions">
-            <button type="button" class="btn btn-outline sortgroup-filter-btn" id="columnFiltersBtn"
-                    title="Show column filters" aria-expanded="false" aria-haspopup="dialog"
-                    aria-controls="columnFiltersDialogPanel">
-                <i data-feather="filter"></i>
-                <span>Filters</span>
-                <span class="sortgroup-filter-badge" id="columnFiltersBadge" hidden aria-hidden="true">0</span>
-            </button>
-        </div>
-    </div>
-
-    <!-- Column filter dialog (replaces inline table header filters) -->
-    <div class="column-filter-dialog-root" id="columnFilterDialogRoot" aria-hidden="true" hidden role="presentation">
-        <button type="button" class="column-filter-dialog-dismiss" tabindex="-1"
-                aria-label="Close" id="columnFilterDismissHitbox"></button>
-        <div id="columnFiltersDialogPanel"
-             class="column-filter-dialog-sheet" role="dialog" aria-modal="true"
-             aria-labelledby="columnFilterDialogTitle">
-            <header class="column-filter-dialog-header">
-                <h3 id="columnFilterDialogTitle">Column filters</h3>
-                <p class="column-filter-dialog-sub">
-                    Narrow visible rows by column. Applies to this tab while you continue sorting and grouping.
-                </p>
-            </header>
-            <div class="column-filter-dialog-body" id="columnFilterDialogBody"></div>
-            <footer class="column-filter-dialog-footer">
-                <button type="button" class="btn btn-outline" id="columnFilterClearBtn">Clear all</button>
-                <button type="button" class="btn btn-outline" id="columnFilterCancelBtn">Cancel</button>
-                <button type="button" class="btn btn-primary" id="columnFilterApplyBtn">Apply</button>
-            </footer>
-        </div>
     </div>
 
     <div class="viewer-shell" id="viewerShell">

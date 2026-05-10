@@ -86,15 +86,6 @@
         groupChips:         $("groupChips"),
         addSortSelect:      $("addSortSelect"),
         addGroupSelect:     $("addGroupSelect"),
-        columnFiltersBtn:       $("columnFiltersBtn"),
-        columnFiltersBadge:     $("columnFiltersBadge"),
-        columnFilterRoot:       $("columnFilterDialogRoot"),
-        columnFilterDismiss:    $("columnFilterDismissHitbox"),
-        columnFilterDialogPanel:$("columnFiltersDialogPanel"),
-        columnFilterBody:       $("columnFilterDialogBody"),
-        columnFilterApplyBtn:   $("columnFilterApplyBtn"),
-        columnFilterCancelBtn:  $("columnFilterCancelBtn"),
-        columnFilterClearBtn:   $("columnFilterClearBtn"),
 
         // Modals
         presetModal:        $("presetModal"),
@@ -168,6 +159,12 @@
         defaultLayout: null,
     };
 
+    /** Floating popover for a single column filter (one open at a time). */
+    let colFilterPopover = null;
+    let colFilterPopoverAnchor = null;
+    let colFilterOutsideHandler = null;
+    let colFilterKeyHandler = null;
+
     // ---------- Boot -----------------------------------------------------
     runReport().catch(function (err) {
         showStatus("Could not load report: " + (err.message || err), true);
@@ -177,7 +174,6 @@
     wireModals();
     wireScheduleModal();
     wireSortGroupBar();
-    wireColumnFilterDialog();
 
     // ---------- Data-source badge --------------------------------------
     function renderApiSentPanel(meta) {
@@ -602,6 +598,7 @@
     }
 
     function activateTab(key) {
+        closeColHeaderFilterPopover();
         if (!state.tabs[key] || state.hiddenTabs.has(key)) {
             // Pick the first visible tab instead.
             const fallback = state.tabOrder.find(function (k) { return !state.hiddenTabs.has(k); });
@@ -641,7 +638,7 @@
 
         // We compute sorted/grouped display rows ourselves so we can
         // inject totals + spacer rows on group breaks. Tabulator just
-        // renders + handles header filters / column moves / hides.
+        // renders + column header filter buttons / column moves / hides.
         t.grid = new Tabulator(t.container, {
             data:          computeDisplayRows(t),
             layout:        "fitDataTable",    // natural width -> grid-root scrolls
@@ -673,6 +670,7 @@
         //                else ascending); a second click on same column flips dir.
         // Shift+click  = add a new level (or flip dir of an existing level).
         t.grid.on("headerClick", function (ev, column) {
+            if (ev && ev.target && ev.target.closest && ev.target.closest(".col-header-filter-btn")) return;
             const field = column.getField();
             if (!field) return;
             const meta = t.columnsMeta.find(function (c) { return c.field === field; });
@@ -700,6 +698,8 @@
             const f = activeHeaderFilters(t);
             t._hasActiveFilters = f.length > 0;
             t._filteredRawCount = applyHeaderFiltersToRaw(t, f).length;
+            if (typeof feather !== "undefined") feather.replace();
+            syncColHeaderFilterButtons(key);
             if (key === state.activeTab) {
                 renderSortGroupBar();
                 updateExportRowCount();
@@ -852,6 +852,7 @@
         } finally {
             t._rebuildingData = false;
         }
+        syncColHeaderFilterButtons(key);
     }
 
     function compareByKeys(t, keys) {
@@ -1013,17 +1014,51 @@
                 formatter:    columnFormatter(meta.type),
                 hozAlign:     isNumeric ? "right" : "left",
                 sorter:       columnSorter(meta.type),
+                titleFormatter: function () {
+                    const wrap = document.createElement("div");
+                    wrap.className = "col-header-inner";
+                    const lbl = document.createElement("span");
+                    lbl.className = "col-header-label";
+                    lbl.textContent = meta.label;
+                    const btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "col-header-filter-btn";
+                    btn.title = "Filter this column";
+                    btn.setAttribute("aria-label", "Filter " + meta.label);
+                    btn.dataset.field = meta.field;
+                    btn.innerHTML = '<i data-feather="filter" width="14" height="14"></i>';
+                    const tab = state.tabs[key];
+                    const cur = tab && tab.columnFilters && tab.columnFilters[meta.field];
+                    var filOn = false;
+                    if (cur != null && cur !== "") {
+                        if (typeof cur === "string") filOn = true;
+                        else if (typeof cur === "object" && cur.op && !isEmptyFilter(cur)) filOn = true;
+                    }
+                    btn.classList.toggle("has-active-filter", filOn);
+
+                    btn.addEventListener("click", function (ev) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        openColHeaderFilterPopover(key, meta.field, btn);
+                    });
+                    btn.addEventListener("mousedown", function (ev) {
+                        ev.stopPropagation();
+                    });
+
+                    wrap.appendChild(lbl);
+                    wrap.appendChild(btn);
+                    return wrap;
+                },
             };
         }).filter(Boolean);
     }
 
-    // ---------- Column filter editors (dialog UI) ---------------------
+    // ---------- Column filter editors (per-header popovers) ----------
     //
     // Each column filter is an object stored on `tab.columnFilters[field]`:
     //   { op: <operator>, v: <string|number|[lo,hi]|string[]> }.
     // The grid pipeline applies these in `activeHeaderFilters()` before
-    // sort/group injection. Optional `success(cb)` is legacy for Tabulator;
-    // dialog usage passes `success = null` so commits only run on Apply.
+    // sort/group injection. Pass `success = null` so users commit with Apply.
     //
     // Operators per column type:
     //   text:    contains, equals, starts, ends, in (multi), empty, notEmpty
@@ -1243,6 +1278,198 @@
         document.body.appendChild(menu);
     }
 
+    function colHeaderFilterPopoverIsOpen() {
+        return !!(colFilterPopover && colFilterPopover.parentNode);
+    }
+
+    function closeColHeaderFilterPopover() {
+        if (colFilterOutsideHandler) {
+            document.removeEventListener("click", colFilterOutsideHandler, true);
+            colFilterOutsideHandler = null;
+        }
+        if (colFilterKeyHandler) {
+            document.removeEventListener("keydown", colFilterKeyHandler, true);
+            colFilterKeyHandler = null;
+        }
+        colFilterPopoverAnchor = null;
+        if (colFilterPopover && colFilterPopover.parentNode) {
+            colFilterPopover.parentNode.removeChild(colFilterPopover);
+        }
+        colFilterPopover = null;
+    }
+
+    function syncColHeaderFilterButtons(tabKey) {
+        const t = state.tabs[tabKey];
+        if (!t || !t.grid) return;
+        const active = {};
+        activeHeaderFilters(t).forEach(function (f) {
+            active[f.field] = true;
+        });
+        try {
+            t.grid.getColumns().forEach(function (col) {
+                const cell = col.getElement();
+                if (!cell) return;
+                const btn = cell.querySelector(".col-header-filter-btn");
+                if (!btn) return;
+                btn.classList.toggle("has-active-filter", !!active[col.getField()]);
+            });
+        } catch (_) {}
+    }
+
+    function positionColFilterPopover(panel, anchorEl) {
+        const rect = anchorEl.getBoundingClientRect();
+        const margin = 8;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const pr = panel.getBoundingClientRect();
+        const pw = pr.width;
+        const ph = pr.height;
+        let left = rect.left;
+        let top = rect.bottom + 6;
+        if (left + pw > vw - margin) left = Math.max(margin, vw - pw - margin);
+        if (top + ph > vh - margin) top = Math.max(margin, rect.top - ph - 6);
+        if (left < margin) left = margin;
+        panel.style.left = left + "px";
+        panel.style.top = top + "px";
+    }
+
+    function openColHeaderFilterPopover(tabKey, field, anchorEl) {
+        const tab = state.tabs[tabKey];
+        if (!tab || !field || !anchorEl) return;
+        const meta = tab.columnsMeta.find(function (c) { return c.field === field; });
+        if (!meta) return;
+
+        if (colFilterPopover &&
+            colFilterPopover.dataset.tabKey === tabKey &&
+            colFilterPopover.dataset.field === field) {
+            closeColHeaderFilterPopover();
+            return;
+        }
+        closeColHeaderFilterPopover();
+
+        colFilterPopoverAnchor = anchorEl;
+
+        const panel = document.createElement("div");
+        panel.className = "col-filter-popover";
+        panel.dataset.tabKey = tabKey;
+        panel.dataset.field = field;
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-label", "Filter " + meta.label);
+
+        const head = document.createElement("div");
+        head.className = "col-filter-popover-head";
+        const ht = document.createElement("span");
+        ht.className = "col-filter-popover-title";
+        ht.textContent = meta.label;
+        const hx = document.createElement("button");
+        hx.type = "button";
+        hx.className = "col-filter-popover-x";
+        hx.setAttribute("aria-label", "Close");
+        hx.textContent = "×";
+        hx.addEventListener("click", function (e) {
+            e.preventDefault();
+            closeColHeaderFilterPopover();
+        });
+        head.appendChild(ht);
+        head.appendChild(hx);
+
+        const bodyEl = document.createElement("div");
+        bodyEl.className = "col-filter-popover-body";
+        const initial = tab.columnFilters && tab.columnFilters[field];
+        bodyEl.appendChild(buildColumnFilterEditor(meta, null, initial));
+
+        const foot = document.createElement("div");
+        foot.className = "col-filter-popover-foot";
+
+        function applyOneColumnFilter() {
+            ensureColumnFilters(tab);
+            const wrap = bodyEl.querySelector(".hf-wrap");
+            const filt = wrap && wrap.__hfState;
+            if (!filt) return;
+            if (isEmptyFilter(filt)) delete tab.columnFilters[field];
+            else {
+                tab.columnFilters[field] = {
+                    op: filt.op,
+                    v: Array.isArray(filt.v) ? filt.v.slice() : filt.v,
+                };
+            }
+            rebuildGridDataFromFilters(tabKey);
+            closeColHeaderFilterPopover();
+            if (tabKey === state.activeTab) {
+                renderSortGroupBar();
+                updateExportRowCount();
+            }
+            updateChangedState();
+        }
+
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.className = "btn btn-outline col-filter-popover-btn";
+        clearBtn.textContent = "Clear";
+        clearBtn.addEventListener("click", function (e) {
+            e.preventDefault();
+            ensureColumnFilters(tab);
+            delete tab.columnFilters[field];
+            rebuildGridDataFromFilters(tabKey);
+            closeColHeaderFilterPopover();
+            if (tabKey === state.activeTab) {
+                renderSortGroupBar();
+                updateExportRowCount();
+            }
+            updateChangedState();
+        });
+
+        const applyBtn = document.createElement("button");
+        applyBtn.type = "button";
+        applyBtn.className = "btn btn-primary col-filter-popover-btn";
+        applyBtn.textContent = "Apply";
+        applyBtn.addEventListener("click", function (e) {
+            e.preventDefault();
+            applyOneColumnFilter();
+        });
+
+        foot.appendChild(clearBtn);
+        foot.appendChild(applyBtn);
+        panel.appendChild(head);
+        panel.appendChild(bodyEl);
+        panel.appendChild(foot);
+
+        panel.style.position = "fixed";
+        panel.style.zIndex = "480";
+        document.body.appendChild(panel);
+        colFilterPopover = panel;
+
+        setTimeout(function () {
+            positionColFilterPopover(panel, anchorEl);
+        }, 0);
+        requestAnimationFrame(function () {
+            positionColFilterPopover(panel, anchorEl);
+        });
+
+        colFilterOutsideHandler = function (ev) {
+            if (!colFilterPopover) return;
+            if (colFilterPopover.contains(ev.target)) return;
+            if (colFilterPopoverAnchor && colFilterPopoverAnchor.contains(ev.target)) return;
+            closeColHeaderFilterPopover();
+        };
+        setTimeout(function () {
+            document.addEventListener("click", colFilterOutsideHandler, true);
+        }, 0);
+
+        colFilterKeyHandler = function (ev) {
+            if (ev.key !== "Escape") return;
+            if (!colFilterPopover) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            closeColHeaderFilterPopover();
+        };
+        document.addEventListener("keydown", colFilterKeyHandler, true);
+
+        if (typeof feather !== "undefined") feather.replace();
+
+        applyBtn.focus();
+    }
+
     /** Decide whether a row passes the per-column filter. */
     function applyHeaderFilter(meta, filterVal, cellVal, rowData) {
         if (filterVal === "" || filterVal == null) return true;
@@ -1387,6 +1614,7 @@
 
     // ---------- Hide / restore: columns & tabs --------------------------
     function hideColumn(tabKey, field) {
+        closeColHeaderFilterPopover();
         const t = state.tabs[tabKey];
         if (!t) return;
         t.hiddenFields.add(field);
@@ -1432,6 +1660,7 @@
     }
 
     function deleteTabPermanently(key) {
+        closeColHeaderFilterPopover();
         const t = state.tabs[key];
         if (!t) return;
         if (t.grid) {
@@ -1640,7 +1869,7 @@
         });
         document.addEventListener("keydown", function (e) {
             if (e.key !== "Escape") return;
-            if (columnFilterDialogIsOpen()) return;
+            if (colHeaderFilterPopoverIsOpen()) return;
             closeDrawer();
         });
     }
@@ -1660,17 +1889,6 @@
         renderChips(els.groupChips, t, /*kind*/ "group");
         populateAddSelect(els.addSortSelect,  t, /*kind*/ "sort");
         populateAddSelect(els.addGroupSelect, t, /*kind*/ "group");
-
-        if (els.columnFiltersBtn) {
-            const n = activeHeaderFilters(t).length;
-            els.columnFiltersBtn.classList.toggle("has-active-filters", n > 0);
-            if (els.columnFiltersBadge) {
-                els.columnFiltersBadge.hidden = !n;
-                els.columnFiltersBadge.textContent = String(n);
-                els.columnFiltersBadge.setAttribute("aria-hidden", n ? "false" : "true");
-            }
-        }
-        if (typeof feather !== "undefined") feather.replace();
     }
 
     function renderChips(ul, t, kind) {
@@ -1805,128 +2023,6 @@
                 applySortGroupChange(state.activeTab);
             });
         }
-    }
-
-    function columnFilterDialogIsOpen() {
-        return !!(els.columnFilterRoot && !els.columnFilterRoot.hidden);
-    }
-
-    function openColumnFiltersDialog() {
-        const key = state.activeTab;
-        const tab = key ? state.tabs[key] : null;
-        const body = els.columnFilterBody;
-        const root = els.columnFilterRoot;
-        const panel = els.columnFilterDialogPanel;
-        if (!tab || !body || !root || !panel) return;
-
-        body.innerHTML = "";
-        const fields = (tab.fieldOrder || []).filter(function (f) { return !tab.hiddenFields.has(f); });
-        if (!fields.length) {
-            const p = document.createElement("p");
-            p.className = "column-filter-dialog-empty";
-            p.textContent = "No visible columns — unhide columns to filter them.";
-            body.appendChild(p);
-        }
-        fields.forEach(function (field) {
-            const meta = tab.columnsMeta.find(function (c) { return c.field === field; });
-            if (!meta) return;
-
-            const row = document.createElement("div");
-            row.className = "column-filter-dialog-row";
-            row.dataset.field = field;
-
-            const lab = document.createElement("label");
-            lab.className = "column-filter-dialog-label";
-            lab.textContent = meta.label;
-            row.appendChild(lab);
-
-            const wrapHost = document.createElement("div");
-            wrapHost.className = "column-filter-dialog-control";
-            wrapHost.appendChild(buildColumnFilterEditor(meta, null, tab.columnFilters && tab.columnFilters[field]));
-            row.appendChild(wrapHost);
-
-            body.appendChild(row);
-        });
-
-        root.hidden = false;
-        root.setAttribute("aria-hidden", "false");
-        if (els.columnFiltersBtn) els.columnFiltersBtn.setAttribute("aria-expanded", "true");
-
-        const applyBtn = els.columnFilterApplyBtn;
-        if (applyBtn) applyBtn.focus();
-        if (typeof feather !== "undefined") feather.replace();
-    }
-
-    function closeColumnFiltersDialog() {
-        if (!els.columnFilterRoot) return;
-        els.columnFilterRoot.hidden = true;
-        els.columnFilterRoot.setAttribute("aria-hidden", "true");
-        if (els.columnFiltersBtn) els.columnFiltersBtn.setAttribute("aria-expanded", "false");
-    }
-
-    function applyColumnFiltersDialog() {
-        const key = state.activeTab;
-        const tab = key ? state.tabs[key] : null;
-        const body = els.columnFilterBody;
-        if (!tab || !body) return;
-        ensureColumnFilters(tab);
-
-        body.querySelectorAll(".column-filter-dialog-row").forEach(function (row) {
-            const field = row.dataset.field;
-            const wrap = row.querySelector(".hf-wrap");
-            const filt = wrap && wrap.__hfState;
-            if (!field || !filt) return;
-            if (isEmptyFilter(filt)) delete tab.columnFilters[field];
-            else {
-                tab.columnFilters[field] = {
-                    op: filt.op,
-                    v: Array.isArray(filt.v) ? filt.v.slice() : filt.v,
-                };
-            }
-        });
-
-        rebuildGridDataFromFilters(key);
-        closeColumnFiltersDialog();
-        renderSortGroupBar();
-        updateExportRowCount();
-        updateChangedState();
-    }
-
-    function clearAllTabColumnFiltersThenRefresh() {
-        const key = state.activeTab;
-        const tab = key ? state.tabs[key] : null;
-        if (!tab) return;
-        resetColumnFiltersFromSaved(tab, []);
-        rebuildGridDataFromFilters(key);
-        closeColumnFiltersDialog();
-        renderSortGroupBar();
-        updateExportRowCount();
-        updateChangedState();
-    }
-
-    function wireColumnFilterDialog() {
-        if (els.columnFiltersBtn) {
-            els.columnFiltersBtn.addEventListener("click", openColumnFiltersDialog);
-        }
-        if (els.columnFilterDismiss && els.columnFilterRoot) {
-            els.columnFilterDismiss.addEventListener("click", closeColumnFiltersDialog);
-        }
-        if (els.columnFilterCancelBtn) {
-            els.columnFilterCancelBtn.addEventListener("click", closeColumnFiltersDialog);
-        }
-        if (els.columnFilterApplyBtn) {
-            els.columnFilterApplyBtn.addEventListener("click", applyColumnFiltersDialog);
-        }
-        if (els.columnFilterClearBtn) {
-            els.columnFilterClearBtn.addEventListener("click", clearAllTabColumnFiltersThenRefresh);
-        }
-
-        document.addEventListener("keydown", function columnFilterEscape(ev) {
-            if (!columnFilterDialogIsOpen()) return;
-            if (ev.key !== "Escape") return;
-            ev.preventDefault();
-            closeColumnFiltersDialog();
-        });
     }
 
     // ---------- Action buttons ------------------------------------------
