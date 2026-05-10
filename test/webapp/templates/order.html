@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Order {{ header.order_number }} &middot; Sales Reports{% endblock %}
+
+{% block content %}
+{% if customer_account %}
+<a href="{{ url_for('dashboard.customer_detail', account=customer_account) }}" class="back-link">
+    <i data-feather="arrow-left" style="width:16px;height:16px;"></i>
+    Back to Customer
+</a>
+{% else %}
+<a href="{{ url_for('dashboard.index') }}" class="back-link">
+    <i data-feather="arrow-left" style="width:16px;height:16px;"></i>
+    Dashboard
+</a>
+{% endif %}
+
+<div class="page-header">
+    <h1>Order {{ header.order_number }}</h1>
+    {% if header.order_date %}
+    <p class="page-subtitle">{{ header.order_date }}</p>
+    {% endif %}
+</div>
+
+<div class="detail-card">
+    <div class="detail-grid">
+        <div class="detail-item">
+            <span class="detail-label">Order Number</span>
+            <span class="detail-value" style="font-weight:700;">{{ header.order_number }}</span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">Date</span>
+            <span class="detail-value">{{ header.order_date or '-' }}</span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">Status</span>
+            <span class="detail-value">{{ header.status or '-' }}</span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">Processing Status</span>
+            <span class="detail-value">{{ header.processing_status or '-' }}</span>
+        </div>
+        {% if customer_account %}
+        <div class="detail-item">
+            <span class="detail-label">Customer</span>
+            <span class="detail-value">
+                <a href="{{ url_for('dashboard.customer_detail', account=customer_account) }}" style="color:var(--primary); text-decoration:none;">
+                    {{ customer_account }}
+                </a>
+                {% if header.customer_name %}<span style="color:var(--text-muted); margin-left:4px;">{{ header.customer_name }}</span>{% endif %}
+            </span>
+        </div>
+        {% endif %}
+        {% if header.salesman %}
+        <div class="detail-item">
+            <span class="detail-label">Salesman</span>
+            <span class="detail-value">{{ header.salesman }}</span>
+        </div>
+        {% endif %}
+        <div class="detail-item">
+            <span class="detail-label">PO Number</span>
+            <span class="detail-value">{{ header.customer_req or '-' }}</span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">Order Name</span>
+            <span class="detail-value">{{ header.order_name or '-' }}</span>
+        </div>
+    </div>
+</div>
+
+<div class="detail-section-header">
+    <h3 class="dash-section-title">Line Items</h3>
+    {% if lines %}
+    <span class="detail-count">{{ lines|length }} item{{ 's' if lines|length != 1 else '' }}</span>
+    {% endif %}
+</div>
+
+<div class="table-wrapper">
+    {% if lines %}
+    <table class="data-table detail-table sticky-col-first" id="linesTable">
+        <thead>
+            <tr>
+                <th>Item #</th>
+                <th>Description</th>
+                <th class="num">Qty Ordered</th>
+                <th class="num">Qty Shipped</th>
+                <th class="num">Qty Cancelled</th>
+                <th class="num">Sales Price</th>
+                <th class="num">Order $</th>
+                <th class="num">Shipped $</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in lines %}
+            <tr>
+                <td class="cell-nowrap" style="font-weight:600;">{{ l.item }}</td>
+                <td>{{ l.description }}</td>
+                <td class="num">{{ "%g"|format(l.qty_ordered|float) }}</td>
+                <td class="num">{{ "%g"|format((l.qty_shipped or 0)|float) }}</td>
+                <td class="num">{{ "%g"|format((l.qty_cancelled or 0)|float) }}</td>
+                <td class="num">${{ "%.2f"|format(l.sales_price|float) if l.sales_price else '-' }}</td>
+                <td class="num">${{ "%.2f"|format((l.total_ordered if l.total_ordered is defined else l.total)|float) }}</td>
+                <td class="num">${{ "%.2f"|format((l.total_shipped or 0)|float) }}</td>
+                <td>{{ l.status }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        {% if lines|length > 1 %}
+        <tfoot>
+            <tr style="font-weight:700; background:var(--bg);">
+                <td colspan="2" style="text-align:right; padding-right:12px;">Totals</td>
+                <td class="num">{{ "%g"|format(lines|sum(attribute='qty_ordered')|float) }}</td>
+                <td class="num">{{ "%g"|format(lines|sum(attribute='qty_shipped')|float) }}</td>
+                <td class="num">{{ "%g"|format(lines|sum(attribute='qty_cancelled')|float) }}</td>
+                <td></td>
+                <td class="num">${{ "%.2f"|format(lines|sum(attribute='total_ordered')|float) }}</td>
+                <td class="num">${{ "%.2f"|format(lines|sum(attribute='total_shipped')|float) }}</td>
+                <td></td>
+            </tr>
+        </tfoot>
+        {% endif %}
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:24px;">
+        <i data-feather="list" width="40" height="40"></i>
+        <h3>No line items found</h3>
+        <p>Line item data may not be available for this order.</p>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

@@ -125,6 +125,11 @@ def create_app() -> Flask:
             start_scheduler()
         except Exception:
             log.exception("mirror scheduler failed to start (non-fatal)")
+        try:
+            from test.webapp.services.dashboard_data import start_background_refresh
+            start_background_refresh()
+        except Exception:
+            log.exception("dashboard refresh scheduler failed to start (non-fatal)")
 
     log.info("v2 app created (USE_MOCK_DATA=%s prefix=%s)", USE_MOCK_DATA, URL_PREFIX)
     return app

@@ -157,6 +157,25 @@ def api_set_exclusions():
     return jsonify({"ok": True, "exclusions": get_user_exclusions(u.get("email", ""))})
 
 
+@settings_bp.post("/api/settings/toggle-customer-exclusion")
+@require_login
+def api_toggle_customer_exclusion():
+    u = current_user() or {}
+    body = request.get_json(silent=True) or {}
+    account = str(body.get("account") or "").strip()
+    include = bool(body.get("include", True))
+    if not account:
+        return jsonify({"error": "account is required"}), 400
+
+    exclusions = get_user_exclusions(u.get("email", ""))
+    if include:
+        exclusions = [a for a in exclusions if a != account]
+    elif account not in exclusions:
+        exclusions.append(account)
+    set_user_exclusions(u.get("email", ""), exclusions)
+    return jsonify({"success": True, "exclusions": get_user_exclusions(u.get("email", ""))})
+
+
 # ---------------------------------------------------------------------------
 # API: Admin -- feature flags
 # ---------------------------------------------------------------------------

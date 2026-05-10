@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -233,6 +234,27 @@ SCHEMA_STATEMENTS = [
         user_email   TEXT NOT NULL,
         salesman_key TEXT NOT NULL,
         PRIMARY KEY (user_email, salesman_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS dashboard_cache (
+        customer_account   TEXT PRIMARY KEY,
+        customer_name      TEXT NOT NULL DEFAULT '',
+        sales_group        TEXT NOT NULL DEFAULT '',
+        last_order_date    TEXT,
+        order_dates        TEXT NOT NULL DEFAULT '[]',
+        avg_gap_days       REAL,
+        gap_stdev          REAL,
+        overdue_threshold  REAL,
+        days_since_last    INTEGER,
+        status             TEXT NOT NULL DEFAULT 'new',
+        last_refreshed     TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
     )
     """,
 ]
@@ -537,12 +559,46 @@ def init_db() -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _norm_email(email: str) -> str:
     return (email or "").strip().lower()
+
+
+def normalize_key(value: str | None) -> str:
+    """Normalize a salesman key / sales group for comparison."""
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def get_app_setting(key: str) -> str | None:
+    key = (key or "").strip()
+    if not key:
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?", (key,)
+        ).fetchone()
+    return row["value"] if row else None
+
+
+def set_app_setting(key: str, value: str) -> None:
+    key = (key or "").strip()
+    if not key:
+        return
+    val = value if value is not None else ""
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, val),
+        )
 
 
 # -- Preferences ------------------------------------------------------------
