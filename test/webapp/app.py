@@ -27,6 +27,7 @@ from test.webapp.auth import current_user, require_login
 from test.webapp.blueprints.auth_bp import auth_bp
 from test.webapp.blueprints.customer_last_order import bp as customer_last_order_bp
 from test.webapp.blueprints.dashboard import dashboard_bp
+from test.webapp.blueprints.notifications import notifications_bp
 from test.webapp.blueprints.presets import presets_bp
 from test.webapp.blueprints.report_api import report_api_bp, sharepoint_api_bp
 from test.webapp.blueprints.reports import reports_bp
@@ -56,15 +57,26 @@ def create_app() -> Flask:
     @app.context_processor
     def _inject_globals():
         from test.webapp.auth import has_sharepoint_access as _has_sp
-        from test.webapp.db import get_user_preferences
+        from test.webapp.db import get_app_user, get_feature_flag, get_user_preferences
+        from test.webapp.services.report_access import get_user_profile
 
         user = current_user()
         prefs = {}
+        dashboard_enabled = False
         if user and user.get("email"):
             try:
                 prefs = get_user_preferences(user["email"])
             except Exception:
                 prefs = {}
+            try:
+                profile = get_user_profile(user["email"])
+                if profile["role"] in {"admin", "developer"}:
+                    dashboard_enabled = True
+                elif get_feature_flag("dashboard_enabled", True):
+                    row = get_app_user(user["email"])
+                    dashboard_enabled = bool(row is None or row.get("dashboard_enabled", True))
+            except Exception:
+                dashboard_enabled = False
         return {
             "USE_MOCK_DATA": USE_MOCK_DATA,
             "URL_PREFIX": URL_PREFIX,
@@ -72,6 +84,7 @@ def create_app() -> Flask:
             "CURRENT_USER": user,
             "USER_PREFS": prefs,
             "HAS_SHAREPOINT_ACCESS": _has_sp(user) if user else False,
+            "DASHBOARD_ENABLED": dashboard_enabled,
         }
 
     _LANDING_ENDPOINTS = {
@@ -100,6 +113,7 @@ def create_app() -> Flask:
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(notifications_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(report_api_bp)
     app.register_blueprint(sharepoint_api_bp)

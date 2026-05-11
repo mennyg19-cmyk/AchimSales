@@ -67,16 +67,20 @@
            class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="file-text"></i>
+                <span class="nav-badge" id="badgeReports" style="display:none;"></span>
             </div>
             <span class="bottom-nav-label">Reports</span>
         </a>
+        {% if DASHBOARD_ENABLED %}
         <a href="{{ url_for('dashboard.index') }}"
            class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="bar-chart-2"></i>
+                <span class="nav-badge" id="badgeDashboard" style="display:none;"></span>
             </div>
             <span class="bottom-nav-label">Dashboard</span>
         </a>
+        {% endif %}
         <a href="{{ url_for('schedules.index') }}"
            class="bottom-nav-item {% if active_tab == 'schedules' %}active{% endif %}">
             <div class="bottom-nav-icon">
@@ -94,7 +98,31 @@
     </nav>
     {% endif %}
 
+    <div id="helpOverlay" class="help-popup-overlay" style="display:none;" onclick="closeHelp(event)">
+        <div class="help-popup-content" onclick="event.stopPropagation()">
+            <div class="help-popup-header">
+                <h3 id="helpTitle"></h3>
+                <button class="help-popup-close" onclick="closeHelp()">&times;</button>
+            </div>
+            <div id="helpBody" class="help-popup-body"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='help_content.js') }}"></script>
     <script>
+    function openHelp(key) {
+        var entry = (typeof HELP !== 'undefined') && HELP[key];
+        if (!entry) return;
+        document.getElementById('helpTitle').textContent = entry.title;
+        document.getElementById('helpBody').innerHTML = entry.body;
+        document.getElementById('helpOverlay').style.display = 'flex';
+    }
+
+    function closeHelp(e) {
+        if (e && e.target && e.target !== document.getElementById('helpOverlay')) return;
+        document.getElementById('helpOverlay').style.display = 'none';
+    }
+
     (function () {
         // Theme toggle: persist to localStorage.
         try {
@@ -105,6 +133,19 @@
 
         document.addEventListener('DOMContentLoaded', function () {
             if (typeof feather !== 'undefined') feather.replace();
+
+            document.addEventListener('click', function (e) {
+                var helpBtn = e.target.closest('[data-help]');
+                if (helpBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openHelp(helpBtn.getAttribute('data-help'));
+                }
+            });
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closeHelp();
+            });
 
             var btn = document.getElementById('themeToggleBtn');
             if (btn) {
@@ -123,8 +164,53 @@
                     if (i0) i0.setAttribute('data-feather', 'sun');
                 }
             }
+
+            startNotificationPolling();
         });
     })();
+
+    function _v2Api(path) {
+        return (window.V2_URL_PREFIX || '') + path;
+    }
+
+    function updateBadge(elementId, count) {
+        var badge = document.getElementById(elementId);
+        if (!badge) return;
+        if (count > 0) {
+            badge.textContent = count > 99 ? '99+' : count;
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    function pollNotifications() {
+        fetch(_v2Api('/api/notifications'))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                updateBadge('badgeReports', data.report_ready_count || 0);
+                updateBadge('badgeDashboard', data.overdue_count || 0);
+            })
+            .catch(function () {});
+    }
+
+    function startNotificationPolling() {
+        var navReports = document.getElementById('badgeReports');
+        var navDashboard = document.getElementById('badgeDashboard');
+        if (!navReports && !navDashboard) return;
+
+        pollNotifications();
+        var interval = setInterval(pollNotifications, 30000);
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) {
+                clearInterval(interval);
+                interval = null;
+            } else if (!interval) {
+                pollNotifications();
+                interval = setInterval(pollNotifications, 30000);
+            }
+        });
+    }
     </script>
     {% block scripts %}{% endblock %}
 </body>

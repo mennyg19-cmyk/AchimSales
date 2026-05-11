@@ -130,6 +130,31 @@ var HELP = {
               "<strong>Threshold</strong> — how many days we wait before marking them overdue (based on their ordering pattern plus some buffer)."
     },
 
+    "dashboard-tile-total": {
+        title: "Total Customers",
+        body: "All customers included in your dashboard after your access rules and customer exclusions are applied."
+    },
+
+    "dashboard-tile-new": {
+        title: "New Customers",
+        body: "Customers without enough order history to calculate a normal ordering pattern yet."
+    },
+
+    "dashboard-tile-active": {
+        title: "Active Customers",
+        body: "Customers whose latest order is still within their expected ordering pattern."
+    },
+
+    "dashboard-tile-overdue": {
+        title: "Overdue Customers",
+        body: "Customers who have gone past their expected reorder threshold based on their previous order history."
+    },
+
+    "dashboard-tile-inactive": {
+        title: "Inactive Customers",
+        body: "Customers whose last order is old enough that they are treated as inactive."
+    },
+
     "dashboard-avg-freq": {
         title: "Average Frequency",
         body: "The average number of days between this customer's orders.<br><br>" +

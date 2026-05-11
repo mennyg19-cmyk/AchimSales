@@ -56,9 +56,9 @@
 
     <div class="detail-toggle-row">
         <div class="detail-toggle-info">
-            <span class="detail-toggle-title">Include in Dashboard</span>
+            <span class="detail-toggle-title">Include in Dashboard <button class="help-icon" data-help="dashboard-include">?</button></span>
             <span class="detail-toggle-desc" id="toggleDesc">
-                {% if is_excluded %}Excluded from metrics{% else %}Included in metrics{% endif %}
+                {% if is_excluded %}Excluded from metrics and notifications{% else %}Included in metrics and notifications{% endif %}
             </span>
         </div>
         <label class="toggle-switch">
@@ -158,7 +158,7 @@ function toggleExclusion(checkbox) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) {
-            desc.textContent = include ? "Included in metrics" : "Excluded from metrics";
+            desc.textContent = include ? "Included in metrics and notifications" : "Excluded from metrics and notifications";
         } else {
             checkbox.checked = !include;
             desc.textContent = "Error saving";

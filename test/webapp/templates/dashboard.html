@@ -4,27 +4,32 @@
 {% block content %}
 <div class="page-header">
     <h1>Dashboard</h1>
-    <p class="page-subtitle">Customer activity overview</p>
+    <p class="page-subtitle">Customer activity overview <button class="help-icon" data-help="dashboard-cards">?</button></p>
 </div>
 
 <div class="dash-summary-cards">
     <div class="dash-card dash-card-filter dash-card-filter-active" data-filter="" onclick="filterByCard(this, '')">
+        <button class="help-icon dash-card-help" type="button" onclick="event.stopPropagation(); openHelp('dashboard-tile-total');">?</button>
         <div class="dash-card-label">Total Customers</div>
         <div class="dash-card-value">{{ summary.total_customers }}</div>
     </div>
     <div class="dash-card dash-card-new dash-card-filter" data-filter="new" onclick="filterByCard(this, 'new')">
+        <button class="help-icon dash-card-help" type="button" onclick="event.stopPropagation(); openHelp('dashboard-tile-new');">?</button>
         <div class="dash-card-label">New</div>
         <div class="dash-card-value">{{ summary.new }}</div>
     </div>
     <div class="dash-card dash-card-active dash-card-filter" data-filter="active" onclick="filterByCard(this, 'active')">
+        <button class="help-icon dash-card-help" type="button" onclick="event.stopPropagation(); openHelp('dashboard-tile-active');">?</button>
         <div class="dash-card-label">Active</div>
         <div class="dash-card-value">{{ summary.active }}</div>
     </div>
     <div class="dash-card dash-card-overdue dash-card-filter" data-filter="overdue" onclick="filterByCard(this, 'overdue')">
+        <button class="help-icon dash-card-help" type="button" onclick="event.stopPropagation(); openHelp('dashboard-tile-overdue');">?</button>
         <div class="dash-card-label">Overdue</div>
         <div class="dash-card-value">{{ summary.overdue }}</div>
     </div>
     <div class="dash-card dash-card-filter" data-filter="inactive" onclick="filterByCard(this, 'inactive')">
+        <button class="help-icon dash-card-help" type="button" onclick="event.stopPropagation(); openHelp('dashboard-tile-inactive');">?</button>
         <div class="dash-card-label">Inactive</div>
         <div class="dash-card-value">{{ summary.inactive }}</div>
     </div>
@@ -77,10 +82,13 @@
                 {% endif %}
             </span>
         </div>
-        <button class="btn btn-sm btn-outline" id="refreshBtn" onclick="triggerDashRefresh()">
-            <i data-feather="refresh-cw" style="width:14px;height:14px;"></i>
-            Refresh
-        </button>
+        <div style="display:flex; align-items:center; gap:6px;">
+            <button class="btn btn-sm btn-outline" id="refreshBtn" onclick="triggerDashRefresh()">
+                <i data-feather="refresh-cw" style="width:14px;height:14px;"></i>
+                Refresh
+            </button>
+            <button class="help-icon" data-help="dashboard-refresh" style="margin-left:0;">?</button>
+        </div>
     </div>
     <div class="dash-refresh-progress" id="refreshProgress" style="display:{% if refresh.running %}block{% else %}none{% endif %}">
         <div class="dash-refresh-progress-track">
@@ -105,8 +113,8 @@
                 <th onclick="sortDashTable(1)">Account <span class="sort-arrow">&#9650;</span></th>
                 <th onclick="sortDashTable(2)">Last Order <span class="sort-arrow">&#9650;</span></th>
                 <th onclick="sortDashTable(3)">Days Since <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(4)">Avg Freq <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(5)">Threshold <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(4)">Avg Freq <button class="help-icon" data-help="dashboard-avg-freq" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>
+                <th onclick="sortDashTable(5)">Threshold <button class="help-icon" data-help="dashboard-threshold" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>
                 <th onclick="sortDashTable(6)">Status <span class="sort-arrow">&#9650;</span></th>
             </tr>
         </thead>

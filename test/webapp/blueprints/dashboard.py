@@ -15,6 +15,7 @@ from test.webapp.auth import current_user, require_login
 from test.webapp.db import (
     get_app_user,
     get_feature_flag,
+    get_notifications,
     get_user_exclusions,
 )
 from test.webapp.services import dashboard_data
@@ -47,13 +48,22 @@ def _dashboard_enabled_for_user(email: str) -> bool:
     return bool(row is None or row.get("dashboard_enabled", True))
 
 
+def _dashboard_disabled_message(email: str) -> str:
+    profile = get_user_profile(email)
+    if profile["role"] in {"admin", "developer"}:
+        return ""
+    if not get_feature_flag("dashboard_enabled", True):
+        return "The dashboard is currently disabled."
+    return "Dashboard is not enabled for your account."
+
+
 @dashboard_bp.route("/dashboard")
 @require_login
 def index():
     user = current_user() or {}
     email = user.get("email", "")
     if not _dashboard_enabled_for_user(email):
-        flash("Dashboard is not enabled for your account.", "info")
+        flash(_dashboard_disabled_message(email), "info")
         return redirect(url_for("reports.list_all"))
 
     scope = dashboard_data.get_user_dashboard_scope(email)
@@ -80,7 +90,10 @@ def index():
         summary=summary,
         refresh=refresh,
         poll_refresh_before=poll_refresh_before,
-        alerts=[],
+        alerts=[
+            alert for alert in get_notifications(email, dismissed=False)
+            if alert.get("type") == "overdue_customer"
+        ],
     )
 
 

@@ -49,6 +49,23 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS notifications (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_email    TEXT NOT NULL,
+        type          TEXT NOT NULL,
+        title         TEXT NOT NULL,
+        message       TEXT NOT NULL DEFAULT '',
+        data          TEXT NOT NULL DEFAULT '{}',
+        dismissed     INTEGER NOT NULL DEFAULT 0,
+        created_at    TEXT NOT NULL,
+        dismissed_at  TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_notifications_user
+        ON notifications(user_email, dismissed, created_at DESC)
+    """,
+    """
     CREATE TABLE IF NOT EXISTS saved_reports (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         user_email   TEXT    NOT NULL,
@@ -738,6 +755,132 @@ def set_user_exclusions(email: str, accounts: list[str]) -> None:
                 "INSERT OR IGNORE INTO user_exclusions (user_email, customer_account) VALUES (?, ?)",
                 [(email, a) for a in accounts],
             )
+
+
+# -- Notifications ----------------------------------------------------------
+
+def add_notification(
+    user_email: str,
+    ntype: str,
+    title: str,
+    message: str = "",
+    data: dict | None = None,
+) -> int | None:
+    """Insert a notification and return its id."""
+    email = _norm_email(user_email)
+    ntype = (ntype or "").strip()
+    title = (title or "").strip()
+    if not email or not ntype or not title:
+        return None
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO notifications (user_email, type, title, message, data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (email, ntype, title, message or "", json.dumps(data or {}), _now_utc()),
+        )
+        return int(cur.lastrowid)
+
+
+def get_notifications(user_email: str, dismissed: bool = False) -> list[dict]:
+    """Return notifications for a user, newest first."""
+    email = _norm_email(user_email)
+    if not email:
+        return []
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, type, title, message, data, dismissed, created_at
+            FROM notifications
+            WHERE user_email = ? AND dismissed = ?
+            ORDER BY created_at DESC
+            """,
+            (email, 1 if dismissed else 0),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["data"] = json.loads(item.get("data") or "{}")
+        except json.JSONDecodeError:
+            item["data"] = {}
+        out.append(item)
+    return out
+
+
+def get_notification_counts(user_email: str) -> dict[str, int]:
+    """Return unread notification counts by type plus total."""
+    email = _norm_email(user_email)
+    if not email:
+        return {"total": 0}
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT type, COUNT(*) AS cnt
+            FROM notifications
+            WHERE user_email = ? AND dismissed = 0
+            GROUP BY type
+            """,
+            (email,),
+        ).fetchall()
+    counts = {str(r["type"]): int(r["cnt"] or 0) for r in rows}
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def dismiss_notification(notification_id: int, user_email: str | None = None) -> None:
+    """Mark one notification as dismissed, optionally scoped to its owner."""
+    email = _norm_email(user_email or "")
+    now = _now_utc()
+    with connect() as conn:
+        if email:
+            conn.execute(
+                """
+                UPDATE notifications
+                SET dismissed = 1, dismissed_at = ?
+                WHERE id = ? AND user_email = ?
+                """,
+                (now, notification_id, email),
+            )
+        else:
+            conn.execute(
+                "UPDATE notifications SET dismissed = 1, dismissed_at = ? WHERE id = ?",
+                (now, notification_id),
+            )
+
+
+def dismiss_notifications_by_type(user_email: str, ntype: str) -> None:
+    """Dismiss all unread notifications of a given type for the user."""
+    email = _norm_email(user_email)
+    ntype = (ntype or "").strip()
+    if not email or not ntype:
+        return
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE notifications
+            SET dismissed = 1, dismissed_at = ?
+            WHERE user_email = ? AND type = ? AND dismissed = 0
+            """,
+            (_now_utc(), email, ntype),
+        )
+
+
+def dismiss_all_notifications(user_email: str) -> None:
+    """Dismiss all unread notifications for the user."""
+    email = _norm_email(user_email)
+    if not email:
+        return
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE notifications
+            SET dismissed = 1, dismissed_at = ?
+            WHERE user_email = ? AND dismissed = 0
+            """,
+            (_now_utc(), email),
+        )
 
 
 # -- App users / permissions ------------------------------------------------
