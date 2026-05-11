@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from core.dates import D365_GO_LIVE, get_today_eastern
+from test.config.settings import USE_MOCK_DATA
 from test.webapp.db import (
     connect,
     get_app_setting,
@@ -24,7 +25,7 @@ from test.webapp.db import (
     normalize_key,
     set_app_setting,
 )
-from test.webapp.services import reporting_api
+from test.webapp.services import report_fixtures, reporting_api
 from test.webapp.services.report_access import get_user_profile
 from test.webapp.services.reports.ordered import _norm_row
 
@@ -82,7 +83,13 @@ def _num(value: Any) -> float:
 
 
 def _customer_account(raw: dict) -> str:
-    return str(raw.get("CustomerAccount") or raw.get("AccountNum") or "").strip()
+    return str(
+        raw.get("CustomerAccount")
+        or raw.get("customeraccount")
+        or raw.get("AccountNum")
+        or raw.get("accountnum")
+        or ""
+    ).strip()
 
 
 def _customer_name(raw: dict) -> str:
@@ -90,7 +97,7 @@ def _customer_name(raw: dict) -> str:
 
 
 def _sales_group(raw: dict) -> str:
-    return str(raw.get("SalesGroup") or raw.get("sales_group") or "").strip()
+    return str(raw.get("SalesGroup") or raw.get("salesgroup") or raw.get("sales_group") or "").strip()
 
 
 def _compute_customer_metrics(
@@ -161,7 +168,13 @@ def _fetch_customers(salesman_key: str | None) -> list[dict]:
     params: dict[str, Any] = {}
     if salesman_key:
         params["salesman"] = salesman_key
-    rows = reporting_api.run("customer_master", params)
+    try:
+        rows = reporting_api.run("customer_master", params)
+    except Exception as exc:
+        # The order rows contain enough customer fields to seed the dashboard.
+        # Do not let customer-master downtime block the first dashboard load.
+        log.warning("Dashboard customer-master fetch failed; deriving customers from orders: %s", exc)
+        return []
     return list(rows or [])
 
 
@@ -172,7 +185,21 @@ def _fetch_order_history(salesman_key: str | None) -> list[dict]:
         params["company"] = _DEFAULT_COMPANY
     if salesman_key:
         params["salesman"] = salesman_key
-    rows = reporting_api.run("ordered", params)
+    try:
+        rows = reporting_api.run("ordered", params)
+    except Exception as exc:
+        rows = None
+        if USE_MOCK_DATA or not reporting_api.is_configured():
+            fixture_rows = report_fixtures.load_ordered_rows()
+            if fixture_rows is not None:
+                rows = report_fixtures.filter_ordered_rows(fixture_rows, params)
+                log.warning(
+                    "Dashboard order fetch failed; using ordered fixture rows (%d): %s",
+                    len(rows),
+                    exc,
+                )
+        if rows is None:
+            raise
     return list(rows or [])
 
 
@@ -267,11 +294,18 @@ def refresh_cache(salesman_key: str | None = None) -> None:
             }
 
         for acct, fallback in customer_fallbacks.items():
-            customers_by_account.setdefault(acct, {
-                "customer_account": acct,
-                "customer_name": fallback["customer_name"] or acct,
-                "sales_group": fallback["sales_group"],
-            })
+            existing = customers_by_account.get(acct)
+            if existing:
+                if not existing.get("sales_group") and fallback.get("sales_group"):
+                    existing["sales_group"] = fallback["sales_group"]
+                if not existing.get("customer_name") and fallback.get("customer_name"):
+                    existing["customer_name"] = fallback["customer_name"]
+            else:
+                customers_by_account[acct] = {
+                    "customer_account": acct,
+                    "customer_name": fallback["customer_name"] or acct,
+                    "sales_group": fallback["sales_group"],
+                }
 
         metrics: list[dict[str, Any]] = []
         for acct, customer in customers_by_account.items():
@@ -424,6 +458,34 @@ def get_cache_counts() -> dict[str, int]:
         customers = conn.execute("SELECT COUNT(*) FROM dashboard_cache").fetchone()[0]
         order_lines = conn.execute("SELECT COUNT(*) FROM dashboard_order_cache").fetchone()[0]
     return {"customers": int(customers or 0), "order_lines": int(order_lines or 0)}
+
+
+def request_background_refresh(salesman_key: str | None = None) -> dict[str, Any]:
+    """Start a one-shot dashboard refresh unless that scope is already running."""
+    scope = _scope_key(salesman_key)
+    before = get_last_refresh() or ""
+    requested_at = mark_refresh_requested()
+    if _refresh_state.get(scope, {}).get("running"):
+        return {
+            "started": False,
+            "already_running": True,
+            "before": before,
+            "requested_at": requested_at,
+        }
+
+    def _run_refresh() -> None:
+        try:
+            refresh_cache(salesman_key=salesman_key)
+        except Exception:
+            log.exception("Dashboard background refresh failed")
+
+    threading.Thread(target=_run_refresh, name="v2-dashboard-one-shot-refresh", daemon=True).start()
+    return {
+        "started": True,
+        "already_running": False,
+        "before": before,
+        "requested_at": requested_at,
+    }
 
 
 def get_dashboard_data(

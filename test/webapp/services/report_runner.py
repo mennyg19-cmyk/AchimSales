@@ -29,59 +29,16 @@ Column types drive formatting in both the grid and the Excel export:
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from test.webapp.services.reports import ordered as ordered_builder
-from test.webapp.services import reporting_api
+from test.webapp.services import report_fixtures, reporting_api
 
 log = logging.getLogger(__name__)
-
-
-# Path to the JSON fixture stashed from the brother's test dump. Used as a
-# fallback when the reporting API is unreachable AND no stale cache exists.
-_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
-_ORDERED_FIXTURE = _FIXTURE_DIR / "ordered_dump.json"
-
-
-# ---------------------------------------------------------------------------
-# Fixture helpers (used only when the API is unreachable)
-# ---------------------------------------------------------------------------
-
-
-def _load_ordered_fixture() -> list[dict] | None:
-    if not _ORDERED_FIXTURE.exists():
-        return None
-    try:
-        with _ORDERED_FIXTURE.open(encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return data
-    except (OSError, json.JSONDecodeError) as exc:
-        log.warning("Could not read ordered fixture %s: %s", _ORDERED_FIXTURE, exc)
-    return None
-
-
-def _filter_ordered_fixture(rows: list[dict], params: dict) -> list[dict]:
-    """Apply a few obvious filters to the fixture so it at least reflects
-    the chosen filters during local dev / API-down scenarios.
-    """
-    out = rows
-    status = params.get("status")
-    if status:
-        out = [r for r in out if (r.get("SalesStatus") or "").lower() == str(status).lower()]
-    customers = params.get("customers")
-    if customers:
-        if isinstance(customers, str):
-            customers = [customers]
-        wanted = {str(c) for c in customers}
-        out = [r for r in out if str(r.get("CustomerAccount")) in wanted]
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -157,16 +114,16 @@ def _build_ordered(params: dict) -> tuple[list[dict], dict]:
             }
 
     if rows is None:
-        fixture_rows = _load_ordered_fixture()
+        fixture_rows = report_fixtures.load_ordered_rows()
         if fixture_rows is not None:
             log.info("ordered report: using fixture (%d rows)", len(fixture_rows))
-            rows = _filter_ordered_fixture(fixture_rows, params)
+            rows = report_fixtures.filter_ordered_rows(fixture_rows, params)
             previous = source if source.get("source") == "reporting_api_failed" else None
             source = {
                 "source": "fixture",
                 "label":  "Fixture (test data dump) — not real data",
                 "rows_fetched": len(rows),
-                "fixture_file": str(_ORDERED_FIXTURE),
+                "fixture_file": report_fixtures.ordered_fixture_path(),
             }
             if previous:
                 source["api_error"] = previous.get("error")

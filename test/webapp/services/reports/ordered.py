@@ -207,7 +207,7 @@ def _norm_row(raw: dict) -> dict:
     return {
         "Company":           _str(raw.get("Company")),
         "CustomerAccount":   _str(raw.get("CustomerAccount")),
-        "CustomerName":      _str(raw.get("customername")),
+        "CustomerName":      _str(raw.get("customername") or raw.get("CustomerName")),
         "Salesman":          _str(raw.get("SalesGroup")),
         "SalesOrderNumber":  _str(raw.get("SalesOrderNumber")),
         "PO #":              _str(raw.get("CustomerRequisition")),

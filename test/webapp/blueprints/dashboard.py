@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
@@ -65,7 +64,10 @@ def index():
         exclude_accounts=excluded,
     )
     summary = dashboard_data.get_dashboard_summary(customers)
-    refresh = dashboard_data.get_refresh_status(_refresh_salesman_scope(email))
+    refresh_scope = _refresh_salesman_scope(email)
+    if not customers:
+        dashboard_data.request_background_refresh(refresh_scope)
+    refresh = dashboard_data.get_refresh_status(refresh_scope)
 
     return render_template(
         "dashboard.html",
@@ -167,30 +169,10 @@ def api_refresh():
     user = current_user() or {}
     email = user.get("email", "")
     salesman_key = _refresh_salesman_scope(email)
-    before = dashboard_data.get_last_refresh() or ""
-    requested_at = dashboard_data.mark_refresh_requested()
-    current_status = dashboard_data.get_refresh_status(salesman_key)
-    if current_status.get("running"):
-        return jsonify({
-            "success": True,
-            "started": False,
-            "already_running": True,
-            "before": before,
-            "requested_at": requested_at,
-        })
-
-    def _run_refresh() -> None:
-        try:
-            dashboard_data.refresh_cache(salesman_key=salesman_key)
-        except Exception:
-            log.exception("Manual dashboard refresh failed")
-
-    threading.Thread(target=_run_refresh, name="v2-dashboard-manual-refresh", daemon=True).start()
+    result = dashboard_data.request_background_refresh(salesman_key)
     return jsonify({
         "success": True,
-        "started": True,
-        "before": before,
-        "requested_at": requested_at,
+        **result,
     })
 
 
