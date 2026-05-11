@@ -252,6 +252,36 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS dashboard_order_cache (
+        sales_order_number TEXT NOT NULL,
+        line_number        INTEGER NOT NULL DEFAULT 0,
+        customer_account   TEXT NOT NULL DEFAULT '',
+        customer_name      TEXT NOT NULL DEFAULT '',
+        sales_group        TEXT NOT NULL DEFAULT '',
+        order_date         TEXT NOT NULL DEFAULT '',
+        customer_req       TEXT NOT NULL DEFAULT '',
+        item_number        TEXT NOT NULL DEFAULT '',
+        item_name          TEXT NOT NULL DEFAULT '',
+        status             TEXT NOT NULL DEFAULT '',
+        qty_ordered        REAL NOT NULL DEFAULT 0,
+        qty_shipped        REAL NOT NULL DEFAULT 0,
+        qty_cancelled      REAL NOT NULL DEFAULT 0,
+        sales_price        REAL NOT NULL DEFAULT 0,
+        ordered_dollars    REAL NOT NULL DEFAULT 0,
+        shipped_dollars    REAL NOT NULL DEFAULT 0,
+        last_refreshed     TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (sales_order_number, line_number, item_number)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dashboard_order_cache_customer
+        ON dashboard_order_cache(customer_account, order_date DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dashboard_order_cache_order
+        ON dashboard_order_cache(sales_order_number)
+    """,
+    """
     CREATE TABLE IF NOT EXISTS app_settings (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL

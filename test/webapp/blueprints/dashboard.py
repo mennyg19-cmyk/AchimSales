@@ -169,6 +169,15 @@ def api_refresh():
     salesman_key = _refresh_salesman_scope(email)
     before = dashboard_data.get_last_refresh() or ""
     requested_at = dashboard_data.mark_refresh_requested()
+    current_status = dashboard_data.get_refresh_status(salesman_key)
+    if current_status.get("running"):
+        return jsonify({
+            "success": True,
+            "started": False,
+            "already_running": True,
+            "before": before,
+            "requested_at": requested_at,
+        })
 
     def _run_refresh() -> None:
         try:

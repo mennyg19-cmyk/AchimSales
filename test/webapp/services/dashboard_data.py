@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import threading
 import time
 from datetime import date, datetime, timedelta
@@ -30,6 +31,7 @@ from test.webapp.services.reports.ordered import _norm_row
 log = logging.getLogger(__name__)
 
 REFRESH_INTERVAL_SECONDS = 4 * 3600
+_DEFAULT_COMPANY = (os.environ.get("REPORTING_API_DEFAULT_COMPANY") or "ACHM").strip()
 _SCOPE_ALL = "__all__"
 _LAST_REQUESTED_KEY = "dashboard.last_refresh_requested"
 _LAST_COMPLETED_KEY = "dashboard.last_refresh_completed"
@@ -164,11 +166,57 @@ def _fetch_customers(salesman_key: str | None) -> list[dict]:
 
 
 def _fetch_order_history(salesman_key: str | None) -> list[dict]:
+    # Include Company so the all-time refresh never sends an empty SP body.
     params: dict[str, Any] = {"period": "all_time"}
+    if _DEFAULT_COMPANY:
+        params["company"] = _DEFAULT_COMPANY
     if salesman_key:
         params["salesman"] = salesman_key
     rows = reporting_api.run("ordered", params)
     return list(rows or [])
+
+
+def _cached_order_line(line: dict[str, Any], refreshed_at: str) -> tuple[Any, ...]:
+    return (
+        line.get("SalesOrderNumber") or "",
+        int(_num(line.get("LineNumber"))),
+        line.get("CustomerAccount") or "",
+        line.get("CustomerName") or "",
+        line.get("Salesman") or "",
+        _date_only(line.get("OrderDate")),
+        line.get("PO #") or "",
+        line.get("Item#") or "",
+        line.get("ItemName") or "",
+        line.get("Status") or "",
+        _num(line.get("QtyOrdered")),
+        _num(line.get("QtyShipped")),
+        _num(line.get("QtyCancelled")),
+        _num(line.get("UnitPrice")),
+        _num(line.get("Ordered $")),
+        _num(line.get("Shipped $")),
+        refreshed_at,
+    )
+
+
+def _row_to_order_line(row: Any) -> dict[str, Any]:
+    return {
+        "SalesOrderNumber": row["sales_order_number"],
+        "LineNumber": row["line_number"],
+        "CustomerAccount": row["customer_account"],
+        "CustomerName": row["customer_name"],
+        "Salesman": row["sales_group"],
+        "OrderDate": row["order_date"],
+        "PO #": row["customer_req"],
+        "Item#": row["item_number"],
+        "ItemName": row["item_name"],
+        "Status": row["status"],
+        "QtyOrdered": row["qty_ordered"],
+        "QtyShipped": row["qty_shipped"],
+        "QtyCancelled": row["qty_cancelled"],
+        "UnitPrice": row["sales_price"],
+        "Ordered $": row["ordered_dollars"],
+        "Shipped $": row["shipped_dollars"],
+    }
 
 
 def refresh_cache(salesman_key: str | None = None) -> None:
@@ -188,10 +236,13 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         order_rows = _fetch_order_history(salesman_key)
         _set_step(scope, f"Received {len(order_rows):,} order lines")
 
+        now = datetime.now().isoformat(timespec="seconds")
         order_dates_by_customer: dict[str, dict[str, str]] = {}
         customer_fallbacks: dict[str, dict[str, str]] = {}
+        normalized_lines: list[dict[str, Any]] = []
         for raw in order_rows:
             line = _norm_row(raw)
+            normalized_lines.append(line)
             acct = (line.get("CustomerAccount") or "").strip()
             order_date = _date_only(line.get("OrderDate"))
             if not acct or not order_date:
@@ -222,7 +273,6 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                 "sales_group": fallback["sales_group"],
             })
 
-        now = datetime.now().isoformat(timespec="seconds")
         metrics: list[dict[str, Any]] = []
         for acct, customer in customers_by_account.items():
             dates = sorted(order_dates_by_customer.get(acct, {}).values())
@@ -254,6 +304,7 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                     )
             else:
                 conn.execute("DELETE FROM dashboard_cache")
+                conn.execute("DELETE FROM dashboard_order_cache")
 
             conn.executemany(
                 """
@@ -278,6 +329,41 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                         m["last_refreshed"],
                     )
                     for m in metrics
+                ],
+            )
+
+            if salesman_key:
+                existing_order_rows = conn.execute(
+                    "SELECT sales_order_number, line_number, item_number, sales_group "
+                    "FROM dashboard_order_cache"
+                ).fetchall()
+                stale_order_keys = [
+                    (r["sales_order_number"], r["line_number"], r["item_number"])
+                    for r in existing_order_rows
+                    if normalize_key(r["sales_group"]) == norm
+                ]
+                if stale_order_keys:
+                    conn.executemany(
+                        """
+                        DELETE FROM dashboard_order_cache
+                        WHERE sales_order_number = ? AND line_number = ? AND item_number = ?
+                        """,
+                        stale_order_keys,
+                    )
+
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO dashboard_order_cache (
+                    sales_order_number, line_number, customer_account, customer_name,
+                    sales_group, order_date, customer_req, item_number, item_name,
+                    status, qty_ordered, qty_shipped, qty_cancelled, sales_price,
+                    ordered_dollars, shipped_dollars, last_refreshed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    _cached_order_line(line, now)
+                    for line in normalized_lines
+                    if line.get("SalesOrderNumber")
                 ],
             )
 
@@ -322,12 +408,22 @@ def mark_refresh_requested() -> str:
 def get_refresh_status(salesman_key: str | None = None) -> dict[str, Any]:
     scope = _scope_key(salesman_key)
     state = _refresh_state.get(scope, {})
+    counts = get_cache_counts()
     return {
         "running": bool(state.get("running", False)),
         "step": state.get("step", ""),
         "last_requested": _last_refresh_requested or get_app_setting(_LAST_REQUESTED_KEY),
         "last_completed": get_last_refresh(),
+        "cache_customers": counts["customers"],
+        "cache_order_lines": counts["order_lines"],
     }
+
+
+def get_cache_counts() -> dict[str, int]:
+    with connect() as conn:
+        customers = conn.execute("SELECT COUNT(*) FROM dashboard_cache").fetchone()[0]
+        order_lines = conn.execute("SELECT COUNT(*) FROM dashboard_order_cache").fetchone()[0]
+    return {"customers": int(customers or 0), "order_lines": int(order_lines or 0)}
 
 
 def get_dashboard_data(
@@ -453,6 +549,32 @@ def _group_order_headers(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return headers
 
 
+def _cached_lines_for_customer(account: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM dashboard_order_cache
+            WHERE customer_account = ?
+            ORDER BY order_date DESC, sales_order_number DESC, line_number
+            """,
+            (account,),
+        ).fetchall()
+    return [_row_to_order_line(r) for r in rows]
+
+
+def _cached_lines_for_order(order_number: str) -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM dashboard_order_cache
+            WHERE sales_order_number = ?
+            ORDER BY line_number, item_number
+            """,
+            (order_number,),
+        ).fetchall()
+    return [_row_to_order_line(r) for r in rows]
+
+
 def fetch_customer_info(account: str) -> dict[str, Any]:
     cached = get_customer_cached(account)
     if cached:
@@ -486,20 +608,15 @@ def fetch_customer_info(account: str) -> dict[str, Any]:
 
 
 def fetch_customer_orders(account: str, *, days: int | None = 7, last_n: int | None = None) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"customers": [account]}
-    if last_n or not days or days >= 9999:
-        params["period"] = "all_time"
-    else:
+    lines = _cached_lines_for_customer(account)
+    if not last_n and days and days < 9999:
         today = get_today_eastern()
         start = max(D365_GO_LIVE, today - timedelta(days=days))
-        params.update({
-            "period": "custom",
-            "start_date": start.isoformat(),
-            "end_date": today.isoformat(),
-        })
-
-    rows = reporting_api.run("ordered", params)
-    lines = [_norm_row(r) for r in (rows or [])]
+        lines = [
+            line for line in lines
+            if (parsed := _parse_date(_date_only(line.get("OrderDate")))) is not None
+            and start <= parsed <= today
+        ]
     headers = _group_order_headers(lines)
     if last_n:
         return headers[:last_n]
@@ -507,8 +624,7 @@ def fetch_customer_orders(account: str, *, days: int | None = 7, last_n: int | N
 
 
 def fetch_order_detail(order_number: str) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
-    rows = reporting_api.run("ordered", {"period": "all_time", "order_no": order_number})
-    lines = [_norm_row(r) for r in (rows or [])]
+    lines = _cached_lines_for_order(order_number)
     if not lines:
         return {"order_number": order_number}, [], ""
 
@@ -556,7 +672,8 @@ def start_background_refresh() -> None:
     if _refresh_thread and _refresh_thread.is_alive():
         return
 
-    has_data = get_last_refresh() is not None
+    counts = get_cache_counts()
+    has_data = counts["customers"] > 0 and counts["order_lines"] > 0
 
     def _loop() -> None:
         if not has_data:
