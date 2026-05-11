@@ -66,7 +66,7 @@ def index():
     summary = dashboard_data.get_dashboard_summary(customers)
     refresh_scope = _refresh_salesman_scope(email)
     poll_refresh_before = None
-    if not customers:
+    if dashboard_data.cache_needs_order_refresh():
         refresh_request = dashboard_data.request_background_refresh(refresh_scope)
         if refresh_request.get("started") or refresh_request.get("already_running"):
             poll_refresh_before = refresh_request.get("before") or ""

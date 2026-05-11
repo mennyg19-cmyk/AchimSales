@@ -182,18 +182,27 @@ def _date_only(v: Any) -> str:
     return s[:10] if len(s) >= 10 else s
 
 
+def _first(raw: dict, *keys: str) -> Any:
+    """Return the first non-empty value across endpoint field-name variants."""
+    for key in keys:
+        value = raw.get(key)
+        if value not in (None, "", "NULL"):
+            return value
+    return None
+
+
 def _norm_row(raw: dict) -> dict:
     """Map an SP row onto live-style column names + derive the missing qty/$ columns."""
-    qty_ord     = _int(raw.get("QuantityOrdered"))
-    qty_release = _int(raw.get("ReleasedQuantity"))
-    qty_remain  = _int(raw.get("DeliveryRemainder"))
-    qty_load    = _int(raw.get("QuantityLefttoLoad"))
-    status      = _str(raw.get("SalesStatus"))
+    qty_ord     = _int(_first(raw, "QuantityOrdered", "QtyOrdered"))
+    qty_release = _int(_first(raw, "ReleasedQuantity", "QtyReleased"))
+    qty_remain  = _int(_first(raw, "DeliveryRemainder", "QuantityRemainder", "QtyRemainder"))
+    qty_load    = _int(_first(raw, "QuantityLefttoLoad", "QtyLeftToLoad"))
+    status      = _str(_first(raw, "SalesStatus", "Status", "OrderStatus"))
 
-    ordered_d   = round(_num(raw.get("Ordered $")), 2)
-    shipped_d   = round(_num(raw.get("Shipped $")), 2)
-    cancelled_d = round(_num(raw.get("Cancelled $")), 2)
-    unit_price  = round(_num(raw.get("SalesPrice")), 4)
+    ordered_d   = round(_num(_first(raw, "Ordered $", "OrderedDollars", "OrderedAmount")), 2)
+    shipped_d   = round(_num(_first(raw, "Shipped $", "ShippedDollars", "ShippedAmount")), 2)
+    cancelled_d = round(_num(_first(raw, "Cancelled $", "CancelledDollars", "CancelledAmount")), 2)
+    unit_price  = round(_num(_first(raw, "SalesPrice", "UnitPrice")), 4)
 
     is_cancelled = status.lower() == "cancelled"
     qty_cancelled = qty_ord if is_cancelled else 0
@@ -205,18 +214,27 @@ def _norm_row(raw: dict) -> dict:
     fulfillment = (qty_ord - qty_cancelled) / qty_ord if qty_ord > 0 else None
 
     return {
-        "Company":           _str(raw.get("Company")),
-        "CustomerAccount":   _str(raw.get("CustomerAccount")),
-        "CustomerName":      _str(raw.get("customername") or raw.get("CustomerName")),
-        "Salesman":          _str(raw.get("SalesGroup")),
-        "SalesOrderNumber":  _str(raw.get("SalesOrderNumber")),
-        "PO #":              _str(raw.get("CustomerRequisition")),
-        "LineNumber":        _int(raw.get("LineNumber")),
+        "Company":           _str(_first(raw, "Company", "DataAreaId")),
+        "CustomerAccount":   _str(_first(raw, "CustomerAccount", "customeraccount", "AccountNum")),
+        "CustomerName":      _str(_first(raw, "customername", "CustomerName", "Name")),
+        "Salesman":          _str(_first(raw, "SalesGroup", "salesgroup", "Salesman")),
+        "SalesOrderNumber":  _str(_first(raw, "SalesOrderNumber", "SalesId", "OrderNumber")),
+        "PO #":              _str(_first(raw, "CustomerRequisition", "CustomerReq", "PONumber", "PO #")),
+        "LineNumber":        _int(_first(raw, "LineNumber", "LineNum")),
         "Status":            status,
-        "Item#":             _str(raw.get("Item")),
-        "ItemName":          _str(raw.get("ItemDescription")),
+        "Item#":             _str(_first(raw, "Item", "ItemId", "ItemNumber", "Item#")),
+        "ItemName":          _str(_first(raw, "ItemDescription", "ItemName", "LineDescription")),
         "UnitPrice":         unit_price,
-        "OrderDate":         _date_only(raw.get("CreatedDateTime")),
+        "OrderDate":         _date_only(_first(
+            raw,
+            "OrderDate",
+            "OrderCreationDateTime",
+            "CreatedDateTime",
+            "ShippingDateRequested",
+            "RequestedShipDate",
+            "ReceiptDateRequested",
+            "RequestedReceiptDate",
+        )),
 
         "QtyOrdered":        qty_ord,
         "QtyShipped":        qty_shipped,

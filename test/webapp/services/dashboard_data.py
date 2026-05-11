@@ -457,7 +457,26 @@ def get_cache_counts() -> dict[str, int]:
     with connect() as conn:
         customers = conn.execute("SELECT COUNT(*) FROM dashboard_cache").fetchone()[0]
         order_lines = conn.execute("SELECT COUNT(*) FROM dashboard_order_cache").fetchone()[0]
-    return {"customers": int(customers or 0), "order_lines": int(order_lines or 0)}
+        dated_order_lines = conn.execute(
+            "SELECT COUNT(*) FROM dashboard_order_cache WHERE order_date <> ''"
+        ).fetchone()[0]
+        customers_with_last_order = conn.execute(
+            "SELECT COUNT(*) FROM dashboard_cache WHERE last_order_date IS NOT NULL AND last_order_date <> ''"
+        ).fetchone()[0]
+    return {
+        "customers": int(customers or 0),
+        "order_lines": int(order_lines or 0),
+        "dated_order_lines": int(dated_order_lines or 0),
+        "customers_with_last_order": int(customers_with_last_order or 0),
+    }
+
+
+def cache_needs_order_refresh() -> bool:
+    """True when customer rows exist but order/date data was not populated."""
+    counts = get_cache_counts()
+    if counts["customers"] <= 0:
+        return True
+    return counts["order_lines"] <= 0 or counts["dated_order_lines"] <= 0 or counts["customers_with_last_order"] <= 0
 
 
 def request_background_refresh(salesman_key: str | None = None) -> dict[str, Any]:
