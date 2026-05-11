@@ -16,7 +16,7 @@ from __future__ import annotations
 from flask import Blueprint, abort, jsonify, render_template, request
 
 from test.config.reports import REPORTS
-from test.webapp.auth import current_user, require_admin, require_login
+from test.webapp.auth import current_user, is_admin as user_is_admin, require_admin, require_login
 from test.webapp.blueprints._schedule_common import (
     ScheduleValidationError,
     normalise_payload,
@@ -50,11 +50,12 @@ def _current_email() -> str:
 def index():
     schedules = list_master_schedules()
     u = current_user() or {}
+    is_admin = user_is_admin(u)
     return render_template(
         "master_schedules.html",
-        active_tab="settings" if u.get("is_admin") else "schedules",
+        active_tab="settings" if is_admin else "schedules",
         schedules=schedules,
-        is_admin=bool(u.get("is_admin")),
+        is_admin=is_admin,
         reports=[{"key": k, "name": r.name} for k, r in REPORTS.items()],
     )
 

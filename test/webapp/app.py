@@ -23,7 +23,7 @@ for _p in (str(_REPO_ROOT), str(_TEST_DIR)):
 from flask import Flask, redirect, url_for
 
 from test.config.settings import AUTH_MODE, FLASK_SECRET, URL_PREFIX, USE_MOCK_DATA
-from test.webapp.auth import current_user, require_login
+from test.webapp.auth import current_user, is_admin as user_is_admin, require_login
 from test.webapp.blueprints.auth_bp import auth_bp
 from test.webapp.blueprints.customer_last_order import bp as customer_last_order_bp
 from test.webapp.blueprints.dashboard import dashboard_bp
@@ -63,7 +63,9 @@ def create_app() -> Flask:
         user = current_user()
         prefs = {}
         dashboard_enabled = False
+        current_user_is_admin = False
         if user and user.get("email"):
+            current_user_is_admin = user_is_admin(user)
             try:
                 prefs = get_user_preferences(user["email"])
             except Exception:
@@ -82,6 +84,7 @@ def create_app() -> Flask:
             "URL_PREFIX": URL_PREFIX,
             "AUTH_MODE": AUTH_MODE,
             "CURRENT_USER": user,
+            "CURRENT_USER_IS_ADMIN": current_user_is_admin,
             "USER_PREFS": prefs,
             "HAS_SHAREPOINT_ACCESS": _has_sp(user) if user else False,
             "DASHBOARD_ENABLED": dashboard_enabled,

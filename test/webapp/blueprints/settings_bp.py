@@ -9,7 +9,7 @@ Sections:
   * Customer excl.  -- per-user customer account blocklist
   * Admin           -- report run log, master schedules link, users & permissions
 
-Admin tools require ``current_user().is_admin``.
+Admin tools require admin/developer privilege.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import logging
 from flask import Blueprint, abort, jsonify, render_template, request
 
 from test.config.reports import REPORTS
-from test.webapp.auth import current_user, require_admin, require_login
+from test.webapp.auth import current_user, is_admin as user_is_admin, require_admin, require_login
 from test.webapp.db import (
     DEFAULT_PREFERENCES,
     VALID_ROLES,
@@ -61,7 +61,7 @@ def index():
     user = current_user() or {}
     prefs = get_user_preferences(user.get("email", ""))
     exclusions = get_user_exclusions(user.get("email", ""))
-    is_admin = bool(user.get("is_admin"))
+    is_admin = user_is_admin(user)
 
     # Reports the perm grid should show. We use the full registry (incl.
     # disabled ones) so admins can pre-grant access ahead of go-live.

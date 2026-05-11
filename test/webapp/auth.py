@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from flask import abort, jsonify, redirect, request, session, url_for
+from flask import abort, jsonify, redirect, has_request_context, request, session, url_for
 from werkzeug.wrappers import Response
 
 from test.config.settings import (
@@ -182,16 +182,15 @@ def is_admin(user: dict[str, Any] | None = None) -> bool:
     if not email:
         return False
 
-    # If the caller passed a user dict explicitly, just use the flag on it.
-    if user is not None:
-        return bool(u.get("is_admin"))
-
     flag = resolve_admin(email)
     # Update the session in place so templates/blueprints that already
     # read user["is_admin"] see the fresh value without a re-login.
     if u.get("is_admin") != flag:
         u["is_admin"] = flag
-        session[SESSION_KEY] = u
+        if has_request_context():
+            session_user = current_user()
+            if session_user and session_user.get("email", "").strip().lower() == email:
+                session[SESSION_KEY] = u
     return flag
 
 
@@ -200,7 +199,7 @@ def has_sharepoint_access(user: dict[str, Any] | None = None) -> bool:
     u = user or current_user()
     if not u:
         return False
-    if u.get("is_admin"):
+    if is_admin(u):
         return True
     email = (u.get("email") or "").strip().lower()
     if not email:

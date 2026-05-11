@@ -403,6 +403,10 @@ def _backfill_user_roles(conn: sqlite3.Connection) -> None:
             "UPDATE app_users SET role = 'salesman' "
             " WHERE role IS NULL OR role = ''"
         )
+        conn.execute(
+            "UPDATE app_users SET is_admin = 1 "
+            " WHERE role IN ('admin', 'developer')"
+        )
     except Exception:
         log.exception("backfill: app_users.role")
 
@@ -917,7 +921,8 @@ def _user_select_cols() -> str:
 
 def _user_row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
-    d["is_admin"]                  = bool(d.get("is_admin"))
+    role = (d.get("role") or "").strip().lower()
+    d["is_admin"]                  = bool(d.get("is_admin")) or role in ("admin", "developer")
     d["sharepoint_access_enabled"] = bool(d.get("sharepoint_access_enabled"))
     d["is_external"]               = bool(d.get("is_external"))
     d["active"]                    = bool(d.get("active", 1))
@@ -1146,7 +1151,7 @@ def has_sharepoint_access(email: str) -> bool:
     u = get_app_user(email)
     if not u:
         return False
-    if u.get("is_admin"):
+    if is_admin_email(email):
         return True
     return bool(u.get("sharepoint_access_enabled"))
 

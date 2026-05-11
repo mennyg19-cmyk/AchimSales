@@ -31,6 +31,8 @@ def get_user_profile(email: str) -> dict:
     """
     row = get_app_user(email or "") or {}
     role = (row.get("role") or "salesman").strip().lower() or "salesman"
+    if row.get("is_admin") and role not in {"admin", "developer"}:
+        role = "admin"
     return {
         "email": (email or "").strip().lower(),
         "role": role,

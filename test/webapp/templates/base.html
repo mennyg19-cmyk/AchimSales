@@ -33,7 +33,7 @@
         </div>
         <div class="header-right">
             <span class="user-name">{{ CURRENT_USER.name or CURRENT_USER.email }}</span>
-            {% if CURRENT_USER.is_admin %}
+            {% if CURRENT_USER_IS_ADMIN %}
             <span class="user-role badge badge-admin">Admin</span>
             {% endif %}
             {% if CURRENT_USER.dev_bypass %}
