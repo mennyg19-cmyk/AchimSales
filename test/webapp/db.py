@@ -287,6 +287,40 @@ SCHEMA_STATEMENTS = [
         value TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS api_payload_cache (
+        cache_key     TEXT PRIMARY KEY,
+        kind          TEXT NOT NULL,
+        identity      TEXT NOT NULL DEFAULT '',
+        user_scope    TEXT NOT NULL DEFAULT '',
+        params_hash   TEXT NOT NULL DEFAULT '',
+        payload_json  TEXT NOT NULL,
+        source_json   TEXT NOT NULL DEFAULT '{}',
+        created_utc   TEXT NOT NULL,
+        refreshed_utc TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_api_payload_cache_lookup
+        ON api_payload_cache(kind, identity, user_scope, refreshed_utc DESC)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS api_async_jobs (
+        job_id       TEXT PRIMARY KEY,
+        cache_key    TEXT NOT NULL,
+        kind         TEXT NOT NULL,
+        identity     TEXT NOT NULL DEFAULT '',
+        user_scope   TEXT NOT NULL DEFAULT '',
+        status       TEXT NOT NULL,
+        started_utc  TEXT NOT NULL,
+        finished_utc TEXT,
+        error        TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_api_async_jobs_cache
+        ON api_async_jobs(cache_key, started_utc DESC)
+    """,
 ]
 
 

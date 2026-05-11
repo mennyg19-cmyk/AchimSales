@@ -148,6 +148,9 @@
     renderCurrent();
     const body = root.querySelector("#spPickerBody");
     body.innerHTML = `<div class="sp-picker-loading">Loading...</div>`;
+    const slowTimer = setTimeout(() => {
+      body.innerHTML = `<div class="sp-picker-loading">Still loading SharePoint folders...</div>`;
+    }, 5000);
     try {
       const r = await fetch(
         urlPrefix() + "/api/sharepoint/folders?path=" + encodeURIComponent(currentPath),
@@ -161,6 +164,8 @@
       renderFolders(json.folders || []);
     } catch (e) {
       showError("Could not load SharePoint folders: " + e.message);
+    } finally {
+      clearTimeout(slowTimer);
     }
   }
 

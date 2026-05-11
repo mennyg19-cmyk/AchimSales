@@ -247,8 +247,27 @@
         const snapshot = preserveLayout ? snapshotLayout() : null;
 
         showStatus(preserveLayout ? "Refreshing data…" : "Loading report…", false, true);
-        const payload = await postJson(cfg.runUrl, { params: cfg.params });
+        const payload = await postJson(cfg.runUrl, {
+            params: cfg.params,
+            cache_mode: "cache_first",
+            wait_seconds: 5,
+        });
+        const cacheMeta = payload && payload._cache_first;
+        if (cacheMeta && cacheMeta.state === "refreshing" && cacheMeta.job_id) {
+            showStatus("Fresh data is still loading…", false, true);
+            pollFreshData(cacheMeta.job_id, { preserveLayout: preserveLayout, snapshot: snapshot, autoApply: false });
+            return;
+        }
 
+        applyReportPayload(payload, preserveLayout, snapshot);
+
+        if (cacheMeta && cacheMeta.job_id && /^cached_/.test(cacheMeta.state || "")) {
+            flashToast("Using cached data while fresh data loads.");
+            pollFreshData(cacheMeta.job_id, { preserveLayout: true, snapshot: snapshot, autoApply: false });
+        }
+    }
+
+    function applyReportPayload(payload, preserveLayout, snapshot) {
         renderSourceBadge(payload.data_source);
         state.generatedAt = payload.generated_at || null;
         state.activeTab = null;
@@ -324,6 +343,42 @@
             ? ("Generated " + fmtLocal(state.generatedAt))
             : "Generated just now";
         showStatus(tsLabel, false, false);
+    }
+
+    function pollFreshData(jobId, opts) {
+        opts = opts || {};
+        if (!jobId) return;
+        const url = (window.V2_URL_PREFIX || "") + "/api/reports/jobs/" + encodeURIComponent(jobId);
+        let attempts = 0;
+        function tick() {
+            attempts += 1;
+            fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (j.status === "success" && j.payload) {
+                        const apply = opts.autoApply || window.confirm("Fresh data is ready. Refresh this view now?");
+                        if (apply) {
+                            const snap = snapshotLayout();
+                            applyReportPayload(j.payload, true, snap);
+                            flashToast("Fresh data loaded.");
+                        } else {
+                            flashToast("Fresh data is ready when you refresh.");
+                        }
+                        return;
+                    }
+                    if (j.status === "failed") {
+                        showStatus("Fresh refresh failed: " + (j.error || "unknown error"), true, false);
+                        return;
+                    }
+                    if (attempts < 180) {
+                        setTimeout(tick, 2000);
+                    }
+                })
+                .catch(function () {
+                    if (attempts < 180) setTimeout(tick, 3000);
+                });
+        }
+        setTimeout(tick, 1500);
     }
 
     /** Capture the user's current per-tab visibility / order / sort /
@@ -2474,6 +2529,7 @@
                       ? ("Email captured in outbox (" + (j.recipients_count || 0) + " recipient(s))")
                       : "Report saved.";
                     if (j.sharepoint_saved) msg += "; SharePoint: saved";
+                    if (j.used_cached_data) msg += "; used cached report data";
                     flashToast(msg + ".");
                 } else {
                     els.emailMsg.style.display = "";

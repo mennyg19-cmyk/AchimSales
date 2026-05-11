@@ -32,6 +32,7 @@ from test.webapp.services.report_layouts import expand_duplicate_tabs, normalise
 from test.webapp.services.report_export import build_workbook
 from test.webapp.services.report_runner import run_report
 from test.webapp.services import reporting_api
+from test.webapp.services import cache_first
 from test.webapp.services.report_access import (
     can_access_report,
     get_report_for_user,
@@ -176,6 +177,98 @@ def _params_from_request() -> dict:
     return params
 
 
+def _with_cache_meta(payload: dict, meta: dict) -> dict:
+    out = dict(payload or {})
+    out["_cache_first"] = meta
+    return out
+
+
+def _empty_refreshing_payload(key: str, report_name: str, params: dict, meta: dict) -> dict:
+    return {
+        "report_key": key,
+        "report_name": report_name,
+        "generated_at": None,
+        "params": params,
+        "tabs": [],
+        "data_source": {
+            "source": "refreshing",
+            "label": "Fresh data is still loading",
+        },
+        "_cache_first": meta,
+    }
+
+
+def _run_report_logged(key: str, report_name: str, params: dict, user_email: str) -> dict:
+    started = time.time()
+    try:
+        payload = run_report(key, report_name, params)
+    except Exception as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        # Special-case the mirror-window-exceeded message so users see
+        # the plain-English explanation instead of a generic 500.
+        from test.webapp.services.mirror import MirrorWindowExceeded
+        is_window = isinstance(exc, MirrorWindowExceeded)
+        try:
+            log_report_run(
+                user_email=user_email, report_key=key, report_name=report_name,
+                params=params, rows_returned=None, duration_ms=duration_ms,
+                status="failed", error_message=str(exc),
+            )
+        except Exception:
+            log.exception("failed to record failed run_report log")
+        if is_window:
+            raise
+        raise
+
+    duration_ms = int((time.time() - started) * 1000)
+    rows = 0
+    for tab in payload.get("tabs", []) or []:
+        rows += len(tab.get("rows") or [])
+    try:
+        log_report_run(
+            user_email=user_email, report_key=key, report_name=report_name,
+            params=params, rows_returned=rows, duration_ms=duration_ms,
+            status="success",
+        )
+    except Exception:
+        log.exception("failed to record run_report log")
+    return payload
+
+
+def _cached_report_payload(key: str, report_name: str, params: dict, user_email: str) -> dict | None:
+    cached = cache_first.cached_payload_for(
+        kind="report_run",
+        identity=key,
+        user_scope=user_email,
+        params={"report_name": report_name, "params": params},
+    )
+    if not cached:
+        return None
+    payload = dict(cached["payload"])
+    meta = dict(payload.get("_cache_first") or {})
+    meta.update({
+        "state": "cached_for_action",
+        "refreshed_utc": cached.get("refreshed_utc"),
+    })
+    payload["_cache_first"] = meta
+    return payload
+
+
+def _report_payload_for_action(
+    key: str,
+    report_name: str,
+    params: dict,
+    user_email: str,
+    *,
+    prefer_cached: bool,
+) -> dict:
+    if prefer_cached:
+        cached = _cached_report_payload(key, report_name, params, user_email)
+        if cached:
+            return cached
+    return _run_report_logged(key, report_name, params, user_email)
+
+
 @report_api_bp.post("/<key>/run")
 @require_login
 def run(key: str):
@@ -188,44 +281,57 @@ def run(key: str):
         params = scope_params_for_user(user_email, report, params)
     except PermissionError as exc:
         return jsonify({"error": str(exc)}), 403
-    started = time.time()
-    try:
-        payload = run_report(key, report.name, params)
-    except Exception as exc:
-        duration_ms = int((time.time() - started) * 1000)
-        # Special-case the mirror-window-exceeded message so users see
-        # the plain-English explanation instead of a generic 500.
-        from test.webapp.services.mirror import MirrorWindowExceeded
-        is_window = isinstance(exc, MirrorWindowExceeded)
-        try:
-            log_report_run(
-                user_email=user_email, report_key=key, report_name=report.name,
-                params=params, rows_returned=None, duration_ms=duration_ms,
-                status="failed", error_message=str(exc),
-            )
-        except Exception:
-            log.exception("failed to record failed run_report log")
-        if is_window:
-            return jsonify({
-                "error":   str(exc),
-                "stage":   "mirror_window",
-                "message": str(exc),
-            }), 422
-        raise
 
-    duration_ms = int((time.time() - started) * 1000)
-    rows = 0
-    for tab in payload.get("tabs", []) or []:
-        rows += len(tab.get("rows") or [])
+    body = request.get_json(silent=True) or {}
+    cache_mode = str(body.get("cache_mode") or request.args.get("cache_mode") or "cache_first")
     try:
-        log_report_run(
-            user_email=user_email, report_key=key, report_name=report.name,
-            params=params, rows_returned=rows, duration_ms=duration_ms,
-            status="success",
-        )
-    except Exception:
-        log.exception("failed to record run_report log")
-    return jsonify(payload)
+        wait_seconds = float(body.get("wait_seconds", request.args.get("wait_seconds", cache_first.DEFAULT_WAIT_SECONDS)))
+    except (TypeError, ValueError):
+        wait_seconds = cache_first.DEFAULT_WAIT_SECONDS
+
+    def _builder() -> dict:
+        return _run_report_logged(key, report.name, params, user_email)
+
+    if cache_mode == "live":
+        try:
+            payload = _builder()
+        except Exception as exc:
+            from test.webapp.services.mirror import MirrorWindowExceeded
+            if isinstance(exc, MirrorWindowExceeded):
+                return jsonify({"error": str(exc), "stage": "mirror_window", "message": str(exc)}), 422
+            raise
+        return jsonify(_with_cache_meta(payload, {"state": "fresh", "live_only": True}))
+
+    result = cache_first.run_cache_first(
+        kind="report_run",
+        identity=key,
+        user_scope=user_email,
+        params={"report_name": report.name, "params": params},
+        builder=_builder,
+        wait_seconds=wait_seconds,
+    )
+    meta = {
+        "state": result["state"],
+        "job_id": result.get("job_id"),
+        "cache_key": result.get("cache_key"),
+        "refreshed_utc": result.get("refreshed_utc"),
+        "error": result.get("error"),
+    }
+    payload = result.get("payload")
+    if payload:
+        return jsonify(_with_cache_meta(payload, meta))
+    if result["state"] == "failed":
+        return jsonify({"error": result.get("error") or "Refresh failed", "_cache_first": meta}), 502
+    return jsonify(_empty_refreshing_payload(key, report.name, params, meta)), 202
+
+
+@report_api_bp.get("/jobs/<job_id>")
+@require_login
+def cache_job_status(job_id: str):
+    status = cache_first.get_job_status(job_id)
+    if not status.get("found"):
+        return jsonify(status), 404
+    return jsonify(status)
 
 
 @report_api_bp.post("/<key>/export.xlsx")
@@ -270,7 +376,13 @@ def export_xlsx(key: str):
     # 1) Fetch the data. Same path as /run, so it'll hit the API client's
     #    fresh cache if the user just ran the report.
     try:
-        payload = run_report(key, report.name, params or {})
+        payload = _report_payload_for_action(
+            key,
+            report.name,
+            params or {},
+            user_email,
+            prefer_cached=bool(body.get("use_cached_data", True)),
+        )
     except Exception as exc:
         log.exception("export_xlsx: run_report failed for %s", key)
         return jsonify({
@@ -349,7 +461,13 @@ def email_now(key: str):
 
     layouts, dropped = normalise_layouts(layouts_raw)
 
-    payload = run_report(key, report.name, params or {})
+    payload = _report_payload_for_action(
+        key,
+        report.name,
+        params or {},
+        user_email,
+        prefer_cached=bool(body.get("use_cached_data", True)),
+    )
     if dropped:
         payload = dict(payload)
         payload["tabs"] = [t for t in payload.get("tabs", []) if str(t.get("key")) not in dropped]
@@ -371,6 +489,8 @@ def email_now(key: str):
         )
         if not result.get("ok"):
             return jsonify({"error": result.get("error") or "Could not send."}), 400
+        if payload.get("_cache_first", {}).get("state") == "cached_for_action":
+            result["used_cached_data"] = True
         return jsonify(result)
 
     # SharePoint-only save (no email recipients)
@@ -385,6 +505,7 @@ def email_now(key: str):
         "sharepoint_saved": True,
         "sharepoint_url":   sp.get("webUrl"),
         "sharepoint_path":  sharepoint_path,
+        "used_cached_data": payload.get("_cache_first", {}).get("state") == "cached_for_action",
     })
 
 

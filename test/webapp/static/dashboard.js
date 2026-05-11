@@ -111,8 +111,10 @@ function pollRefreshStatus(before, attempts) {
                     label.textContent = data.step;
                 }
                 if (data.done) {
-                    if (label) label.textContent = data.step || "Refresh complete. Reloading...";
-                    setTimeout(function() { window.location.reload(); }, 600);
+                    if (label) label.textContent = data.step || "Refresh complete.";
+                    resetRefreshBtn();
+                    var shouldReload = window.confirm("Dashboard data is refreshed. Refresh this page now?");
+                    if (shouldReload) window.location.reload();
                 } else {
                     pollRefreshStatus(before, attempts + 1);
                 }

@@ -315,7 +315,7 @@
     let lookupReady = false;
     let lookupSource = null; // "live" | "mirror"
     let lookupPollStartedAt = Date.now();
-    const MIRROR_FALLBACK_GRACE_MS = 120000;
+    const MIRROR_FALLBACK_GRACE_MS = 5000;
 
     function setLookupBanner(text, kind) {
         const el = $("lookupBanner");

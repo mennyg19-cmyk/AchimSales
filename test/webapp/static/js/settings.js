@@ -19,21 +19,39 @@
   }
 
   async function apiPost(path, body) {
-    const r = await fetch(PREFIX + path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {}),
+    return withSlowNotice(async () => {
+      const r = await fetch(PREFIX + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(json.error || ("HTTP " + r.status));
+      return json;
     });
-    const json = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(json.error || ("HTTP " + r.status));
-    return json;
   }
 
   async function apiGet(path) {
-    const r = await fetch(PREFIX + path, { headers: { "Accept": "application/json" } });
-    const json = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(json.error || ("HTTP " + r.status));
-    return json;
+    return withSlowNotice(async () => {
+      const r = await fetch(PREFIX + path, { headers: { "Accept": "application/json" } });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(json.error || ("HTTP " + r.status));
+      return json;
+    });
+  }
+
+  async function withSlowNotice(work) {
+    let shown = false;
+    const timer = setTimeout(() => {
+      shown = true;
+      showToast("Still working. You can keep using the page.", "info");
+    }, 5000);
+    try {
+      return await work();
+    } finally {
+      clearTimeout(timer);
+      if (shown) showToast("Done.");
+    }
   }
 
   // ---------------------------------------------------------------------
