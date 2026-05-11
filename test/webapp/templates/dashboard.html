@@ -144,8 +144,8 @@
 <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
 <script>
 (function() {
-    {% if refresh.running %}
-    var before = {{ (refresh.last_completed or "")|tojson }};
+    {% if refresh.running or poll_refresh_before is not none %}
+    var before = {{ (poll_refresh_before if poll_refresh_before is not none else (refresh.last_completed or ""))|tojson }};
     var btn = document.getElementById('refreshBtn');
     if (btn) {
         btn.disabled = true;
