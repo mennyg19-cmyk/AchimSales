@@ -93,6 +93,55 @@ def diag_mirror_status():
     })
 
 
+@diag_bp.get("/api/mirror/customer-match")
+@require_admin
+def diag_customer_match():
+    """Compare customer_account values between mirror_customers and
+    mirror_salesline. Surfaces whether the dashboard's "customers with no
+    orders" buckets are real (customer simply didn't order in the window)
+    or a formatting mismatch between the two endpoints.
+    """
+    from test.webapp.db import connect
+    from test.webapp.services import mirror
+    mirror.init_mirror_db()
+    with connect() as conn:
+        cust_accts = {r["customer_account"] for r in conn.execute(
+            "SELECT customer_account FROM mirror_customers"
+        ) if r["customer_account"]}
+        sale_accts = {r["customer_account"] for r in conn.execute(
+            "SELECT DISTINCT customer_account FROM mirror_salesline "
+            "WHERE customer_account IS NOT NULL AND customer_account <> ''"
+        )}
+        # Pull a few raw-JSON samples so we can compare what the two
+        # endpoints actually return for CustomerAccount.
+        cust_samples = [dict(r) for r in conn.execute(
+            "SELECT customer_account, raw_json FROM mirror_customers LIMIT 3"
+        )]
+        sale_samples = [dict(r) for r in conn.execute(
+            "SELECT customer_account, raw_json FROM mirror_salesline LIMIT 3"
+        )]
+
+    in_both = cust_accts & sale_accts
+    only_cust = cust_accts - sale_accts
+    only_sale = sale_accts - cust_accts
+
+    def _sample(s: set[str], n: int = 10) -> list[str]:
+        return sorted(s)[:n]
+
+    return jsonify({
+        "customers_total":            len(cust_accts),
+        "salesline_distinct_accts":   len(sale_accts),
+        "in_both":                    len(in_both),
+        "only_in_customer_master":    len(only_cust),
+        "only_in_salesline":          len(only_sale),
+        "sample_only_in_customer_master": _sample(only_cust),
+        "sample_only_in_salesline":       _sample(only_sale),
+        "sample_in_both":                 _sample(in_both),
+        "sample_customer_master_rows":    cust_samples,
+        "sample_salesline_rows":          sale_samples,
+    })
+
+
 @diag_bp.post("/api/ping")
 @require_admin
 def diag_ping():
