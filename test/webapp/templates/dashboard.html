@@ -91,6 +91,13 @@
             <span class="dash-refresh-time dash-refresh-source" id="refreshWindow">
                 Dashboard metrics use the rolling {{ refresh.salesline_window_days|default(60) }}-day salesline mirror.
             </span>
+            {% if refresh.order_mirror_stats %}
+            <span class="dash-refresh-time dash-refresh-source" id="refreshOrderMirrorStats">
+                {{ refresh.order_mirror_stats }}
+            </span>
+            {% else %}
+            <span class="dash-refresh-time dash-refresh-source" id="refreshOrderMirrorStats" style="display:none;"></span>
+            {% endif %}
             {% if refresh.customer_source or refresh.order_source %}
             <span class="dash-refresh-time dash-refresh-source">
                 Sources:

@@ -178,6 +178,7 @@ function updateRefreshMeta(refresh) {
     var requested = document.getElementById("refreshRequested");
     var cache = document.getElementById("refreshCache");
     var windowLabel = document.getElementById("refreshWindow");
+    var orderStats = document.getElementById("refreshOrderMirrorStats");
     if (completed) {
         completed.textContent = refresh.last_completed
             ? "Last completed: " + refresh.last_completed.substring(0, 16).replace("T", " ")
@@ -198,6 +199,10 @@ function updateRefreshMeta(refresh) {
         windowLabel.textContent = "Dashboard metrics use the rolling "
             + (refresh.salesline_window_days || 60)
             + "-day salesline mirror.";
+    }
+    if (orderStats) {
+        orderStats.textContent = refresh.order_mirror_stats || "";
+        orderStats.style.display = refresh.order_mirror_stats ? "" : "none";
     }
 }
 

@@ -7,6 +7,7 @@ ordered/salesline_release supplies order history and detail rows.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -36,6 +37,7 @@ _LAST_REQUESTED_KEY = "dashboard.last_refresh_requested"
 _LAST_COMPLETED_KEY = "dashboard.last_refresh_completed"
 _LAST_CUSTOMER_SOURCE_KEY = "dashboard.last_customer_source"
 _LAST_ORDER_SOURCE_KEY = "dashboard.last_order_source"
+_LAST_ORDER_MIRROR_STATS_KEY = "dashboard.last_order_mirror_stats"
 _LAST_ERROR_KEY = "dashboard.last_refresh_error"
 
 _refresh_thread: threading.Thread | None = None
@@ -188,6 +190,37 @@ def _source_label(meta: dict[str, Any] | None) -> str:
     return labels.get(str(source), str(source).replace("_", " "))
 
 
+def _salesline_stats_message(stats: dict[str, int] | None) -> str:
+    if not stats:
+        return ""
+    skipped = (
+        int(stats.get("skipped_missing_order") or 0)
+        + int(stats.get("skipped_missing_date") or 0)
+        + int(stats.get("skipped_outside_window") or 0)
+    )
+    return (
+        "Salesline mirror: "
+        f"{int(stats.get('rows_in') or 0):,} API rows, "
+        f"{int(stats.get('inserted') or 0):,} inserted, "
+        f"{int(stats.get('updated') or 0):,} updated, "
+        f"{int(stats.get('unchanged') or 0):,} unchanged, "
+        f"{skipped:,} skipped "
+        f"({int(stats.get('skipped_missing_order') or 0):,} no order #, "
+        f"{int(stats.get('skipped_missing_date') or 0):,} no date, "
+        f"{int(stats.get('skipped_outside_window') or 0):,} outside {mirror.SALESLINE_WINDOW_DAYS} days)"
+    )
+
+
+def _last_salesline_stats_message() -> str:
+    raw = get_app_setting(_LAST_ORDER_MIRROR_STATS_KEY)
+    if not raw:
+        return ""
+    try:
+        return _salesline_stats_message(json.loads(raw))
+    except Exception:
+        return ""
+
+
 def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
     params: dict[str, Any] = {}
     if salesman_key:
@@ -239,15 +272,23 @@ def refresh_cache(salesman_key: str | None = None) -> None:
 
         _set_step(scope, f"Refreshing salesline mirror ({mirror.SALESLINE_WINDOW_DAYS} days)...")
         order_rows, order_source = _fetch_order_history(salesman_key)
+        stats: dict[str, int] = {
+            "rows_in": len(order_rows),
+            "inserted": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "pruned": 0,
+            "skipped_missing_order": 0,
+            "skipped_missing_date": 0,
+            "skipped_outside_window": 0,
+        }
         if order_rows:
             stats = mirror.upsert_salesline(order_rows, trigger="dashboard")
             _set_step(
                 scope,
-                "Salesline mirror updated: "
-                f"{stats.get('inserted', 0):,} inserted, "
-                f"{stats.get('updated', 0):,} updated, "
-                f"{stats.get('unchanged', 0):,} unchanged",
+                _salesline_stats_message(stats),
             )
+        _refresh_state.setdefault(scope, {})["order_mirror_stats"] = stats
         _refresh_state.setdefault(scope, {})["order_source"] = order_source
         _set_step(scope, f"Received {len(order_rows):,} order lines")
 
@@ -256,6 +297,7 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         set_app_setting(_LAST_COMPLETED_KEY, now)
         set_app_setting(_LAST_CUSTOMER_SOURCE_KEY, customer_source)
         set_app_setting(_LAST_ORDER_SOURCE_KEY, order_source)
+        set_app_setting(_LAST_ORDER_MIRROR_STATS_KEY, json.dumps(stats))
         set_app_setting(_LAST_ERROR_KEY, "")
         _set_step(scope, f"Done - mirrors refreshed ({len(customer_rows):,} customers, {len(order_rows):,} order lines)")
         log.info("Dashboard mirror refresh complete (%s): %d customers, %d order lines",
@@ -310,6 +352,7 @@ def get_refresh_status(salesman_key: str | None = None) -> dict[str, Any]:
         "order_customers": counts["order_customers"],
         "customer_source": state.get("customer_source") or get_app_setting(_LAST_CUSTOMER_SOURCE_KEY),
         "order_source": state.get("order_source") or get_app_setting(_LAST_ORDER_SOURCE_KEY),
+        "order_mirror_stats": _salesline_stats_message(state.get("order_mirror_stats")) or _last_salesline_stats_message(),
         "last_error": get_app_setting(_LAST_ERROR_KEY),
         "salesline_window_days": mirror.SALESLINE_WINDOW_DAYS,
     }

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
@@ -221,12 +222,40 @@ def _customer_account(v: Any) -> str:
 def _date_only(v: Any) -> str:
     """Extract YYYY-MM-DD from a CreatedDateTime style value."""
     s = _to_str(v)
-    return s[:10] if s else ""
+    if not s:
+        return ""
+    first = s[:10]
+    try:
+        datetime.strptime(first, "%Y-%m-%d")
+        return first
+    except ValueError:
+        pass
+    for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y%m%d"):
+        try:
+            return datetime.strptime(s.split()[0], fmt).date().isoformat()
+        except ValueError:
+            continue
+    return first
+
+
+def _key_id(key: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(key).lower())
 
 
 def _first(raw: dict, *keys: str) -> Any:
+    """Return first non-empty value, accepting case/punctuation variants."""
     for key in keys:
         value = raw.get(key)
+        if value not in (None, "", "NULL"):
+            return value
+    casefold = {str(k).lower(): v for k, v in raw.items()}
+    for key in keys:
+        value = casefold.get(str(key).lower())
+        if value not in (None, "", "NULL"):
+            return value
+    normalized = {_key_id(k): v for k, v in raw.items()}
+    for key in keys:
+        value = normalized.get(_key_id(key))
         if value not in (None, "", "NULL"):
             return value
     return None
@@ -376,8 +405,8 @@ def upsert_customers(rows: Iterable[dict], *, trigger: str = "piggyback",
 
 def _normalize_salesline_row(raw: dict) -> dict:
     """Pull the columns we care about out of an SP salesline_release row."""
-    so = _to_str(raw.get("SalesOrderNumber"))
-    ln = _to_int(raw.get("LineNumber")) or 0
+    so = _to_str(_first(raw, "SalesOrderNumber", "SalesId", "OrderNumber", "OrderNo"))
+    ln = _to_int(_first(raw, "LineNumber", "LineNum", "LineNo")) or 0
     order_date = _date_only(_first(
         raw,
         "OrderDate",
@@ -391,23 +420,23 @@ def _normalize_salesline_row(raw: dict) -> dict:
     return {
         "sales_order_number": so,
         "line_number":        ln,
-        "customer_account":   _customer_account(raw.get("CustomerAccount")),
-        "customer_name":      _to_str(raw.get("customername") or raw.get("CustomerName")),
-        "sales_group":        _to_str(raw.get("SalesGroup")),
+        "customer_account":   _customer_account(_first(raw, "CustomerAccount", "AccountNum")),
+        "customer_name":      _to_str(_first(raw, "customername", "CustomerName", "Name")),
+        "sales_group":        _to_str(_first(raw, "SalesGroup", "salesgroup", "Salesman")),
         "order_date":         order_date,
-        "created_datetime":   _to_str(raw.get("CreatedDateTime") or raw.get("OrderCreationDateTime") or raw.get("OrderDate")),
-        "po_number":          _to_str(raw.get("CustomerRequisition")),
-        "item_number":        _to_str(raw.get("Item")),
-        "item_name":          _to_str(raw.get("ItemDescription")),
-        "unit_price":         _to_float(raw.get("SalesPrice")),
-        "order_status":       _to_str(raw.get("OrderStatus")),
-        "status":             _to_str(raw.get("SalesStatus")),
-        "qty_ordered":        _to_float(raw.get("QuantityOrdered")),
-        "qty_shipped":        _to_float(raw.get("QuantityShipped")),
-        "qty_cancelled":      _to_float(raw.get("QuantityCancelled")),
-        "ordered_dollars":    _to_float(raw.get("Ordered $")),
-        "shipped_dollars":    _to_float(raw.get("Shipped $")),
-        "cancelled_dollars":  _to_float(raw.get("Cancelled $")),
+        "created_datetime":   _to_str(_first(raw, "CreatedDateTime", "OrderCreationDateTime", "OrderDate")),
+        "po_number":          _to_str(_first(raw, "CustomerRequisition", "CustomerReq", "PONumber", "PO #")),
+        "item_number":        _to_str(_first(raw, "Item", "ItemId", "ItemNumber", "Item#")),
+        "item_name":          _to_str(_first(raw, "ItemDescription", "ItemName", "LineDescription")),
+        "unit_price":         _to_float(_first(raw, "SalesPrice", "UnitPrice")),
+        "order_status":       _to_str(_first(raw, "OrderStatus", "orderstatus", "HeaderStatus")),
+        "status":             _to_str(_first(raw, "SalesStatus", "Status")),
+        "qty_ordered":        _to_float(_first(raw, "QuantityOrdered", "QtyOrdered")),
+        "qty_shipped":        _to_float(_first(raw, "QuantityShipped", "QtyShipped")),
+        "qty_cancelled":      _to_float(_first(raw, "QuantityCancelled", "QtyCancelled")),
+        "ordered_dollars":    _to_float(_first(raw, "Ordered $", "OrderedDollars", "OrderedAmount")),
+        "shipped_dollars":    _to_float(_first(raw, "Shipped $", "ShippedDollars", "ShippedAmount")),
+        "cancelled_dollars":  _to_float(_first(raw, "Cancelled $", "CancelledDollars", "CancelledAmount")),
     }
 
 
@@ -426,6 +455,7 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                                 triggered_by=triggered_by)
 
     inserted = updated = unchanged = pruned = 0
+    skipped_missing_order = skipped_missing_date = skipped_outside_window = 0
     now = _utcnow()
     err: str | None = None
     try:
@@ -433,8 +463,13 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
             for raw in rows:
                 norm = _normalize_salesline_row(raw)
                 if not norm["sales_order_number"]:
+                    skipped_missing_order += 1
+                    continue
+                if not norm["order_date"]:
+                    skipped_missing_date += 1
                     continue
                 if not _within_window(norm["order_date"], prune_window_days):
+                    skipped_outside_window += 1
                     continue
                 row_hash = _hash_row(norm)
                 existing = conn.execute(
@@ -527,11 +562,14 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
         )
 
     return {
-        "rows_in":   len(rows),
-        "inserted":  inserted,
-        "updated":   updated,
-        "unchanged": unchanged,
-        "pruned":    pruned,
+        "rows_in":                 len(rows),
+        "inserted":                inserted,
+        "updated":                 updated,
+        "unchanged":               unchanged,
+        "pruned":                  pruned,
+        "skipped_missing_order":   skipped_missing_order,
+        "skipped_missing_date":    skipped_missing_date,
+        "skipped_outside_window":  skipped_outside_window,
     }
 
 
