@@ -26,7 +26,6 @@ from test.webapp.db import (
 )
 from test.webapp.services import mirror, reporting_api
 from test.webapp.services.report_access import get_user_profile
-from test.webapp.services.reports.ordered import _norm_row
 
 log = logging.getLogger(__name__)
 
@@ -96,23 +95,6 @@ def _normalize_customer_account(value: Any) -> str:
     return str(value).strip().upper()
 
 
-def _customer_account(raw: dict) -> str:
-    return _normalize_customer_account(
-        raw.get("CustomerAccount")
-        or raw.get("customeraccount")
-        or raw.get("AccountNum")
-        or raw.get("accountnum")
-    )
-
-
-def _customer_name(raw: dict) -> str:
-    return str(raw.get("CustomerName") or raw.get("customername") or "").strip()
-
-
-def _sales_group(raw: dict) -> str:
-    return str(raw.get("SalesGroup") or raw.get("salesgroup") or raw.get("sales_group") or "").strip()
-
-
 def _compute_customer_metrics(
     customer_account: str,
     customer_name: str,
@@ -143,6 +125,7 @@ def _compute_customer_metrics(
     result["days_since_last"] = (today - last).days
 
     if len(parsed) < 2:
+        result["status"] = "inactive" if int(result["days_since_last"] or 0) > 365 else "active"
         return result
 
     gaps = [(parsed[i + 1] - parsed[i]).days for i in range(len(parsed) - 1)]
@@ -446,37 +429,158 @@ def get_dashboard_data(
     return sorted(out, key=lambda r: (r.get("customer_name") or r.get("customer_account") or "").lower())
 
 
+def _row_text(row: Any, key: str) -> str:
+    value = row[key] if key in row.keys() else ""
+    if value in (None, "NULL"):
+        return ""
+    return str(value).strip()
+
+
+def _row_num(row: Any, key: str) -> float:
+    value = row[key] if key in row.keys() else 0
+    return _num(value)
+
+
+def _mirror_line_from_row(row: Any) -> dict[str, Any]:
+    qty_ordered = _row_num(row, "qty_ordered")
+    unit_price = _row_num(row, "unit_price")
+    ordered_dollars = _row_num(row, "ordered_dollars")
+    if not ordered_dollars and qty_ordered and unit_price:
+        ordered_dollars = round(qty_ordered * unit_price, 2)
+    return {
+        "order_number": _row_text(row, "sales_order_number"),
+        "line_number": int(_row_num(row, "line_number")),
+        "customer_account": _normalize_customer_account(_row_text(row, "customer_account")),
+        "customer_name": _row_text(row, "customer_name"),
+        "sales_group": _row_text(row, "sales_group"),
+        "order_date": _date_only(_row_text(row, "order_date")),
+        "customer_req": _row_text(row, "po_number"),
+        "item_number": _row_text(row, "item_number"),
+        "item_name": _row_text(row, "item_name"),
+        "unit_price": unit_price,
+        "order_status": _row_text(row, "order_status"),
+        "line_status": _row_text(row, "status"),
+        "qty_ordered": qty_ordered,
+        "qty_shipped": _row_num(row, "qty_shipped"),
+        "qty_cancelled": _row_num(row, "qty_cancelled"),
+        "ordered_dollars": ordered_dollars,
+        "shipped_dollars": _row_num(row, "shipped_dollars"),
+        "cancelled_dollars": _row_num(row, "cancelled_dollars"),
+    }
+
+
+def _read_mirror_lines(
+    *,
+    customer_account: str | None = None,
+    order_number: str | None = None,
+) -> list[dict[str, Any]]:
+    mirror.init_mirror_db()
+    where: list[str] = []
+    params: list[Any] = []
+    if customer_account:
+        where.append("customer_account = ?")
+        params.append(_normalize_customer_account(customer_account))
+    if order_number:
+        where.append("sales_order_number = ?")
+        params.append(str(order_number).strip())
+
+    sql = """
+        SELECT
+            sales_order_number, line_number, customer_account, customer_name,
+            sales_group, order_date, po_number, item_number, item_name,
+            unit_price, order_status, status, qty_ordered, qty_shipped,
+            qty_cancelled, ordered_dollars, shipped_dollars, cancelled_dollars
+        FROM mirror_salesline
+    """
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY order_date DESC, sales_order_number DESC, line_number"
+
+    with connect() as conn:
+        return [_mirror_line_from_row(row) for row in conn.execute(sql, params)]
+
+
+def _read_mirror_customers() -> dict[str, dict[str, str]]:
+    mirror.init_mirror_db()
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT customer_account, customer_name, sales_group
+            FROM mirror_customers
+            """
+        ).fetchall()
+    customers: dict[str, dict[str, str]] = {}
+    for row in rows:
+        acct = _normalize_customer_account(row["customer_account"])
+        if not acct:
+            continue
+        customers[acct] = {
+            "customer_account": acct,
+            "customer_name": (row["customer_name"] or "").strip() or acct,
+            "sales_group": (row["sales_group"] or "").strip(),
+        }
+    return customers
+
+
+def _single_value(values: list[str]) -> str:
+    unique = sorted({v for v in values if v})
+    if not unique:
+        return ""
+    return unique[0] if len(unique) == 1 else "Mixed"
+
+
+def _group_mirror_orders(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for line in lines:
+        order_number = line.get("order_number") or ""
+        if not order_number:
+            continue
+        grouped.setdefault(order_number, []).append(line)
+
+    orders: list[dict[str, Any]] = []
+    for order_number, order_lines in grouped.items():
+        dated = sorted(
+            d for d in (_date_only(line.get("order_date")) for line in order_lines)
+            if d
+        )
+        first = order_lines[0]
+        orders.append({
+            "order_number": order_number,
+            "order_date": dated[-1] if dated else "",
+            "customer_account": first.get("customer_account") or "",
+            "customer_name": first.get("customer_name") or "",
+            "salesman": first.get("sales_group") or "",
+            "customer_req": first.get("customer_req") or "",
+            "order_name": "",
+            "status": _single_value([line.get("order_status") or "" for line in order_lines]),
+            "processing_status": _single_value([line.get("line_status") or "" for line in order_lines]),
+            "order_total": round(sum(_num(line.get("ordered_dollars")) for line in order_lines), 2),
+            "lines": order_lines,
+        })
+    orders.sort(key=lambda o: (o["order_date"] or "0000-00-00", o["order_number"]), reverse=True)
+    return orders
+
+
 def _build_dashboard_rows_from_mirror() -> list[dict[str, Any]]:
-    customer_rows = mirror.get_customer_rows()
-    order_rows = mirror.get_salesline_fallback()
+    lines = _read_mirror_lines()
+    orders = _group_mirror_orders(lines)
     last_seen = (mirror.mirror_freshness().get("salesline") or {}).get("last_seen_utc") or ""
 
     order_dates_by_customer: dict[str, dict[str, str]] = {}
     customer_fallbacks: dict[str, dict[str, str]] = {}
-    for raw in order_rows:
-        line = _norm_row(raw)
-        acct = _normalize_customer_account(line.get("CustomerAccount"))
+    for order in orders:
+        acct = _normalize_customer_account(order.get("customer_account"))
         if not acct:
             continue
-        order_date = _date_only(line.get("OrderDate"))
+        order_date = _date_only(order.get("order_date"))
         if order_date:
-            order_no = line.get("SalesOrderNumber") or f"{acct}:{order_date}:{line.get('LineNumber')}"
-            order_dates_by_customer.setdefault(acct, {})[order_no] = order_date
+            order_dates_by_customer.setdefault(acct, {})[order["order_number"]] = order_date
         customer_fallbacks.setdefault(acct, {
-            "customer_name": line.get("CustomerName") or acct,
-            "sales_group": line.get("Salesman") or "",
+            "customer_name": order.get("customer_name") or acct,
+            "sales_group": order.get("salesman") or "",
         })
 
-    customers_by_account: dict[str, dict[str, str]] = {}
-    for raw in customer_rows:
-        acct = _customer_account(raw)
-        if not acct:
-            continue
-        customers_by_account[acct] = {
-            "customer_account": acct,
-            "customer_name": _customer_name(raw) or acct,
-            "sales_group": _sales_group(raw),
-        }
+    customers_by_account = _read_mirror_customers()
 
     for acct, fallback in customer_fallbacks.items():
         existing = customers_by_account.get(acct)
@@ -558,67 +662,12 @@ def user_can_access_customer(email: str, account: str) -> bool:
     return False
 
 
-def _summarize_order_status(lines: list[dict[str, Any]]) -> str:
-    statuses = sorted({
-        (ln.get("OrderStatus") or "").strip()
-        for ln in lines
-        if (ln.get("OrderStatus") or "").strip()
-    })
-    if not statuses:
-        statuses = sorted({
-            (ln.get("Status") or "").strip()
-            for ln in lines
-            if (ln.get("Status") or "").strip()
-        })
-    if not statuses:
-        return ""
-    return statuses[0] if len(statuses) == 1 else "Mixed"
-
-
-def _summarize_line_status(lines: list[dict[str, Any]]) -> str:
-    statuses = sorted({
-        (ln.get("Status") or "").strip()
-        for ln in lines
-        if (ln.get("Status") or "").strip()
-    })
-    if not statuses:
-        return ""
-    return statuses[0] if len(statuses) == 1 else "Mixed"
-
-
-def _group_order_headers(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for line in lines:
-        order_no = line.get("SalesOrderNumber") or ""
-        if order_no:
-            grouped.setdefault(order_no, []).append(line)
-
-    headers: list[dict[str, Any]] = []
-    for order_no, order_lines in grouped.items():
-        first = order_lines[0]
-        headers.append({
-            "order_number": order_no,
-            "order_date": _date_only(first.get("OrderDate")),
-            "status": _summarize_order_status(order_lines),
-            "processing_status": _summarize_line_status(order_lines),
-            "customer_req": first.get("PO #") or "",
-            "order_name": "",
-            "salesman": first.get("Salesman") or "",
-            "customer_account": first.get("CustomerAccount") or "",
-            "customer_name": first.get("CustomerName") or "",
-            "order_total": round(sum(_num(ln.get("Ordered $")) for ln in order_lines), 2),
-        })
-    headers.sort(key=lambda h: (h["order_date"] or "0000-00-00", h["order_number"]), reverse=True)
-    return headers
-
-
 def _cached_lines_for_customer(account: str) -> list[dict[str, Any]]:
-    account = _normalize_customer_account(account)
-    return [_norm_row(r) for r in mirror.get_salesline_fallback(customer_account=account)]
+    return _read_mirror_lines(customer_account=account)
 
 
 def _cached_lines_for_order(order_number: str) -> list[dict[str, Any]]:
-    return [_norm_row(r) for r in mirror.get_salesline_fallback(order_number=order_number)]
+    return _read_mirror_lines(order_number=order_number)
 
 
 def fetch_customer_info(account: str) -> dict[str, Any]:
@@ -643,10 +692,10 @@ def fetch_customer_orders(account: str, *, days: int | None = 7, last_n: int | N
         start = max(D365_GO_LIVE, today - timedelta(days=days))
         lines = [
             line for line in lines
-            if (parsed := _parse_date(_date_only(line.get("OrderDate")))) is not None
+            if (parsed := _parse_date(_date_only(line.get("order_date")))) is not None
             and start <= parsed <= today
         ]
-    headers = _group_order_headers(lines)
+    headers = _group_mirror_orders(lines)
     if last_n:
         return headers[:last_n]
     return headers
@@ -658,34 +707,35 @@ def fetch_order_detail(order_number: str) -> tuple[dict[str, Any], list[dict[str
         return {"order_number": order_number}, [], ""
 
     first = lines[0]
-    customer_account = first.get("CustomerAccount") or ""
-    header = {
+    customer_account = first.get("customer_account") or ""
+    grouped = _group_mirror_orders(lines)
+    header = grouped[0] if grouped else {
         "order_number": order_number,
-        "order_date": _date_only(first.get("OrderDate")),
-        "status": _summarize_order_status(lines),
-        "processing_status": _summarize_line_status(lines),
-        "customer_req": first.get("PO #") or "",
+        "order_date": _date_only(first.get("order_date")),
+        "status": first.get("order_status") or "",
+        "processing_status": first.get("line_status") or "",
+        "customer_req": first.get("customer_req") or "",
         "order_name": "",
-        "customer_name": first.get("CustomerName") or "",
-        "salesman": first.get("Salesman") or "",
+        "customer_name": first.get("customer_name") or "",
+        "salesman": first.get("sales_group") or "",
     }
 
     detail_lines: list[dict[str, Any]] = []
-    for line in sorted(lines, key=lambda ln: _num(ln.get("LineNumber"))):
+    for line in sorted(lines, key=lambda ln: _num(ln.get("line_number"))):
         detail_lines.append({
-            "order_number": line.get("SalesOrderNumber") or order_number,
-            "line_number": int(_num(line.get("LineNumber"))),
-            "item": line.get("Item#") or "",
-            "description": line.get("ItemName") or "",
-            "qty_ordered": _num(line.get("QtyOrdered")),
-            "qty_shipped": _num(line.get("QtyShipped")),
-            "qty_cancelled": _num(line.get("QtyCancelled")),
-            "sales_price": _num(line.get("UnitPrice")),
-            "total_ordered": _num(line.get("Ordered $")),
-            "total_shipped": _num(line.get("Shipped $")),
-            "total": _num(line.get("Shipped $")),
-            "status": line.get("Status") or "",
-            "order_status": line.get("OrderStatus") or "",
+            "order_number": line.get("order_number") or order_number,
+            "line_number": int(_num(line.get("line_number"))),
+            "item": line.get("item_number") or "",
+            "description": line.get("item_name") or "",
+            "qty_ordered": _num(line.get("qty_ordered")),
+            "qty_shipped": _num(line.get("qty_shipped")),
+            "qty_cancelled": _num(line.get("qty_cancelled")),
+            "sales_price": _num(line.get("unit_price")),
+            "total_ordered": _num(line.get("ordered_dollars")),
+            "total_shipped": _num(line.get("shipped_dollars")),
+            "total": _num(line.get("shipped_dollars")),
+            "status": line.get("line_status") or "",
+            "order_status": line.get("order_status") or "",
         })
     return header, detail_lines, customer_account
 
