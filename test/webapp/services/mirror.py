@@ -44,7 +44,7 @@ import logging
 import re
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from test.webapp.db import connect
@@ -273,6 +273,15 @@ def _within_window(date_str: str, days: int) -> bool:
     return d >= cutoff
 
 
+def _parse_date(date_str: str) -> date | None:
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Customer master upsert
 # ---------------------------------------------------------------------------
@@ -463,16 +472,35 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
     now = _utcnow()
     err: str | None = None
     try:
+        normalized_rows = [(raw, _normalize_salesline_row(raw)) for raw in rows]
+        valid_dates = [
+            parsed
+            for _raw, norm in normalized_rows
+            if (parsed := _parse_date(norm["order_date"])) is not None
+        ]
+        today = datetime.now(timezone.utc).date()
+        if trigger == "dashboard" and valid_dates:
+            # The dashboard asks the endpoint for a 60-day salesline slice.
+            # If the endpoint ignores that date filter or returns a sandbox
+            # dataset whose newest row is older than today's date, keep the
+            # latest 60 days from the returned batch instead of importing
+            # nothing. Non-dashboard piggyback imports still use today's
+            # rolling window so arbitrary historical report runs do not
+            # replace the shared app mirror.
+            window_anchor = min(max(valid_dates), today)
+        else:
+            window_anchor = today
+        cutoff = (window_anchor - timedelta(days=prune_window_days)).isoformat()
+
         with connect() as conn:
-            for raw in rows:
-                norm = _normalize_salesline_row(raw)
+            for raw, norm in normalized_rows:
                 if not norm["sales_order_number"]:
                     skipped_missing_order += 1
                     continue
                 if not norm["order_date"]:
                     skipped_missing_date += 1
                     continue
-                if not _within_window(norm["order_date"], prune_window_days):
+                if norm["order_date"] < cutoff:
                     skipped_outside_window += 1
                     continue
                 row_hash = _hash_row(norm)
@@ -541,16 +569,15 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                     )
                     unchanged += 1
 
-            # Prune anything older than the window so the mirror stays
-            # bounded. We do this AFTER the upsert so today's data is
-            # never accidentally pruned.
-            cutoff = (datetime.now(timezone.utc)
-                      - timedelta(days=prune_window_days)).date().isoformat()
-            cur = conn.execute(
-                "DELETE FROM mirror_salesline WHERE order_date < ?",
-                (cutoff,),
-            )
-            pruned = cur.rowcount or 0
+            # Prune only during dashboard/snapshot-style refreshes. Report
+            # piggybacks may be narrow or historical; they should never wipe
+            # the shared dashboard mirror after it imports its retained slice.
+            if trigger != "piggyback":
+                cur = conn.execute(
+                    "DELETE FROM mirror_salesline WHERE order_date < ?",
+                    (cutoff,),
+                )
+                pruned = cur.rowcount or 0
     except Exception as exc:
         err = str(exc)
         log.exception("upsert_salesline failed")
