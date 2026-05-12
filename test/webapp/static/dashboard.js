@@ -179,6 +179,7 @@ function updateRefreshMeta(refresh) {
     var cache = document.getElementById("refreshCache");
     var windowLabel = document.getElementById("refreshWindow");
     var orderStats = document.getElementById("refreshOrderMirrorStats");
+    var backfillStats = document.getElementById("refreshBackfillStats");
     if (completed) {
         completed.textContent = refresh.last_completed
             ? "Last completed: " + refresh.last_completed.substring(0, 16).replace("T", " ")
@@ -203,6 +204,10 @@ function updateRefreshMeta(refresh) {
     if (orderStats) {
         orderStats.textContent = refresh.order_mirror_stats || "";
         orderStats.style.display = refresh.order_mirror_stats ? "" : "none";
+    }
+    if (backfillStats) {
+        backfillStats.textContent = refresh.backfill_stats || "";
+        backfillStats.style.display = refresh.backfill_stats ? "" : "none";
     }
 }
 
