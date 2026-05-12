@@ -224,6 +224,14 @@ def _date_only(v: Any) -> str:
     return s[:10] if s else ""
 
 
+def _first(raw: dict, *keys: str) -> Any:
+    for key in keys:
+        value = raw.get(key)
+        if value not in (None, "", "NULL"):
+            return value
+    return None
+
+
 def _within_window(date_str: str, days: int) -> bool:
     """``date_str`` is YYYY-MM-DD. True iff within the past *days* days."""
     if not date_str:
@@ -370,14 +378,24 @@ def _normalize_salesline_row(raw: dict) -> dict:
     """Pull the columns we care about out of an SP salesline_release row."""
     so = _to_str(raw.get("SalesOrderNumber"))
     ln = _to_int(raw.get("LineNumber")) or 0
+    order_date = _date_only(_first(
+        raw,
+        "OrderDate",
+        "OrderCreationDateTime",
+        "CreatedDateTime",
+        "ShippingDateRequested",
+        "RequestedShipDate",
+        "ReceiptDateRequested",
+        "RequestedReceiptDate",
+    ))
     return {
         "sales_order_number": so,
         "line_number":        ln,
         "customer_account":   _customer_account(raw.get("CustomerAccount")),
         "customer_name":      _to_str(raw.get("customername") or raw.get("CustomerName")),
         "sales_group":        _to_str(raw.get("SalesGroup")),
-        "order_date":         _date_only(raw.get("CreatedDateTime")),
-        "created_datetime":   _to_str(raw.get("CreatedDateTime")),
+        "order_date":         order_date,
+        "created_datetime":   _to_str(raw.get("CreatedDateTime") or raw.get("OrderCreationDateTime") or raw.get("OrderDate")),
         "po_number":          _to_str(raw.get("CustomerRequisition")),
         "item_number":        _to_str(raw.get("Item")),
         "item_name":          _to_str(raw.get("ItemDescription")),
@@ -575,6 +593,36 @@ def get_customer_rows() -> list[dict]:
     return out
 
 
+def _salesline_raw_from_row(row: Any) -> dict:
+    try:
+        raw = json.loads(row["raw_json"] or "{}")
+    except Exception:
+        raw = {}
+    # Overlay canonical mirror columns so app readers work even when the
+    # endpoint changes field aliases between OrderDate/CreatedDateTime/etc.
+    raw.setdefault("SalesOrderNumber", row["sales_order_number"])
+    raw.setdefault("LineNumber", row["line_number"])
+    raw.setdefault("CustomerAccount", row["customer_account"])
+    raw.setdefault("CustomerName", row["customer_name"])
+    raw.setdefault("customername", row["customer_name"])
+    raw.setdefault("SalesGroup", row["sales_group"])
+    raw.setdefault("OrderDate", row["order_date"])
+    raw.setdefault("CreatedDateTime", row["created_datetime"] or row["order_date"])
+    raw.setdefault("CustomerRequisition", row["po_number"])
+    raw.setdefault("Item", row["item_number"])
+    raw.setdefault("ItemDescription", row["item_name"])
+    raw.setdefault("SalesPrice", row["unit_price"])
+    raw.setdefault("OrderStatus", row["order_status"])
+    raw.setdefault("SalesStatus", row["status"])
+    raw.setdefault("QuantityOrdered", row["qty_ordered"])
+    raw.setdefault("QuantityShipped", row["qty_shipped"])
+    raw.setdefault("QuantityCancelled", row["qty_cancelled"])
+    raw.setdefault("Ordered $", row["ordered_dollars"])
+    raw.setdefault("Shipped $", row["shipped_dollars"])
+    raw.setdefault("Cancelled $", row["cancelled_dollars"])
+    return raw
+
+
 def get_salesline_fallback(*, customer_account: str | None = None,
                            date_from: str | None = None,
                            date_to: str | None = None,
@@ -620,7 +668,7 @@ def get_salesline_fallback(*, customer_account: str | None = None,
         where.append("status = ?")
         params.append(status.strip())
 
-    sql = "SELECT raw_json FROM mirror_salesline"
+    sql = "SELECT * FROM mirror_salesline"
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY order_date DESC, sales_order_number, line_number"
@@ -628,10 +676,7 @@ def get_salesline_fallback(*, customer_account: str | None = None,
     out: list[dict] = []
     with connect() as conn:
         for r in conn.execute(sql, params):
-            try:
-                out.append(json.loads(r["raw_json"]))
-            except Exception:
-                pass
+            out.append(_salesline_raw_from_row(r))
     return out
 
 

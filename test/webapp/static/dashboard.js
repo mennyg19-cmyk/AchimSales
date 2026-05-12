@@ -97,9 +97,128 @@ function resetRefreshBtn() {
     showRefreshProgress(false);
 }
 
+function dashEscape(value) {
+    return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function dashDisplay(value, fallback) {
+    if (value === null || value === undefined || value === "") return fallback;
+    return value;
+}
+
+function updateSummaryCards(summary) {
+    var map = {
+        "": "total_customers",
+        "new": "new",
+        "active": "active",
+        "overdue": "overdue",
+        "inactive": "inactive"
+    };
+    Object.keys(map).forEach(function(filter) {
+        var card = document.querySelector('.dash-card-filter[data-filter="' + filter + '"] .dash-card-value');
+        if (card) card.textContent = summary && summary[map[filter]] != null ? summary[map[filter]] : 0;
+    });
+}
+
+function renderDashboardRows(customers) {
+    var wrapper = document.getElementById("dashTableWrapper");
+    if (!wrapper) return;
+    if (!customers || !customers.length) {
+        wrapper.innerHTML = [
+            '<div class="empty-state">',
+            '<i data-feather="bar-chart-2" width="48" height="48"></i>',
+            '<h3>No dashboard data yet</h3>',
+            '<p>Data will appear after the first refresh from the reporting API. This may take a few minutes.</p>',
+            '</div>'
+        ].join("");
+        if (typeof feather !== "undefined") feather.replace();
+        return;
+    }
+
+    var rows = customers.map(function(c) {
+        var status = c.status || "new";
+        return [
+            '<tr class="dash-row clickable-row" data-status="', dashEscape(status), '" data-url="', dashEscape(c.url || "#"), '" onclick="window.location=this.dataset.url">',
+            '<td>', dashEscape(c.customer_name || c.customer_account || ""), '</td>',
+            '<td class="cell-nowrap">', dashEscape(c.customer_account || ""), '</td>',
+            '<td class="cell-nowrap">', dashEscape(c.last_order_date || "N/A"), '</td>',
+            '<td class="num">', dashEscape(dashDisplay(c.days_since_last, "-")), '</td>',
+            '<td class="num">', dashEscape(dashDisplay(c.avg_gap_days, "-")), '</td>',
+            '<td class="num">', dashEscape(dashDisplay(c.overdue_threshold, "-")), '</td>',
+            '<td><span class="status-badge status-dash-', dashEscape(status), '">', dashEscape(status.charAt(0).toUpperCase() + status.slice(1)), '</span></td>',
+            '</tr>'
+        ].join("");
+    }).join("");
+
+    wrapper.innerHTML = [
+        '<table class="data-table dash-activity-table sticky-col-first" id="dashTable">',
+        '<thead><tr>',
+        '<th onclick="sortDashTable(0)">Name <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(1)">Account <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(2)">Last Order <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(3)">Days Since <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(4)">Avg Freq <button class="help-icon" data-help="dashboard-avg-freq" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(5)">Threshold <button class="help-icon" data-help="dashboard-threshold" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(6)">Status <span class="sort-arrow">&#9650;</span></th>',
+        '</tr></thead>',
+        '<tbody>', rows, '</tbody>',
+        '</table>'
+    ].join("");
+    applyDashFilters();
+}
+
+function updateRefreshMeta(refresh) {
+    if (!refresh) return;
+    var completed = document.getElementById("refreshCompleted");
+    var requested = document.getElementById("refreshRequested");
+    var cache = document.getElementById("refreshCache");
+    var windowLabel = document.getElementById("refreshWindow");
+    if (completed) {
+        completed.textContent = refresh.last_completed
+            ? "Last completed: " + refresh.last_completed.substring(0, 16).replace("T", " ")
+            : "No data yet";
+    }
+    if (requested && refresh.last_requested) {
+        requested.textContent = "Last requested: " + refresh.last_requested.substring(0, 16).replace("T", " ");
+    }
+    if (cache) {
+        cache.textContent = "Shared mirror: "
+            + (refresh.cache_customers || 0) + " customers, "
+            + (refresh.cache_order_lines || 0) + " order lines, "
+            + (refresh.dated_order_lines || 0) + " dated, "
+            + (refresh.order_customers || 0) + " customers with dated lines, "
+            + (refresh.customers_with_last_order || 0) + " with last order";
+    }
+    if (windowLabel) {
+        windowLabel.textContent = "Dashboard metrics use the rolling "
+            + (refresh.salesline_window_days || 60)
+            + "-day salesline mirror.";
+    }
+}
+
+function refreshDashboardData() {
+    var label = document.getElementById("refreshProgressLabel");
+    if (label) label.textContent = "Loading refreshed dashboard data...";
+    return fetch(_dashApi("/api/dashboard/data"))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            updateSummaryCards(data.summary || {});
+            renderDashboardRows(data.customers || []);
+            updateRefreshMeta(data.refresh || {});
+            if (label) label.textContent = "Dashboard data updated.";
+        });
+}
+
 function pollRefreshStatus(before, attempts) {
     if (attempts > 120) {
-        window.location.reload();
+        var label = document.getElementById("refreshProgressLabel");
+        if (label) label.textContent = "Refresh is still running. The dashboard will keep using the current mirror data.";
+        resetRefreshBtn();
         return;
     }
     setTimeout(function() {
@@ -112,15 +231,17 @@ function pollRefreshStatus(before, attempts) {
                 }
                 if (data.done) {
                     if (label) label.textContent = data.step || "Refresh complete.";
-                    resetRefreshBtn();
-                    var shouldReload = window.confirm("Dashboard data is refreshed. Refresh this page now?");
-                    if (shouldReload) window.location.reload();
+                    refreshDashboardData().finally(function() {
+                        resetRefreshBtn();
+                    });
                 } else {
                     pollRefreshStatus(before, attempts + 1);
                 }
             })
             .catch(function() {
-                window.location.reload();
+                var label = document.getElementById("refreshProgressLabel");
+                if (label) label.textContent = "Could not check refresh status. Try again in a moment.";
+                resetRefreshBtn();
             });
     }, 2000);
 }

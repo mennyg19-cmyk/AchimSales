@@ -217,3 +217,39 @@ def api_refresh_status():
         "last_requested": status.get("last_requested"),
         "last_completed": current,
     })
+
+
+@dashboard_bp.get("/api/dashboard/data")
+@require_login
+def api_dashboard_data():
+    user = current_user() or {}
+    email = user.get("email", "")
+    scope = dashboard_data.get_user_dashboard_scope(email)
+    customers = dashboard_data.get_dashboard_data(
+        salesman_key=scope.get("salesman_key"),
+        allowed_salesman_keys=scope.get("allowed_salesman_keys"),
+        exclude_accounts=get_user_exclusions(email),
+    )
+    summary = dashboard_data.get_dashboard_summary(customers)
+    refresh = dashboard_data.get_refresh_status(_refresh_salesman_scope(email))
+    visible_customers = []
+    for c in customers:
+        if c.get("excluded"):
+            continue
+        account = c.get("customer_account") or ""
+        visible_customers.append({
+            "customer_account": account,
+            "customer_name": c.get("customer_name") or account,
+            "last_order_date": c.get("last_order_date") or "",
+            "days_since_last": c.get("days_since_last"),
+            "avg_gap_days": c.get("avg_gap_days"),
+            "overdue_threshold": c.get("overdue_threshold"),
+            "status": c.get("status") or "new",
+            "url": url_for("dashboard.customer_detail", account=account),
+        })
+    return jsonify({
+        "success": True,
+        "summary": summary,
+        "customers": visible_customers,
+        "refresh": refresh,
+    })

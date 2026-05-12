@@ -232,11 +232,22 @@ def refresh_cache(salesman_key: str | None = None) -> None:
     try:
         _set_step(scope, "Refreshing customer master mirror...")
         customer_rows, customer_source = _fetch_customers(salesman_key)
+        if customer_rows:
+            mirror.upsert_customers(customer_rows, trigger="dashboard")
         _refresh_state.setdefault(scope, {})["customer_source"] = customer_source
         _set_step(scope, f"Received {len(customer_rows):,} customers")
 
         _set_step(scope, f"Refreshing salesline mirror ({mirror.SALESLINE_WINDOW_DAYS} days)...")
         order_rows, order_source = _fetch_order_history(salesman_key)
+        if order_rows:
+            stats = mirror.upsert_salesline(order_rows, trigger="dashboard")
+            _set_step(
+                scope,
+                "Salesline mirror updated: "
+                f"{stats.get('inserted', 0):,} inserted, "
+                f"{stats.get('updated', 0):,} updated, "
+                f"{stats.get('unchanged', 0):,} unchanged",
+            )
         _refresh_state.setdefault(scope, {})["order_source"] = order_source
         _set_step(scope, f"Received {len(order_rows):,} order lines")
 
@@ -337,7 +348,7 @@ def get_cache_quality_warning() -> str:
 def cache_needs_order_refresh() -> bool:
     """True when the shared endpoint mirrors are empty."""
     counts = get_cache_counts()
-    return counts["customers"] <= 0 or counts["order_lines"] <= 0
+    return counts["customers"] <= 0 or counts["order_lines"] <= 0 or counts["dated_order_lines"] <= 0
 
 
 def request_background_refresh(salesman_key: str | None = None) -> dict[str, Any]:
