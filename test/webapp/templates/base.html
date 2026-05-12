@@ -47,7 +47,7 @@
     </header>
     {% endif %}
 
-    <main class="container">
+    <main class="container {% if active_tab %}page-{{ active_tab }}{% endif %}">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         <div class="flash-messages">

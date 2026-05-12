@@ -306,6 +306,13 @@ body {
     padding: 16px;
 }
 
+.container.page-dashboard {
+    width: 100%;
+    max-width: none;
+    padding-left: clamp(16px, 2vw, 32px);
+    padding-right: clamp(16px, 2vw, 32px);
+}
+
 @media (min-width: 768px) {
     .container { padding: 24px 32px; }
 }
@@ -1363,13 +1370,14 @@ body.dark-theme .alert-error {
     margin-bottom: 20px;
 }
 
-@media (min-width: 600px) {
+@media (min-width: 768px) {
     .dash-summary-cards {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(5, minmax(0, 1fr));
     }
 }
 
 .dash-card {
+    position: relative;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -1377,6 +1385,13 @@ body.dark-theme .alert-error {
     text-align: center;
     box-shadow: var(--shadow);
     transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.dash-card .dash-card-help {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    margin: 0;
 }
 
 .dash-card-filter {

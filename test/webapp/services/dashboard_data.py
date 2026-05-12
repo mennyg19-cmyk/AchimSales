@@ -36,6 +36,8 @@ _DEFAULT_COMPANY = (os.environ.get("REPORTING_API_DEFAULT_COMPANY") or "ACHM").s
 _SCOPE_ALL = "__all__"
 _LAST_REQUESTED_KEY = "dashboard.last_refresh_requested"
 _LAST_COMPLETED_KEY = "dashboard.last_refresh_completed"
+_LAST_CUSTOMER_SOURCE_KEY = "dashboard.last_customer_source"
+_LAST_ORDER_SOURCE_KEY = "dashboard.last_order_source"
 
 _refresh_thread: threading.Thread | None = None
 _last_refresh: str | None = None
@@ -164,7 +166,20 @@ def _set_step(scope: str, message: str) -> None:
     _refresh_state.setdefault(scope, {"running": True, "step": ""})["step"] = message
 
 
-def _fetch_customers(salesman_key: str | None) -> list[dict]:
+def _source_label(meta: dict[str, Any] | None) -> str:
+    source = (meta or {}).get("source") or "unknown"
+    labels = {
+        "api": "reporting API",
+        "fresh_cache": "in-process API cache",
+        "stale_cache": "stale API cache",
+        "mirror_after_failure": "SQLite mirror after API failure",
+        "mirror_no_api": "SQLite mirror; API not configured",
+        "failed": "unavailable",
+    }
+    return labels.get(str(source), str(source).replace("_", " "))
+
+
+def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
     params: dict[str, Any] = {}
     if salesman_key:
         params["salesman"] = salesman_key
@@ -174,11 +189,11 @@ def _fetch_customers(salesman_key: str | None) -> list[dict]:
         # The order rows contain enough customer fields to seed the dashboard.
         # Do not let customer-master downtime block the first dashboard load.
         log.warning("Dashboard customer-master fetch failed; deriving customers from orders: %s", exc)
-        return []
-    return list(rows or [])
+        return [], "customer_master unavailable"
+    return list(rows or []), _source_label(reporting_api.last_run_source())
 
 
-def _fetch_order_history(salesman_key: str | None) -> list[dict]:
+def _fetch_order_history(salesman_key: str | None) -> tuple[list[dict], str]:
     # Include Company so the all-time refresh never sends an empty SP body.
     params: dict[str, Any] = {"period": "all_time"}
     if _DEFAULT_COMPANY:
@@ -187,12 +202,15 @@ def _fetch_order_history(salesman_key: str | None) -> list[dict]:
         params["salesman"] = salesman_key
     try:
         rows = reporting_api.run("ordered", params)
+        source = _source_label(reporting_api.last_run_source())
     except Exception as exc:
         rows = None
+        source = "unavailable"
         if USE_MOCK_DATA or not reporting_api.is_configured():
             fixture_rows = report_fixtures.load_ordered_rows()
             if fixture_rows is not None:
                 rows = report_fixtures.filter_ordered_rows(fixture_rows, params)
+                source = "ordered fixture"
                 log.warning(
                     "Dashboard order fetch failed; using ordered fixture rows (%d): %s",
                     len(rows),
@@ -200,7 +218,7 @@ def _fetch_order_history(salesman_key: str | None) -> list[dict]:
                 )
         if rows is None:
             raise
-    return list(rows or [])
+    return list(rows or []), source
 
 
 def _cached_order_line(line: dict[str, Any], refreshed_at: str) -> tuple[Any, ...]:
@@ -256,11 +274,13 @@ def refresh_cache(salesman_key: str | None = None) -> None:
 
     try:
         _set_step(scope, "Fetching customer master data...")
-        customer_rows = _fetch_customers(salesman_key)
+        customer_rows, customer_source = _fetch_customers(salesman_key)
+        _refresh_state.setdefault(scope, {})["customer_source"] = customer_source
         _set_step(scope, f"Received {len(customer_rows):,} customers")
 
         _set_step(scope, "Fetching order history...")
-        order_rows = _fetch_order_history(salesman_key)
+        order_rows, order_source = _fetch_order_history(salesman_key)
+        _refresh_state.setdefault(scope, {})["order_source"] = order_source
         _set_step(scope, f"Received {len(order_rows):,} order lines")
 
         now = datetime.now().isoformat(timespec="seconds")
@@ -403,6 +423,8 @@ def refresh_cache(salesman_key: str | None = None) -> None:
 
         _last_refresh = now
         set_app_setting(_LAST_COMPLETED_KEY, now)
+        set_app_setting(_LAST_CUSTOMER_SOURCE_KEY, customer_source)
+        set_app_setting(_LAST_ORDER_SOURCE_KEY, order_source)
         _set_step(scope, f"Done - {len(metrics):,} customers updated")
         log.info("Dashboard refresh complete (%s): %d customers", scope_label, len(metrics))
     except Exception:
@@ -450,6 +472,10 @@ def get_refresh_status(salesman_key: str | None = None) -> dict[str, Any]:
         "last_completed": get_last_refresh(),
         "cache_customers": counts["customers"],
         "cache_order_lines": counts["order_lines"],
+        "dated_order_lines": counts["dated_order_lines"],
+        "customers_with_last_order": counts["customers_with_last_order"],
+        "customer_source": state.get("customer_source") or get_app_setting(_LAST_CUSTOMER_SOURCE_KEY),
+        "order_source": state.get("order_source") or get_app_setting(_LAST_ORDER_SOURCE_KEY),
     }
 
 
