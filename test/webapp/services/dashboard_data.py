@@ -349,6 +349,14 @@ def _backfill_last_orders(
     if not accounts:
         return stats
 
+    today = get_today_eastern()
+    # period=all_time translates to (None, None) for the SP, which makes
+    # it fall back to its own short default window and return nothing
+    # for dormant customers. Send an explicit custom range from D365
+    # go-live to today instead -- that's the full valid history window.
+    backfill_start = D365_GO_LIVE.isoformat()
+    backfill_end = today.isoformat()
+
     pinned_rows: list[dict] = []
     for i in range(0, len(accounts), _BACKFILL_BATCH_SIZE):
         batch = accounts[i : i + _BACKFILL_BATCH_SIZE]
@@ -358,7 +366,9 @@ def _backfill_last_orders(
             f"({min(i + _BACKFILL_BATCH_SIZE, len(accounts))}/{len(accounts)} customers)...",
         )
         params: dict[str, Any] = {
-            "period": "all_time",
+            "period": "custom",
+            "start_date": backfill_start,
+            "end_date": backfill_end,
             "customers": ",".join(batch),
         }
         if _DEFAULT_COMPANY:
