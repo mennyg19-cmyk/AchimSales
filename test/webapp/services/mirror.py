@@ -407,11 +407,15 @@ def _normalize_salesline_row(raw: dict) -> dict:
     """Pull the columns we care about out of an SP salesline_release row."""
     so = _to_str(_first(raw, "SalesOrderNumber", "SalesId", "OrderNumber", "OrderNo"))
     ln = _to_int(_first(raw, "LineNumber", "LineNum", "LineNo")) or 0
+    created_datetime = _to_str(_first(raw, "CreatedDateTime", "OrderCreationDateTime", "OrderDate"))
+    # The ordered endpoint is filtered by CreatedDateTimeFrom/To. Use that
+    # same date as the mirror window date so a valid 60-day API response is
+    # not rejected just because the sales order's business OrderDate is older.
     order_date = _date_only(_first(
         raw,
-        "OrderDate",
-        "OrderCreationDateTime",
         "CreatedDateTime",
+        "OrderCreationDateTime",
+        "OrderDate",
         "ShippingDateRequested",
         "RequestedShipDate",
         "ReceiptDateRequested",
@@ -424,7 +428,7 @@ def _normalize_salesline_row(raw: dict) -> dict:
         "customer_name":      _to_str(_first(raw, "customername", "CustomerName", "Name")),
         "sales_group":        _to_str(_first(raw, "SalesGroup", "salesgroup", "Salesman")),
         "order_date":         order_date,
-        "created_datetime":   _to_str(_first(raw, "CreatedDateTime", "OrderCreationDateTime", "OrderDate")),
+        "created_datetime":   created_datetime,
         "po_number":          _to_str(_first(raw, "CustomerRequisition", "CustomerReq", "PONumber", "PO #")),
         "item_number":        _to_str(_first(raw, "Item", "ItemId", "ItemNumber", "Item#")),
         "item_name":          _to_str(_first(raw, "ItemDescription", "ItemName", "LineDescription")),
