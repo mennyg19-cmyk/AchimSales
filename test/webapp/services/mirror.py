@@ -51,11 +51,9 @@ from test.webapp.db import connect
 log = logging.getLogger(__name__)
 
 
-# Rolling window for salesline mirror (in days). Two months as the
-# user specified -- anything older than this is intentionally not
-# available offline. We use 62 days so end-of-month + leap noise
-# never trips a user up.
-SALESLINE_WINDOW_DAYS = 62
+# Rolling window for salesline mirror (in days). The dashboard and
+# customer/order pages intentionally describe their data as this window.
+SALESLINE_WINDOW_DAYS = 60
 
 
 # ---------------------------------------------------------------------------
@@ -564,10 +562,24 @@ def get_salesmen_fallback() -> list[dict]:
     return [{"key": r["sales_group"], "name": r["sales_group"]} for r in rows]
 
 
+def get_customer_rows() -> list[dict]:
+    """Raw mirrored customer-master rows for app surfaces."""
+    init_mirror_db()
+    out: list[dict] = []
+    with connect() as conn:
+        for r in conn.execute("SELECT raw_json FROM mirror_customers ORDER BY customer_name"):
+            try:
+                out.append(json.loads(r["raw_json"]))
+            except Exception:
+                pass
+    return out
+
+
 def get_salesline_fallback(*, customer_account: str | None = None,
                            date_from: str | None = None,
                            date_to: str | None = None,
-                           status: str | None = None) -> list[dict]:
+                           status: str | None = None,
+                           order_number: str | None = None) -> list[dict]:
     """Serve salesline rows from the mirror.
 
     Filters mirror the ones the SP supports. Returns rows in roughly the
@@ -595,6 +607,9 @@ def get_salesline_fallback(*, customer_account: str | None = None,
     if customer_account:
         where.append("customer_account = ?")
         params.append(_customer_account(customer_account))
+    if order_number:
+        where.append("sales_order_number = ?")
+        params.append(str(order_number).strip())
     if date_from:
         where.append("order_date >= ?")
         params.append(date_from[:10])

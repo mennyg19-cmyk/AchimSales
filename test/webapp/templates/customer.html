@@ -73,6 +73,9 @@
 <div class="detail-section-header">
     <h3 class="dash-section-title">Orders</h3>
 </div>
+<p class="muted" style="margin-top:-6px;">
+    Orders are shown from the shared rolling {{ mirror_window_days|default(60) }}-day salesline mirror.
+</p>
 <div class="filter-bar">
     <a href="{{ url_for('dashboard.customer_detail', account=customer.account, days=7) }}"
        class="filter-btn {% if active_period == '7' %}active{% endif %}">1 Week</a>

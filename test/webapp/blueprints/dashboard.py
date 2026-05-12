@@ -98,6 +98,7 @@ def index():
             alert for alert in get_notifications(email, dismissed=False)
             if alert.get("type") == "overdue_customer"
         ],
+        mirror_window_days=dashboard_data.salesline_window_days(),
     )
 
 
@@ -145,6 +146,7 @@ def customer_detail(account: str):
         orders=orders,
         active_period=active_period,
         is_excluded=account in exclusions,
+        mirror_window_days=dashboard_data.salesline_window_days(),
     )
 
 
@@ -181,6 +183,7 @@ def order_detail(order_number: str):
         header=header,
         lines=lines,
         customer_account=customer_account,
+        mirror_window_days=dashboard_data.salesline_window_days(),
     )
 
 

@@ -7,7 +7,6 @@ ordered/salesline_release supplies order history and detail rows.
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
@@ -24,7 +23,7 @@ from test.webapp.db import (
     normalize_key,
     set_app_setting,
 )
-from test.webapp.services import reporting_api
+from test.webapp.services import mirror, reporting_api
 from test.webapp.services.report_access import get_user_profile
 from test.webapp.services.reports.ordered import _norm_row
 
@@ -56,6 +55,10 @@ def _load_persisted_timestamps() -> None:
 
 
 _load_persisted_timestamps()
+
+
+def salesline_window_days() -> int:
+    return mirror.SALESLINE_WINDOW_DAYS
 
 
 def _date_only(value: Any) -> str:
@@ -200,8 +203,15 @@ def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
 
 
 def _fetch_order_history(salesman_key: str | None) -> tuple[list[dict], str]:
-    # Include Company so the all-time refresh never sends an empty SP body.
-    params: dict[str, Any] = {"period": "all_time"}
+    # Dashboard is intentionally backed by the rolling salesline mirror.
+    # Refresh only that window so the endpoint/mirror contract stays bounded.
+    today = get_today_eastern()
+    start = today - timedelta(days=mirror.SALESLINE_WINDOW_DAYS)
+    params: dict[str, Any] = {
+        "period": "custom",
+        "start_date": start.isoformat(),
+        "end_date": today.isoformat(),
+    }
     if _DEFAULT_COMPANY:
         params["company"] = _DEFAULT_COMPANY
     if salesman_key:
@@ -211,247 +221,34 @@ def _fetch_order_history(salesman_key: str | None) -> tuple[list[dict], str]:
     return list(rows or []), source
 
 
-def _validate_order_coverage(
-    *,
-    customer_count: int,
-    dated_customer_count: int,
-    order_line_count: int,
-    order_source: str,
-    salesman_key: str | None,
-) -> None:
-    """Reject obviously partial order history before it poisons metrics."""
-    if salesman_key or customer_count < 50:
-        return
-    minimum_accounts = max(10, int(customer_count * 0.05))
-    if dated_customer_count >= minimum_accounts:
-        return
-    message = (
-        "Dashboard order history is incomplete: "
-        f"{customer_count:,} customers but only {order_line_count:,} order lines "
-        f"covering {dated_customer_count:,} customers from {order_source}. "
-        "Leaving the existing dashboard cache unchanged."
-    )
-    raise RuntimeError(message)
-
-
-def _cached_order_line(line: dict[str, Any], refreshed_at: str) -> tuple[Any, ...]:
-    return (
-        line.get("SalesOrderNumber") or "",
-        int(_num(line.get("LineNumber"))),
-        _normalize_customer_account(line.get("CustomerAccount")),
-        line.get("CustomerName") or "",
-        line.get("Salesman") or "",
-        _date_only(line.get("OrderDate")),
-        line.get("PO #") or "",
-        line.get("Item#") or "",
-        line.get("ItemName") or "",
-        line.get("Status") or "",
-        line.get("OrderStatus") or "",
-        _num(line.get("QtyOrdered")),
-        _num(line.get("QtyShipped")),
-        _num(line.get("QtyCancelled")),
-        _num(line.get("UnitPrice")),
-        _num(line.get("Ordered $")),
-        _num(line.get("Shipped $")),
-        refreshed_at,
-    )
-
-
-def _row_to_order_line(row: Any) -> dict[str, Any]:
-    return {
-        "SalesOrderNumber": row["sales_order_number"],
-        "LineNumber": row["line_number"],
-        "CustomerAccount": row["customer_account"],
-        "CustomerName": row["customer_name"],
-        "Salesman": row["sales_group"],
-        "OrderDate": row["order_date"],
-        "PO #": row["customer_req"],
-        "Item#": row["item_number"],
-        "ItemName": row["item_name"],
-        "Status": row["status"],
-        "OrderStatus": row["order_status"],
-        "QtyOrdered": row["qty_ordered"],
-        "QtyShipped": row["qty_shipped"],
-        "QtyCancelled": row["qty_cancelled"],
-        "UnitPrice": row["sales_price"],
-        "Ordered $": row["ordered_dollars"],
-        "Shipped $": row["shipped_dollars"],
-    }
-
-
 def refresh_cache(salesman_key: str | None = None) -> None:
-    """Refresh dashboard_cache from reporting API data."""
+    """Refresh the shared endpoint mirrors used by the dashboard."""
     global _last_refresh
     scope = _scope_key(salesman_key)
     scope_label = f"salesman={salesman_key}" if salesman_key else "all"
-    _refresh_state[scope] = {"running": True, "step": "Starting dashboard refresh..."}
+    _refresh_state[scope] = {"running": True, "step": "Refreshing shared endpoint mirrors..."}
     log.info("Dashboard refresh starting (%s)", scope_label)
 
     try:
-        _set_step(scope, "Fetching customer master data...")
+        _set_step(scope, "Refreshing customer master mirror...")
         customer_rows, customer_source = _fetch_customers(salesman_key)
         _refresh_state.setdefault(scope, {})["customer_source"] = customer_source
         _set_step(scope, f"Received {len(customer_rows):,} customers")
 
-        _set_step(scope, "Fetching order history...")
+        _set_step(scope, f"Refreshing salesline mirror ({mirror.SALESLINE_WINDOW_DAYS} days)...")
         order_rows, order_source = _fetch_order_history(salesman_key)
         _refresh_state.setdefault(scope, {})["order_source"] = order_source
         _set_step(scope, f"Received {len(order_rows):,} order lines")
 
         now = datetime.now().isoformat(timespec="seconds")
-        order_dates_by_customer: dict[str, dict[str, str]] = {}
-        customer_fallbacks: dict[str, dict[str, str]] = {}
-        normalized_lines: list[dict[str, Any]] = []
-        for raw in order_rows:
-            line = _norm_row(raw)
-            normalized_lines.append(line)
-            acct = _normalize_customer_account(line.get("CustomerAccount"))
-            line["CustomerAccount"] = acct
-            order_date = _date_only(line.get("OrderDate"))
-            if not acct or not order_date:
-                continue
-            order_no = line.get("SalesOrderNumber") or f"{acct}:{order_date}:{line.get('LineNumber')}"
-            order_dates_by_customer.setdefault(acct, {})[order_no] = order_date
-            customer_fallbacks.setdefault(acct, {
-                "customer_name": line.get("CustomerName") or acct,
-                "sales_group": line.get("Salesman") or "",
-            })
-
-        _set_step(scope, "Computing customer activity metrics...")
-        customers_by_account: dict[str, dict[str, str]] = {}
-        for raw in customer_rows:
-            acct = _customer_account(raw)
-            if not acct:
-                continue
-            customers_by_account[acct] = {
-                "customer_account": acct,
-                "customer_name": _customer_name(raw) or acct,
-                "sales_group": _sales_group(raw),
-            }
-
-        for acct, fallback in customer_fallbacks.items():
-            existing = customers_by_account.get(acct)
-            if existing:
-                if not existing.get("sales_group") and fallback.get("sales_group"):
-                    existing["sales_group"] = fallback["sales_group"]
-                if not existing.get("customer_name") and fallback.get("customer_name"):
-                    existing["customer_name"] = fallback["customer_name"]
-            else:
-                customers_by_account[acct] = {
-                    "customer_account": acct,
-                    "customer_name": fallback["customer_name"] or acct,
-                    "sales_group": fallback["sales_group"],
-                }
-
-        _validate_order_coverage(
-            customer_count=len(customers_by_account),
-            dated_customer_count=len(order_dates_by_customer),
-            order_line_count=len(normalized_lines),
-            order_source=order_source,
-            salesman_key=salesman_key,
-        )
-
-        metrics: list[dict[str, Any]] = []
-        for acct, customer in customers_by_account.items():
-            dates = sorted(order_dates_by_customer.get(acct, {}).values())
-            metric = _compute_customer_metrics(
-                acct,
-                customer["customer_name"],
-                customer["sales_group"],
-                dates,
-            )
-            metric["last_refreshed"] = now
-            metrics.append(metric)
-
-        _set_step(scope, "Saving dashboard cache...")
-        with connect() as conn:
-            if salesman_key:
-                norm = normalize_key(salesman_key)
-                rows = conn.execute(
-                    "SELECT customer_account, sales_group FROM dashboard_cache"
-                ).fetchall()
-                stale_accounts = [
-                    r["customer_account"]
-                    for r in rows
-                    if normalize_key(r["sales_group"]) == norm
-                ]
-                if stale_accounts:
-                    conn.executemany(
-                        "DELETE FROM dashboard_cache WHERE customer_account = ?",
-                        [(a,) for a in stale_accounts],
-                    )
-            else:
-                conn.execute("DELETE FROM dashboard_cache")
-                conn.execute("DELETE FROM dashboard_order_cache")
-
-            conn.executemany(
-                """
-                INSERT INTO dashboard_cache (
-                    customer_account, customer_name, sales_group, last_order_date,
-                    order_dates, avg_gap_days, gap_stdev, overdue_threshold,
-                    days_since_last, status, last_refreshed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        m["customer_account"],
-                        m["customer_name"],
-                        m["sales_group"],
-                        m["last_order_date"],
-                        json.dumps(m["order_dates"]),
-                        m["avg_gap_days"],
-                        m["gap_stdev"],
-                        m["overdue_threshold"],
-                        m["days_since_last"],
-                        m["status"],
-                        m["last_refreshed"],
-                    )
-                    for m in metrics
-                ],
-            )
-
-            if salesman_key:
-                existing_order_rows = conn.execute(
-                    "SELECT sales_order_number, line_number, item_number, sales_group "
-                    "FROM dashboard_order_cache"
-                ).fetchall()
-                stale_order_keys = [
-                    (r["sales_order_number"], r["line_number"], r["item_number"])
-                    for r in existing_order_rows
-                    if normalize_key(r["sales_group"]) == norm
-                ]
-                if stale_order_keys:
-                    conn.executemany(
-                        """
-                        DELETE FROM dashboard_order_cache
-                        WHERE sales_order_number = ? AND line_number = ? AND item_number = ?
-                        """,
-                        stale_order_keys,
-                    )
-
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO dashboard_order_cache (
-                    sales_order_number, line_number, customer_account, customer_name,
-                    sales_group, order_date, customer_req, item_number, item_name,
-                    status, order_status, qty_ordered, qty_shipped, qty_cancelled,
-                    sales_price, ordered_dollars, shipped_dollars, last_refreshed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    _cached_order_line(line, now)
-                    for line in normalized_lines
-                    if line.get("SalesOrderNumber")
-                ],
-            )
-
         _last_refresh = now
         set_app_setting(_LAST_COMPLETED_KEY, now)
         set_app_setting(_LAST_CUSTOMER_SOURCE_KEY, customer_source)
         set_app_setting(_LAST_ORDER_SOURCE_KEY, order_source)
         set_app_setting(_LAST_ERROR_KEY, "")
-        _set_step(scope, f"Done - {len(metrics):,} customers updated")
-        log.info("Dashboard refresh complete (%s): %d customers", scope_label, len(metrics))
+        _set_step(scope, f"Done - mirrors refreshed ({len(customer_rows):,} customers, {len(order_rows):,} order lines)")
+        log.info("Dashboard mirror refresh complete (%s): %d customers, %d order lines",
+                 scope_label, len(customer_rows), len(order_rows))
     except Exception as exc:
         message = str(exc) or "Refresh failed"
         log.exception("Dashboard refresh failed (%s)", scope_label)
@@ -470,12 +267,10 @@ def get_last_refresh() -> str | None:
     if _last_refresh:
         return _last_refresh
     try:
-        with connect() as conn:
-            row = conn.execute(
-                "SELECT last_refreshed FROM dashboard_cache ORDER BY last_refreshed DESC LIMIT 1"
-            ).fetchone()
-        if row:
-            _last_refresh = row["last_refreshed"]
+        fresh = mirror.mirror_freshness()
+        latest = (fresh.get("salesline") or {}).get("last_seen_utc") or (fresh.get("customers") or {}).get("last_seen_utc")
+        if latest:
+            _last_refresh = str(latest)
     except Exception:
         return None
     return _last_refresh
@@ -505,52 +300,44 @@ def get_refresh_status(salesman_key: str | None = None) -> dict[str, Any]:
         "customer_source": state.get("customer_source") or get_app_setting(_LAST_CUSTOMER_SOURCE_KEY),
         "order_source": state.get("order_source") or get_app_setting(_LAST_ORDER_SOURCE_KEY),
         "last_error": get_app_setting(_LAST_ERROR_KEY),
+        "salesline_window_days": mirror.SALESLINE_WINDOW_DAYS,
     }
 
 
 def get_cache_counts() -> dict[str, int]:
+    mirror.init_mirror_db()
     with connect() as conn:
-        customers = conn.execute("SELECT COUNT(*) FROM dashboard_cache").fetchone()[0]
-        order_lines = conn.execute("SELECT COUNT(*) FROM dashboard_order_cache").fetchone()[0]
+        customers = conn.execute("SELECT COUNT(*) FROM mirror_customers").fetchone()[0]
         dated_order_lines = conn.execute(
-            "SELECT COUNT(*) FROM dashboard_order_cache WHERE order_date <> ''"
+            "SELECT COUNT(*) FROM mirror_salesline WHERE order_date <> ''"
         ).fetchone()[0]
+        order_lines = conn.execute("SELECT COUNT(*) FROM mirror_salesline").fetchone()[0]
         order_customers = conn.execute(
-            "SELECT COUNT(DISTINCT customer_account) FROM dashboard_order_cache WHERE order_date <> ''"
-        ).fetchone()[0]
-        customers_with_last_order = conn.execute(
-            "SELECT COUNT(*) FROM dashboard_cache WHERE last_order_date IS NOT NULL AND last_order_date <> ''"
+            "SELECT COUNT(DISTINCT customer_account) FROM mirror_salesline WHERE order_date <> ''"
         ).fetchone()[0]
     return {
         "customers": int(customers or 0),
         "order_lines": int(order_lines or 0),
         "dated_order_lines": int(dated_order_lines or 0),
         "order_customers": int(order_customers or 0),
-        "customers_with_last_order": int(customers_with_last_order or 0),
+        "customers_with_last_order": int(order_customers or 0),
     }
 
 
 def get_cache_quality_warning() -> str:
     counts = get_cache_counts()
-    if counts["customers"] < 50:
-        return ""
-    minimum_accounts = max(10, int(counts["customers"] * 0.05))
-    if counts["customers_with_last_order"] >= minimum_accounts:
+    if counts["customers"] or counts["order_lines"]:
         return ""
     return (
-        "Dashboard order history is incomplete. "
-        f"The cache has {counts['customers']:,} customers but only "
-        f"{counts['order_customers']:,} customers with dated order lines. "
-        "The customer status counts may be stale or incomplete until the ordered endpoint refresh succeeds."
+        "No mirrored endpoint data is available yet. Run an ordered report or refresh "
+        "the dashboard to populate the shared customer and salesline mirrors."
     )
 
 
 def cache_needs_order_refresh() -> bool:
-    """True when customer rows exist but order/date data was not populated."""
+    """True when the shared endpoint mirrors are empty."""
     counts = get_cache_counts()
-    if counts["customers"] <= 0:
-        return True
-    return counts["order_lines"] <= 0 or counts["dated_order_lines"] <= 0 or counts["customers_with_last_order"] <= 0
+    return counts["customers"] <= 0 or counts["order_lines"] <= 0
 
 
 def request_background_refresh(salesman_key: str | None = None) -> dict[str, Any]:
@@ -587,29 +374,83 @@ def get_dashboard_data(
     allowed_salesman_keys: list[str] | None = None,
     exclude_accounts: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Read dashboard rows from cache with salesman/exclusion scoping."""
-    with connect() as conn:
-        rows = conn.execute("SELECT * FROM dashboard_cache ORDER BY customer_name").fetchall()
-
+    """Build dashboard rows from the shared endpoint mirrors."""
+    rows = _build_dashboard_rows_from_mirror()
     salesman_norm = normalize_key(salesman_key)
     allowed_norm = {normalize_key(k) for k in (allowed_salesman_keys or []) if normalize_key(k)}
     excluded = set(exclude_accounts or [])
 
     out: list[dict[str, Any]] = []
-    for row in rows:
-        item = dict(row)
+    for item in rows:
         group_norm = normalize_key(item.get("sales_group"))
         if salesman_norm and group_norm != salesman_norm:
             continue
         if allowed_norm and group_norm not in allowed_norm:
             continue
         item["excluded"] = item["customer_account"] in excluded
-        try:
-            item["order_dates"] = json.loads(item.get("order_dates") or "[]")
-        except json.JSONDecodeError:
-            item["order_dates"] = []
         out.append(item)
-    return out
+    return sorted(out, key=lambda r: (r.get("customer_name") or r.get("customer_account") or "").lower())
+
+
+def _build_dashboard_rows_from_mirror() -> list[dict[str, Any]]:
+    customer_rows = mirror.get_customer_rows()
+    order_rows = mirror.get_salesline_fallback()
+    last_seen = (mirror.mirror_freshness().get("salesline") or {}).get("last_seen_utc") or ""
+
+    order_dates_by_customer: dict[str, dict[str, str]] = {}
+    customer_fallbacks: dict[str, dict[str, str]] = {}
+    for raw in order_rows:
+        line = _norm_row(raw)
+        acct = _normalize_customer_account(line.get("CustomerAccount"))
+        if not acct:
+            continue
+        order_date = _date_only(line.get("OrderDate"))
+        if order_date:
+            order_no = line.get("SalesOrderNumber") or f"{acct}:{order_date}:{line.get('LineNumber')}"
+            order_dates_by_customer.setdefault(acct, {})[order_no] = order_date
+        customer_fallbacks.setdefault(acct, {
+            "customer_name": line.get("CustomerName") or acct,
+            "sales_group": line.get("Salesman") or "",
+        })
+
+    customers_by_account: dict[str, dict[str, str]] = {}
+    for raw in customer_rows:
+        acct = _customer_account(raw)
+        if not acct:
+            continue
+        customers_by_account[acct] = {
+            "customer_account": acct,
+            "customer_name": _customer_name(raw) or acct,
+            "sales_group": _sales_group(raw),
+        }
+
+    for acct, fallback in customer_fallbacks.items():
+        existing = customers_by_account.get(acct)
+        if existing:
+            if not existing.get("sales_group") and fallback.get("sales_group"):
+                existing["sales_group"] = fallback["sales_group"]
+            if not existing.get("customer_name") and fallback.get("customer_name"):
+                existing["customer_name"] = fallback["customer_name"]
+        else:
+            customers_by_account[acct] = {
+                "customer_account": acct,
+                "customer_name": fallback["customer_name"] or acct,
+                "sales_group": fallback["sales_group"],
+            }
+
+    metrics: list[dict[str, Any]] = []
+    for acct, customer in customers_by_account.items():
+        dates = sorted(order_dates_by_customer.get(acct, {}).values())
+        metric = _compute_customer_metrics(
+            acct,
+            customer["customer_name"],
+            customer["sales_group"],
+            dates,
+        )
+        metric["last_refreshed"] = last_seen
+        metric["mirror_window_days"] = mirror.SALESLINE_WINDOW_DAYS
+        metrics.append(metric)
+    return metrics
 
 
 def get_dashboard_summary(data: list[dict[str, Any]]) -> dict[str, Any]:
@@ -631,19 +472,10 @@ def get_dashboard_summary(data: list[dict[str, Any]]) -> dict[str, Any]:
 
 def get_customer_cached(account: str) -> dict[str, Any] | None:
     account = _normalize_customer_account(account)
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM dashboard_cache WHERE customer_account = ?",
-            (account,),
-        ).fetchone()
-    if not row:
-        return None
-    item = dict(row)
-    try:
-        item["order_dates"] = json.loads(item.get("order_dates") or "[]")
-    except json.JSONDecodeError:
-        item["order_dates"] = []
-    return item
+    for row in _build_dashboard_rows_from_mirror():
+        if row.get("customer_account") == account:
+            return row
+    return None
 
 
 def get_user_dashboard_scope(email: str) -> dict[str, Any]:
@@ -728,29 +560,11 @@ def _group_order_headers(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _cached_lines_for_customer(account: str) -> list[dict[str, Any]]:
     account = _normalize_customer_account(account)
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM dashboard_order_cache
-            WHERE customer_account = ?
-            ORDER BY order_date DESC, sales_order_number DESC, line_number
-            """,
-            (account,),
-        ).fetchall()
-    return [_row_to_order_line(r) for r in rows]
+    return [_norm_row(r) for r in mirror.get_salesline_fallback(customer_account=account)]
 
 
 def _cached_lines_for_order(order_number: str) -> list[dict[str, Any]]:
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM dashboard_order_cache
-            WHERE sales_order_number = ?
-            ORDER BY line_number, item_number
-            """,
-            (order_number,),
-        ).fetchall()
-    return [_row_to_order_line(r) for r in rows]
+    return [_norm_row(r) for r in mirror.get_salesline_fallback(order_number=order_number)]
 
 
 def fetch_customer_info(account: str) -> dict[str, Any]:
@@ -764,23 +578,6 @@ def fetch_customer_info(account: str) -> dict[str, Any]:
             "days_since_last": cached["days_since_last"],
             "avg_gap_days": cached["avg_gap_days"],
             "overdue_threshold": cached["overdue_threshold"],
-        }
-
-    try:
-        rows = reporting_api.run("customer_master", {"customer_account": account})
-    except Exception:
-        log.exception("dashboard customer lookup failed: %s", account)
-        rows = []
-    if rows:
-        raw = rows[0]
-        return {
-            "account": _customer_account(raw) or account,
-            "name": _customer_name(raw) or account,
-            "sales_group": _sales_group(raw),
-            "status": "",
-            "days_since_last": None,
-            "avg_gap_days": None,
-            "overdue_threshold": None,
         }
     return {"account": account, "name": account, "sales_group": "", "status": ""}
 

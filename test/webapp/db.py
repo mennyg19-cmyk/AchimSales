@@ -254,52 +254,6 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS dashboard_cache (
-        customer_account   TEXT PRIMARY KEY,
-        customer_name      TEXT NOT NULL DEFAULT '',
-        sales_group        TEXT NOT NULL DEFAULT '',
-        last_order_date    TEXT,
-        order_dates        TEXT NOT NULL DEFAULT '[]',
-        avg_gap_days       REAL,
-        gap_stdev          REAL,
-        overdue_threshold  REAL,
-        days_since_last    INTEGER,
-        status             TEXT NOT NULL DEFAULT 'new',
-        last_refreshed     TEXT NOT NULL DEFAULT ''
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS dashboard_order_cache (
-        sales_order_number TEXT NOT NULL,
-        line_number        INTEGER NOT NULL DEFAULT 0,
-        customer_account   TEXT NOT NULL DEFAULT '',
-        customer_name      TEXT NOT NULL DEFAULT '',
-        sales_group        TEXT NOT NULL DEFAULT '',
-        order_date         TEXT NOT NULL DEFAULT '',
-        customer_req       TEXT NOT NULL DEFAULT '',
-        item_number        TEXT NOT NULL DEFAULT '',
-        item_name          TEXT NOT NULL DEFAULT '',
-        status             TEXT NOT NULL DEFAULT '',
-        order_status       TEXT NOT NULL DEFAULT '',
-        qty_ordered        REAL NOT NULL DEFAULT 0,
-        qty_shipped        REAL NOT NULL DEFAULT 0,
-        qty_cancelled      REAL NOT NULL DEFAULT 0,
-        sales_price        REAL NOT NULL DEFAULT 0,
-        ordered_dollars    REAL NOT NULL DEFAULT 0,
-        shipped_dollars    REAL NOT NULL DEFAULT 0,
-        last_refreshed     TEXT NOT NULL DEFAULT '',
-        PRIMARY KEY (sales_order_number, line_number, item_number)
-    )
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_dashboard_order_cache_customer
-        ON dashboard_order_cache(customer_account, order_date DESC)
-    """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_dashboard_order_cache_order
-        ON dashboard_order_cache(sales_order_number)
-    """,
-    """
     CREATE TABLE IF NOT EXISTS app_settings (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -362,7 +316,6 @@ _COLUMN_MIGRATIONS = [
     ("app_users", "active",              "INTEGER NOT NULL DEFAULT 1"),
     ("app_users", "dashboard_enabled",   "INTEGER NOT NULL DEFAULT 1"),
     ("app_users", "test_access_enabled", "INTEGER NOT NULL DEFAULT 1"),
-    ("dashboard_order_cache", "order_status", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -379,6 +332,12 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef}")
             log.info("%s: added %s column", table, column)
+
+
+def _drop_obsolete_dashboard_caches(conn: sqlite3.Connection) -> None:
+    """Dashboard now derives from endpoint mirrors; remove old duplicate caches."""
+    conn.execute("DROP TABLE IF EXISTS dashboard_order_cache")
+    conn.execute("DROP TABLE IF EXISTS dashboard_cache")
 
 
 def _seed_feature_flags(conn: sqlite3.Connection) -> None:
@@ -627,6 +586,7 @@ def init_db() -> None:
         for stmt in SCHEMA_STATEMENTS:
             conn.execute(stmt)
         _ensure_columns(conn)
+        _drop_obsolete_dashboard_caches(conn)
         _seed_feature_flags(conn)
         _backfill_user_roles(conn)
         _seed_salesmen_from_xlsx(conn)

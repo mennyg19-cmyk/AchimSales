@@ -73,6 +73,9 @@
     <span class="detail-count">{{ lines|length }} item{{ 's' if lines|length != 1 else '' }}</span>
     {% endif %}
 </div>
+<p class="muted" style="margin-top:-6px;">
+    Order detail is shown from the shared rolling {{ mirror_window_days|default(60) }}-day salesline mirror.
+</p>
 
 <div class="table-wrapper">
     {% if lines %}
