@@ -26,7 +26,11 @@
     --text-muted: #737373;     /* neutral gray-500 */
     --text-light: #a3a3a3;     /* neutral gray-400 */
     --border: #e5e5e5;         /* neutral gray-200 */
+    --border-soft: #ededed;    /* subtler than --border, used in code/help cards */
     --border-focus: #16a34a;   /* green accent */
+    --card-soft-bg: rgba(0, 0, 0, 0.04);   /* subtle hover/zebra strip on cards */
+    --accent-soft:  rgba(34, 197, 94, 0.12); /* green tint for selection/hover */
+    --code-bg:      rgba(0, 0, 0, 0.05);   /* code blocks & help-popup body */
     --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
     --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
     --shadow-lg: 0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05);
@@ -51,7 +55,11 @@ body.dark-theme {
     --text-muted: #a3a3a3;     /* neutral gray-400 */
     --text-light: #737373;     /* neutral gray-500 */
     --border: #262626;         /* neutral gray-800 */
+    --border-soft: #1f1f1f;    /* subtler than --border for dark surfaces */
     --border-focus: #4ade80;   /* green accent */
+    --card-soft-bg: rgba(255, 255, 255, 0.05);   /* visible on dark backgrounds */
+    --accent-soft:  rgba(74, 222, 128, 0.16);    /* dark-mode green tint */
+    --code-bg:      rgba(255, 255, 255, 0.06);
     --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
     --shadow-md: 0 4px 6px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2);
     --shadow-lg: 0 10px 15px rgba(0,0,0,0.4), 0 4px 6px rgba(0,0,0,0.2);
