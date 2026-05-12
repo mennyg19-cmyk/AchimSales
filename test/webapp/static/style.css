@@ -4803,6 +4803,29 @@ body.dark-theme .tabulator .tabulator-row:hover,
     font-variant-numeric: tabular-nums;
 }
 .prev-order-row .muted { color: var(--text-muted); }
+/* The customer-last-order grid uses the midnight Tabulator theme like
+   every other report viewer. In LIGHT mode, midnight's default header
+   is near-black-on-near-black, which is unreadable. Force the header
+   to follow our light-mode tokens. (Dark mode keeps the original.) */
+body:not(.dark-theme) #linesGrid.tabulator,
+body:not(.dark-theme) #linesGrid .tabulator-header,
+body:not(.dark-theme) #linesGrid .tabulator-header .tabulator-col {
+    background: var(--bg-card, var(--bg)) !important;
+    color: var(--text) !important;
+}
+body:not(.dark-theme) #linesGrid .tabulator-header .tabulator-col,
+body:not(.dark-theme) #linesGrid .tabulator-header .tabulator-col .tabulator-col-content,
+body:not(.dark-theme) #linesGrid .tabulator-header .tabulator-col-title {
+    color: var(--text) !important;
+}
+body:not(.dark-theme) #linesGrid .tabulator-header .tabulator-col .tabulator-col-content * {
+    color: inherit !important;
+}
+body:not(.dark-theme) #linesGrid .tabulator-header .tabulator-arrow {
+    border-top-color: var(--text) !important;
+    border-bottom-color: var(--text) !important;
+}
+
 .prev-order-row .prev-order-status {
     font-size: 0.75rem;
     font-weight: 600;

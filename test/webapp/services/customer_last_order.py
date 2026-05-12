@@ -53,13 +53,40 @@ def _is_cancelled(order_status: str) -> bool:
     return "cancelled" in (order_status or "").lower()
 
 
-def _fetch_lines_for_customer(account: str) -> list[dict]:
-    """Pull every line for the customer from the SP and normalise.
+def _fetch_lines_for_customer(
+    account: str,
+    *,
+    require_orders: set[str] | None = None,
+) -> list[dict]:
+    """Pull every line for the customer, preferring the local mirror.
 
-    ``period="all_time"`` resolves to ``(None, None)`` in the translator
-    and the SP returns nothing in that case, so send an explicit custom
-    range from D365 go-live to today -- the full valid history window.
+    The 60-day salesline mirror is an indexed SQLite lookup and answers
+    in milliseconds. The SP call, by contrast, can take seconds because
+    it scans 16 months of history. For most page loads (default order =
+    most-recent) the mirror has everything we need, so we hit it first.
+
+    If ``require_orders`` is given (e.g. user picked specific historical
+    order numbers via the merge modal), we make sure every requested
+    order is present in the mirror result; if any are missing, we fall
+    back to the SP for the full history. This keeps deep links and
+    older-order lookups working without slowing down the common case.
+
+    ``period="all_time"`` resolves to ``(None, None)`` in the SP
+    translator and returns nothing, so the SP fallback uses an explicit
+    custom range from D365 go-live to today.
     """
+    from test.webapp.services import mirror
+
+    mirror_rows = mirror.get_salesline_fallback(customer_account=account)
+    if mirror_rows:
+        normalized = [_norm_row(r) for r in mirror_rows]
+        if not require_orders:
+            return normalized
+        have = {ln["SalesOrderNumber"] for ln in normalized}
+        if require_orders.issubset(have):
+            return normalized
+        # else: fall through to SP -- some requested orders aren't mirrored
+
     raw = reporting_api.run("ordered", {
         "period":     "custom",
         "start_date": D365_GO_LIVE.isoformat(),
@@ -190,7 +217,7 @@ def fetch_orders_with_lines(
         return [], []
 
     try:
-        all_lines = _fetch_lines_for_customer(account)
+        all_lines = _fetch_lines_for_customer(account, require_orders=wanted)
     except Exception:
         log.exception("customer_last_order: SP fetch failed for %s", account)
         return [], []
