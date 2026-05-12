@@ -85,6 +85,7 @@
                 Cache: {{ refresh.cache_customers|default(0) }} customers,
                 {{ refresh.cache_order_lines|default(0) }} order lines,
                 {{ refresh.dated_order_lines|default(0) }} dated,
+                {{ refresh.order_customers|default(0) }} customers with dated lines,
                 {{ refresh.customers_with_last_order|default(0) }} with last order
             </span>
             {% if refresh.customer_source or refresh.order_source %}
@@ -110,6 +111,12 @@
         <span class="dash-refresh-progress-label" id="refreshProgressLabel">{{ refresh.step or 'Refreshing data from reporting API...' }}</span>
     </div>
 </div>
+
+{% if cache_warning or refresh.last_error %}
+<div class="alert alert-warning dash-cache-warning">
+    {{ cache_warning or refresh.last_error }}
+</div>
+{% endif %}
 
 <div class="dash-table-header">
     <h3 class="dash-section-title">Customer Activity</h3>

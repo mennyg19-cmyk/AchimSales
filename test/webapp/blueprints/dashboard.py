@@ -73,6 +73,9 @@ def index():
         allowed_salesman_keys=scope.get("allowed_salesman_keys"),
         exclude_accounts=excluded,
     )
+    cache_warning = dashboard_data.get_cache_quality_warning()
+    if cache_warning:
+        customers = []
     summary = dashboard_data.get_dashboard_summary(customers)
     refresh_scope = _refresh_salesman_scope(email)
     poll_refresh_before = None
@@ -89,6 +92,7 @@ def index():
         customers=customers,
         summary=summary,
         refresh=refresh,
+        cache_warning=cache_warning,
         poll_refresh_before=poll_refresh_before,
         alerts=[
             alert for alert in get_notifications(email, dismissed=False)

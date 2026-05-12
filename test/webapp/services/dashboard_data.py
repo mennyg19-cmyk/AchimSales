@@ -17,7 +17,6 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from core.dates import D365_GO_LIVE, get_today_eastern
-from test.config.settings import USE_MOCK_DATA
 from test.webapp.db import (
     connect,
     get_app_setting,
@@ -38,6 +37,7 @@ _LAST_REQUESTED_KEY = "dashboard.last_refresh_requested"
 _LAST_COMPLETED_KEY = "dashboard.last_refresh_completed"
 _LAST_CUSTOMER_SOURCE_KEY = "dashboard.last_customer_source"
 _LAST_ORDER_SOURCE_KEY = "dashboard.last_order_source"
+_LAST_ERROR_KEY = "dashboard.last_refresh_error"
 
 _refresh_thread: threading.Thread | None = None
 _last_refresh: str | None = None
@@ -206,7 +206,7 @@ def _fetch_order_history(salesman_key: str | None) -> tuple[list[dict], str]:
     except Exception as exc:
         rows = None
         source = "unavailable"
-        if USE_MOCK_DATA or not reporting_api.is_configured():
+        if not reporting_api.is_configured():
             fixture_rows = report_fixtures.load_ordered_rows()
             if fixture_rows is not None:
                 rows = report_fixtures.filter_ordered_rows(fixture_rows, params)
@@ -219,6 +219,29 @@ def _fetch_order_history(salesman_key: str | None) -> tuple[list[dict], str]:
         if rows is None:
             raise
     return list(rows or []), source
+
+
+def _validate_order_coverage(
+    *,
+    customer_count: int,
+    dated_customer_count: int,
+    order_line_count: int,
+    order_source: str,
+    salesman_key: str | None,
+) -> None:
+    """Reject obviously partial order history before it poisons metrics."""
+    if salesman_key or customer_count < 50:
+        return
+    minimum_accounts = max(10, int(customer_count * 0.05))
+    if dated_customer_count >= minimum_accounts:
+        return
+    message = (
+        "Dashboard order history is incomplete: "
+        f"{customer_count:,} customers but only {order_line_count:,} order lines "
+        f"covering {dated_customer_count:,} customers from {order_source}. "
+        "Leaving the existing dashboard cache unchanged."
+    )
+    raise RuntimeError(message)
 
 
 def _cached_order_line(line: dict[str, Any], refreshed_at: str) -> tuple[Any, ...]:
@@ -327,6 +350,14 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                     "sales_group": fallback["sales_group"],
                 }
 
+        _validate_order_coverage(
+            customer_count=len(customers_by_account),
+            dated_customer_count=len(order_dates_by_customer),
+            order_line_count=len(normalized_lines),
+            order_source=order_source,
+            salesman_key=salesman_key,
+        )
+
         metrics: list[dict[str, Any]] = []
         for acct, customer in customers_by_account.items():
             dates = sorted(order_dates_by_customer.get(acct, {}).values())
@@ -425,11 +456,14 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         set_app_setting(_LAST_COMPLETED_KEY, now)
         set_app_setting(_LAST_CUSTOMER_SOURCE_KEY, customer_source)
         set_app_setting(_LAST_ORDER_SOURCE_KEY, order_source)
+        set_app_setting(_LAST_ERROR_KEY, "")
         _set_step(scope, f"Done - {len(metrics):,} customers updated")
         log.info("Dashboard refresh complete (%s): %d customers", scope_label, len(metrics))
-    except Exception:
+    except Exception as exc:
+        message = str(exc) or "Refresh failed"
         log.exception("Dashboard refresh failed (%s)", scope_label)
-        _set_step(scope, "Refresh failed - see server logs")
+        set_app_setting(_LAST_ERROR_KEY, message)
+        _set_step(scope, f"Refresh failed - {message}")
         raise
     finally:
         _refresh_state.setdefault(scope, {})["running"] = False
@@ -474,8 +508,10 @@ def get_refresh_status(salesman_key: str | None = None) -> dict[str, Any]:
         "cache_order_lines": counts["order_lines"],
         "dated_order_lines": counts["dated_order_lines"],
         "customers_with_last_order": counts["customers_with_last_order"],
+        "order_customers": counts["order_customers"],
         "customer_source": state.get("customer_source") or get_app_setting(_LAST_CUSTOMER_SOURCE_KEY),
         "order_source": state.get("order_source") or get_app_setting(_LAST_ORDER_SOURCE_KEY),
+        "last_error": get_app_setting(_LAST_ERROR_KEY),
     }
 
 
@@ -486,6 +522,9 @@ def get_cache_counts() -> dict[str, int]:
         dated_order_lines = conn.execute(
             "SELECT COUNT(*) FROM dashboard_order_cache WHERE order_date <> ''"
         ).fetchone()[0]
+        order_customers = conn.execute(
+            "SELECT COUNT(DISTINCT customer_account) FROM dashboard_order_cache WHERE order_date <> ''"
+        ).fetchone()[0]
         customers_with_last_order = conn.execute(
             "SELECT COUNT(*) FROM dashboard_cache WHERE last_order_date IS NOT NULL AND last_order_date <> ''"
         ).fetchone()[0]
@@ -493,8 +532,24 @@ def get_cache_counts() -> dict[str, int]:
         "customers": int(customers or 0),
         "order_lines": int(order_lines or 0),
         "dated_order_lines": int(dated_order_lines or 0),
+        "order_customers": int(order_customers or 0),
         "customers_with_last_order": int(customers_with_last_order or 0),
     }
+
+
+def get_cache_quality_warning() -> str:
+    counts = get_cache_counts()
+    if counts["customers"] < 50:
+        return ""
+    minimum_accounts = max(10, int(counts["customers"] * 0.05))
+    if counts["customers_with_last_order"] >= minimum_accounts:
+        return ""
+    return (
+        "Dashboard order history is incomplete. "
+        f"The cache has {counts['customers']:,} customers but only "
+        f"{counts['order_customers']:,} customers with dated order lines. "
+        "The customer status counts may be stale or incomplete until the ordered endpoint refresh succeeds."
+    )
 
 
 def cache_needs_order_refresh() -> bool:
