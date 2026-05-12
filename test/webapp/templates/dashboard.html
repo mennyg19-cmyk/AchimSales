@@ -98,6 +98,13 @@
             {% else %}
             <span class="dash-refresh-time dash-refresh-source" id="refreshOrderMirrorStats" style="display:none;"></span>
             {% endif %}
+            {% if refresh.backfill_stats %}
+            <span class="dash-refresh-time dash-refresh-source" id="refreshBackfillStats">
+                {{ refresh.backfill_stats }}
+            </span>
+            {% else %}
+            <span class="dash-refresh-time dash-refresh-source" id="refreshBackfillStats" style="display:none;"></span>
+            {% endif %}
             {% if refresh.customer_source or refresh.order_source %}
             <span class="dash-refresh-time dash-refresh-source">
                 Sources:

@@ -112,6 +112,7 @@ _MIRROR_SCHEMA = [
         first_seen_utc     TEXT NOT NULL,
         last_seen_utc      TEXT NOT NULL,
         row_hash           TEXT NOT NULL,
+        keep_forever       INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (sales_order_number, line_number)
     )
     """,
@@ -144,6 +145,10 @@ _init_done = False
 _MIRROR_COLUMN_MIGRATIONS = [
     ("mirror_salesline", "order_status", "TEXT"),
     ("mirror_salesline", "created_datetime", "TEXT"),
+    # keep_forever = 1 means "this row was inserted by the
+    # last-order-per-customer backfill; do not prune even if it's
+    # outside the rolling window".
+    ("mirror_salesline", "keep_forever", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -494,7 +499,8 @@ def _normalize_salesline_row(raw: dict) -> dict:
 
 def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                      prune_window_days: int = SALESLINE_WINDOW_DAYS,
-                     triggered_by: str | None = None) -> dict[str, int]:
+                     triggered_by: str | None = None,
+                     keep_forever: bool = False) -> dict[str, int]:
     """Mirror a batch of salesline_release rows.
 
     Every well-formed row (has a sales order number and a parseable
@@ -538,6 +544,7 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                     "WHERE sales_order_number=? AND line_number=?",
                     (norm["sales_order_number"], norm["line_number"]),
                 ).fetchone()
+                kf = 1 if keep_forever else 0
                 if existing is None:
                     conn.execute(
                         """
@@ -547,8 +554,9 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                             po_number, item_number, item_name, unit_price,
                             order_status, status, qty_ordered, qty_shipped, qty_cancelled,
                             ordered_dollars, shipped_dollars, cancelled_dollars,
-                            raw_json, first_seen_utc, last_seen_utc, row_hash
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            raw_json, first_seen_utc, last_seen_utc, row_hash,
+                            keep_forever
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             norm["sales_order_number"], norm["line_number"],
@@ -560,11 +568,14 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                             norm["status"], norm["qty_ordered"], norm["qty_shipped"],
                             norm["qty_cancelled"], norm["ordered_dollars"],
                             norm["shipped_dollars"], norm["cancelled_dollars"],
-                            json.dumps(raw, default=str), now, now, row_hash,
+                            json.dumps(raw, default=str), now, now, row_hash, kf,
                         ),
                     )
                     inserted += 1
                 elif existing["row_hash"] != row_hash:
+                    # Never *clear* keep_forever in an update -- once a
+                    # row is pinned, leave it pinned. Pin it now if this
+                    # batch is a backfill batch.
                     conn.execute(
                         """
                         UPDATE mirror_salesline SET
@@ -573,7 +584,8 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                             item_number=?, item_name=?, unit_price=?,
                             order_status=?, status=?, qty_ordered=?, qty_shipped=?, qty_cancelled=?,
                             ordered_dollars=?, shipped_dollars=?, cancelled_dollars=?,
-                            raw_json=?, last_seen_utc=?, row_hash=?
+                            raw_json=?, last_seen_utc=?, row_hash=?,
+                            keep_forever = MAX(keep_forever, ?)
                         WHERE sales_order_number=? AND line_number=?
                         """,
                         (
@@ -585,16 +597,17 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                             norm["status"], norm["qty_ordered"], norm["qty_shipped"],
                             norm["qty_cancelled"], norm["ordered_dollars"],
                             norm["shipped_dollars"], norm["cancelled_dollars"],
-                            json.dumps(raw, default=str), now, row_hash,
+                            json.dumps(raw, default=str), now, row_hash, kf,
                             norm["sales_order_number"], norm["line_number"],
                         ),
                     )
                     updated += 1
                 else:
                     conn.execute(
-                        "UPDATE mirror_salesline SET last_seen_utc=? "
+                        "UPDATE mirror_salesline SET last_seen_utc=?, "
+                        "keep_forever = MAX(keep_forever, ?) "
                         "WHERE sales_order_number=? AND line_number=?",
-                        (now, norm["sales_order_number"], norm["line_number"]),
+                        (now, kf, norm["sales_order_number"], norm["line_number"]),
                     )
                     unchanged += 1
 
@@ -608,11 +621,13 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                 today = datetime.now(timezone.utc).date()
                 cutoff = (today - timedelta(days=prune_window_days)).isoformat()
                 latest = conn.execute(
-                    "SELECT MAX(order_date) FROM mirror_salesline"
+                    "SELECT MAX(order_date) FROM mirror_salesline "
+                    "WHERE keep_forever = 0"
                 ).fetchone()[0]
                 if latest and str(latest) >= cutoff:
                     cur = conn.execute(
-                        "DELETE FROM mirror_salesline WHERE order_date < ?",
+                        "DELETE FROM mirror_salesline "
+                        "WHERE order_date < ? AND keep_forever = 0",
                         (cutoff,),
                     )
                     pruned = cur.rowcount or 0

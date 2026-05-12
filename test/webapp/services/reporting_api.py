@@ -512,7 +512,7 @@ def _kick_mirror_upsert(report_id: str, rows: list[dict]) -> None:
     t.start()
 
 
-def run(report_key: str, filter_params: dict) -> list[dict]:
+def run(report_key: str, filter_params: dict, *, no_piggyback: bool = False) -> list[dict]:
     """Fetch flat rows for a report from the reporting API.
 
     Resolution order:
@@ -637,7 +637,8 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
 
     log.info("reporting_api: %s returned %d rows", report_id, len(rows))
     _cache.set(cache_key, rows)
-    _kick_mirror_upsert(report_id, rows)
+    if not no_piggyback:
+        _kick_mirror_upsert(report_id, rows)
     _set_last_source(source="api", rows=len(rows))
     return rows
 

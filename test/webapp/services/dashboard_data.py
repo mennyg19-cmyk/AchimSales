@@ -37,7 +37,14 @@ _LAST_COMPLETED_KEY = "dashboard.last_refresh_completed"
 _LAST_CUSTOMER_SOURCE_KEY = "dashboard.last_customer_source"
 _LAST_ORDER_SOURCE_KEY = "dashboard.last_order_source"
 _LAST_ORDER_MIRROR_STATS_KEY = "dashboard.last_order_mirror_stats"
+_LAST_BACKFILL_STATS_KEY = "dashboard.last_backfill_stats"
 _LAST_ERROR_KEY = "dashboard.last_refresh_error"
+
+# Batch size for the "last order per orderless customer" backfill. The
+# salesline_release SP accepts a comma-separated CustomerAccount list;
+# tuning this trades API round-trip count vs payload size + SP query
+# time per call. ~50 customers/call has been a comfortable middle.
+_BACKFILL_BATCH_SIZE = 50
 
 _refresh_thread: threading.Thread | None = None
 _last_refresh: str | None = None
@@ -223,6 +230,31 @@ def _last_salesline_stats_message() -> str:
         return ""
 
 
+def _backfill_stats_message(stats: dict[str, int] | None) -> str:
+    if not stats:
+        return ""
+    customers = int(stats.get("customers_to_backfill") or 0)
+    if not customers:
+        return ""
+    return (
+        f"Last-order backfill: pinned {int(stats.get('rows_pinned') or 0):,} "
+        f"orders for {customers:,} long-tail customers "
+        f"({int(stats.get('api_calls') or 0)} API calls, "
+        f"{int(stats.get('rows_fetched') or 0):,} rows fetched, "
+        f"{int(stats.get('errors') or 0)} errors)"
+    )
+
+
+def _last_backfill_stats_message() -> str:
+    raw = get_app_setting(_LAST_BACKFILL_STATS_KEY)
+    if not raw:
+        return ""
+    try:
+        return _backfill_stats_message(json.loads(raw))
+    except Exception:
+        return ""
+
+
 def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
     params: dict[str, Any] = {}
     if salesman_key:
@@ -235,6 +267,123 @@ def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
         log.warning("Dashboard customer-master fetch failed; deriving customers from orders: %s", exc)
         return [], "customer_master unavailable"
     return list(rows or []), _source_label(reporting_api.last_run_source())
+
+
+def _orderless_customer_accounts(salesman_key: str | None) -> list[str]:
+    """Customers in master that have no row in mirror_salesline at all
+    (i.e. their last order is older than the rolling window). These are
+    the customers the dashboard would otherwise have to show as "new".
+    """
+    mirror.init_mirror_db()
+    where_extra = ""
+    params: list[Any] = []
+    if salesman_key:
+        where_extra = " AND sales_group = ?"
+        params.append(salesman_key)
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT customer_account
+            FROM mirror_customers
+            WHERE customer_account IS NOT NULL
+              AND customer_account <> ''
+              {where_extra}
+              AND customer_account NOT IN (
+                  SELECT DISTINCT customer_account
+                  FROM mirror_salesline
+                  WHERE customer_account IS NOT NULL
+                    AND customer_account <> ''
+              )
+            ORDER BY customer_account
+            """,
+            params,
+        ).fetchall()
+    return [r["customer_account"] for r in rows if r["customer_account"]]
+
+
+def _latest_row_per_customer(rows: list[dict]) -> dict[str, dict]:
+    """From a salesline_release response, pick one row per customer:
+    the row with the latest CreatedDateTime (falling back to OrderDate).
+    Ties go to the highest line number so we still get *some* row when
+    timestamps collide.
+    """
+    def _key(raw: dict) -> tuple:
+        cdt = raw.get("CreatedDateTime") or raw.get("OrderCreationDateTime") or raw.get("OrderDate") or ""
+        ln = raw.get("LineNumber") or raw.get("LineNum") or 0
+        try:
+            ln_int = int(ln)
+        except (TypeError, ValueError):
+            ln_int = 0
+        return (str(cdt), ln_int)
+
+    latest: dict[str, dict] = {}
+    for raw in rows:
+        acct = _normalize_customer_account(
+            raw.get("CustomerAccount") or raw.get("AccountNum")
+        )
+        if not acct:
+            continue
+        if acct not in latest or _key(raw) > _key(latest[acct]):
+            latest[acct] = raw
+    return latest
+
+
+def _backfill_last_orders(
+    salesman_key: str | None,
+    scope: str,
+) -> dict[str, int]:
+    """For every customer in master with no orders in the 60-day mirror,
+    fetch their entire order history once, keep their single latest
+    line, and pin it in the mirror so the rolling-window pruner can't
+    drop it. This lets the dashboard show *some* last-order date for
+    customers who order less than once a quarter.
+    """
+    accounts = _orderless_customer_accounts(salesman_key)
+    stats = {
+        "customers_to_backfill": len(accounts),
+        "api_calls":             0,
+        "rows_pinned":           0,
+        "rows_fetched":          0,
+        "errors":                0,
+    }
+    if not accounts:
+        return stats
+
+    pinned_rows: list[dict] = []
+    for i in range(0, len(accounts), _BACKFILL_BATCH_SIZE):
+        batch = accounts[i : i + _BACKFILL_BATCH_SIZE]
+        _set_step(
+            scope,
+            f"Filling in last-order history "
+            f"({min(i + _BACKFILL_BATCH_SIZE, len(accounts))}/{len(accounts)} customers)...",
+        )
+        params: dict[str, Any] = {
+            "period": "all_time",
+            "customers": ",".join(batch),
+        }
+        if _DEFAULT_COMPANY:
+            params["company"] = _DEFAULT_COMPANY
+        try:
+            rows = reporting_api.run("ordered", params, no_piggyback=True)
+        except Exception as exc:
+            log.warning("Backfill batch failed (%d customers): %s", len(batch), exc)
+            stats["errors"] += 1
+            continue
+        stats["api_calls"] += 1
+        stats["rows_fetched"] += len(rows or [])
+        if not rows:
+            continue
+        latest = _latest_row_per_customer(rows)
+        pinned_rows.extend(latest.values())
+
+    if pinned_rows:
+        upsert_stats = mirror.upsert_salesline(
+            pinned_rows,
+            trigger="backfill",
+            keep_forever=True,
+        )
+        stats["rows_pinned"] = int(upsert_stats.get("inserted", 0)) + int(upsert_stats.get("updated", 0))
+    return stats
 
 
 def _fetch_order_history(salesman_key: str | None) -> tuple[list[dict], str]:
@@ -294,12 +443,21 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         _refresh_state.setdefault(scope, {})["order_source"] = order_source
         _set_step(scope, f"Received {len(order_rows):,} order lines")
 
+        try:
+            backfill_stats = _backfill_last_orders(salesman_key, scope)
+        except Exception:
+            log.exception("Dashboard last-order backfill failed (%s)", scope_label)
+            backfill_stats = {"errors": 1, "customers_to_backfill": 0,
+                              "api_calls": 0, "rows_pinned": 0, "rows_fetched": 0}
+        _refresh_state.setdefault(scope, {})["backfill_stats"] = backfill_stats
+
         now = datetime.now().isoformat(timespec="seconds")
         _last_refresh = now
         set_app_setting(_LAST_COMPLETED_KEY, now)
         set_app_setting(_LAST_CUSTOMER_SOURCE_KEY, customer_source)
         set_app_setting(_LAST_ORDER_SOURCE_KEY, order_source)
         set_app_setting(_LAST_ORDER_MIRROR_STATS_KEY, json.dumps(stats))
+        set_app_setting(_LAST_BACKFILL_STATS_KEY, json.dumps(backfill_stats))
         set_app_setting(_LAST_ERROR_KEY, "")
         _invalidate_dashboard_build_cache()
         _set_step(scope, f"Done - mirrors refreshed ({len(customer_rows):,} customers, {len(order_rows):,} order lines)")
@@ -356,6 +514,7 @@ def get_refresh_status(salesman_key: str | None = None) -> dict[str, Any]:
         "customer_source": state.get("customer_source") or get_app_setting(_LAST_CUSTOMER_SOURCE_KEY),
         "order_source": state.get("order_source") or get_app_setting(_LAST_ORDER_SOURCE_KEY),
         "order_mirror_stats": _salesline_stats_message(state.get("order_mirror_stats")) or _last_salesline_stats_message(),
+        "backfill_stats": _backfill_stats_message(state.get("backfill_stats")) or _last_backfill_stats_message(),
         "last_error": get_app_setting(_LAST_ERROR_KEY),
         "salesline_window_days": mirror.SALESLINE_WINDOW_DAYS,
     }
