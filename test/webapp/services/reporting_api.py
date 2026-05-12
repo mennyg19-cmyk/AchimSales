@@ -19,8 +19,7 @@ Environment
 -----------
 REPORTING_API_BASE_URL
     Base URL, e.g. http://aic-inordera:8080. If unset, the client is
-    "not configured" and run() will fall back through the resolution
-    chain in report_runner.
+    "not configured" and run() raises ReportingApiNotConfigured.
 
 REPORTING_API_KEY
     API key sent in the X-API-Key header.
@@ -461,13 +460,13 @@ _cache = _Cache()
 
 # Per-thread record of the most recent run()'s effective data source.
 # Used by report builders to decorate the data_source badge with
-# "served from offline mirror" notices when relevant.
+# API/cache notices when relevant.
 _thread_local = threading.local()
 
 
 def last_run_source() -> dict[str, Any] | None:
     """Return metadata about the last run() call on this thread, e.g.
-    ``{"source": "api"|"fresh_cache"|"stale_cache"|"mirror"|"mirror_after_failure",
+    ``{"source": "api"|"fresh_cache"|"stale_cache"|"failed",
        "rows": <int>, "error": <optional>}``.
     """
     return getattr(_thread_local, "last_source", None)
@@ -482,49 +481,15 @@ def clear_cache() -> None:
     _cache.clear()
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-
-def _kick_mirror_upsert(report_id: str, rows: list[dict]) -> None:
-    """Fire-and-forget: mirror the rows into local SQLite in a worker
-    thread so the user's request is never blocked on the write. Failures
-    are logged but never raised.
-    """
-    if not rows:
-        return
-
-    def _worker() -> None:
-        try:
-            from test.webapp.services import mirror
-            if report_id == "customer_master":
-                stats = mirror.upsert_customers(rows, trigger="piggyback")
-                log.info("mirror piggyback (customers): %s", stats)
-            elif report_id == "salesline_release":
-                stats = mirror.upsert_salesline(rows, trigger="piggyback")
-                log.info("mirror piggyback (salesline): %s", stats)
-        except Exception:
-            log.exception("mirror piggyback failed for %s", report_id)
-
-    t = threading.Thread(target=_worker, name=f"mirror-upsert-{report_id}",
-                         daemon=True)
-    t.start()
-
-
 def run(report_key: str, filter_params: dict) -> list[dict]:
     """Fetch flat rows for a report from the reporting API.
 
     Resolution order:
         1. Fresh in-process cache hit (<= REPORTING_API_CACHE_TTL_SECONDS).
-        2. HTTP call to the reporting API; on success, cache the rows,
-           mirror them to local SQLite in the background, and return.
+        2. HTTP call to the reporting API; on success, cache the rows.
         3. On API failure, in-process stale cache hit (<= STALE_TTL).
-        4. Local SQLite mirror fallback (raises MirrorWindowExceeded if
-           the request is for data older than the mirror keeps).
-        5. Re-raise ``ReportingApiError`` so the caller can decide what
-           to do (report_runner falls back to the JSON fixture from
-           there for some reports).
+        4. Re-raise ``ReportingApiError`` so API endpoint failures stay
+           visible during migration testing.
     """
     entry = REPORT_ID_MAP.get(report_key)
     if entry is None:
@@ -541,27 +506,6 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
         return fresh
 
     if not is_configured():
-        # Not configured -- skip the HTTP attempt entirely and fall
-        # straight through to the SQLite mirror so the dev shell can
-        # still serve cached lookups / customer-last-order pages.
-        from test.webapp.services.mirror import MirrorWindowExceeded
-        try:
-            mirror_rows = _serve_from_mirror(report_id, sp_params)
-        except MirrorWindowExceeded:
-            _set_last_source(source="failed",
-                             error="mirror window exceeded; API not configured")
-            raise
-        except Exception:
-            log.exception("reporting_api: mirror fallback failed (not configured path)")
-            mirror_rows = None
-        if mirror_rows is not None:
-            log.info(
-                "reporting_api: API not configured -- serving %d rows from mirror for %s",
-                len(mirror_rows), report_id,
-            )
-            _set_last_source(source="mirror_no_api", rows=len(mirror_rows),
-                             reason="API not configured")
-            return mirror_rows
         _set_last_source(source="failed", error="API not configured")
         raise ReportingApiNotConfigured(
             "REPORTING_API_BASE_URL is not set; cannot call the reporting API"
@@ -605,28 +549,6 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
             _set_last_source(source="stale_cache", rows=len(stale),
                              reason=str(exc))
             return stale
-        # Try the local mirror. ``MirrorWindowExceeded`` is intentionally
-        # NOT caught here -- it carries a plain-English message that
-        # callers should surface to the user verbatim, and the API
-        # round-trip clearly isn't going to fix it.
-        from test.webapp.services.mirror import MirrorWindowExceeded
-        try:
-            mirror_rows = _serve_from_mirror(report_id, sp_params)
-        except MirrorWindowExceeded:
-            _set_last_source(source="failed",
-                             error="mirror window exceeded; live API down")
-            raise
-        except Exception:
-            log.exception("reporting_api: mirror fallback failed after API error")
-            mirror_rows = None
-        if mirror_rows is not None:
-            log.info(
-                "reporting_api: serving %d rows from mirror for %s after API failure",
-                len(mirror_rows), report_id,
-            )
-            _set_last_source(source="mirror_after_failure",
-                             rows=len(mirror_rows), reason=str(exc))
-            return mirror_rows
         _set_last_source(source="failed", error=str(exc))
         raise ReportingApiError(f"Reporting API call failed: {exc}") from exc
 
@@ -638,49 +560,8 @@ def run(report_key: str, filter_params: dict) -> list[dict]:
 
     log.info("reporting_api: %s returned %d rows", report_id, len(rows))
     _cache.set(cache_key, rows)
-    _kick_mirror_upsert(report_id, rows)
     _set_last_source(source="api", rows=len(rows))
     return rows
-
-
-def _serve_from_mirror(report_id: str, sp_params: dict) -> list[dict] | None:
-    """Best-effort fallback to the local SQLite mirror.
-
-    Returns None if there's no mirror data for this report. Raises
-    ``mirror.MirrorWindowExceeded`` (which the caller surfaces verbatim
-    to the user) if the request asks for data older than the cache.
-    """
-    from test.webapp.services import mirror
-
-    if report_id == "customer_master":
-        # Customer master is a small, simple snapshot. We treat the
-        # mirror as the full universe and let the caller filter
-        # in-process if it wants -- the lookup paths here (customer
-        # & salesman dropdowns) ignore filters anyway.
-        rows = []
-        try:
-            from test.webapp.db import connect as _conn
-            with _conn() as c:
-                for r in c.execute("SELECT raw_json FROM mirror_customers"):
-                    try:
-                        rows.append(json.loads(r["raw_json"]))
-                    except Exception:
-                        pass
-        except Exception:
-            log.exception("mirror customer fallback read failed")
-            return None
-        return rows or None
-
-    if report_id == "salesline_release":
-        rows = mirror.get_salesline_fallback(
-            customer_account=sp_params.get("CustomerAccount") or None,
-            date_from=sp_params.get("CreatedDateTimeFrom") or None,
-            date_to=sp_params.get("CreatedDateTimeTo") or None,
-            status=sp_params.get("SalesStatus") or None,
-        )
-        return rows or None
-
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -695,8 +576,8 @@ def _serve_from_mirror(report_id: str, sp_params: dict) -> list[dict] | None:
 # Strategy:
 #   - lookup_status() / list_salesmen() / list_customers() never block.
 #     They return whatever's cached today, kick off a background populate
-#     if nothing is cached, and serve from the local SQLite mirror as a
-#     final fallback so the dropdowns keep working when the API is down.
+#     if nothing is cached, and return an empty list until API-backed
+#     customer-master rows are available.
 
 
 _LOOKUP_BASE_REPORT = "customer_master"  # which in-app report key to source from
@@ -734,10 +615,6 @@ def _populate_lookups_blocking() -> None:
         rows = run(_LOOKUP_BASE_REPORT, {})
         _cache.set(_LOOKUP_KEY, rows)
         elapsed = int((time.monotonic() - started) * 1000)
-        # ``run()`` may have served from the SQLite mirror after an API
-        # failure. Either way the in-process cache now has rows, so we
-        # report ``ready`` to the UI; the data-source label on the
-        # report viewer still reflects where the bytes came from.
         last = last_run_source()
         source = last.get("source") if isinstance(last, dict) else None
         _lookup_state.update(
@@ -807,11 +684,8 @@ def lookup_status() -> dict[str, Any]:
 
     # If the UI asks for lookup status and there is no cached lookup data,
     # make that status request itself kick/retry the live API populate.
-    # Previously the browser had to hit /salesmen or /customers to start
-    # the worker, but those endpoints intentionally serve the SQLite mirror
-    # immediately. That made the filter page show stale data while the live
-    # API was merely slow. Status polling should prefer "still loading /
-    # retrying" over "fallback" until the frontend grace period expires.
+    # Status polling should prefer "still loading / retrying" over serving
+    # stale non-API data while the live endpoint is merely slow.
     if state["configured"] and cached == 0 and state.get("status") != "loading":
         now = time.time()
         finished_at = state.get("finished_at")
@@ -831,19 +705,7 @@ def lookup_status() -> dict[str, Any]:
                 state["started_at"] = now
                 state["finished_at"] = None
                 state["error"] = None
-
-    # If we have nothing in process but the SQLite mirror has rows, tell
-    # the UI the fallback exists. The frontend decides when to use it so
-    # slow live API calls get a fair chance first.
-    if cached == 0:
-        try:
-            from test.webapp.services import mirror
-            mirror_count = (mirror.mirror_freshness().get("customers") or {}).get("rows", 0)
-            state["mirror_row_count"] = mirror_count
-            if mirror_count and state.get("status") != "loading":
-                state["fallback_source"] = "mirror"
-        except Exception:
-            log.debug("lookup_status: mirror_freshness failed", exc_info=True)
+    state["mirror_row_count"] = 0
     return state
 
 
@@ -854,6 +716,8 @@ def _customer_name_of(row: dict) -> str:
     return str(
         row.get("CustomerName")
         or row.get("customername")
+        or row.get("Name")
+        or row.get("Customer")
         or ""
     ).strip()
 
@@ -862,10 +726,8 @@ def list_salesmen() -> list[dict]:
     """Distinct salesmen (SalesGroup). NEVER blocks.
 
     Sources, in order of preference:
-        1. The in-process cache (populated by a background fetch from
-           rpt.usp_customer_master).
-        2. The local SQLite mirror, so the dropdown keeps working when
-           the API is down.
+        1. The in-process cache, populated by a background fetch from
+           rpt.usp_customer_master.
     """
     rows = _cached_lookup_rows()
     if rows:
@@ -878,28 +740,29 @@ def list_salesmen() -> list[dict]:
         if seen:
             return [{"key": s, "name": s} for s in sorted(seen)]
 
-    # Nothing fresh in process. Kick off a background populate AND
-    # serve whatever's in the local mirror so the user isn't blocked.
     _kick_lookup_populate()
-    try:
-        from test.webapp.services import mirror
-        return mirror.get_salesmen_fallback()
-    except Exception:
-        log.exception("list_salesmen: mirror fallback failed")
-        return []
+    return []
 
 
 def list_customers(salesman: str | None = None) -> list[dict]:
     """Distinct customers. NEVER blocks.
 
-    Same fallback chain as list_salesmen.
+    Same API-backed cache behavior as list_salesmen.
     """
     rows = _cached_lookup_rows()
     if rows:
         seen: dict[str, dict] = {}
         sm_filter = (salesman or "").strip() or None
         for r in rows:
-            acct = r.get("CustomerAccount") or r.get("AccountNum")
+            acct = (
+                r.get("CustomerAccount")
+                or r.get("customeraccount")
+                or r.get("AccountNum")
+                or r.get("CustomerID")
+                or r.get("CustomerId")
+                or r.get("customerid")
+                or r.get("CustAccount")
+            )
             if acct in (None, "", "NULL"):
                 continue
             sg = r.get("SalesGroup")
@@ -920,9 +783,4 @@ def list_customers(salesman: str | None = None) -> list[dict]:
             return sorted(seen.values(), key=lambda c: c["name"].lower())
 
     _kick_lookup_populate()
-    try:
-        from test.webapp.services import mirror
-        return mirror.get_customers_fallback(salesman=salesman)
-    except Exception:
-        log.exception("list_customers: mirror fallback failed")
-        return []
+    return []

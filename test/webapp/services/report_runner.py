@@ -1,10 +1,10 @@
 """Run a report and return the multi-tab payload the viewer expects.
 
-Currently only the **ordered** report is wired to real data (via the
-on-prem reporting API at REPORTING_API_BASE_URL). All other reports
-are intentionally hidden from the homepage until they get their own
-SP + builder; calling run_report() for an unwired key raises a clear
-error so we never silently serve fake numbers.
+Currently only the **ordered** report is wired to real data via the
+on-prem reporting API at REPORTING_API_BASE_URL. All other reports are
+intentionally hidden from the homepage until they get their own SP +
+builder; calling run_report() for an unwired key raises a clear error
+so we never silently serve fake numbers.
 
 Output shape (what /api/reports/<key>/run serialises):
 
@@ -15,7 +15,7 @@ Output shape (what /api/reports/<key>/run serialises):
         "params":       { ... echoed filter params ... },
         "tabs":         [ ... ],
         "data_source":  {
-            "source":      "reporting_api" | "fixture",
+            "source":      "api" | "fresh_cache" | "stale_cache",
             "label":       <human label>,
             "endpoint":    <full URL we POSTed to>,
             "request_body":<exact JSON we sent>,
@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from test.webapp.services.reports import ordered as ordered_builder
-from test.webapp.services import report_fixtures, reporting_api
+from test.webapp.services import reporting_api
 
 log = logging.getLogger(__name__)
 
@@ -50,102 +50,42 @@ def _build_ordered(params: dict) -> tuple[list[dict], dict]:
     """Build the ordered report's multi-tab payload + source metadata.
 
     Source-selection order:
-        1. Reporting API (on-prem via Hybrid Connection) — preferred when
-           REPORTING_API_BASE_URL is set. The client also handles fresh +
-           stale caching internally.
-        2. JSON fixture stashed in test/fixtures/ordered_dump.json — used
-           in local dev (no env vars) or when the API is unreachable AND
-           no stale cache exists.
+        1. Reporting API (on-prem via Hybrid Connection). The client also
+           handles fresh + stale API-origin caching internally.
 
-    There is no random-mock fallback. If neither source works, an empty
-    payload is returned and the badge will say so.
+    There is no fixture, mirror, or random-mock fallback. Endpoint/config
+    failures are allowed to raise so migration testing catches them.
     """
-    rows: list[dict] | None = None
-    source: dict[str, Any] = {"source": "unknown"}
+    if os.environ.get("USE_REPORTING_API_ORDERED", "1") == "0":
+        raise reporting_api.ReportingApiNotConfigured(
+            "USE_REPORTING_API_ORDERED=0 disables the ordered reporting API"
+        )
 
-    if reporting_api.is_configured() and os.environ.get("USE_REPORTING_API_ORDERED", "1") != "0":
-        # Pre-compute the body we'll send so the UI can show it even on
-        # failure or fallback.
-        request_preview = reporting_api.preview("ordered", params)
-        api_started = time.monotonic()
-        try:
-            rows = reporting_api.run("ordered", params)
-            elapsed_ms = int((time.monotonic() - api_started) * 1000)
-            actual = reporting_api.last_run_source() or {}
-            actual_source = actual.get("source", "api")
-            log.info("ordered report: pulled %d rows (effective source=%s) in %d ms",
-                     len(rows), actual_source, elapsed_ms)
-            # Translate the internal source code into a user-friendly
-            # label so the data-source badge tells the truth even when
-            # we end up serving from cache or the offline mirror.
-            label_map = {
-                "api":                  "Reporting API (live data)",
-                "fresh_cache":          "Reporting API (cached, less than a few minutes old)",
-                "stale_cache":          "Cached snapshot (live API was unreachable)",
-                "mirror_after_failure": "Offline mirror (live API was unreachable)",
-                "mirror_no_api":        "Offline mirror (API not configured)",
-            }
-            source = {
-                "source":       actual_source,
-                "label":        label_map.get(actual_source, "Reporting API"),
-                "rows_fetched": len(rows),
-                "elapsed_ms":   elapsed_ms,
-                "timeout_s":    int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
-                "endpoint":     request_preview.get("url"),
-                "request_body": request_preview.get("body"),
-            }
-            if actual.get("reason"):
-                source["fallback_reason"] = actual["reason"]
-        except Exception as exc:
-            elapsed_ms = int((time.monotonic() - api_started) * 1000)
-            log.exception(
-                "Reporting API fetch for ordered failed after %d ms, falling back to fixture: %s",
-                elapsed_ms, exc,
-            )
-            rows = None
-            source = {
-                "source":       "reporting_api_failed",
-                "label":        "API call failed — see fallback below",
-                "error":        str(exc),
-                "elapsed_ms":   elapsed_ms,
-                "timeout_s":    int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
-                "endpoint":     request_preview.get("url"),
-                "request_body": request_preview.get("body"),
-            }
-
-    if rows is None:
-        fixture_rows = report_fixtures.load_ordered_rows()
-        if fixture_rows is not None:
-            log.info("ordered report: using fixture (%d rows)", len(fixture_rows))
-            rows = report_fixtures.filter_ordered_rows(fixture_rows, params)
-            previous = source if source.get("source") == "reporting_api_failed" else None
-            source = {
-                "source": "fixture",
-                "label":  "Fixture (test data dump) — not real data",
-                "rows_fetched": len(rows),
-                "fixture_file": report_fixtures.ordered_fixture_path(),
-            }
-            if previous:
-                source["api_error"] = previous.get("error")
-                if previous.get("elapsed_ms") is not None:
-                    source["elapsed_ms"] = previous["elapsed_ms"]
-                if previous.get("timeout_s") is not None:
-                    source["timeout_s"] = previous["timeout_s"]
-                if previous.get("request_body") is not None:
-                    source["request_body"] = previous["request_body"]
-                if previous.get("endpoint"):
-                    source["endpoint"] = previous["endpoint"]
-
-    if rows is not None:
-        return ordered_builder.build(rows), source
-
-    # Last resort: nothing worked. Return a single empty Summary tab so the
-    # viewer doesn't crash, and label it clearly.
-    log.warning("ordered report: no API + no fixture available")
-    return ordered_builder.build([]), {
-        "source": "no_data",
-        "label":  "No data source available — check API config",
+    request_preview = reporting_api.preview("ordered", params)
+    api_started = time.monotonic()
+    rows = reporting_api.run("ordered", params)
+    elapsed_ms = int((time.monotonic() - api_started) * 1000)
+    actual = reporting_api.last_run_source() or {}
+    actual_source = actual.get("source", "api")
+    log.info("ordered report: pulled %d rows (effective source=%s) in %d ms",
+             len(rows), actual_source, elapsed_ms)
+    label_map = {
+        "api":         "Reporting API (live data)",
+        "fresh_cache": "Reporting API (cached, less than a few minutes old)",
+        "stale_cache": "Reporting API cached snapshot (live API was unreachable)",
     }
+    source = {
+        "source":       actual_source,
+        "label":        label_map.get(actual_source, "Reporting API"),
+        "rows_fetched": len(rows),
+        "elapsed_ms":   elapsed_ms,
+        "timeout_s":    int(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "120")),
+        "endpoint":     request_preview.get("url"),
+        "request_body": request_preview.get("body"),
+    }
+    if actual.get("reason"):
+        source["fallback_reason"] = actual["reason"]
+    return ordered_builder.build(rows), source
 
 
 # ---------------------------------------------------------------------------

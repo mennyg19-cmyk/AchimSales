@@ -133,15 +133,15 @@ def create_app() -> Flask:
 
     init_db()
 
-    # Boot the daily mirror-refresh scheduler. Disabled when running
-    # tests / with the Flask reloader so we never end up with two
-    # parallel schedulers.
+    # Boot background refreshers. The offline mirror scheduler is opt-in
+    # during endpoint migration so app reads stay API/cache-only.
     if os.environ.get("V2_DISABLE_SCHEDULER") != "1":
-        try:
-            from test.webapp.services.mirror_scheduler import start_scheduler
-            start_scheduler()
-        except Exception:
-            log.exception("mirror scheduler failed to start (non-fatal)")
+        if os.environ.get("V2_ENABLE_MIRROR_SCHEDULER") == "1":
+            try:
+                from test.webapp.services.mirror_scheduler import start_scheduler
+                start_scheduler()
+            except Exception:
+                log.exception("mirror scheduler failed to start (non-fatal)")
         try:
             from test.webapp.services.dashboard_data import start_background_refresh
             start_background_refresh()

@@ -12,6 +12,7 @@ Field mapping from SP -> live-style column names::
     Item             -> Item#
     ItemDescription  -> ItemName
     SalesStatus      -> Status
+    OrderStatus      -> OrderStatus
     SalesPrice       -> UnitPrice
     CreatedDateTime  -> OrderDate
     CustomerRequisition -> PO #   (only on the By Order tab)
@@ -53,6 +54,7 @@ FULL_DATA_COLS: list[dict[str, str]] = [
     {"field": "CustomerName",      "header": "CustomerName",      "type": "text"},
     {"field": "Salesman",          "header": "Salesman",          "type": "text"},
     {"field": "OrderDate",         "header": "OrderDate",         "type": "date"},
+    {"field": "OrderStatus",       "header": "OrderStatus",       "type": "text"},
     {"field": "PO #",              "header": "PO #",              "type": "text"},
     {"field": "LineNumber",        "header": "LineNumber",        "type": "int"},
     {"field": "Item#",             "header": "Item#",             "type": "text"},
@@ -118,6 +120,7 @@ BY_ORDER_COLS = (
         {"field": "CustomerName",     "header": "CustomerName",     "type": "text"},
         {"field": "Salesman",         "header": "Salesman",         "type": "text"},
         {"field": "PO #",             "header": "PO #",             "type": "text"},
+        {"field": "OrderStatus",      "header": "OrderStatus",      "type": "text"},
         {"field": "Status",           "header": "Status",           "type": "text"},
         {"field": "Fulfillment %",    "header": "Fulfillment %",    "type": "percent"},
     ]
@@ -197,7 +200,8 @@ def _norm_row(raw: dict) -> dict:
     qty_release = _int(_first(raw, "ReleasedQuantity", "QtyReleased"))
     qty_remain  = _int(_first(raw, "DeliveryRemainder", "QuantityRemainder", "QtyRemainder"))
     qty_load    = _int(_first(raw, "QuantityLefttoLoad", "QtyLeftToLoad"))
-    status      = _str(_first(raw, "SalesStatus", "Status", "OrderStatus"))
+    status      = _str(_first(raw, "SalesStatus", "SalesLineStatus", "LineStatus", "Status"))
+    order_status = _str(_first(raw, "OrderStatus", "orderstatus", "Order Status", "SalesOrderStatus", "DocumentStatus"))
 
     ordered_d   = round(_num(_first(raw, "Ordered $", "OrderedDollars", "OrderedAmount")), 2)
     shipped_d   = round(_num(_first(raw, "Shipped $", "ShippedDollars", "ShippedAmount")), 2)
@@ -215,13 +219,23 @@ def _norm_row(raw: dict) -> dict:
 
     return {
         "Company":           _str(_first(raw, "Company", "DataAreaId")),
-        "CustomerAccount":   _str(_first(raw, "CustomerAccount", "customeraccount", "AccountNum")),
+        "CustomerAccount":   _str(_first(
+            raw,
+            "CustomerAccount",
+            "customeraccount",
+            "AccountNum",
+            "CustomerID",
+            "CustomerId",
+            "customerid",
+            "CustAccount",
+        )),
         "CustomerName":      _str(_first(raw, "customername", "CustomerName", "Name")),
         "Salesman":          _str(_first(raw, "SalesGroup", "salesgroup", "Salesman")),
         "SalesOrderNumber":  _str(_first(raw, "SalesOrderNumber", "SalesId", "OrderNumber")),
         "PO #":              _str(_first(raw, "CustomerRequisition", "CustomerReq", "PONumber", "PO #")),
         "LineNumber":        _int(_first(raw, "LineNumber", "LineNum")),
         "Status":            status,
+        "OrderStatus":       order_status,
         "Item#":             _str(_first(raw, "Item", "ItemId", "ItemNumber", "Item#")),
         "ItemName":          _str(_first(raw, "ItemDescription", "ItemName", "LineDescription")),
         "UnitPrice":         unit_price,
@@ -380,6 +394,7 @@ def _build_by_order(lines: list[dict]) -> dict:
                 "CustomerName":    ln["CustomerName"],
                 "PO #":            ln["PO #"],
                 "Salesman":        ln["Salesman"],
+                "OrderStatus":     ln.get("OrderStatus", ""),
                 "Status":          ln["Status"],
             }
         _accumulate(buckets[so], ln)
@@ -395,6 +410,7 @@ def _build_by_order(lines: list[dict]) -> dict:
             "CustomerName":     m["CustomerName"],
             "Salesman":         m["Salesman"],
             "PO #":             m["PO #"],
+            "OrderStatus":      m.get("OrderStatus", ""),
             "Status":           m["Status"],
             "Fulfillment %":    _ff_pct(b["QtyOrdered"], b["QtyCancelled"]),
             **{f: b[f] for f in _SUM_QTY_FIELDS},

@@ -276,6 +276,7 @@ SCHEMA_STATEMENTS = [
         customer_name      TEXT NOT NULL DEFAULT '',
         sales_group        TEXT NOT NULL DEFAULT '',
         order_date         TEXT NOT NULL DEFAULT '',
+        order_status       TEXT NOT NULL DEFAULT '',
         customer_req       TEXT NOT NULL DEFAULT '',
         item_number        TEXT NOT NULL DEFAULT '',
         item_name          TEXT NOT NULL DEFAULT '',
@@ -361,6 +362,7 @@ _COLUMN_MIGRATIONS = [
     ("app_users", "active",              "INTEGER NOT NULL DEFAULT 1"),
     ("app_users", "dashboard_enabled",   "INTEGER NOT NULL DEFAULT 1"),
     ("app_users", "test_access_enabled", "INTEGER NOT NULL DEFAULT 1"),
+    ("dashboard_order_cache", "order_status", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

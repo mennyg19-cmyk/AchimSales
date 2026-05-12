@@ -21,12 +21,14 @@ lines at most.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from test.webapp.services import reporting_api
 from test.webapp.services.reports.ordered import _norm_row
 
 log = logging.getLogger(__name__)
+_DEFAULT_COMPANY = (os.environ.get("REPORTING_API_DEFAULT_COMPANY") or "ACHM").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -49,10 +51,13 @@ def _fetch_lines_for_customer(account: str) -> list[dict]:
     No date bound (period=all_time). The SP only returns rows for one
     company at a time, but `salesline_release` already scopes correctly.
     """
-    raw = reporting_api.run("ordered", {
+    params: dict[str, Any] = {
         "period":    "all_time",
         "customers": [account],
-    })
+    }
+    if _DEFAULT_COMPANY:
+        params["company"] = _DEFAULT_COMPANY
+    raw = reporting_api.run("ordered", params)
     return [_norm_row(r) for r in (raw or [])]
 
 
@@ -62,25 +67,13 @@ def _fetch_lines_for_customer(account: str) -> list[dict]:
 
 
 def fetch_customer_info(account: str) -> dict[str, str]:
-    """Best-effort lookup of customer name + salesman.
-
-    We don't have a customers table in test, so we infer from the SP's
-    line data. If the customer has zero rows, we return a minimal stub.
-    """
-    try:
-        lines = _fetch_lines_for_customer(account)
-    except Exception:
-        log.exception("customer_last_order: SP fetch failed for %s", account)
-        return {"account": account, "name": account, "salesman": ""}
-
-    if not lines:
-        return {"account": account, "name": account, "salesman": ""}
-
-    first = lines[0]
+    """Lookup customer name + salesman from the customer-master endpoint."""
+    rows = reporting_api.run("customer_master", {"customer_account": account})
+    first = rows[0] if rows else {}
     return {
         "account":  account,
-        "name":     first.get("CustomerName") or account,
-        "salesman": first.get("Salesman") or "",
+        "name":     first.get("CustomerName") or first.get("customername") or account,
+        "salesman": first.get("SalesGroup") or first.get("salesgroup") or "",
     }
 
 
@@ -91,11 +84,7 @@ def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
     ``order_date``, ``customer_req`` (PO #), ``order_total`` (sum of
     Ordered $).
     """
-    try:
-        lines = _fetch_lines_for_customer(account)
-    except Exception:
-        log.exception("customer_last_order: SP fetch failed for %s", account)
-        return []
+    lines = _fetch_lines_for_customer(account)
 
     if not lines:
         return []
@@ -103,7 +92,7 @@ def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
     # Group by SalesOrderNumber, keep only invoiced.
     by_order: dict[str, dict] = {}
     for ln in lines:
-        if not _is_invoiced(ln.get("Status", "")):
+        if not _is_invoiced(ln.get("OrderStatus") or ln.get("Status", "")):
             continue
         so = ln.get("SalesOrderNumber") or ""
         if not so:
@@ -114,7 +103,7 @@ def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
                 "order_date":     (ln.get("OrderDate") or "")[:10],
                 "customer_req":   ln.get("PO #") or "",
                 "salesman":       ln.get("Salesman") or "",
-                "status":         ln.get("Status") or "",
+                "status":         ln.get("OrderStatus") or ln.get("Status") or "",
                 "order_total":    0.0,
             }
         by_order[so]["order_total"] += float(ln.get("Ordered $") or 0)
@@ -153,11 +142,7 @@ def fetch_orders_with_lines(
     if not wanted:
         return [], []
 
-    try:
-        all_lines = _fetch_lines_for_customer(account)
-    except Exception:
-        log.exception("customer_last_order: SP fetch failed for %s", account)
-        return [], []
+    all_lines = _fetch_lines_for_customer(account)
 
     matched = [ln for ln in all_lines if (ln.get("SalesOrderNumber") or "") in wanted]
     if not matched:
@@ -174,7 +159,7 @@ def fetch_orders_with_lines(
             "order_date":   (ln.get("OrderDate") or "")[:10],
             "customer_req": ln.get("PO #") or "",
             "salesman":     ln.get("Salesman") or "",
-            "status":       ln.get("Status") or "",
+            "status":       ln.get("OrderStatus") or ln.get("Status") or "",
             "customer_account": ln.get("CustomerAccount") or account,
             "customer_name":    ln.get("CustomerName") or "",
         }

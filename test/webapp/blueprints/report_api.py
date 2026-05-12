@@ -204,10 +204,6 @@ def _run_report_logged(key: str, report_name: str, params: dict, user_email: str
         payload = run_report(key, report_name, params)
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
-        # Special-case the mirror-window-exceeded message so users see
-        # the plain-English explanation instead of a generic 500.
-        from test.webapp.services.mirror import MirrorWindowExceeded
-        is_window = isinstance(exc, MirrorWindowExceeded)
         try:
             log_report_run(
                 user_email=user_email, report_key=key, report_name=report_name,
@@ -216,8 +212,6 @@ def _run_report_logged(key: str, report_name: str, params: dict, user_email: str
             )
         except Exception:
             log.exception("failed to record failed run_report log")
-        if is_window:
-            raise
         raise
 
     duration_ms = int((time.time() - started) * 1000)
@@ -293,13 +287,7 @@ def run(key: str):
         return _run_report_logged(key, report.name, params, user_email)
 
     if cache_mode == "live":
-        try:
-            payload = _builder()
-        except Exception as exc:
-            from test.webapp.services.mirror import MirrorWindowExceeded
-            if isinstance(exc, MirrorWindowExceeded):
-                return jsonify({"error": str(exc), "stage": "mirror_window", "message": str(exc)}), 422
-            raise
+        payload = _builder()
         return jsonify(_with_cache_meta(payload, {"state": "fresh", "live_only": True}))
 
     result = cache_first.run_cache_first(

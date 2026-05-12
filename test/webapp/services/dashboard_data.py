@@ -24,7 +24,7 @@ from test.webapp.db import (
     normalize_key,
     set_app_setting,
 )
-from test.webapp.services import report_fixtures, reporting_api
+from test.webapp.services import reporting_api
 from test.webapp.services.report_access import get_user_profile
 from test.webapp.services.reports.ordered import _norm_row
 
@@ -90,6 +90,10 @@ def _customer_account(raw: dict) -> str:
         or raw.get("customeraccount")
         or raw.get("AccountNum")
         or raw.get("accountnum")
+        or raw.get("CustomerID")
+        or raw.get("CustomerId")
+        or raw.get("customerid")
+        or raw.get("CustAccount")
         or ""
     ).strip()
 
@@ -172,8 +176,6 @@ def _source_label(meta: dict[str, Any] | None) -> str:
         "api": "reporting API",
         "fresh_cache": "in-process API cache",
         "stale_cache": "stale API cache",
-        "mirror_after_failure": "SQLite mirror after API failure",
-        "mirror_no_api": "SQLite mirror; API not configured",
         "failed": "unavailable",
     }
     return labels.get(str(source), str(source).replace("_", " "))
@@ -183,13 +185,7 @@ def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
     params: dict[str, Any] = {}
     if salesman_key:
         params["salesman"] = salesman_key
-    try:
-        rows = reporting_api.run("customer_master", params)
-    except Exception as exc:
-        # The order rows contain enough customer fields to seed the dashboard.
-        # Do not let customer-master downtime block the first dashboard load.
-        log.warning("Dashboard customer-master fetch failed; deriving customers from orders: %s", exc)
-        return [], "customer_master unavailable"
+    rows = reporting_api.run("customer_master", params)
     return list(rows or []), _source_label(reporting_api.last_run_source())
 
 
@@ -200,24 +196,8 @@ def _fetch_order_history(salesman_key: str | None) -> tuple[list[dict], str]:
         params["company"] = _DEFAULT_COMPANY
     if salesman_key:
         params["salesman"] = salesman_key
-    try:
-        rows = reporting_api.run("ordered", params)
-        source = _source_label(reporting_api.last_run_source())
-    except Exception as exc:
-        rows = None
-        source = "unavailable"
-        if not reporting_api.is_configured():
-            fixture_rows = report_fixtures.load_ordered_rows()
-            if fixture_rows is not None:
-                rows = report_fixtures.filter_ordered_rows(fixture_rows, params)
-                source = "ordered fixture"
-                log.warning(
-                    "Dashboard order fetch failed; using ordered fixture rows (%d): %s",
-                    len(rows),
-                    exc,
-                )
-        if rows is None:
-            raise
+    rows = reporting_api.run("ordered", params)
+    source = _source_label(reporting_api.last_run_source())
     return list(rows or []), source
 
 
@@ -252,6 +232,7 @@ def _cached_order_line(line: dict[str, Any], refreshed_at: str) -> tuple[Any, ..
         line.get("CustomerName") or "",
         line.get("Salesman") or "",
         _date_only(line.get("OrderDate")),
+        line.get("OrderStatus") or "",
         line.get("PO #") or "",
         line.get("Item#") or "",
         line.get("ItemName") or "",
@@ -274,6 +255,7 @@ def _row_to_order_line(row: Any) -> dict[str, Any]:
         "CustomerName": row["customer_name"],
         "Salesman": row["sales_group"],
         "OrderDate": row["order_date"],
+        "OrderStatus": row["order_status"],
         "PO #": row["customer_req"],
         "Item#": row["item_number"],
         "ItemName": row["item_name"],
@@ -343,16 +325,14 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                     existing["sales_group"] = fallback["sales_group"]
                 if not existing.get("customer_name") and fallback.get("customer_name"):
                     existing["customer_name"] = fallback["customer_name"]
-            else:
-                customers_by_account[acct] = {
-                    "customer_account": acct,
-                    "customer_name": fallback["customer_name"] or acct,
-                    "sales_group": fallback["sales_group"],
-                }
+
+        matched_dated_customer_count = sum(
+            1 for acct in customers_by_account if order_dates_by_customer.get(acct)
+        )
 
         _validate_order_coverage(
             customer_count=len(customers_by_account),
-            dated_customer_count=len(order_dates_by_customer),
+            dated_customer_count=matched_dated_customer_count,
             order_line_count=len(normalized_lines),
             order_source=order_source,
             salesman_key=salesman_key,
@@ -440,10 +420,10 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                 """
                 INSERT OR REPLACE INTO dashboard_order_cache (
                     sales_order_number, line_number, customer_account, customer_name,
-                    sales_group, order_date, customer_req, item_number, item_name,
+                    sales_group, order_date, order_status, customer_req, item_number, item_name,
                     status, qty_ordered, qty_shipped, qty_cancelled, sales_price,
                     ordered_dollars, shipped_dollars, last_refreshed
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     _cached_order_line(line, now)
@@ -678,11 +658,19 @@ def user_can_access_customer(email: str, account: str) -> bool:
     return False
 
 
-def _summarize_order_status(lines: list[dict[str, Any]]) -> str:
-    statuses = sorted({(ln.get("Status") or "").strip() for ln in lines if (ln.get("Status") or "").strip()})
+def _summarize_status_field(lines: list[dict[str, Any]], field: str) -> str:
+    statuses = sorted({(ln.get(field) or "").strip() for ln in lines if (ln.get(field) or "").strip()})
     if not statuses:
         return ""
     return statuses[0] if len(statuses) == 1 else "Mixed"
+
+
+def _summarize_order_status(lines: list[dict[str, Any]]) -> str:
+    return _summarize_status_field(lines, "OrderStatus") or _summarize_status_field(lines, "Status")
+
+
+def _summarize_line_status(lines: list[dict[str, Any]]) -> str:
+    return _summarize_status_field(lines, "Status")
 
 
 def _group_order_headers(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -699,7 +687,7 @@ def _group_order_headers(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "order_number": order_no,
             "order_date": _date_only(first.get("OrderDate")),
             "status": _summarize_order_status(order_lines),
-            "processing_status": "",
+            "processing_status": _summarize_line_status(order_lines),
             "customer_req": first.get("PO #") or "",
             "order_name": "",
             "salesman": first.get("Salesman") or "",
@@ -796,7 +784,7 @@ def fetch_order_detail(order_number: str) -> tuple[dict[str, Any], list[dict[str
         "order_number": order_number,
         "order_date": _date_only(first.get("OrderDate")),
         "status": _summarize_order_status(lines),
-        "processing_status": "",
+        "processing_status": _summarize_line_status(lines),
         "customer_req": first.get("PO #") or "",
         "order_name": "",
         "customer_name": first.get("CustomerName") or "",
