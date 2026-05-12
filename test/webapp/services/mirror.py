@@ -221,22 +221,60 @@ def _customer_account(v: Any) -> str:
 
 
 def _date_only(v: Any) -> str:
-    """Extract YYYY-MM-DD from a CreatedDateTime style value."""
+    """Extract a canonical YYYY-MM-DD string from a variety of date
+    formats. Returns "" if the value can't be parsed -- callers MUST
+    treat empty as "skip this row" rather than storing garbage.
+
+    Handles:
+        * ISO 8601 / SQL: "2024-05-01", "2024-05-01T00:00:00", "2024-05-01 00:00:00..."
+        * US dates:       "5/1/2024", "05/01/24", "20240501"
+        * .NET / OData:   "/Date(1714521600000)/"
+        * HTTP / RFC-822: "Fri, 01 May 2024 00:00:00 GMT" (.NET's default
+                           DateTime.ToString("R") and what some reporting
+                           APIs hand back through JSON)
+    """
     s = _to_str(v)
     if not s:
         return ""
-    first = s[:10]
+
+    head = s[:10]
     try:
-        datetime.strptime(first, "%Y-%m-%d")
-        return first
+        return datetime.strptime(head, "%Y-%m-%d").date().isoformat()
     except ValueError:
         pass
+
+    token = s.split()[0]
     for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y%m%d"):
         try:
-            return datetime.strptime(s.split()[0], fmt).date().isoformat()
+            return datetime.strptime(token, fmt).date().isoformat()
         except ValueError:
             continue
-    return first
+
+    # RFC-822 / HTTP-date: "Fri, 01 May 2024 00:00:00 GMT"
+    # Accept both 4- and 2-digit years, and skip the optional weekday.
+    rfc_candidates = (
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%a, %d %b %Y %H:%M:%S",
+        "%a, %d %b %Y",
+        "%d %b %Y %H:%M:%S %Z",
+        "%d %b %Y %H:%M:%S",
+        "%d %b %Y",
+    )
+    for fmt in rfc_candidates:
+        try:
+            return datetime.strptime(s.strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+
+    # .NET "/Date(epoch_ms)/" form.
+    if s.startswith("/Date(") and s.endswith(")/"):
+        try:
+            epoch_ms = int(s[6:-2].split("+")[0].split("-")[0])
+            return datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc).date().isoformat()
+        except (ValueError, OverflowError, OSError):
+            pass
+
+    return ""
 
 
 def _key_id(key: Any) -> str:
