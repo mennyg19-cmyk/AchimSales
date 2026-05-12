@@ -300,10 +300,25 @@ body {
 
 /* -- Container ----------------------------------------------------------- */
 
+/* Default: full-width. The app is data-dense (tables, dashboards,
+   detail grids) and the previous 800px cap left a third of the screen
+   blank on a normal desktop. Pages that genuinely want a narrow form
+   layout (login, filter form, "pick a customer" lists) opt in by
+   declaring `{% block container_class %}narrow{% endblock %}`. */
 .container {
-    max-width: 800px;
+    width: 100%;
+    max-width: none;
     margin: 0 auto;
-    padding: 16px;
+    padding-left: clamp(16px, 2vw, 32px);
+    padding-right: clamp(16px, 2vw, 32px);
+    padding-top: 16px;
+    padding-bottom: 16px;
+}
+
+.container.narrow {
+    max-width: 800px;
+    padding-left: 16px;
+    padding-right: 16px;
 }
 
 .container.page-dashboard {
