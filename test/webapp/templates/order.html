@@ -102,7 +102,7 @@
                 <td class="num">{{ "%g"|format((l.qty_shipped or 0)|float) }}</td>
                 <td class="num">{{ "%g"|format((l.qty_cancelled or 0)|float) }}</td>
                 <td class="num">${{ "%.2f"|format(l.sales_price|float) if l.sales_price else '-' }}</td>
-                <td class="num">${{ "%.2f"|format((l.total_ordered if l.total_ordered is defined else l.total)|float) }}</td>
+                <td class="num">${{ "%.2f"|format((l.total_ordered or 0)|float) }}</td>
                 <td class="num">${{ "%.2f"|format((l.total_shipped or 0)|float) }}</td>
                 <td>{{ l.status }}</td>
             </tr>

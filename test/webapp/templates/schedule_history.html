@@ -6,8 +6,10 @@
     <h1>{{ schedule.name }}</h1>
     <p class="page-subtitle">
         Run history &middot; {{ 'Master' if schedule_type == 'master' else 'Personal' }} schedule
-        &middot; <a href="{{ URL_PREFIX }}/master-schedules" {% if schedule_type != 'master' %}style="display:none;"{% endif %}>back to master schedules</a>
-        {% if schedule_type == 'personal' %}
+        &middot;
+        {% if schedule_type == 'master' %}
+        <a href="{{ URL_PREFIX }}/master-schedules">back to master schedules</a>
+        {% else %}
         <a href="{{ url_for('schedules.index') }}">back to schedules</a>
         {% endif %}
     </p>
