@@ -143,6 +143,7 @@ _init_done = False
 
 _MIRROR_COLUMN_MIGRATIONS = [
     ("mirror_salesline", "order_status", "TEXT"),
+    ("mirror_salesline", "created_datetime", "TEXT"),
 ]
 
 
@@ -458,9 +459,13 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                      triggered_by: str | None = None) -> dict[str, int]:
     """Mirror a batch of salesline_release rows.
 
-    Only rows whose ``order_date`` is within the past ``prune_window_days``
-    are stored -- older rows are silently dropped on the way in. The
-    daily cron also prunes anything that's now older than the window.
+    Every well-formed row (has a sales order number and a parseable
+    order date) is stored as-is. After ingest, if the trigger is a
+    full-snapshot refresh (not a piggyback from a report run) and the
+    mirror still has data within the rolling ``prune_window_days``
+    window, anything older than the window is pruned. Sandbox /
+    historical batches whose newest row is already older than the
+    window are kept verbatim so the dashboard has something to show.
     """
     init_mirror_db()
     rows = list(rows or [])
@@ -472,37 +477,23 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
     now = _utcnow()
     err: str | None = None
     try:
-        normalized_rows = [(raw, _normalize_salesline_row(raw)) for raw in rows]
-        valid_dates = [
-            parsed
-            for _raw, norm in normalized_rows
-            if (parsed := _parse_date(norm["order_date"])) is not None
-        ]
-        today = datetime.now(timezone.utc).date()
-        if trigger == "dashboard" and valid_dates:
-            # The dashboard asks the endpoint for a 60-day salesline slice.
-            # If the endpoint ignores that date filter or returns a sandbox
-            # dataset whose newest row is older than today's date, keep the
-            # latest 60 days from the returned batch instead of importing
-            # nothing. Non-dashboard piggyback imports still use today's
-            # rolling window so arbitrary historical report runs do not
-            # replace the shared app mirror.
-            window_anchor = min(max(valid_dates), today)
-        else:
-            window_anchor = today
-        cutoff = (window_anchor - timedelta(days=prune_window_days)).isoformat()
-
         with connect() as conn:
-            for raw, norm in normalized_rows:
+            for raw in rows:
+                norm = _normalize_salesline_row(raw)
                 if not norm["sales_order_number"]:
                     skipped_missing_order += 1
                     continue
                 if not norm["order_date"]:
                     skipped_missing_date += 1
                     continue
-                if norm["order_date"] < cutoff:
-                    skipped_outside_window += 1
-                    continue
+                # Intentionally NO window filter at ingest time. Whatever
+                # the API returns is what we mirror -- the dashboard reads
+                # everything from this table, and a defensive prune below
+                # narrows to the rolling window only when it's safe to do
+                # so (i.e. there's still recent data after pruning). This
+                # avoids the "0 inserted, all skipped" failure mode when
+                # the API returns sandbox/historical data whose OrderDate
+                # is older than today minus the window.
                 row_hash = _hash_row(norm)
                 existing = conn.execute(
                     "SELECT row_hash FROM mirror_salesline "
@@ -569,15 +560,24 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                     )
                     unchanged += 1
 
-            # Prune only during dashboard/snapshot-style refreshes. Report
-            # piggybacks may be narrow or historical; they should never wipe
-            # the shared dashboard mirror after it imports its retained slice.
-            if trigger != "piggyback":
-                cur = conn.execute(
-                    "DELETE FROM mirror_salesline WHERE order_date < ?",
-                    (cutoff,),
-                )
-                pruned = cur.rowcount or 0
+            # Defensive prune. Only when we're doing an explicit
+            # full-snapshot refresh (not a piggyback from a report run),
+            # and only if there's *still* data within the rolling window
+            # after the prune. If every row in the mirror is older than
+            # the cutoff (sandbox/historical), we leave it alone so the
+            # dashboard has something to show.
+            if trigger != "piggyback" and prune_window_days:
+                today = datetime.now(timezone.utc).date()
+                cutoff = (today - timedelta(days=prune_window_days)).isoformat()
+                latest = conn.execute(
+                    "SELECT MAX(order_date) FROM mirror_salesline"
+                ).fetchone()[0]
+                if latest and str(latest) >= cutoff:
+                    cur = conn.execute(
+                        "DELETE FROM mirror_salesline WHERE order_date < ?",
+                        (cutoff,),
+                    )
+                    pruned = cur.rowcount or 0
     except Exception as exc:
         err = str(exc)
         log.exception("upsert_salesline failed")

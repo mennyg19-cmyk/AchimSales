@@ -122,10 +122,15 @@ def _compute_customer_metrics(
 
     last = parsed[-1]
     result["last_order_date"] = last.isoformat()
-    result["days_since_last"] = (today - last).days
+    days_since = (today - last).days
+    result["days_since_last"] = days_since
+
+    # Baseline: a customer with any order is never "new". "New" is
+    # reserved for customers in mirror_customers that have no orders
+    # in the mirror window at all.
+    result["status"] = "inactive" if days_since > 365 else "active"
 
     if len(parsed) < 2:
-        result["status"] = "inactive" if int(result["days_since_last"] or 0) > 365 else "active"
         return result
 
     gaps = [(parsed[i + 1] - parsed[i]).days for i in range(len(parsed) - 1)]
@@ -137,7 +142,6 @@ def _compute_customer_metrics(
     variance = sum((g - mean_gap) ** 2 for g in gaps) / len(gaps)
     stdev = math.sqrt(variance)
     threshold = mean_gap + stdev
-    days_since = int(result["days_since_last"] or 0)
 
     result["avg_gap_days"] = round(mean_gap, 1)
     result["gap_stdev"] = round(stdev, 1)
