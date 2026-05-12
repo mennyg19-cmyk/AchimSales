@@ -93,6 +93,106 @@ def diag_mirror_status():
     })
 
 
+@diag_bp.get("/api/mirror/salesline")
+@require_admin
+def diag_salesline_dump():
+    """Inspect what's actually in mirror_salesline.
+
+    Query params:
+        customer  -- filter to one CustomerAccount (case-insensitive)
+        order     -- filter to one SalesOrderNumber
+        date_from -- order_date >= this (YYYY-MM-DD)
+        date_to   -- order_date <= this (YYYY-MM-DD)
+        limit     -- max rows to return (default 100, max 1000)
+        offset    -- paging offset
+        raw       -- "1" to also include the raw_json blob per row
+
+    Always returns:
+        total            -- matching row count
+        distinct_orders  -- distinct SalesOrderNumber count in match
+        distinct_customers -- distinct CustomerAccount count in match
+        earliest_order_date / latest_order_date for the match
+        rows             -- requested page, normalized columns
+    """
+    from test.webapp.db import connect
+    from test.webapp.services import mirror
+    mirror.init_mirror_db()
+
+    customer = (request.args.get("customer") or "").strip().upper()
+    order_no = (request.args.get("order") or "").strip()
+    date_from = (request.args.get("date_from") or "").strip()[:10]
+    date_to = (request.args.get("date_to") or "").strip()[:10]
+    include_raw = request.args.get("raw") == "1"
+    try:
+        limit = max(1, min(int(request.args.get("limit") or 100), 1000))
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        offset = max(0, int(request.args.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    where: list[str] = []
+    params: list[Any] = []
+    if customer:
+        where.append("customer_account = ?")
+        params.append(customer)
+    if order_no:
+        where.append("sales_order_number = ?")
+        params.append(order_no)
+    if date_from:
+        where.append("order_date >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("order_date <= ?")
+        params.append(date_to)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    cols = (
+        "sales_order_number, line_number, customer_account, customer_name, "
+        "sales_group, order_date, created_datetime, po_number, item_number, "
+        "item_name, unit_price, order_status, status, qty_ordered, qty_shipped, "
+        "qty_cancelled, ordered_dollars, shipped_dollars, cancelled_dollars, "
+        "first_seen_utc, last_seen_utc"
+    )
+    if include_raw:
+        cols += ", raw_json"
+
+    with connect() as conn:
+        agg = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "       COUNT(DISTINCT sales_order_number) AS distinct_orders, "
+            "       COUNT(DISTINCT customer_account)   AS distinct_customers, "
+            "       MIN(order_date) AS earliest_order_date, "
+            "       MAX(order_date) AS latest_order_date "
+            "FROM mirror_salesline" + where_sql,
+            params,
+        ).fetchone()
+        page = conn.execute(
+            f"SELECT {cols} FROM mirror_salesline{where_sql} "
+            "ORDER BY order_date DESC, sales_order_number DESC, line_number "
+            "LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+
+    return jsonify({
+        "filters": {
+            "customer": customer or None,
+            "order":    order_no or None,
+            "date_from": date_from or None,
+            "date_to":   date_to or None,
+        },
+        "total":              int(agg["total"] or 0) if agg else 0,
+        "distinct_orders":    int(agg["distinct_orders"] or 0) if agg else 0,
+        "distinct_customers": int(agg["distinct_customers"] or 0) if agg else 0,
+        "earliest_order_date": (agg["earliest_order_date"] if agg else None),
+        "latest_order_date":   (agg["latest_order_date"] if agg else None),
+        "limit":  limit,
+        "offset": offset,
+        "rows":   [dict(r) for r in page],
+    })
+
+
 @diag_bp.get("/api/mirror/customer-match")
 @require_admin
 def diag_customer_match():
