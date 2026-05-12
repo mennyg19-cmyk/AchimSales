@@ -10,14 +10,15 @@ Routes:
     JSON: every known customer (account + name). Used by the
     picker's autocomplete.
 
-* ``GET  /api/report/customer-last-order/<account>/recent-invoiced``
-    JSON: the customer's last 10 invoiced orders, newest first.
+* ``GET  /api/report/customer-last-order/<account>/recent-orders``
+    JSON: the customer's last 10 non-cancelled orders, newest first.
     Used by the "Add a previous order" modal on the view page.
 
 * ``GET  /report/customer-last-order/<account>?orders=ORD1,ORD2``
     The detail page itself: header card + line items.
     ``orders`` defaults to "the customer's most recent invoiced
-    order"; passing more order numbers triggers the rollup view.
+    order, falling back to most recent non-cancelled"; passing more
+    order numbers triggers the rollup view.
 """
 from __future__ import annotations
 
@@ -83,17 +84,18 @@ def customers_json():
         return jsonify([])
 
 
-@bp.get("/<account>/recent-invoiced.json")
+@bp.get("/<account>/recent-orders.json")
 @require_login
-def recent_invoiced_json(account: str):
-    """Last 10 invoiced orders for *account* -- powers the
-    "Add a previous order" modal on the view page.
+def recent_orders_json(account: str):
+    """Last 10 non-cancelled orders for *account* (invoiced, partial,
+    or open) -- powers the "Add a previous order" modal on the view
+    page.
     """
     _ensure_enabled()
     account = (account or "").strip()
     if not account:
         return jsonify([])
-    return jsonify(svc.fetch_recent_invoiced_orders(account, limit=10))
+    return jsonify(svc.fetch_recent_orders(account, limit=10))
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +123,8 @@ def view(account: str):
     if raw_orders:
         order_numbers = [o.strip() for o in raw_orders.split(",") if o.strip()]
     else:
-        recent = svc.fetch_recent_invoiced_orders(account, limit=1)
-        order_numbers = [recent[0]["order_number"]] if recent else []
+        default = svc.pick_default_order(account)
+        order_numbers = [default["order_number"]] if default else []
 
     headers, lines = ([], [])
     rolled = []

@@ -4802,6 +4802,18 @@ body.dark-theme .tabulator .tabulator-row:hover,
     font-variant-numeric: tabular-nums;
 }
 .prev-order-row .muted { color: var(--text-muted); }
+.prev-order-row .prev-order-status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    flex: 0 0 auto;
+}
 
 /* ─── Settings: users & permissions admin section ──────────────────── */
 

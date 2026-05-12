@@ -1,28 +1,30 @@
 """Customer's Last Order report -- data layer.
 
-The live app pulls SalesOrderHeaders + SalesOrderLines + WHSReleases +
-PackingSlips from D365 OData and runs the Ordered Report's classifier
-to derive per-line ``QtyShipped`` / ``QtyCancelled``. Our test app
-already has the ``salesline_release`` SP, which returns those same
-fields directly (the live classifier exists *only* to compute them).
-So we can power this report from a single SP call per customer.
+The live app pulled SalesOrderHeaders + SalesOrderLines + WHSReleases +
+PackingSlips from D365 OData and ran the Ordered Report's classifier to
+derive per-line ``QtyShipped`` / ``QtyCancelled``. Our test app already
+has the ``salesline_release`` SP, which returns those same fields *and*
+the order-level ``OrderStatus`` (Invoiced / Partially invoiced / Open
+Order / Cancelled) directly. One SP call per customer, no classifier.
 
 Public surface used by the blueprint::
 
     fetch_customer_info(account)       -> {account, name, salesman}
-    fetch_recent_invoiced_orders(acct) -> [{order_number, order_date, ...}, ...]
+    fetch_recent_orders(acct, limit)   -> [{order_number, order_date,
+                                            status, ...}, ...]
+    pick_default_order(acct)           -> the order to auto-load on
+                                          first view: most recent invoiced
+                                          if any, else most recent
+                                          non-cancelled
     fetch_orders_with_lines(acct, [order_numbers])
                                        -> ([header_dict, ...], [line_dict, ...])
-
-Each call hits the SP once (with ``CustomerAccount`` filtered) and is
-small and fast: a single customer's order history is a few hundred
-lines at most.
 """
 from __future__ import annotations
 
 import logging
 from typing import Any
 
+from core.dates import D365_GO_LIVE, get_today_eastern
 from test.webapp.services import reporting_api
 from test.webapp.services.reports.ordered import _norm_row
 
@@ -34,24 +36,35 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _is_invoiced(status: str) -> bool:
-    """Match the live filter: any status containing the word 'invoiced'.
+def _is_invoiced(order_status: str) -> bool:
+    """Match the live filter: any *header* OrderStatus containing 'invoiced'.
 
     D365 emits 'Invoiced' for fully shipped/billed and 'Partially invoiced'
     for orders that are mid-shipment. Both are user-visible.
+
+    NOTE: must be applied to ``OrderStatus`` (header), not ``Status``
+    (line-level SalesStatus). A fully-invoiced order can have per-line
+    SalesStatus values like 'Delivered' / 'Invoiced' / 'Open Order'.
     """
-    return "invoiced" in (status or "").lower()
+    return "invoiced" in (order_status or "").lower()
+
+
+def _is_cancelled(order_status: str) -> bool:
+    return "cancelled" in (order_status or "").lower()
 
 
 def _fetch_lines_for_customer(account: str) -> list[dict]:
     """Pull every line for the customer from the SP and normalise.
 
-    No date bound (period=all_time). The SP only returns rows for one
-    company at a time, but `salesline_release` already scopes correctly.
+    ``period="all_time"`` resolves to ``(None, None)`` in the translator
+    and the SP returns nothing in that case, so send an explicit custom
+    range from D365 go-live to today -- the full valid history window.
     """
     raw = reporting_api.run("ordered", {
-        "period":    "all_time",
-        "customers": [account],
+        "period":     "custom",
+        "start_date": D365_GO_LIVE.isoformat(),
+        "end_date":   get_today_eastern().isoformat(),
+        "customers":  [account],
     })
     return [_norm_row(r) for r in (raw or [])]
 
@@ -84,12 +97,17 @@ def fetch_customer_info(account: str) -> dict[str, str]:
     }
 
 
-def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
-    """Return the customer's most recent *invoiced* orders, newest first.
+def fetch_recent_orders(account: str, limit: int = 10) -> list[dict]:
+    """Return the customer's most recent non-cancelled orders, newest first.
+
+    Includes Invoiced, Partially invoiced, and Open Order statuses so
+    the picker is useful even for customers who haven't been billed
+    yet. Cancelled orders are filtered out -- they're never relevant
+    on the "last order" page.
 
     Each entry has the fields the picker modal needs: ``order_number``,
-    ``order_date``, ``customer_req`` (PO #), ``order_total`` (sum of
-    Ordered $).
+    ``order_date``, ``customer_req`` (PO #), ``status`` (header
+    OrderStatus), ``order_total`` (sum of Ordered $).
     """
     try:
         lines = _fetch_lines_for_customer(account)
@@ -100,13 +118,13 @@ def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
     if not lines:
         return []
 
-    # Group by SalesOrderNumber, keep only invoiced.
     by_order: dict[str, dict] = {}
     for ln in lines:
-        if not _is_invoiced(ln.get("Status", "")):
-            continue
         so = ln.get("SalesOrderNumber") or ""
         if not so:
+            continue
+        order_status = ln.get("OrderStatus") or ""
+        if _is_cancelled(order_status):
             continue
         if so not in by_order:
             by_order[so] = {
@@ -114,7 +132,7 @@ def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
                 "order_date":     (ln.get("OrderDate") or "")[:10],
                 "customer_req":   ln.get("PO #") or "",
                 "salesman":       ln.get("Salesman") or "",
-                "status":         ln.get("OrderStatus") or "",
+                "status":         order_status,
                 "processing_status": ln.get("Status") or "",
                 "order_total":    0.0,
             }
@@ -124,12 +142,29 @@ def fetch_recent_invoiced_orders(account: str, limit: int = 10) -> list[dict]:
     for o in orders:
         o["order_total"] = round(o["order_total"], 2)
 
-    # Newest first: sort by order_date descending. Empty dates land last.
     orders.sort(
         key=lambda o: (o["order_date"] or "0000-00-00"),
         reverse=True,
     )
     return orders[:limit]
+
+
+def pick_default_order(account: str) -> dict | None:
+    """Pick which single order to auto-load when the page opens with
+    no ``?orders=`` param.
+
+    Preference: most-recent INVOICED order (matches the live app's
+    "Last Invoiced Order" behaviour). If the customer has none on
+    record, fall back to the most-recent non-cancelled order so the
+    page still has something useful to show.
+
+    Returns the chosen order dict (same shape as ``fetch_recent_orders``)
+    or ``None`` if the customer has zero non-cancelled orders.
+    """
+    orders = fetch_recent_orders(account, limit=50)
+    if not orders:
+        return None
+    return next((o for o in orders if _is_invoiced(o["status"])), orders[0])
 
 
 def fetch_orders_with_lines(
