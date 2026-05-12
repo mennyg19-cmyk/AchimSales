@@ -93,6 +93,67 @@ def diag_mirror_status():
     })
 
 
+@diag_bp.get("/api/probe/customer-history")
+@require_admin
+def diag_probe_customer_history():
+    """Call salesline_release for ONE customer over the full go-live
+    window so we can see whether the SP returns historical orders for a
+    customer the dashboard currently lists as "no orders". Used to
+    debug the last-order backfill.
+
+    Query params:
+        account   -- the CustomerAccount to probe (required)
+        days      -- override the lookback in days (default: since
+                     D365 go-live; pass e.g. 365 for a tighter range)
+    """
+    from core.dates import D365_GO_LIVE, get_today_eastern
+    from test.webapp.services import reporting_api
+
+    account = (request.args.get("account") or "").strip()
+    if not account:
+        return jsonify({"ok": False, "error": "account query param required"}), 400
+
+    try:
+        days = int(request.args.get("days") or 0)
+    except (TypeError, ValueError):
+        days = 0
+
+    today = get_today_eastern()
+    if days > 0:
+        from datetime import timedelta
+        start = (today - timedelta(days=days)).isoformat()
+    else:
+        start = D365_GO_LIVE.isoformat()
+
+    params = {
+        "period":     "custom",
+        "start_date": start,
+        "end_date":   today.isoformat(),
+        "customers":  account,
+        "company":    os.environ.get("REPORTING_API_DEFAULT_COMPANY") or "ACHM",
+    }
+
+    try:
+        rows = reporting_api.run("ordered", params, no_piggyback=True)
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "account": account,
+            "params": params,
+            "error": f"{type(exc).__name__}: {exc}",
+        }), 200
+
+    return jsonify({
+        "ok": True,
+        "account": account,
+        "params": params,
+        "row_count": len(rows),
+        "first_rows": rows[:3],
+        "distinct_customer_accounts_returned":
+            sorted({(r.get("CustomerAccount") or r.get("customeraccount") or "") for r in rows[:200]}),
+    })
+
+
 @diag_bp.get("/api/mirror/salesline")
 @require_admin
 def diag_salesline_dump():
