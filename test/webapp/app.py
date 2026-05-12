@@ -114,6 +114,37 @@ def create_app() -> Flask:
     def healthz():
         return {"status": "ok", "mock_data": USE_MOCK_DATA, "auth_mode": AUTH_MODE}, 200
 
+    # PWA manifest. Served dynamically so start_url + icon srcs include
+    # whatever URL_PREFIX the app is mounted at (e.g. /test). A static
+    # manifest with hard-coded "/" + "/static/..." paths resolves to the
+    # host root and ignores the mount, breaking installability.
+    @app.route("/manifest.json")
+    def manifest():
+        prefix = (URL_PREFIX or "").rstrip("/")
+        return {
+            "name":             "Achim Sales Reports (test)",
+            "short_name":       "Sales (test)",
+            "description":      "Sales reports and customer dashboard (test sandbox)",
+            "start_url":        f"{prefix}/",
+            "scope":            f"{prefix}/",
+            "display":          "standalone",
+            "background_color": "#ffffff",
+            "theme_color":      "#16a34a",
+            "orientation":      "portrait",
+            "icons": [
+                {
+                    "src":   f"{prefix}/static/icon-192.png",
+                    "sizes": "192x192",
+                    "type":  "image/png",
+                },
+                {
+                    "src":   f"{prefix}/static/icon-512.png",
+                    "sizes": "512x512",
+                    "type":  "image/png",
+                },
+            ],
+        }, 200, {"Content-Type": "application/manifest+json"}
+
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(notifications_bp)
@@ -133,15 +164,15 @@ def create_app() -> Flask:
 
     init_db()
 
-    # Boot background refreshers. The offline mirror scheduler is opt-in
-    # during endpoint migration so app reads stay API/cache-only.
+    # Boot the daily mirror-refresh scheduler. Disabled when running
+    # tests / with the Flask reloader so we never end up with two
+    # parallel schedulers.
     if os.environ.get("V2_DISABLE_SCHEDULER") != "1":
-        if os.environ.get("V2_ENABLE_MIRROR_SCHEDULER") == "1":
-            try:
-                from test.webapp.services.mirror_scheduler import start_scheduler
-                start_scheduler()
-            except Exception:
-                log.exception("mirror scheduler failed to start (non-fatal)")
+        try:
+            from test.webapp.services.mirror_scheduler import start_scheduler
+            start_scheduler()
+        except Exception:
+            log.exception("mirror scheduler failed to start (non-fatal)")
         try:
             from test.webapp.services.dashboard_data import start_background_refresh
             start_background_refresh()

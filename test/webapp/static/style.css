@@ -766,6 +766,12 @@ body {
     color: #854d0e;
 }
 
+.status-inactive {
+    background: var(--bg);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+
 body.dark-theme .status-completed {
     background: var(--success-light);
     color: #4ade80;
@@ -781,6 +787,11 @@ body.dark-theme .status-failed {
 body.dark-theme .status-no_data {
     background: var(--warning-light);
     color: #fbbf24;
+}
+body.dark-theme .status-inactive {
+    background: var(--bg-card);
+    color: var(--text-muted);
+    border-color: var(--border);
 }
 
 /* -- Dashboard status badges --------------------------------------------- */

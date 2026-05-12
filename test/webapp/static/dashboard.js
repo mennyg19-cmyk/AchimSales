@@ -49,10 +49,14 @@ function toggleAlerts() {
 }
 
 function clearAllNotifications() {
+    // The dashboard panel only renders overdue_customer alerts, so scope
+    // the bulk dismiss to that type. {all: true} would also wipe
+    // report_ready notifications that the user can't even see from here,
+    // which is surprising and impossible to undo from this screen.
     fetch(_dashApi("/api/notifications/dismiss"), {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({all: true})
+        body: JSON.stringify({type: "overdue_customer"})
     }).then(function() {
         var panel = document.getElementById("dashAlerts");
         if (panel) panel.style.display = "none";
