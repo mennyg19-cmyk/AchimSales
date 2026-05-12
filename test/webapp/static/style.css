@@ -4466,7 +4466,7 @@ body.dark-theme .tabulator .tabulator-row:hover,
 .sp-delivery-picker input.form-input { flex: 1; }
 
 /* Data-source badge on the report viewer header.
-   Tells you at a glance whether you're looking at real, mock, or fixture data. */
+   Tells you whether rows came from live API, cache, mirror, or an error state. */
 .data-source-badge {
     display: inline-flex;
     align-items: center;
@@ -4487,12 +4487,12 @@ body.dark-theme .tabulator .tabulator-row:hover,
     color: #228b43;
     border-color: rgba(34, 139, 67, 0.35);
 }
-.data-source-badge.src-fixture {
-    background: rgba(217, 119, 6, 0.14);
-    color: #b45309;
-    border-color: rgba(217, 119, 6, 0.45);
+.data-source-badge.src-cache {
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
+    border-color: rgba(37, 99, 235, 0.35);
 }
-.data-source-badge.src-mock {
+.data-source-badge.src-mirror {
     background: rgba(217, 119, 6, 0.14);
     color: #b45309;
     border-color: rgba(217, 119, 6, 0.45);

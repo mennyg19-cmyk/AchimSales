@@ -5,13 +5,12 @@ Endpoints (all scoped under ``/api/reports/<key>/...``):
 * ``GET  /salesmen``     -- dropdown source for the filter form
 * ``GET  /customers``    -- customer multi-select source (optional ?salesman=)
 * ``GET  /years``        -- year dropdown source
-* ``POST /run``          -- execute the report (stub) and return the multi-tab payload
+* ``POST /run``          -- execute the report and return the multi-tab payload
 * ``POST /export.xlsx``  -- build a multi-sheet workbook from that payload + the
                              client's current column order / hidden columns per tab
 
-Phase 3 is still backed by mock data (``services/report_runner.py``).
-The surface area here is the one that will swap to a real SP call later
-without touching the frontend.
+Report data comes from the Reporting API, with SQLite cache/mirror as the
+only fallback path.
 """
 
 from __future__ import annotations
@@ -74,8 +73,6 @@ def list_salesmen(key: str):
     input in that case.
     """
     _ensure_report(key)
-    if not reporting_api.is_configured():
-        return jsonify([])
     try:
         return jsonify(reporting_api.list_salesmen())
     except Exception:
@@ -89,8 +86,6 @@ def list_customers(key: str):
     """Customer dropdown source. ``?salesman=`` narrows the list."""
     _ensure_report(key)
     salesman = (request.args.get("salesman") or "").strip()
-    if not reporting_api.is_configured():
-        return jsonify([])
     try:
         return jsonify(reporting_api.list_customers(salesman or None))
     except Exception:
@@ -179,7 +174,9 @@ def _params_from_request() -> dict:
 
 def _with_cache_meta(payload: dict, meta: dict) -> dict:
     out = dict(payload or {})
-    out["_cache_first"] = meta
+    merged = dict(meta or {})
+    merged.setdefault("total_rows", cache_first.payload_row_count(out))
+    out["_cache_first"] = merged
     return out
 
 
@@ -204,6 +201,10 @@ def _run_report_logged(key: str, report_name: str, params: dict, user_email: str
         payload = run_report(key, report_name, params)
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
+        # Special-case the mirror-window-exceeded message so users see
+        # the plain-English explanation instead of a generic 500.
+        from test.webapp.services.mirror import MirrorWindowExceeded
+        is_window = isinstance(exc, MirrorWindowExceeded)
         try:
             log_report_run(
                 user_email=user_email, report_key=key, report_name=report_name,
@@ -212,6 +213,8 @@ def _run_report_logged(key: str, report_name: str, params: dict, user_email: str
             )
         except Exception:
             log.exception("failed to record failed run_report log")
+        if is_window:
+            raise
         raise
 
     duration_ms = int((time.time() - started) * 1000)
@@ -243,6 +246,7 @@ def _cached_report_payload(key: str, report_name: str, params: dict, user_email:
     meta.update({
         "state": "cached_for_action",
         "refreshed_utc": cached.get("refreshed_utc"),
+        "total_rows": cache_first.payload_row_count(payload),
     })
     payload["_cache_first"] = meta
     return payload
@@ -287,7 +291,13 @@ def run(key: str):
         return _run_report_logged(key, report.name, params, user_email)
 
     if cache_mode == "live":
-        payload = _builder()
+        try:
+            payload = _builder()
+        except Exception as exc:
+            from test.webapp.services.mirror import MirrorWindowExceeded
+            if isinstance(exc, MirrorWindowExceeded):
+                return jsonify({"error": str(exc), "stage": "mirror_window", "message": str(exc)}), 422
+            raise
         return jsonify(_with_cache_meta(payload, {"state": "fresh", "live_only": True}))
 
     result = cache_first.run_cache_first(
@@ -303,6 +313,12 @@ def run(key: str):
         "job_id": result.get("job_id"),
         "cache_key": result.get("cache_key"),
         "refreshed_utc": result.get("refreshed_utc"),
+        "total_rows": result.get("total_rows"),
+        "cached_refreshed_utc": result.get("cached_refreshed_utc"),
+        "fresh_refreshed_utc": result.get("fresh_refreshed_utc"),
+        "cached_row_count": result.get("cached_row_count"),
+        "fresh_row_count": result.get("fresh_row_count"),
+        "row_delta": result.get("row_delta"),
         "error": result.get("error"),
     }
     payload = result.get("payload")

@@ -1,10 +1,10 @@
 """Run a report and return the multi-tab payload the viewer expects.
 
-Currently only the **ordered** report is wired to real data via the
-on-prem reporting API at REPORTING_API_BASE_URL. All other reports are
-intentionally hidden from the homepage until they get their own SP +
-builder; calling run_report() for an unwired key raises a clear error
-so we never silently serve fake numbers.
+Currently only the **ordered** report is wired to real data (via the
+on-prem reporting API at REPORTING_API_BASE_URL). All other reports
+are intentionally hidden from the homepage until they get their own
+SP + builder; calling run_report() for an unwired key raises a clear
+error so we never silently serve fake numbers.
 
 Output shape (what /api/reports/<key>/run serialises):
 
@@ -15,7 +15,7 @@ Output shape (what /api/reports/<key>/run serialises):
         "params":       { ... echoed filter params ... },
         "tabs":         [ ... ],
         "data_source":  {
-            "source":      "api" | "fresh_cache" | "stale_cache",
+            "source":      "api" | "fresh_cache" | "stale_cache" | "mirror_after_failure" | "mirror_no_api",
             "label":       <human label>,
             "endpoint":    <full URL we POSTed to>,
             "request_body":<exact JSON we sent>,
@@ -50,29 +50,32 @@ def _build_ordered(params: dict) -> tuple[list[dict], dict]:
     """Build the ordered report's multi-tab payload + source metadata.
 
     Source-selection order:
-        1. Reporting API (on-prem via Hybrid Connection). The client also
-           handles fresh + stale API-origin caching internally.
+        1. Reporting API (on-prem via Hybrid Connection).
+        2. Reporting API client's cache / SQLite mirror fallback.
 
-    There is no fixture, mirror, or random-mock fallback. Endpoint/config
-    failures are allowed to raise so migration testing catches them.
+    There is no fixture or random-mock fallback. If API + mirror cannot
+    satisfy the request, the caller gets a clear error instead of fake rows.
     """
-    if os.environ.get("USE_REPORTING_API_ORDERED", "1") == "0":
-        raise reporting_api.ReportingApiNotConfigured(
-            "USE_REPORTING_API_ORDERED=0 disables the ordered reporting API"
-        )
-
     request_preview = reporting_api.preview("ordered", params)
     api_started = time.monotonic()
-    rows = reporting_api.run("ordered", params)
+    try:
+        rows = reporting_api.run("ordered", params)
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - api_started) * 1000)
+        log.exception("Ordered report fetch failed after %d ms: %s", elapsed_ms, exc)
+        raise RuntimeError(f"Ordered report data unavailable from API or mirror: {exc}") from exc
+
     elapsed_ms = int((time.monotonic() - api_started) * 1000)
     actual = reporting_api.last_run_source() or {}
     actual_source = actual.get("source", "api")
     log.info("ordered report: pulled %d rows (effective source=%s) in %d ms",
              len(rows), actual_source, elapsed_ms)
     label_map = {
-        "api":         "Reporting API (live data)",
-        "fresh_cache": "Reporting API (cached, less than a few minutes old)",
-        "stale_cache": "Reporting API cached snapshot (live API was unreachable)",
+        "api":                  "Reporting API (live data)",
+        "fresh_cache":          "Reporting API (cached, less than a few minutes old)",
+        "stale_cache":          "Cached snapshot (live API was unreachable)",
+        "mirror_after_failure": "SQLite mirror (live API was unreachable)",
+        "mirror_no_api":        "SQLite mirror (API not configured)",
     }
     source = {
         "source":       actual_source,

@@ -207,12 +207,16 @@
             return;
         }
         const known = {
-            reporting_api:        { cls: "src-live",    text: "LIVE DATA" },
-            reporting_api_failed: { cls: "src-error",   text: "API FAILED" },
-            fixture:              { cls: "src-fixture", text: "TEST DATA (fixture)" },
-            random_mock:          { cls: "src-mock",    text: "MOCK DATA" },
+            api:                  { cls: "src-live",   text: "LIVE DATA" },
+            reporting_api:        { cls: "src-live",   text: "LIVE DATA" },
+            fresh_cache:          { cls: "src-cache",  text: "API CACHE" },
+            stale_cache:          { cls: "src-cache",  text: "STALE CACHE" },
+            mirror_after_failure: { cls: "src-mirror", text: "SQLITE MIRROR" },
+            mirror_no_api:        { cls: "src-mirror", text: "SQLITE MIRROR" },
+            failed:               { cls: "src-error",  text: "DATA FAILED" },
+            reporting_api_failed: { cls: "src-error",  text: "API FAILED" },
         };
-        const info = known[meta.source] || { cls: "src-mock", text: meta.source };
+        const info = known[meta.source] || { cls: "src-cache", text: meta.source };
 
         el.className = "data-source-badge " + info.cls;
         el.textContent = info.text;
@@ -224,8 +228,6 @@
             tipParts.push(meta.timeout_s ? tip + " of " + meta.timeout_s + " s timeout" : tip);
         }
         if (meta.endpoint) tipParts.push("Endpoint: " + meta.endpoint);
-        if (meta.fixture_file) tipParts.push("File: " + meta.fixture_file);
-        if (meta.api_error) tipParts.push("Last API error: " + meta.api_error);
         if (meta.error) tipParts.push("Error: " + meta.error);
         el.title = tipParts.filter(Boolean).join("\n");
         el.hidden = false;
@@ -262,7 +264,8 @@
         applyReportPayload(payload, preserveLayout, snapshot);
 
         if (cacheMeta && cacheMeta.job_id && /^cached_/.test(cacheMeta.state || "")) {
-            flashToast("Using cached data while fresh data loads.");
+            const cacheMsg = cachedDataMessage(cacheMeta);
+            flashToast(cacheMsg || "Using cached data while fresh data loads.");
             pollFreshData(cacheMeta.job_id, { preserveLayout: true, snapshot: snapshot, autoApply: false });
         }
     }
@@ -356,7 +359,7 @@
                 .then(function (r) { return r.json(); })
                 .then(function (j) {
                     if (j.status === "success" && j.payload) {
-                        const apply = opts.autoApply || window.confirm("Fresh data is ready. Refresh this view now?");
+                        const apply = opts.autoApply || window.confirm(freshDataPrompt(j));
                         if (apply) {
                             const snap = snapshotLayout();
                             applyReportPayload(j.payload, true, snap);
@@ -379,6 +382,38 @@
                 });
         }
         setTimeout(tick, 1500);
+    }
+
+    function cachedDataMessage(meta) {
+        const parts = [];
+        if (meta && meta.refreshed_utc) {
+            parts.push("Showing cache from " + fmtLocal(meta.refreshed_utc));
+            const age = relativeAge(meta.refreshed_utc);
+            if (age) parts.push(age + " old");
+        }
+        if (meta && meta.total_rows != null) {
+            parts.push(fmtInt(meta.total_rows) + " tab rows");
+        }
+        return parts.length ? (parts.join(" · ") + ". Fresh data is loading.") : "";
+    }
+
+    function freshDataPrompt(job) {
+        const currentRows = totalCurrentRows();
+        const freshRows = job.fresh_row_count != null ? Number(job.fresh_row_count) : totalRowsFromPayload(job.payload);
+        const delta = job.row_delta != null ? Number(job.row_delta) : (freshRows - currentRows);
+        const lines = ["Fresh data is ready."];
+        const currentStamp = job.cached_refreshed_utc || (state.generatedAt || "");
+        const freshStamp = job.fresh_refreshed_utc || job.refreshed_utc || "";
+        if (currentStamp && freshStamp) {
+            lines.push("Current view: " + fmtLocal(currentStamp) + " (" + (relativeAge(currentStamp, freshStamp) || "older") + " older than fresh data).");
+            lines.push("Fresh data: " + fmtLocal(freshStamp) + ".");
+        } else if (freshStamp) {
+            lines.push("Fresh data: " + fmtLocal(freshStamp) + ".");
+        }
+        lines.push("Rows: " + fmtInt(currentRows) + " now, " + fmtInt(freshRows) + " fresh (" + signedInt(delta) + ").");
+        lines.push("");
+        lines.push("Update this view using your current layout?");
+        return lines.join("\n");
     }
 
     /** Capture the user's current per-tab visibility / order / sort /
@@ -2846,6 +2881,39 @@
         const str = String(s);
         if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(str);
         return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    }
+    function totalRowsFromPayload(payload) {
+        let total = 0;
+        ((payload && payload.tabs) || []).forEach(function (tab) {
+            if (tab && Array.isArray(tab.rows)) total += tab.rows.length;
+        });
+        return total;
+    }
+    function totalCurrentRows() {
+        let total = 0;
+        state.tabOrder.forEach(function (key) {
+            const t = state.tabs[key];
+            if (t && Array.isArray(t.data)) total += t.data.length;
+        });
+        return total;
+    }
+    function signedInt(v) {
+        const n = Number(v || 0);
+        return (n > 0 ? "+" : "") + fmtInt(n) + " rows";
+    }
+    function relativeAge(fromIso, toIso) {
+        if (!fromIso) return "";
+        const from = Date.parse(fromIso);
+        const to = toIso ? Date.parse(toIso) : Date.now();
+        if (isNaN(from) || isNaN(to)) return "";
+        let seconds = Math.max(0, Math.round((to - from) / 1000));
+        if (seconds < 60) return seconds + " sec";
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) return minutes + " min";
+        const hours = Math.round(minutes / 60);
+        if (hours < 48) return hours + " hr";
+        const days = Math.round(hours / 24);
+        return days + " day" + (days === 1 ? "" : "s");
     }
     function fmtLocal(iso) {
         try {

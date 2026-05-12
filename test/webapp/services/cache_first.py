@@ -23,6 +23,7 @@ DEFAULT_WAIT_SECONDS = 5.0
 
 _jobs_lock = threading.Lock()
 _running_by_cache_key: dict[str, str] = {}
+_job_comparisons: dict[str, dict[str, Any]] = {}
 
 
 def _now() -> str:
@@ -32,6 +33,19 @@ def _now() -> str:
 def stable_hash(value: Any) -> str:
     canonical = json.dumps(value or {}, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha1(canonical.encode("utf-8")).hexdigest()
+
+
+def payload_row_count(payload: dict[str, Any] | None) -> int:
+    """Compare report payloads by total tab rows, matching run-log semantics."""
+    if not isinstance(payload, dict):
+        return 0
+    total = 0
+    for tab in payload.get("tabs") or []:
+        if isinstance(tab, dict):
+            rows = tab.get("rows")
+            if isinstance(rows, list):
+                total += len(rows)
+    return total
 
 
 def make_cache_key(kind: str, identity: str, user_scope: str, params: Any) -> str:
@@ -194,6 +208,33 @@ def start_refresh_job(
     return job_id, thread
 
 
+def _remember_comparison_base(job_id: str, cached_before: dict[str, Any] | None) -> None:
+    if not cached_before:
+        base = {"cached_refreshed_utc": None, "cached_row_count": None}
+    else:
+        base = {
+            "cached_refreshed_utc": cached_before.get("refreshed_utc"),
+            "cached_row_count": payload_row_count(cached_before.get("payload")),
+        }
+    with _jobs_lock:
+        _job_comparisons.setdefault(job_id, base)
+
+
+def _comparison_for(job_id: str, fresh: dict[str, Any] | None) -> dict[str, Any]:
+    with _jobs_lock:
+        base = dict(_job_comparisons.get(job_id) or {})
+    fresh_rows = payload_row_count(fresh.get("payload") if fresh else None)
+    cached_rows = base.get("cached_row_count")
+    out = {
+        "cached_refreshed_utc": base.get("cached_refreshed_utc"),
+        "cached_row_count": cached_rows,
+        "fresh_refreshed_utc": fresh.get("refreshed_utc") if fresh else None,
+        "fresh_row_count": fresh_rows,
+        "row_delta": (fresh_rows - cached_rows) if isinstance(cached_rows, int) else None,
+    }
+    return out
+
+
 def run_cache_first(
     *,
     kind: str,
@@ -213,6 +254,7 @@ def run_cache_first(
         params=params,
         builder=builder,
     )
+    _remember_comparison_base(job_id, cached_before)
 
     if thread is not None:
         thread.join(max(0.0, wait_seconds))
@@ -227,6 +269,8 @@ def run_cache_first(
                 "job_id": job_id,
                 "cache_key": cache_key,
                 "refreshed_utc": cached_after["refreshed_utc"],
+                "total_rows": payload_row_count(cached_after["payload"]),
+                **_comparison_for(job_id, cached_after),
             }
 
     if row.get("status") == "failed" and not cached_before:
@@ -244,6 +288,9 @@ def run_cache_first(
             "job_id": job_id,
             "cache_key": cache_key,
             "refreshed_utc": cached_before["refreshed_utc"],
+            "total_rows": payload_row_count(cached_before["payload"]),
+            "cached_refreshed_utc": cached_before["refreshed_utc"],
+            "cached_row_count": payload_row_count(cached_before["payload"]),
             "error": row.get("error"),
         }
 
@@ -274,6 +321,7 @@ def get_job_status(job_id: str) -> dict[str, Any]:
     if cached:
         out["payload"] = cached["payload"]
         out["refreshed_utc"] = cached["refreshed_utc"]
+        out.update(_comparison_for(job_id, cached))
     return out
 
 

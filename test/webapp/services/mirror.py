@@ -101,6 +101,7 @@ _MIRROR_SCHEMA = [
         item_number        TEXT,
         item_name          TEXT,
         unit_price         REAL,
+        order_status       TEXT,
         status             TEXT,
         qty_ordered        REAL,
         qty_shipped        REAL,
@@ -141,6 +142,10 @@ _MIRROR_SCHEMA = [
 _init_lock = threading.Lock()
 _init_done = False
 
+_MIRROR_COLUMN_MIGRATIONS = [
+    ("mirror_salesline", "order_status", "TEXT"),
+]
+
 
 def init_mirror_db() -> None:
     """Idempotent: ensure mirror tables exist. Safe on every boot."""
@@ -151,8 +156,17 @@ def init_mirror_db() -> None:
         with connect() as conn:
             for stmt in _MIRROR_SCHEMA:
                 conn.execute(stmt)
+            _ensure_mirror_columns(conn)
         _init_done = True
     log.info("mirror tables ready")
+
+
+def _ensure_mirror_columns(conn) -> None:
+    for table, column, coldef in _MIRROR_COLUMN_MIGRATIONS:
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coldef}")
+            log.info("%s: added %s column", table, column)
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +216,10 @@ def _to_str(v: Any) -> str:
     return str(v).strip()
 
 
+def _customer_account(v: Any) -> str:
+    return _to_str(v).upper()
+
+
 def _date_only(v: Any) -> str:
     """Extract YYYY-MM-DD from a CreatedDateTime style value."""
     s = _to_str(v)
@@ -227,14 +245,11 @@ def _within_window(date_str: str, days: int) -> bool:
 
 def _normalize_customer_row(raw: dict) -> dict:
     """Pull the columns we care about out of an SP customer-master row."""
-    acct = (
-        _to_str(raw.get("CustomerAccount"))
-        or _to_str(raw.get("AccountNum"))
-    )
+    acct = _customer_account(raw.get("CustomerAccount") or raw.get("AccountNum"))
     return {
         "customer_account": acct,
         "company":          _to_str(raw.get("Company")),
-        "account_num":      _to_str(raw.get("AccountNum")) or acct,
+        "account_num":      _customer_account(raw.get("AccountNum")) or acct,
         "customer_name":    _to_str(raw.get("CustomerName")),
         "cust_group":       _to_str(raw.get("CustGroup")),
         "currency":         _to_str(raw.get("Currency")),
@@ -360,7 +375,7 @@ def _normalize_salesline_row(raw: dict) -> dict:
     return {
         "sales_order_number": so,
         "line_number":        ln,
-        "customer_account":   _to_str(raw.get("CustomerAccount")),
+        "customer_account":   _customer_account(raw.get("CustomerAccount")),
         "customer_name":      _to_str(raw.get("customername") or raw.get("CustomerName")),
         "sales_group":        _to_str(raw.get("SalesGroup")),
         "order_date":         _date_only(raw.get("CreatedDateTime")),
@@ -369,6 +384,7 @@ def _normalize_salesline_row(raw: dict) -> dict:
         "item_number":        _to_str(raw.get("Item")),
         "item_name":          _to_str(raw.get("ItemDescription")),
         "unit_price":         _to_float(raw.get("SalesPrice")),
+        "order_status":       _to_str(raw.get("OrderStatus")),
         "status":             _to_str(raw.get("SalesStatus")),
         "qty_ordered":        _to_float(raw.get("QuantityOrdered")),
         "qty_shipped":        _to_float(raw.get("QuantityShipped")),
@@ -416,11 +432,11 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                         INSERT INTO mirror_salesline (
                             sales_order_number, line_number, customer_account,
                             customer_name, sales_group, order_date, created_datetime,
-                            po_number, item_number, item_name, unit_price, status,
-                            qty_ordered, qty_shipped, qty_cancelled,
+                            po_number, item_number, item_name, unit_price,
+                            order_status, status, qty_ordered, qty_shipped, qty_cancelled,
                             ordered_dollars, shipped_dollars, cancelled_dollars,
                             raw_json, first_seen_utc, last_seen_utc, row_hash
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             norm["sales_order_number"], norm["line_number"],
@@ -428,8 +444,8 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                             norm["sales_group"], norm["order_date"],
                             norm["created_datetime"], norm["po_number"],
                             norm["item_number"], norm["item_name"],
-                            norm["unit_price"], norm["status"],
-                            norm["qty_ordered"], norm["qty_shipped"],
+                            norm["unit_price"], norm["order_status"],
+                            norm["status"], norm["qty_ordered"], norm["qty_shipped"],
                             norm["qty_cancelled"], norm["ordered_dollars"],
                             norm["shipped_dollars"], norm["cancelled_dollars"],
                             json.dumps(raw, default=str), now, now, row_hash,
@@ -442,8 +458,8 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                         UPDATE mirror_salesline SET
                             customer_account=?, customer_name=?, sales_group=?,
                             order_date=?, created_datetime=?, po_number=?,
-                            item_number=?, item_name=?, unit_price=?, status=?,
-                            qty_ordered=?, qty_shipped=?, qty_cancelled=?,
+                            item_number=?, item_name=?, unit_price=?,
+                            order_status=?, status=?, qty_ordered=?, qty_shipped=?, qty_cancelled=?,
                             ordered_dollars=?, shipped_dollars=?, cancelled_dollars=?,
                             raw_json=?, last_seen_utc=?, row_hash=?
                         WHERE sales_order_number=? AND line_number=?
@@ -453,8 +469,8 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                             norm["sales_group"], norm["order_date"],
                             norm["created_datetime"], norm["po_number"],
                             norm["item_number"], norm["item_name"],
-                            norm["unit_price"], norm["status"],
-                            norm["qty_ordered"], norm["qty_shipped"],
+                            norm["unit_price"], norm["order_status"],
+                            norm["status"], norm["qty_ordered"], norm["qty_shipped"],
                             norm["qty_cancelled"], norm["ordered_dollars"],
                             norm["shipped_dollars"], norm["cancelled_dollars"],
                             json.dumps(raw, default=str), now, row_hash,
@@ -578,7 +594,7 @@ def get_salesline_fallback(*, customer_account: str | None = None,
     params: list[Any] = []
     if customer_account:
         where.append("customer_account = ?")
-        params.append(customer_account.strip())
+        params.append(_customer_account(customer_account))
     if date_from:
         where.append("order_date >= ?")
         params.append(date_from[:10])

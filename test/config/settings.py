@@ -17,7 +17,7 @@ def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-USE_MOCK_DATA: bool = _truthy(os.environ.get("V2_USE_MOCK_DATA", os.environ.get("USE_MOCK_DATA", "true")))
+USE_MOCK_DATA: bool = _truthy(os.environ.get("V2_USE_MOCK_DATA", os.environ.get("USE_MOCK_DATA", "false")))
 
 FLASK_SECRET: str = (
     os.environ.get("V2_FLASK_SECRET")

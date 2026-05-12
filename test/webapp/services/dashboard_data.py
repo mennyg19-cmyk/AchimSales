@@ -84,18 +84,20 @@ def _num(value: Any) -> float:
         return 0.0
 
 
+def _normalize_customer_account(value: Any) -> str:
+    """Canonical customer ID used when joining customer master to sales lines."""
+    if value in (None, "", "NULL"):
+        return ""
+    return str(value).strip().upper()
+
+
 def _customer_account(raw: dict) -> str:
-    return str(
+    return _normalize_customer_account(
         raw.get("CustomerAccount")
         or raw.get("customeraccount")
         or raw.get("AccountNum")
         or raw.get("accountnum")
-        or raw.get("CustomerID")
-        or raw.get("CustomerId")
-        or raw.get("customerid")
-        or raw.get("CustAccount")
-        or ""
-    ).strip()
+    )
 
 
 def _customer_name(raw: dict) -> str:
@@ -176,6 +178,8 @@ def _source_label(meta: dict[str, Any] | None) -> str:
         "api": "reporting API",
         "fresh_cache": "in-process API cache",
         "stale_cache": "stale API cache",
+        "mirror_after_failure": "SQLite mirror after API failure",
+        "mirror_no_api": "SQLite mirror; API not configured",
         "failed": "unavailable",
     }
     return labels.get(str(source), str(source).replace("_", " "))
@@ -185,7 +189,13 @@ def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
     params: dict[str, Any] = {}
     if salesman_key:
         params["salesman"] = salesman_key
-    rows = reporting_api.run("customer_master", params)
+    try:
+        rows = reporting_api.run("customer_master", params)
+    except Exception as exc:
+        # The order rows contain enough customer fields to seed the dashboard.
+        # Do not let customer-master downtime block the first dashboard load.
+        log.warning("Dashboard customer-master fetch failed; deriving customers from orders: %s", exc)
+        return [], "customer_master unavailable"
     return list(rows or []), _source_label(reporting_api.last_run_source())
 
 
@@ -228,15 +238,15 @@ def _cached_order_line(line: dict[str, Any], refreshed_at: str) -> tuple[Any, ..
     return (
         line.get("SalesOrderNumber") or "",
         int(_num(line.get("LineNumber"))),
-        line.get("CustomerAccount") or "",
+        _normalize_customer_account(line.get("CustomerAccount")),
         line.get("CustomerName") or "",
         line.get("Salesman") or "",
         _date_only(line.get("OrderDate")),
-        line.get("OrderStatus") or "",
         line.get("PO #") or "",
         line.get("Item#") or "",
         line.get("ItemName") or "",
         line.get("Status") or "",
+        line.get("OrderStatus") or "",
         _num(line.get("QtyOrdered")),
         _num(line.get("QtyShipped")),
         _num(line.get("QtyCancelled")),
@@ -255,11 +265,11 @@ def _row_to_order_line(row: Any) -> dict[str, Any]:
         "CustomerName": row["customer_name"],
         "Salesman": row["sales_group"],
         "OrderDate": row["order_date"],
-        "OrderStatus": row["order_status"],
         "PO #": row["customer_req"],
         "Item#": row["item_number"],
         "ItemName": row["item_name"],
         "Status": row["status"],
+        "OrderStatus": row["order_status"],
         "QtyOrdered": row["qty_ordered"],
         "QtyShipped": row["qty_shipped"],
         "QtyCancelled": row["qty_cancelled"],
@@ -295,7 +305,8 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         for raw in order_rows:
             line = _norm_row(raw)
             normalized_lines.append(line)
-            acct = (line.get("CustomerAccount") or "").strip()
+            acct = _normalize_customer_account(line.get("CustomerAccount"))
+            line["CustomerAccount"] = acct
             order_date = _date_only(line.get("OrderDate"))
             if not acct or not order_date:
                 continue
@@ -325,14 +336,16 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                     existing["sales_group"] = fallback["sales_group"]
                 if not existing.get("customer_name") and fallback.get("customer_name"):
                     existing["customer_name"] = fallback["customer_name"]
-
-        matched_dated_customer_count = sum(
-            1 for acct in customers_by_account if order_dates_by_customer.get(acct)
-        )
+            else:
+                customers_by_account[acct] = {
+                    "customer_account": acct,
+                    "customer_name": fallback["customer_name"] or acct,
+                    "sales_group": fallback["sales_group"],
+                }
 
         _validate_order_coverage(
             customer_count=len(customers_by_account),
-            dated_customer_count=matched_dated_customer_count,
+            dated_customer_count=len(order_dates_by_customer),
             order_line_count=len(normalized_lines),
             order_source=order_source,
             salesman_key=salesman_key,
@@ -420,9 +433,9 @@ def refresh_cache(salesman_key: str | None = None) -> None:
                 """
                 INSERT OR REPLACE INTO dashboard_order_cache (
                     sales_order_number, line_number, customer_account, customer_name,
-                    sales_group, order_date, order_status, customer_req, item_number, item_name,
-                    status, qty_ordered, qty_shipped, qty_cancelled, sales_price,
-                    ordered_dollars, shipped_dollars, last_refreshed
+                    sales_group, order_date, customer_req, item_number, item_name,
+                    status, order_status, qty_ordered, qty_shipped, qty_cancelled,
+                    sales_price, ordered_dollars, shipped_dollars, last_refreshed
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
@@ -617,6 +630,7 @@ def get_dashboard_summary(data: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def get_customer_cached(account: str) -> dict[str, Any] | None:
+    account = _normalize_customer_account(account)
     with connect() as conn:
         row = conn.execute(
             "SELECT * FROM dashboard_cache WHERE customer_account = ?",
@@ -658,19 +672,32 @@ def user_can_access_customer(email: str, account: str) -> bool:
     return False
 
 
-def _summarize_status_field(lines: list[dict[str, Any]], field: str) -> str:
-    statuses = sorted({(ln.get(field) or "").strip() for ln in lines if (ln.get(field) or "").strip()})
+def _summarize_order_status(lines: list[dict[str, Any]]) -> str:
+    statuses = sorted({
+        (ln.get("OrderStatus") or "").strip()
+        for ln in lines
+        if (ln.get("OrderStatus") or "").strip()
+    })
+    if not statuses:
+        statuses = sorted({
+            (ln.get("Status") or "").strip()
+            for ln in lines
+            if (ln.get("Status") or "").strip()
+        })
     if not statuses:
         return ""
     return statuses[0] if len(statuses) == 1 else "Mixed"
 
 
-def _summarize_order_status(lines: list[dict[str, Any]]) -> str:
-    return _summarize_status_field(lines, "OrderStatus") or _summarize_status_field(lines, "Status")
-
-
 def _summarize_line_status(lines: list[dict[str, Any]]) -> str:
-    return _summarize_status_field(lines, "Status")
+    statuses = sorted({
+        (ln.get("Status") or "").strip()
+        for ln in lines
+        if (ln.get("Status") or "").strip()
+    })
+    if not statuses:
+        return ""
+    return statuses[0] if len(statuses) == 1 else "Mixed"
 
 
 def _group_order_headers(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -700,6 +727,7 @@ def _group_order_headers(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _cached_lines_for_customer(account: str) -> list[dict[str, Any]]:
+    account = _normalize_customer_account(account)
     with connect() as conn:
         rows = conn.execute(
             """
@@ -806,6 +834,7 @@ def fetch_order_detail(order_number: str) -> tuple[dict[str, Any], list[dict[str
             "total_shipped": _num(line.get("Shipped $")),
             "total": _num(line.get("Shipped $")),
             "status": line.get("Status") or "",
+            "order_status": line.get("OrderStatus") or "",
         })
     return header, detail_lines, customer_account
 
