@@ -4678,7 +4678,7 @@ body.dark-theme .tabulator .tabulator-row:hover,
     border-radius: 8px;
     max-height: 60vh;
     overflow-y: auto;
-    background: var(--card-bg);
+    background: var(--bg-card);
 }
 .customer-pick-row {
     display: flex;
@@ -4759,7 +4759,7 @@ body.dark-theme .tabulator .tabulator-row:hover,
 }
 .modal-panel {
     position: relative;
-    background: var(--card-bg);
+    background: var(--bg-card);
     color: var(--text);
     border-radius: 12px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
