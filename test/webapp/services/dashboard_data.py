@@ -44,6 +44,21 @@ _last_refresh: str | None = None
 _last_refresh_requested: str | None = None
 _refresh_state: dict[str, dict[str, Any]] = {}
 
+# Tiny per-process cache of the built dashboard rows. Every customer
+# detail page + every per-page permission check used to rebuild this
+# from 85k+ mirror rows in Python; that made every navigation feel
+# like the app was hung. The cache is invalidated on every refresh and
+# auto-expires after a short TTL so it never goes stale.
+_DASHBOARD_BUILD_TTL_S = 30.0
+_dashboard_build_lock = threading.Lock()
+_dashboard_build_cache: tuple[float, list[dict[str, Any]]] | None = None
+
+
+def _invalidate_dashboard_build_cache() -> None:
+    global _dashboard_build_cache
+    with _dashboard_build_lock:
+        _dashboard_build_cache = None
+
 
 def _load_persisted_timestamps() -> None:
     global _last_refresh, _last_refresh_requested
@@ -286,6 +301,7 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         set_app_setting(_LAST_ORDER_SOURCE_KEY, order_source)
         set_app_setting(_LAST_ORDER_MIRROR_STATS_KEY, json.dumps(stats))
         set_app_setting(_LAST_ERROR_KEY, "")
+        _invalidate_dashboard_build_cache()
         _set_step(scope, f"Done - mirrors refreshed ({len(customer_rows):,} customers, {len(order_rows):,} order lines)")
         log.info("Dashboard mirror refresh complete (%s): %d customers, %d order lines",
                  scope_label, len(customer_rows), len(order_rows))
@@ -504,28 +520,6 @@ def _read_mirror_lines(
         return [_mirror_line_from_row(row) for row in conn.execute(sql, params)]
 
 
-def _read_mirror_customers() -> dict[str, dict[str, str]]:
-    mirror.init_mirror_db()
-    with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT customer_account, customer_name, sales_group
-            FROM mirror_customers
-            """
-        ).fetchall()
-    customers: dict[str, dict[str, str]] = {}
-    for row in rows:
-        acct = _normalize_customer_account(row["customer_account"])
-        if not acct:
-            continue
-        customers[acct] = {
-            "customer_account": acct,
-            "customer_name": (row["customer_name"] or "").strip() or acct,
-            "sales_group": (row["sales_group"] or "").strip(),
-        }
-    return customers
-
-
 def _single_value(values: list[str]) -> str:
     unique = sorted({v for v in values if v})
     if not unique:
@@ -565,26 +559,67 @@ def _group_mirror_orders(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return orders
 
 
-def _build_dashboard_rows_from_mirror() -> list[dict[str, Any]]:
-    lines = _read_mirror_lines()
-    orders = _group_mirror_orders(lines)
-    last_seen = (mirror.mirror_freshness().get("salesline") or {}).get("last_seen_utc") or ""
+def _build_dashboard_rows_uncached() -> list[dict[str, Any]]:
+    """Build the dashboard rows directly from SQL aggregation.
+
+    Aggregating in SQL (and only reading the columns we need) replaces
+    a Python-level scan over every mirrored salesline line. With 85k+
+    rows in the mirror, the difference is "instant" vs "page hangs for
+    several seconds per click".
+    """
+    mirror.init_mirror_db()
+    with connect() as conn:
+        # One row per (order, customer) with that order's latest date.
+        # Using MAX(order_date) collapses multi-line orders into a single
+        # date per order without reading 85k rows into Python.
+        order_rows = conn.execute(
+            """
+            SELECT sales_order_number,
+                   customer_account,
+                   MAX(customer_name) AS customer_name,
+                   MAX(sales_group)   AS sales_group,
+                   MAX(order_date)    AS order_date
+            FROM mirror_salesline
+            WHERE customer_account IS NOT NULL
+              AND customer_account <> ''
+              AND order_date IS NOT NULL
+              AND order_date <> ''
+            GROUP BY sales_order_number, customer_account
+            """
+        ).fetchall()
+        customer_rows = conn.execute(
+            "SELECT customer_account, customer_name, sales_group "
+            "FROM mirror_customers"
+        ).fetchall()
+        last_seen_row = conn.execute(
+            "SELECT MAX(last_seen_utc) AS last_seen FROM mirror_salesline"
+        ).fetchone()
+    last_seen = (last_seen_row["last_seen"] if last_seen_row else "") or ""
 
     order_dates_by_customer: dict[str, dict[str, str]] = {}
     customer_fallbacks: dict[str, dict[str, str]] = {}
-    for order in orders:
-        acct = _normalize_customer_account(order.get("customer_account"))
+    for row in order_rows:
+        acct = _normalize_customer_account(row["customer_account"])
         if not acct:
             continue
-        order_date = _date_only(order.get("order_date"))
+        order_date = _date_only(row["order_date"])
         if order_date:
-            order_dates_by_customer.setdefault(acct, {})[order["order_number"]] = order_date
+            order_dates_by_customer.setdefault(acct, {})[row["sales_order_number"]] = order_date
         customer_fallbacks.setdefault(acct, {
-            "customer_name": order.get("customer_name") or acct,
-            "sales_group": order.get("salesman") or "",
+            "customer_name": (row["customer_name"] or "").strip() or acct,
+            "sales_group": (row["sales_group"] or "").strip(),
         })
 
-    customers_by_account = _read_mirror_customers()
+    customers_by_account: dict[str, dict[str, str]] = {}
+    for row in customer_rows:
+        acct = _normalize_customer_account(row["customer_account"])
+        if not acct:
+            continue
+        customers_by_account[acct] = {
+            "customer_account": acct,
+            "customer_name": (row["customer_name"] or "").strip() or acct,
+            "sales_group": (row["sales_group"] or "").strip(),
+        }
 
     for acct, fallback in customer_fallbacks.items():
         existing = customers_by_account.get(acct)
@@ -601,6 +636,7 @@ def _build_dashboard_rows_from_mirror() -> list[dict[str, Any]]:
             }
 
     metrics: list[dict[str, Any]] = []
+    window_days = mirror.SALESLINE_WINDOW_DAYS
     for acct, customer in customers_by_account.items():
         dates = sorted(order_dates_by_customer.get(acct, {}).values())
         metric = _compute_customer_metrics(
@@ -610,9 +646,27 @@ def _build_dashboard_rows_from_mirror() -> list[dict[str, Any]]:
             dates,
         )
         metric["last_refreshed"] = last_seen
-        metric["mirror_window_days"] = mirror.SALESLINE_WINDOW_DAYS
+        metric["mirror_window_days"] = window_days
         metrics.append(metric)
     return metrics
+
+
+def _build_dashboard_rows_from_mirror() -> list[dict[str, Any]]:
+    """Cached wrapper around _build_dashboard_rows_uncached.
+
+    Returns a *copy* per call so callers can mutate items (e.g. setting
+    ``excluded``) without corrupting the cache.
+    """
+    global _dashboard_build_cache
+    now = time.monotonic()
+    with _dashboard_build_lock:
+        cached = _dashboard_build_cache
+    if cached is not None and (now - cached[0]) < _DASHBOARD_BUILD_TTL_S:
+        return [dict(row) for row in cached[1]]
+    fresh = _build_dashboard_rows_uncached()
+    with _dashboard_build_lock:
+        _dashboard_build_cache = (now, fresh)
+    return [dict(row) for row in fresh]
 
 
 def get_dashboard_summary(data: list[dict[str, Any]]) -> dict[str, Any]:
@@ -633,11 +687,54 @@ def get_dashboard_summary(data: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def get_customer_cached(account: str) -> dict[str, Any] | None:
+    """Return dashboard metrics for one customer without rebuilding the
+    whole dashboard. Hits the mirror with two indexed lookups and
+    aggregates that single customer's order dates in SQL.
+    """
     account = _normalize_customer_account(account)
-    for row in _build_dashboard_rows_from_mirror():
-        if row.get("customer_account") == account:
-            return row
-    return None
+    if not account:
+        return None
+    mirror.init_mirror_db()
+    with connect() as conn:
+        cust = conn.execute(
+            "SELECT customer_account, customer_name, sales_group "
+            "FROM mirror_customers WHERE customer_account = ?",
+            (account,),
+        ).fetchone()
+        order_rows = conn.execute(
+            """
+            SELECT sales_order_number,
+                   MAX(order_date)    AS order_date,
+                   MAX(customer_name) AS customer_name,
+                   MAX(sales_group)   AS sales_group
+            FROM mirror_salesline
+            WHERE customer_account = ?
+              AND order_date IS NOT NULL
+              AND order_date <> ''
+            GROUP BY sales_order_number
+            """,
+            (account,),
+        ).fetchall()
+        last_seen_row = conn.execute(
+            "SELECT MAX(last_seen_utc) AS last_seen "
+            "FROM mirror_salesline WHERE customer_account = ?",
+            (account,),
+        ).fetchone()
+
+    if cust is None and not order_rows:
+        return None
+
+    name = ((cust["customer_name"] if cust else "") or
+            (order_rows[0]["customer_name"] if order_rows else "") or
+            account).strip() or account
+    sales_group = ((cust["sales_group"] if cust else "") or
+                   (order_rows[0]["sales_group"] if order_rows else "") or "").strip()
+
+    dates = sorted({_date_only(r["order_date"]) for r in order_rows} - {""})
+    metric = _compute_customer_metrics(account, name, sales_group, dates)
+    metric["last_refreshed"] = (last_seen_row["last_seen"] if last_seen_row else "") or ""
+    metric["mirror_window_days"] = mirror.SALESLINE_WINDOW_DAYS
+    return metric
 
 
 def get_user_dashboard_scope(email: str) -> dict[str, Any]:
