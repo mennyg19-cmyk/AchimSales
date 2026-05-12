@@ -48,13 +48,26 @@
             .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
+    // The lookup endpoint returns customers as { key, name, salesman }
+    // where `name` is already "ACCT - Customer Name". Normalise into
+    // { account, label } so the row markup + URL are unambiguous.
+    function normalize(raw) {
+        var account = raw.key || raw.account || "";
+        var name = raw.name || "";
+        var prefix = account ? account + " - " : "";
+        var label = (prefix && name.indexOf(prefix) === 0)
+            ? name.slice(prefix.length).trim()
+            : name.trim();
+        return { account: account, label: label || account };
+    }
+
     function render(filterTerm) {
         var term = (filterTerm || "").trim().toLowerCase();
         var rows = allCustomers;
         if (term) {
             rows = rows.filter(function (c) {
-                return (c.account || "").toLowerCase().indexOf(term) !== -1
-                    || (c.name || "").toLowerCase().indexOf(term) !== -1;
+                return c.account.toLowerCase().indexOf(term) !== -1
+                    || c.label.toLowerCase().indexOf(term) !== -1;
             });
         }
 
@@ -74,7 +87,7 @@
             var url = detailBase + encodeURIComponent(c.account);
             html += '<a href="' + url + '" class="customer-pick-row">' +
                     '<span class="customer-pick-acct">' + escapeHtml(c.account) + '</span>' +
-                    '<span class="customer-pick-name">' + escapeHtml(c.name || "") + '</span>' +
+                    '<span class="customer-pick-name">' + escapeHtml(c.label) + '</span>' +
                     '</a>';
         }
         if (rows.length > max) {
@@ -95,9 +108,10 @@
         fetch(listUrl, { credentials: "same-origin" })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                allCustomers = Array.isArray(data) ? data : [];
+                var raw = Array.isArray(data) ? data : [];
+                allCustomers = raw.map(normalize).filter(function (c) { return c.account; });
                 allCustomers.sort(function (a, b) {
-                    return (a.name || "").localeCompare(b.name || "");
+                    return a.label.localeCompare(b.label);
                 });
                 if (!allCustomers.length) {
                     listEl.innerHTML =
