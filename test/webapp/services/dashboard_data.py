@@ -293,9 +293,15 @@ def _fetch_customers(salesman_key: str | None) -> tuple[list[dict], str]:
 
 
 def _orderless_customer_accounts(salesman_key: str | None) -> list[str]:
-    """Customers in master that have no row in mirror_salesline at all
-    (i.e. their last order is older than the rolling window). These are
-    the customers the dashboard would otherwise have to show as "new".
+    """Customers in master that have no row in the salesline mirror at
+    all (i.e. their last order is older than the rolling window). These
+    are the customers the backfill loop pulls full history for so the
+    dashboard can still show them a last-order date.
+
+    Reads against ``mirror_sales_header`` instead of the underlying
+    ``mirror_salesline`` table -- the header has one row per order
+    rather than per line, so the existence check skips 80k+ rows of
+    line detail entirely.
     """
     mirror.init_mirror_db()
     where_extra = ""
@@ -313,7 +319,7 @@ def _orderless_customer_accounts(salesman_key: str | None) -> list[str]:
               {where_extra}
               AND customer_account NOT IN (
                   SELECT DISTINCT customer_account
-                  FROM mirror_salesline
+                  FROM mirror_sales_header
                   WHERE customer_account IS NOT NULL
                     AND customer_account <> ''
               )
@@ -824,37 +830,30 @@ def _group_mirror_orders(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _build_dashboard_rows_uncached() -> list[dict[str, Any]]:
-    """Build the dashboard rows directly from SQL aggregation.
+    """Build the dashboard rows from the materialized header table.
 
-    Aggregating in SQL (and only reading the columns we need) replaces
-    a Python-level scan over every mirrored salesline line. With 85k+
-    rows in the mirror, the difference is "instant" vs "page hangs for
-    several seconds per click".
+    The hot query used to GROUP BY 86k salesline rows on every page
+    open. We now maintain a small (~5-10k row) header table that
+    holds exactly the shape this function needs, so the dashboard
+    is a plain ``SELECT *`` and never re-aggregates.
 
     Emits an INFO-level timing log every call (``dashboard.build_rows``)
-    so we can see whether the GROUP BY, the customer fetch, or the
-    Python aggregation is the bottleneck without bringing in a real
-    profiler.
+    so we can see whether the SQL or the Python aggregation is the
+    bottleneck without bringing in a real profiler.
     """
     mirror.init_mirror_db()
     t0 = time.monotonic()
     with connect() as conn:
-        # One row per (order, customer) with that order's latest date.
-        # Using MAX(order_date) collapses multi-line orders into a single
-        # date per order without reading 85k rows into Python.
         order_rows = conn.execute(
             """
             SELECT sales_order_number,
                    customer_account,
-                   MAX(customer_name) AS customer_name,
-                   MAX(sales_group)   AS sales_group,
-                   MAX(order_date)    AS order_date
-            FROM mirror_salesline
-            WHERE customer_account IS NOT NULL
-              AND customer_account <> ''
-              AND order_date IS NOT NULL
+                   customer_name,
+                   sales_group,
+                   order_date
+            FROM mirror_sales_header
+            WHERE order_date IS NOT NULL
               AND order_date <> ''
-            GROUP BY sales_order_number, customer_account
             """
         ).fetchall()
         t1 = time.monotonic()
@@ -864,7 +863,7 @@ def _build_dashboard_rows_uncached() -> list[dict[str, Any]]:
         ).fetchall()
         t2 = time.monotonic()
         last_seen_row = conn.execute(
-            "SELECT MAX(last_seen_utc) AS last_seen FROM mirror_salesline"
+            "SELECT MAX(last_seen_utc) AS last_seen FROM mirror_sales_header"
         ).fetchone()
         t3 = time.monotonic()
     last_seen = (last_seen_row["last_seen"] if last_seen_row else "") or ""

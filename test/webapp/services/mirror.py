@@ -122,11 +122,34 @@ _MIRROR_SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_status ON mirror_salesline(status)",
     # Covers the dashboard's GROUP BY (sales_order_number,
     # customer_account, MAX(order_date)) so SQLite can walk the index
-    # in-order instead of full-scanning 86k rows + sorting. This is
-    # the single hottest query in the app -- it runs every time the
-    # dashboard is opened or refreshed.
+    # in-order instead of full-scanning 86k rows + sorting. Still
+    # useful for ad-hoc queries even after mirror_sales_header was
+    # added.
     "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_dash "
     "ON mirror_salesline(sales_order_number, customer_account, order_date)",
+    # Materialized header aggregation: one row per (order, customer)
+    # derived from mirror_salesline. The dashboard queries this table
+    # directly, so opening the page is a small table scan over
+    # ~5-10k header rows instead of a GROUP BY over 86k line rows.
+    # Rebuilt at the end of every salesline upsert.
+    """
+    CREATE TABLE IF NOT EXISTS mirror_sales_header (
+        sales_order_number TEXT NOT NULL,
+        customer_account   TEXT NOT NULL,
+        customer_name      TEXT,
+        sales_group        TEXT,
+        order_date         TEXT,
+        order_status       TEXT,
+        po_number          TEXT,
+        line_count         INTEGER NOT NULL DEFAULT 0,
+        last_seen_utc      TEXT NOT NULL,
+        keep_forever       INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (sales_order_number, customer_account)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_customer ON mirror_sales_header(customer_account)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_order_date ON mirror_sales_header(order_date)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_sales_group ON mirror_sales_header(sales_group)",
     """
     CREATE TABLE IF NOT EXISTS mirror_refresh_runs (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,12 +193,30 @@ def init_mirror_db() -> None:
             for stmt in _MIRROR_SCHEMA:
                 conn.execute(stmt)
             _ensure_mirror_columns(conn)
-            # Refresh sqlite_stat1 so the planner actually picks the
-            # new covering index for the dashboard's GROUP BY. Without
-            # this, on a table that's accumulated rows before the index
-            # was added, SQLite may keep using the older (less
-            # selective) index and we get full-table scans even though
-            # the right index exists.
+            # One-time bootstrap of the materialized header table.
+            # On the first boot after the header-table change,
+            # mirror_salesline already has 86k rows but
+            # mirror_sales_header is empty -- meaning the dashboard
+            # would render blank until the next manual refresh.
+            # Populate it from the existing lines so the dashboard
+            # has its data immediately.
+            try:
+                header_empty = conn.execute(
+                    "SELECT 1 FROM mirror_sales_header LIMIT 1"
+                ).fetchone() is None
+                salesline_has_rows = conn.execute(
+                    "SELECT 1 FROM mirror_salesline LIMIT 1"
+                ).fetchone() is not None
+                if header_empty and salesline_has_rows:
+                    rebuilt = _rebuild_sales_header(conn)
+                    log.info(
+                        "mirror_sales_header bootstrapped from existing "
+                        "mirror_salesline: %d header rows", rebuilt,
+                    )
+            except Exception:
+                log.warning("header bootstrap failed (non-fatal)", exc_info=True)
+            # Refresh sqlite_stat1 so the planner picks the right
+            # index for each table after any schema/data changes.
             try:
                 conn.execute("ANALYZE")
             except Exception:
@@ -515,6 +556,57 @@ def _normalize_salesline_row(raw: dict) -> dict:
     }
 
 
+def _rebuild_sales_header(conn) -> int:
+    """Recompute mirror_sales_header from the current mirror_salesline.
+
+    Run inside an existing connection / transaction (so it's atomic
+    with whatever salesline mutations just happened). Returns the
+    number of header rows written.
+
+    The implementation deliberately rebuilds the whole table rather
+    than trying to update individual headers per-line. SQLite can
+    chew through a 86k-row GROUP-BY into a 5-10k-row INSERT in
+    well under a second, and rebuilding-from-scratch removes any
+    chance of drift between the line table and the header
+    aggregation.
+    """
+    conn.execute("DELETE FROM mirror_sales_header")
+    cur = conn.execute(
+        """
+        INSERT INTO mirror_sales_header (
+            sales_order_number,
+            customer_account,
+            customer_name,
+            sales_group,
+            order_date,
+            order_status,
+            po_number,
+            line_count,
+            last_seen_utc,
+            keep_forever
+        )
+        SELECT
+            sales_order_number,
+            customer_account,
+            MAX(customer_name),
+            MAX(sales_group),
+            MAX(order_date),
+            MAX(order_status),
+            MAX(po_number),
+            COUNT(*),
+            MAX(last_seen_utc),
+            MAX(keep_forever)
+        FROM mirror_salesline
+        WHERE sales_order_number IS NOT NULL
+          AND sales_order_number <> ''
+          AND customer_account IS NOT NULL
+          AND customer_account <> ''
+        GROUP BY sales_order_number, customer_account
+        """
+    )
+    return cur.rowcount or 0
+
+
 def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                      prune_window_days: int = SALESLINE_WINDOW_DAYS,
                      triggered_by: str | None = None,
@@ -685,6 +777,14 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                         (cutoff,),
                     )
                     pruned = cur.rowcount or 0
+
+            # Rebuild the materialized header aggregation. Doing this
+            # once at the end of the salesline upsert collapses the
+            # dashboard's hottest query from a GROUP BY over ~86k
+            # line rows into a small table scan over ~5-10k header
+            # rows. It also keeps callers (the dashboard, customer
+            # detail, last-order) on a single source of truth.
+            _rebuild_sales_header(conn)
     except Exception as exc:
         err = str(exc)
         log.exception("upsert_salesline failed")
