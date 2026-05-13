@@ -858,6 +858,26 @@ def _customer_name_of(row: dict) -> str:
     ).strip()
 
 
+def _salesman_full_name_map() -> dict[str, str]:
+    """Map SalesGroup key -> admin-configured full name.
+
+    Reads ``app_salesmen`` (the admin-managed salesman list in
+    ``settings.html``) and returns a lookup so dropdowns can show
+    "Robert Edwards" instead of just "REdwards". Missing rows fall
+    back to the key on the call site.
+    """
+    try:
+        from test.webapp.db import list_salesman_map
+        return {
+            (s.get("key") or "").strip(): (s.get("full_name") or "").strip()
+            for s in list_salesman_map()
+            if (s.get("key") or "").strip() and (s.get("full_name") or "").strip()
+        }
+    except Exception:
+        log.exception("salesman full-name lookup failed")
+        return {}
+
+
 def list_salesmen() -> list[dict]:
     """Distinct salesmen (SalesGroup). NEVER blocks.
 
@@ -866,7 +886,16 @@ def list_salesmen() -> list[dict]:
            rpt.usp_customer_master).
         2. The local SQLite mirror, so the dropdown keeps working when
            the API is down.
+
+    Each row is enriched with the admin-managed full name from
+    ``app_salesmen`` when one is configured; otherwise ``name`` falls
+    back to the SalesGroup key.
     """
+    name_map = _salesman_full_name_map()
+
+    def _row(key: str) -> dict:
+        return {"key": key, "name": name_map.get(key) or key}
+
     rows = _cached_lookup_rows()
     if rows:
         seen: set[str] = set()
@@ -876,14 +905,21 @@ def list_salesmen() -> list[dict]:
                 continue
             seen.add(str(sg).strip())
         if seen:
-            return [{"key": s, "name": s} for s in sorted(seen)]
+            return sorted(
+                (_row(k) for k in seen),
+                key=lambda r: r["name"].lower(),
+            )
 
     # Nothing fresh in process. Kick off a background populate AND
     # serve whatever's in the local mirror so the user isn't blocked.
     _kick_lookup_populate()
     try:
         from test.webapp.services import mirror
-        return mirror.get_salesmen_fallback()
+        mirror_rows = mirror.get_salesmen_fallback()
+        return sorted(
+            (_row((r.get("key") or "").strip()) for r in mirror_rows if (r.get("key") or "").strip()),
+            key=lambda r: r["name"].lower(),
+        )
     except Exception:
         log.exception("list_salesmen: mirror fallback failed")
         return []
@@ -891,6 +927,13 @@ def list_salesmen() -> list[dict]:
 
 def list_customers(salesman: str | None = None) -> list[dict]:
     """Distinct customers. NEVER blocks.
+
+    Returns ``[{key, name, salesman}, ...]`` where ``name`` is the
+    *clean* customer name (no ID prefix). Consumers that want a
+    combined "<KEY> - <NAME>" display string can build it themselves;
+    earlier we used to bake the prefix into ``name``, which then got
+    double-rendered as "**KEY** · KEY - NAME" by the report-form
+    picker.
 
     Same fallback chain as list_salesmen.
     """
@@ -910,10 +953,9 @@ def list_customers(salesman: str | None = None) -> list[dict]:
             if acct_key in seen:
                 continue
             cname = _customer_name_of(r)
-            display = f"{acct_key} - {cname}".strip(" -") if cname else acct_key
             seen[acct_key] = {
                 "key": acct_key,
-                "name": display,
+                "name": cname or acct_key,
                 "salesman": sg_str,
             }
         if seen:

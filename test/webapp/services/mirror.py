@@ -666,7 +666,8 @@ def get_customers_fallback(salesman: str | None = None) -> list[dict]:
     """Customer dropdown rows from the mirror.
 
     Returns the same shape ``reporting_api.list_customers`` returns:
-    ``[{key, name, salesman}, ...]``. Sorted by display name.
+    ``[{key, name, salesman}, ...]`` where ``name`` is the clean
+    customer name (no ID prefix). Sorted by name.
     """
     init_mirror_db()
     sql = ("SELECT customer_account, customer_name, sales_group "
@@ -679,11 +680,10 @@ def get_customers_fallback(salesman: str | None = None) -> list[dict]:
     with connect() as conn:
         for r in conn.execute(sql, params):
             acct = r["customer_account"]
-            cname = r["customer_name"] or ""
-            display = f"{acct} - {cname}".strip(" -") if cname else acct
+            cname = (r["customer_name"] or "").strip()
             out.append({
                 "key":      acct,
-                "name":     display,
+                "name":     cname or acct,
                 "salesman": r["sales_group"] or "",
             })
     out.sort(key=lambda c: c["name"].lower())
