@@ -559,11 +559,31 @@ def _sync_salesman_users(conn: sqlite3.Connection) -> None:
 
 
 # Connect-time setup that only needs to run once per process. On
-# OneDrive the file syscalls underneath each of these have non-trivial
-# latency, and every page that hits the dashboard route opens 8-10
-# connections; doing mkdir + setting WAL on each one was meaningfully
-# slowing down navigation even though each step is "fast".
+# Azure App Service the DB lives on the SMB-mounted /home/, where
+# every open()/close() carries real network latency; a dashboard
+# render that did ~13 fresh connects added up to 20+ seconds just
+# in connection setup. Once the schema is up the only thing we need
+# per connection is the PRAGMAs that aren't persisted in the DB
+# header.
 _connect_setup_done = False
+
+
+def _apply_pragmas(conn: sqlite3.Connection, *, first_time: bool) -> None:
+    # WAL + synchronous=NORMAL is the standard "fast on slow disk"
+    # combo: WAL lets readers and writers run concurrently, and
+    # synchronous=NORMAL skips the fsync after every commit (a single
+    # fsync per checkpoint is still done, so durability across power
+    # loss is preserved within WAL semantics).
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    # 64 MB per-connection page cache. Keeps the dashboard's GROUP BY
+    # over 85k salesline rows in memory after the first hit.
+    conn.execute("PRAGMA cache_size = -65536")
+    if first_time:
+        # journal_mode persists in the DB header; only set it once.
+        conn.execute("PRAGMA journal_mode = WAL")
 
 
 def _connect() -> sqlite3.Connection:
@@ -572,17 +592,46 @@ def _connect() -> sqlite3.Connection:
         APP_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(APP_DB_PATH), check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    if not _connect_setup_done:
-        # WAL is persistent in the DB header, so we only need to set
-        # it the very first time. Subsequent connections inherit it.
-        conn.execute("PRAGMA journal_mode = WAL")
-        _connect_setup_done = True
+    _apply_pragmas(conn, first_time=not _connect_setup_done)
+    _connect_setup_done = True
     return conn
 
 
+# Per-request connection cache. A single dashboard render fires
+# ~13 helper calls that each opened their own SQLite handle; sharing
+# one handle across the request collapses that to 1 open + 1 close.
+# Falls back to a fresh connect outside a request context (worker
+# threads, the mirror refresh, the scheduler, etc.) so we never
+# accidentally share a connection across threads.
 @contextlib.contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
+    try:
+        from flask import g, has_request_context
+    except Exception:
+        has_request_context = lambda: False  # noqa: E731
+        g = None  # type: ignore[assignment]
+
+    if has_request_context():
+        cached = getattr(g, "_v2_sqlite_conn", None)
+        if cached is None:
+            cached = _connect()
+            g._v2_sqlite_conn = cached
+        try:
+            yield cached
+            # Each `with connect()` block is still its own atomic unit;
+            # we just don't tear down the underlying socket between
+            # them. sqlite3's implicit-BEGIN model means the next call
+            # that issues an INSERT/UPDATE just opens a fresh
+            # transaction.
+            cached.commit()
+        except Exception:
+            cached.rollback()
+            raise
+        # Deliberately do NOT close on the inner exit -- the Flask
+        # teardown hook closes the shared connection once the whole
+        # request finishes.
+        return
+
     conn = _connect()
     try:
         yield conn
@@ -592,6 +641,35 @@ def connect() -> Iterator[sqlite3.Connection]:
         raise
     finally:
         conn.close()
+
+
+def teardown_request_connection(exc: BaseException | None = None) -> None:
+    """Flask teardown hook: close the per-request SQLite connection.
+
+    Registered from ``create_app`` so the request-scoped connection
+    opened above is reliably released no matter how the request
+    exits (success, exception, or aborted response).
+    """
+    try:
+        from flask import g
+    except Exception:
+        return
+    conn = getattr(g, "_v2_sqlite_conn", None)
+    if conn is None:
+        return
+    try:
+        if exc is not None:
+            conn.rollback()
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+    try:
+        delattr(g, "_v2_sqlite_conn")
+    except Exception:
+        pass
 
 
 def init_db() -> None:

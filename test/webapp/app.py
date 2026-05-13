@@ -33,7 +33,7 @@ from test.webapp.blueprints.report_api import report_api_bp, sharepoint_api_bp
 from test.webapp.blueprints.reports import reports_bp
 from test.webapp.blueprints.schedules import schedules_bp
 from test.webapp.blueprints.settings_bp import settings_bp
-from test.webapp.db import init_db
+from test.webapp.db import init_db, teardown_request_connection
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,11 @@ def create_app() -> Flask:
         static_url_path="/static",
     )
     app.secret_key = FLASK_SECRET
+
+    # Release the per-request SQLite connection (see db.connect) on
+    # every request exit. Doing this here keeps the db module free of
+    # any Flask import-time dependency.
+    app.teardown_request(teardown_request_connection)
 
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"

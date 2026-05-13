@@ -520,6 +520,13 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
     skipped_missing_order = skipped_missing_date = skipped_outside_window = 0
     now = _utcnow()
     err: str | None = None
+    # Commit every N rows so the writer lock isn't held for the full
+    # 85k-row ingest. Without this, any other write on the DB --
+    # mark_refresh_requested() from a page render, a piggyback upsert
+    # from a report run, etc. -- has to wait for the entire ingest
+    # to finish, which produces 25+ second page hangs on slow disks.
+    _COMMIT_BATCH = 2000
+    pending = 0
     try:
         with connect() as conn:
             for raw in rows:
@@ -610,6 +617,11 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                         (now, kf, norm["sales_order_number"], norm["line_number"]),
                     )
                     unchanged += 1
+
+                pending += 1
+                if pending >= _COMMIT_BATCH:
+                    conn.commit()
+                    pending = 0
 
             # Defensive prune. Only when we're doing an explicit
             # full-snapshot refresh (not a piggyback from a report run),
