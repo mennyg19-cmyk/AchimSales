@@ -119,6 +119,13 @@ _MIRROR_SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_customer ON mirror_salesline(customer_account)",
     "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_orderdate ON mirror_salesline(order_date)",
     "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_status ON mirror_salesline(status)",
+    # Covers the dashboard's GROUP BY (sales_order_number,
+    # customer_account, MAX(order_date)) so SQLite can walk the index
+    # in-order instead of full-scanning 86k rows + sorting. This is
+    # the single hottest query in the app -- it runs every time the
+    # dashboard is opened or refreshed.
+    "CREATE INDEX IF NOT EXISTS idx_mirror_salesline_dash "
+    "ON mirror_salesline(sales_order_number, customer_account, order_date)",
     """
     CREATE TABLE IF NOT EXISTS mirror_refresh_runs (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,

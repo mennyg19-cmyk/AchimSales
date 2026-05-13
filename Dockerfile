@@ -45,6 +45,7 @@ RUN mkdir -p /app/test/outbox /app/logs /app/_report_output
 
 ENV PORT=8000 \
     WEB_CONCURRENCY=2 \
+    GUNICORN_THREADS=8 \
     GUNICORN_TIMEOUT=120 \
     USE_MOCK_DATA=true \
     MAIL_MODE=capture
@@ -54,4 +55,11 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -fsS http://127.0.0.1:${PORT}/v2/healthz || exit 1
 
-CMD ["sh", "-c", "gunicorn --bind=0.0.0.0:${PORT} --workers=${WEB_CONCURRENCY} --timeout=${GUNICORN_TIMEOUT} --access-logfile=- --error-logfile=- wsgi:application"]
+# gthread worker class so a single slow request (a 25-second dashboard
+# data fetch, a long polling refresh-status call) doesn't block every
+# other tab's request. With 2 workers x 8 threads = 16 concurrent
+# requests, which is plenty for the small user base and keeps the
+# UI responsive while a refresh is in flight. The SQLite layer is
+# WAL + connection-per-request, so multiple threads reading the same
+# DB at once is safe.
+CMD ["sh", "-c", "gunicorn --bind=0.0.0.0:${PORT} --workers=${WEB_CONCURRENCY} --worker-class=gthread --threads=${GUNICORN_THREADS} --timeout=${GUNICORN_TIMEOUT} --access-logfile=- --error-logfile=- wsgi:application"]
