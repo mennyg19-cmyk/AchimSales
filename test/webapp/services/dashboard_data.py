@@ -124,7 +124,23 @@ def _compute_customer_metrics(
     sales_group: str,
     order_dates: list[str],
 ) -> dict[str, Any]:
-    """Compute live-style frequency and status metrics for one customer."""
+    """Compute frequency + status metrics for one customer.
+
+    Status definitions (matching the original app):
+
+    * ``new``      -- placed exactly one order since D365 go-live.
+    * ``active``   -- placed two or more orders and the latest is within
+                      their usual cadence (``mean_gap + stdev``).
+    * ``overdue``  -- placed two or more orders but the latest is older
+                      than the cadence threshold (yet within a year).
+    * ``inactive`` -- either no orders at all in our mirror, or the
+                      latest order is more than 365 days old.
+
+    ``order_dates`` is the list of distinct order dates we currently
+    have in the mirror for the customer (one entry per
+    ``sales_order_number``). The dashboard aggregates these in SQL
+    before calling here.
+    """
     today = get_today_eastern()
     result: dict[str, Any] = {
         "customer_account": customer_account,
@@ -136,11 +152,13 @@ def _compute_customer_metrics(
         "gap_stdev": None,
         "overdue_threshold": None,
         "days_since_last": None,
-        "status": "new",
+        "status": "inactive",
     }
 
     parsed = sorted(d for d in (_parse_date(x) for x in order_dates) if d is not None)
     if not parsed:
+        # No orders in the mirror at all -- truly dormant from our
+        # perspective. The old app called these "inactive".
         return result
 
     last = parsed[-1]
@@ -148,27 +166,31 @@ def _compute_customer_metrics(
     days_since = (today - last).days
     result["days_since_last"] = days_since
 
-    # Baseline: a customer with any order is never "new". "New" is
-    # reserved for customers in mirror_customers that have no orders
-    # in the mirror window at all.
-    result["status"] = "inactive" if days_since > 365 else "active"
-
     if len(parsed) < 2:
+        # Exactly one order in the mirror -> "new" by the original-app
+        # definition ("customers who have placed only one order since
+        # D365 go-live"). We don't downgrade old single-order customers
+        # to "inactive" because the spec explicitly treats them as new.
+        result["status"] = "new"
         return result
 
+    # 2+ orders: compute the customer's typical reorder cadence and
+    # classify against it.
     gaps = [(parsed[i + 1] - parsed[i]).days for i in range(len(parsed) - 1)]
     gaps = [g for g in gaps if g > 0]
-    if not gaps:
-        return result
-
-    mean_gap = sum(gaps) / len(gaps)
-    variance = sum((g - mean_gap) ** 2 for g in gaps) / len(gaps)
-    stdev = math.sqrt(variance)
-    threshold = mean_gap + stdev
-
-    result["avg_gap_days"] = round(mean_gap, 1)
-    result["gap_stdev"] = round(stdev, 1)
-    result["overdue_threshold"] = round(threshold, 1)
+    if gaps:
+        mean_gap = sum(gaps) / len(gaps)
+        variance = sum((g - mean_gap) ** 2 for g in gaps) / len(gaps)
+        stdev = math.sqrt(variance)
+        threshold = mean_gap + stdev
+        result["avg_gap_days"] = round(mean_gap, 1)
+        result["gap_stdev"] = round(stdev, 1)
+        result["overdue_threshold"] = round(threshold, 1)
+    else:
+        # All orders on the same day -- no cadence to learn. Treat the
+        # threshold as "anything in the last 60 days is on-cadence".
+        threshold = float(mirror.SALESLINE_WINDOW_DAYS)
+        result["overdue_threshold"] = round(threshold, 1)
 
     if days_since > 365:
         result["status"] = "inactive"
@@ -302,42 +324,21 @@ def _orderless_customer_accounts(salesman_key: str | None) -> list[str]:
     return [r["customer_account"] for r in rows if r["customer_account"]]
 
 
-def _latest_row_per_customer(rows: list[dict]) -> dict[str, dict]:
-    """From a salesline_release response, pick one row per customer:
-    the row with the latest CreatedDateTime (falling back to OrderDate).
-    Ties go to the highest line number so we still get *some* row when
-    timestamps collide.
-    """
-    def _key(raw: dict) -> tuple:
-        cdt = raw.get("CreatedDateTime") or raw.get("OrderCreationDateTime") or raw.get("OrderDate") or ""
-        ln = raw.get("LineNumber") or raw.get("LineNum") or 0
-        try:
-            ln_int = int(ln)
-        except (TypeError, ValueError):
-            ln_int = 0
-        return (str(cdt), ln_int)
-
-    latest: dict[str, dict] = {}
-    for raw in rows:
-        acct = _normalize_customer_account(
-            raw.get("CustomerAccount") or raw.get("AccountNum")
-        )
-        if not acct:
-            continue
-        if acct not in latest or _key(raw) > _key(latest[acct]):
-            latest[acct] = raw
-    return latest
-
-
 def _backfill_last_orders(
     salesman_key: str | None,
     scope: str,
 ) -> dict[str, int]:
-    """For every customer in master with no orders in the 60-day mirror,
-    fetch their entire order history once, keep their single latest
-    line, and pin it in the mirror so the rolling-window pruner can't
-    drop it. This lets the dashboard show *some* last-order date for
-    customers who order less than once a quarter.
+    """For every customer in master with no orders in the rolling
+    mirror window, fetch their entire order history since D365
+    go-live and pin **all** of it in the mirror so the rolling-window
+    pruner can't drop it.
+
+    We used to only pin the *latest* line per customer here, but that
+    made every multi-order long-tail customer look like a single-order
+    "new" customer to the dashboard classifier. Pinning the full
+    history is the right shape: the API call costs the same either way,
+    and the extra rows are negligible (long-tail customers are
+    long-tail precisely because they don't order much).
     """
     accounts = _orderless_customer_accounts(salesman_key)
     stats = {
@@ -384,8 +385,11 @@ def _backfill_last_orders(
         stats["rows_fetched"] += len(rows or [])
         if not rows:
             continue
-        latest = _latest_row_per_customer(rows)
-        pinned_rows.extend(latest.values())
+        # Pin every row we got back, not just the latest per customer.
+        # Multi-order long-tail customers need their full history in
+        # the mirror so the dashboard classifier can tell "1 order"
+        # ("new") from "many orders, none recent" ("inactive").
+        pinned_rows.extend(rows)
 
     if pinned_rows:
         upsert_stats = mirror.upsert_salesline(
