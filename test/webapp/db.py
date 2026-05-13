@@ -558,12 +558,26 @@ def _sync_salesman_users(conn: sqlite3.Connection) -> None:
         )
 
 
+# Connect-time setup that only needs to run once per process. On
+# OneDrive the file syscalls underneath each of these have non-trivial
+# latency, and every page that hits the dashboard route opens 8-10
+# connections; doing mkdir + setting WAL on each one was meaningfully
+# slowing down navigation even though each step is "fast".
+_connect_setup_done = False
+
+
 def _connect() -> sqlite3.Connection:
-    APP_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    global _connect_setup_done
+    if not _connect_setup_done:
+        APP_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(APP_DB_PATH), check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
+    if not _connect_setup_done:
+        # WAL is persistent in the DB header, so we only need to set
+        # it the very first time. Subsequent connections inherit it.
+        conn.execute("PRAGMA journal_mode = WAL")
+        _connect_setup_done = True
     return conn
 
 
@@ -631,6 +645,31 @@ def get_app_setting(key: str) -> str | None:
             "SELECT value FROM app_settings WHERE key = ?", (key,)
         ).fetchone()
     return row["value"] if row else None
+
+
+def get_app_settings_batch(keys: list[str]) -> dict[str, str | None]:
+    """Read multiple ``app_settings`` rows in one connection.
+
+    Returns ``{key: value_or_None}`` for every requested key. The
+    dashboard refresh-status panel reads ~7 settings per page render;
+    batching them collapses 7 connections + 7 SELECTs into one of
+    each. On OneDrive-hosted SQLite that's the difference between a
+    snappy page and a noticeably slow one.
+    """
+    cleaned = [(k or "").strip() for k in keys]
+    cleaned = [k for k in cleaned if k]
+    if not cleaned:
+        return {}
+    placeholders = ",".join("?" for _ in cleaned)
+    out: dict[str, str | None] = {k: None for k in cleaned}
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT key, value FROM app_settings WHERE key IN ({placeholders})",
+            cleaned,
+        ).fetchall()
+    for r in rows:
+        out[r["key"]] = r["value"]
+    return out
 
 
 def set_app_setting(key: str, value: str) -> None:

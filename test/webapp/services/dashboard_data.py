@@ -20,6 +20,7 @@ from core.dates import D365_GO_LIVE, get_today_eastern
 from test.webapp.db import (
     connect,
     get_app_setting,
+    get_app_settings_batch,
     get_user_salesman_access,
     normalize_key,
     set_app_setting,
@@ -470,6 +471,7 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         set_app_setting(_LAST_BACKFILL_STATS_KEY, json.dumps(backfill_stats))
         set_app_setting(_LAST_ERROR_KEY, "")
         _invalidate_dashboard_build_cache()
+        _invalidate_cache_counts()
         _set_step(scope, f"Done - mirrors refreshed ({len(customer_rows):,} customers, {len(order_rows):,} order lines)")
         log.info("Dashboard mirror refresh complete (%s): %d customers, %d order lines",
                  scope_label, len(customer_rows), len(order_rows))
@@ -511,26 +513,83 @@ def get_refresh_status(salesman_key: str | None = None) -> dict[str, Any]:
     scope = _scope_key(salesman_key)
     state = _refresh_state.get(scope, {})
     counts = get_cache_counts()
+
+    # Batch every app_settings read used below into one connection
+    # instead of opening 5-7 separate ones. On OneDrive each connect()
+    # adds enough latency that this is visible in page-load time.
+    settings = get_app_settings_batch([
+        _LAST_REQUESTED_KEY,
+        _LAST_COMPLETED_KEY,
+        _LAST_CUSTOMER_SOURCE_KEY,
+        _LAST_ORDER_SOURCE_KEY,
+        _LAST_ORDER_MIRROR_STATS_KEY,
+        _LAST_BACKFILL_STATS_KEY,
+        _LAST_ERROR_KEY,
+    ])
+
+    last_completed = _last_refresh or settings.get(_LAST_COMPLETED_KEY)
+    if not last_completed:
+        # Final fallback to the mirror's own freshness timestamps.
+        # get_last_refresh() handles that path and module-caches the
+        # result, so future calls skip it.
+        last_completed = get_last_refresh()
+
+    def _stats_or_persisted(state_key: str, persisted_key: str, renderer):
+        live = renderer(state.get(state_key))
+        if live:
+            return live
+        raw = settings.get(persisted_key)
+        if not raw:
+            return ""
+        try:
+            return renderer(json.loads(raw))
+        except Exception:
+            return ""
+
     return {
         "running": bool(state.get("running", False)),
         "step": state.get("step", ""),
-        "last_requested": _last_refresh_requested or get_app_setting(_LAST_REQUESTED_KEY),
-        "last_completed": get_last_refresh(),
+        "last_requested": _last_refresh_requested or settings.get(_LAST_REQUESTED_KEY),
+        "last_completed": last_completed,
         "cache_customers": counts["customers"],
         "cache_order_lines": counts["order_lines"],
         "dated_order_lines": counts["dated_order_lines"],
         "customers_with_last_order": counts["customers_with_last_order"],
         "order_customers": counts["order_customers"],
-        "customer_source": state.get("customer_source") or get_app_setting(_LAST_CUSTOMER_SOURCE_KEY),
-        "order_source": state.get("order_source") or get_app_setting(_LAST_ORDER_SOURCE_KEY),
-        "order_mirror_stats": _salesline_stats_message(state.get("order_mirror_stats")) or _last_salesline_stats_message(),
-        "backfill_stats": _backfill_stats_message(state.get("backfill_stats")) or _last_backfill_stats_message(),
-        "last_error": get_app_setting(_LAST_ERROR_KEY),
+        "customer_source": state.get("customer_source") or settings.get(_LAST_CUSTOMER_SOURCE_KEY),
+        "order_source": state.get("order_source") or settings.get(_LAST_ORDER_SOURCE_KEY),
+        "order_mirror_stats": _stats_or_persisted("order_mirror_stats", _LAST_ORDER_MIRROR_STATS_KEY, _salesline_stats_message),
+        "backfill_stats": _stats_or_persisted("backfill_stats", _LAST_BACKFILL_STATS_KEY, _backfill_stats_message),
+        "last_error": settings.get(_LAST_ERROR_KEY),
         "salesline_window_days": mirror.SALESLINE_WINDOW_DAYS,
     }
 
 
+# Cache for get_cache_counts(): the four COUNT queries (especially
+# COUNT(DISTINCT customer_account) on 85k+ rows) add up when the
+# dashboard route calls them 3x per request -- once via
+# get_cache_quality_warning(), once via cache_needs_order_refresh(),
+# once via get_refresh_status(). The numbers only change when the
+# mirror is refreshed, so a short TTL is plenty.
+_CACHE_COUNTS_TTL_S = 30.0
+_cache_counts_lock = threading.Lock()
+_cache_counts_value: tuple[float, dict[str, int]] | None = None
+
+
+def _invalidate_cache_counts() -> None:
+    global _cache_counts_value
+    with _cache_counts_lock:
+        _cache_counts_value = None
+
+
 def get_cache_counts() -> dict[str, int]:
+    global _cache_counts_value
+    now = time.monotonic()
+    with _cache_counts_lock:
+        cached = _cache_counts_value
+    if cached is not None and (now - cached[0]) < _CACHE_COUNTS_TTL_S:
+        return dict(cached[1])
+
     mirror.init_mirror_db()
     with connect() as conn:
         customers = conn.execute("SELECT COUNT(*) FROM mirror_customers").fetchone()[0]
@@ -541,18 +600,31 @@ def get_cache_counts() -> dict[str, int]:
         order_customers = conn.execute(
             "SELECT COUNT(DISTINCT customer_account) FROM mirror_salesline WHERE order_date <> ''"
         ).fetchone()[0]
-    return {
+    counts = {
         "customers": int(customers or 0),
         "order_lines": int(order_lines or 0),
         "dated_order_lines": int(dated_order_lines or 0),
         "order_customers": int(order_customers or 0),
         "customers_with_last_order": int(order_customers or 0),
     }
+    with _cache_counts_lock:
+        _cache_counts_value = (now, counts)
+    return dict(counts)
 
 
 def get_cache_quality_warning() -> str:
-    counts = get_cache_counts()
-    if counts["customers"] or counts["order_lines"]:
+    # Cheap path: only check the two columns that matter for the
+    # warning. Avoids the expensive COUNT(DISTINCT) query when all we
+    # need is "is the mirror empty?".
+    mirror.init_mirror_db()
+    with connect() as conn:
+        has_customer = conn.execute(
+            "SELECT 1 FROM mirror_customers LIMIT 1"
+        ).fetchone() is not None
+        has_orders = conn.execute(
+            "SELECT 1 FROM mirror_salesline LIMIT 1"
+        ).fetchone() is not None
+    if has_customer or has_orders:
         return ""
     return (
         "No mirrored endpoint data is available yet. Run an ordered report or refresh "
@@ -561,9 +633,28 @@ def get_cache_quality_warning() -> str:
 
 
 def cache_needs_order_refresh() -> bool:
-    """True when the shared endpoint mirrors are empty."""
-    counts = get_cache_counts()
-    return counts["customers"] <= 0 or counts["order_lines"] <= 0 or counts["dated_order_lines"] <= 0
+    """True when the shared endpoint mirrors are empty.
+
+    Cheap check: only looks for *any* row in each of the three
+    relevant places. Doesn't need the cache_counts numbers, so this
+    bypasses the COUNT(DISTINCT) work entirely.
+    """
+    mirror.init_mirror_db()
+    with connect() as conn:
+        has_customer = conn.execute(
+            "SELECT 1 FROM mirror_customers LIMIT 1"
+        ).fetchone() is not None
+        if not has_customer:
+            return True
+        has_order = conn.execute(
+            "SELECT 1 FROM mirror_salesline LIMIT 1"
+        ).fetchone() is not None
+        if not has_order:
+            return True
+        has_dated = conn.execute(
+            "SELECT 1 FROM mirror_salesline WHERE order_date <> '' LIMIT 1"
+        ).fetchone() is not None
+    return not has_dated
 
 
 def request_background_refresh(salesman_key: str | None = None) -> dict[str, Any]:
