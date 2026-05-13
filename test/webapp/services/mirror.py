@@ -57,6 +57,11 @@ log = logging.getLogger(__name__)
 # customer/order pages intentionally describe their data as this window.
 SALESLINE_WINDOW_DAYS = 60
 
+# Rolling window for the invoiced-order-charges mirror. Matches
+# SALESLINE_WINDOW_DAYS today so the two reports behave identically
+# from a "how far back can we serve offline?" perspective.
+INVOICE_WINDOW_DAYS = 60
+
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -150,6 +155,37 @@ _MIRROR_SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_customer ON mirror_sales_header(customer_account)",
     "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_order_date ON mirror_sales_header(order_date)",
     "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_sales_group ON mirror_sales_header(sales_group)",
+    # Invoiced-order-charges mirror: one row per invoice. Like
+    # mirror_salesline, capped to a rolling INVOICE_WINDOW_DAYS so the
+    # local mirror stays small. raw_json holds the full SP payload so
+    # callers reading the mirror see the same shape they'd see from
+    # the live endpoint.
+    """
+    CREATE TABLE IF NOT EXISTS mirror_invoice (
+        invoice_number              TEXT NOT NULL PRIMARY KEY,
+        invoice_account             TEXT,
+        customer_name               TEXT,
+        invoice_date                TEXT,          -- YYYY-MM-DD
+        sales_order                 TEXT,
+        amount                      REAL,
+        sh_processing_fees          TEXT,
+        sh_processing_fees_charges  REAL,
+        sh_freight                  TEXT,
+        sh_freight_charges          REAL,
+        sh_tariff                   TEXT,
+        sh_tariff_charges           REAL,
+        sales_group                 TEXT,
+        raw_json                    TEXT NOT NULL,
+        first_seen_utc              TEXT NOT NULL,
+        last_seen_utc               TEXT NOT NULL,
+        row_hash                    TEXT NOT NULL,
+        keep_forever                INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mirror_invoice_account ON mirror_invoice(invoice_account)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_invoice_date ON mirror_invoice(invoice_date)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_invoice_sales_group ON mirror_invoice(sales_group)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_invoice_sales_order ON mirror_invoice(sales_order)",
     """
     CREATE TABLE IF NOT EXISTS mirror_refresh_runs (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -822,6 +858,232 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
 
 
 # ---------------------------------------------------------------------------
+# Invoice upsert
+# ---------------------------------------------------------------------------
+
+
+def _normalize_invoice_row(raw: dict) -> dict:
+    """Pull the columns we care about out of an invoiced_order_charges row."""
+    invoice_no = _to_str(_first(raw, "Invoice", "InvoiceNumber", "InvoiceNo"))
+    return {
+        "invoice_number":             invoice_no,
+        "invoice_account":            _customer_account(
+            _first(raw, "InvoiceAccount", "CustomerAccount", "AccountNum")
+        ),
+        "customer_name":              _to_str(
+            _first(raw, "CustomerName", "customername", "Name")
+        ),
+        "invoice_date":               _date_only(
+            _first(raw, "InvoiceDate", "Invoice Date", "DocumentDate")
+        ),
+        "sales_order":                _to_str(
+            _first(raw, "SalesOrder", "SalesOrderNumber", "SalesId")
+        ),
+        "amount":                     _to_float(
+            _first(raw, "Amount", "SubTotal", "SubTotalAmount")
+        ),
+        "sh_processing_fees":         _to_str(
+            _first(raw, "SH_ProcessingFees", "ProcessingFees")
+        ),
+        "sh_processing_fees_charges": _to_float(
+            _first(raw, "SH_ProcessingFeesCharges", "ProcessingFeesCharges",
+                   "CCCharges", "CC Charges")
+        ),
+        "sh_freight":                 _to_str(
+            _first(raw, "SH_Freight", "Freight")
+        ),
+        "sh_freight_charges":         _to_float(
+            _first(raw, "SH_FreightCharges", "FreightCharges", "Freight Charges")
+        ),
+        "sh_tariff":                  _to_str(
+            _first(raw, "SH_Tariff", "Tariff")
+        ),
+        "sh_tariff_charges":          _to_float(
+            _first(raw, "SH_TariffCharges", "TariffCharges", "Tariff Charges")
+        ),
+        "sales_group":                _to_str(
+            _first(raw, "SalesGroup", "salesgroup", "Salesman")
+        ),
+    }
+
+
+def upsert_invoice(rows: Iterable[dict], *, trigger: str = "piggyback",
+                   prune_window_days: int = INVOICE_WINDOW_DAYS,
+                   triggered_by: str | None = None,
+                   keep_forever: bool = False) -> dict[str, int]:
+    """Mirror a batch of invoiced_order_charges rows.
+
+    Same shape as ``upsert_salesline``: every well-formed row (has an
+    invoice number and a parseable invoice date) is stored. On a full
+    refresh we prune anything older than the rolling
+    ``prune_window_days`` window, but only if the mirror still has
+    recent data after the prune (so a sandbox/historical batch can't
+    blow the table away).
+    """
+    init_mirror_db()
+    rows = list(rows or [])
+    run_id = _start_refresh_run(scope="invoice", trigger=trigger,
+                                triggered_by=triggered_by)
+
+    inserted = updated = unchanged = pruned = 0
+    skipped_missing_invoice = skipped_missing_date = 0
+    row_errors = 0
+    now = _utcnow()
+    err: str | None = None
+    _COMMIT_BATCH = 2000
+    pending = 0
+    t_start = time.monotonic()
+    try:
+        with connect() as conn:
+            for raw in rows:
+                try:
+                    norm = _normalize_invoice_row(raw)
+                    if not norm["invoice_number"]:
+                        skipped_missing_invoice += 1
+                        continue
+                    if not norm["invoice_date"]:
+                        skipped_missing_date += 1
+                        continue
+                    row_hash = _hash_row(norm)
+                    existing = conn.execute(
+                        "SELECT row_hash FROM mirror_invoice "
+                        "WHERE invoice_number = ?",
+                        (norm["invoice_number"],),
+                    ).fetchone()
+                    kf = 1 if keep_forever else 0
+                    if existing is None:
+                        conn.execute(
+                            """
+                            INSERT INTO mirror_invoice (
+                                invoice_number, invoice_account, customer_name,
+                                invoice_date, sales_order, amount,
+                                sh_processing_fees, sh_processing_fees_charges,
+                                sh_freight, sh_freight_charges,
+                                sh_tariff, sh_tariff_charges,
+                                sales_group, raw_json,
+                                first_seen_utc, last_seen_utc, row_hash,
+                                keep_forever
+                            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            """,
+                            (
+                                norm["invoice_number"], norm["invoice_account"],
+                                norm["customer_name"], norm["invoice_date"],
+                                norm["sales_order"], norm["amount"],
+                                norm["sh_processing_fees"],
+                                norm["sh_processing_fees_charges"],
+                                norm["sh_freight"], norm["sh_freight_charges"],
+                                norm["sh_tariff"], norm["sh_tariff_charges"],
+                                norm["sales_group"],
+                                json.dumps(raw, default=str),
+                                now, now, row_hash, kf,
+                            ),
+                        )
+                        inserted += 1
+                    elif existing["row_hash"] != row_hash:
+                        conn.execute(
+                            """
+                            UPDATE mirror_invoice SET
+                                invoice_account=?, customer_name=?,
+                                invoice_date=?, sales_order=?, amount=?,
+                                sh_processing_fees=?, sh_processing_fees_charges=?,
+                                sh_freight=?, sh_freight_charges=?,
+                                sh_tariff=?, sh_tariff_charges=?,
+                                sales_group=?, raw_json=?,
+                                last_seen_utc=?, row_hash=?,
+                                keep_forever = MAX(keep_forever, ?)
+                            WHERE invoice_number=?
+                            """,
+                            (
+                                norm["invoice_account"], norm["customer_name"],
+                                norm["invoice_date"], norm["sales_order"],
+                                norm["amount"],
+                                norm["sh_processing_fees"],
+                                norm["sh_processing_fees_charges"],
+                                norm["sh_freight"], norm["sh_freight_charges"],
+                                norm["sh_tariff"], norm["sh_tariff_charges"],
+                                norm["sales_group"],
+                                json.dumps(raw, default=str),
+                                now, row_hash, kf,
+                                norm["invoice_number"],
+                            ),
+                        )
+                        updated += 1
+                    else:
+                        conn.execute(
+                            "UPDATE mirror_invoice SET last_seen_utc=?, "
+                            "keep_forever = MAX(keep_forever, ?) "
+                            "WHERE invoice_number=?",
+                            (now, kf, norm["invoice_number"]),
+                        )
+                        unchanged += 1
+
+                    pending += 1
+                    if pending >= _COMMIT_BATCH:
+                        conn.commit()
+                        pending = 0
+                except Exception:
+                    row_errors += 1
+                    if row_errors <= 5:
+                        log.exception(
+                            "upsert_invoice: row failed (invoice=%r)",
+                            (raw or {}).get("Invoice"),
+                        )
+                    elif row_errors == 6:
+                        log.warning(
+                            "upsert_invoice: further per-row errors will be "
+                            "counted but not logged"
+                        )
+
+            if trigger != "piggyback" and prune_window_days:
+                today = datetime.now(timezone.utc).date()
+                cutoff = (today - timedelta(days=prune_window_days)).isoformat()
+                latest = conn.execute(
+                    "SELECT MAX(invoice_date) FROM mirror_invoice "
+                    "WHERE keep_forever = 0"
+                ).fetchone()[0]
+                if latest and str(latest) >= cutoff:
+                    cur = conn.execute(
+                        "DELETE FROM mirror_invoice "
+                        "WHERE invoice_date < ? AND keep_forever = 0",
+                        (cutoff,),
+                    )
+                    pruned = cur.rowcount or 0
+    except Exception as exc:
+        err = str(exc)
+        log.exception("upsert_invoice failed")
+    finally:
+        _finish_refresh_run(
+            run_id,
+            status="failed" if err else "success",
+            rows_in=len(rows),
+            rows_inserted=inserted,
+            rows_updated=updated,
+            rows_pruned=pruned,
+            error_message=err,
+        )
+
+    log.info(
+        "upsert_invoice: rows_in=%d inserted=%d updated=%d unchanged=%d "
+        "skipped_missing_invoice=%d skipped_missing_date=%d row_errors=%d "
+        "pruned=%d duration=%.2fs",
+        len(rows), inserted, updated, unchanged,
+        skipped_missing_invoice, skipped_missing_date, row_errors,
+        pruned, time.monotonic() - t_start,
+    )
+
+    return {
+        "rows_in":                  len(rows),
+        "inserted":                 inserted,
+        "updated":                  updated,
+        "unchanged":                unchanged,
+        "pruned":                   pruned,
+        "skipped_missing_invoice":  skipped_missing_invoice,
+        "skipped_missing_date":     skipped_missing_date,
+        "row_errors":               row_errors,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Read-back / fallback
 # ---------------------------------------------------------------------------
 
@@ -966,6 +1228,100 @@ def get_salesline_fallback(*, customer_account: str | None = None,
     return out
 
 
+def _invoice_raw_from_row(row: Any) -> dict:
+    """Reconstruct an invoiced_order_charges API row from a mirror row."""
+    try:
+        raw = json.loads(row["raw_json"] or "{}")
+    except Exception:
+        raw = {}
+    raw.setdefault("Invoice", row["invoice_number"])
+    raw.setdefault("InvoiceAccount", row["invoice_account"])
+    raw.setdefault("CustomerName", row["customer_name"])
+    raw.setdefault("InvoiceDate", row["invoice_date"])
+    raw.setdefault("SalesOrder", row["sales_order"])
+    raw.setdefault("Amount", row["amount"])
+    raw.setdefault("SH_ProcessingFees", row["sh_processing_fees"])
+    raw.setdefault("SH_ProcessingFeesCharges", row["sh_processing_fees_charges"])
+    raw.setdefault("SH_Freight", row["sh_freight"])
+    raw.setdefault("SH_FreightCharges", row["sh_freight_charges"])
+    raw.setdefault("SH_Tariff", row["sh_tariff"])
+    raw.setdefault("SH_TariffCharges", row["sh_tariff_charges"])
+    raw.setdefault("SalesGroup", row["sales_group"])
+    return raw
+
+
+def get_invoice_fallback(*, invoice_account: str | None = None,
+                         invoice_accounts: Iterable[str] | None = None,
+                         date_from: str | None = None,
+                         date_to: str | None = None,
+                         sales_group: str | None = None,
+                         invoice_number: str | None = None,
+                         sales_order: str | None = None) -> list[dict]:
+    """Serve invoice rows from the mirror.
+
+    Same contract as ``get_salesline_fallback`` -- raises
+    ``MirrorWindowExceeded`` if the caller asks for data older than the
+    rolling window so the UI can show a plain-English warning. Accepts
+    either a single ``invoice_account`` or a list (``invoice_accounts``)
+    for multi-customer filtering.
+    """
+    init_mirror_db()
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=INVOICE_WINDOW_DAYS)).date().isoformat()
+    if date_from and date_from[:10] < cutoff:
+        raise MirrorWindowExceeded(
+            "We're showing cached data because the live data source is "
+            "unreachable, and the cache only goes back "
+            f"{INVOICE_WINDOW_DAYS} days (to {cutoff}). "
+            "Please pick a date range starting on or after that date, or "
+            "try again later when the live data source is back."
+        )
+
+    where: list[str] = []
+    params: list[Any] = []
+    accts: list[str] = []
+    if invoice_account:
+        accts.append(_customer_account(invoice_account))
+    if invoice_accounts:
+        for a in invoice_accounts:
+            norm = _customer_account(a)
+            if norm and norm not in accts:
+                accts.append(norm)
+    if len(accts) == 1:
+        where.append("invoice_account = ?")
+        params.append(accts[0])
+    elif accts:
+        placeholders = ",".join("?" for _ in accts)
+        where.append(f"invoice_account IN ({placeholders})")
+        params.extend(accts)
+    if invoice_number:
+        where.append("invoice_number = ?")
+        params.append(str(invoice_number).strip())
+    if sales_order:
+        where.append("sales_order = ?")
+        params.append(str(sales_order).strip())
+    if date_from:
+        where.append("invoice_date >= ?")
+        params.append(date_from[:10])
+    if date_to:
+        where.append("invoice_date <= ?")
+        params.append(date_to[:10])
+    if sales_group:
+        where.append("sales_group = ?")
+        params.append(sales_group.strip())
+
+    sql = "SELECT * FROM mirror_invoice"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY invoice_date DESC, invoice_number"
+
+    out: list[dict] = []
+    with connect() as conn:
+        for r in conn.execute(sql, params):
+            out.append(_invoice_raw_from_row(r))
+    return out
+
+
 def mirror_freshness() -> dict[str, Any]:
     """Quick diagnostic snapshot for the admin diag page + UI badge."""
     init_mirror_db()
@@ -978,6 +1334,11 @@ def mirror_freshness() -> dict[str, Any]:
             "SELECT COUNT(*) AS n, MAX(last_seen_utc) AS latest, "
             "MIN(order_date) AS earliest_date, MAX(order_date) AS latest_date "
             "FROM mirror_salesline"
+        ).fetchone()
+        inv = conn.execute(
+            "SELECT COUNT(*) AS n, MAX(last_seen_utc) AS latest, "
+            "MIN(invoice_date) AS earliest_date, MAX(invoice_date) AS latest_date "
+            "FROM mirror_invoice"
         ).fetchone()
         last_run = conn.execute(
             "SELECT scope, status, started_utc, finished_utc, error_message "
@@ -994,6 +1355,13 @@ def mirror_freshness() -> dict[str, Any]:
             "earliest_date":   (sal["earliest_date"] if sal else None),
             "latest_date":     (sal["latest_date"] if sal else None),
             "window_days":     SALESLINE_WINDOW_DAYS,
+        },
+        "invoice": {
+            "rows":            inv["n"] if inv else 0,
+            "last_seen_utc":   (inv["latest"] if inv else None),
+            "earliest_date":   (inv["earliest_date"] if inv else None),
+            "latest_date":     (inv["latest_date"] if inv else None),
+            "window_days":     INVOICE_WINDOW_DAYS,
         },
         "last_run": dict(last_run) if last_run else None,
     }

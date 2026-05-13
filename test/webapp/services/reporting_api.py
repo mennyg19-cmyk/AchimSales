@@ -365,10 +365,55 @@ def _translate_customer_master(p: dict) -> dict[str, Any]:
     return out
 
 
+def _translate_invoiced(p: dict) -> dict[str, Any]:
+    """In-app filter dict -> invoiced_order_charges SP params.
+
+    Source filter shape (matches the Ordered Report's filter form so
+    we can reuse the same template):
+        period      : daily|last_7_days|mtd|ytd|all_time|custom
+        start_date  : YYYY-MM-DD  (custom)
+        end_date    : YYYY-MM-DD  (custom)
+        customers   : list[str] of InvoiceAccount values
+        salesman    : SalesGroup string
+
+    SP target body (PascalCase per the invoiced_order_charges handoff):
+        InvoiceDateFrom / InvoiceDateTo  (mapped from period)
+        InvoiceAccount                    (only when a *single* customer
+                                           was picked -- the SP takes a
+                                           single exact-match value, so
+                                           multi-select is post-filtered
+                                           in the runner / mirror layer)
+        SalesGroup                        (salesman)
+    """
+    out: dict[str, Any] = {}
+
+    date_from, date_to = _resolve_period(p)
+    if date_from:
+        out["InvoiceDateFrom"] = date_from
+    if date_to:
+        out["InvoiceDateTo"] = date_to
+
+    customers = p.get("customers")
+    if isinstance(customers, (list, tuple, set)):
+        cust_list = [str(c).strip() for c in customers if str(c).strip()]
+    elif customers:
+        cust_list = [str(customers).strip()]
+    else:
+        cust_list = []
+    if len(cust_list) == 1:
+        out["InvoiceAccount"] = cust_list[0]
+
+    if v := _csv(p.get("salesman")):
+        out["SalesGroup"] = v
+
+    return out
+
+
 # (report_id, translator) keyed by in-app report key.
 REPORT_ID_MAP: dict[str, tuple[str, Callable[[dict], dict]]] = {
-    "ordered":         ("salesline_release", _translate_ordered),
-    "customer_master": ("customer_master",   _translate_customer_master),
+    "ordered":         ("salesline_release",      _translate_ordered),
+    "invoiced":        ("invoiced_order_charges", _translate_invoiced),
+    "customer_master": ("customer_master",        _translate_customer_master),
 }
 
 
@@ -504,6 +549,9 @@ def _kick_mirror_upsert(report_id: str, rows: list[dict]) -> None:
             elif report_id == "salesline_release":
                 stats = mirror.upsert_salesline(rows, trigger="piggyback")
                 log.info("mirror piggyback (salesline): %s", stats)
+            elif report_id == "invoiced_order_charges":
+                stats = mirror.upsert_invoice(rows, trigger="piggyback")
+                log.info("mirror piggyback (invoice): %s", stats)
         except Exception:
             log.exception("mirror piggyback failed for %s", report_id)
 
@@ -677,6 +725,20 @@ def _serve_from_mirror(report_id: str, sp_params: dict) -> list[dict] | None:
             date_from=sp_params.get("CreatedDateTimeFrom") or None,
             date_to=sp_params.get("CreatedDateTimeTo") or None,
             status=sp_params.get("SalesStatus") or None,
+        )
+        return rows or None
+
+    if report_id == "invoiced_order_charges":
+        # Single-customer requests pass InvoiceAccount through; multi-
+        # customer requests intentionally omit it (the SP takes one
+        # exact-match value) and the runner narrows after the fact.
+        rows = mirror.get_invoice_fallback(
+            invoice_account=sp_params.get("InvoiceAccount") or None,
+            date_from=sp_params.get("InvoiceDateFrom") or None,
+            date_to=sp_params.get("InvoiceDateTo") or None,
+            sales_group=sp_params.get("SalesGroup") or None,
+            invoice_number=sp_params.get("Invoice") or None,
+            sales_order=sp_params.get("SalesOrder") or None,
         )
         return rows or None
 

@@ -69,6 +69,7 @@ REPORTS: dict[str, Report] = {
             has_period=True,
             salesman_filter=True,
             customer_filter=True,
+            enabled=True,   # <-- wired to invoiced_order_charges
         ),
         Report(
             key="salesman",
