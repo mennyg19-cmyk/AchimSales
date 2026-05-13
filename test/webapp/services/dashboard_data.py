@@ -830,8 +830,14 @@ def _build_dashboard_rows_uncached() -> list[dict[str, Any]]:
     a Python-level scan over every mirrored salesline line. With 85k+
     rows in the mirror, the difference is "instant" vs "page hangs for
     several seconds per click".
+
+    Emits an INFO-level timing log every call (``dashboard.build_rows``)
+    so we can see whether the GROUP BY, the customer fetch, or the
+    Python aggregation is the bottleneck without bringing in a real
+    profiler.
     """
     mirror.init_mirror_db()
+    t0 = time.monotonic()
     with connect() as conn:
         # One row per (order, customer) with that order's latest date.
         # Using MAX(order_date) collapses multi-line orders into a single
@@ -851,13 +857,16 @@ def _build_dashboard_rows_uncached() -> list[dict[str, Any]]:
             GROUP BY sales_order_number, customer_account
             """
         ).fetchall()
+        t1 = time.monotonic()
         customer_rows = conn.execute(
             "SELECT customer_account, customer_name, sales_group "
             "FROM mirror_customers"
         ).fetchall()
+        t2 = time.monotonic()
         last_seen_row = conn.execute(
             "SELECT MAX(last_seen_utc) AS last_seen FROM mirror_salesline"
         ).fetchone()
+        t3 = time.monotonic()
     last_seen = (last_seen_row["last_seen"] if last_seen_row else "") or ""
 
     order_dates_by_customer: dict[str, dict[str, str]] = {}
@@ -912,6 +921,14 @@ def _build_dashboard_rows_uncached() -> list[dict[str, Any]]:
         metric["last_refreshed"] = last_seen
         metric["mirror_window_days"] = window_days
         metrics.append(metric)
+    t4 = time.monotonic()
+    log.info(
+        "dashboard.build_rows: orders_sql=%.2fs customers_sql=%.2fs "
+        "last_seen_sql=%.2fs python=%.2fs total=%.2fs "
+        "(%d order-customer rows, %d customers, %d metrics)",
+        t1 - t0, t2 - t1, t3 - t2, t4 - t3, t4 - t0,
+        len(order_rows), len(customer_rows), len(metrics),
+    )
     return metrics
 
 

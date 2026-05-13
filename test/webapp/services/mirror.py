@@ -44,6 +44,7 @@ import logging
 import re
 import sqlite3
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
@@ -169,6 +170,16 @@ def init_mirror_db() -> None:
             for stmt in _MIRROR_SCHEMA:
                 conn.execute(stmt)
             _ensure_mirror_columns(conn)
+            # Refresh sqlite_stat1 so the planner actually picks the
+            # new covering index for the dashboard's GROUP BY. Without
+            # this, on a table that's accumulated rows before the index
+            # was added, SQLite may keep using the older (less
+            # selective) index and we get full-table scans even though
+            # the right index exists.
+            try:
+                conn.execute("ANALYZE")
+            except Exception:
+                log.warning("ANALYZE failed (non-fatal)", exc_info=True)
         _init_done = True
     log.info("mirror tables ready")
 
@@ -525,6 +536,7 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
 
     inserted = updated = unchanged = pruned = 0
     skipped_missing_order = skipped_missing_date = skipped_outside_window = 0
+    row_errors = 0
     now = _utcnow()
     err: str | None = None
     # Commit every N rows so the writer lock isn't held for the full
@@ -534,101 +546,124 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
     # to finish, which produces 25+ second page hangs on slow disks.
     _COMMIT_BATCH = 2000
     pending = 0
+    t_start = time.monotonic()
     try:
         with connect() as conn:
             for raw in rows:
-                norm = _normalize_salesline_row(raw)
-                if not norm["sales_order_number"]:
-                    skipped_missing_order += 1
-                    continue
-                if not norm["order_date"]:
-                    skipped_missing_date += 1
-                    continue
-                # Intentionally NO window filter at ingest time. Whatever
-                # the API returns is what we mirror -- the dashboard reads
-                # everything from this table, and a defensive prune below
-                # narrows to the rolling window only when it's safe to do
-                # so (i.e. there's still recent data after pruning). This
-                # avoids the "0 inserted, all skipped" failure mode when
-                # the API returns sandbox/historical data whose OrderDate
-                # is older than today minus the window.
-                row_hash = _hash_row(norm)
-                existing = conn.execute(
-                    "SELECT row_hash FROM mirror_salesline "
-                    "WHERE sales_order_number=? AND line_number=?",
-                    (norm["sales_order_number"], norm["line_number"]),
-                ).fetchone()
-                kf = 1 if keep_forever else 0
-                if existing is None:
-                    conn.execute(
-                        """
-                        INSERT INTO mirror_salesline (
-                            sales_order_number, line_number, customer_account,
-                            customer_name, sales_group, order_date, created_datetime,
-                            po_number, item_number, item_name, unit_price,
-                            order_status, status, qty_ordered, qty_shipped, qty_cancelled,
-                            ordered_dollars, shipped_dollars, cancelled_dollars,
-                            raw_json, first_seen_utc, last_seen_utc, row_hash,
-                            keep_forever
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        (
-                            norm["sales_order_number"], norm["line_number"],
-                            norm["customer_account"], norm["customer_name"],
-                            norm["sales_group"], norm["order_date"],
-                            norm["created_datetime"], norm["po_number"],
-                            norm["item_number"], norm["item_name"],
-                            norm["unit_price"], norm["order_status"],
-                            norm["status"], norm["qty_ordered"], norm["qty_shipped"],
-                            norm["qty_cancelled"], norm["ordered_dollars"],
-                            norm["shipped_dollars"], norm["cancelled_dollars"],
-                            json.dumps(raw, default=str), now, now, row_hash, kf,
-                        ),
-                    )
-                    inserted += 1
-                elif existing["row_hash"] != row_hash:
-                    # Never *clear* keep_forever in an update -- once a
-                    # row is pinned, leave it pinned. Pin it now if this
-                    # batch is a backfill batch.
-                    conn.execute(
-                        """
-                        UPDATE mirror_salesline SET
-                            customer_account=?, customer_name=?, sales_group=?,
-                            order_date=?, created_datetime=?, po_number=?,
-                            item_number=?, item_name=?, unit_price=?,
-                            order_status=?, status=?, qty_ordered=?, qty_shipped=?, qty_cancelled=?,
-                            ordered_dollars=?, shipped_dollars=?, cancelled_dollars=?,
-                            raw_json=?, last_seen_utc=?, row_hash=?,
-                            keep_forever = MAX(keep_forever, ?)
-                        WHERE sales_order_number=? AND line_number=?
-                        """,
-                        (
-                            norm["customer_account"], norm["customer_name"],
-                            norm["sales_group"], norm["order_date"],
-                            norm["created_datetime"], norm["po_number"],
-                            norm["item_number"], norm["item_name"],
-                            norm["unit_price"], norm["order_status"],
-                            norm["status"], norm["qty_ordered"], norm["qty_shipped"],
-                            norm["qty_cancelled"], norm["ordered_dollars"],
-                            norm["shipped_dollars"], norm["cancelled_dollars"],
-                            json.dumps(raw, default=str), now, row_hash, kf,
-                            norm["sales_order_number"], norm["line_number"],
-                        ),
-                    )
-                    updated += 1
-                else:
-                    conn.execute(
-                        "UPDATE mirror_salesline SET last_seen_utc=?, "
-                        "keep_forever = MAX(keep_forever, ?) "
+                # Defensive per-row try/except: previously a single
+                # malformed row (or a transient SQLite lock on a
+                # single SELECT) would raise out of the whole loop and
+                # leave the stats dict showing "0 inserted, 0 updated,
+                # 0 unchanged, 0 skipped" for 80k+ input rows. Now bad
+                # rows are counted and the rest of the batch keeps
+                # going.
+                try:
+                    norm = _normalize_salesline_row(raw)
+                    if not norm["sales_order_number"]:
+                        skipped_missing_order += 1
+                        continue
+                    if not norm["order_date"]:
+                        skipped_missing_date += 1
+                        continue
+                    # Intentionally NO window filter at ingest time.
+                    # Whatever the API returns is what we mirror -- the
+                    # dashboard reads everything from this table, and a
+                    # defensive prune below narrows to the rolling
+                    # window only when it's safe to do so (i.e. there's
+                    # still recent data after pruning). This avoids the
+                    # "0 inserted, all skipped" failure mode when the
+                    # API returns sandbox/historical data whose
+                    # OrderDate is older than today minus the window.
+                    row_hash = _hash_row(norm)
+                    existing = conn.execute(
+                        "SELECT row_hash FROM mirror_salesline "
                         "WHERE sales_order_number=? AND line_number=?",
-                        (now, kf, norm["sales_order_number"], norm["line_number"]),
-                    )
-                    unchanged += 1
+                        (norm["sales_order_number"], norm["line_number"]),
+                    ).fetchone()
+                    kf = 1 if keep_forever else 0
+                    if existing is None:
+                        conn.execute(
+                            """
+                            INSERT INTO mirror_salesline (
+                                sales_order_number, line_number, customer_account,
+                                customer_name, sales_group, order_date, created_datetime,
+                                po_number, item_number, item_name, unit_price,
+                                order_status, status, qty_ordered, qty_shipped, qty_cancelled,
+                                ordered_dollars, shipped_dollars, cancelled_dollars,
+                                raw_json, first_seen_utc, last_seen_utc, row_hash,
+                                keep_forever
+                            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            """,
+                            (
+                                norm["sales_order_number"], norm["line_number"],
+                                norm["customer_account"], norm["customer_name"],
+                                norm["sales_group"], norm["order_date"],
+                                norm["created_datetime"], norm["po_number"],
+                                norm["item_number"], norm["item_name"],
+                                norm["unit_price"], norm["order_status"],
+                                norm["status"], norm["qty_ordered"], norm["qty_shipped"],
+                                norm["qty_cancelled"], norm["ordered_dollars"],
+                                norm["shipped_dollars"], norm["cancelled_dollars"],
+                                json.dumps(raw, default=str), now, now, row_hash, kf,
+                            ),
+                        )
+                        inserted += 1
+                    elif existing["row_hash"] != row_hash:
+                        # Never *clear* keep_forever in an update --
+                        # once a row is pinned, leave it pinned. Pin it
+                        # now if this batch is a backfill batch.
+                        conn.execute(
+                            """
+                            UPDATE mirror_salesline SET
+                                customer_account=?, customer_name=?, sales_group=?,
+                                order_date=?, created_datetime=?, po_number=?,
+                                item_number=?, item_name=?, unit_price=?,
+                                order_status=?, status=?, qty_ordered=?, qty_shipped=?, qty_cancelled=?,
+                                ordered_dollars=?, shipped_dollars=?, cancelled_dollars=?,
+                                raw_json=?, last_seen_utc=?, row_hash=?,
+                                keep_forever = MAX(keep_forever, ?)
+                            WHERE sales_order_number=? AND line_number=?
+                            """,
+                            (
+                                norm["customer_account"], norm["customer_name"],
+                                norm["sales_group"], norm["order_date"],
+                                norm["created_datetime"], norm["po_number"],
+                                norm["item_number"], norm["item_name"],
+                                norm["unit_price"], norm["order_status"],
+                                norm["status"], norm["qty_ordered"], norm["qty_shipped"],
+                                norm["qty_cancelled"], norm["ordered_dollars"],
+                                norm["shipped_dollars"], norm["cancelled_dollars"],
+                                json.dumps(raw, default=str), now, row_hash, kf,
+                                norm["sales_order_number"], norm["line_number"],
+                            ),
+                        )
+                        updated += 1
+                    else:
+                        conn.execute(
+                            "UPDATE mirror_salesline SET last_seen_utc=?, "
+                            "keep_forever = MAX(keep_forever, ?) "
+                            "WHERE sales_order_number=? AND line_number=?",
+                            (now, kf, norm["sales_order_number"], norm["line_number"]),
+                        )
+                        unchanged += 1
 
-                pending += 1
-                if pending >= _COMMIT_BATCH:
-                    conn.commit()
-                    pending = 0
+                    pending += 1
+                    if pending >= _COMMIT_BATCH:
+                        conn.commit()
+                        pending = 0
+                except Exception:
+                    row_errors += 1
+                    if row_errors <= 5:
+                        log.exception(
+                            "upsert_salesline: row failed (so=%r ln=%r)",
+                            (raw or {}).get("SalesOrderNumber"),
+                            (raw or {}).get("LineNumber"),
+                        )
+                    elif row_errors == 6:
+                        log.warning(
+                            "upsert_salesline: further per-row errors will be "
+                            "counted but not logged"
+                        )
 
             # Defensive prune. Only when we're doing an explicit
             # full-snapshot refresh (not a piggyback from a report run),
@@ -664,6 +699,15 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
             error_message=err,
         )
 
+    log.info(
+        "upsert_salesline: rows_in=%d inserted=%d updated=%d unchanged=%d "
+        "skipped_missing_order=%d skipped_missing_date=%d row_errors=%d "
+        "pruned=%d duration=%.2fs",
+        len(rows), inserted, updated, unchanged,
+        skipped_missing_order, skipped_missing_date, row_errors,
+        pruned, time.monotonic() - t_start,
+    )
+
     return {
         "rows_in":                 len(rows),
         "inserted":                inserted,
@@ -673,6 +717,7 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
         "skipped_missing_order":   skipped_missing_order,
         "skipped_missing_date":    skipped_missing_date,
         "skipped_outside_window":  skipped_outside_window,
+        "row_errors":              row_errors,
     }
 
 
