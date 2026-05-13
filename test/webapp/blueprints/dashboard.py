@@ -60,23 +60,24 @@ def _dashboard_disabled_message(email: str) -> str:
 @dashboard_bp.route("/dashboard")
 @require_login
 def index():
+    """Render the dashboard skeleton synchronously, then load data via AJAX.
+
+    The actual dashboard build (`get_dashboard_data`) aggregates ~85k
+    salesline rows and can take a noticeable beat on cold cache; doing
+    that inside the page render meant clicking the bottom-nav Dashboard
+    button felt like the app hung. Now the route only does cheap auth +
+    permission + status work, and the page itself ships with empty
+    summary cards + a loading spinner. ``dashboard.js`` calls
+    ``/api/dashboard/data`` on DOMContentLoaded to populate the table
+    and the summary numbers without ever blocking navigation.
+    """
     user = current_user() or {}
     email = user.get("email", "")
     if not _dashboard_enabled_for_user(email):
         flash(_dashboard_disabled_message(email), "info")
         return redirect(url_for("reports.list_all"))
 
-    scope = dashboard_data.get_user_dashboard_scope(email)
-    excluded = get_user_exclusions(email)
-    customers = dashboard_data.get_dashboard_data(
-        salesman_key=scope.get("salesman_key"),
-        allowed_salesman_keys=scope.get("allowed_salesman_keys"),
-        exclude_accounts=excluded,
-    )
     cache_warning = dashboard_data.get_cache_quality_warning()
-    if cache_warning:
-        customers = []
-    summary = dashboard_data.get_dashboard_summary(customers)
     refresh_scope = _refresh_salesman_scope(email)
     poll_refresh_before = None
     if dashboard_data.cache_needs_order_refresh():
@@ -85,15 +86,28 @@ def index():
             poll_refresh_before = refresh_request.get("before") or ""
     refresh = dashboard_data.get_refresh_status(refresh_scope)
 
+    # Blank summary placeholders so the template's existing layout
+    # renders without conditionals. dashboard.js will overwrite these
+    # the moment /api/dashboard/data resolves.
+    summary = {
+        "total_customers": 0,
+        "new": 0,
+        "active": 0,
+        "overdue": 0,
+        "inactive": 0,
+        "avg_frequency_days": 0,
+    }
+
     return render_template(
         "dashboard.html",
         active_tab="dashboard",
         user=user,
-        customers=customers,
+        customers=[],
         summary=summary,
         refresh=refresh,
         cache_warning=cache_warning,
         poll_refresh_before=poll_refresh_before,
+        loading=True,
         alerts=[
             alert for alert in get_notifications(email, dismissed=False)
             if alert.get("type") == "overdue_customer"

@@ -142,38 +142,11 @@
 </div>
 
 <div class="table-wrapper" id="dashTableWrapper">
-    {% if customers %}
-    <table class="data-table dash-activity-table sticky-col-first" id="dashTable">
-        <thead>
-            <tr>
-                <th onclick="sortDashTable(0)">Name <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(1)">Account <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(2)">Last Order <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(3)">Days Since <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(4)">Avg Freq <button class="help-icon" data-help="dashboard-avg-freq" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(5)">Threshold <button class="help-icon" data-help="dashboard-threshold" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>
-                <th onclick="sortDashTable(6)">Status <span class="sort-arrow">&#9650;</span></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for c in customers %}
-            {% if not c.excluded %}
-            <tr class="dash-row clickable-row" data-status="{{ c.status }}"
-                onclick="window.location='{{ url_for('dashboard.customer_detail', account=c.customer_account) }}'">
-                <td>{{ c.customer_name }}</td>
-                <td class="cell-nowrap">{{ c.customer_account }}</td>
-                <td class="cell-nowrap">{{ c.last_order_date or 'N/A' }}</td>
-                <td class="num">{{ c.days_since_last if c.days_since_last is not none else '-' }}</td>
-                <td class="num">{{ c.avg_gap_days if c.avg_gap_days else '-' }}</td>
-                <td class="num">{{ c.overdue_threshold if c.overdue_threshold else '-' }}</td>
-                <td>
-                    <span class="status-badge status-dash-{{ c.status }}">{{ c.status|title }}</span>
-                </td>
-            </tr>
-            {% endif %}
-            {% endfor %}
-        </tbody>
-    </table>
+    {% if loading %}
+    <div class="dash-loading-state">
+        <span class="spinner spinner-lg" aria-hidden="true"></span>
+        <p class="muted">Loading customer activity from the local mirror&hellip;</p>
+    </div>
     {% else %}
     <div class="empty-state">
         <i data-feather="bar-chart-2" width="48" height="48"></i>

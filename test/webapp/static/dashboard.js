@@ -129,18 +129,25 @@ function updateSummaryCards(summary) {
     });
 }
 
-function renderDashboardRows(customers) {
+function renderDashboardRows(customers, opts) {
     var wrapper = document.getElementById("dashTableWrapper");
     if (!wrapper) return;
+    opts = opts || {};
     if (!customers || !customers.length) {
-        wrapper.innerHTML = [
-            '<div class="empty-state">',
-            '<i data-feather="bar-chart-2" width="48" height="48"></i>',
-            '<h3>No dashboard data yet</h3>',
-            '<p>Data will appear after the first refresh from the reporting API. This may take a few minutes.</p>',
-            '</div>'
-        ].join("");
-        if (typeof feather !== "undefined") feather.replace();
+        // On initial load (before /api/dashboard/data has resolved) the
+        // wrapper is showing a spinner; don't overwrite that with an
+        // empty state. Only swap to the empty-state card once the API
+        // has actually returned and confirmed zero rows.
+        if (opts.fromApi) {
+            wrapper.innerHTML = [
+                '<div class="empty-state">',
+                '<i data-feather="bar-chart-2" width="48" height="48"></i>',
+                '<h3>No dashboard data yet</h3>',
+                '<p>Data will appear after the first refresh from the reporting API. This may take a few minutes.</p>',
+                '</div>'
+            ].join("");
+            if (typeof feather !== "undefined") feather.replace();
+        }
         return;
     }
 
@@ -222,11 +229,24 @@ function refreshDashboardData() {
         .then(function(r) { return r.json(); })
         .then(function(data) {
             updateSummaryCards(data.summary || {});
-            renderDashboardRows(data.customers || []);
+            renderDashboardRows(data.customers || [], { fromApi: true });
             updateRefreshMeta(data.refresh || {});
             if (label) label.textContent = "Dashboard data updated.";
         });
 }
+
+// Initial lazy-load: as soon as the dashboard page paints, fetch the
+// real data over /api/dashboard/data and swap the loading spinner /
+// placeholder zeros with the actual numbers. This is what lets
+// navigation to /dashboard feel instant -- the server only has to
+// render an empty shell.
+document.addEventListener("DOMContentLoaded", function() {
+    if (!document.getElementById("dashTableWrapper")) return;
+    refreshDashboardData().catch(function(err) {
+        var label = document.getElementById("refreshProgressLabel");
+        if (label) label.textContent = "Could not load dashboard data: " + (err && err.message || err);
+    });
+});
 
 function pollRefreshStatus(before, attempts) {
     if (attempts > 120) {
