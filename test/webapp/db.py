@@ -569,21 +569,35 @@ _connect_setup_done = False
 
 
 def _apply_pragmas(conn: sqlite3.Connection, *, first_time: bool) -> None:
-    # WAL + synchronous=NORMAL is the standard "fast on slow disk"
-    # combo: WAL lets readers and writers run concurrently, and
-    # synchronous=NORMAL skips the fsync after every commit (a single
-    # fsync per checkpoint is still done, so durability across power
-    # loss is preserved within WAL semantics).
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 30000")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    conn.execute("PRAGMA temp_store = MEMORY")
-    # 64 MB per-connection page cache. Keeps the dashboard's GROUP BY
-    # over 85k salesline rows in memory after the first hit.
-    conn.execute("PRAGMA cache_size = -65536")
+    """Best-effort PRAGMA tuning.
+
+    Every PRAGMA is wrapped individually so one failure (e.g. a
+    read-only mount that won't let us write the WAL sidecar files)
+    can't kill the connection. The defaults SQLite picks if any of
+    these fail are still functional, just slower.
+    """
+    pragmas: list[str] = [
+        "PRAGMA foreign_keys = ON",
+        "PRAGMA busy_timeout = 30000",
+        # WAL + synchronous=NORMAL is the standard "fast on slow disk"
+        # combo: readers/writers run concurrently and we skip fsync
+        # after every commit. Durability across power loss is still
+        # preserved within WAL semantics (checkpoint syncs).
+        "PRAGMA synchronous = NORMAL",
+        "PRAGMA temp_store = MEMORY",
+        # 64 MB per-connection page cache. Keeps the dashboard's
+        # GROUP BY over 85k salesline rows in memory after the first
+        # hit.
+        "PRAGMA cache_size = -65536",
+    ]
     if first_time:
         # journal_mode persists in the DB header; only set it once.
-        conn.execute("PRAGMA journal_mode = WAL")
+        pragmas.append("PRAGMA journal_mode = WAL")
+    for stmt in pragmas:
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            log.warning("pragma failed (continuing): %s", stmt, exc_info=True)
 
 
 def _connect() -> sqlite3.Connection:

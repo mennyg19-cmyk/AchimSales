@@ -26,22 +26,71 @@ FLASK_SECRET: str = (
     or "change-me-in-prod"
 )
 
-# Azure App Service only persists /home/; use that for writable state if present.
-_AZURE_HOME = Path(os.environ.get("HOME", "")) / "site" / "v2data"
-_USE_AZURE_HOME = _AZURE_HOME.parent.exists()
+# Where to keep writable runtime state on Azure App Service.
+#
+# /home/ is the only persistent path on App Service, but only
+# /home/data/ is on the local SSD -- /home/site/wwwroot/ is the
+# deploy mount, served from Azure Files (SMB), which is hostile to
+# SQLite (file locking flakes, WAL -shm/-wal creation fails with
+# "unable to open database file" under any kind of concurrency).
+#
+# Detection: WEBSITE_SITE_NAME is the canonical "we are on App
+# Service" env var. The live app's db.py uses the same signal and
+# lands on /home/data/app.db; we mirror that for the v2 sandbox at
+# /home/data/v2_app.db so both apps live on the same local SSD.
+_ON_AZURE = bool(os.environ.get("WEBSITE_SITE_NAME"))
+_AZURE_V2_DATA = Path("/home/data") if _ON_AZURE else None
 
-if _USE_AZURE_HOME:
-    _AZURE_HOME.mkdir(parents=True, exist_ok=True)
+if _AZURE_V2_DATA is not None:
+    try:
+        _AZURE_V2_DATA.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        # If /home/data/ isn't writable for some reason, fall through
+        # to the wwwroot path -- it will at least let the app boot so
+        # we can surface the error in logs instead of crashing.
+        _AZURE_V2_DATA = None
 
 APP_DB_PATH: Path = Path(
     os.environ.get("V2_APP_DB")
-    or (_AZURE_HOME / "app.db" if _USE_AZURE_HOME else TEST_ROOT / "app.db")
+    or (_AZURE_V2_DATA / "v2_app.db" if _AZURE_V2_DATA is not None else TEST_ROOT / "app.db")
 )
+
+# One-time migration: if the new (correct) Azure path is empty but
+# the old wwwroot path has a populated DB from previous boots, copy
+# it over so the mirror, user prefs, and refresh history survive the
+# path change. Runs at most once per process and is a no-op everywhere
+# except the very first boot after this change.
+def _migrate_legacy_db_path() -> None:
+    if _AZURE_V2_DATA is None:
+        return
+    if APP_DB_PATH.exists():
+        return
+    legacy = TEST_ROOT / "app.db"
+    if not legacy.exists():
+        return
+    try:
+        import shutil
+        APP_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # Copy the main DB plus any leftover -wal/-shm sidecars so
+        # we don't lose recently-committed transactions still living
+        # in the write-ahead log.
+        shutil.copy2(legacy, APP_DB_PATH)
+        for suffix in ("-wal", "-shm"):
+            side = legacy.with_name(legacy.name + suffix)
+            if side.exists():
+                shutil.copy2(side, APP_DB_PATH.with_name(APP_DB_PATH.name + suffix))
+    except Exception:
+        # Don't crash boot if the copy fails. Worst case: a fresh
+        # empty DB at the new location.
+        pass
+
+
+_migrate_legacy_db_path()
 
 # Email outbox folder (for test sandbox .eml files)
 OUTBOX_DIR: Path = Path(
     os.environ.get("V2_OUTBOX_DIR")
-    or (_AZURE_HOME / "outbox" if _USE_AZURE_HOME else REPO_ROOT / "test" / "outbox")
+    or (_AZURE_V2_DATA / "outbox" if _AZURE_V2_DATA is not None else REPO_ROOT / "test" / "outbox")
 )
 
 URL_PREFIX: str = os.environ.get("V2_URL_PREFIX", "/v2")
