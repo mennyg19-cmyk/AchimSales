@@ -569,7 +569,9 @@ def run(report_key: str, filter_params: dict, *, no_piggyback: bool = False) -> 
            mirror them to local SQLite in the background, and return.
         3. On API failure, in-process stale cache hit (<= STALE_TTL).
         4. Local SQLite mirror fallback (raises MirrorWindowExceeded if
-           the request is for data older than the mirror keeps).
+           the request is for a start date older than the earliest row
+           we have mirrored locally -- run the admin "Backfill since
+           D365 go-live" job to fix that).
         5. Re-raise ``ReportingApiError`` so the caller can surface a
            clear failure. No fixture or dummy rows are returned here.
     """

@@ -57,13 +57,27 @@
                     <th>Salesline release</th>
                     <td>
                         <strong>{{ '{:,}'.format(mirror_freshness.salesline.rows or 0) }}</strong> rows
-                        ({{ mirror_freshness.salesline.window_days }}-day window)
+                        (refresh window: last {{ mirror_freshness.salesline.window_days }} days)
                         {% if mirror_freshness.salesline.earliest_date %}
                             &middot; <code>{{ mirror_freshness.salesline.earliest_date }}</code>
                             &rarr; <code>{{ mirror_freshness.salesline.latest_date }}</code>
                         {% endif %}
                         {% if mirror_freshness.salesline.last_seen_utc %}
                             &middot; last touched <code>{{ mirror_freshness.salesline.last_seen_utc }}</code>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Invoiced order charges</th>
+                    <td>
+                        <strong>{{ '{:,}'.format(mirror_freshness.invoice.rows or 0) }}</strong> rows
+                        (refresh window: last {{ mirror_freshness.invoice.window_days }} days)
+                        {% if mirror_freshness.invoice.earliest_date %}
+                            &middot; <code>{{ mirror_freshness.invoice.earliest_date }}</code>
+                            &rarr; <code>{{ mirror_freshness.invoice.latest_date }}</code>
+                        {% endif %}
+                        {% if mirror_freshness.invoice.last_seen_utc %}
+                            &middot; last touched <code>{{ mirror_freshness.invoice.last_seen_utc }}</code>
                         {% endif %}
                     </td>
                 </tr>
@@ -84,7 +98,22 @@
             <button type="button" class="btn btn-primary" id="diagMirrorRefreshBtn">
                 <i data-feather="refresh-cw"></i> Refresh mirror now
             </button>
+            <button type="button" class="btn btn-outline" id="diagMirrorBackfillBtn"
+                    title="Pulls every calendar month from 2025-01-03 to today, one chunk at a time. ~17 API calls per scope; can take 10+ minutes.">
+                <i data-feather="download-cloud"></i> Backfill since D365 go-live
+            </button>
             <span id="diagMirrorStatus" class="diag-status"></span>
+        </div>
+
+        <div id="diagBackfillStrip" class="diag-status" style="margin-top:8px; display:none;">
+            <div>
+                <strong>Backfill in progress.</strong>
+                <span id="diagBackfillProgress">0 / 0</span>
+                <span id="diagBackfillCurrent"></span>
+            </div>
+            <div class="diag-progress-bar" style="margin-top:6px; height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden;">
+                <div id="diagBackfillBar" style="height:100%; width:0%; background:#3b82f6; transition:width 0.3s;"></div>
+            </div>
         </div>
 
         {% if mirror_recent_runs %}
@@ -204,7 +233,8 @@
     if (mirrorBtn) {
         mirrorBtn.addEventListener("click", async function () {
             mirrorBtn.disabled = true;
-            mirrorStatus.textContent = "Refreshing... (this calls the SP for every report)";
+            mirrorStatus.textContent =
+                "Refreshing... (customer master + last 6 months of salesline + invoice, chunked)";
             mirrorStatus.className = "diag-status";
             try {
                 const resp = await fetch("{{ URL_PREFIX }}/diag/api/mirror/refresh", {
@@ -215,14 +245,15 @@
                 const errs = (j && j.errors) || [];
                 const cust = (j && j.customers) || {};
                 const sales = (j && j.salesline) || {};
+                const inv = (j && j.invoice) || {};
                 const summary =
                     "customers: in=" + (cust.rows_in || 0) +
                     " ins=" + (cust.inserted || 0) +
                     " upd=" + (cust.updated || 0) +
-                    " | salesline: in=" + (sales.rows_in || 0) +
-                    " ins=" + (sales.inserted || 0) +
-                    " upd=" + (sales.updated || 0) +
-                    " pruned=" + (sales.pruned || 0);
+                    " | salesline: " + (sales.rows_in || 0) + " rows / " +
+                    (sales.chunks_done || 0) + "/" + (sales.chunks_total || 0) + " chunks" +
+                    " | invoice: " + (inv.rows_in || 0) + " rows / " +
+                    (inv.chunks_done || 0) + "/" + (inv.chunks_total || 0) + " chunks";
                 if (errs.length) {
                     mirrorStatus.textContent = "Done with errors: " + errs.join(" | ") + " (" + summary + ")";
                     mirrorStatus.className = "diag-status diag-bad";
@@ -235,6 +266,94 @@
                 mirrorStatus.className = "diag-status diag-bad";
             } finally {
                 mirrorBtn.disabled = false;
+            }
+        });
+    }
+
+    /* Backfill since D365 go-live -- long-running, kicked async + polled */
+    const backfillBtn  = $("diagMirrorBackfillBtn");
+    const backfillStrip = $("diagBackfillStrip");
+    const backfillProgress = $("diagBackfillProgress");
+    const backfillCurrent = $("diagBackfillCurrent");
+    const backfillBar = $("diagBackfillBar");
+
+    function renderBackfill(job) {
+        const done = job.chunks_done || 0;
+        const total = job.chunks_total || 0;
+        backfillProgress.textContent = done + " / " + (total || "?") + " chunks";
+        let cur = "";
+        if (job.current && job.current.chunk_start) {
+            cur = " &middot; " + (job.current.scope || "") + " " +
+                  job.current.chunk_start + ".." + job.current.chunk_end +
+                  (job.current.status === "error" ? " (error)" : "");
+        }
+        backfillCurrent.innerHTML = cur;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        backfillBar.style.width = pct + "%";
+    }
+
+    async function pollBackfill(jobId) {
+        try {
+            const r = await fetch(
+                "{{ URL_PREFIX }}/diag/api/mirror/backfill-status/" + encodeURIComponent(jobId),
+                { credentials: "same-origin" }
+            );
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            const job = await r.json();
+            renderBackfill(job);
+            if (job.state === "running") {
+                setTimeout(() => pollBackfill(jobId), 2000);
+            } else {
+                backfillBtn.disabled = false;
+                const errs = (job.errors || []);
+                if (job.state === "failed" || errs.length) {
+                    mirrorStatus.textContent =
+                        "Backfill finished with " + errs.length + " error(s). " +
+                        "Pulled " + (job.rows_in || 0) + " rows across " +
+                        (job.chunks_done || 0) + " chunks. Reload to see updated tallies.";
+                    mirrorStatus.className = "diag-status diag-bad";
+                } else {
+                    mirrorStatus.textContent =
+                        "Backfill done. " + (job.rows_in || 0) + " rows across " +
+                        (job.chunks_done || 0) + " chunks. Reload to see updated tallies.";
+                    mirrorStatus.className = "diag-status diag-good";
+                }
+            }
+        } catch (e) {
+            backfillBtn.disabled = false;
+            mirrorStatus.textContent = "Backfill poll failed: " + (e.message || e);
+            mirrorStatus.className = "diag-status diag-bad";
+        }
+    }
+
+    if (backfillBtn) {
+        backfillBtn.addEventListener("click", async function () {
+            if (!confirm(
+                "Backfill every month from 2025-01-03 to today. " +
+                "This issues ~17 API calls per scope (salesline + invoice), " +
+                "can take 10+ minutes, and runs in the background. Continue?"
+            )) return;
+            backfillBtn.disabled = true;
+            mirrorStatus.textContent = "Starting backfill...";
+            mirrorStatus.className = "diag-status";
+            backfillStrip.style.display = "";
+            backfillBar.style.width = "0%";
+            backfillProgress.textContent = "0 / ?";
+            backfillCurrent.innerHTML = "";
+            try {
+                const resp = await fetch("{{ URL_PREFIX }}/diag/api/mirror/backfill", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ scope: "all" }),
+                });
+                const j = await resp.json();
+                if (!j.ok) throw new Error(j.error || "backfill kick failed");
+                mirrorStatus.textContent = "Backfill running (job " + j.job_id + ")...";
+                pollBackfill(j.job_id);
+            } catch (e) {
+                backfillBtn.disabled = false;
+                mirrorStatus.textContent = "Backfill failed to start: " + (e.message || e);
+                mirrorStatus.className = "diag-status diag-bad";
             }
         });
     }

@@ -6,36 +6,51 @@ local SQLite table here. If the API is later unreachable, lookups,
 dropdowns, and the Customer's Last Order viewer can keep working from
 the mirror with a clear "showing cached data" badge.
 
-Scope (matches the user's spec):
+Tables:
 
-* ``mirror_customers``      -- full customer master snapshot (every row
-                               is small, so we keep them all and never
-                               prune).
-* ``mirror_salesline``      -- order-line rows from salesline_release,
-                               capped to a rolling 60-day window. Old
-                               rows get pruned on every refresh so the
-                               mirror stays small.
+* ``mirror_customers``      -- full customer master snapshot.
+* ``mirror_salesline``      -- order-line rows from salesline_release.
+* ``mirror_invoice``        -- invoice rows from invoiced_order_charges.
+* ``mirror_sales_header``   -- materialized per-order aggregation
+                               rebuilt at the end of every salesline
+                               upsert (dashboard hot path).
 * ``mirror_refresh_runs``   -- audit trail of every snapshot refresh
                                (manual button or daily 00:00 ET cron).
 
+Retention model (no window):
+
+    The salesline and invoice mirrors *never* delete rows. Every row
+    that's ever been upserted is kept forever. There used to be a
+    rolling 60-day window that pruned old rows on every refresh; that
+    was removed because the dashboard and reports need history back to
+    D365 go-live and the cost of carrying ~85k salesline rows in
+    SQLite is trivial.
+
+    The "refresh window" you see in :data:`SALESLINE_REFRESH_WINDOW_DAYS`
+    and :data:`INVOICE_REFRESH_WINDOW_DAYS` is a *fetch* setting: it's
+    how far back the daily cron pulls from the API. Older history is
+    loaded once via the admin "Backfill since D365 go-live" job (see
+    :mod:`test.webapp.services.mirror_refresh`) and then sits in the
+    mirror forever.
+
 Upsert semantics:
     * Match incoming rows on a stable key (CustomerAccount for
-      customers, SalesOrderNumber+LineNumber for order lines).
+      customers, SalesOrderNumber+LineNumber for salesline,
+      InvoiceNumber for invoices).
     * If the row exists and the snapshot's data differs from the
       mirror, UPDATE.
     * If the row doesn't exist, INSERT.
-    * Rows in the mirror that the API didn't return are LEFT ALONE
-      (we don't know if they were deleted upstream or if the caller
-      just used a narrower filter). The daily full-snapshot refresh
-      is what cleans up genuinely stale rows.
+    * Rows in the mirror that the API didn't return are LEFT ALONE.
 
 Read-back (fallback) semantics:
     * Customer / salesman lookups: return whatever's in
-      ``mirror_customers`` -- the master list never expires.
-    * salesline fallback for the Ordered Report and Customer's Last
-      Order: only the past 60 days. If a request needs older data we
-      raise ``MirrorWindowExceeded`` so the caller can show a clear
-      plain-English error instead of silently lying.
+      ``mirror_customers``.
+    * salesline / invoice fallback for the Ordered, Invoiced, and
+      Customer's Last Order reports: serve whatever's in the table.
+      If the caller asks for a date range starting before the earliest
+      row we actually have, raise :class:`MirrorWindowExceeded` so the
+      UI can show a plain-English "ask an admin to backfill" message
+      instead of silently returning a too-small slice.
 """
 from __future__ import annotations
 
@@ -53,14 +68,19 @@ from test.webapp.db import connect
 log = logging.getLogger(__name__)
 
 
-# Rolling window for salesline mirror (in days). The dashboard and
-# customer/order pages intentionally describe their data as this window.
-SALESLINE_WINDOW_DAYS = 60
+# Refresh window for the salesline and invoice mirrors (in days).
+#
+# This is what the daily cron / dashboard refresh button pulls from the
+# API on every run. It is NOT a retention cap -- the mirror keeps every
+# row that was ever upserted, forever. A separate admin "Backfill since
+# D365 go-live" job populates rows older than this window.
+SALESLINE_REFRESH_WINDOW_DAYS = 180
+INVOICE_REFRESH_WINDOW_DAYS   = 180
 
-# Rolling window for the invoiced-order-charges mirror. Matches
-# SALESLINE_WINDOW_DAYS today so the two reports behave identically
-# from a "how far back can we serve offline?" perspective.
-INVOICE_WINDOW_DAYS = 60
+# Back-compat aliases. Callers should migrate to the *_REFRESH_WINDOW_DAYS
+# names; these still resolve to the same value.
+SALESLINE_WINDOW_DAYS = SALESLINE_REFRESH_WINDOW_DAYS
+INVOICE_WINDOW_DAYS   = INVOICE_REFRESH_WINDOW_DAYS
 
 
 # ---------------------------------------------------------------------------
@@ -155,11 +175,12 @@ _MIRROR_SCHEMA = [
     "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_customer ON mirror_sales_header(customer_account)",
     "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_order_date ON mirror_sales_header(order_date)",
     "CREATE INDEX IF NOT EXISTS idx_mirror_sales_header_sales_group ON mirror_sales_header(sales_group)",
-    # Invoiced-order-charges mirror: one row per invoice. Like
-    # mirror_salesline, capped to a rolling INVOICE_WINDOW_DAYS so the
-    # local mirror stays small. raw_json holds the full SP payload so
-    # callers reading the mirror see the same shape they'd see from
-    # the live endpoint.
+    # Invoiced-order-charges mirror: one row per invoice. Same
+    # no-window model as mirror_salesline -- the daily cron pulls the
+    # last INVOICE_REFRESH_WINDOW_DAYS days and the admin "Backfill"
+    # button covers everything older. raw_json holds the full SP
+    # payload so callers reading the mirror see the same shape they'd
+    # see from the live endpoint.
     """
     CREATE TABLE IF NOT EXISTS mirror_invoice (
         invoice_number              TEXT NOT NULL PRIMARY KEY,
@@ -644,19 +665,20 @@ def _rebuild_sales_header(conn) -> int:
 
 
 def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
-                     prune_window_days: int = SALESLINE_WINDOW_DAYS,
+                     prune_window_days: int | None = None,
                      triggered_by: str | None = None,
                      keep_forever: bool = False) -> dict[str, int]:
     """Mirror a batch of salesline_release rows.
 
     Every well-formed row (has a sales order number and a parseable
-    order date) is stored as-is. After ingest, if the trigger is a
-    full-snapshot refresh (not a piggyback from a report run) and the
-    mirror still has data within the rolling ``prune_window_days``
-    window, anything older than the window is pruned. Sandbox /
-    historical batches whose newest row is already older than the
-    window are kept verbatim so the dashboard has something to show.
+    order date) is stored as-is and kept forever. There is no retention
+    window: a daily cron pulls the last
+    ``SALESLINE_REFRESH_WINDOW_DAYS`` days and an admin can run a
+    "backfill since D365 go-live" job to populate older rows. The
+    ``prune_window_days`` argument is accepted for back-compat with
+    older callers but is ignored.
     """
+    del prune_window_days  # kept in the signature for back-compat only
     init_mirror_db()
     rows = list(rows or [])
     run_id = _start_refresh_run(scope="salesline", trigger=trigger,
@@ -693,15 +715,9 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                     if not norm["order_date"]:
                         skipped_missing_date += 1
                         continue
-                    # Intentionally NO window filter at ingest time.
-                    # Whatever the API returns is what we mirror -- the
-                    # dashboard reads everything from this table, and a
-                    # defensive prune below narrows to the rolling
-                    # window only when it's safe to do so (i.e. there's
-                    # still recent data after pruning). This avoids the
-                    # "0 inserted, all skipped" failure mode when the
-                    # API returns sandbox/historical data whose
-                    # OrderDate is older than today minus the window.
+                    # The mirror has no retention window: every well-
+                    # formed row is kept forever. Older data is loaded
+                    # via the admin "Backfill since D365 go-live" job.
                     row_hash = _hash_row(norm)
                     existing = conn.execute(
                         "SELECT row_hash FROM mirror_salesline "
@@ -792,27 +808,6 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                             "upsert_salesline: further per-row errors will be "
                             "counted but not logged"
                         )
-
-            # Defensive prune. Only when we're doing an explicit
-            # full-snapshot refresh (not a piggyback from a report run),
-            # and only if there's *still* data within the rolling window
-            # after the prune. If every row in the mirror is older than
-            # the cutoff (sandbox/historical), we leave it alone so the
-            # dashboard has something to show.
-            if trigger != "piggyback" and prune_window_days:
-                today = datetime.now(timezone.utc).date()
-                cutoff = (today - timedelta(days=prune_window_days)).isoformat()
-                latest = conn.execute(
-                    "SELECT MAX(order_date) FROM mirror_salesline "
-                    "WHERE keep_forever = 0"
-                ).fetchone()[0]
-                if latest and str(latest) >= cutoff:
-                    cur = conn.execute(
-                        "DELETE FROM mirror_salesline "
-                        "WHERE order_date < ? AND keep_forever = 0",
-                        (cutoff,),
-                    )
-                    pruned = cur.rowcount or 0
 
             # Rebuild the materialized header aggregation. Doing this
             # once at the end of the salesline upsert collapses the
@@ -908,18 +903,20 @@ def _normalize_invoice_row(raw: dict) -> dict:
 
 
 def upsert_invoice(rows: Iterable[dict], *, trigger: str = "piggyback",
-                   prune_window_days: int = INVOICE_WINDOW_DAYS,
+                   prune_window_days: int | None = None,
                    triggered_by: str | None = None,
                    keep_forever: bool = False) -> dict[str, int]:
     """Mirror a batch of invoiced_order_charges rows.
 
-    Same shape as ``upsert_salesline``: every well-formed row (has an
-    invoice number and a parseable invoice date) is stored. On a full
-    refresh we prune anything older than the rolling
-    ``prune_window_days`` window, but only if the mirror still has
-    recent data after the prune (so a sandbox/historical batch can't
-    blow the table away).
+    Same shape as :func:`upsert_salesline`: every well-formed row (has
+    an invoice number and a parseable invoice date) is stored and kept
+    forever. The daily cron pulls the last
+    ``INVOICE_REFRESH_WINDOW_DAYS`` days and an admin can run a
+    "backfill since D365 go-live" job to populate older rows.
+    ``prune_window_days`` is accepted for back-compat with older
+    callers but is ignored.
     """
+    del prune_window_days  # kept in the signature for back-compat only
     init_mirror_db()
     rows = list(rows or [])
     run_id = _start_refresh_run(scope="invoice", trigger=trigger,
@@ -1034,20 +1031,6 @@ def upsert_invoice(rows: Iterable[dict], *, trigger: str = "piggyback",
                             "counted but not logged"
                         )
 
-            if trigger != "piggyback" and prune_window_days:
-                today = datetime.now(timezone.utc).date()
-                cutoff = (today - timedelta(days=prune_window_days)).isoformat()
-                latest = conn.execute(
-                    "SELECT MAX(invoice_date) FROM mirror_invoice "
-                    "WHERE keep_forever = 0"
-                ).fetchone()[0]
-                if latest and str(latest) >= cutoff:
-                    cur = conn.execute(
-                        "DELETE FROM mirror_invoice "
-                        "WHERE invoice_date < ? AND keep_forever = 0",
-                        (cutoff,),
-                    )
-                    pruned = cur.rowcount or 0
     except Exception as exc:
         err = str(exc)
         log.exception("upsert_invoice failed")
@@ -1182,21 +1165,26 @@ def get_salesline_fallback(*, customer_account: str | None = None,
     same shape the SP would (raw_json is replayed verbatim) so callers
     can run them through the existing _norm_row helper.
 
-    Raises ``MirrorWindowExceeded`` if the request reaches outside the
-    mirror's rolling window. The error message is plain English so the
-    caller can surface it to the user without rewording.
+    Raises ``MirrorWindowExceeded`` if the caller asks for data older
+    than the earliest row in the mirror. The mirror has no retention
+    window: this check just reflects "what we actually have offline".
+    An admin can run the "Backfill since D365 go-live" job to pull in
+    older rows.
     """
     init_mirror_db()
-    cutoff = (datetime.now(timezone.utc)
-              - timedelta(days=SALESLINE_WINDOW_DAYS)).date().isoformat()
-    if date_from and date_from[:10] < cutoff:
-        raise MirrorWindowExceeded(
-            "We're showing cached data because the live data source is "
-            "unreachable, and the cache only goes back "
-            f"{SALESLINE_WINDOW_DAYS} days (to {cutoff}). "
-            "Please pick a date range starting on or after that date, or "
-            "try again later when the live data source is back."
-        )
+    if date_from:
+        with connect() as conn:
+            earliest = conn.execute(
+                "SELECT MIN(order_date) FROM mirror_salesline"
+            ).fetchone()[0]
+        if earliest and date_from[:10] < str(earliest)[:10]:
+            raise MirrorWindowExceeded(
+                "We're showing cached data because the live data source is "
+                f"unreachable, and the cache only goes back to {earliest}. "
+                "Please pick a date range starting on or after that date, "
+                "or ask an admin to run the 'Backfill since D365 go-live' "
+                "job."
+            )
 
     where: list[str] = []
     params: list[Any] = []
@@ -1259,23 +1247,26 @@ def get_invoice_fallback(*, invoice_account: str | None = None,
                          sales_order: str | None = None) -> list[dict]:
     """Serve invoice rows from the mirror.
 
-    Same contract as ``get_salesline_fallback`` -- raises
-    ``MirrorWindowExceeded`` if the caller asks for data older than the
-    rolling window so the UI can show a plain-English warning. Accepts
-    either a single ``invoice_account`` or a list (``invoice_accounts``)
-    for multi-customer filtering.
+    Same contract as :func:`get_salesline_fallback`. The mirror keeps
+    every row forever; ``MirrorWindowExceeded`` is raised when the
+    caller asks for data older than the earliest invoice we have.
+    Accepts either a single ``invoice_account`` or a list
+    (``invoice_accounts``) for multi-customer filtering.
     """
     init_mirror_db()
-    cutoff = (datetime.now(timezone.utc)
-              - timedelta(days=INVOICE_WINDOW_DAYS)).date().isoformat()
-    if date_from and date_from[:10] < cutoff:
-        raise MirrorWindowExceeded(
-            "We're showing cached data because the live data source is "
-            "unreachable, and the cache only goes back "
-            f"{INVOICE_WINDOW_DAYS} days (to {cutoff}). "
-            "Please pick a date range starting on or after that date, or "
-            "try again later when the live data source is back."
-        )
+    if date_from:
+        with connect() as conn:
+            earliest = conn.execute(
+                "SELECT MIN(invoice_date) FROM mirror_invoice"
+            ).fetchone()[0]
+        if earliest and date_from[:10] < str(earliest)[:10]:
+            raise MirrorWindowExceeded(
+                "We're showing cached data because the live data source is "
+                f"unreachable, and the cache only goes back to {earliest}. "
+                "Please pick a date range starting on or after that date, "
+                "or ask an admin to run the 'Backfill since D365 go-live' "
+                "job."
+            )
 
     where: list[str] = []
     params: list[Any] = []

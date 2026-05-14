@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -25,6 +28,96 @@ from test.webapp.services import reporting_api
 log = logging.getLogger(__name__)
 
 diag_bp = Blueprint("diag", __name__, url_prefix="/diag")
+
+
+# ---------------------------------------------------------------------------
+# In-memory backfill job registry
+# ---------------------------------------------------------------------------
+#
+# The "Backfill since D365 go-live" job is long-running (10+ minutes,
+# ~17 API calls per scope) so we kick it in a daemon thread and let the
+# admin page poll for status. Per-process registry is fine: only one
+# admin runs this at a time, and the worst case of a worker restart is
+# "you have to refresh and re-trigger" -- the mirror upserts are
+# idempotent.
+
+_BACKFILL_JOBS: dict[str, dict[str, Any]] = {}
+_BACKFILL_LOCK = threading.Lock()
+_BACKFILL_MAX_RETAINED = 16
+
+
+def _register_backfill_job(scope: str, triggered_by: str | None) -> str:
+    job_id = uuid.uuid4().hex[:12]
+    with _BACKFILL_LOCK:
+        # Trim oldest finished jobs so the registry doesn't grow forever
+        # in a long-lived process.
+        if len(_BACKFILL_JOBS) >= _BACKFILL_MAX_RETAINED:
+            finished = sorted(
+                (jid for jid, j in _BACKFILL_JOBS.items()
+                 if j.get("state") in ("done", "failed")),
+                key=lambda jid: _BACKFILL_JOBS[jid].get("started_utc") or "",
+            )
+            for jid in finished[: max(1, len(finished) // 2)]:
+                _BACKFILL_JOBS.pop(jid, None)
+        _BACKFILL_JOBS[job_id] = {
+            "job_id":       job_id,
+            "scope":        scope,
+            "state":        "running",
+            "started_utc":  datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "finished_utc": None,
+            "triggered_by": triggered_by,
+            "chunks_done":  0,
+            "chunks_total": 0,
+            "rows_in":      0,
+            "current":      None,
+            "errors":       [],
+            "result":       None,
+        }
+    return job_id
+
+
+def _update_backfill_progress(job_id: str, evt: dict[str, Any]) -> None:
+    with _BACKFILL_LOCK:
+        job = _BACKFILL_JOBS.get(job_id)
+        if not job:
+            return
+        if evt.get("chunk_total"):
+            job["chunks_total"] = int(evt["chunk_total"])
+        if evt.get("status") == "ok":
+            job["chunks_done"] = max(job["chunks_done"], int(evt.get("chunk_index") or 0))
+            job["rows_in"] += int(evt.get("rows") or 0)
+        elif evt.get("status") == "error":
+            job["errors"].append(
+                f"{evt.get('scope')} {evt.get('chunk_start')}.."
+                f"{evt.get('chunk_end')}: {evt.get('error')}"
+            )
+        job["current"] = {
+            "scope":       evt.get("scope"),
+            "chunk_index": evt.get("chunk_index"),
+            "chunk_total": evt.get("chunk_total"),
+            "chunk_start": evt.get("chunk_start"),
+            "chunk_end":   evt.get("chunk_end"),
+            "status":      evt.get("status"),
+        }
+
+
+def _finish_backfill_job(job_id: str, result: dict[str, Any] | None,
+                         error: str | None) -> None:
+    with _BACKFILL_LOCK:
+        job = _BACKFILL_JOBS.get(job_id)
+        if not job:
+            return
+        job["state"] = "failed" if error else "done"
+        job["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        job["result"] = result
+        if error:
+            job["errors"].append(error)
+
+
+def _snapshot_backfill_job(job_id: str) -> dict[str, Any] | None:
+    with _BACKFILL_LOCK:
+        job = _BACKFILL_JOBS.get(job_id)
+        return dict(job) if job else None
 
 
 def _env_status() -> dict[str, Any]:
@@ -91,6 +184,55 @@ def diag_mirror_status():
         "recent_runs": mirror.list_recent_refresh_runs(limit=20),
         "next_run":    mirror_scheduler.next_run_at(),
     })
+
+
+@diag_bp.post("/api/mirror/backfill")
+@require_admin
+def diag_mirror_backfill():
+    """Kick a "Backfill since D365 go-live" job in a daemon thread.
+
+    Body (JSON, optional):
+        { "scope": "all" | "salesline" | "invoice" }   # default "all"
+
+    Returns the job id; the admin page polls
+    /diag/api/mirror/backfill-status/<job_id> for progress.
+    """
+    from flask import session
+    from test.webapp.services import mirror_refresh
+
+    body = request.get_json(silent=True) or {}
+    scope = (body.get("scope") or "all").strip().lower()
+    if scope not in ("all", "salesline", "invoice"):
+        return jsonify({"ok": False, "error": f"invalid scope: {scope}"}), 400
+
+    triggered_by = (session.get("v2_user") or {}).get("email")
+    job_id = _register_backfill_job(scope=scope, triggered_by=triggered_by)
+
+    def _run() -> None:
+        try:
+            result = mirror_refresh.backfill_since_golive(
+                scope=scope,
+                trigger="admin-backfill",
+                triggered_by=triggered_by,
+                progress_cb=lambda evt: _update_backfill_progress(job_id, evt),
+            )
+            _finish_backfill_job(job_id, result, None)
+        except Exception as exc:
+            log.exception("backfill job %s failed", job_id)
+            _finish_backfill_job(job_id, None, f"{type(exc).__name__}: {exc}")
+
+    t = threading.Thread(target=_run, name=f"mirror-backfill-{job_id}", daemon=True)
+    t.start()
+    return jsonify({"ok": True, "job_id": job_id, "scope": scope})
+
+
+@diag_bp.get("/api/mirror/backfill-status/<job_id>")
+@require_admin
+def diag_mirror_backfill_status(job_id: str):
+    job = _snapshot_backfill_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "unknown job_id"}), 404
+    return jsonify({"ok": True, **job})
 
 
 @diag_bp.get("/api/probe/customer-history")

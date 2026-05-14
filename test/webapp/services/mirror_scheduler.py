@@ -48,7 +48,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from test.config.settings import APP_DB_PATH
-from test.webapp.services import mirror, reporting_api
+from test.webapp.services import mirror, mirror_refresh, reporting_api
 
 log = logging.getLogger(__name__)
 
@@ -142,6 +142,7 @@ def refresh_mirror_job(*, trigger: str = "cron",
         "started_utc":  datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "customers":    None,
         "salesline":    None,
+        "invoice":      None,
         "errors":       [],
     }
 
@@ -165,22 +166,38 @@ def refresh_mirror_job(*, trigger: str = "cron",
         log.exception(msg)
         results["errors"].append(msg)
 
-    # 2) Salesline release snapshot for the rolling window.
-    #
-    # NOTE: an unfiltered salesline_release call returns months of
-    # data and can be very slow. We intentionally pass no filters so
-    # the SP returns its native default range (which the brother said
-    # is appropriate for caching). The upsert helper drops anything
-    # outside the rolling 60-day window before writing.
+    # 2) Salesline + invoice refresh, chunked month-by-month over the
+    #    last ~6 months. A single unfiltered call would either time
+    #    out or pull months of data in one request; the chunked helper
+    #    breaks the window into ~6 small calls so a bad month doesn't
+    #    poison the rest. Older history is loaded once via the admin
+    #    "Backfill since D365 go-live" button -- never on the daily
+    #    cron.
     try:
-        rows = reporting_api.run("ordered", {"period": "all_time"})
-        stats = mirror.upsert_salesline(
-            rows, trigger=trigger, triggered_by=triggered_by,
+        stats = mirror_refresh.refresh_window_chunked(
+            scope="salesline",
+            days_back=mirror.SALESLINE_REFRESH_WINDOW_DAYS,
+            trigger=trigger, triggered_by=triggered_by,
         )
         results["salesline"] = stats
         log.info("mirror refresh: salesline %s", stats)
+        results["errors"].extend(stats.get("errors") or [])
     except Exception as exc:
-        msg = f"salesline_release refresh failed: {exc}"
+        msg = f"salesline_release chunked refresh failed: {exc}"
+        log.exception(msg)
+        results["errors"].append(msg)
+
+    try:
+        stats = mirror_refresh.refresh_window_chunked(
+            scope="invoice",
+            days_back=mirror.INVOICE_REFRESH_WINDOW_DAYS,
+            trigger=trigger, triggered_by=triggered_by,
+        )
+        results["invoice"] = stats
+        log.info("mirror refresh: invoice %s", stats)
+        results["errors"].extend(stats.get("errors") or [])
+    except Exception as exc:
+        msg = f"invoiced_order_charges chunked refresh failed: {exc}"
         log.exception(msg)
         results["errors"].append(msg)
 

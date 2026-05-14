@@ -222,9 +222,23 @@ def _source_label(meta: dict[str, Any] | None) -> str:
     return labels.get(str(source), str(source).replace("_", " "))
 
 
-def _salesline_stats_message(stats: dict[str, int] | None) -> str:
+def _salesline_stats_message(stats: dict[str, Any] | None) -> str:
     if not stats:
         return ""
+    # Chunked-helper shape (new): {rows_in, chunks_done, chunks_total,
+    # errors, ...}. Old upsert_salesline shape (still in persisted
+    # rows): {rows_in, inserted, updated, unchanged, skipped_*}. Render
+    # whichever fields are present so older snapshots survive a deploy.
+    rows_in = int(stats.get("rows_in") or 0)
+    if "chunks_total" in stats:
+        chunks_done = int(stats.get("chunks_done") or 0)
+        chunks_total = int(stats.get("chunks_total") or 0)
+        errors = len(stats.get("errors") or [])
+        return (
+            "Salesline mirror: "
+            f"{rows_in:,} API rows across {chunks_done}/{chunks_total} "
+            f"monthly chunks ({errors} chunk error{'s' if errors != 1 else ''})"
+        )
     skipped = (
         int(stats.get("skipped_missing_order") or 0)
         + int(stats.get("skipped_missing_date") or 0)
@@ -232,14 +246,11 @@ def _salesline_stats_message(stats: dict[str, int] | None) -> str:
     )
     return (
         "Salesline mirror: "
-        f"{int(stats.get('rows_in') or 0):,} API rows, "
+        f"{rows_in:,} API rows, "
         f"{int(stats.get('inserted') or 0):,} inserted, "
         f"{int(stats.get('updated') or 0):,} updated, "
         f"{int(stats.get('unchanged') or 0):,} unchanged, "
-        f"{skipped:,} skipped "
-        f"({int(stats.get('skipped_missing_order') or 0):,} no order #, "
-        f"{int(stats.get('skipped_missing_date') or 0):,} no date, "
-        f"{int(stats.get('skipped_outside_window') or 0):,} outside {mirror.SALESLINE_WINDOW_DAYS} days)"
+        f"{skipped:,} skipped"
     )
 
 
@@ -442,34 +453,36 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         _refresh_state.setdefault(scope, {})["customer_source"] = customer_source
         _set_step(scope, f"Received {len(customer_rows):,} customers")
 
-        _set_step(scope, f"Refreshing salesline mirror ({mirror.SALESLINE_WINDOW_DAYS} days)...")
-        order_rows, order_source = _fetch_order_history(salesman_key)
-        stats: dict[str, int] = {
-            "rows_in": len(order_rows),
-            "inserted": 0,
-            "updated": 0,
-            "unchanged": 0,
-            "pruned": 0,
-            "skipped_missing_order": 0,
-            "skipped_missing_date": 0,
-            "skipped_outside_window": 0,
-        }
-        if order_rows:
-            stats = mirror.upsert_salesline(order_rows, trigger="dashboard")
-            _set_step(
-                scope,
-                _salesline_stats_message(stats),
-            )
+        from test.webapp.services import mirror_refresh
+
+        days_back = mirror.SALESLINE_REFRESH_WINDOW_DAYS
+        _set_step(
+            scope,
+            f"Refreshing salesline mirror (last {days_back} days, "
+            "chunked monthly)...",
+        )
+        # The chunked helper handles fetch + piggyback upsert internally;
+        # no separate upsert_salesline call. Older history (pre-window)
+        # is loaded via the admin "Backfill since D365 go-live" job and
+        # then kept forever by the mirror.
+        stats = mirror_refresh.refresh_window_chunked(
+            scope="salesline",
+            days_back=days_back,
+            trigger="dashboard",
+            triggered_by=f"dashboard:{scope_label}",
+        )
+        order_source = _source_label(reporting_api.last_run_source())
+        _set_step(scope, _salesline_stats_message(stats))
         _refresh_state.setdefault(scope, {})["order_mirror_stats"] = stats
         _refresh_state.setdefault(scope, {})["order_source"] = order_source
-        _set_step(scope, f"Received {len(order_rows):,} order lines")
-
-        try:
-            backfill_stats = _backfill_last_orders(salesman_key, scope)
-        except Exception:
-            log.exception("Dashboard last-order backfill failed (%s)", scope_label)
-            backfill_stats = {"errors": 1, "customers_to_backfill": 0,
-                              "api_calls": 0, "rows_pinned": 0, "rows_fetched": 0}
+        # We no longer call _backfill_last_orders here -- the mirror
+        # retains every salesline row since D365 go-live (loaded via
+        # the admin backfill button) so the long-tail per-customer
+        # pinning that used to live in this step is redundant. Leave
+        # the helper in the module for now; just don't call it.
+        backfill_stats = {"customers_to_backfill": 0, "api_calls": 0,
+                          "rows_pinned": 0, "rows_fetched": 0,
+                          "errors": 0, "skipped": "no-window-mirror"}
         _refresh_state.setdefault(scope, {})["backfill_stats"] = backfill_stats
 
         now = datetime.now().isoformat(timespec="seconds")
