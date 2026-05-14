@@ -19,14 +19,18 @@ Field mapping from SP -> live-style column names::
     Amount + all three charges   -> Total Invoice
     SalesGroup                   -> Salesman / SalesGroup
 
-The new endpoint does not expose commission rate or amount, so the
-Commissions tab is rendered as a placeholder ("pending commission feed")
-that's hidden whenever a salesman filter is applied -- matching the old
-report's rule that commissions never ship to salesmen.
+Salesman # / Name + commission % are looked up from the local
+``app_salesmen`` table (keyed by the normalized SalesGroup). That table
+also drives the Commissions tab, which mirrors the live aggregator's
+``Commission Base = SubTotal + Tariff`` and ``Commissions = Base * pct``
+formula. When a salesman filter is applied at the request level,
+``report_runner._apply_tab_rules`` drops the Commissions tab entirely
+so salesmen never see commission data (matching the live report's
+``skip_commissions=bool(salesman_filter)`` rule).
 
 Tabs (in order):
-    1. Summary by Customer  -- one row per customer, sums + invoice count
-    2. Commissions          -- placeholder until a rate feed is wired
+    1. Summary by Customer  -- one row per (customer, salesman), sums + invoice count
+    2. Commissions          -- per-salesman commission math (admin-only)
     3. Full Details         -- one row per invoice (every column)
     4. Credits              -- rows whose invoice number starts CRD/CM/FC
     5. Invoices             -- all non-credit rows
@@ -37,8 +41,11 @@ number prefix.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Iterable
+
+log = logging.getLogger(__name__)
 
 
 # Mirrors webapp/reports/invoiced/aggregator.py's CREDIT_PREFIX_RE.
@@ -63,6 +70,8 @@ FULL_DATA_COLS: list[dict[str, str]] = [
     {"field": "CC Charges",         "header": "CC Charges",         "type": "money"},
     {"field": "Total Invoice",      "header": "Total Invoice",      "type": "money"},
     {"field": "Salesman",           "header": "Salesman",           "type": "text"},
+    {"field": "SalesmanNumber",     "header": "SalesmanNumber",     "type": "text"},
+    {"field": "SalesmanName",       "header": "SalesmanName",       "type": "text"},
     {"field": "SalesGroup",         "header": "SalesGroup",         "type": "text"},
 ]
 
@@ -71,7 +80,10 @@ SUMMARY_COLS: list[dict[str, str]] = [
     {"field": "CustomerAccount",       "header": "CustomerAccount",       "type": "text"},
     {"field": "CustomerName",          "header": "CustomerName",          "type": "text"},
     {"field": "Salesman",              "header": "Salesman",              "type": "text"},
+    {"field": "SalesmanNumber",        "header": "SalesmanNumber",        "type": "text"},
+    {"field": "SalesmanName",          "header": "SalesmanName",          "type": "text"},
     {"field": "InvoiceCount",          "header": "InvoiceCount",          "type": "int"},
+    {"field": "SubTotal Invoices",     "header": "SubTotal Invoices",     "type": "money"},
     {"field": "Total Tariff Charges",  "header": "Total Tariff Charges",  "type": "money"},
     {"field": "Total Freight Charges", "header": "Total Freight Charges", "type": "money"},
     {"field": "Total CC Charges",      "header": "Total CC Charges",      "type": "money"},
@@ -79,8 +91,10 @@ SUMMARY_COLS: list[dict[str, str]] = [
 ]
 
 
-COMMISSIONS_PLACEHOLDER_COLS: list[dict[str, str]] = [
-    {"field": "Message", "header": "Message", "type": "text"},
+COMMISSION_COLS: list[dict[str, str]] = SUMMARY_COLS + [
+    {"field": "Percent",         "header": "Percent",         "type": "percent"},
+    {"field": "Commission Base", "header": "Commission Base", "type": "money"},
+    {"field": "Commissions",     "header": "Commissions",     "type": "money"},
 ]
 
 
@@ -121,7 +135,39 @@ def _first(raw: dict, *keys: str) -> Any:
     return None
 
 
-def _norm_row(raw: dict) -> dict:
+def _load_salesman_map() -> dict[str, dict]:
+    """Cache the local salesman-master keyed by normalized key.
+
+    Returns a dict of ``{normalized_key: {number, full_name, display_name,
+    commission_pct}}``. Empty dict if the lookup fails (the builder
+    treats no-match defensively).
+    """
+    try:
+        from test.webapp.db import list_salesman_map
+        rows = list_salesman_map()
+    except Exception:
+        log.exception("invoiced: failed to load app_salesmen; commissions will be zero")
+        return {}
+    out: dict[str, dict] = {}
+    for r in rows or []:
+        key = (r.get("key") or "").strip().lower()
+        if not key:
+            continue
+        out[key] = {
+            "number":         (r.get("number") or "").strip(),
+            "full_name":      (r.get("full_name") or "").strip(),
+            "display_name":   (r.get("display_name") or "").strip(),
+            "commission_pct": float(r.get("commission_pct") or 0.0),
+        }
+    return out
+
+
+def _sm_key(sales_group: str) -> str:
+    """Normalize a SalesGroup to the app_salesmen.key form (lowercase alnum)."""
+    return re.sub(r"[^a-z0-9]+", "", (sales_group or "").strip().lower())
+
+
+def _norm_row(raw: dict, sm_map: dict[str, dict]) -> dict:
     """Map an invoiced_order_charges row onto live-style column names."""
     amount       = round(_num(_first(raw, "Amount", "SubTotal", "SubTotalAmount")), 2)
     tariff_chg   = round(_num(_first(raw, "SH_TariffCharges", "TariffCharges", "Tariff Charges")), 2)
@@ -130,6 +176,19 @@ def _norm_row(raw: dict) -> dict:
     total        = round(amount + tariff_chg + freight_chg + cc_chg, 2)
 
     salesgroup = _str(_first(raw, "SalesGroup", "salesgroup", "Salesman"))
+    sm = sm_map.get(_sm_key(salesgroup)) if salesgroup else None
+
+    # Salesman display label prefers display_name (friendly) over full_name
+    # over the raw SalesGroup code, mirroring the dropdown precedence the
+    # rest of the app uses.
+    if sm:
+        salesman_label = sm.get("display_name") or sm.get("full_name") or salesgroup
+        salesman_number = sm.get("number") or ""
+        salesman_name = sm.get("full_name") or ""
+    else:
+        salesman_label = salesgroup
+        salesman_number = ""
+        salesman_name = ""
 
     return {
         "CustomerAccount":   _str(_first(raw, "InvoiceAccount", "CustomerAccount", "customeraccount", "AccountNum")),
@@ -142,11 +201,9 @@ def _norm_row(raw: dict) -> dict:
         "Freight Charges":   freight_chg,
         "CC Charges":        cc_chg,
         "Total Invoice":     total,
-        # SalesGroup is what the new endpoint returns. Until a separate
-        # salesman-master feed lands we surface it under both the
-        # legacy "Salesman" header and the canonical SalesGroup column
-        # so existing column logic + new dashboards both work.
-        "Salesman":          salesgroup,
+        "Salesman":          salesman_label,
+        "SalesmanNumber":    salesman_number,
+        "SalesmanName":      salesman_name,
         "SalesGroup":        salesgroup,
     }
 
@@ -161,6 +218,7 @@ def _is_credit(invoice_no: str) -> bool:
 
 
 _SUMMARY_MONEY_FIELDS = (
+    "SubTotal Invoices",
     "Total Tariff Charges",
     "Total Freight Charges",
     "Total CC Charges",
@@ -169,38 +227,52 @@ _SUMMARY_MONEY_FIELDS = (
 
 
 def _build_summary_by_customer(invoices: list[dict]) -> dict:
-    """Per-customer aggregation. Mirrors live ``_build_summary``."""
-    buckets: dict[str, dict] = {}
-    meta: dict[str, dict] = {}
+    """Per-(customer, salesman) aggregation. Mirrors live ``_build_summary``.
+
+    Grouped on ``(CustomerAccount, SalesmanNumber)`` so that the same
+    customer billed by two different salesmen produces two rows --
+    matches the live aggregator's group-cols list of
+    ``[CustomerAccount, CustomerName, SalesmanNumber, SalesmanName]``.
+    """
+    buckets: dict[tuple, dict] = {}
+    meta: dict[tuple, dict] = {}
     for inv in invoices:
-        key = inv["CustomerAccount"] or "(none)"
+        key = (inv["CustomerAccount"] or "(none)", inv["SalesmanNumber"] or "")
         if key not in buckets:
             buckets[key] = {
                 "InvoiceCount":          0,
+                "SubTotal Invoices":     0.0,
                 "Total Tariff Charges":  0.0,
                 "Total Freight Charges": 0.0,
                 "Total CC Charges":      0.0,
                 "Total Invoices":        0.0,
             }
             meta[key] = {
-                "CustomerName": inv["CustomerName"],
-                "Salesman":     inv["Salesman"],
+                "CustomerName":   inv["CustomerName"],
+                "Salesman":       inv["Salesman"],
+                "SalesmanName":   inv["SalesmanName"],
+                "SalesGroup":     inv["SalesGroup"],
             }
         b = buckets[key]
         b["InvoiceCount"]          += 1
+        b["SubTotal Invoices"]     += inv["SubTotal Invoices"]
         b["Total Tariff Charges"]  += inv["Tariff Charges"]
         b["Total Freight Charges"] += inv["Freight Charges"]
         b["Total CC Charges"]      += inv["CC Charges"]
         b["Total Invoices"]        += inv["Total Invoice"]
 
     rows = []
-    for cust, b in buckets.items():
+    for (cust, sm_no), b in buckets.items():
         for f in _SUMMARY_MONEY_FIELDS:
             b[f] = round(b[f], 2)
+        m = meta[(cust, sm_no)]
         rows.append({
             "CustomerAccount": cust,
-            "CustomerName":    meta[cust]["CustomerName"],
-            "Salesman":        meta[cust]["Salesman"],
+            "CustomerName":    m["CustomerName"],
+            "Salesman":        m["Salesman"],
+            "SalesmanNumber":  sm_no,
+            "SalesmanName":    m["SalesmanName"],
+            "_sales_group":    m["SalesGroup"],  # not surfaced, used by commissions
             **b,
         })
     rows.sort(key=lambda r: -float(r["Total Invoices"] or 0))
@@ -212,23 +284,36 @@ def _build_summary_by_customer(invoices: list[dict]) -> dict:
     }
 
 
-def _build_commissions_placeholder() -> dict:
-    """Single-row placeholder until a commission rate feed is wired.
+def _build_commissions(summary_rows: list[dict], sm_map: dict[str, dict]) -> dict:
+    """Per-salesman commission math.
 
-    Tab is hidden whenever a salesman filter is applied (see
-    ``report_runner._apply_tab_rules``), so non-admins never see this.
+    Mirrors ``reports/invoiced/aggregator._build_commissions``:
+    ``Commission Base = SubTotal Invoices + Total Tariff Charges`` and
+    ``Commissions = Commission Base * commission_pct``. The percent
+    comes from ``app_salesmen.commission_pct`` keyed by the normalized
+    SalesGroup. Rows where we have no commission rate fall through with
+    zero so the customer still appears, just with $0 commission.
     """
+    rows: list[dict] = []
+    for r in summary_rows:
+        sg = r.get("_sales_group") or ""
+        sm = sm_map.get(_sm_key(sg)) if sg else None
+        pct = float(sm["commission_pct"]) if sm else 0.0
+        sub = float(r.get("SubTotal Invoices") or 0)
+        tariff = float(r.get("Total Tariff Charges") or 0)
+        base = round(sub + tariff, 2)
+        comm = round(base * pct, 2)
+        out = {k: v for k, v in r.items() if k != "_sales_group"}
+        out["Percent"] = pct
+        out["Commission Base"] = base
+        out["Commissions"] = comm
+        rows.append(out)
+    rows.sort(key=lambda r: -float(r.get("Commissions") or 0))
     return {
         "key":     "commissions",
         "name":    "Commissions",
-        "columns": COMMISSIONS_PLACEHOLDER_COLS,
-        "rows":    [{
-            "Message": (
-                "Commission rates aren't wired up to the new invoiced_order_charges "
-                "endpoint yet. The Commissions tab will populate once a rate/amount "
-                "feed is connected."
-            ),
-        }],
+        "columns": COMMISSION_COLS,
+        "rows":    rows,
     }
 
 
@@ -268,10 +353,19 @@ def _build_invoices(invoices: list[dict]) -> dict:
 
 def build(rows: Iterable[dict]) -> list[dict]:
     """Turn flat invoiced_order_charges rows into the multi-tab payload."""
-    invoices = [_norm_row(r) for r in rows]
+    sm_map = _load_salesman_map()
+    invoices = [_norm_row(r, sm_map) for r in rows]
+    summary = _build_summary_by_customer(invoices)
+    commissions = _build_commissions(summary["rows"], sm_map)
+    # Strip the private _sales_group helper key from summary rows so it
+    # doesn't appear in the on-screen grid or Excel export.
+    summary["rows"] = [
+        {k: v for k, v in r.items() if not k.startswith("_")}
+        for r in summary["rows"]
+    ]
     return [
-        _build_summary_by_customer(invoices),
-        _build_commissions_placeholder(),
+        summary,
+        commissions,
         _build_full_data(invoices),
         _build_credits(invoices),
         _build_invoices(invoices),
