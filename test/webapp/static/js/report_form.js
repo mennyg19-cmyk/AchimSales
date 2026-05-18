@@ -309,10 +309,17 @@
     function cssEsc(s) { return String(s ?? "").replace(/(["\\])/g, "\\$1"); }
 
     // ---- Lookup polling -----------------------------------------------
-    // The first time anyone hits the form, the server kicks off a slow
-    // populate. We poll status until it's ready, then fill the dropdowns.
+    //
+    // The salesman + customer dropdowns are mirror-first: on boot we
+    // immediately load whatever's in the local SQLite mirror so the
+    // form is usable instantly, then poll /lookups/status in the
+    // background and swap the dropdowns to the live API-backed cache
+    // when it's ready. This page used to wait 5s before falling back
+    // to the mirror, which made the form feel slow even though the
+    // local copy was right there.
     let lookupPollTimer = null;
     let lookupReady = false;
+    let lookupSource = null; // "live" | "mirror"
 
     function setLookupBanner(text, kind) {
         const el = $("lookupBanner");
@@ -330,6 +337,7 @@
 
     function loadLookupDropdowns(source) {
         lookupReady = true;
+        lookupSource = source || "live";
         if (cfg.hasSalesman) {
             fetchJson(cfg.salesmenUrl).then(applySalesmen).catch(() => {});
         }
@@ -342,15 +350,22 @@
         if (!cfg.lookupStatusUrl) return;
         try {
             const status = await fetchJson(cfg.lookupStatusUrl);
+            const mirrorRows = status.mirror_row_count || 0;
 
             if (!status.configured) {
-                setLookupBanner("Reporting API not configured. Type in a salesman/customer if you need to filter.", "warn");
+                setLookupBanner(
+                    mirrorRows > 0
+                        ? "Reporting API not configured \u2014 showing the offline customer/salesman list."
+                        : "Reporting API not configured. Type a salesman/customer if you need to filter.",
+                    mirrorRows > 0 ? "info" : "warn"
+                );
                 lookupReady = true; // Stop polling; nothing to wait for.
                 return;
             }
 
-            if (status.cached_row_count > 0 && !lookupReady) {
-                // API-backed lookup data is available now.
+            // Live cache is ready. Swap from mirror to live (or load
+            // for the first time if mirror was empty).
+            if (status.cached_row_count > 0 && (!lookupReady || lookupSource === "mirror")) {
                 setLookupBanner("", null);
                 loadLookupDropdowns("live");
                 return;
@@ -359,26 +374,45 @@
             if (status.status === "loading") {
                 const elapsed = status.started_at
                     ? Math.round((Date.now() / 1000 - status.started_at)) : 0;
-                setLookupBanner(
-                    `Loading customer/salesman list from the reporting API\u2026 (${elapsed}s)`,
-                    "info"
-                );
+                if (lookupSource === "mirror") {
+                    setLookupBanner(
+                        `Showing the offline customer/salesman list \u2014 live data is loading in the background (${elapsed}s)\u2026`,
+                        "info"
+                    );
+                } else {
+                    setLookupBanner(
+                        `Loading customer/salesman list from server\u2026 (${elapsed}s)`,
+                        "info"
+                    );
+                }
                 schedulePoll(2000);
                 return;
             }
 
             if (status.status === "error") {
-                setLookupBanner(
-                    "Couldn't load the customer/salesman list yet. Retrying the reporting API; the form still works if you type values manually.",
-                    "warn"
-                );
+                if (lookupSource === "mirror") {
+                    setLookupBanner(
+                        "Live customer/salesman lookup failed; still showing the offline list and retrying in the background.",
+                        "info"
+                    );
+                } else {
+                    setLookupBanner(
+                        mirrorRows > 0
+                            ? "Couldn't load the live list yet; retrying. The offline mirror is available if you need it."
+                            : "Couldn't load the customer/salesman list yet. Retrying live API; the form still works if you type values manually.",
+                        "warn"
+                    );
+                }
                 schedulePoll(10000);
                 return;
             }
 
-            // Idle / unknown -- give the server a chance to start by
-            // polling status. The status endpoint kicks the API populate.
-            setLookupBanner("Starting customer/salesman lookup from the reporting API\u2026", "info");
+            // Idle / unknown -- give the server a chance to start.
+            // The status endpoint kicks the populate when cache is empty,
+            // so just poll again shortly.
+            if (lookupSource !== "mirror") {
+                setLookupBanner("Starting customer/salesman lookup from the reporting API\u2026", "info");
+            }
             schedulePoll(2000);
         } catch (e) {
             // Network or auth error on the status endpoint itself; back off.
@@ -400,6 +434,14 @@
     initYear();
     initSalesmanShell();
     if (cfg.hasCustomer) initCustomerSearch();
-    // Lookup populate runs in parallel with everything else.
-    if (cfg.hasSalesman || cfg.hasCustomer) pollLookupStatus();
+    // Mirror-first dropdowns: load whatever's in the local copy
+    // immediately so the form is usable in <100ms, then poll status
+    // and swap to the live API-backed cache when it's ready. The
+    // /salesmen and /customers endpoints already serve the mirror
+    // when the in-process cache is empty, so the first fetch here is
+    // essentially a SQLite read.
+    if (cfg.hasSalesman || cfg.hasCustomer) {
+        loadLookupDropdowns("mirror");
+        pollLookupStatus();
+    }
 })();
