@@ -495,9 +495,10 @@ def refresh_cache(salesman_key: str | None = None) -> None:
         set_app_setting(_LAST_ERROR_KEY, "")
         _invalidate_dashboard_build_cache()
         _invalidate_cache_counts()
-        _set_step(scope, f"Done - mirrors refreshed ({len(customer_rows):,} customers, {len(order_rows):,} order lines)")
+        order_lines_in = int(stats.get("rows_in") or 0)
+        _set_step(scope, f"Done - mirrors refreshed ({len(customer_rows):,} customers, {order_lines_in:,} order lines)")
         log.info("Dashboard mirror refresh complete (%s): %d customers, %d order lines",
-                 scope_label, len(customer_rows), len(order_rows))
+                 scope_label, len(customer_rows), order_lines_in)
     except Exception as exc:
         message = str(exc) or "Refresh failed"
         log.exception("Dashboard refresh failed (%s)", scope_label)
