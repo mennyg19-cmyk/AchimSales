@@ -585,10 +585,14 @@ def _apply_pragmas(conn: sqlite3.Connection, *, first_time: bool) -> None:
         # preserved within WAL semantics (checkpoint syncs).
         "PRAGMA synchronous = NORMAL",
         "PRAGMA temp_store = MEMORY",
-        # 64 MB per-connection page cache. Keeps the dashboard's
-        # GROUP BY over 85k salesline rows in memory after the first
-        # hit.
-        "PRAGMA cache_size = -65536",
+        # 8 MB per-connection page cache. Was 64 MB, but on B1 (1.75 GB
+        # RAM) with 2 workers x 8 threads + the live app sharing the
+        # container, the multiplied page cache (~1 GB at peak) was
+        # leaving no headroom and triggering OOM SIGKILLs during the
+        # daily mirror refresh. 8 MB still covers hot dashboard queries
+        # via the materialized mirror_sales_header table; the GROUP BY
+        # over raw salesline isn't on the dashboard path anymore.
+        "PRAGMA cache_size = -8192",
     ]
     if first_time:
         # journal_mode persists in the DB header; only set it once.

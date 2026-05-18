@@ -30,7 +30,6 @@ from test.webapp.services.report_access import get_user_profile
 
 log = logging.getLogger(__name__)
 
-REFRESH_INTERVAL_SECONDS = 4 * 3600
 _DEFAULT_COMPANY = (os.environ.get("REPORTING_API_DEFAULT_COMPANY") or "ACHM").strip()
 _SCOPE_ALL = "__all__"
 _LAST_REQUESTED_KEY = "dashboard.last_refresh_requested"
@@ -1142,28 +1141,31 @@ def user_can_access_order(email: str, customer_account: str) -> bool:
 
 
 def start_background_refresh() -> None:
-    """Start periodic dashboard refresh; initial refresh only runs on empty cache."""
+    """Kick a one-shot refresh on boot iff the mirror is empty.
+
+    Ongoing refreshes are owned by :mod:`mirror_scheduler` (APScheduler
+    daily job at 00:00 ET + ``catchup_if_stale`` on boot). User-clicked
+    refreshes go through :func:`request_background_refresh`. We used to
+    run a 4-hour periodic loop here in addition to all of that, but it
+    fired on every gunicorn worker, duplicated the scheduler's work,
+    and was the trigger for the 2026-05-18 OOM cascade on B1 (chunked
+    salesline pull + the live app's OData paginator collided in the
+    same 1.75 GB container).
+    """
     global _refresh_thread
     if _refresh_thread and _refresh_thread.is_alive():
         return
 
     counts = get_cache_counts()
-    has_data = counts["customers"] > 0 and counts["order_lines"] > 0
+    if counts["customers"] > 0 and counts["order_lines"] > 0:
+        return
 
-    def _loop() -> None:
-        if not has_data:
-            try:
-                mark_refresh_requested()
-                refresh_cache()
-            except Exception:
-                log.exception("Initial dashboard background refresh failed")
-        while True:
-            time.sleep(REFRESH_INTERVAL_SECONDS)
-            try:
-                mark_refresh_requested()
-                refresh_cache()
-            except Exception:
-                log.exception("Dashboard background refresh failed")
+    def _cold_start() -> None:
+        try:
+            mark_refresh_requested()
+            refresh_cache()
+        except Exception:
+            log.exception("Initial dashboard background refresh failed")
 
-    _refresh_thread = threading.Thread(target=_loop, name="v2-dashboard-refresh", daemon=True)
+    _refresh_thread = threading.Thread(target=_cold_start, name="v2-dashboard-cold-start", daemon=True)
     _refresh_thread.start()
