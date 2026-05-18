@@ -224,6 +224,29 @@ _MIRROR_SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_mirror_refresh_runs_started ON mirror_refresh_runs(started_utc DESC)",
+    # Admin "Backfill since D365 go-live" job registry. Has to be in
+    # SQLite (not a per-process dict) because gunicorn runs >1 worker:
+    # the POST that kicks the job lands on worker A and creates the
+    # row; the polling GET load-balances to worker B and reads it.
+    # Also survives worker restarts so a mid-run crash doesn't orphan
+    # a job the admin is still watching.
+    """
+    CREATE TABLE IF NOT EXISTS mirror_backfill_jobs (
+        job_id        TEXT PRIMARY KEY,
+        scope         TEXT NOT NULL,
+        state         TEXT NOT NULL,       -- 'running' | 'done' | 'failed'
+        started_utc   TEXT NOT NULL,
+        finished_utc  TEXT,
+        triggered_by  TEXT,
+        chunks_done   INTEGER NOT NULL DEFAULT 0,
+        chunks_total  INTEGER NOT NULL DEFAULT 0,
+        rows_in       INTEGER NOT NULL DEFAULT 0,
+        current_json  TEXT,
+        errors_json   TEXT NOT NULL DEFAULT '[]',
+        result_json   TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mirror_backfill_jobs_started ON mirror_backfill_jobs(started_utc DESC)",
 ]
 
 

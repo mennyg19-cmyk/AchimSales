@@ -10,6 +10,7 @@ having to deploy debug code.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -22,6 +23,7 @@ import requests
 from flask import Blueprint, jsonify, render_template, request
 
 from test.webapp.auth import require_admin
+from test.webapp.db import connect
 from test.webapp.services import reporting_api
 
 
@@ -31,93 +33,165 @@ diag_bp = Blueprint("diag", __name__, url_prefix="/diag")
 
 
 # ---------------------------------------------------------------------------
-# In-memory backfill job registry
+# Backfill job registry (SQLite-backed)
 # ---------------------------------------------------------------------------
 #
 # The "Backfill since D365 go-live" job is long-running (10+ minutes,
-# ~17 API calls per scope) so we kick it in a daemon thread and let the
-# admin page poll for status. Per-process registry is fine: only one
-# admin runs this at a time, and the worst case of a worker restart is
-# "you have to refresh and re-trigger" -- the mirror upserts are
-# idempotent.
+# ~17 API calls per scope). It runs in a daemon thread on whichever
+# gunicorn worker received the POST; the admin page then polls for
+# status. The registry MUST live in SQLite (not a per-process dict)
+# because gunicorn runs >1 worker: a polling GET load-balances and
+# may land on a worker that didn't kick the job. Persisting also
+# means a mid-run worker restart doesn't orphan a job the admin is
+# still watching.
+#
+# Schema is defined in test/webapp/services/mirror.py:_MIRROR_SCHEMA
+# (table mirror_backfill_jobs).
 
-_BACKFILL_JOBS: dict[str, dict[str, Any]] = {}
-_BACKFILL_LOCK = threading.Lock()
 _BACKFILL_MAX_RETAINED = 16
 
 
 def _register_backfill_job(scope: str, triggered_by: str | None) -> str:
     job_id = uuid.uuid4().hex[:12]
-    with _BACKFILL_LOCK:
-        # Trim oldest finished jobs so the registry doesn't grow forever
-        # in a long-lived process.
-        if len(_BACKFILL_JOBS) >= _BACKFILL_MAX_RETAINED:
-            finished = sorted(
-                (jid for jid, j in _BACKFILL_JOBS.items()
-                 if j.get("state") in ("done", "failed")),
-                key=lambda jid: _BACKFILL_JOBS[jid].get("started_utc") or "",
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as conn:
+        # Trim oldest finished jobs so the table doesn't grow forever.
+        conn.execute(
+            """
+            DELETE FROM mirror_backfill_jobs
+            WHERE job_id IN (
+                SELECT job_id FROM mirror_backfill_jobs
+                WHERE state IN ('done', 'failed')
+                ORDER BY started_utc DESC
+                LIMIT -1 OFFSET ?
             )
-            for jid in finished[: max(1, len(finished) // 2)]:
-                _BACKFILL_JOBS.pop(jid, None)
-        _BACKFILL_JOBS[job_id] = {
-            "job_id":       job_id,
-            "scope":        scope,
-            "state":        "running",
-            "started_utc":  datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "finished_utc": None,
-            "triggered_by": triggered_by,
-            "chunks_done":  0,
-            "chunks_total": 0,
-            "rows_in":      0,
-            "current":      None,
-            "errors":       [],
-            "result":       None,
-        }
+            """,
+            (_BACKFILL_MAX_RETAINED,),
+        )
+        conn.execute(
+            """
+            INSERT INTO mirror_backfill_jobs (
+                job_id, scope, state, started_utc, triggered_by,
+                chunks_done, chunks_total, rows_in, current_json,
+                errors_json, result_json
+            ) VALUES (?, ?, 'running', ?, ?, 0, 0, 0, NULL, '[]', NULL)
+            """,
+            (job_id, scope, now, triggered_by),
+        )
     return job_id
 
 
 def _update_backfill_progress(job_id: str, evt: dict[str, Any]) -> None:
-    with _BACKFILL_LOCK:
-        job = _BACKFILL_JOBS.get(job_id)
-        if not job:
+    current = json.dumps({
+        "scope":       evt.get("scope"),
+        "chunk_index": evt.get("chunk_index"),
+        "chunk_total": evt.get("chunk_total"),
+        "chunk_start": evt.get("chunk_start"),
+        "chunk_end":   evt.get("chunk_end"),
+        "status":      evt.get("status"),
+    })
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT chunks_done, chunks_total, rows_in, errors_json "
+            "FROM mirror_backfill_jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+        if not row:
             return
+        chunks_done = int(row["chunks_done"])
+        chunks_total = int(row["chunks_total"])
+        rows_in = int(row["rows_in"])
+        try:
+            errors = json.loads(row["errors_json"] or "[]")
+        except (TypeError, ValueError):
+            errors = []
         if evt.get("chunk_total"):
-            job["chunks_total"] = int(evt["chunk_total"])
+            chunks_total = int(evt["chunk_total"])
         if evt.get("status") == "ok":
-            job["chunks_done"] = max(job["chunks_done"], int(evt.get("chunk_index") or 0))
-            job["rows_in"] += int(evt.get("rows") or 0)
+            chunks_done = max(chunks_done, int(evt.get("chunk_index") or 0))
+            rows_in += int(evt.get("rows") or 0)
         elif evt.get("status") == "error":
-            job["errors"].append(
+            errors.append(
                 f"{evt.get('scope')} {evt.get('chunk_start')}.."
                 f"{evt.get('chunk_end')}: {evt.get('error')}"
             )
-        job["current"] = {
-            "scope":       evt.get("scope"),
-            "chunk_index": evt.get("chunk_index"),
-            "chunk_total": evt.get("chunk_total"),
-            "chunk_start": evt.get("chunk_start"),
-            "chunk_end":   evt.get("chunk_end"),
-            "status":      evt.get("status"),
-        }
+        conn.execute(
+            """
+            UPDATE mirror_backfill_jobs
+            SET chunks_done = ?, chunks_total = ?, rows_in = ?,
+                current_json = ?, errors_json = ?
+            WHERE job_id = ?
+            """,
+            (chunks_done, chunks_total, rows_in,
+             current, json.dumps(errors), job_id),
+        )
 
 
 def _finish_backfill_job(job_id: str, result: dict[str, Any] | None,
                          error: str | None) -> None:
-    with _BACKFILL_LOCK:
-        job = _BACKFILL_JOBS.get(job_id)
-        if not job:
-            return
-        job["state"] = "failed" if error else "done"
-        job["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        job["result"] = result
+    state = "failed" if error else "done"
+    finished = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as conn:
         if error:
-            job["errors"].append(error)
+            row = conn.execute(
+                "SELECT errors_json FROM mirror_backfill_jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            if not row:
+                return
+            try:
+                errors = json.loads(row["errors_json"] or "[]")
+            except (TypeError, ValueError):
+                errors = []
+            errors.append(error)
+            errors_json = json.dumps(errors)
+        else:
+            errors_json = None
+        conn.execute(
+            """
+            UPDATE mirror_backfill_jobs
+            SET state = ?, finished_utc = ?,
+                result_json = COALESCE(?, result_json),
+                errors_json = COALESCE(?, errors_json)
+            WHERE job_id = ?
+            """,
+            (state, finished,
+             json.dumps(result) if result is not None else None,
+             errors_json, job_id),
+        )
 
 
 def _snapshot_backfill_job(job_id: str) -> dict[str, Any] | None:
-    with _BACKFILL_LOCK:
-        job = _BACKFILL_JOBS.get(job_id)
-        return dict(job) if job else None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM mirror_backfill_jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return None
+
+    def _loads(s: str | None, default: Any) -> Any:
+        if not s:
+            return default
+        try:
+            return json.loads(s)
+        except (TypeError, ValueError):
+            return default
+
+    return {
+        "job_id":       row["job_id"],
+        "scope":        row["scope"],
+        "state":        row["state"],
+        "started_utc":  row["started_utc"],
+        "finished_utc": row["finished_utc"],
+        "triggered_by": row["triggered_by"],
+        "chunks_done":  int(row["chunks_done"]),
+        "chunks_total": int(row["chunks_total"]),
+        "rows_in":      int(row["rows_in"]),
+        "current":      _loads(row["current_json"], None),
+        "errors":       _loads(row["errors_json"], []),
+        "result":       _loads(row["result_json"], None),
+    }
 
 
 def _env_status() -> dict[str, Any]:
