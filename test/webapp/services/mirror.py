@@ -224,6 +224,29 @@ _MIRROR_SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_mirror_refresh_runs_started ON mirror_refresh_runs(started_utc DESC)",
+    # Precomputed per-customer dashboard metrics. Built once at the
+    # end of every salesline upsert (and bootstrapped on first boot)
+    # so the dashboard read path is a flat SELECT * with no GROUP BY
+    # and no Python aggregation. This is the live app's pattern --
+    # the cost of the status/gap math is paid once on refresh, not
+    # per-render.
+    """
+    CREATE TABLE IF NOT EXISTS mirror_dashboard_cache (
+        customer_account   TEXT PRIMARY KEY,
+        customer_name      TEXT,
+        sales_group        TEXT,
+        last_order_date    TEXT,
+        order_count        INTEGER NOT NULL DEFAULT 0,
+        avg_gap_days       REAL,
+        gap_stdev          REAL,
+        overdue_threshold  REAL,
+        days_since_last    INTEGER,
+        status             TEXT NOT NULL,
+        last_refreshed     TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mirror_dashboard_cache_status ON mirror_dashboard_cache(status)",
+    "CREATE INDEX IF NOT EXISTS idx_mirror_dashboard_cache_sales_group ON mirror_dashboard_cache(sales_group)",
     # Admin "Backfill since D365 go-live" job registry. Has to be in
     # SQLite (not a per-process dict) because gunicorn runs >1 worker:
     # the POST that kicks the job lands on worker A and creates the
@@ -295,6 +318,25 @@ def init_mirror_db() -> None:
                     )
             except Exception:
                 log.warning("header bootstrap failed (non-fatal)", exc_info=True)
+            # Bootstrap mirror_dashboard_cache on the first boot after
+            # the schema landed (empty cache + existing data). Without
+            # this the dashboard render would hit an empty table until
+            # the next refresh.
+            try:
+                cache_empty = conn.execute(
+                    "SELECT 1 FROM mirror_dashboard_cache LIMIT 1"
+                ).fetchone() is None
+                customers_have_rows = conn.execute(
+                    "SELECT 1 FROM mirror_customers LIMIT 1"
+                ).fetchone() is not None
+                if cache_empty and customers_have_rows:
+                    rebuilt = _rebuild_dashboard_cache(conn)
+                    log.info(
+                        "mirror_dashboard_cache bootstrapped: %d customer rows",
+                        rebuilt,
+                    )
+            except Exception:
+                log.warning("dashboard cache bootstrap failed (non-fatal)", exc_info=True)
             # Refresh sqlite_stat1 so the planner picks the right
             # index for each table after any schema/data changes.
             try:
@@ -569,6 +611,19 @@ def upsert_customers(rows: Iterable[dict], *, trigger: str = "piggyback",
                         (now, norm["customer_account"]),
                     )
                     unchanged += 1
+            # Rebuild the dashboard cache so customer-master changes
+            # (new accounts, renames, sales-group reassignments) show
+            # up on the dashboard without waiting for the next
+            # salesline refresh.
+            if inserted or updated:
+                try:
+                    cache_rows = _rebuild_dashboard_cache(conn)
+                    log.info(
+                        "mirror_dashboard_cache rebuilt after customer upsert: %d rows",
+                        cache_rows,
+                    )
+                except Exception:
+                    log.exception("dashboard cache rebuild failed (non-fatal)")
     except Exception as exc:
         err = str(exc)
         log.exception("upsert_customers failed")
@@ -685,6 +740,143 @@ def _rebuild_sales_header(conn) -> int:
         """
     )
     return cur.rowcount or 0
+
+
+def _rebuild_dashboard_cache(conn) -> int:
+    """Recompute ``mirror_dashboard_cache`` from customers + sales header.
+
+    Runs inside an existing connection so it's atomic with whatever
+    salesline mutation just happened. Pays the per-customer cadence
+    math (mean gap, stdev, overdue threshold, status) once and stores
+    the result so the dashboard read path is a flat ``SELECT *``
+    instead of a 2,500-customer Python aggregation per render.
+
+    Status definitions match the original app's
+    ``webapp.dashboard_data._compute_customer_metrics``:
+
+    * ``new``      -- exactly one distinct order date in the mirror.
+    * ``active``   -- 2+ orders and the latest is within cadence
+                      (mean_gap + stdev), and within the last 365 days.
+    * ``overdue``  -- 2+ orders, latest beyond cadence but <= 365 days
+                      old.
+    * ``inactive`` -- no orders in the mirror, OR latest order > 365
+                      days old.
+    """
+    import math
+    from core.dates import get_today_eastern
+
+    today = get_today_eastern()
+    now = _utcnow()
+
+    customers: dict[str, dict] = {}
+
+    for row in conn.execute(
+        "SELECT customer_account, customer_name, sales_group FROM mirror_customers"
+    ):
+        acct = (row["customer_account"] or "").strip().upper()
+        if not acct:
+            continue
+        customers[acct] = {
+            "customer_account": acct,
+            "customer_name":    (row["customer_name"] or "").strip() or acct,
+            "sales_group":      (row["sales_group"] or "").strip(),
+            "dates":            [],
+        }
+
+    # Distinct order-date list per customer in one SQL pass.
+    # mirror_sales_header already has at most one date per order so
+    # GROUP_CONCAT(order_date) is the customer's order-date history.
+    for row in conn.execute(
+        """
+        SELECT customer_account,
+               MAX(customer_name)       AS customer_name,
+               MAX(sales_group)         AS sales_group,
+               GROUP_CONCAT(order_date) AS dates_csv
+        FROM mirror_sales_header
+        WHERE customer_account IS NOT NULL
+          AND customer_account <> ''
+          AND order_date IS NOT NULL
+          AND order_date <> ''
+        GROUP BY customer_account
+        """
+    ):
+        acct = (row["customer_account"] or "").strip().upper()
+        if not acct:
+            continue
+        dates = [d.strip() for d in (row["dates_csv"] or "").split(",") if d.strip()]
+        existing = customers.get(acct)
+        if existing:
+            existing["dates"] = dates
+        else:
+            customers[acct] = {
+                "customer_account": acct,
+                "customer_name":    (row["customer_name"] or "").strip() or acct,
+                "sales_group":      (row["sales_group"] or "").strip(),
+                "dates":            dates,
+            }
+
+    rows_out: list[tuple] = []
+    for cust in customers.values():
+        parsed: list[date] = []
+        for raw in cust["dates"]:
+            try:
+                parsed.append(date.fromisoformat(raw[:10]))
+            except (ValueError, TypeError):
+                continue
+        parsed.sort()
+        order_count = len(parsed)
+        last_order = parsed[-1].isoformat() if parsed else None
+        days_since = (today - parsed[-1]).days if parsed else None
+        avg_gap: float | None = None
+        stdev: float | None = None
+        threshold: float | None = None
+        status = "inactive"
+        if parsed:
+            if len(parsed) < 2:
+                status = "new"
+            else:
+                gaps = [(parsed[i + 1] - parsed[i]).days for i in range(len(parsed) - 1)]
+                gaps = [g for g in gaps if g > 0]
+                if gaps:
+                    avg_gap = sum(gaps) / len(gaps)
+                    variance = sum((g - avg_gap) ** 2 for g in gaps) / len(gaps)
+                    stdev = math.sqrt(variance)
+                    threshold = avg_gap + stdev
+                else:
+                    # All orders on the same day -- no cadence to learn.
+                    threshold = float(SALESLINE_WINDOW_DAYS)
+                if days_since is not None and days_since > 365:
+                    status = "inactive"
+                elif days_since is not None and threshold is not None and days_since > threshold:
+                    status = "overdue"
+                else:
+                    status = "active"
+        rows_out.append((
+            cust["customer_account"],
+            cust["customer_name"],
+            cust["sales_group"],
+            last_order,
+            order_count,
+            round(avg_gap, 1)   if avg_gap   is not None else None,
+            round(stdev, 1)     if stdev     is not None else None,
+            round(threshold, 1) if threshold is not None else None,
+            days_since,
+            status,
+            now,
+        ))
+
+    conn.execute("DELETE FROM mirror_dashboard_cache")
+    conn.executemany(
+        """
+        INSERT INTO mirror_dashboard_cache (
+            customer_account, customer_name, sales_group,
+            last_order_date, order_count, avg_gap_days, gap_stdev,
+            overdue_threshold, days_since_last, status, last_refreshed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows_out,
+    )
+    return len(rows_out)
 
 
 def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
@@ -839,6 +1031,16 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
             # rows. It also keeps callers (the dashboard, customer
             # detail, last-order) on a single source of truth.
             _rebuild_sales_header(conn)
+            # Then rebuild the per-customer dashboard cache from the
+            # fresh headers. With this the dashboard read path is a
+            # plain ``SELECT * FROM mirror_dashboard_cache`` -- no
+            # GROUP BY, no Python aggregation, no 30 s in-process cache
+            # required.
+            try:
+                cache_rows = _rebuild_dashboard_cache(conn)
+                log.info("mirror_dashboard_cache rebuilt: %d customer rows", cache_rows)
+            except Exception:
+                log.exception("dashboard cache rebuild failed (non-fatal)")
     except Exception as exc:
         err = str(exc)
         log.exception("upsert_salesline failed")
