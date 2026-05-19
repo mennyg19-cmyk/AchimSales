@@ -32,7 +32,7 @@ from datetime import date, timedelta
 from typing import Any, Callable, Iterable, Literal
 
 from core.dates import D365_GO_LIVE, get_today_eastern
-from test.webapp.services import reporting_api
+from test.webapp.services import mirror, reporting_api
 
 log = logging.getLogger(__name__)
 
@@ -88,11 +88,20 @@ def _scopes_for(scope: Scope) -> list[str]:
     return [scope]
 
 
-def _run_chunk(report_key: str, start: date, end: date) -> int:
-    """Pull one month for one report. Returns the row count.
+def _run_chunk(report_key: str, start: date, end: date, *,
+               trigger: str, triggered_by: str | None) -> int:
+    """Pull one month for one report and sync-write it into the mirror.
 
-    The piggyback path inside ``reporting_api.run`` already writes the
-    rows into the mirror, so we don't need to call ``upsert_*`` here.
+    We deliberately bypass the fire-and-forget piggyback path
+    (``no_piggyback=True``) and call ``upsert_*`` ourselves so we can:
+
+    1. Pass ``rebuild_dashboard_cache=False`` -- skip the per-chunk
+       cache rebuild that used to load every customer + order date into
+       Python on each chunk and OOM the B1 worker.
+    2. Drop the row list as soon as the upsert returns so memory is
+       released before the next chunk's HTTP response lands.
+
+    Returns the row count from the API.
     """
     rows = reporting_api.run(
         report_key,
@@ -101,8 +110,22 @@ def _run_chunk(report_key: str, start: date, end: date) -> int:
             "start_date": start.isoformat(),
             "end_date":   end.isoformat(),
         },
+        no_piggyback=True,
     )
-    return len(rows)
+    n = len(rows)
+    try:
+        if report_key == "ordered":
+            mirror.upsert_salesline(
+                rows, trigger=trigger, triggered_by=triggered_by,
+                rebuild_dashboard_cache=False,
+            )
+        elif report_key == "invoiced":
+            mirror.upsert_invoice(
+                rows, trigger=trigger, triggered_by=triggered_by,
+            )
+    finally:
+        del rows  # release the chunk's bytes before the next HTTP fetch
+    return n
 
 
 # ---------------------------------------------------------------------------
@@ -141,9 +164,15 @@ def _run_chunks_for_scope(
     for idx, (cstart, cend) in enumerate(chunks, start=1):
         chunk_started = time.monotonic()
         try:
-            n = _run_chunk(report_key, cstart, cend)
+            n = _run_chunk(report_key, cstart, cend,
+                           trigger=trigger, triggered_by=triggered_by)
             out["rows_in"] += n
             out["chunks_done"] += 1
+            # Flush WAL to the main DB file after each chunk. Without
+            # this the WAL grew unbounded over a multi-month backfill
+            # and an OOM mid-write left a 134 MB WAL that wedged the
+            # next boot (see 2026-05-19 incident).
+            mirror.checkpoint_wal(label=f"{scope_name}-chunk-{idx}")
             log.info(
                 "%s chunk %d/%d (%s..%s): %d rows in %.2fs (trigger=%s)",
                 scope_name, idx, len(chunks),
@@ -225,6 +254,20 @@ def _refresh_range(*, scope: Scope, start: date, end: date,
         overall["rows_in"] += scope_result["rows_in"]
         overall["errors"].extend(scope_result["errors"])
         offset += len(chunks)
+
+    # Rebuild mirror_dashboard_cache exactly once now that every chunk
+    # has landed. Each chunk skipped its own rebuild via
+    # ``rebuild_dashboard_cache=False``; doing it once here means the
+    # dashboard sees a single coherent snapshot of the full history
+    # and we don't pay the rebuild cost (~2,500 customers worth of
+    # Python aggregation) N times.
+    if "salesline" in scopes and overall["rows_in"] > 0:
+        try:
+            cache_rows = mirror.rebuild_dashboard_cache_now()
+            overall["dashboard_cache_rows"] = cache_rows
+        except Exception as exc:
+            log.exception("final dashboard cache rebuild failed")
+            overall["errors"].append(f"dashboard cache rebuild failed: {exc}")
 
     overall["elapsed_ms"] = int((time.monotonic() - started) * 1000)
     log.info(

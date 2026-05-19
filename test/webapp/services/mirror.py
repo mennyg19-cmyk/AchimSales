@@ -287,11 +287,16 @@ _MIRROR_COLUMN_MIGRATIONS = [
 
 
 def init_mirror_db() -> None:
-    """Idempotent: ensure mirror tables exist. Safe on every boot."""
+    """Idempotent: ensure mirror tables exist. Safe on every boot.
+
+    Wrapped in :func:`test.webapp.db._retry_transient_db` so a stale
+    SMB write lease or a brief lock from another worker doesn't crash
+    boot. See the 2026-05-19 incident notes in db.py.
+    """
     global _init_done
-    with _init_lock:
-        if _init_done:
-            return
+    from test.webapp.db import _retry_transient_db
+
+    def _do_init() -> None:
         with connect() as conn:
             for stmt in _MIRROR_SCHEMA:
                 conn.execute(stmt)
@@ -338,11 +343,35 @@ def init_mirror_db() -> None:
             except Exception:
                 log.warning("dashboard cache bootstrap failed (non-fatal)", exc_info=True)
             # Refresh sqlite_stat1 so the planner picks the right
-            # index for each table after any schema/data changes.
+            # index for each table after any schema/data changes. If
+            # ANALYZE itself reports "database disk image is malformed"
+            # we treat sqlite_stat1 as corrupt (it's a hint table, not
+            # data) and rebuild it from scratch -- this clears the
+            # malformed-stats warnings that linger after an OOM kill.
             try:
                 conn.execute("ANALYZE")
+            except sqlite3.DatabaseError as exc:
+                if "malformed" in str(exc).lower():
+                    log.warning(
+                        "ANALYZE reported malformed sqlite_stat1; "
+                        "rebuilding stats from scratch"
+                    )
+                    try:
+                        conn.execute("DROP TABLE IF EXISTS sqlite_stat1")
+                        conn.execute("DROP TABLE IF EXISTS sqlite_stat4")
+                        conn.execute("ANALYZE")
+                        log.info("sqlite_stat1 rebuilt cleanly")
+                    except Exception:
+                        log.warning("stat1 rebuild also failed (non-fatal)", exc_info=True)
+                else:
+                    log.warning("ANALYZE failed (non-fatal)", exc_info=True)
             except Exception:
                 log.warning("ANALYZE failed (non-fatal)", exc_info=True)
+
+    with _init_lock:
+        if _init_done:
+            return
+        _retry_transient_db("init_mirror_db", _do_init)
         _init_done = True
     log.info("mirror tables ready")
 
@@ -534,7 +563,8 @@ def _normalize_customer_row(raw: dict) -> dict:
 
 
 def upsert_customers(rows: Iterable[dict], *, trigger: str = "piggyback",
-                     triggered_by: str | None = None) -> dict[str, int]:
+                     triggered_by: str | None = None,
+                     rebuild_dashboard_cache: bool = True) -> dict[str, int]:
     """Mirror a batch of customer-master rows.
 
     Returns ``{rows_in, inserted, updated, unchanged}`` for logging.
@@ -614,8 +644,9 @@ def upsert_customers(rows: Iterable[dict], *, trigger: str = "piggyback",
             # Rebuild the dashboard cache so customer-master changes
             # (new accounts, renames, sales-group reassignments) show
             # up on the dashboard without waiting for the next
-            # salesline refresh.
-            if inserted or updated:
+            # salesline refresh. Chunked refresh paths skip this and
+            # call ``rebuild_dashboard_cache_now()`` once at the end.
+            if rebuild_dashboard_cache and (inserted or updated):
                 try:
                     cache_rows = _rebuild_dashboard_cache(conn)
                     log.info(
@@ -881,10 +912,50 @@ def _rebuild_dashboard_cache(conn) -> int:
     return len(rows_out)
 
 
+def rebuild_dashboard_cache_now() -> int:
+    """Rebuild ``mirror_dashboard_cache`` from current data.
+
+    Public entry-point for callers that batched many salesline /
+    customer upserts with ``rebuild_dashboard_cache=False`` and now
+    want a single rebuild at the end. Also runs ``PRAGMA
+    wal_checkpoint(PASSIVE)`` so the WAL doesn't keep growing across
+    a long-running backfill.
+    """
+    init_mirror_db()
+    with connect() as conn:
+        rows = _rebuild_dashboard_cache(conn)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            log.warning("checkpoint after dashboard rebuild failed (non-fatal)",
+                        exc_info=True)
+    log.info("mirror_dashboard_cache rebuilt (deferred): %d rows", rows)
+    return rows
+
+
+def checkpoint_wal(*, label: str = "manual") -> None:
+    """Flush WAL pages back to the main DB file.
+
+    Called between chunks of a long backfill so the WAL never grows
+    big enough that an OOM mid-write leaves an unrecoverable journal.
+    Uses ``PASSIVE`` (won't block readers/writers); if the WAL is
+    still busy we'll catch it on the next chunk boundary.
+    """
+    init_mirror_db()
+    try:
+        with connect() as conn:
+            r = conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+        log.info("wal_checkpoint(%s): busy=%s log_pages=%s checkpointed=%s",
+                 label, r[0] if r else "?", r[1] if r else "?", r[2] if r else "?")
+    except Exception:
+        log.warning("wal_checkpoint(%s) failed (non-fatal)", label, exc_info=True)
+
+
 def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
                      prune_window_days: int | None = None,
                      triggered_by: str | None = None,
-                     keep_forever: bool = False) -> dict[str, int]:
+                     keep_forever: bool = False,
+                     rebuild_dashboard_cache: bool = True) -> dict[str, int]:
     """Mirror a batch of salesline_release rows.
 
     Every well-formed row (has a sales order number and a parseable
@@ -1033,16 +1104,18 @@ def upsert_salesline(rows: Iterable[dict], *, trigger: str = "piggyback",
             # rows. It also keeps callers (the dashboard, customer
             # detail, last-order) on a single source of truth.
             _rebuild_sales_header(conn)
-            # Then rebuild the per-customer dashboard cache from the
-            # fresh headers. With this the dashboard read path is a
-            # plain ``SELECT * FROM mirror_dashboard_cache`` -- no
-            # GROUP BY, no Python aggregation, no 30 s in-process cache
-            # required.
-            try:
-                cache_rows = _rebuild_dashboard_cache(conn)
-                log.info("mirror_dashboard_cache rebuilt: %d customer rows", cache_rows)
-            except Exception:
-                log.exception("dashboard cache rebuild failed (non-fatal)")
+            # Optionally rebuild the per-customer dashboard cache from
+            # the fresh headers. Chunked refresh paths set this False
+            # and call ``rebuild_dashboard_cache_now()`` exactly once
+            # after the last chunk -- rebuilding after every chunk
+            # used to load ~2,500 customers + every order date into
+            # Python on each call and was the OOM trigger on B1.
+            if rebuild_dashboard_cache:
+                try:
+                    cache_rows = _rebuild_dashboard_cache(conn)
+                    log.info("mirror_dashboard_cache rebuilt: %d customer rows", cache_rows)
+                except Exception:
+                    log.exception("dashboard cache rebuild failed (non-fatal)")
     except Exception as exc:
         err = str(exc)
         log.exception("upsert_salesline failed")

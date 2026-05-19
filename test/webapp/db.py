@@ -11,6 +11,7 @@ import logging
 import re
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
@@ -568,6 +569,46 @@ def _sync_salesman_users(conn: sqlite3.Connection) -> None:
 _connect_setup_done = False
 
 
+# Transient SQLite errors we want to retry instead of crashing the
+# worker. ``database is locked`` is normal contention; ``unable to open
+# database file`` happens when Azure Files still holds an SMB write
+# lease from a process that died abnormally (the 30-60 s lease timeout
+# is what bit us during the 2026-05-19 OOM cascade). Bothresolveon
+# their own given a few seconds.
+_TRANSIENT_DB_TOKENS = ("locked", "unable to open database file")
+
+
+def _is_transient_db_error(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return any(token in msg for token in _TRANSIENT_DB_TOKENS)
+
+
+def _retry_transient_db(label: str, fn, *, attempts: int = 8, base_delay: float = 0.5):
+    """Run ``fn()``, retrying on transient SQLite open/lock errors.
+
+    Used by boot-time schema bootstrap so a single fragile moment
+    (stale SMB lease, another worker mid-CREATE) doesn't kill the
+    gunicorn worker and trigger a 5-minute restart loop. Maximum
+    cumulative wait with default args ~= 40 s, which covers Azure
+    Files' write-lease timeout.
+    """
+    delay = base_delay
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            if not _is_transient_db_error(exc) or attempt == attempts:
+                raise
+            log.warning(
+                "%s: transient DB error on attempt %d/%d (%s); retrying in %.1fs",
+                label, attempt, attempts, exc, delay,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 8.0)
+
+
 def _apply_pragmas(conn: sqlite3.Connection, *, first_time: bool) -> None:
     """Best-effort PRAGMA tuning.
 
@@ -691,18 +732,28 @@ def teardown_request_connection(exc: BaseException | None = None) -> None:
 
 
 def init_db() -> None:
-    """Create tables if they don't exist. Idempotent; safe on every boot."""
-    with _lock, connect() as conn:
-        for stmt in SCHEMA_STATEMENTS:
-            conn.execute(stmt)
-        _ensure_columns(conn)
-        _drop_obsolete_dashboard_caches(conn)
-        _seed_feature_flags(conn)
-        _backfill_user_roles(conn)
-        _seed_salesmen_from_xlsx(conn)
-        _prune_salesmen_without_email(conn)
-        _sync_salesman_users(conn)
-        log.info("v2 db initialized at %s", APP_DB_PATH)
+    """Create tables if they don't exist. Idempotent; safe on every boot.
+
+    The whole bootstrap is wrapped in :func:`_retry_transient_db` so a
+    transient ``database is locked`` / ``unable to open database file``
+    -- typical right after an OOM-induced container restart while Azure
+    Files still holds the dead process's SMB lease -- doesn't crash
+    the worker. Recovery happens in-process instead of via a gunicorn
+    restart loop.
+    """
+    def _do_init() -> None:
+        with _lock, connect() as conn:
+            for stmt in SCHEMA_STATEMENTS:
+                conn.execute(stmt)
+            _ensure_columns(conn)
+            _drop_obsolete_dashboard_caches(conn)
+            _seed_feature_flags(conn)
+            _backfill_user_roles(conn)
+            _seed_salesmen_from_xlsx(conn)
+            _prune_salesmen_without_email(conn)
+            _sync_salesman_users(conn)
+            log.info("v2 db initialized at %s", APP_DB_PATH)
+    _retry_transient_db("init_db", _do_init)
     # Ensure offline-fallback mirror tables exist (separate module so
     # the import doesn't add to the top-level circular import surface).
     try:
