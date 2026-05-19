@@ -752,15 +752,19 @@ def _rebuild_dashboard_cache(conn) -> int:
     instead of a 2,500-customer Python aggregation per render.
 
     Status definitions match the original app's
-    ``webapp.dashboard_data._compute_customer_metrics``:
+    ``webapp.dashboard_data._compute_customer_metrics`` exactly. Keep
+    them in lock-step or the test dashboard's bucket counts will
+    diverge from the live one:
 
-    * ``new``      -- exactly one distinct order date in the mirror.
-    * ``active``   -- 2+ orders and the latest is within cadence
-                      (mean_gap + stdev), and within the last 365 days.
-    * ``overdue``  -- 2+ orders, latest beyond cadence but <= 365 days
+    * ``new``      -- no orders in the mirror, OR exactly one distinct
+                      order, OR multiple orders all on the same day
+                      (no real cadence to learn from).
+    * ``active``   -- 2+ orders with a real cadence, latest within
+                      ``mean_gap + stdev`` AND within the last 365 days.
+    * ``overdue``  -- 2+ orders with a real cadence, latest beyond
+                      ``mean_gap + stdev`` but <= 365 days old.
+    * ``inactive`` -- 2+ orders with a real cadence, latest > 365 days
                       old.
-    * ``inactive`` -- no orders in the mirror, OR latest order > 365
-                      days old.
     """
     import math
     from core.dates import get_today_eastern
@@ -830,27 +834,25 @@ def _rebuild_dashboard_cache(conn) -> int:
         avg_gap: float | None = None
         stdev: float | None = None
         threshold: float | None = None
-        status = "inactive"
-        if parsed:
-            if len(parsed) < 2:
-                status = "new"
-            else:
-                gaps = [(parsed[i + 1] - parsed[i]).days for i in range(len(parsed) - 1)]
-                gaps = [g for g in gaps if g > 0]
-                if gaps:
-                    avg_gap = sum(gaps) / len(gaps)
-                    variance = sum((g - avg_gap) ** 2 for g in gaps) / len(gaps)
-                    stdev = math.sqrt(variance)
-                    threshold = avg_gap + stdev
-                else:
-                    # All orders on the same day -- no cadence to learn.
-                    threshold = float(SALESLINE_WINDOW_DAYS)
+        # Default matches the live app: a customer with no order history
+        # in the mirror is treated as "new", not "inactive".
+        status = "new"
+        if parsed and len(parsed) >= 2:
+            gaps = [(parsed[i + 1] - parsed[i]).days for i in range(len(parsed) - 1)]
+            gaps = [g for g in gaps if g > 0]
+            if gaps:
+                avg_gap = sum(gaps) / len(gaps)
+                variance = sum((g - avg_gap) ** 2 for g in gaps) / len(gaps)
+                stdev = math.sqrt(variance)
+                threshold = avg_gap + stdev
                 if days_since is not None and days_since > 365:
                     status = "inactive"
-                elif days_since is not None and threshold is not None and days_since > threshold:
+                elif days_since is not None and days_since > threshold:
                     status = "overdue"
                 else:
                     status = "active"
+            # else: all orders on the same day -> no cadence to learn,
+            # leave status="new" to match the live app.
         rows_out.append((
             cust["customer_account"],
             cust["customer_name"],
