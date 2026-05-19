@@ -722,6 +722,35 @@ def _normalize_salesline_row(raw: dict) -> dict:
     }
 
 
+def _is_malformed_db_error(exc: BaseException) -> bool:
+    return (
+        isinstance(exc, sqlite3.DatabaseError)
+        and "malformed" in str(exc).lower()
+    )
+
+
+def _recreate_aggregation_table(conn, table_name: str) -> None:
+    """Drop and re-create a derived table from ``_MIRROR_SCHEMA``.
+
+    Used as the recovery path when an aggregation table reports
+    ``database disk image is malformed`` (we hit this after the
+    2026-05-19 OOM kill corrupted materialized pages on
+    ``mirror_sales_header`` and ``mirror_dashboard_cache``). Both
+    tables are derived from ``mirror_salesline`` + ``mirror_customers``,
+    so dropping them loses no source data -- the caller rebuilds the
+    contents immediately after.
+    """
+    log.warning("%s malformed -- dropping and recreating from schema", table_name)
+    conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+    for stmt in _MIRROR_SCHEMA:
+        if table_name in stmt and ("CREATE TABLE" in stmt or "CREATE INDEX" in stmt):
+            try:
+                conn.execute(stmt)
+            except Exception:
+                log.warning("recreating %s DDL failed (non-fatal): %s",
+                            table_name, stmt.split("\n")[0], exc_info=True)
+
+
 def _rebuild_sales_header(conn) -> int:
     """Recompute mirror_sales_header from the current mirror_salesline.
 
@@ -735,8 +764,17 @@ def _rebuild_sales_header(conn) -> int:
     well under a second, and rebuilding-from-scratch removes any
     chance of drift between the line table and the header
     aggregation.
+
+    If the existing table is corrupt (``database disk image is
+    malformed``) we drop and recreate it once, then continue. The
+    underlying salesline data is untouched.
     """
-    conn.execute("DELETE FROM mirror_sales_header")
+    try:
+        conn.execute("DELETE FROM mirror_sales_header")
+    except sqlite3.DatabaseError as exc:
+        if not _is_malformed_db_error(exc):
+            raise
+        _recreate_aggregation_table(conn, "mirror_sales_header")
     cur = conn.execute(
         """
         INSERT INTO mirror_sales_header (
@@ -898,7 +936,12 @@ def _rebuild_dashboard_cache(conn) -> int:
             now,
         ))
 
-    conn.execute("DELETE FROM mirror_dashboard_cache")
+    try:
+        conn.execute("DELETE FROM mirror_dashboard_cache")
+    except sqlite3.DatabaseError as exc:
+        if not _is_malformed_db_error(exc):
+            raise
+        _recreate_aggregation_table(conn, "mirror_dashboard_cache")
     conn.executemany(
         """
         INSERT INTO mirror_dashboard_cache (
