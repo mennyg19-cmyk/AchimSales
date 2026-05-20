@@ -498,6 +498,53 @@ def _prune_salesmen_without_email(conn: sqlite3.Connection) -> None:
     log.info("prune salesmen: removed %d rows without email", len(rows))
 
 
+# Developer accounts that need elevated access regardless of whether
+# they also appear in the salesman master sheet. The salesman-sync
+# seeder defaults every email it finds to role='salesman', which is
+# fine for actual reps but locks dev accounts out of admin-only
+# reports (Salesman, Number 4, etc.). Keep this list short; production
+# users go through the Settings page.
+_DEVELOPER_EMAILS: tuple[str, ...] = (
+    "mendyk@achimonline.com",
+)
+
+
+def _seed_developer_users(conn: sqlite3.Connection) -> None:
+    """Ensure each developer email has role='developer' + is_admin=1.
+
+    Idempotent. Runs after ``_sync_salesman_users`` so we override any
+    salesman-default role the seed-sync would have written, but leaves
+    other attributes (display_name, salesman_key, etc.) alone.
+    """
+    for email in _DEVELOPER_EMAILS:
+        e = (email or "").strip().lower()
+        if not e:
+            continue
+        existing = conn.execute(
+            "SELECT email, role, salesman_key, display_name FROM app_users WHERE email = ?",
+            (e,),
+        ).fetchone()
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO app_users
+                  (email, display_name, role, salesman_key, is_admin, is_external,
+                   active, dashboard_enabled, test_access_enabled)
+                VALUES (?, NULL, 'developer', NULL, 1, 0, 1, 1, 1)
+                """,
+                (e,),
+            )
+            log.info("seeded developer user: %s", e)
+            continue
+        cur_role = (existing["role"] or "").strip().lower()
+        if cur_role != "developer":
+            conn.execute(
+                "UPDATE app_users SET role = 'developer', is_admin = 1 WHERE email = ?",
+                (e,),
+            )
+            log.info("restored developer role on %s (was %r)", e, cur_role)
+
+
 def _sync_salesman_users(conn: sqlite3.Connection) -> None:
     """For every salesman row, make sure an app_users row exists with
     role=salesman and salesman_key=<key>. Idempotent.
@@ -752,6 +799,7 @@ def init_db() -> None:
             _seed_salesmen_from_xlsx(conn)
             _prune_salesmen_without_email(conn)
             _sync_salesman_users(conn)
+            _seed_developer_users(conn)
             log.info("v2 db initialized at %s", APP_DB_PATH)
     _retry_transient_db("init_db", _do_init)
     # Ensure offline-fallback mirror tables exist (separate module so
