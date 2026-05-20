@@ -41,6 +41,9 @@ from typing import Any
 
 from test.webapp.services.reports import ordered as ordered_builder
 from test.webapp.services.reports import invoiced as invoiced_builder
+from test.webapp.services.reports import salesman as salesman_builder
+from test.webapp.services.reports import number_4 as number_4_builder
+from test.webapp.services.reports import customer_activity as customer_activity_builder
 from test.webapp.services import reporting_api
 
 log = logging.getLogger(__name__)
@@ -155,9 +158,103 @@ def _build_invoiced(params: dict) -> tuple[list[dict], dict]:
 # ---------------------------------------------------------------------------
 
 
+def _build_salesman(params: dict) -> tuple[list[dict], dict]:
+    """Build the Monthly Salesman Report payload.
+
+    Source: ``invoiced_order_charges`` SP, full prior + current year
+    window driven by the form's ``year`` parameter (or the current
+    Eastern-time year when missing).
+    """
+    from core.dates import get_today_eastern
+
+    raw_year = (params or {}).get("year")
+    try:
+        year = int(raw_year) if raw_year not in (None, "") else None
+    except (TypeError, ValueError):
+        year = None
+    if not year:
+        year = get_today_eastern().year
+
+    request_preview = reporting_api.preview("salesman", params)
+    api_started = time.monotonic()
+    try:
+        rows = reporting_api.run("salesman", params)
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - api_started) * 1000)
+        log.exception("Salesman report fetch failed after %d ms: %s", elapsed_ms, exc)
+        raise RuntimeError(
+            f"Salesman report data unavailable from API or mirror: {exc}"
+        ) from exc
+    elapsed_ms = int((time.monotonic() - api_started) * 1000)
+
+    actual = reporting_api.last_run_source() or {}
+    log.info("salesman report: pulled %d rows (effective source=%s) in %d ms",
+             len(rows), actual.get("source", "api"), elapsed_ms)
+    return salesman_builder.build(rows, year=year), _source_meta(request_preview, rows, elapsed_ms)
+
+
+def _build_number_4(params: dict) -> tuple[list[dict], dict]:
+    """Build the Number 4 Report payload.
+
+    Source: the new ``invoice_lines`` SP. Window is a rolling 13
+    months ending today so the builder has data for both the 12-month
+    pivot and the YTD pivot in a single fetch.
+    """
+    from core.dates import get_today_eastern
+
+    today = get_today_eastern()
+    request_preview = reporting_api.preview("number_4", params)
+    api_started = time.monotonic()
+    try:
+        rows = reporting_api.run("number_4", params)
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - api_started) * 1000)
+        log.exception("Number 4 report fetch failed after %d ms: %s", elapsed_ms, exc)
+        raise RuntimeError(
+            f"Number 4 report data unavailable from API: {exc}"
+        ) from exc
+    elapsed_ms = int((time.monotonic() - api_started) * 1000)
+
+    actual = reporting_api.last_run_source() or {}
+    log.info("number_4 report: pulled %d rows (effective source=%s) in %d ms",
+             len(rows), actual.get("source", "api"), elapsed_ms)
+    return number_4_builder.build(rows, today=today), _source_meta(request_preview, rows, elapsed_ms)
+
+
+def _build_customer_activity(params: dict) -> tuple[list[dict], dict]:
+    """Build the Customer Activity payload.
+
+    Source: the customer_master mirror (full customer universe) joined
+    to ``salesline_release`` SP results over the D365-go-live-to-today
+    window so we have a "last order" per customer.
+    """
+    request_preview = reporting_api.preview("customer_activity", params)
+    api_started = time.monotonic()
+    try:
+        rows = reporting_api.run("customer_activity", params)
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - api_started) * 1000)
+        log.exception("Customer Activity fetch failed after %d ms: %s", elapsed_ms, exc)
+        raise RuntimeError(
+            f"Customer Activity data unavailable from API or mirror: {exc}"
+        ) from exc
+    elapsed_ms = int((time.monotonic() - api_started) * 1000)
+
+    actual = reporting_api.last_run_source() or {}
+    log.info("customer_activity: pulled %d salesline rows (effective source=%s) in %d ms",
+             len(rows), actual.get("source", "api"), elapsed_ms)
+    return (
+        customer_activity_builder.build(rows, params=params),
+        _source_meta(request_preview, rows, elapsed_ms),
+    )
+
+
 _BUILDERS = {
-    "ordered":  _build_ordered,
-    "invoiced": _build_invoiced,
+    "ordered":           _build_ordered,
+    "invoiced":          _build_invoiced,
+    "salesman":          _build_salesman,
+    "number_4":          _build_number_4,
+    "customer_activity": _build_customer_activity,
 }
 
 

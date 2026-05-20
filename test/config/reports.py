@@ -78,12 +78,14 @@ REPORTS: dict[str, Report] = {
             icon="users",
             has_year=True,
             salesman_filter=False,
+            enabled=True,   # <-- wired to invoiced_order_charges
         ),
         Report(
             key="number_4",
             name="Number 4 Report",
             description="Invoice lines by item and by customer (rolling 12 months).",
             icon="bar-chart-2",
+            enabled=True,   # <-- wired to invoice_lines
         ),
         Report(
             key="amazon_weekly",
@@ -97,6 +99,7 @@ REPORTS: dict[str, Report] = {
             description="All customers with last order info, split by salesman.",
             icon="activity",
             salesman_filter=True,
+            enabled=True,   # <-- wired to customer_master + salesline_release
         ),
         Report(
             key="customer_last_order",

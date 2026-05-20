@@ -409,11 +409,86 @@ def _translate_invoiced(p: dict) -> dict[str, Any]:
     return out
 
 
+def _translate_salesman(p: dict) -> dict[str, Any]:
+    """In-app filter dict -> invoiced_order_charges SP params for the
+    Monthly Salesman Report.
+
+    The salesman report needs a full calendar year + the full prior
+    year so the per-month current-vs-prior comparisons line up. The
+    form sends ``year=<YYYY>`` (see ``has_year``); we resolve that to
+    a 24-month InvoiceDateFrom/To window. When ``year`` is missing we
+    default to today's Eastern year (matches live ``resolve_plan``).
+    """
+    from datetime import date, datetime, time
+
+    raw_year = (p or {}).get("year")
+    try:
+        year = int(raw_year) if raw_year not in (None, "") else None
+    except (TypeError, ValueError):
+        year = None
+    if not year:
+        from core.dates import get_today_eastern
+        year = get_today_eastern().year
+
+    start = datetime.combine(date(year - 1, 1, 1), time(0, 0, 0), tzinfo=_EASTERN)
+    end = datetime.combine(date(year, 12, 31), time(23, 59, 59), tzinfo=_EASTERN)
+    return {
+        "InvoiceDateFrom": _format_eastern(start),
+        "InvoiceDateTo":   _format_eastern(end),
+    }
+
+
+def _translate_number_4(p: dict) -> dict[str, Any]:
+    """In-app filter dict -> invoice_lines SP params for the Number 4 Report.
+
+    Number 4 always pulls a 13-month rolling window so the report has
+    the rolling-12 view AND the YTD view available with one fetch.
+    No user-driven filters today; the report runs with defaults.
+    """
+    from datetime import date, datetime, time
+
+    from core.dates import get_today_eastern
+    today = get_today_eastern()
+    start_d = date(today.year - 1, today.month, 1)
+    start = datetime.combine(start_d, time(0, 0, 0), tzinfo=_EASTERN)
+    end = datetime.combine(today, time(23, 59, 59), tzinfo=_EASTERN)
+    return {
+        "InvoiceDateFrom": _format_eastern(start),
+        "InvoiceDateTo":   _format_eastern(end),
+    }
+
+
+def _translate_customer_activity(p: dict) -> dict[str, Any]:
+    """In-app filter dict -> salesline_release SP params for Customer
+    Activity.
+
+    The live report joins ALL customers to ALL-TIME order headers to
+    find each customer's most recent order. We approximate that by
+    asking the SP for everything from D365 go-live through today.
+
+    SP-level salesman filter is intentionally NOT applied here; the
+    builder fans the result out into per-salesman tabs in-process so
+    one fetch powers the whole workbook.
+    """
+    from datetime import datetime, time
+
+    from core.dates import D365_GO_LIVE, get_today_eastern
+    start = datetime.combine(D365_GO_LIVE, time(0, 0, 0), tzinfo=_EASTERN)
+    end = datetime.combine(get_today_eastern(), time(23, 59, 59), tzinfo=_EASTERN)
+    return {
+        "CreatedDateTimeFrom": _format_eastern(start),
+        "CreatedDateTimeTo":   _format_eastern(end),
+    }
+
+
 # (report_id, translator) keyed by in-app report key.
 REPORT_ID_MAP: dict[str, tuple[str, Callable[[dict], dict]]] = {
-    "ordered":         ("salesline_release",      _translate_ordered),
-    "invoiced":        ("invoiced_order_charges", _translate_invoiced),
-    "customer_master": ("customer_master",        _translate_customer_master),
+    "ordered":           ("salesline_release",      _translate_ordered),
+    "invoiced":          ("invoiced_order_charges", _translate_invoiced),
+    "customer_master":   ("customer_master",        _translate_customer_master),
+    "salesman":          ("invoiced_order_charges", _translate_salesman),
+    "number_4":          ("invoice_lines",          _translate_number_4),
+    "customer_activity": ("salesline_release",      _translate_customer_activity),
 }
 
 
