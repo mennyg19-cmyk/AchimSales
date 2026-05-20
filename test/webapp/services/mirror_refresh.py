@@ -46,28 +46,34 @@ ProgressCb = Callable[[dict[str, Any]], None]
 # ---------------------------------------------------------------------------
 
 
-def _month_chunks(start: date, end: date) -> list[tuple[date, date]]:
-    """Split ``[start, end]`` into calendar-month chunks.
+# Days per chunk. Started at one calendar month (~30 days); cut to
+# half-month (~15 days) after the 2026-05-19/20 OOM cascade where
+# monthly chunks held ~150 MB of Python row dicts plus the SQLite
+# transaction for 100-170 s per chunk on a 1.75 GB B1 box. Half-month
+# chunks roughly halve both peak memory and the per-chunk lock-hold
+# time, at the cost of ~2x more HTTP round-trips. Tunable here if we
+# ever scale up.
+_CHUNK_DAYS = 15
 
-    Each chunk is ``(chunk_start, chunk_end)`` inclusive, where
-    ``chunk_end`` is the last day of that calendar month (or ``end`` if
-    the month overflows the window). Empty range -> empty list.
+
+def _month_chunks(start: date, end: date) -> list[tuple[date, date]]:
+    """Split ``[start, end]`` into chunks of ``_CHUNK_DAYS`` days.
+
+    Each chunk is ``(chunk_start, chunk_end)`` inclusive. Empty range
+    -> empty list. Naming is legacy: the original implementation used
+    calendar months; switching to a fixed window kept the same
+    public name to avoid an API churn for one parameter change.
     """
     if end < start:
         return []
 
     chunks: list[tuple[date, date]] = []
     cur = start
+    span = timedelta(days=_CHUNK_DAYS - 1)
     while cur <= end:
-        # Last day of cur's calendar month: jump to the first of next
-        # month, subtract a day.
-        if cur.month == 12:
-            next_month_first = date(cur.year + 1, 1, 1)
-        else:
-            next_month_first = date(cur.year, cur.month + 1, 1)
-        chunk_end = min(next_month_first - timedelta(days=1), end)
+        chunk_end = min(cur + span, end)
         chunks.append((cur, chunk_end))
-        cur = next_month_first
+        cur = chunk_end + timedelta(days=1)
     return chunks
 
 
