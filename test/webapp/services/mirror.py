@@ -301,6 +301,18 @@ def init_mirror_db() -> None:
             for stmt in _MIRROR_SCHEMA:
                 conn.execute(stmt)
             _ensure_mirror_columns(conn)
+            # Cheap probe of every derived/state table. If the
+            # previous container crashed mid-write (OOM, container
+            # eviction during deploy swap) SQLite can leave a
+            # specific table's pages in a "database disk image is
+            # malformed" state -- the table is fine for INSERT but
+            # every DELETE/SELECT/UPDATE fails. Catch that at boot
+            # and rebuild from schema instead of crashing every
+            # request that touches the bad table.
+            for table in _RECOVERABLE_TABLES:
+                if not _probe_and_repair_table(conn, table):
+                    log.error("%s is unrecoverable; downstream calls may fail",
+                              table)
             # One-time bootstrap of the materialized header table.
             # On the first boot after the header-table change,
             # mirror_salesline already has 86k rows but
@@ -730,15 +742,14 @@ def _is_malformed_db_error(exc: BaseException) -> bool:
 
 
 def _recreate_aggregation_table(conn, table_name: str) -> None:
-    """Drop and re-create a derived table from ``_MIRROR_SCHEMA``.
+    """Drop and re-create a derived/state table from ``_MIRROR_SCHEMA``.
 
-    Used as the recovery path when an aggregation table reports
-    ``database disk image is malformed`` (we hit this after the
-    2026-05-19 OOM kill corrupted materialized pages on
-    ``mirror_sales_header`` and ``mirror_dashboard_cache``). Both
-    tables are derived from ``mirror_salesline`` + ``mirror_customers``,
-    so dropping them loses no source data -- the caller rebuilds the
-    contents immediately after.
+    Used as the recovery path when an aggregation or job-state table
+    reports ``database disk image is malformed`` (we hit this after
+    the 2026-05-19 OOM kill corrupted materialized pages on multiple
+    tables). All targets here are derived from source data
+    (``mirror_salesline`` / ``mirror_customers``) or are job
+    history; dropping them loses no source data.
     """
     log.warning("%s malformed -- dropping and recreating from schema", table_name)
     conn.execute(f"DROP TABLE IF EXISTS {table_name}")
@@ -749,6 +760,46 @@ def _recreate_aggregation_table(conn, table_name: str) -> None:
             except Exception:
                 log.warning("recreating %s DDL failed (non-fatal): %s",
                             table_name, stmt.split("\n")[0], exc_info=True)
+
+
+# Tables that are safe to drop and re-create if corruption is detected:
+# everything here is either a materialized view of source data
+# (rebuilt from mirror_salesline + mirror_customers) or job-history
+# state we can afford to lose. SOURCE data tables (mirror_customers,
+# mirror_salesline, mirror_invoice) are deliberately excluded -- if
+# those are corrupt we want a loud failure, not silent data loss.
+_RECOVERABLE_TABLES = (
+    "mirror_sales_header",
+    "mirror_dashboard_cache",
+    "mirror_refresh_runs",
+    "mirror_backfill_jobs",
+)
+
+
+def _probe_and_repair_table(conn, table_name: str) -> bool:
+    """Cheap read-probe; if it reports malformed, drop+recreate.
+
+    Returns True if the table is now usable, False if recovery
+    failed. Used at boot so every container start self-heals any
+    pages the previous process corrupted on its way out.
+    """
+    try:
+        conn.execute(f"SELECT 1 FROM {table_name} LIMIT 1").fetchone()
+        return True
+    except sqlite3.DatabaseError as exc:
+        if not _is_malformed_db_error(exc):
+            # Table missing entirely is a separate path; the
+            # CREATE TABLE IF NOT EXISTS earlier in init_mirror_db
+            # handles that.
+            log.warning("probe of %s raised non-malformed error: %s",
+                        table_name, exc)
+            return False
+        try:
+            _recreate_aggregation_table(conn, table_name)
+            return True
+        except Exception:
+            log.exception("recovery of %s failed", table_name)
+            return False
 
 
 def _rebuild_sales_header(conn) -> int:
