@@ -1009,6 +1009,64 @@ def user_can_access_order(email: str, customer_account: str) -> bool:
     return user_can_access_customer(email, customer_account)
 
 
+_COLD_START_OWNER_KEY = "dashboard.cold_start_owner"
+_COLD_START_OWNER_TTL_S = 600  # 10 min: long enough that one chunk doesn't
+
+
+def _claim_cold_start() -> bool:
+    """Cross-worker claim for the dashboard cold-start refresh.
+
+    Two gunicorn workers boot a few milliseconds apart. Without this
+    gate, both saw the empty mirror, both kicked off their own
+    cold-start thread, and they then fought each other for the SQLite
+    write lock for 25+ minutes -- chunks 5-10 took 4-10x longer than
+    chunks 1-4 once the second worker started racing, and many
+    chunks failed outright with ``database is locked``. We hit this
+    on 2026-05-20 right after wiping ``v2_app.db``.
+
+    The claim is stored in ``app_settings`` (same table the rest of
+    the app uses for cross-worker state, e.g. ``dashboard.last_refresh_completed``).
+    Use ``BEGIN IMMEDIATE`` so the SELECT/INSERT pair is atomic --
+    the second worker waits, sees our row, and skips.
+    """
+    pid = os.getpid()
+    now = int(time.time())
+    try:
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?",
+                (_COLD_START_OWNER_KEY,),
+            ).fetchone()
+            existing: dict[str, Any] = {}
+            if row and row["value"]:
+                try:
+                    existing = json.loads(row["value"]) or {}
+                except Exception:
+                    existing = {}
+            owner_pid = int(existing.get("pid") or 0)
+            ts = int(existing.get("ts") or 0)
+            if existing and owner_pid != pid and (now - ts) < _COLD_START_OWNER_TTL_S:
+                conn.rollback()
+                log.info(
+                    "cold-start: pid=%d held by pid=%d (%ds ago), skipping",
+                    pid, owner_pid, now - ts,
+                )
+                return False
+            conn.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+                (_COLD_START_OWNER_KEY, json.dumps({"pid": pid, "ts": now})),
+            )
+            conn.commit()
+            return True
+    except Exception:
+        log.exception("cold-start claim failed; skipping to be safe")
+        # Failing closed here is correct: if the claim is broken we'd
+        # rather miss the cold-start (user can click refresh) than
+        # have both workers race.
+        return False
+
+
 def start_background_refresh() -> None:
     """Kick a one-shot refresh on boot iff the mirror is empty.
 
@@ -1020,6 +1078,10 @@ def start_background_refresh() -> None:
     and was the trigger for the 2026-05-18 OOM cascade on B1 (chunked
     salesline pull + the live app's OData paginator collided in the
     same 1.75 GB container).
+
+    Cross-worker gating via :func:`_claim_cold_start` -- without it
+    both gunicorn workers fight for the SQLite write lock for 20+
+    minutes and many chunks fail with ``database is locked``.
     """
     global _refresh_thread
     if _refresh_thread and _refresh_thread.is_alive():
@@ -1027,6 +1089,9 @@ def start_background_refresh() -> None:
 
     counts = get_cache_counts()
     if counts["customers"] > 0 and counts["order_lines"] > 0:
+        return
+
+    if not _claim_cold_start():
         return
 
     def _cold_start() -> None:
