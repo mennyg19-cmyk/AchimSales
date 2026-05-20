@@ -366,6 +366,21 @@ def refresh_cache(salesman_key: str | None = None) -> None:
     _refresh_state[scope] = {"running": True, "step": "Refreshing shared endpoint mirrors..."}
     log.info("Dashboard refresh starting (%s)", scope_label)
 
+    # Clear the persisted last-error banner the moment this attempt
+    # starts. The dashboard template shows it sticky until the next
+    # successful refresh, which means a chunk-level error from days
+    # ago keeps showing on the dashboard even after the underlying
+    # cause is fixed (e.g. the 2026-05-20 "database is locked" from
+    # the two-worker cold-start fight). If THIS attempt fails the
+    # except block below will set a fresh error string; if it
+    # succeeds the finally->success path will leave the cleared
+    # value as-is. Either way the banner reflects the latest
+    # attempt, not the stalest one.
+    try:
+        set_app_setting(_LAST_ERROR_KEY, "")
+    except Exception:
+        log.exception("could not clear stale last_refresh_error (non-fatal)")
+
     try:
         _set_step(scope, "Refreshing customer master mirror...")
         customer_rows, customer_source = _fetch_customers(salesman_key)
@@ -1067,6 +1082,27 @@ def _claim_cold_start() -> bool:
         return False
 
 
+def _clear_stale_boot_error() -> None:
+    """Clear the persisted last-error banner on boot.
+
+    The banner is sticky -- set when a refresh fails, cleared on the
+    next successful refresh. That's the right behavior at runtime
+    (the user wants to know the LATEST attempt failed). But on a
+    FRESH BOOT, a stuck error from "yesterday's chunk lost the
+    write-lock fight" is just noise that misleads the user into
+    thinking the app is currently broken. If we boot at all, the
+    DB is clearly NOT locked -- this worker is reading from it
+    right now to run init.
+    """
+    try:
+        cur = get_app_setting(_LAST_ERROR_KEY)
+        if cur:
+            set_app_setting(_LAST_ERROR_KEY, "")
+            log.info("cleared stale boot error: %r", cur[:120])
+    except Exception:
+        log.exception("clear_stale_boot_error failed (non-fatal)")
+
+
 def start_background_refresh() -> None:
     """Kick a one-shot refresh on boot iff the mirror is empty.
 
@@ -1086,6 +1122,8 @@ def start_background_refresh() -> None:
     global _refresh_thread
     if _refresh_thread and _refresh_thread.is_alive():
         return
+
+    _clear_stale_boot_error()
 
     counts = get_cache_counts()
     if counts["customers"] > 0 and counts["order_lines"] > 0:
