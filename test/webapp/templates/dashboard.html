@@ -81,37 +81,6 @@
                 Last requested: {{ refresh.last_requested[:16].replace('T', ' ') }}
                 {% endif %}
             </span>
-            <span class="dash-refresh-time dash-refresh-cache" id="refreshCache">
-                Shared mirror: {{ refresh.cache_customers|default(0) }} customers,
-                {{ refresh.cache_order_lines|default(0) }} order lines,
-                {{ refresh.dated_order_lines|default(0) }} dated,
-                {{ refresh.order_customers|default(0) }} customers with dated lines,
-                {{ refresh.customers_with_last_order|default(0) }} with last order
-            </span>
-            <span class="dash-refresh-time dash-refresh-source" id="refreshWindow">
-                Dashboard metrics use the rolling {{ refresh.salesline_window_days|default(60) }}-day salesline mirror.
-            </span>
-            {% if refresh.order_mirror_stats %}
-            <span class="dash-refresh-time dash-refresh-source" id="refreshOrderMirrorStats">
-                {{ refresh.order_mirror_stats }}
-            </span>
-            {% else %}
-            <span class="dash-refresh-time dash-refresh-source" id="refreshOrderMirrorStats" style="display:none;"></span>
-            {% endif %}
-            {% if refresh.backfill_stats %}
-            <span class="dash-refresh-time dash-refresh-source" id="refreshBackfillStats">
-                {{ refresh.backfill_stats }}
-            </span>
-            {% else %}
-            <span class="dash-refresh-time dash-refresh-source" id="refreshBackfillStats" style="display:none;"></span>
-            {% endif %}
-            {% if refresh.customer_source or refresh.order_source %}
-            <span class="dash-refresh-time dash-refresh-source">
-                Sources:
-                customers={{ refresh.customer_source or 'unknown' }},
-                orders={{ refresh.order_source or 'unknown' }}
-            </span>
-            {% endif %}
         </div>
         <div style="display:flex; align-items:center; gap:6px;">
             <button class="btn btn-sm btn-outline" id="refreshBtn" onclick="triggerDashRefresh()">

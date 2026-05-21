@@ -110,8 +110,8 @@ body.dark-theme .status-dash-running {
     color: #fbbf24;
 }
 body.dark-theme .status-dash-new {
-    background: var(--primary-light);
-    color: #86efac;
+    background: #1e3a5f;
+    color: #60a5fa;
 }
 body.dark-theme .status-dash-inactive,
 body.dark-theme .status-dash-no_data {
@@ -837,9 +837,11 @@ body.dark-theme .status-inactive {
     color: var(--text-muted);
 }
 
+/* "New" status uses the live app's blue, NOT the test app's green --primary.
+   Hardcoded so it stays blue regardless of which test theme is active. */
 .status-dash-new {
-    background: var(--primary-light);
-    color: var(--primary);
+    background: #dbeafe;
+    color: #2563eb;
 }
 
 .status-dash-running {
@@ -1475,6 +1477,16 @@ body.dark-theme .alert-error {
 
 .dash-card-overdue .dash-card-value {
     color: var(--error);
+}
+
+/* "New" tile value uses the live app's blue, not the test theme's green
+   --primary. Mirrors `.status-dash-new` which makes the same choice. */
+.dash-card-new .dash-card-value {
+    color: #2563eb;
+}
+
+body.dark-theme .dash-card-new .dash-card-value {
+    color: #60a5fa;
 }
 
 .dash-card-label {
