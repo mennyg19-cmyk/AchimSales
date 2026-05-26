@@ -94,9 +94,12 @@
             </a>
             {% endif %}
             {% elif rec.status == 'failed' %}
-            <a href="{{ url_for('reports.report_form', report_key=rec.report_key) }}" class="btn btn-sm btn-outline">
+            <button class="btn btn-sm btn-outline" type="button"
+                    data-report-key="{{ rec.report_key }}"
+                    data-params="{{ (rec.params or {})|tojson }}"
+                    onclick="retryFromHistory(this)">
                 <i data-feather="refresh-cw"></i> Retry
-            </a>
+            </button>
             {% endif %}
             <button class="btn btn-sm btn-outline history-delete-btn" title="Delete from history"
                     onclick="deleteFromHistory('{{ rec.record_id }}', this)">
@@ -111,6 +114,39 @@
 {% block scripts %}
 <script>
 if (typeof dismissReportNotifications === 'function') dismissReportNotifications();
+
+function retryFromHistory(btn) {
+    /* Re-run a failed report with the saved params, skipping the
+       filter page entirely. Builds the same URL the saved-preset flow
+       uses (preset=retry + autorun=1) so the form auto-fills and
+       auto-submits without the user touching it. */
+    var reportKey = btn.dataset.reportKey;
+    if (!reportKey) return;
+    var params = {};
+    try { params = JSON.parse(btn.dataset.params || '{}') || {}; } catch (e) { params = {}; }
+
+    var qs = ['preset=retry', 'autorun=1'];
+    Object.keys(params).forEach(function (k) {
+        /* Skip internal runtime flags (e.g. _preset_name, _salesman_key)
+           that report_run.py adds for its own bookkeeping. */
+        if (!k || k.charAt(0) === '_') return;
+        var v = params[k];
+        if (v === null || v === undefined || v === '') return;
+        if (Array.isArray(v)) {
+            v.forEach(function (item) {
+                if (item === null || item === undefined || item === '') return;
+                qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(item));
+            });
+        } else {
+            qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(String(v)));
+        }
+    });
+
+    btn.disabled = true;
+    btn.innerHTML = '<i data-feather="loader" style="width:14px;height:14px;"></i> Retrying...';
+    if (typeof feather !== 'undefined') feather.replace();
+    window.location.href = '/report/' + encodeURIComponent(reportKey) + '?' + qs.join('&');
+}
 
 function cancelFromHistory(runId, btn) {
     if (!confirm('Cancel this running report?')) return;
