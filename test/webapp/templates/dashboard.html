@@ -106,8 +106,14 @@
 
 <div class="dash-table-header">
     <h3 class="dash-section-title">Customer Activity</h3>
-    <input type="text" id="dashSearch" class="form-input" style="max-width:260px; height:38px; font-size:14px;"
-           placeholder="Search customers..." oninput="filterDashTable()">
+    <div class="dash-table-filters">
+        <select id="dashSalesmanFilter" class="form-input" style="max-width:240px; height:38px; font-size:14px;"
+                onchange="filterDashTable()">
+            <option value="">All salesmen</option>
+        </select>
+        <input type="text" id="dashSearch" class="form-input" style="max-width:260px; height:38px; font-size:14px;"
+               placeholder="Search customers..." oninput="filterDashTable()">
+    </div>
 </div>
 
 <div class="table-wrapper" id="dashTableWrapper">

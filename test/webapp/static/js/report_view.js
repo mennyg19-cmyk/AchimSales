@@ -245,13 +245,24 @@
     async function runReport(opts) {
         opts = opts || {};
         const preserveLayout = !!opts.preserveLayout;
+        const forceFresh = !!opts.forceFresh;
         // Snapshot the layout BEFORE wiping state so we can restore it.
         const snapshot = preserveLayout ? snapshotLayout() : null;
 
-        showStatus(preserveLayout ? "Refreshing data…" : "Loading report…", false, true);
+        showStatus(
+            forceFresh ? "Refreshing from live data…" :
+            (preserveLayout ? "Refreshing data…" : "Loading report…"),
+            false, true,
+        );
+        // Always use cache_first so the background thread handles the
+        // long SP fetches; force_fresh just tells the backend to skip
+        // the mirror inside that thread. Going synchronous via
+        // cache_mode=live would block the worker for 60-120s on large
+        // refreshes and routinely hit the gateway timeout.
         const payload = await postJson(cfg.runUrl, {
             params: cfg.params,
             cache_mode: "cache_first",
+            force_fresh: forceFresh,
             wait_seconds: 5,
         });
         const cacheMeta = payload && payload._cache_first;
@@ -2165,7 +2176,7 @@
         const old = els.refreshBtn.innerHTML;
         els.refreshBtn.textContent = "Refreshing…";
         try {
-            await runReport({ preserveLayout: true });
+            await runReport({ preserveLayout: true, forceFresh: true });
         } catch (err) {
             alert("Refresh failed: " + (err.message || err));
         } finally {

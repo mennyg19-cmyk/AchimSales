@@ -1699,6 +1699,14 @@ body.dark-theme .dash-card-new .dash-card-value {
     margin-bottom: 12px;
 }
 
+.dash-table-filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 /* -- Settings ------------------------------------------------------------ */
 
 .container:has(.settings-layout-section) {

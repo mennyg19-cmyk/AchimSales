@@ -287,8 +287,21 @@ def run(key: str):
     except (TypeError, ValueError):
         wait_seconds = cache_first.DEFAULT_WAIT_SECONDS
 
+    # "Refresh data" in the viewer (or cache_mode=live) means the user
+    # wants live SP data, not the daily-fresh local mirror. We tag the
+    # filter params so reporting_api.run() knows to skip the mirror-
+    # first path and round-trip to the API for this single request.
+    force_fresh = bool(body.get("force_fresh")) or cache_mode == "live"
+    if force_fresh:
+        params = {**params, "_force_fresh": True}
+
     def _builder() -> dict:
         return _run_report_logged(key, report.name, params, user_email)
+
+    # Control flags like _force_fresh shouldn't fragment the payload
+    # cache (the user clicking "Refresh data" should overwrite the same
+    # cache entry, not create a parallel one).
+    cache_params = {k: v for k, v in params.items() if not (isinstance(k, str) and k.startswith("_"))}
 
     if cache_mode == "live":
         try:
@@ -304,7 +317,7 @@ def run(key: str):
         kind="report_run",
         identity=key,
         user_scope=user_email,
-        params={"report_name": report.name, "params": params},
+        params={"report_name": report.name, "params": cache_params},
         builder=_builder,
         wait_seconds=wait_seconds,
     )

@@ -58,6 +58,7 @@ _SOURCE_LABEL_MAP = {
     "api":                  "Reporting API (live data)",
     "fresh_cache":          "Reporting API (cached, less than a few minutes old)",
     "stale_cache":          "Cached snapshot (live API was unreachable)",
+    "mirror_first":         "SQLite mirror (daily-fresh; click Refresh data for live)",
     "mirror_after_failure": "SQLite mirror (live API was unreachable)",
     "mirror_no_api":        "SQLite mirror (API not configured)",
 }

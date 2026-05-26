@@ -635,10 +635,31 @@ def _kick_mirror_upsert(report_id: str, rows: list[dict]) -> None:
     t.start()
 
 
-def run(report_key: str, filter_params: dict, *, no_piggyback: bool = False) -> list[dict]:
+# Report IDs whose mirror tables hold the full historical dataset
+# (refreshed daily). For these, we serve from the local mirror BEFORE
+# touching the slow HTTP API -- the daily refresh keeps them within
+# ~24h of live, and the user can hit "Refresh data" in the viewer to
+# force an API fetch. Reports outside this set go API-first (no
+# mirror data or the mirror is too narrow to trust).
+_MIRROR_FIRST_REPORTS = {"salesline_release", "invoiced_order_charges"}
+
+
+def run(
+    report_key: str,
+    filter_params: dict,
+    *,
+    no_piggyback: bool = False,
+    prefer_mirror: bool | None = None,
+) -> list[dict]:
     """Fetch flat rows for a report from the reporting API.
 
     Resolution order:
+        0. (NEW) For mirror-backed reports, try the local SQLite mirror
+           first -- it's daily-fresh and orders of magnitude faster than
+           hitting the SP through HTTP. ``prefer_mirror=False`` (or
+           setting it explicitly) overrides; callers that need real-time
+           data (e.g. the viewer's "Refresh data" button) should pass
+           ``prefer_mirror=False`` to force an API round-trip.
         1. Fresh in-process cache hit (<= REPORTING_API_CACHE_TTL_SECONDS).
         2. HTTP call to the reporting API; on success, cache the rows,
            mirror them to local SQLite in the background, and return.
@@ -663,6 +684,34 @@ def run(report_key: str, filter_params: dict, *, no_piggyback: bool = False) -> 
         log.info("reporting_api: fresh cache hit for %s (%d rows)", report_id, len(fresh))
         _set_last_source(source="fresh_cache", rows=len(fresh))
         return fresh
+
+    # Mirror-first path. We treat the mirror as authoritative for the
+    # historical part of the window. MirrorWindowExceeded bubbles up
+    # (the user sees a clear "cache only goes back to..." message); any
+    # other mirror failure silently falls through to the API.
+    if prefer_mirror is None:
+        if filter_params and filter_params.get("_force_fresh"):
+            # Viewer's "Refresh data" button -- user wants the SP, not
+            # last-night's mirror.
+            prefer_mirror = False
+        else:
+            prefer_mirror = report_id in _MIRROR_FIRST_REPORTS
+    if prefer_mirror:
+        from test.webapp.services.mirror import MirrorWindowExceeded
+        try:
+            mirror_rows = _serve_from_mirror(report_id, sp_params)
+        except MirrorWindowExceeded:
+            _set_last_source(source="failed",
+                             error="mirror window exceeded; ask an admin to backfill")
+            raise
+        except Exception:
+            log.exception("reporting_api: mirror-first read failed for %s, falling back to API", report_id)
+            mirror_rows = None
+        if mirror_rows:
+            log.info("reporting_api: mirror-first hit for %s (%d rows)", report_id, len(mirror_rows))
+            _cache.set(cache_key, mirror_rows)
+            _set_last_source(source="mirror_first", rows=len(mirror_rows))
+            return mirror_rows
 
     if not is_configured():
         # Not configured -- skip the HTTP attempt entirely and fall

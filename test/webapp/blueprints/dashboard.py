@@ -17,9 +17,39 @@ from test.webapp.db import (
     get_feature_flag,
     get_notifications,
     get_user_exclusions,
+    list_salesman_map,
 )
 from test.webapp.services import dashboard_data
 from test.webapp.services.report_access import get_user_profile
+
+
+def _build_salesman_display_map() -> dict[str, str]:
+    """Map normalized salesman key -> display label ("Full Name (CODE)")
+    for showing in dashboard filters.  Empty/missing rows fall back to
+    the code itself.
+    """
+    try:
+        rows = list_salesman_map()
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for r in rows or []:
+        key = (r.get("key") or "").strip().lower()
+        if not key:
+            continue
+        code = (r.get("number") or "").strip()
+        name = (r.get("display_name") or r.get("full_name") or "").strip()
+        if name and code:
+            out[key] = f"{name} ({code})"
+        elif name:
+            out[key] = name
+        elif code:
+            out[key] = code
+    return out
+
+
+def _sg_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").strip().lower())
 
 dashboard_bp = Blueprint("dashboard", __name__)
 log = logging.getLogger(__name__)
@@ -246,14 +276,23 @@ def api_dashboard_data():
     )
     summary = dashboard_data.get_dashboard_summary(customers)
     refresh = dashboard_data.get_refresh_status(_refresh_salesman_scope(email))
+    sm_labels = _build_salesman_display_map()
     visible_customers = []
+    salesman_options: dict[str, str] = {}
     for c in customers:
         if c.get("excluded"):
             continue
         account = c.get("customer_account") or ""
+        sg_raw = (c.get("sales_group") or "").strip()
+        sg_key = _sg_key(sg_raw)
+        sg_label = sm_labels.get(sg_key) or sg_raw
+        if sg_raw and sg_label and sg_label not in salesman_options:
+            salesman_options[sg_label] = sg_raw
         visible_customers.append({
             "customer_account": account,
             "customer_name": c.get("customer_name") or account,
+            "sales_group": sg_raw,
+            "salesman_label": sg_label,
             "last_order_date": c.get("last_order_date") or "",
             "days_since_last": c.get("days_since_last"),
             "avg_gap_days": c.get("avg_gap_days"),
@@ -261,9 +300,11 @@ def api_dashboard_data():
             "status": c.get("status") or "new",
             "url": url_for("dashboard.customer_detail", account=account),
         })
+    salesmen = [{"value": v, "label": k} for k, v in sorted(salesman_options.items(), key=lambda kv: kv[0].lower())]
     return jsonify({
         "success": True,
         "summary": summary,
         "customers": visible_customers,
+        "salesmen": salesmen,
         "refresh": refresh,
     })

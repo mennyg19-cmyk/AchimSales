@@ -2,6 +2,7 @@
 
 var _dashPrefix = window.V2_URL_PREFIX || "";
 var _activeStatusFilter = "";
+var _activeSalesmanFilter = "";
 var _dashSortCol = -1;
 var _dashSortAsc = true;
 
@@ -153,10 +154,12 @@ function renderDashboardRows(customers, opts) {
 
     var rows = customers.map(function(c) {
         var status = c.status || "new";
+        var salesmanLabel = c.salesman_label || c.sales_group || "";
         return [
-            '<tr class="dash-row clickable-row" data-status="', dashEscape(status), '" data-url="', dashEscape(c.url || "#"), '" onclick="window.location=this.dataset.url">',
+            '<tr class="dash-row clickable-row" data-status="', dashEscape(status), '" data-salesman="', dashEscape(c.sales_group || ""), '" data-url="', dashEscape(c.url || "#"), '" onclick="window.location=this.dataset.url">',
             '<td>', dashEscape(c.customer_name || c.customer_account || ""), '</td>',
             '<td class="cell-nowrap">', dashEscape(c.customer_account || ""), '</td>',
+            '<td class="cell-nowrap">', dashEscape(salesmanLabel), '</td>',
             '<td class="cell-nowrap">', dashEscape(c.last_order_date || "N/A"), '</td>',
             '<td class="num">', dashEscape(dashDisplay(c.days_since_last, "-")), '</td>',
             '<td class="num">', dashEscape(dashDisplay(c.avg_gap_days, "-")), '</td>',
@@ -171,16 +174,38 @@ function renderDashboardRows(customers, opts) {
         '<thead><tr>',
         '<th onclick="sortDashTable(0)">Name <span class="sort-arrow">&#9650;</span></th>',
         '<th onclick="sortDashTable(1)">Account <span class="sort-arrow">&#9650;</span></th>',
-        '<th onclick="sortDashTable(2)">Last Order <span class="sort-arrow">&#9650;</span></th>',
-        '<th onclick="sortDashTable(3)">Days Since <span class="sort-arrow">&#9650;</span></th>',
-        '<th onclick="sortDashTable(4)">Avg Freq <button class="help-icon" data-help="dashboard-avg-freq" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>',
-        '<th onclick="sortDashTable(5)">Threshold <button class="help-icon" data-help="dashboard-threshold" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>',
-        '<th onclick="sortDashTable(6)">Status <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(2)">Salesman <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(3)">Last Order <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(4)">Days Since <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(5)">Avg Freq <button class="help-icon" data-help="dashboard-avg-freq" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(6)">Threshold <button class="help-icon" data-help="dashboard-threshold" style="width:16px;height:16px;font-size:10px;">?</button> <span class="sort-arrow">&#9650;</span></th>',
+        '<th onclick="sortDashTable(7)">Status <span class="sort-arrow">&#9650;</span></th>',
         '</tr></thead>',
         '<tbody>', rows, '</tbody>',
         '</table>'
     ].join("");
     applyDashFilters();
+}
+
+function populateSalesmanFilter(salesmen) {
+    var sel = document.getElementById("dashSalesmanFilter");
+    if (!sel) return;
+    var current = sel.value;
+    var opts = ['<option value="">All salesmen</option>'];
+    (salesmen || []).forEach(function(s) {
+        if (!s || !s.value) return;
+        opts.push('<option value="' + dashEscape(s.value) + '">' + dashEscape(s.label || s.value) + '</option>');
+    });
+    sel.innerHTML = opts.join("");
+    if (current) {
+        sel.value = current;
+        _activeSalesmanFilter = sel.value;
+    }
+    if ((salesmen || []).length <= 1) {
+        sel.style.display = "none";
+    } else {
+        sel.style.display = "";
+    }
 }
 
 function updateRefreshMeta(refresh) {
@@ -229,6 +254,7 @@ function refreshDashboardData() {
         .then(function(r) { return r.json(); })
         .then(function(data) {
             updateSummaryCards(data.summary || {});
+            populateSalesmanFilter(data.salesmen || []);
             renderDashboardRows(data.customers || [], { fromApi: true });
             updateRefreshMeta(data.refresh || {});
             if (label) label.textContent = "Dashboard data updated.";
@@ -295,12 +321,15 @@ function filterDashTable() {
 
 function applyDashFilters() {
     var input = document.getElementById("dashSearch");
+    var sel = document.getElementById("dashSalesmanFilter");
+    _activeSalesmanFilter = sel ? (sel.value || "") : "";
     var q = ((input && input.value) || "").toLowerCase();
     var rows = document.querySelectorAll("#dashTable tbody .dash-row");
     rows.forEach(function(row) {
         var matchStatus = !_activeStatusFilter || row.getAttribute("data-status") === _activeStatusFilter;
+        var matchSalesman = !_activeSalesmanFilter || row.getAttribute("data-salesman") === _activeSalesmanFilter;
         var matchText = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
-        row.style.display = (matchStatus && matchText) ? "" : "none";
+        row.style.display = (matchStatus && matchSalesman && matchText) ? "" : "none";
     });
 }
 
