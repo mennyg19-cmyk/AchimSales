@@ -502,11 +502,19 @@ def _prune_salesmen_without_email(conn: sqlite3.Connection) -> None:
 # they also appear in the salesman master sheet. The salesman-sync
 # seeder defaults every email it finds to role='salesman', which is
 # fine for actual reps but locks dev accounts out of admin-only
-# reports (Salesman, Number 4, etc.). Keep this list short; production
-# users go through the Settings page.
-_DEVELOPER_EMAILS: tuple[str, ...] = (
-    "mendyk@achimonline.com",
-)
+# reports (Salesman, Number 4, etc.).
+#
+# Driven by the V2_ADMIN_EMAILS Azure app setting (comma- or
+# semicolon-separated) so you can change who gets dev/admin access
+# without a code deploy. Hardcoding emails here was a footgun --
+# every container boot would re-seed the hardcoded list and undo
+# manual edits from the Settings UI.
+def _developer_emails() -> tuple[str, ...]:
+    try:
+        from test.config.settings import ADMIN_EMAILS
+    except Exception:
+        return ()
+    return tuple(sorted(e for e in (ADMIN_EMAILS or set()) if e))
 
 
 def _seed_developer_users(conn: sqlite3.Connection) -> None:
@@ -514,9 +522,11 @@ def _seed_developer_users(conn: sqlite3.Connection) -> None:
 
     Idempotent. Runs after ``_sync_salesman_users`` so we override any
     salesman-default role the seed-sync would have written, but leaves
-    other attributes (display_name, salesman_key, etc.) alone.
+    other attributes (display_name, salesman_key, etc.) alone. The
+    list comes from the V2_ADMIN_EMAILS env var via
+    test.config.settings.ADMIN_EMAILS; nothing is hardcoded here.
     """
-    for email in _DEVELOPER_EMAILS:
+    for email in _developer_emails():
         e = (email or "").strip().lower()
         if not e:
             continue
