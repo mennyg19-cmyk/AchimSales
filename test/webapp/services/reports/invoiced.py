@@ -257,9 +257,17 @@ def _sm_key(sales_group: str) -> str:
 def _norm_row(raw: dict, sm_map: dict[str, dict]) -> dict:
     """Map an invoiced_order_charges row onto live-style column names."""
     amount       = round(_num(_first(raw, "Amount", "SubTotal", "SubTotalAmount")), 2)
-    tariff_chg   = round(_num(_first(raw, "SH_TariffCharges", "TariffCharges", "Tariff Charges")), 2)
-    freight_chg  = round(_num(_first(raw, "SH_FreightCharges", "FreightCharges", "Freight Charges")), 2)
-    cc_chg       = round(_num(_first(raw, "SH_ProcessingFeesCharges", "ProcessingFeesCharges", "CCCharges", "CC Charges")), 2)
+    # The SP returns tariff at the sales-LINE level (``SL_TariffCharges``),
+    # NOT at the sales-HEADER level (``SH_TariffCharges`` is always null
+    # for the data we've seen). Reading the wrong key was producing
+    # Tariff Charges=0 for every row -- a $700k+ miss vs the live
+    # Monthly Invoiced Report. Try SL first, fall back to SH for
+    # forward-compat in case the SP gets updated to also surface tariff
+    # at the header level. Freight + CC are still header-level per
+    # the SP schema (``SH_FreightCharges`` / ``SH_ProcessingFeesCharges``).
+    tariff_chg   = round(_num(_first(raw, "SL_TariffCharges", "SH_TariffCharges", "TariffCharges", "Tariff Charges")), 2)
+    freight_chg  = round(_num(_first(raw, "SH_FreightCharges", "SL_FreightCharges", "FreightCharges", "Freight Charges")), 2)
+    cc_chg       = round(_num(_first(raw, "SH_ProcessingFeesCharges", "SL_ProcessingFeesCharges", "ProcessingFeesCharges", "CCCharges", "CC Charges")), 2)
     total        = round(amount + tariff_chg + freight_chg + cc_chg, 2)
 
     salesgroup = _str(_first(raw, "SalesGroup", "salesgroup", "Salesman"))

@@ -1284,11 +1284,20 @@ def _normalize_invoice_row(raw: dict) -> dict:
         "sh_freight_charges":         _to_float(
             _first(raw, "SH_FreightCharges", "FreightCharges", "Freight Charges")
         ),
+        # Tariff is sourced from the sales LINE in the
+        # ``invoiced_order_charges`` SP -- ``SL_Tariff`` /
+        # ``SL_TariffCharges``. The header-level columns
+        # (``SH_TariffCharges``) are always null in the rows we've
+        # actually seen. The mirror column names keep the legacy
+        # ``sh_tariff*`` prefix because changing them would require a
+        # schema migration; semantically these now store the line-level
+        # value with SH_* kept as a fallback for future SP variants.
         "sh_tariff":                  _to_str(
-            _first(raw, "SH_Tariff", "Tariff")
+            _first(raw, "SL_Tariff", "SH_Tariff", "Tariff")
         ),
         "sh_tariff_charges":          _to_float(
-            _first(raw, "SH_TariffCharges", "TariffCharges", "Tariff Charges")
+            _first(raw, "SL_TariffCharges", "SH_TariffCharges",
+                   "TariffCharges", "Tariff Charges")
         ),
         "sales_group":                _to_str(
             _first(raw, "SalesGroup", "salesgroup", "Salesman")
@@ -1628,6 +1637,14 @@ def _invoice_raw_from_row(row: Any) -> dict:
     raw.setdefault("SH_FreightCharges", row["sh_freight_charges"])
     raw.setdefault("SH_Tariff", row["sh_tariff"])
     raw.setdefault("SH_TariffCharges", row["sh_tariff_charges"])
+    # Tariff data actually lives at the sales-LINE level in the SP
+    # (``SL_*``); the mirror stores it under the legacy sh_* column
+    # names for back-compat. Set both aliases when reconstructing so
+    # the report builder's ``_first(raw, "SL_TariffCharges", ...)``
+    # lookup resolves regardless of whether the row was upserted
+    # before or after the 2026-05-27 SL_ fix.
+    raw.setdefault("SL_Tariff", row["sh_tariff"])
+    raw.setdefault("SL_TariffCharges", row["sh_tariff_charges"])
     raw.setdefault("SalesGroup", row["sales_group"])
     return raw
 

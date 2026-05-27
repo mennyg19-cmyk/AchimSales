@@ -114,8 +114,11 @@ def _norm_row(raw: dict, sm_map: dict[str, dict]) -> dict | None:
 
     amount = _num(_first(raw, "Amount", "SubTotal", "SubTotalAmount"))
     cc_chg = _num(_first(raw, "SH_ProcessingFeesCharges", "ProcessingFeesCharges", "CCCharges", "CC Charges"))
-    freight_chg = _num(_first(raw, "SH_FreightCharges", "FreightCharges", "Freight Charges"))
-    tariff_chg = _num(_first(raw, "SH_TariffCharges", "TariffCharges", "Tariff Charges"))
+    freight_chg = _num(_first(raw, "SH_FreightCharges", "SL_FreightCharges", "FreightCharges", "Freight Charges"))
+    # Tariff lives at the LINE level in invoiced_order_charges
+    # (``SL_TariffCharges``); the header-level alias is always null.
+    # Same fix as invoiced._norm_row -- see comment there for context.
+    tariff_chg = _num(_first(raw, "SL_TariffCharges", "SH_TariffCharges", "TariffCharges", "Tariff Charges"))
 
     # Live formula: Sales = Total Invoice - CC Charges - Freight Charges
     # (Total Invoice = SubTotal + Tariff + Freight + CC).
