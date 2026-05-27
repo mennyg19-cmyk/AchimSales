@@ -882,6 +882,25 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _request_persist_snapshot() -> None:
+    """Wake the /tmp -> /home/data snapshot loop after a user-visible
+    write. Without this, edits live only on /tmp until the next 60 s
+    tick -- a container restart in between (Azure does this often)
+    silently rolls them back. We hit this with admin-added users
+    on 2026-05-27 ("My user is still there but everything else gets
+    wiped").
+
+    Wrapped in a try/except + soft import so it's a no-op on local
+    dev (no persistent target) or if the snapshot module fails to
+    load -- safer than letting a snapshot wake fail a normal write.
+    """
+    try:
+        from test.webapp.services.db_sync import request_snapshot_soon
+        request_snapshot_soon()
+    except Exception:
+        pass
+
+
 def _norm_email(email: str) -> str:
     return (email or "").strip().lower()
 
@@ -1383,6 +1402,8 @@ def update_app_user(email: str, **kwargs: Any) -> None:
                 except sqlite3.OperationalError:
                     log.exception("update_app_user: salesman mirror failed")
 
+    _request_persist_snapshot()
+
 
 def delete_app_user(email: str) -> None:
     """Delete a user. If the user is a salesman, also delete the
@@ -1402,6 +1423,8 @@ def delete_app_user(email: str) -> None:
             conn.execute(
                 "DELETE FROM user_salesman_access WHERE salesman_key = ?", (sk,),
             )
+
+    _request_persist_snapshot()
 
 
 def has_sharepoint_access(email: str) -> bool:
@@ -1869,6 +1892,7 @@ def upsert_salesman_record(data: dict) -> str:
                         "UPDATE app_users SET salesman_key = ? WHERE email = ?",
                         (k, email),
                     )
+    _request_persist_snapshot()
     return k
 
 
@@ -1897,7 +1921,10 @@ def delete_salesman_record(key: str) -> bool:
         conn.execute(
             "DELETE FROM user_salesman_access WHERE salesman_key = ?", (k,),
         )
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+    if deleted:
+        _request_persist_snapshot()
+    return deleted
 
 
 # ---------------------------------------------------------------------------

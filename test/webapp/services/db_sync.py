@@ -52,12 +52,15 @@ from test.config.settings import APP_DB_PATH, APP_DB_PERSISTENT_PATH
 
 log = logging.getLogger(__name__)
 
-# Five minutes is a balance between "snapshot churn on the SMB share"
-# and "how much we'd lose if the container dies between snapshots".
-# Anything mirror-related can be rebuilt from the API, and the daily
-# scheduler runs every night, so the floor on the data we'd lose is
-# basically "users created in the last 5 minutes" -- acceptable.
-SNAPSHOT_INTERVAL_S = 5 * 60
+# 60 s: short enough that a user-management change (e.g. a manager
+# adding a teammate via the Users & Permissions UI) is durably on
+# Azure Files within a minute of the click, long enough that the
+# snapshot-induced load on the SMB share is barely measurable. The
+# original 5-min default was sized for mirror data (which can be
+# rebuilt from the API), but app_users / app_salesmen edits CANNOT
+# be rebuilt -- losing them between snapshots was exactly the
+# "everything else gets wiped on restart" complaint on 2026-05-27.
+SNAPSHOT_INTERVAL_S = 60
 # How long a single online-backup pass is allowed to take before we
 # give up. The mirror gets to ~150 MB so a few seconds is normal;
 # 60 s here is alarm-level slow but still safer than blocking forever.
@@ -65,6 +68,11 @@ SNAPSHOT_TIMEOUT_S = 60
 
 _started = False
 _lock = threading.Lock()
+
+# Event used to break the loop's sleep early. ``request_snapshot_soon``
+# sets this from user-mutation paths so a fresh edit is durable within
+# seconds rather than waiting for the next tick.
+_snapshot_wakeup = threading.Event()
 
 
 def _is_malformed(path: Path) -> bool:
@@ -217,13 +225,39 @@ def snapshot_to_persistent() -> bool:
 
 
 def _loop() -> None:
-    log.info("db_sync loop running every %ds", SNAPSHOT_INTERVAL_S)
+    log.info("db_sync loop running every %ds (wakeable)", SNAPSHOT_INTERVAL_S)
+    # Take an immediate snapshot once boot finishes -- without this,
+    # any state that init_db just wrote (developer-user seed, freshly
+    # seeded salesmen, schema migrations) sits only on /tmp until the
+    # first tick. A container restart in the first minute would wipe
+    # those.
+    try:
+        snapshot_to_persistent()
+    except Exception:
+        log.exception("db_sync initial snapshot failed; continuing")
     while True:
         try:
-            time.sleep(SNAPSHOT_INTERVAL_S)
+            # Sleep interruptibly so request_snapshot_soon() can wake
+            # us up the moment something mutation-heavy happens (e.g.
+            # admin adds a user). Event.wait() returns True when set,
+            # False on timeout -- either way we run the next pass.
+            _snapshot_wakeup.wait(timeout=SNAPSHOT_INTERVAL_S)
+            _snapshot_wakeup.clear()
             snapshot_to_persistent()
         except Exception:
             log.exception("db_sync loop iteration crashed; continuing")
+
+
+def request_snapshot_soon() -> None:
+    """Wake the snapshot loop so the next pass runs immediately.
+
+    Call from any path that writes "can't be reconstructed from API"
+    data -- app_users updates, app_salesmen edits, manager
+    assignments, etc. Cheap (just sets an Event) so it's safe to
+    sprinkle liberally. No-op when the loop hasn't started (e.g.
+    local dev).
+    """
+    _snapshot_wakeup.set()
 
 
 def start_snapshot_loop() -> None:
