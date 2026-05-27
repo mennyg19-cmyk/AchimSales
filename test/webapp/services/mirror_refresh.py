@@ -284,6 +284,89 @@ def _refresh_range(*, scope: Scope, start: date, end: date,
     return overall
 
 
+_REFRESH_OWNER_KEY = "mirror_refresh.in_progress_owner"
+# Worst-case full backfill on B1 is ~25 min; 45 min gives the holder
+# enough slack to finish even with API stalls before a stale lock is
+# treated as abandoned.
+_REFRESH_OWNER_TTL_S = 45 * 60
+
+
+def _claim_refresh_singleflight(scope: str, trigger: str) -> tuple[bool, dict[str, Any]]:
+    """Cross-thread / cross-worker single-flight gate for chunked refreshes.
+
+    Multiple boot-time code paths can each decide independently that the
+    mirror needs refreshing -- ``mirror_scheduler.catchup_if_stale``
+    (looks at ``mirror_refresh_runs.last_success``) and
+    ``dashboard_data.start_background_refresh`` (looks at table row
+    counts). When the persisted DB is recent in one signal but empty in
+    the other -- exactly what happened after the malformed-DB salvage
+    on 2026-05-27 dropped most mirror rows but kept the refresh-run
+    log -- BOTH fired in parallel and did the same SP fetches +
+    upserts twice, dragging report queries down for the duration.
+
+    Persist an owner record in app_settings (same table the cold-start
+    claim uses) so any caller that arrives while a refresh is already
+    running can detect it and skip. Cross-worker safe because we
+    use ``BEGIN IMMEDIATE`` for the read-modify-write.
+    """
+    import json
+    import os
+    import time
+    from test.webapp.db import connect
+
+    pid = os.getpid()
+    now = int(time.time())
+    try:
+        with connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?",
+                (_REFRESH_OWNER_KEY,),
+            ).fetchone()
+            existing: dict[str, Any] = {}
+            if row and row["value"]:
+                try:
+                    existing = json.loads(row["value"]) or {}
+                except Exception:
+                    existing = {}
+            owner_pid = int(existing.get("pid") or 0)
+            ts = int(existing.get("ts") or 0)
+            if existing and (now - ts) < _REFRESH_OWNER_TTL_S:
+                conn.rollback()
+                log.info(
+                    "refresh single-flight: scope=%s trigger=%s skipped "
+                    "(in-progress owner pid=%d trigger=%s age=%ds)",
+                    scope, trigger, owner_pid,
+                    existing.get("trigger") or "?", now - ts,
+                )
+                return False, existing
+            payload = {
+                "pid": pid, "ts": now,
+                "scope": scope, "trigger": trigger,
+            }
+            conn.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+                (_REFRESH_OWNER_KEY, json.dumps(payload)),
+            )
+            conn.commit()
+            return True, payload
+    except Exception:
+        log.exception("refresh single-flight: claim failed, allowing the refresh to proceed")
+        # Fail-open: if the claim machinery is broken we'd rather do
+        # the work twice than skip a needed refresh.
+        return True, {}
+
+
+def _release_refresh_singleflight() -> None:
+    from test.webapp.db import connect
+    try:
+        with connect() as conn:
+            conn.execute("DELETE FROM app_settings WHERE key = ?", (_REFRESH_OWNER_KEY,))
+            conn.commit()
+    except Exception:
+        log.exception("refresh single-flight: release failed (non-fatal)")
+
+
 def refresh_window_chunked(*, scope: Scope = "all",
                            days_back: int = 180,
                            trigger: str = "manual",
@@ -294,14 +377,29 @@ def refresh_window_chunked(*, scope: Scope = "all",
     Called by the daily cron and by the dashboard's "refresh now" button.
     Each chunk is a separate API call so a single bad month doesn't
     poison the rest. The mirror's piggyback path writes the rows.
+
+    Gated by ``_claim_refresh_singleflight`` so the dashboard cold-start
+    and the scheduler catchup can't double-pump the same chunks on the
+    same boot.
     """
+    acquired, owner = _claim_refresh_singleflight(scope=scope, trigger=trigger)
+    if not acquired:
+        return {
+            "skipped": "refresh-in-progress",
+            "in_progress_owner": owner,
+            "scope": scope,
+            "trigger": trigger,
+        }
     today = get_today_eastern()
     start = max(D365_GO_LIVE, today - timedelta(days=days_back))
-    return _refresh_range(
-        scope=scope, start=start, end=today,
-        trigger=trigger, triggered_by=triggered_by,
-        progress_cb=progress_cb,
-    )
+    try:
+        return _refresh_range(
+            scope=scope, start=start, end=today,
+            trigger=trigger, triggered_by=triggered_by,
+            progress_cb=progress_cb,
+        )
+    finally:
+        _release_refresh_singleflight()
 
 
 def backfill_since_golive(*, scope: Scope = "all",
@@ -312,10 +410,24 @@ def backfill_since_golive(*, scope: Scope = "all",
 
     Admin-only entry point. Expensive (~17 API calls per scope as of
     2026-05) so it's behind a button rather than running on a schedule.
+    Shares the single-flight lock with refresh_window_chunked so a click
+    while the scheduler catchup is mid-run gets a clean skip instead
+    of racing it.
     """
+    acquired, owner = _claim_refresh_singleflight(scope=scope, trigger=trigger)
+    if not acquired:
+        return {
+            "skipped": "refresh-in-progress",
+            "in_progress_owner": owner,
+            "scope": scope,
+            "trigger": trigger,
+        }
     today = get_today_eastern()
-    return _refresh_range(
-        scope=scope, start=D365_GO_LIVE, end=today,
-        trigger=trigger, triggered_by=triggered_by,
-        progress_cb=progress_cb,
-    )
+    try:
+        return _refresh_range(
+            scope=scope, start=D365_GO_LIVE, end=today,
+            trigger=trigger, triggered_by=triggered_by,
+            progress_cb=progress_cb,
+        )
+    finally:
+        _release_refresh_singleflight()
