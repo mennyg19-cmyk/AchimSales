@@ -607,3 +607,119 @@ def diag_ping():
         "raw_body_preview": (body_bytes[:1500].decode("utf-8", errors="replace")
                              if not parsed else None),
     })
+
+
+# ---------------------------------------------------------------------------
+# DB integrity / repair
+# ---------------------------------------------------------------------------
+#
+# These endpoints exist because SQLite-on-Azure-Files keeps producing
+# "database disk image is malformed" after concurrent-write incidents
+# (live app's OData backfill + container OOM kill mid-flight).
+# integrity is a read-only diagnosis; repair tries best-effort
+# salvage via iterdump. Admin-only.
+
+
+@diag_bp.get("/db/integrity")
+@require_admin
+def diag_db_integrity():
+    """Report PRAGMA integrity_check on the hot working DB.
+
+    Cheap, read-only. Returns ``{ "ok": True }`` when SQLite is happy;
+    otherwise a list of complaints (truncated at 50 to avoid blowing
+    the response up on heavily corrupt files).
+    """
+    import sqlite3
+    from test.config.settings import APP_DB_PATH, APP_DB_PERSISTENT_PATH
+
+    def _check(path) -> dict:
+        if path is None:
+            return {"path": None, "exists": False}
+        info: dict = {
+            "path": str(path),
+            "exists": path.exists(),
+        }
+        if not info["exists"]:
+            return info
+        info["size_bytes"] = path.stat().st_size
+        try:
+            with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as conn:
+                rows = conn.execute("PRAGMA integrity_check(50)").fetchall()
+                msgs = [r[0] for r in rows]
+                info["ok"] = msgs == ["ok"]
+                info["messages"] = msgs[:50]
+        except sqlite3.DatabaseError as exc:
+            info["ok"] = False
+            info["error"] = str(exc)
+        return info
+
+    return jsonify({
+        "working": _check(APP_DB_PATH),
+        "persistent": _check(APP_DB_PERSISTENT_PATH),
+    })
+
+
+@diag_bp.post("/db/repair")
+@require_admin
+def diag_db_repair():
+    """Salvage a malformed working DB by re-dumping into a fresh file.
+
+    Steps:
+      1. Quarantine the current working DB (rename ``<path>.corrupt.<ts>``).
+      2. iterdump it statement-by-statement into a new file at the
+         working path; pages SQLite refuses to read are silently
+         dropped.
+      3. The next snapshot pass will overwrite the persistent copy
+         with the salvaged version.
+
+    Returns a summary of how many statements survived. Idempotent:
+    if integrity_check passes, no-ops.
+    """
+    import sqlite3
+    import time as _time
+    from pathlib import Path as _Path
+
+    from test.config.settings import APP_DB_PATH
+    from test.webapp.services.db_sync import (
+        _is_malformed,
+        _salvage_via_iterdump,
+        snapshot_to_persistent,
+    )
+
+    if not APP_DB_PATH.exists():
+        return jsonify({"ok": False, "error": "working DB does not exist"}), 404
+
+    if not _is_malformed(APP_DB_PATH):
+        return jsonify({"ok": True, "action": "noop",
+                        "message": "integrity_check passed; no repair needed"})
+
+    # Quarantine current file so we can keep it for forensics.
+    quarantine = APP_DB_PATH.with_suffix(f".db.corrupt.{int(_time.time())}")
+    try:
+        APP_DB_PATH.rename(quarantine)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"failed to quarantine: {exc}"}), 500
+
+    salvaged = _salvage_via_iterdump(quarantine, APP_DB_PATH)
+    if not salvaged:
+        # Put the original back so a future retry can try again.
+        try:
+            APP_DB_PATH.unlink(missing_ok=True)
+            quarantine.rename(APP_DB_PATH)
+        except Exception:
+            log.exception("repair: failed to restore quarantine after salvage failure")
+        return jsonify({"ok": False, "error": "salvage failed; original restored"}), 500
+
+    snapshot_ok = snapshot_to_persistent()
+    new_size = APP_DB_PATH.stat().st_size if APP_DB_PATH.exists() else 0
+    return jsonify({
+        "ok": True,
+        "action": "salvaged",
+        "quarantined_to": str(quarantine),
+        "new_size_bytes": new_size,
+        "snapshot_to_persistent": snapshot_ok,
+        "message": ("Working DB rebuilt from salvageable pages. "
+                    "Rows on unreadable pages were dropped. The daily "
+                    "mirror refresh will repopulate mirror tables from "
+                    "the API."),
+    })

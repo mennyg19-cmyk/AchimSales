@@ -167,18 +167,33 @@ def create_app() -> Flask:
     from test.webapp.blueprints.diag import diag_bp
     app.register_blueprint(diag_bp)
 
-    # init_db touches v2_app.db on Azure Files. When the live app is
-    # mid-heavy-job (e.g. an Invoiced Report or OData backfill writing
-    # to app.db on the same share), the SMB write lease can block the
-    # test app from opening its own file for 40+ seconds, exhausting
-    # init_db's internal retries and killing the worker. We catch
-    # here so the worker stays up; the first DB-touching request will
-    # transparently re-attempt init via lazy_init_db(), and by then
-    # the share lease has usually cleared.
+    # The hot DB lives on /tmp (local SSD) -- copy the durable
+    # Azure Files snapshot down before anything else touches it.
+    # bootstrap_from_persistent() also handles malformed snapshots
+    # via best-effort salvage so a corrupted /home/data/v2_app.db
+    # doesn't block boot.
+    try:
+        from test.webapp.services.db_sync import bootstrap_from_persistent
+        bootstrap_from_persistent()
+    except Exception:
+        log.exception("db_sync bootstrap failed; will continue with whatever exists at APP_DB_PATH")
+
+    # init_db now hits /tmp, but we still keep the boot-time catch
+    # in case anything (lazy mirror init, schema migration) trips on
+    # the first connection. lazy_init_db() retries from connect() on
+    # the first DB-touching request.
     try:
         init_db()
     except Exception:
         log.exception("init_db failed during boot; worker will continue and lazy-init on first DB use")
+
+    # Periodic snapshot back to /home/data so a container restart
+    # doesn't lose mirror data and user state.
+    try:
+        from test.webapp.services.db_sync import start_snapshot_loop
+        start_snapshot_loop()
+    except Exception:
+        log.exception("db_sync snapshot loop failed to start (non-fatal)")
 
     # Boot the daily mirror-refresh scheduler. Disabled when running
     # tests / with the Flask reloader so we never end up with two
