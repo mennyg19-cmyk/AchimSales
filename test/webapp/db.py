@@ -726,6 +726,18 @@ def connect() -> Iterator[sqlite3.Connection]:
         has_request_context = lambda: False  # noqa: E731
         g = None  # type: ignore[assignment]
 
+    # If boot-time init_db failed because the share was locked by
+    # another process, give it one more shot now -- the lock has
+    # almost always cleared by the time the first user request arrives.
+    # init_db() itself calls connect(), so we guard with an internal
+    # flag to prevent recursion.
+    if not _db_initialized and not getattr(_init_local, "in_init", False):
+        _init_local.in_init = True
+        try:
+            lazy_init_db()
+        finally:
+            _init_local.in_init = False
+
     if has_request_context():
         cached = getattr(g, "_v2_sqlite_conn", None)
         if cached is None:
@@ -787,6 +799,15 @@ def teardown_request_connection(exc: BaseException | None = None) -> None:
         pass
 
 
+_db_initialized = False
+_init_lock = threading.Lock()
+# Re-entrancy guard: init_db() calls connect(), and connect() calls
+# lazy_init_db(). Without this flag we'd recurse forever on the boot
+# path. ``threading.local`` keeps the flag per-thread so concurrent
+# requests can each pass through their own init check independently.
+_init_local = threading.local()
+
+
 def init_db() -> None:
     """Create tables if they don't exist. Idempotent; safe on every boot.
 
@@ -797,6 +818,8 @@ def init_db() -> None:
     the worker. Recovery happens in-process instead of via a gunicorn
     restart loop.
     """
+    global _db_initialized
+
     def _do_init() -> None:
         with _lock, connect() as conn:
             for stmt in SCHEMA_STATEMENTS:
@@ -818,6 +841,26 @@ def init_db() -> None:
         init_mirror_db()
     except Exception:
         log.exception("init_db: mirror init failed (non-fatal)")
+    _db_initialized = True
+
+
+def lazy_init_db() -> None:
+    """Re-attempt init_db if the boot-time call failed.
+
+    Called on the first DB-touching code path after each request so
+    transient SMB lock-outs at startup get reconciled silently the
+    moment Azure Files lets us back in. No-op if init already
+    succeeded.
+    """
+    if _db_initialized:
+        return
+    with _init_lock:
+        if _db_initialized:
+            return
+        try:
+            init_db()
+        except Exception:
+            log.exception("lazy_init_db: init still failing; will retry on next request")
 
 
 # ---------------------------------------------------------------------------

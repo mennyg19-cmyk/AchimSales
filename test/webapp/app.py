@@ -167,7 +167,18 @@ def create_app() -> Flask:
     from test.webapp.blueprints.diag import diag_bp
     app.register_blueprint(diag_bp)
 
-    init_db()
+    # init_db touches v2_app.db on Azure Files. When the live app is
+    # mid-heavy-job (e.g. an Invoiced Report or OData backfill writing
+    # to app.db on the same share), the SMB write lease can block the
+    # test app from opening its own file for 40+ seconds, exhausting
+    # init_db's internal retries and killing the worker. We catch
+    # here so the worker stays up; the first DB-touching request will
+    # transparently re-attempt init via lazy_init_db(), and by then
+    # the share lease has usually cleared.
+    try:
+        init_db()
+    except Exception:
+        log.exception("init_db failed during boot; worker will continue and lazy-init on first DB use")
 
     # Boot the daily mirror-refresh scheduler. Disabled when running
     # tests / with the Flask reloader so we never end up with two
