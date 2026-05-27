@@ -723,3 +723,52 @@ def diag_db_repair():
                     "mirror refresh will repopulate mirror tables from "
                     "the API."),
     })
+
+
+@diag_bp.get("/invoice/<invoice_no>")
+@require_admin
+def diag_invoice(invoice_no: str):
+    """Return the raw SP row + normalized fields for an invoice.
+
+    Used to debug per-invoice money discrepancies against the live
+    Monthly Invoiced Report. Returns the raw ``invoiced_order_charges``
+    JSON we received from the SP plus the normalized columns the
+    Excel writer sees -- so the user can pinpoint whether a value
+    is missing in the SP itself or in our mapping.
+    """
+    import json as _json
+
+    from test.webapp.db import connect
+
+    inv = (invoice_no or "").strip()
+    if not inv:
+        return jsonify({"ok": False, "error": "invoice number required"}), 400
+
+    try:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM mirror_invoice WHERE invoice_number = ?",
+                (inv,),
+            ).fetchone()
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"db error: {exc}"}), 500
+
+    if not row:
+        return jsonify({"ok": False, "error": f"invoice {inv!r} not in mirror"}), 404
+
+    mirror_row = {k: row[k] for k in row.keys()}
+    raw_json: dict = {}
+    try:
+        raw_json = _json.loads(mirror_row.get("raw_json") or "{}")
+    except Exception as exc:
+        raw_json = {"_parse_error": str(exc)}
+
+    mirror_row.pop("raw_json", None)
+
+    return jsonify({
+        "ok": True,
+        "invoice_number": inv,
+        "mirror_columns": mirror_row,
+        "raw_sp_row": raw_json,
+        "raw_sp_keys": sorted(raw_json.keys()) if isinstance(raw_json, dict) else None,
+    })
