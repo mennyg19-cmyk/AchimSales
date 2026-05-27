@@ -12,6 +12,7 @@ import re as _re
 import sqlite3
 import glob as _glob
 import shutil
+import time
 import uuid
 
 log = logging.getLogger(__name__)
@@ -275,13 +276,42 @@ CREATE INDEX IF NOT EXISTS idx_user_salesman_access_email ON user_salesman_acces
 """
 
 
+_TRANSIENT_DB_TOKENS = ("locked", "unable to open database file")
+
+
+def _is_transient_db_error(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return any(token in msg for token in _TRANSIENT_DB_TOKENS)
+
+
 def get_db() -> sqlite3.Connection:
-    """Return a connection with Row factory for dict-like access."""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """Return a connection with Row factory for dict-like access.
+
+    Retries transient SQLite open errors with exponential backoff.
+    Azure Files (SMB) occasionally throws "unable to open database
+    file" for a few seconds while another process on the same share
+    holds a write lease -- retry quietly so a single open blip
+    doesn't surface as a 500 to the user.
+    """
+    delay = 0.4
+    attempts = 4
+    last_exc: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            return conn
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            if not _is_transient_db_error(exc) or attempt == attempts:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 4.0)
+    raise last_exc  # type: ignore[misc]
 
 
 def init_db():

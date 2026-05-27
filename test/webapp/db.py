@@ -696,7 +696,16 @@ def _connect() -> sqlite3.Connection:
     global _connect_setup_done
     if not _connect_setup_done:
         APP_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(APP_DB_PATH), check_same_thread=False, timeout=30)
+
+    # SMB-mounted Azure Files occasionally throws "unable to open
+    # database file" for a few seconds when another process on the
+    # same share (e.g. the live app's OData backfill writing to
+    # app.db) holds a write lease. Retry quietly so a single open
+    # blip doesn't bubble to the user as a 500.
+    def _do_open() -> sqlite3.Connection:
+        return sqlite3.connect(str(APP_DB_PATH), check_same_thread=False, timeout=30)
+
+    conn = _retry_transient_db("db.connect", _do_open, attempts=4, base_delay=0.4)
     conn.row_factory = sqlite3.Row
     _apply_pragmas(conn, first_time=not _connect_setup_done)
     _connect_setup_done = True
