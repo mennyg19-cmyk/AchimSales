@@ -891,7 +891,16 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _request_persist_snapshot(*, blocking: bool = True) -> None:
+class PersistSnapshotFailed(Exception):
+    """Raised when a critical write completed in /tmp but failed to
+    snapshot to /home/data. The caller (e.g. an admin "Add user" API
+    handler) can surface this to the UI so the user knows their
+    change isn't durable yet, instead of seeing a green check and
+    finding the row gone after the next deploy.
+    """
+
+
+def _request_persist_snapshot(*, blocking: bool = True, raise_on_fail: bool = False) -> bool:
     """Persist the /tmp working DB to /home/data after a user-visible
     write. Without this, edits live only on /tmp until the next
     snapshot tick -- a container restart in between (Azure does this
@@ -902,11 +911,15 @@ def _request_persist_snapshot(*, blocking: bool = True) -> None:
     doesn't acknowledge "saved" until the data is actually durable
     on Azure Files. Adds a few hundred ms to user-CRUD requests but
     eliminates the "I added a user, deployed, and the user vanished"
-    failure mode -- the previous async-only approach lost the race
-    against deploys often enough that users noticed.
+    failure mode.
 
-    ``blocking=False`` is for hot paths (e.g. mirror upserts) that
-    can tolerate a 60 s window before durability.
+    ``raise_on_fail=True`` (used by critical writes like add_app_user)
+    raises :class:`PersistSnapshotFailed` when the snapshot didn't
+    land, so the caller can return a 5xx with a useful message
+    instead of silently confirming a non-durable write.
+
+    Returns True on success, False on failure (or on no-op when
+    there's no persistent target configured, e.g. local dev).
 
     Wrapped in a try/except + soft import so it's a no-op on local
     dev (no persistent target) or if the snapshot module fails to
@@ -915,17 +928,27 @@ def _request_persist_snapshot(*, blocking: bool = True) -> None:
     try:
         from test.webapp.services.db_sync import request_snapshot_soon, snapshot_to_persistent
     except Exception:
-        return
+        return False
     if blocking:
         try:
-            snapshot_to_persistent()
-        except Exception:
-            log.exception("blocking persist snapshot failed; continuing")
-        return
+            ok = snapshot_to_persistent()
+        except Exception as exc:
+            log.exception("blocking persist snapshot failed")
+            if raise_on_fail:
+                raise PersistSnapshotFailed(str(exc)) from exc
+            return False
+        if not ok and raise_on_fail:
+            raise PersistSnapshotFailed(
+                "Snapshot to /home/data returned False -- see snapshot_status "
+                "diag for the last error. Your change is in /tmp but won't "
+                "survive the next container restart."
+            )
+        return bool(ok)
     try:
         request_snapshot_soon()
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _norm_email(email: str) -> str:
@@ -1328,7 +1351,12 @@ def add_app_user(
     # without this, a brand-new admin/manager added via the UI sits
     # only on /tmp until the next snapshot tick. The bug that kept
     # wiping secondary accounts on deploy lived RIGHT HERE.
-    _request_persist_snapshot()
+    #
+    # raise_on_fail=True: if the snapshot doesn't land on /home/data
+    # the API call returns 5xx instead of a silent green check. The
+    # row will still exist in /tmp until restart, but the user knows
+    # it's not durable yet and can retry.
+    _request_persist_snapshot(raise_on_fail=True)
     return True
 
 

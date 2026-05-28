@@ -260,6 +260,73 @@ def diag_mirror_status():
     })
 
 
+@diag_bp.get("/api/snapshot-status")
+@require_admin
+def diag_snapshot_status():
+    """Tells us whether /tmp -> /home/data snapshots are actually working.
+
+    Returns:
+      * paths    -- APP_DB_PATH + APP_DB_PERSISTENT_PATH on disk: size, mtime
+      * stats    -- last snapshot success/failure timestamps, app_users
+                    count captured in the most recent good snapshot
+      * app_users_now -- current row count in /tmp (compare against
+                         ``stats.last_app_users_n`` to confirm the
+                         latest user adds were captured)
+
+    Hit this right after adding a user; ``app_users_now`` and
+    ``stats.last_app_users_n`` should match. If they don't, the
+    add didn't make it into a snapshot and a restart will lose it.
+    """
+    from test.config.settings import APP_DB_PATH, APP_DB_PERSISTENT_PATH
+    from test.webapp.services import db_sync
+
+    def _stat(p):
+        if p is None:
+            return None
+        try:
+            st = p.stat()
+            return {
+                "path":  str(p),
+                "exists": True,
+                "size_bytes": st.st_size,
+                "mtime_utc": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
+                               .strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        except FileNotFoundError:
+            return {"path": str(p), "exists": False}
+        except Exception as exc:
+            return {"path": str(p), "exists": "unknown", "error": repr(exc)}
+
+    with connect() as conn:
+        try:
+            users_now = conn.execute("SELECT COUNT(*) FROM app_users").fetchone()[0]
+        except Exception:
+            users_now = None
+
+    return jsonify({
+        "ok": True,
+        "tmp":         _stat(APP_DB_PATH),
+        "persistent":  _stat(APP_DB_PERSISTENT_PATH),
+        "stats":       db_sync.snapshot_stats(),
+        "app_users_now": users_now,
+    })
+
+
+@diag_bp.post("/api/snapshot-now")
+@require_admin
+def diag_snapshot_now():
+    """Force a synchronous snapshot RIGHT NOW. Returns the outcome.
+
+    Useful for "I added a user, did it actually persist?" -- POST
+    here, then re-check /diag/api/snapshot-status to see the
+    updated app_users_n.
+    """
+    from test.webapp.services import db_sync
+
+    ok = db_sync.snapshot_to_persistent()
+    return jsonify({"ok": bool(ok), "stats": db_sync.snapshot_stats()})
+
+
 @diag_bp.get("/api/mirror/invoice-coverage")
 @require_admin
 def diag_mirror_invoice_coverage():

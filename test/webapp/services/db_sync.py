@@ -75,6 +75,33 @@ _lock = threading.Lock()
 # seconds rather than waiting for the next tick.
 _snapshot_wakeup = threading.Event()
 
+# Last-snapshot telemetry. Exposed via /test/diag/api/snapshot-status so
+# we can actually SEE what's happening instead of guessing why a user's
+# add seems to vanish on the next restart. Updated under _stats_lock so
+# concurrent worker snapshots don't tear the dict.
+_stats_lock = threading.Lock()
+_stats: dict = {
+    "last_success_utc":   None,
+    "last_failure_utc":   None,
+    "last_failure_error": None,
+    "success_count":      0,
+    "failure_count":      0,
+    "last_size_bytes":    None,
+    "last_app_users_n":   None,
+    "last_caller_pid":    None,
+}
+
+
+def snapshot_stats() -> dict:
+    """Read-only snapshot of last-snapshot telemetry."""
+    with _stats_lock:
+        return dict(_stats)
+
+
+def _record_stat(**fields) -> None:
+    with _stats_lock:
+        _stats.update(fields)
+
 
 def _is_malformed(path: Path) -> bool:
     """Return True if ``path`` opens but fails ``integrity_check``.
@@ -238,6 +265,8 @@ def snapshot_to_persistent() -> bool:
     tmp_dst = APP_DB_PERSISTENT_PATH.with_name(
         f"{APP_DB_PERSISTENT_PATH.name}.snap.tmp.{os.getpid()}"
     )
+    pid = os.getpid()
+    now_utc = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())  # noqa: E731
 
     try:
         # Source is the live working DB. Use Online Backup so concurrent
@@ -249,34 +278,77 @@ def snapshot_to_persistent() -> bool:
         finally:
             src_conn.close()
             dst_conn.close()
-        # Verify the snapshot is well-formed BEFORE renaming it into
-        # place. A torn backup here would replace a known-good
-        # persistent file with garbage -- the exact failure mode that
-        # was wiping users on every deploy.
+        # Verify the snapshot is well-formed AND contains the
+        # critical user table content BEFORE renaming it into place.
+        # A torn backup here would replace a known-good persistent
+        # file with garbage -- the exact failure mode that was
+        # wiping users on every deploy. Also pull app_users row
+        # count so the diag endpoint can confirm "yes, X users
+        # actually made it into the latest snapshot".
+        users_in_snapshot: int | None = None
         try:
             with sqlite3.connect(f"file:{tmp_dst}?mode=ro", uri=True, timeout=10) as vconn:
                 row = vconn.execute("PRAGMA quick_check").fetchone()
-            if not row or row[0] != "ok":
-                log.error("snapshot: post-backup quick_check failed (%r); discarding tmp",
-                          row[0] if row else None)
-                tmp_dst.unlink(missing_ok=True)
-                return False
-        except Exception:
+                if not row or row[0] != "ok":
+                    log.error("snapshot: post-backup quick_check failed (%r); discarding tmp",
+                              row[0] if row else None)
+                    tmp_dst.unlink(missing_ok=True)
+                    _record_stat(
+                        last_failure_utc=now_utc(),
+                        last_failure_error=f"quick_check={row[0] if row else None}",
+                        failure_count=_stats["failure_count"] + 1,
+                        last_caller_pid=pid,
+                    )
+                    return False
+                try:
+                    users_in_snapshot = vconn.execute(
+                        "SELECT COUNT(*) FROM app_users"
+                    ).fetchone()[0]
+                except Exception:
+                    # app_users table missing on a malformed-but-recovered
+                    # DB shouldn't fail the whole snapshot; just leave
+                    # the count unknown for telemetry.
+                    pass
+        except Exception as exc:
             log.exception("snapshot: post-backup integrity check raised; discarding tmp")
             tmp_dst.unlink(missing_ok=True)
+            _record_stat(
+                last_failure_utc=now_utc(),
+                last_failure_error=f"verify: {type(exc).__name__}: {exc}",
+                failure_count=_stats["failure_count"] + 1,
+                last_caller_pid=pid,
+            )
             return False
 
         # Atomic on POSIX. Cross-worker races resolve to whichever
         # rename was scheduled last; both temp files are well-formed
         # at this point, so the result is still a consistent DB.
         tmp_dst.replace(APP_DB_PERSISTENT_PATH)
+        size = APP_DB_PERSISTENT_PATH.stat().st_size
+        _record_stat(
+            last_success_utc=now_utc(),
+            success_count=_stats["success_count"] + 1,
+            last_size_bytes=size,
+            last_app_users_n=users_in_snapshot,
+            last_caller_pid=pid,
+        )
+        log.info("snapshot: wrote %s (%d bytes, %s app_users) from pid=%d",
+                 APP_DB_PERSISTENT_PATH, size,
+                 users_in_snapshot if users_in_snapshot is not None else "?",
+                 pid)
         return True
-    except Exception:
+    except Exception as exc:
         log.exception("snapshot: backup to %s failed", APP_DB_PERSISTENT_PATH)
         try:
             tmp_dst.unlink(missing_ok=True)
         except Exception:
             pass
+        _record_stat(
+            last_failure_utc=now_utc(),
+            last_failure_error=f"{type(exc).__name__}: {exc}",
+            failure_count=_stats["failure_count"] + 1,
+            last_caller_pid=pid,
+        )
         return False
 
 

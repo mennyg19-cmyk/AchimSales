@@ -244,6 +244,22 @@ def api_add_user():
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        # PersistSnapshotFailed (or any unexpected error) -- the
+        # row is in /tmp but didn't make it to durable storage.
+        # Tell the admin clearly instead of pretending it worked.
+        from test.webapp.db import PersistSnapshotFailed
+        if isinstance(e, PersistSnapshotFailed):
+            log.error("add_app_user persisted to /tmp but snapshot to /home/data failed: %s", e)
+            return jsonify({
+                "error": (
+                    "User added in memory but durable save failed -- the row "
+                    "won't survive a restart. Check /test/diag/api/snapshot-status. "
+                    f"Details: {e}"
+                ),
+                "stage": "persist",
+            }), 500
+        raise
     if not ok:
         return jsonify({"error": "User already exists"}), 409
     return jsonify({"ok": True, **_perm_grid_payload()})
