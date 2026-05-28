@@ -285,36 +285,68 @@ def snapshot_to_persistent() -> bool:
         # wiping users on every deploy. Also pull app_users row
         # count so the diag endpoint can confirm "yes, X users
         # actually made it into the latest snapshot".
+        #
+        # The OPEN of the temp file can transiently fail with
+        # "unable to open database file" -- the same SMB lease blip
+        # that plagues every /home/data access. Observed in prod:
+        # a verify failure 7s after a clean success. Discarding an
+        # otherwise-good backup on a momentary blip is wrong (and,
+        # via raise_on_fail, needlessly 500s an Add User). So retry
+        # the open a few times with backoff. A genuinely BAD backup
+        # fails quick_check deterministically and is NOT retried --
+        # we only retry the transient open error.
         users_in_snapshot: int | None = None
-        try:
-            with sqlite3.connect(f"file:{tmp_dst}?mode=ro", uri=True, timeout=10) as vconn:
-                row = vconn.execute("PRAGMA quick_check").fetchone()
-                if not row or row[0] != "ok":
-                    log.error("snapshot: post-backup quick_check failed (%r); discarding tmp",
-                              row[0] if row else None)
-                    tmp_dst.unlink(missing_ok=True)
-                    _record_stat(
-                        last_failure_utc=now_utc(),
-                        last_failure_error=f"quick_check={row[0] if row else None}",
-                        failure_count=_stats["failure_count"] + 1,
-                        last_caller_pid=pid,
-                    )
-                    return False
-                try:
-                    users_in_snapshot = vconn.execute(
-                        "SELECT COUNT(*) FROM app_users"
-                    ).fetchone()[0]
-                except Exception:
-                    # app_users table missing on a malformed-but-recovered
-                    # DB shouldn't fail the whole snapshot; just leave
-                    # the count unknown for telemetry.
-                    pass
-        except Exception as exc:
-            log.exception("snapshot: post-backup integrity check raised; discarding tmp")
+        verify_attempts = 4
+        last_verify_exc: Exception | None = None
+        verified = False
+        for attempt in range(verify_attempts):
+            try:
+                with sqlite3.connect(f"file:{tmp_dst}?mode=ro", uri=True, timeout=10) as vconn:
+                    row = vconn.execute("PRAGMA quick_check").fetchone()
+                    if not row or row[0] != "ok":
+                        # Deterministic corruption -- don't retry, this
+                        # backup is genuinely bad.
+                        log.error("snapshot: post-backup quick_check failed (%r); discarding tmp",
+                                  row[0] if row else None)
+                        tmp_dst.unlink(missing_ok=True)
+                        _record_stat(
+                            last_failure_utc=now_utc(),
+                            last_failure_error=f"quick_check={row[0] if row else None}",
+                            failure_count=_stats["failure_count"] + 1,
+                            last_caller_pid=pid,
+                        )
+                        return False
+                    try:
+                        users_in_snapshot = vconn.execute(
+                            "SELECT COUNT(*) FROM app_users"
+                        ).fetchone()[0]
+                    except Exception:
+                        # app_users table missing on a malformed-but-recovered
+                        # DB shouldn't fail the whole snapshot; just leave
+                        # the count unknown for telemetry.
+                        pass
+                verified = True
+                break
+            except sqlite3.OperationalError as exc:
+                # Transient SMB open blip -- back off and retry.
+                last_verify_exc = exc
+                if attempt < verify_attempts - 1:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+            except Exception as exc:
+                last_verify_exc = exc
+                break
+
+        if not verified:
+            log.exception("snapshot: post-backup integrity check failed after %d attempts; "
+                          "discarding tmp", verify_attempts)
             tmp_dst.unlink(missing_ok=True)
             _record_stat(
                 last_failure_utc=now_utc(),
-                last_failure_error=f"verify: {type(exc).__name__}: {exc}",
+                last_failure_error=(
+                    f"verify: {type(last_verify_exc).__name__}: {last_verify_exc}"
+                    if last_verify_exc else "verify: unknown"
+                ),
                 failure_count=_stats["failure_count"] + 1,
                 last_caller_pid=pid,
             )
