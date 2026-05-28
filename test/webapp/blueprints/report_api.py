@@ -233,11 +233,34 @@ def _run_report_logged(key: str, report_name: str, params: dict, user_email: str
 
 
 def _cached_report_payload(key: str, report_name: str, params: dict, user_email: str) -> dict | None:
+    # MUST stay in lockstep with the cache key /run writes under:
+    # same internal-flag filtering AND same builder_version field.
+    # When export.xlsx and email_now looked up the payload without
+    # those, they kept hitting stale pre-redesign entries -- the
+    # commissions tab in those payloads was the OLD flat-table
+    # shape with no ``layout: commission_cards`` flag, so
+    # build_workbook fell into the generic table writer and
+    # produced an empty Commissions sheet. The on-screen "Refresh
+    # data" path doesn't hit this because /run folds both in
+    # directly.
+    cache_params = {
+        k: v for k, v in (params or {}).items()
+        if not (isinstance(k, str) and k.startswith("_"))
+    }
+    try:
+        from test.config.reports import get_report
+        builder_version = int(getattr(get_report(key), "builder_version", 1) or 1)
+    except Exception:
+        builder_version = 1
     cached = cache_first.cached_payload_for(
         kind="report_run",
         identity=key,
         user_scope=user_email,
-        params={"report_name": report_name, "params": params},
+        params={
+            "report_name": report_name,
+            "params": cache_params,
+            "builder_version": builder_version,
+        },
     )
     if not cached:
         return None
