@@ -337,6 +337,32 @@ def diag_snapshot_status():
         except Exception as exc:
             persistent_read_error = repr(exc)
 
+    # Sidecar (standalone JSON backup of precious tables) -- the new
+    # durable safety net that doesn't share fate with the big mirror DB.
+    sidecar = {"exists": False}
+    try:
+        from test.webapp.db import _critical_backup_path
+        scp = _critical_backup_path()
+        if scp is not None and scp.exists():
+            import json as _json
+            with open(scp, "r", encoding="utf-8") as fh:
+                blob = _json.load(fh)
+            tbls = (blob or {}).get("tables") or {}
+            sidecar = {
+                "exists": True,
+                "path": str(scp),
+                "written_utc": (blob or {}).get("written_utc"),
+                "app_users": len(tbls.get("app_users") or []),
+                "app_salesmen": len(tbls.get("app_salesmen") or []),
+                "app_user_emails": sorted(
+                    [r.get("email") for r in (tbls.get("app_users") or []) if r.get("email")]
+                ),
+            }
+        elif scp is not None:
+            sidecar = {"exists": False, "path": str(scp)}
+    except Exception as exc:
+        sidecar = {"exists": "unknown", "error": repr(exc)}
+
     durable = (
         persistent_app_users is not None
         and users_now is not None
@@ -359,6 +385,7 @@ def diag_snapshot_status():
             if user_emails_now is not None and persistent_emails is not None
             else None
         ),
+        "sidecar": sidecar,
     })
 
 

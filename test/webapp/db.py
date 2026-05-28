@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -17,9 +18,146 @@ from typing import Any, Iterator
 
 from test.config.settings import APP_DB_PATH
 
+try:
+    from test.config.settings import APP_DB_PERSISTENT_PATH
+except Exception:  # pragma: no cover - older settings without the persistent path
+    APP_DB_PERSISTENT_PATH = None
+
 log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Critical-data sidecar
+# ---------------------------------------------------------------------------
+#
+# The working DB on /tmp is a ~500 MB file dominated by the rebuildable
+# API mirror. Historically the precious, NON-rebuildable user/permission
+# rows lived in that same file, so any time the giant file got salvaged
+# after SMB corruption, the lossy ``.recover`` pass could drop the handful
+# of app_users / app_salesmen rows that actually matter -- the recurring
+# "I lost my users again on restart" failure.
+#
+# Fix: mirror the precious tables into a TINY standalone JSON sidecar on
+# /home/data, written atomically on every user-facing write and restored
+# on boot. The sidecar never shares fate with the mirror DB, so even a
+# total loss of the big file leaves user identity/access intact.
+_PRECIOUS_TABLES = (
+    "app_users",
+    "app_salesmen",
+    "user_report_access",
+    "user_salesman_access",
+    "user_preferences",
+    "user_exclusions",
+    "saved_reports",
+    "schedules",
+    "master_schedules",
+    "feature_flags",
+)
+
+
+def _critical_backup_path():
+    """Path to the JSON sidecar next to the persistent DB, or None on
+    local dev (no persistent target)."""
+    if APP_DB_PERSISTENT_PATH is None:
+        return None
+    return APP_DB_PERSISTENT_PATH.with_name("v2_critical_backup.json")
+
+
+def export_critical_tables() -> bool:
+    """Dump the precious tables to the JSON sidecar, atomically.
+
+    Tiny + fast (these tables are a few hundred rows at most), so it's
+    cheap to call after every user-facing write. Returns True on success,
+    False on no-op (local dev) or failure. Never raises -- a sidecar
+    write failure must not break the user's actual request.
+    """
+    path = _critical_backup_path()
+    if path is None:
+        return False
+    try:
+        snapshot: dict[str, list[dict]] = {}
+        with connect() as conn:
+            for table in _PRECIOUS_TABLES:
+                try:
+                    rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+                    snapshot[table] = [dict(r) for r in rows]
+                except sqlite3.Error:
+                    # Table may not exist yet on a brand-new schema; skip.
+                    continue
+        payload = {
+            "version": 1,
+            "written_utc": _now_utc(),
+            "tables": snapshot,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+        tmp.replace(path)
+        return True
+    except Exception:
+        log.exception("export_critical_tables failed (non-fatal)")
+        return False
+
+
+def restore_critical_tables() -> int:
+    """Restore precious rows from the JSON sidecar into the live DB.
+
+    Runs on boot AFTER the schema + default seeders. Uses INSERT OR
+    REPLACE so the sidecar (last-known-good user state) is authoritative
+    for rows it knows about, while never deleting live rows it doesn't.
+    On a fresh boot the live DB only holds seeded defaults, and the
+    sidecar is a superset (defaults + every user-added account), so this
+    cleanly brings back anything a mirror-DB salvage dropped.
+
+    Returns the number of rows restored. Never raises.
+    """
+    path = _critical_backup_path()
+    if path is None or not path.exists():
+        return 0
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception:
+        log.exception("restore_critical_tables: could not read sidecar %s", path)
+        return 0
+
+    tables = (payload or {}).get("tables") or {}
+    restored = 0
+    try:
+        with _lock, connect() as conn:
+            for table in _PRECIOUS_TABLES:
+                rows = tables.get(table) or []
+                if not rows:
+                    continue
+                # Only use columns that still exist in the live schema so
+                # schema drift (added/removed columns) doesn't break the
+                # restore.
+                live_cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if not live_cols:
+                    continue
+                for row in rows:
+                    cols = [c for c in row.keys() if c in live_cols]
+                    if not cols:
+                        continue
+                    placeholders = ", ".join("?" for _ in cols)
+                    collist = ", ".join(cols)
+                    try:
+                        conn.execute(
+                            f"INSERT OR REPLACE INTO {table} ({collist}) VALUES ({placeholders})",
+                            [row[c] for c in cols],
+                        )
+                        restored += 1
+                    except sqlite3.Error as exc:
+                        log.warning("restore_critical_tables: %s row skipped: %s", table, exc)
+            conn.commit()
+        if restored:
+            log.warning("restore_critical_tables: restored %d rows from sidecar %s",
+                        restored, path)
+    except Exception:
+        log.exception("restore_critical_tables failed (non-fatal)")
+    return restored
 
 
 SCHEMA_STATEMENTS = [
@@ -374,17 +512,23 @@ def _backfill_user_roles(conn: sqlite3.Connection) -> None:
 
 
 def _seed_salesmen_from_xlsx(conn: sqlite3.Connection) -> None:
-    """Idempotent first-boot seed of the app_salesmen table.
+    """Idempotent seed/backfill of the app_salesmen table from the xlsx.
 
-    Runs only when the table is empty so an admin can edit rows without
-    having them blown away by the next deploy. The xlsx in the live app
-    is the canonical source of truth at seed time; after that the test
-    app owns its own copy in SQLite.
+    Runs every boot using ``INSERT OR IGNORE`` so admin edits to existing
+    rows are never clobbered, while any salesman MISSING from the table
+    gets added. Two reasons this is no longer gated on "table empty":
+
+      * The invoiced / salesman / commissions reports resolve
+        SalesmanNumber, SalesmanName and commission % from this table
+        keyed by SalesGroup. Reps that were skipped at the original seed
+        never made it in, so those reports showed blank salesman numbers
+        and dropped them from commissions. Backfilling each boot closes
+        that gap on already-seeded databases.
+      * We now seed reps WITHOUT a login email too. They're real
+        salesmen (have a number + commission %) even if they don't have
+        an app account; _sync_salesman_users still only creates user
+        rows for reps that DO have an email, so no phantom logins appear.
     """
-    row = conn.execute("SELECT COUNT(*) AS n FROM app_salesmen").fetchone()
-    if row and row["n"]:
-        return
-
     # The live xlsx loader lives at <repo_root>/config/salesman_excel.py.
     # Python's package resolution may shadow the bare ``config`` name with
     # the test app's own config package, so we load the live module by
@@ -425,17 +569,16 @@ def _seed_salesmen_from_xlsx(conn: sqlite3.Connection) -> None:
         log.info("salesman_map seed: live xlsx loaded 0 records (probably missing)")
         return
     now = _now_utc()
-    inserted = skipped = 0
+    inserted = 0
     for key, rec in recs.items():
-        # Salesmen without an email aren't real users for us -- skip
-        # them at seed so the merged Users & Permissions list stays
-        # clean. Admins can add them manually if needed.
+        # Seed ALL reps, including ones without a login email -- the
+        # reports need their number/name/commission for salesman
+        # resolution. INSERT OR IGNORE means an existing (possibly
+        # admin-edited) row is left untouched; only genuinely missing
+        # reps get added.
         email = (rec.email or "").strip()
-        if not email:
-            skipped += 1
-            continue
         try:
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO app_salesmen
                   (key, number, full_name, display_name, email, commission_pct,
@@ -452,13 +595,11 @@ def _seed_salesmen_from_xlsx(conn: sqlite3.Connection) -> None:
                     now,
                 ),
             )
-            inserted += 1
+            inserted += cur.rowcount or 0
         except Exception:
             log.exception("salesman_map seed: row %s failed", key)
-    log.info(
-        "salesman_map seed: inserted %d rows from xlsx (skipped %d without email)",
-        inserted, skipped,
-    )
+    if inserted:
+        log.info("salesman_map seed: added %d missing rows from xlsx", inserted)
 
 
 def _prune_salesmen_without_email(conn: sqlite3.Connection) -> None:
@@ -853,6 +994,23 @@ def init_db() -> None:
             _seed_developer_users(conn)
             log.info("v2 db initialized at %s", APP_DB_PATH)
     _retry_transient_db("init_db", _do_init)
+
+    # Restore precious user/permission rows from the standalone JSON
+    # sidecar, then refresh the sidecar from the now-current DB. This
+    # runs OUTSIDE _do_init's connection so the restore takes its own
+    # lock cleanly. If a mirror-DB salvage dropped app_users on this
+    # boot, the sidecar puts them back here -- the durable fix for the
+    # recurring "lost my users on restart" problem. The follow-up
+    # export captures the current good state (incl. first-deploy
+    # bootstrap when no sidecar existed yet).
+    try:
+        restore_critical_tables()
+    except Exception:
+        log.exception("init_db: critical-table restore failed (non-fatal)")
+    try:
+        export_critical_tables()
+    except Exception:
+        log.exception("init_db: critical-table export failed (non-fatal)")
     # Ensure offline-fallback mirror tables exist (separate module so
     # the import doesn't add to the top-level circular import surface).
     try:
@@ -925,6 +1083,13 @@ def _request_persist_snapshot(*, blocking: bool = True, raise_on_fail: bool = Fa
     dev (no persistent target) or if the snapshot module fails to
     load.
     """
+    # Always refresh the tiny JSON sidecar first. This is the durable
+    # safety net for user/permission data: even if the big mirror-DB
+    # snapshot below fails or later gets corrupted on the SMB share,
+    # the sidecar still has the precious rows and restore_critical_tables
+    # puts them back on the next boot. Cheap and never raises.
+    export_critical_tables()
+
     try:
         from test.webapp.services.db_sync import request_snapshot_soon, snapshot_to_persistent
     except Exception:
