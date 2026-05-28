@@ -5087,3 +5087,148 @@ body.dark-theme .badge-external {
         max-height: calc(100vh - 140px);
     }
 }
+
+/* ---------- Commissions cards (Invoiced Report) -------------------- */
+/* Card-per-salesman view that replaces the flat commissions table.
+   Lives inside .grid-container, but bypasses Tabulator entirely.    */
+.comm-cards-wrap {
+    padding: 16px 8px 24px;
+    max-height: 70vh;
+    overflow: auto;
+}
+.comm-cards-title {
+    margin: 0 4px 16px;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text, #1f2937);
+}
+.comm-cards-empty {
+    margin: 16px 4px;
+    color: var(--muted, #6b7280);
+    font-style: italic;
+}
+.comm-card {
+    background: var(--card, #fff);
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 10px;
+    margin: 0 4px 18px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+}
+.comm-card-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    background: linear-gradient(180deg, #1f4e78 0%, #2e75b6 100%);
+    color: #fff;
+}
+.comm-card-name {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    flex: 1 1 auto;
+}
+.comm-card-rate {
+    font-size: 13px;
+    opacity: 0.9;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    white-space: nowrap;
+}
+.comm-card-payable {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 160px;
+}
+.comm-card-payable-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.85;
+}
+.comm-card-payable-value {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.1;
+}
+.comm-card-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.comm-card-grid thead th {
+    background: #f3f4f6;
+    color: #374151;
+    font-weight: 600;
+    padding: 8px 12px;
+    text-align: right;
+    border-bottom: 1px solid var(--border, #e5e7eb);
+}
+.comm-card-grid thead th:first-child {
+    text-align: left;
+    color: #6b7280;
+    font-weight: 500;
+}
+.comm-card-grid tbody th {
+    text-align: left;
+    padding: 7px 12px;
+    font-weight: 500;
+    color: #374151;
+    background: #fafafa;
+    border-bottom: 1px solid #f3f4f6;
+    white-space: nowrap;
+}
+.comm-card-grid tbody td {
+    padding: 7px 12px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid #f3f4f6;
+    color: #1f2937;
+}
+.comm-card-grid tbody tr:last-child th,
+.comm-card-grid tbody tr:last-child td {
+    border-bottom: none;
+}
+.comm-card-grid td.comm-ytd-col,
+.comm-card-grid th.comm-ytd-col {
+    background: #eff6ff;
+    font-weight: 600;
+    border-left: 2px solid #bfdbfe;
+}
+.comm-card-grid tbody tr.subtotal-row th,
+.comm-card-grid tbody tr.subtotal-row td {
+    background: #f8fafc;
+    font-weight: 600;
+    border-top: 1px solid var(--border, #e5e7eb);
+}
+.comm-card-grid tbody tr.net-row th,
+.comm-card-grid tbody tr.net-row td {
+    background: #dbeafe;
+    font-weight: 700;
+    color: #1e3a8a;
+}
+.comm-card-grid tbody tr.net-row td.comm-ytd-col {
+    background: #bfdbfe;
+}
+.comm-card-grid tbody tr.comm-row th,
+.comm-card-grid tbody tr.comm-row td {
+    background: #1f4e78;
+    color: #fff;
+    font-weight: 700;
+    border-top: 2px solid #2e75b6;
+}
+.comm-card-grid tbody tr.comm-row td.comm-ytd-col {
+    background: #2563eb;
+    color: #fff;
+    border-left-color: #1d4ed8;
+}
+.comm-card-grid td.neg {
+    color: #b91c1c;
+}
+.comm-card-grid tbody tr.comm-row td.neg,
+.comm-card-grid tbody tr.net-row td.neg {
+    color: #fecaca;
+}

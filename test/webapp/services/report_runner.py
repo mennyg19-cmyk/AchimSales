@@ -113,6 +113,43 @@ def _build_ordered(params: dict) -> tuple[list[dict], dict]:
     return ordered_builder.build(rows), _source_meta(request_preview, rows, elapsed_ms)
 
 
+def _resolve_invoiced_period_end(params: dict) -> "date | None":
+    """Return the calendar end-date of the selected invoiced-report period.
+
+    The Commissions tab is a YTD pivot anchored on this date -- we
+    need to fetch Jan 1..end_date to populate it. Handles both named
+    periods (``period=last_month``) and explicit date ranges
+    (``start_date`` / ``end_date``). Returns None when the params are
+    too ambiguous to anchor on; callers then skip the YTD fetch and
+    fall back to the simple flat Commissions table.
+    """
+    from datetime import date as _date
+
+    from core.dates import parse_period
+
+    if not isinstance(params, dict):
+        return None
+
+    end_raw = params.get("end_date") or params.get("EndDate")
+    if isinstance(end_raw, str) and len(end_raw) >= 10:
+        try:
+            return _date.fromisoformat(end_raw[:10])
+        except ValueError:
+            pass
+    if isinstance(end_raw, _date):
+        return end_raw
+
+    period = params.get("period")
+    if isinstance(period, str) and period:
+        try:
+            spec = parse_period(period)
+        except Exception:
+            return None
+        return getattr(spec, "end_date", None)
+
+    return None
+
+
 def _build_invoiced(params: dict) -> tuple[list[dict], dict]:
     """Build the invoiced report's multi-tab payload + source metadata.
 
@@ -122,6 +159,13 @@ def _build_invoiced(params: dict) -> tuple[list[dict], dict]:
     narrow to the user's selected accounts after the fact. The mirror
     layer receives every row that came back from the API regardless
     so offline fallbacks see the full window.
+
+    For the Commissions tab we also pull a YTD window
+    (Jan 1..end_of_period) so the per-salesman summary matches the
+    live "Commissions Summary" pivot. The wider pull is cheap when
+    invoiced_order_charges is served mirror-first (the default for
+    this report key); it round-trips to the SP only when the mirror
+    is missing the prior months.
     """
     request_preview = reporting_api.preview("invoiced", params)
     api_started = time.monotonic()
@@ -151,7 +195,58 @@ def _build_invoiced(params: dict) -> tuple[list[dict], dict]:
     actual = reporting_api.last_run_source() or {}
     log.info("invoiced report: pulled %d rows (effective source=%s) in %d ms",
              len(rows), actual.get("source", "api"), elapsed_ms)
-    return invoiced_builder.build(rows), _source_meta(request_preview, rows, elapsed_ms)
+
+    # YTD pull for the Commissions tab. Anchored on the same period
+    # the user selected so a "Last Month" run shows Jan..LastMonth, a
+    # "MTD" run shows Jan..today, etc. Reuse ``rows`` directly when
+    # the selected period already starts on Jan 1 (e.g. period=ytd)
+    # so we don't double-fetch.
+    period_end = _resolve_invoiced_period_end(params)
+    ytd_rows: list[dict] | None = None
+    year: int | None = None
+    end_month: int | None = None
+    if period_end is not None:
+        year = period_end.year
+        end_month = period_end.month
+        from datetime import date as _date
+
+        ytd_start = _date(period_end.year, 1, 1)
+        # When the selected period already covers Jan 1, the period
+        # rows ARE the YTD rows -- reuse to skip an SP round-trip.
+        existing_start_raw = params.get("start_date") or params.get("StartDate") or ""
+        try:
+            existing_start = _date.fromisoformat(str(existing_start_raw)[:10]) if existing_start_raw else None
+        except ValueError:
+            existing_start = None
+        if existing_start is not None and existing_start <= ytd_start:
+            ytd_rows = rows
+        else:
+            ytd_params = {
+                k: v for k, v in params.items()
+                if k not in ("period", "start_date", "end_date",
+                             "StartDate", "EndDate", "_force_fresh")
+            }
+            ytd_params["period"] = "custom"
+            ytd_params["start_date"] = ytd_start.isoformat()
+            ytd_params["end_date"]   = period_end.isoformat()
+            try:
+                ytd_started = time.monotonic()
+                ytd_rows = reporting_api.run("invoiced", ytd_params)
+                ytd_ms = int((time.monotonic() - ytd_started) * 1000)
+                log.info("invoiced commissions: pulled %d YTD rows (%s..%s) in %d ms",
+                         len(ytd_rows), ytd_start, period_end, ytd_ms)
+            except Exception:
+                # YTD fetch failures are non-fatal -- the commissions
+                # tab just falls back to the period-only flat view.
+                log.exception("invoiced commissions: YTD fetch failed; falling back to simple commissions")
+                ytd_rows = None
+                year = None
+                end_month = None
+
+    payload = invoiced_builder.build(
+        rows, ytd_rows=ytd_rows, year=year, end_month=end_month,
+    )
+    return payload, _source_meta(request_preview, rows, elapsed_ms)
 
 
 # ---------------------------------------------------------------------------

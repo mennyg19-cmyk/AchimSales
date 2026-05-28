@@ -317,6 +317,20 @@
                 sortLevels:   seedSort,
                 groupLevels:  seedGroup,
                 columnFilters: Object.create(null),
+                // Non-table layouts get rendered as custom HTML inside
+                // the grid pane instead of as a Tabulator instance.
+                // The Commissions tab uses ``commission_cards`` so the
+                // per-salesman YTD summary keeps the live report's
+                // "boxes" feel rather than mashing it into a flat
+                // sort/filter table where it doesn't belong.
+                layout:       t.layout || null,
+                cardsData:    (t.layout === "commission_cards") ? {
+                    year:        t.year || null,
+                    end_month:   t.end_month || null,
+                    monthLabels: Array.isArray(t.month_labels) ? t.month_labels.slice() : [],
+                    salesmen:    Array.isArray(t.salesmen)    ? t.salesmen.slice()    : [],
+                    grand:       t.grand || null,
+                } : null,
             };
             state.tabOrder.push(t.key);
         });
@@ -733,9 +747,162 @@
         updateExportRowCount();
     }
 
+    function fmtMoney(v) {
+        const n = Number(v || 0);
+        // Match the live report: negative values rendered in red with
+        // a leading minus, positives plain.
+        const abs = Math.abs(n).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        return (n < 0 ? "-$" : "$") + abs;
+    }
+
+    function fmtPct(v) {
+        const n = Number(v || 0) * 100;
+        return n.toFixed(2) + "%";
+    }
+
+    function renderCommissionCards(key) {
+        const t = state.tabs[key];
+        if (!t || !t.cardsData) return;
+        const data = t.cardsData;
+        const labels = (data.monthLabels && data.monthLabels.length) ? data.monthLabels : [];
+        const endMonth = data.end_month || labels.length || 0;
+
+        const wrap = document.createElement("div");
+        wrap.className = "comm-cards-wrap";
+
+        // Page title.
+        if (data.year) {
+            const title = document.createElement("h2");
+            title.className = "comm-cards-title";
+            title.textContent = "Commissions Summary (" + data.year + ")";
+            wrap.appendChild(title);
+        }
+
+        if (!data.salesmen || !data.salesmen.length) {
+            const empty = document.createElement("p");
+            empty.className = "comm-cards-empty";
+            empty.textContent = "No commissioned salesmen for this period.";
+            wrap.appendChild(empty);
+            t.container.innerHTML = "";
+            t.container.appendChild(wrap);
+            return;
+        }
+
+        data.salesmen.forEach(function (s) {
+            const card = document.createElement("section");
+            card.className = "comm-card";
+
+            // Header bar with salesman + total payable.
+            const hdr = document.createElement("header");
+            hdr.className = "comm-card-header";
+            const name = document.createElement("div");
+            name.className = "comm-card-name";
+            const id = (s.salesman_number || "") + " - " + (s.salesman_name || "");
+            name.textContent = id.replace(/^[\s-]+|[\s-]+$/g, "");
+            const pct = document.createElement("div");
+            pct.className = "comm-card-rate";
+            pct.textContent = "Commission rate: " + fmtPct(s.commission_pct);
+            const payable = document.createElement("div");
+            payable.className = "comm-card-payable";
+            const ytdPayable = (s.ytd && s.ytd.total_payable) || 0;
+            payable.innerHTML = "<span class=\"comm-card-payable-label\">Total Payable</span>" +
+                "<span class=\"comm-card-payable-value\">" + fmtMoney(ytdPayable) + "</span>";
+            hdr.appendChild(name);
+            hdr.appendChild(pct);
+            hdr.appendChild(payable);
+            card.appendChild(hdr);
+
+            // Monthly grid.
+            const table = document.createElement("table");
+            table.className = "comm-card-grid";
+
+            // Column headers
+            const thead = document.createElement("thead");
+            const headerRow = document.createElement("tr");
+            const blank = document.createElement("th");
+            blank.scope = "col";
+            blank.textContent = "";
+            headerRow.appendChild(blank);
+            for (let m = 0; m < endMonth; m++) {
+                const th = document.createElement("th");
+                th.scope = "col";
+                th.textContent = labels[m] || ("M" + (m + 1));
+                headerRow.appendChild(th);
+            }
+            const ytdHead = document.createElement("th");
+            ytdHead.scope = "col";
+            ytdHead.className = "comm-ytd-col";
+            ytdHead.textContent = "YTD";
+            headerRow.appendChild(ytdHead);
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement("tbody");
+            const lineDefs = [
+                ["SubTotal Invoices",       "subtotal_invoices", null],
+                ["Tariff Charges",          "tariff_charges",    null],
+                ["Freight Charges",         "freight_charges",   null],
+                ["CC Charges",              "cc_charges",        null],
+                ["Total Invoices",          "total_invoices",    "subtotal-row"],
+                ["Credits",                 "credits",           null],
+                ["Net Commission Base",     "net_commission",    "net-row"],
+                ["Commission",              "commission",        "comm-row"],
+            ];
+
+            lineDefs.forEach(function (line) {
+                const labelText = line[0];
+                const field     = line[1];
+                const klass     = line[2];
+
+                const tr = document.createElement("tr");
+                if (klass) tr.className = klass;
+                const labelCell = document.createElement("th");
+                labelCell.scope = "row";
+                labelCell.textContent = labelText;
+                tr.appendChild(labelCell);
+                for (let m = 0; m < endMonth; m++) {
+                    const monthly = (s.monthly && s.monthly[m]) || {};
+                    const td = document.createElement("td");
+                    td.textContent = fmtMoney(monthly[field]);
+                    if (Number(monthly[field] || 0) < 0) td.classList.add("neg");
+                    tr.appendChild(td);
+                }
+                const ytdVal = (s.ytd && s.ytd[field]) || 0;
+                const ytdTd = document.createElement("td");
+                ytdTd.className = "comm-ytd-col";
+                ytdTd.textContent = fmtMoney(ytdVal);
+                if (Number(ytdVal) < 0) ytdTd.classList.add("neg");
+                tr.appendChild(ytdTd);
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            card.appendChild(table);
+            wrap.appendChild(card);
+        });
+
+        t.container.innerHTML = "";
+        t.container.appendChild(wrap);
+    }
+
     function ensureGrid(key) {
         const t = state.tabs[key];
         if (t.grid) return t.grid;
+
+        // Card-style layouts (currently only the Commissions tab) skip
+        // Tabulator entirely -- we render a custom HTML block inside
+        // ``t.container`` and leave ``t.grid`` null. The toolbar's
+        // sort/group/filter UI doesn't apply to cards; users who want
+        // a flat sortable view can still hit Export to Excel which
+        // produces both the cards-style pivot and (for non-commissions
+        // tabs) the usual grid-style sheets.
+        if (t.layout === "commission_cards") {
+            renderCommissionCards(key);
+            return null;
+        }
 
         // We compute sorted/grouped display rows ourselves so we can
         // inject totals + spacer rows on group breaks. Tabulator just

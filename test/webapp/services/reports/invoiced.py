@@ -428,15 +428,192 @@ def _build_summary_by_customer(invoices_netted: list[dict]) -> dict:
     }
 
 
-def _build_commissions(summary_rows: list[dict], sm_map: dict[str, dict]) -> dict:
-    """Per-customer commission math, anchored on the summary rows.
+_MONTH_LABELS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-    Mirrors ``reports/invoiced/aggregator._build_commissions``:
-    ``Commission Base = SubTotal Invoices + Total Tariff Charges`` and
-    ``Commissions = Commission Base * commission_pct``. Percent comes
-    from ``app_salesmen.commission_pct`` keyed by the normalized
-    SalesGroup. Rows with no matching salesman get 0%, so the customer
-    still appears with $0 commission.
+
+def _row_month(row: dict) -> int | None:
+    """Return 1..12 month index for a row's InvoiceDate, or None."""
+    d = row.get("InvoiceDate")
+    if isinstance(d, (date, datetime)):
+        return d.month
+    if isinstance(d, str) and len(d) >= 7 and d[4] == "-":
+        try:
+            return int(d[5:7])
+        except ValueError:
+            return None
+    return None
+
+
+def _build_commissions_monthly(
+    ytd_rows: list[dict],
+    sm_map: dict[str, dict],
+    *,
+    year: int,
+    end_month: int,
+) -> dict:
+    """Per-salesman YTD commissions, broken down by calendar month.
+
+    Mirrors the live ``reports/invoiced/writer._write_commissions_sheet``
+    layout: one block per commissioned salesman, with columns
+    ``Jan ... <end_month>`` + ``YTD Total``. The block rows are:
+
+        SubTotal Invoices:
+        Total Tariff Charges:
+        Total Freight Charges:
+        Total CC Charges:
+        Total Invoices:           (subtotal + all charges)
+        Total Credits:            (negative; sum of CRD/CM/FC rows)
+        Net Commission Amount:    (total invoices - freight - cc + credits)
+        Commission @ <pct>:       (net * commission_pct)
+        Total Payable: <name>     (YTD column only)
+
+    ``ytd_rows`` are the same shape as the per-period rows but cover
+    Jan 1..end-of-period (the runner re-fetches the wider window so
+    the commissions tab gets prior-month context the live report
+    has). ``end_month`` is the last month to show (1..12). Anything
+    after ``end_month`` is omitted from the columns even if data
+    leaks in via a late-posted invoice.
+    """
+    if end_month < 1 or end_month > 12:
+        end_month = 12
+
+    # Group rows by (salesman_number, month). Bucket separately so the
+    # "Credits" line gets the credit-prefix rows even when InvoiceNumber
+    # has been netted out of the main detail elsewhere.
+    by_sm: dict[str, dict] = {}
+    for r in ytd_rows:
+        sg = r.get("_sales_group") or ""
+        if not sg:
+            continue
+        sm = sm_map.get(_sm_key(sg))
+        if not sm or float(sm.get("commission_pct") or 0) <= 0:
+            continue
+        number = (sm.get("number") or "").strip()
+        if not number:
+            continue
+        bucket = by_sm.setdefault(number, {
+            "salesman_number": number,
+            "salesman_name":   sm.get("full_name") or sm.get("display_name") or sg,
+            "commission_pct":  float(sm.get("commission_pct") or 0.0),
+            "monthly": [{
+                "subtotal_invoices":     0.0,
+                "tariff_charges":        0.0,
+                "freight_charges":       0.0,
+                "cc_charges":            0.0,
+                "credits":               0.0,
+            } for _ in range(end_month)],
+        })
+        m = _row_month(r)
+        if m is None or m < 1 or m > end_month:
+            continue
+        slot = bucket["monthly"][m - 1]
+        inv_no = r.get("InvoiceNumber") or ""
+        if _is_credit(inv_no):
+            # Live's "Total Credits" line is the sum of the Total
+            # Invoice column on credit-prefix rows. The "SubTotal /
+            # Tariff / Freight / CC" lines deliberately EXCLUDE credit
+            # rows so the credit doesn't double-count against the
+            # gross invoice charges. Matches the live writer's split
+            # between detail_df (excludes credits via Txt classify)
+            # and credits_df (sum-by-month).
+            slot["credits"] += _num(r.get("Total Invoice"))
+        else:
+            slot["subtotal_invoices"] += _num(r.get("SubTotal Invoices"))
+            slot["tariff_charges"]    += _num(r.get("Tariff Charges"))
+            slot["freight_charges"]   += _num(r.get("Freight Charges"))
+            slot["cc_charges"]        += _num(r.get("CC Charges"))
+
+    salesmen: list[dict] = []
+    for number in sorted(by_sm.keys(), key=lambda n: int(n) if n.isdigit() else n):
+        bucket = by_sm[number]
+        pct = bucket["commission_pct"]
+        ytd = {
+            "subtotal_invoices":     0.0,
+            "tariff_charges":        0.0,
+            "freight_charges":       0.0,
+            "cc_charges":            0.0,
+            "total_invoices":        0.0,
+            "credits":               0.0,
+            "net_commission":        0.0,
+            "commission":            0.0,
+        }
+        rich_monthly: list[dict] = []
+        for idx, slot in enumerate(bucket["monthly"]):
+            sub  = round(slot["subtotal_invoices"], 2)
+            tar  = round(slot["tariff_charges"],    2)
+            fre  = round(slot["freight_charges"],   2)
+            cc   = round(slot["cc_charges"],        2)
+            crd  = round(slot["credits"],           2)
+            ti   = round(sub + tar + fre + cc,      2)
+            net  = round(ti + crd - fre - cc,       2)
+            comm = round(net * pct,                 2)
+            rich_monthly.append({
+                "month":             idx + 1,
+                "month_label":       _MONTH_LABELS[idx],
+                "subtotal_invoices": sub,
+                "tariff_charges":    tar,
+                "freight_charges":   fre,
+                "cc_charges":        cc,
+                "total_invoices":    ti,
+                "credits":           crd,
+                "net_commission":    net,
+                "commission":        comm,
+            })
+            ytd["subtotal_invoices"] += sub
+            ytd["tariff_charges"]    += tar
+            ytd["freight_charges"]   += fre
+            ytd["cc_charges"]        += cc
+            ytd["total_invoices"]    += ti
+            ytd["credits"]           += crd
+            ytd["net_commission"]    += net
+            ytd["commission"]        += comm
+        for k in ytd:
+            ytd[k] = round(ytd[k], 2)
+        ytd["total_payable"] = ytd["commission"]
+        salesmen.append({
+            "salesman_number": number,
+            "salesman_name":   bucket["salesman_name"],
+            "commission_pct":  pct,
+            "monthly":         rich_monthly,
+            "ytd":             ytd,
+        })
+
+    grand = {
+        "subtotal_invoices": round(sum(s["ytd"]["subtotal_invoices"] for s in salesmen), 2),
+        "tariff_charges":    round(sum(s["ytd"]["tariff_charges"]    for s in salesmen), 2),
+        "freight_charges":   round(sum(s["ytd"]["freight_charges"]   for s in salesmen), 2),
+        "cc_charges":        round(sum(s["ytd"]["cc_charges"]        for s in salesmen), 2),
+        "total_invoices":    round(sum(s["ytd"]["total_invoices"]    for s in salesmen), 2),
+        "credits":           round(sum(s["ytd"]["credits"]           for s in salesmen), 2),
+        "net_commission":    round(sum(s["ytd"]["net_commission"]    for s in salesmen), 2),
+        "commission":        round(sum(s["ytd"]["commission"]        for s in salesmen), 2),
+        "total_payable":     round(sum(s["ytd"]["total_payable"]     for s in salesmen), 2),
+    }
+    return {
+        "key":      "commissions",
+        "name":     "Commissions",
+        "layout":   "commission_cards",
+        "year":     year,
+        "end_month": end_month,
+        "month_labels": list(_MONTH_LABELS[:end_month]),
+        "salesmen": salesmen,
+        "grand":    grand,
+        # Keep ``columns`` / ``rows`` empty so any client that doesn't
+        # know about ``layout`` falls back gracefully (no table render,
+        # just an empty pane) instead of crashing on missing fields.
+        "columns":  [],
+        "rows":     [],
+    }
+
+
+def _build_commissions_simple(summary_rows: list[dict], sm_map: dict[str, dict]) -> dict:
+    """Flat commissions fallback used when no YTD data is available.
+
+    Older sandboxes (and any caller that doesn't thread ``ytd_rows``
+    through ``build``) still get the one-row-per-customer Commissions
+    tab. Kept around so report_runner can opt in to the richer
+    monthly view incrementally.
     """
     rows: list[dict] = []
     for r in summary_rows:
@@ -452,10 +629,6 @@ def _build_commissions(summary_rows: list[dict], sm_map: dict[str, dict]) -> dic
         out["Commission Base"] = base
         out["Commissions"] = comm
         rows.append(out)
-    # Sort by Commissions desc so the largest payouts appear at the top
-    # (matches what the live commissions sheet shows after the monthly
-    # breakdown rows -- our simplified output skips the legacy month
-    # banner but keeps the per-customer rows in the same order).
     rows.sort(key=lambda r: -_num(r.get("Commissions")))
     return {
         "key":     "commissions",
@@ -613,8 +786,21 @@ def _build_totals_by_salesman(invoices_raw: list[dict]) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def build(rows: Iterable[dict]) -> list[dict]:
+def build(
+    rows: Iterable[dict],
+    *,
+    ytd_rows: Iterable[dict] | None = None,
+    year: int | None = None,
+    end_month: int | None = None,
+) -> list[dict]:
     """Turn flat invoiced_order_charges rows into the multi-tab payload.
+
+    All tabs EXCEPT Commissions are built from ``rows`` (the selected
+    period only). The Commissions tab is built from ``ytd_rows`` --
+    the wider Jan-1-through-end-of-period window the live commissions
+    summary uses. When ``ytd_rows`` is None we fall back to the
+    legacy flat commissions table built from the selected period
+    only, so callers that haven't been updated still produce a tab.
 
     Tab order matches reports/invoiced/writer.py:
         Summary by Customer -> Commissions -> Full Details -> Credits ->
@@ -625,8 +811,16 @@ def build(rows: Iterable[dict]) -> list[dict]:
     invoices_raw = [_norm_row(r, sm_map) for r in rows]
     invoices_netted = _net_detail_by_invoice(invoices_raw)
 
-    summary     = _build_summary_by_customer(invoices_netted)
-    commissions = _build_commissions(summary["rows"], sm_map)
+    summary = _build_summary_by_customer(invoices_netted)
+
+    if ytd_rows is not None and year is not None and end_month is not None:
+        ytd_norm = [_norm_row(r, sm_map) for r in ytd_rows]
+        commissions = _build_commissions_monthly(
+            ytd_norm, sm_map, year=year, end_month=end_month,
+        )
+    else:
+        commissions = _build_commissions_simple(summary["rows"], sm_map)
+
     summary["rows"] = [_public_row(r) for r in summary["rows"]]
 
     tabs: list[dict] = [
