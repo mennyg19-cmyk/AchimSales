@@ -2548,6 +2548,17 @@
     }
 
     function addTabAsSheet(wb, tab, usedNames) {
+        // Card-style layouts (Commissions) have no Tabulator grid and an
+        // empty columnsMeta, so the generic flat-table writer below bails
+        // out with "every column hidden" and the sheet silently vanishes
+        // from the export. Route them to a dedicated pivot writer that
+        // mirrors the on-screen cards (and the live report's Commissions
+        // sheet) instead.
+        if (tab.layout === "commission_cards") {
+            addCommissionCardsSheet(wb, tab, usedNames);
+            return;
+        }
+
         // Pull the rows in the user's current visible order. If the
         // grid hasn't been built (the tab was never activated), fall
         // back to the raw data.
@@ -2617,6 +2628,120 @@
                     bottom: { style: isGrand ? "double" : "thin" },
                 };
             }
+        });
+    }
+
+    function addCommissionCardsSheet(wb, tab, usedNames) {
+        // WYSIWYG Excel version of the on-screen commission cards. Layout
+        // matches the live report's Commissions sheet AND the server-side
+        // _write_commission_cards: one block per salesman, months across
+        // columns, YTD Total on the right, with the same yellow/blue
+        // styling the user asked for.
+        const data = tab.cardsData || {};
+        const labels = (data.monthLabels && data.monthLabels.length) ? data.monthLabels : [];
+        const endMonth = data.end_month || labels.length || 0;
+        const salesmen = data.salesmen || [];
+
+        const sheetName = uniqueSheetName(tab.name || "Commissions", usedNames);
+        const ws = wb.addWorksheet(sheetName, { views: [{ state: "frozen", ySplit: 1 }] });
+
+        const MONEY = '"$"#,##0.00;[Red]-"$"#,##0.00';
+        const firstMonthCol = 3;                 // A=label, B=rate, C.. = months
+        const ytdCol = firstMonthCol + endMonth; // last column = YTD Total
+
+        ws.getColumn(1).width = 38;
+        ws.getColumn(2).width = 8;
+        for (let c = firstMonthCol; c <= ytdCol; c++) ws.getColumn(c).width = 14;
+
+        const titleCell = ws.getCell(1, 1);
+        titleCell.value = "Commissions Summary (" + (data.year || "") + ")";
+        titleCell.font = { bold: true, size: 14 };
+
+        if (!salesmen.length) {
+            ws.getCell(3, 1).value = "No commissioned salesmen for this period.";
+            return;
+        }
+
+        const HDR_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F4E78" } };
+        const HDR_FONT = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+        const NET_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCE6F1" } };
+        const TOT_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2E75B6" } };
+        const TOT_FONT = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+        const LABEL_FONT = { bold: true, size: 10 };
+
+        let row = 3;
+        salesmen.forEach(function (s) {
+            const title = ((s.salesman_number || "") + " - " + (s.salesman_name || ""))
+                .replace(/^[\s-]+|[\s-]+$/g, "");
+            const pct = Number(s.commission_pct || 0);
+
+            // Header: <ID - Name> | (blank rate col) | Jan..end | YTD Total
+            const hc = ws.getCell(row, 1);
+            hc.value = title; hc.font = HDR_FONT; hc.fill = HDR_FILL;
+            for (let mi = 0; mi < endMonth; mi++) {
+                const c = ws.getCell(row, firstMonthCol + mi);
+                c.value = labels[mi] || ("M" + (mi + 1));
+                c.font = HDR_FONT; c.fill = HDR_FILL; c.alignment = { horizontal: "center" };
+            }
+            const yh = ws.getCell(row, ytdCol);
+            yh.value = "YTD Total"; yh.font = HDR_FONT; yh.fill = HDR_FILL;
+            yh.alignment = { horizontal: "center" };
+            row += 1;
+
+            const lineDefs = [
+                ["SubTotal Invoices:",                           "subtotal_invoices", null],
+                ["Total Tariff Charges:",                        "tariff_charges",    null],
+                ["Total Freight Charges:",                       "freight_charges",   null],
+                ["Total CC Charges:",                            "cc_charges",        null],
+                ["Total Invoices: (SubTotal+Tariff+Freight+CC)", "total_invoices",    null],
+                ["Total Credits:",                               "credits",           null],
+                ["Net Commission Amount (Less Freight and CC)",  "net_commission",    NET_FILL],
+            ];
+            lineDefs.forEach(function (ln) {
+                const label = ln[0], field = ln[1], fill = ln[2];
+                const lc = ws.getCell(row, 1);
+                lc.value = label; lc.font = LABEL_FONT;
+                for (let mi = 0; mi < endMonth; mi++) {
+                    const monthly = (s.monthly && s.monthly[mi]) || {};
+                    const c = ws.getCell(row, firstMonthCol + mi);
+                    c.value = Number(monthly[field] || 0); c.numFmt = MONEY;
+                    if (fill) c.fill = fill;
+                }
+                const yc = ws.getCell(row, ytdCol);
+                yc.value = Number((s.ytd && s.ytd[field]) || 0);
+                yc.numFmt = MONEY; yc.font = { bold: true };
+                if (fill) yc.fill = fill;
+                row += 1;
+            });
+
+            // Commission rate row: rate % in col B, then per-month + YTD commission.
+            ws.getCell(row, 1).value = "Commission:";
+            ws.getCell(row, 1).font = LABEL_FONT;
+            const rate = ws.getCell(row, 2);
+            rate.value = pct; rate.numFmt = "0.00%";
+            rate.font = { bold: true }; rate.alignment = { horizontal: "right" };
+            for (let mi = 0; mi < endMonth; mi++) {
+                const monthly = (s.monthly && s.monthly[mi]) || {};
+                const c = ws.getCell(row, firstMonthCol + mi);
+                c.value = Number(monthly.commission || 0); c.numFmt = MONEY;
+            }
+            const yComm = ws.getCell(row, ytdCol);
+            yComm.value = Number((s.ytd && s.ytd.commission) || 0);
+            yComm.numFmt = MONEY; yComm.font = { bold: true };
+            row += 1;
+
+            // Total Payable row (blue band).
+            const payLabel = title ? ("Total Payable: " + title) : "Total Payable:";
+            const pc = ws.getCell(row, 1);
+            pc.value = payLabel; pc.font = TOT_FONT; pc.fill = TOT_FILL;
+            ws.getCell(row, 2).fill = TOT_FILL;
+            for (let mi = 0; mi < endMonth; mi++) {
+                ws.getCell(row, firstMonthCol + mi).fill = TOT_FILL;
+            }
+            const yp = ws.getCell(row, ytdCol);
+            yp.value = Number((s.ytd && s.ytd.total_payable) || 0);
+            yp.numFmt = MONEY; yp.font = TOT_FONT; yp.fill = TOT_FILL;
+            row += 2;  // blank spacer between salesmen
         });
     }
 

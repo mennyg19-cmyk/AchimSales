@@ -1771,13 +1771,25 @@ def _salesman_row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def list_salesman_map(*, active_only: bool = False) -> list[dict]:
-    """Salesmen, ordered by name. Empty-email rows are filtered out
-    defensively even though the prune in init_db should have removed
-    them already.
+    """Salesmen, ordered by name -- the FULL master, including rows
+    without a login email.
+
+    This used to filter ``email IS NOT NULL AND email != ''`` because
+    init_db pruned emailless rows on every boot. We removed that prune
+    (it was destroying user data on restart), so emailless salesmen now
+    legitimately live in the table -- e.g. reps who have a salesman
+    number + commission % but no app login. Those rows are exactly the
+    ones the invoiced / salesman / commissions reports must resolve
+    (SalesmanNumber, SalesmanName, commission_pct). Filtering them out
+    here was leaving the report's salesman map half-populated, so
+    "Totals by Salesman" showed blank numbers and the Commissions tab
+    silently skipped most reps. The salesman lookups only consult rows
+    whose key matches an actual invoice SalesGroup, so carrying the
+    full master here is harmless for callers that don't need everyone.
     """
-    sql = "SELECT * FROM app_salesmen WHERE email IS NOT NULL AND email != ''"
+    sql = "SELECT * FROM app_salesmen"
     if active_only:
-        sql += " AND active = 1"
+        sql += " WHERE active = 1"
     sql += " ORDER BY full_name COLLATE NOCASE, key"
     with connect() as conn:
         rows = conn.execute(sql).fetchall()
