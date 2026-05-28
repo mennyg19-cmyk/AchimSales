@@ -5090,7 +5090,11 @@ body.dark-theme .badge-external {
 
 /* ---------- Commissions cards (Invoiced Report) -------------------- */
 /* Card-per-salesman view that replaces the flat commissions table.
-   Lives inside .grid-container, but bypasses Tabulator entirely.    */
+   Lives inside .grid-container, but bypasses Tabulator entirely.
+   Cards live in a CSS grid that auto-fits multiple per row when the
+   selected period is short (few month columns) so a 1- or 3-month
+   report doesn't waste an entire page-width per salesman. JS sets
+   --comm-card-min-w based on month count.                          */
 .comm-cards-wrap {
     padding: 16px 8px 24px;
     max-height: 70vh;
@@ -5107,11 +5111,18 @@ body.dark-theme .badge-external {
     color: var(--muted, #6b7280);
     font-style: italic;
 }
+.comm-cards-grid {
+    display: grid;
+    /* JS sets --comm-card-min-w to ~ 280 + 70px-per-month-col so each
+       card stays readable while as many as fit pack onto a row.    */
+    grid-template-columns: repeat(auto-fit, minmax(var(--comm-card-min-w, 560px), 1fr));
+    gap: 14px;
+    padding: 0 4px;
+}
 .comm-card {
     background: var(--card, #fff);
     border: 1px solid var(--border, #e5e7eb);
     border-radius: 10px;
-    margin: 0 4px 18px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     overflow: hidden;
 }

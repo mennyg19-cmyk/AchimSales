@@ -891,20 +891,38 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _request_persist_snapshot() -> None:
-    """Wake the /tmp -> /home/data snapshot loop after a user-visible
-    write. Without this, edits live only on /tmp until the next 60 s
-    tick -- a container restart in between (Azure does this often)
-    silently rolls them back. We hit this with admin-added users
-    on 2026-05-27 ("My user is still there but everything else gets
-    wiped").
+def _request_persist_snapshot(*, blocking: bool = True) -> None:
+    """Persist the /tmp working DB to /home/data after a user-visible
+    write. Without this, edits live only on /tmp until the next
+    snapshot tick -- a container restart in between (Azure does this
+    often, every git push triggers one) silently rolls them back.
+
+    ``blocking=True`` (the default) runs the snapshot synchronously
+    on the calling thread before returning, so the user's request
+    doesn't acknowledge "saved" until the data is actually durable
+    on Azure Files. Adds a few hundred ms to user-CRUD requests but
+    eliminates the "I added a user, deployed, and the user vanished"
+    failure mode -- the previous async-only approach lost the race
+    against deploys often enough that users noticed.
+
+    ``blocking=False`` is for hot paths (e.g. mirror upserts) that
+    can tolerate a 60 s window before durability.
 
     Wrapped in a try/except + soft import so it's a no-op on local
     dev (no persistent target) or if the snapshot module fails to
-    load -- safer than letting a snapshot wake fail a normal write.
+    load.
     """
     try:
-        from test.webapp.services.db_sync import request_snapshot_soon
+        from test.webapp.services.db_sync import request_snapshot_soon, snapshot_to_persistent
+    except Exception:
+        return
+    if blocking:
+        try:
+            snapshot_to_persistent()
+        except Exception:
+            log.exception("blocking persist snapshot failed; continuing")
+        return
+    try:
         request_snapshot_soon()
     except Exception:
         pass
@@ -1306,6 +1324,11 @@ def add_app_user(
                 1 if is_external else 0,
             ),
         )
+    # Same persistence rule as update_app_user / delete_app_user --
+    # without this, a brand-new admin/manager added via the UI sits
+    # only on /tmp until the next snapshot tick. The bug that kept
+    # wiping secondary accounts on deploy lived RIGHT HERE.
+    _request_persist_snapshot()
     return True
 
 
@@ -1968,6 +1991,7 @@ def set_user_report_override(email: str, report_key: str, allowed: bool) -> None
             """,
             (e, rk, 1 if allowed else 0),
         )
+    _request_persist_snapshot()
 
 
 def clear_user_report_override(email: str, report_key: str) -> None:
@@ -1980,6 +2004,7 @@ def clear_user_report_override(email: str, report_key: str) -> None:
             "DELETE FROM user_report_access WHERE user_email = ? AND report_key = ?",
             (e, rk),
         )
+    _request_persist_snapshot()
 
 
 def get_user_salesman_access(email: str) -> list[str]:
@@ -2010,6 +2035,7 @@ def set_user_salesman_access(email: str, keys: list[str]) -> None:
                 "INSERT OR IGNORE INTO user_salesman_access (user_email, salesman_key) VALUES (?, ?)",
                 [(e, k) for k in cleaned],
             )
+    _request_persist_snapshot()
 
 
 def get_users_permission_grid(report_keys: list[str]) -> list[dict]:

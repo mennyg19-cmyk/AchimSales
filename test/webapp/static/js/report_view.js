@@ -791,6 +791,17 @@
             return;
         }
 
+        // Grid wrapper. ``--comm-card-min-w`` controls how many cards
+        // fit per row: enough room for the label column + each month
+        // column + the YTD column, plus padding. CSS auto-fit handles
+        // the rest -- 12-month reports keep one card per row, 1-3
+        // month reports pack 2-3 per row on a wide screen.
+        const grid = document.createElement("div");
+        grid.className = "comm-cards-grid";
+        const minW = Math.max(380, 220 + (endMonth + 1) * 70);
+        grid.style.setProperty("--comm-card-min-w", minW + "px");
+        wrap.appendChild(grid);
+
         data.salesmen.forEach(function (s) {
             const card = document.createElement("section");
             card.className = "comm-card";
@@ -881,7 +892,7 @@
 
             table.appendChild(tbody);
             card.appendChild(table);
-            wrap.appendChild(card);
+            grid.appendChild(card);
         });
 
         t.container.innerHTML = "";
