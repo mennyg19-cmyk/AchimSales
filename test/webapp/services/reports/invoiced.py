@@ -176,38 +176,49 @@ def _str(v: Any) -> str:
 _RFC1123_FMT = "%a, %d %b %Y %H:%M:%S %Z"
 
 
-def _parse_date(v: Any) -> date | datetime | str | None:
-    """Best-effort parse of the SP's InvoiceDate field into a date.
+def _parse_date(v: Any) -> str | None:
+    """Best-effort parse of the SP's InvoiceDate into a day-precision
+    ``YYYY-MM-DD`` string.
 
-    Returns a ``date`` when we have day-precision, ``datetime`` when we
-    have time-of-day, the original string when nothing parses, or
-    ``None`` when the field is empty. The renderer downstream treats
-    ``date``/``datetime`` instances as proper Excel dates (gets correct
-    column formatting, sortable as time, etc.) -- strings render as
-    text, which is the bug the previous ``s[:10]`` slice produced.
+    Returns the calendar date as a bare ISO string, or ``None`` when the
+    field is empty, or the raw string when nothing parses.
+
+    Why a STRING and not a datetime: the SP hands us values like
+    ``"Wed, 22 Apr 2026 00:00:00 GMT"`` (midnight UTC). When that became
+    a tz-aware/midnight datetime and the browser later built a JS Date
+    from it for the Excel export, the UTC midnight got rendered in the
+    user's local zone (US Eastern) and landed on the PREVIOUS evening --
+    e.g. an Apr-1 invoice showing as ``2026-03-31 21:00``. The live
+    Monthly Invoiced Report sidesteps this by stamping noon; we sidestep
+    it more directly by carrying only the calendar date. The client's
+    date coercion turns a ``YYYY-MM-DD`` string into a LOCAL-midnight
+    Date, so the day never crosses a tz boundary, and Excel still shows
+    a real mm/dd/yyyy date (not text).
     """
     if v is None or v == "" or v == "NULL":
         return None
-    if isinstance(v, (date, datetime)):
-        return v
+    if isinstance(v, datetime):
+        return v.date().isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
     s = str(v).strip()
-    # Common SP shape: "YYYY-MM-DD..." (ISO date with optional time).
+    # Common SP shape: "YYYY-MM-DD..." (ISO date with optional time/tz).
     try:
         if len(s) >= 10 and s[4] == "-" and s[7] == "-":
             try:
-                return datetime.fromisoformat(s.replace("Z", "+00:00"))
+                return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
             except ValueError:
-                return datetime.strptime(s[:10], "%Y-%m-%d").date()
+                return datetime.strptime(s[:10], "%Y-%m-%d").date().isoformat()
     except (ValueError, IndexError):
         pass
     # RFC 1123 / HTTP-style: "Thu, 30 Apr 2026 12:00:00 GMT"
     try:
-        return datetime.strptime(s, _RFC1123_FMT)
+        return datetime.strptime(s, _RFC1123_FMT).date().isoformat()
     except ValueError:
         pass
     # Some D365 exports drop the timezone token: "Thu, 30 Apr 2026 12:00:00"
     try:
-        return datetime.strptime(s, "%a, %d %b %Y %H:%M:%S")
+        return datetime.strptime(s, "%a, %d %b %Y %H:%M:%S").date().isoformat()
     except ValueError:
         pass
     log.debug("invoiced: unparseable InvoiceDate %r; keeping as raw string", s)

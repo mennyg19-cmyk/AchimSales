@@ -2629,6 +2629,40 @@
                 };
             }
         });
+
+        // Grand Total row, mirroring the live report's per-sheet Total
+        // line (core/excel_writer money-column sum). Only money columns
+        // are summed -- the live writer deliberately leaves InvoiceCount
+        // and text columns blank -- with the "Total" label in column 1.
+        const hasMoney = visibleCols.some(function (c) { return c.type === "money"; });
+        const dataRows = rows.filter(function (row) {
+            return row && !row._is_spacer && !row._is_total;
+        });
+        if (hasMoney && dataRows.length) {
+            const totalOut = {};
+            visibleCols.forEach(function (col, i) {
+                if (col.type === "money") {
+                    let sum = 0;
+                    dataRows.forEach(function (row) {
+                        const raw = row[col.field];
+                        const n = typeof raw === "number" ? raw : parseFloat(raw);
+                        if (isFinite(n)) sum += n;
+                    });
+                    totalOut[col.field] = Math.round(sum * 100) / 100;
+                } else if (i === 0) {
+                    totalOut[col.field] = "Total";
+                }
+            });
+            const tr = ws.addRow(totalOut);
+            tr.font = { bold: true };
+            tr.eachCell(function (cell) {
+                cell.fill = {
+                    type: "pattern", pattern: "solid",
+                    fgColor: { argb: "FFEFEFEF" },
+                };
+                cell.border = { top: { style: "thin" }, bottom: { style: "thin" } };
+            });
+        }
     }
 
     function addCommissionCardsSheet(wb, tab, usedNames) {

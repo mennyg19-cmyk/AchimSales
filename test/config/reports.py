@@ -79,7 +79,9 @@ REPORTS: dict[str, Report] = {
             enabled=True,   # <-- wired to invoiced_order_charges
             # v2 = SL_TariffCharges fix (line-level vs header-level)
             # v3 = monthly YTD commissions tab + UI redesign
-            builder_version=3,
+            # v4 = InvoiceDate normalized to YYYY-MM-DD (kills tz day-shift)
+            #      + full salesman master resolution (emailless reps)
+            builder_version=4,
         ),
         Report(
             key="salesman",
@@ -90,7 +92,8 @@ REPORTS: dict[str, Report] = {
             salesman_filter=False,
             enabled=True,   # <-- wired to invoiced_order_charges
             # v2 = SL_TariffCharges fix (shared with invoiced)
-            builder_version=2,
+            # v3 = full salesman master resolution (emailless reps)
+            builder_version=3,
         ),
         Report(
             key="number_4",
