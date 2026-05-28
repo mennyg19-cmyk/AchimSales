@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import atexit
 import logging
+import os
 import shutil
 import sqlite3
 import threading
@@ -162,9 +163,33 @@ def bootstrap_from_persistent() -> None:
                 log.warning("bootstrap: quarantined corrupt source to %s", quarantine)
             except Exception:
                 log.exception("bootstrap: failed to quarantine corrupt source")
-        else:
-            log.error("bootstrap: salvage failed; starting with empty DB. "
-                      "Run /test/diag/db/repair after boot to retry.")
+            return
+
+        # Salvage failed. Don't silently leave APP_DB_PATH absent --
+        # init_db will then "helpfully" build a fresh empty DB and the
+        # seeders will write Just The Defaults (developer admin +
+        # xlsx-seeded salesmen) over what should have been the user
+        # snapshot. That's exactly the "everything else got wiped"
+        # symptom. Quarantine the bad file so the next boot doesn't
+        # keep failing the same way, and leave APP_DB_PATH empty so
+        # init_db builds a fresh DB; but log at ERROR level so the
+        # data loss is visible in App Service logs instead of a silent
+        # cascade. An admin can copy back the latest quarantined
+        # ``.db.corrupt.<ts>`` snapshot via /test/diag if needed.
+        quarantine = src.with_suffix(f".db.corrupt.{int(time.time())}")
+        try:
+            shutil.move(str(src), str(quarantine))
+            log.error(
+                "bootstrap: salvage failed; quarantined %s -> %s. Starting with "
+                "empty DB. To recover, copy a known-good snapshot to %s.",
+                src, quarantine, src,
+            )
+        except Exception:
+            log.exception(
+                "bootstrap: salvage failed AND couldn't quarantine %s; the next "
+                "boot will retry and likely repeat this failure",
+                src,
+            )
         return
 
     try:
@@ -188,10 +213,20 @@ def bootstrap_from_persistent() -> None:
 def snapshot_to_persistent() -> bool:
     """Atomically copy ``APP_DB_PATH`` to ``APP_DB_PERSISTENT_PATH``.
 
-    Returns True on success. Writes go to ``<persistent>.snap.tmp``
-    first and only get renamed into place after the backup completes,
-    so a crashing snapshot can't leave a torn file behind. SMB rename
-    is reasonably atomic on Azure Files.
+    Returns True on success. Writes go to a per-process temp file
+    ``<persistent>.snap.tmp.<pid>`` first and only get renamed into
+    place after the backup completes, so a crashing snapshot can't
+    leave a torn file behind. The per-PID suffix matters: with 2+
+    Gunicorn workers each running their own snapshot loop, sharing
+    a single ``.snap.tmp`` was producing a torn final file when both
+    workers wrote to it simultaneously -- next boot then saw the
+    persistent DB as malformed, salvage dropped the corrupted user
+    pages, and the admin's "everything else gets wiped on restart"
+    complaint repeated on every deploy.
+
+    The final ``replace()`` step is atomic on POSIX even across
+    workers; whichever rename lands last wins, and neither produces
+    a torn write because the source temp files are independent.
     """
     if APP_DB_PERSISTENT_PATH is None:
         return False
@@ -199,7 +234,10 @@ def snapshot_to_persistent() -> bool:
         return False
 
     APP_DB_PERSISTENT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_dst = APP_DB_PERSISTENT_PATH.with_name(APP_DB_PERSISTENT_PATH.name + ".snap.tmp")
+    # Per-PID temp name -- see docstring for why.
+    tmp_dst = APP_DB_PERSISTENT_PATH.with_name(
+        f"{APP_DB_PERSISTENT_PATH.name}.snap.tmp.{os.getpid()}"
+    )
 
     try:
         # Source is the live working DB. Use Online Backup so concurrent
@@ -211,8 +249,26 @@ def snapshot_to_persistent() -> bool:
         finally:
             src_conn.close()
             dst_conn.close()
-        # Atomic-ish on SMB. On rare failures we leave .snap.tmp on
-        # disk; the next snapshot pass overwrites it.
+        # Verify the snapshot is well-formed BEFORE renaming it into
+        # place. A torn backup here would replace a known-good
+        # persistent file with garbage -- the exact failure mode that
+        # was wiping users on every deploy.
+        try:
+            with sqlite3.connect(f"file:{tmp_dst}?mode=ro", uri=True, timeout=10) as vconn:
+                row = vconn.execute("PRAGMA quick_check").fetchone()
+            if not row or row[0] != "ok":
+                log.error("snapshot: post-backup quick_check failed (%r); discarding tmp",
+                          row[0] if row else None)
+                tmp_dst.unlink(missing_ok=True)
+                return False
+        except Exception:
+            log.exception("snapshot: post-backup integrity check raised; discarding tmp")
+            tmp_dst.unlink(missing_ok=True)
+            return False
+
+        # Atomic on POSIX. Cross-worker races resolve to whichever
+        # rename was scheduled last; both temp files are well-formed
+        # at this point, so the result is still a consistent DB.
         tmp_dst.replace(APP_DB_PERSISTENT_PATH)
         return True
     except Exception:
@@ -248,20 +304,127 @@ def _loop() -> None:
             log.exception("db_sync loop iteration crashed; continuing")
 
 
+_inline_snapshot_lock = threading.Lock()
+_inline_snapshot_running = False
+
+
+def _inline_snapshot() -> None:
+    """One-shot snapshot used by non-owner workers (and as a fallback
+    when the owner is missing). Serialised per-process via
+    ``_inline_snapshot_lock`` so a request burst doesn't fork off
+    dozens of concurrent backup threads.
+    """
+    global _inline_snapshot_running
+    with _inline_snapshot_lock:
+        if _inline_snapshot_running:
+            return
+        _inline_snapshot_running = True
+    try:
+        snapshot_to_persistent()
+    finally:
+        with _inline_snapshot_lock:
+            _inline_snapshot_running = False
+
+
 def request_snapshot_soon() -> None:
-    """Wake the snapshot loop so the next pass runs immediately.
+    """Persist the working DB to Azure Files ASAP.
 
     Call from any path that writes "can't be reconstructed from API"
     data -- app_users updates, app_salesmen edits, manager
-    assignments, etc. Cheap (just sets an Event) so it's safe to
-    sprinkle liberally. No-op when the loop hasn't started (e.g.
-    local dev).
+    assignments, etc. Cheap from the caller's perspective: we kick
+    off the snapshot on a daemon thread and return immediately.
+
+    On the snapshot-owner worker this just wakes the periodic loop
+    so its next pass runs now instead of waiting up to 60s. On
+    non-owner workers we spawn a one-shot snapshot thread directly
+    -- without that, a user-management edit on a non-owner worker
+    wouldn't be durable on /home/data until the owner happened to
+    do its next pass, which is exactly the kind of "lost on
+    restart" gap we're trying to close. Per-PID temp files +
+    post-backup integrity check (see snapshot_to_persistent) keep
+    the cross-worker case safe.
     """
     _snapshot_wakeup.set()
+    if not _started or APP_DB_PERSISTENT_PATH is None:
+        return
+    t = threading.Thread(target=_inline_snapshot, name="db_sync_oneshot", daemon=True)
+    t.start()
+
+
+def _try_become_snapshot_owner() -> bool:
+    """Return True iff this PID won the cross-worker owner race.
+
+    All Gunicorn workers share /tmp/v2_app.db (they each write
+    user-management + mirror data into it), but only one of them
+    needs to run the snapshot loop -- having every worker snapshot
+    independently was the source of the torn-file corruption that
+    kept wiping users on every deploy. We elect a single owner via
+    a row in ``app_settings`` keyed by PID; if the row already
+    points at a live PID, we stand down and let the owner do the
+    work. The current owner's PID is rewritten by the loop on every
+    pass so a worker recycle hands ownership off cleanly.
+
+    Falls back to "every worker snapshots" if the app_settings
+    table doesn't exist yet (very early boot, before init_db
+    finishes); the per-PID temp file + integrity check still keep
+    that case safe, just slightly wasteful.
+    """
+    try:
+        from test.webapp.db import get_app_setting, set_app_setting
+    except Exception:
+        return True
+
+    my_pid = str(os.getpid())
+    try:
+        current = (get_app_setting("db_sync_owner_pid") or "").strip()
+    except Exception:
+        return True
+
+    if not current or current == my_pid:
+        try:
+            set_app_setting("db_sync_owner_pid", my_pid)
+        except Exception:
+            pass
+        return True
+
+    # Check if the recorded owner is still alive. On Linux, sending
+    # signal 0 to a dead PID raises ProcessLookupError; on a live PID
+    # it's a no-op. If the previous owner died (OOM kill, container
+    # rotate), steal ownership.
+    try:
+        pid_n = int(current)
+    except ValueError:
+        try:
+            set_app_setting("db_sync_owner_pid", my_pid)
+        except Exception:
+            pass
+        return True
+    try:
+        os.kill(pid_n, 0)
+    except ProcessLookupError:
+        try:
+            set_app_setting("db_sync_owner_pid", my_pid)
+            log.info("db_sync: stole ownership from dead pid %d", pid_n)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        # PermissionError etc -- assume the owner is alive.
+        pass
+    return False
 
 
 def start_snapshot_loop() -> None:
-    """Spawn the background snapshot thread. Idempotent."""
+    """Spawn the background snapshot thread. Idempotent.
+
+    Cross-worker ownership is checked once at startup: only the
+    elected owner runs the periodic loop. Other workers still
+    register the atexit flush so a graceful shutdown of any worker
+    persists the latest state, and they still respond to
+    ``request_snapshot_soon`` by running a one-shot snapshot
+    in-thread (the per-PID temp file + integrity check make that
+    safe even if it races the owner's loop).
+    """
     global _started
     with _lock:
         if _started:
@@ -269,10 +432,17 @@ def start_snapshot_loop() -> None:
         if APP_DB_PERSISTENT_PATH is None:
             log.info("db_sync: no persistent path; snapshot loop skipped")
             return
+        # atexit fires from every worker on graceful shutdown -- still
+        # useful for ad-hoc Gunicorn reloads even when this worker
+        # didn't win the owner election.
+        atexit.register(snapshot_to_persistent)
+
+        if not _try_become_snapshot_owner():
+            log.info("db_sync: another worker owns the snapshot loop; standing by")
+            _started = True
+            return
+
         t = threading.Thread(target=_loop, name="db_sync", daemon=True)
         t.start()
-        # Best-effort final flush on graceful shutdown. Container
-        # SIGKILL won't get here, but normal restarts will.
-        atexit.register(snapshot_to_persistent)
         _started = True
-        log.info("db_sync: snapshot loop started")
+        log.info("db_sync: snapshot loop started (owner pid=%d)", os.getpid())

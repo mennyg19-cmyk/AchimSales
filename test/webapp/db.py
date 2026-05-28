@@ -839,7 +839,16 @@ def init_db() -> None:
             _seed_feature_flags(conn)
             _backfill_user_roles(conn)
             _seed_salesmen_from_xlsx(conn)
-            _prune_salesmen_without_email(conn)
+            # NOTE: _prune_salesmen_without_email used to run here on
+            # every boot. It deletes any app_salesmen row with a blank
+            # email AND its linked app_users row -- a perfectly fine
+            # thing to do on demand from the Users & Permissions UI,
+            # but catastrophic to run unconditionally on container
+            # restart when /home/data corruption can already have
+            # blanked out a column or two. We now expose it as a
+            # manual diag endpoint (/test/diag/db/prune-salesmen) so
+            # admins can opt in instead of silently losing rows on
+            # every deploy.
             _sync_salesman_users(conn)
             _seed_developer_users(conn)
             log.info("v2 db initialized at %s", APP_DB_PATH)
