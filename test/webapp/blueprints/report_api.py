@@ -303,6 +303,13 @@ def run(key: str):
     # cache entry, not create a parallel one).
     cache_params = {k: v for k, v in params.items() if not (isinstance(k, str) and k.startswith("_"))}
 
+    # Fold the builder version into the cache key so any deploy that
+    # bumps Report.builder_version invalidates old cached payloads
+    # automatically. Otherwise a real builder fix (e.g. the 2026-05-28
+    # SL_TariffCharges read) keeps getting masked by yesterday's
+    # cached Excel until TTL eventually expires.
+    builder_version = getattr(report, "builder_version", 1) or 1
+
     if cache_mode == "live":
         try:
             payload = _builder()
@@ -317,7 +324,11 @@ def run(key: str):
         kind="report_run",
         identity=key,
         user_scope=user_email,
-        params={"report_name": report.name, "params": cache_params},
+        params={
+            "report_name": report.name,
+            "params": cache_params,
+            "builder_version": builder_version,
+        },
         builder=_builder,
         wait_seconds=wait_seconds,
     )

@@ -44,6 +44,13 @@ class Report:
     # in_app_only is True).
     in_app_endpoint: str = ""
 
+    # Bump when the builder's output shape or semantics change in a
+    # way that should invalidate cached payloads. Folded into the
+    # cache_first key so a deploy with a real fix doesn't keep
+    # serving the pre-fix Excel from yesterday's cache. Stays at 1
+    # for reports we haven't had to re-version yet.
+    builder_version: int = 1
+
 
 REPORTS: dict[str, Report] = {
     r.key: r
@@ -70,6 +77,9 @@ REPORTS: dict[str, Report] = {
             salesman_filter=True,
             customer_filter=True,
             enabled=True,   # <-- wired to invoiced_order_charges
+            # v2 = SL_TariffCharges fix (line-level vs header-level)
+            # v3 = monthly YTD commissions tab + UI redesign
+            builder_version=3,
         ),
         Report(
             key="salesman",
@@ -79,6 +89,8 @@ REPORTS: dict[str, Report] = {
             has_year=True,
             salesman_filter=False,
             enabled=True,   # <-- wired to invoiced_order_charges
+            # v2 = SL_TariffCharges fix (shared with invoiced)
+            builder_version=2,
         ),
         Report(
             key="number_4",
