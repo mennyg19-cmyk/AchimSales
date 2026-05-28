@@ -302,13 +302,63 @@ def diag_snapshot_status():
             users_now = conn.execute("SELECT COUNT(*) FROM app_users").fetchone()[0]
         except Exception:
             users_now = None
+        try:
+            user_emails_now = [
+                r[0] for r in conn.execute(
+                    "SELECT email FROM app_users ORDER BY email"
+                ).fetchall()
+            ]
+        except Exception:
+            user_emails_now = None
+
+    # Definitive answer: read app_users straight out of the persistent
+    # file on /home/data, NOT the in-memory per-worker stat. The stats
+    # dict only reflects the worker that happens to serve this request,
+    # so on a multi-worker box ``last_app_users_n`` can lag a snapshot
+    # another worker took. ``persistent_app_users`` removes all doubt:
+    # this IS what survives a restart.
+    persistent_app_users = None
+    persistent_emails = None
+    persistent_read_error = None
+    if APP_DB_PERSISTENT_PATH is not None and APP_DB_PERSISTENT_PATH.exists():
+        try:
+            import sqlite3
+            with sqlite3.connect(
+                f"file:{APP_DB_PERSISTENT_PATH}?mode=ro", uri=True, timeout=10
+            ) as pconn:
+                persistent_app_users = pconn.execute(
+                    "SELECT COUNT(*) FROM app_users"
+                ).fetchone()[0]
+                persistent_emails = [
+                    r[0] for r in pconn.execute(
+                        "SELECT email FROM app_users ORDER BY email"
+                    ).fetchall()
+                ]
+        except Exception as exc:
+            persistent_read_error = repr(exc)
+
+    durable = (
+        persistent_app_users is not None
+        and users_now is not None
+        and persistent_app_users >= users_now
+    )
 
     return jsonify({
         "ok": True,
+        "durable": durable,
         "tmp":         _stat(APP_DB_PATH),
         "persistent":  _stat(APP_DB_PERSISTENT_PATH),
         "stats":       db_sync.snapshot_stats(),
         "app_users_now": users_now,
+        "app_user_emails_now": user_emails_now,
+        "persistent_app_users": persistent_app_users,
+        "persistent_app_user_emails": persistent_emails,
+        "persistent_read_error": persistent_read_error,
+        "missing_from_persistent": (
+            sorted(set(user_emails_now or []) - set(persistent_emails or []))
+            if user_emails_now is not None and persistent_emails is not None
+            else None
+        ),
     })
 
 
@@ -321,10 +371,32 @@ def diag_snapshot_now():
     here, then re-check /diag/api/snapshot-status to see the
     updated app_users_n.
     """
+    from test.config.settings import APP_DB_PERSISTENT_PATH
     from test.webapp.services import db_sync
 
     ok = db_sync.snapshot_to_persistent()
-    return jsonify({"ok": bool(ok), "stats": db_sync.snapshot_stats()})
+
+    # Read the persistent file straight back so the caller gets a
+    # definitive "X users are now durable" instead of trusting the
+    # per-worker stat dict.
+    persistent_app_users = None
+    if APP_DB_PERSISTENT_PATH is not None and APP_DB_PERSISTENT_PATH.exists():
+        try:
+            import sqlite3
+            with sqlite3.connect(
+                f"file:{APP_DB_PERSISTENT_PATH}?mode=ro", uri=True, timeout=10
+            ) as pconn:
+                persistent_app_users = pconn.execute(
+                    "SELECT COUNT(*) FROM app_users"
+                ).fetchone()[0]
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok": bool(ok),
+        "stats": db_sync.snapshot_stats(),
+        "persistent_app_users": persistent_app_users,
+    })
 
 
 @diag_bp.get("/api/mirror/invoice-coverage")
