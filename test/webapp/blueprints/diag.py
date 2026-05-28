@@ -260,6 +260,44 @@ def diag_mirror_status():
     })
 
 
+@diag_bp.get("/api/mirror/invoice-coverage")
+@require_admin
+def diag_mirror_invoice_coverage():
+    """Per-year-month invoice row counts in the mirror.
+
+    Quick way to spot months that are missing or under-populated --
+    the commissions tab pulls a YTD window and if Feb/Mar have zero
+    rows in mirror_invoice we'll show $0 for those months in the
+    cards even though the rest of the report (Apr only) is fine.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT substr(invoice_date, 1, 7) AS yyyy_mm,
+                   COUNT(*) AS row_count,
+                   COUNT(DISTINCT invoice_number) AS distinct_invoices,
+                   COUNT(DISTINCT invoice_account) AS distinct_customers,
+                   ROUND(SUM(amount), 2) AS total_subtotal
+              FROM mirror_invoice
+             WHERE invoice_date IS NOT NULL AND invoice_date != ''
+          GROUP BY yyyy_mm
+          ORDER BY yyyy_mm DESC
+             LIMIT 24
+            """
+        ).fetchall()
+        totals = conn.execute(
+            "SELECT COUNT(*) AS n, MIN(invoice_date) AS earliest, MAX(invoice_date) AS latest "
+            "FROM mirror_invoice"
+        ).fetchone()
+    return jsonify({
+        "ok": True,
+        "total_rows":  totals["n"] if totals else 0,
+        "earliest":    totals["earliest"] if totals else None,
+        "latest":      totals["latest"] if totals else None,
+        "by_month":    [dict(r) for r in rows],
+    })
+
+
 @diag_bp.post("/api/mirror/backfill")
 @require_admin
 def diag_mirror_backfill():
