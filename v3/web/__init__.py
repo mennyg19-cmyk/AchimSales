@@ -19,7 +19,7 @@ from web.extensions import init_csrf
 def create_app(config: Config | None = None) -> Flask:
     cfg = config or load_config()
 
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder="static_dist", static_url_path="/static")
     app.config["APP_CONFIG"] = cfg
     # In dev with no secret, use an ephemeral one (sessions won't persist across
     # restarts, which is fine locally). In prod, validate() already guaranteed a
@@ -47,10 +47,35 @@ def _ephemeral_dev_secret(cfg: Config) -> str:
 
 
 def _register_context(app: Flask, cfg: Config) -> None:
+    from flask import url_for
+
+    def _safe_url(endpoint: str, **kw) -> str:
+        # Nav links resolve as their blueprints land; until then they're inert (#)
+        # so the shell renders at every build stage. A missing endpoint is logged at
+        # WARNING (not silently swallowed) so a real routing bug can't hide behind "#".
+        try:
+            return url_for(endpoint, **kw)
+        except Exception:
+            app.logger.warning("nav endpoint not registered yet: %s", endpoint)
+            return "#"
+
     @app.context_processor
     def inject_globals():
-        # `new_app_marker` drives the small removable header pill; deleted at cutover.
-        return {"new_app_marker": cfg.new_app_marker, "app_env": cfg.app_env}
+        nav = {
+            "reports": _safe_url("reports.reports_list"),
+            "dashboard": _safe_url("dashboard.dashboard"),
+            "settings": _safe_url("settings.settings_page"),
+            "login": _safe_url("auth.login_page"),
+            "logout": _safe_url("auth.logout_route"),
+        }
+        return {
+            "new_app_marker": cfg.new_app_marker,  # removable header pill; deleted at cutover
+            "app_env": cfg.app_env,
+            "nav": nav,
+            # Feature gates (default off). Wired to config flags as those pages land.
+            "dashboard_enabled": False,
+            "test_site_enabled": False,
+        }
 
 
 def _register_blueprints(app: Flask) -> None:

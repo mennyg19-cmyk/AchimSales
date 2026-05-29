@@ -55,6 +55,17 @@ Authoritative plans: `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) a
       proceed when there's no cache row (so D365 is queried); v3 DENIES (safer). Confirm the
       stricter behavior is acceptable or restore live's allow-on-unknown.
 
+### Frontend parity deviations (from phase 8 - confirm or tell me to restore live)
+
+- [ ] **"Test Site" bottom-nav link**: live shows a `Test Site` tab (opens `/test/` in a new tab)
+      for admins/devs. v3 is the replacement for that sandbox, so I gated it behind a
+      `test_site_enabled` flag that defaults OFF (markup retained, so flipping the flag restores it
+      exactly). Rationale: a permanent admin link to the old sandbox would 404/confuse post-cutover.
+      Confirm OFF-by-default is right, or tell me to show it for admin/dev like live.
+- [ ] **Dev "Switch user" target**: live points the header switch-user icon at `auth.role_picker`.
+      v3 currently points it at the dev login page (`auth.login_page`), which already lists/selects
+      dev users. Confirm consolidation is fine, or I'll build a dedicated `role_picker` route to match.
+
 ### Engineering parity items (not business decisions; for your awareness)
 
 - `text()` helper: the sandbox originals were inconsistent - 4 modules' `_str` did NOT strip,
@@ -154,8 +165,8 @@ each request (the session cookie is trusted for identity only):
 | 4. Jobs worker + APScheduler | DONE | b9aa4db | 59 tests; restart recovery + bounded concurrency |
 | 5. Reporting infra (client, ONE scope-safe cache, runner, export, durable wiring) | DONE | (this commit) | 80 tests; cache-scope item resolved |
 | 6. report_engine builders (6 reports) | GATED on human sign-offs (section 1) | - | source adapters + parity harness can start; calc rules need sign-off |
-| 7. Blueprints (thin routes, feature parity) | pending | - | - |
-| 8. Frontend (pixel-parity base.html shell, token CSS, esbuild) | pending | - | unblocked; large |
+| 7. Blueprints (thin routes, feature parity) | pending | - | needs builders (sign-off) + shell (done) |
+| 8. Frontend shell (pixel-parity base.html, token CSS, esbuild bundle) | DONE | (this commit) | 89 tests; live-faithful shell, GPT-5.5 parity gaps fixed |
 
 ### Phase 5 - Reporting infrastructure
 
@@ -175,6 +186,36 @@ GPT-5.5 found three blockers; all fixed:
   added for a future scheduled reaper.
 - **Boundary recorded**: Reporting API report-id mapping + filter translation intentionally live
   with the (gated) source adapters/builders, not the generic client.
+
+### Phase 8 - Frontend shell
+
+Built the app shell only (base layout + design tokens + nav chrome + the shared JS behaviors);
+per-page/per-report CSS is deferred to its own phases. esbuild bundles
+`static_src/{css,js}` -> `static_dist/{css/main.css, js/main.js}` and copies
+`static_src/public/*` (PWA manifest + icons) to the static root. Tokens were copied verbatim
+from the live stylesheet (primary stays live-blue `#2563eb`, not the green sandbox).
+
+GPT-5.5 found three blockers (I'd built the nav from memory); all fixed:
+
+- **Fixed (BLOCKER) - PWA assets would 404**: `manifest.json` + `icon-192/512.png` were missing
+  under the new `static_dist` folder. Added them as committed source in `static_src/public/` and an
+  esbuild copy step; the build now emits them at `/static/manifest.json` and `/static/icon-*.png`.
+- **Fixed (BLOCKER) - missing "Test Site" nav item**: re-added with exact live markup, gated behind
+  `test_site_enabled` (default off; see sign-off item in section 1) instead of silently dropped.
+- **Fixed (BLOCKER) - `_safe_url` could mask routing bugs**: missing endpoints still fall back to
+  `#` so the shell renders before its blueprints exist, but now log at WARNING so a real missing
+  route can't hide. Pending nav (reports/dashboard/settings) is inert by design until phase 7.
+- **Fixed (SHOULD) - shallow tests**: added role-conditional coverage - admin sees Dashboard,
+  salesman does not, dev impersonation badge + switch-user control, non-dev hides switch-user,
+  Test Site gated off by default, anonymous hides all chrome, logout is a POST form with CSRF.
+- **Fixed (SHOULD) - missing `.help-icon` CSS** (added) and **main.css path comment** (corrected).
+- **Hardened (NICE)**: `openHelp` no longer uses unchecked `as HTMLElement` casts (bails if an
+  element is missing). JS port is otherwise faithful to live (double-click guard, nav overlay +
+  bail-outs, pageshow cleanup, ESC close, pull-to-refresh thresholds/labels/triggerDashRefresh).
+- **Deferred (SHOULD, logged)**: `help_content.js`/`HELP` is per-page content, not shell - not
+  ported yet; `openHelp` safely no-ops until it lands. Inline `onclick` handlers are kept for live
+  parity (a CSP-friendly delegated-listener pass is a future hardening item).
+- **Deferred to human (sign-off)**: Test Site gating + switch-user target (section 1).
 
 ### Phase 4 - Background jobs (bounded worker + scheduler)
 

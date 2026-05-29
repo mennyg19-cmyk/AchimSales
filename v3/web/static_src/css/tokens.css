@@ -1,0 +1,58 @@
+/* Design tokens - copied verbatim from the LIVE app (webapp/static/style.css)
+   so v3 is pixel-identical. Primary stays live-blue #2563eb (NOT the green test
+   app). Single source of truth for colors/shadows/radii. */
+
+:root {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-light: #dbeafe;
+    --success: #16a34a;
+    --success-light: #dcfce7;
+    --error: #dc2626;
+    --error-light: #fef2f2;
+    --warning: #f59e0b;
+    --warning-light: #fef9c3;
+    --bg: #f8fafc;
+    --bg-card: #ffffff;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --text-light: #94a3b8;
+    --border: #e2e8f0;
+    --border-focus: #2563eb;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --bottom-nav-height: 84px;
+}
+
+body.dark-theme {
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-light: #1e3a5f;
+    --success: #22c55e;
+    --success-light: #14532d;
+    --error: #ef4444;
+    --error-light: #450a0a;
+    --warning: #f59e0b;
+    --warning-light: #451a03;
+    --bg: #0f172a;
+    --bg-card: #1e293b;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --text-light: #64748b;
+    --border: #334155;
+    --border-focus: #3b82f6;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.4), 0 4px 6px rgba(0,0,0,0.2);
+}
+
+/* Dark-theme shell overrides */
+body.dark-theme .badge-admin { background: #422006; color: #fbbf24; }
+body.dark-theme .badge-manager { background: #312e81; color: #a5b4fc; }
+body.dark-theme .badge-salesman { background: var(--primary-light); color: #60a5fa; }
+body.dark-theme .btn-outline { border-color: var(--border); color: var(--text-muted); }
+body.dark-theme .alert-success { background: var(--success-light); color: #4ade80; border-color: #166534; }
+body.dark-theme .alert-error { background: var(--error-light); color: #f87171; border-color: #7f1d1d; }

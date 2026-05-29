@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local data (SQLite + WAL/SHM). precious.db is replicated by Litestream in prod.
+.data/
+*.db
+*.db-wal
+*.db-shm
+
+# Front-end build
+node_modules/
+web/static_dist/
+
+# Env
+.env

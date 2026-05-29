@@ -1,0 +1,173 @@
+/* App shell components (header, bottom-nav, buttons, badges, container, flash,
+   loading overlay, help popup, pull-to-refresh). Extracted verbatim from the
+   LIVE app so the navigation chrome is pixel-identical. Per-page/report styles
+   are added in their own files as those pages are built. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: var(--bottom-nav-height);
+}
+
+/* -- Header -- */
+.app-header {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: var(--shadow);
+}
+.header-logo { font-weight: 700; font-size: 18px; color: var(--primary); text-decoration: none; }
+.header-right { display: flex; align-items: center; gap: 6px; font-size: 13px; flex-shrink: 0; }
+.btn-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 32px; min-height: 32px; padding: 4px;
+}
+.user-name { display: none; }
+@media (min-width: 480px) { .user-name { display: inline; color: var(--text-muted); } }
+
+/* -- Badges -- */
+.badge {
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.badge-admin { background: #fef3c7; color: #92400e; }
+.badge-manager { background: #e0e7ff; color: #3730a3; }
+.badge-salesman { background: var(--primary-light); color: var(--primary); }
+.badge-impersonate {
+    font-size: 11px; padding: 3px 8px; background: #fef3cd; color: #856404;
+    border: 1px solid #ffc107; border-radius: 4px;
+}
+
+/* -- Bottom navigation -- */
+.bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: var(--bottom-nav-height); background: var(--bg-card);
+    border-top: 1px solid var(--border); display: flex;
+    align-items: flex-start; justify-content: space-around;
+    z-index: 200; box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.bottom-nav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-decoration: none; color: var(--text-light);
+    font-size: 11px; font-weight: 500; transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent; gap: 4px; padding: 12px 0 8px;
+}
+.bottom-nav-item.active { color: var(--primary); }
+.bottom-nav-item:hover { color: var(--primary); }
+.bottom-nav-item:active { opacity: 0.5; transition: none; }
+.bottom-nav-icon { position: relative; display: flex; align-items: center; justify-content: center; }
+.bottom-nav-icon svg { width: 22px; height: 22px; }
+.bottom-nav-label { font-size: 11px; line-height: 1; }
+.nav-badge {
+    position: absolute; top: -6px; right: -10px; background: var(--error);
+    color: white; font-size: 10px; font-weight: 700; min-width: 18px; height: 18px;
+    border-radius: 99px; display: flex; align-items: center; justify-content: center;
+    padding: 0 4px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* -- Container -- */
+.container { max-width: 800px; margin: 0 auto; padding: 16px; }
+@media (min-width: 768px) { .container { padding: 24px 32px; } }
+
+/* -- Buttons -- */
+.btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 20px; border-radius: var(--radius-sm); font-size: 15px;
+    font-weight: 600; cursor: pointer; border: none; text-decoration: none;
+    transition: all 0.15s ease; -webkit-tap-highlight-color: transparent;
+}
+.btn svg { width: 18px; height: 18px; }
+.btn-primary { background: var(--primary); color: white; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-primary:active { transform: scale(0.96); opacity: 0.8; transition: none; }
+.btn-outline { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+.btn-outline:hover { background: var(--bg); }
+.btn-outline:active { transform: scale(0.96); opacity: 0.7; transition: none; }
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+.btn-lg { padding: 14px 24px; font-size: 17px; }
+.btn-block { width: 100%; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* -- Flash / alerts -- */
+.flash-messages { margin-bottom: 16px; }
+.alert { padding: 12px 16px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 8px; }
+.alert-error { background: var(--error-light); color: var(--error); border: 1px solid var(--error-light); }
+.alert-success { background: #f0fdf4; color: var(--success); border: 1px solid #bbf7d0; }
+
+/* -- Page loading overlay -- */
+.page-loading-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg, #fff); opacity: 0.7; z-index: 9999;
+    display: flex; justify-content: center; align-items: center;
+}
+.page-loading-spinner {
+    width: 32px; height: 32px; border: 3px solid var(--border, #e2e8f0);
+    border-top-color: var(--primary, #2563eb); border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* -- Help icon (?) trigger -- */
+.help-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1.5px solid var(--text-muted, #94a3b8); background: transparent;
+    color: var(--text-muted, #94a3b8); font-size: 11px; font-weight: 700;
+    line-height: 1; cursor: pointer; padding: 0; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: border-color 0.15s, color 0.15s; vertical-align: middle; margin-left: 6px;
+}
+.help-icon:hover, .help-icon:focus { border-color: var(--primary, #2563eb); color: var(--primary, #2563eb); outline: none; }
+
+/* -- Help popup -- */
+.help-popup-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.45); z-index: 10000; display: flex;
+    justify-content: center; align-items: center; padding: 24px 16px;
+}
+.help-popup-content {
+    background: var(--bg-card, #1e293b); border-radius: 14px; padding: 20px 22px 22px;
+    max-width: 380px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    animation: helpFadeIn 0.15s ease-out;
+}
+@keyframes helpFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+.help-popup-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.help-popup-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--text, #f1f5f9); }
+.help-popup-close {
+    background: none; border: none; font-size: 22px; line-height: 1;
+    color: var(--text-muted, #94a3b8); cursor: pointer; padding: 0 0 0 12px; flex-shrink: 0;
+}
+.help-popup-close:hover { color: var(--text, #f1f5f9); }
+.help-popup-body { font-size: 14px; line-height: 1.6; color: var(--text, #f1f5f9); }
+.help-popup-body strong { color: var(--primary, #2563eb); }
+
+/* -- Pull-to-refresh -- */
+.ptr-indicator {
+    position: fixed; top: -60px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+    background: var(--bg-card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; box-shadow: 0 2px 12px rgba(0,0,0,0.15); font-size: 13px;
+    font-weight: 500; pointer-events: none; opacity: 0; z-index: 800; will-change: transform;
+}
+.ptr-indicator.ptr-snapping { transition: transform 0.22s ease, opacity 0.22s ease; }
+.ptr-indicator.ptr-armed { color: var(--primary); border-color: var(--primary); }
+.ptr-spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--primary);
+}
+.ptr-indicator.ptr-armed .ptr-spinner { border-top-color: var(--primary); border-color: rgba(37,99,235,0.25); }
+.ptr-indicator.ptr-refreshing .ptr-spinner { animation: ptr-spin 0.8s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
