@@ -105,26 +105,56 @@ class JobRepository:
             conn.execute("UPDATE jobs SET progress=? WHERE id=?", (max(0, min(100, progress)), job_id))
 
     def mark_success(self, job_id: str, result_ref: str = "") -> None:
+        # Guarded to 'running': never resurrect a terminal (e.g. cancelled) job.
         with self.db.precious() as conn:
             conn.execute(
-                "UPDATE jobs SET status='success', progress=100, result_ref=?, finished_at=? WHERE id=?",
+                "UPDATE jobs SET status='success', progress=100, result_ref=?, finished_at=?"
+                " WHERE id=? AND status='running'",
                 (result_ref, _now(), job_id),
             )
 
     def mark_failure(self, job_id: str, error: str) -> None:
         with self.db.precious() as conn:
             conn.execute(
-                "UPDATE jobs SET status='failure', error=?, finished_at=? WHERE id=?",
+                "UPDATE jobs SET status='failure', error=?, finished_at=?"
+                " WHERE id=? AND status='running'",
                 (error, _now(), job_id),
             )
 
     def cancel(self, job_id: str) -> bool:
+        # v1 policy: cancel is QUEUED-ONLY. A running job can't be interrupted
+        # mid-flight (cooperative cancellation is a documented future addition).
         with self.db.precious() as conn:
             updated = conn.execute(
-                "UPDATE jobs SET status='cancelled', finished_at=? WHERE id=? AND status IN (?, ?)",
-                (_now(), job_id, *_ACTIVE),
+                "UPDATE jobs SET status='cancelled', finished_at=? WHERE id=? AND status='queued'",
+                (_now(), job_id),
             )
             return updated.rowcount == 1
+
+    def recover_orphans(self, running_older_than_seconds: float | None = None) -> int:
+        """Requeue 'running' jobs (orphaned by a crash) so work survives restarts.
+
+        Called at worker startup (single B1 instance => nothing is truly running
+        when we boot) and usable as a periodic stale-job reaper. Returns the count
+        requeued. Clears the dedup block that an orphaned 'running' row would hold.
+        """
+        with self.db.precious() as conn:
+            if running_older_than_seconds is None:
+                cur = conn.execute(
+                    "UPDATE jobs SET status='queued', started_at=NULL, progress=0"
+                    " WHERE status='running'"
+                )
+            else:
+                cutoff = datetime.fromtimestamp(
+                    datetime.now(timezone.utc).timestamp() - running_older_than_seconds,
+                    tz=timezone.utc,
+                ).isoformat()
+                cur = conn.execute(
+                    "UPDATE jobs SET status='queued', started_at=NULL, progress=0"
+                    " WHERE status='running' AND (started_at IS NULL OR started_at < ?)",
+                    (cutoff,),
+                )
+            return cur.rowcount
 
     def list_for_user(self, user_id: int, limit: int = 50) -> list[Job]:
         with self.db.precious() as conn:

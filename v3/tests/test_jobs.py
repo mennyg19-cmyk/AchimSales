@@ -1,0 +1,187 @@
+"""Durable job worker: dispatch, failure isolation, progress, bounded draining."""
+
+import time
+
+import pytest
+
+from web.data.connection import Database
+from web.data.migrate import migrate
+from web.data.repositories.jobs import JobRepository
+from web.jobs.scheduler import Scheduler
+from web.jobs.worker import JobContext, JobWorker
+
+
+@pytest.fixture
+def db(tmp_path):
+    d = Database(tmp_path / "precious.db", tmp_path / "cache.db")
+    migrate(d)
+    return d
+
+
+def test_handler_success_records_result(db):
+    worker = JobWorker(db)
+    worker.register("echo", lambda ctx: f"result:{ctx.job.params.get('x')}")
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo", params={"x": 7})
+
+    assert worker.process_next() == jid
+    done = jobs.get(jid)
+    assert done.status == "success" and done.result_ref == "result:7" and done.progress == 100
+
+
+def test_handler_failure_is_isolated(db):
+    worker = JobWorker(db)
+
+    def boom(ctx):
+        raise RuntimeError("kaboom")
+
+    worker.register("boom", boom)
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("boom")
+
+    worker.process_next()
+    failed = jobs.get(jid)
+    assert failed.status == "failure" and "kaboom" in failed.error
+
+
+def test_unknown_job_type_fails_cleanly(db):
+    worker = JobWorker(db)
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("nope")
+    worker.process_next()
+    assert jobs.get(jid).status == "failure"
+    assert "no handler" in jobs.get(jid).error
+
+
+def test_progress_writes_through(db):
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    mid_progress = []
+
+    def slow(ctx: JobContext):
+        ctx.set_progress(40)
+        mid_progress.append(jobs.get(ctx.job.id).progress)  # durable mid-run read
+        return ""
+
+    worker.register("slow", slow)
+    jid = jobs.enqueue("slow")
+    worker.process_next()
+    assert mid_progress == [40]
+    assert jobs.get(jid).progress == 100  # mark_success forces 100
+
+
+def test_drain_processes_all_queued(db):
+    worker = JobWorker(db)
+    worker.register("echo", lambda ctx: "")
+    jobs = JobRepository(db)
+    for i in range(5):
+        jobs.enqueue("echo", params={"i": i})
+    assert worker.drain() == 5
+    assert worker.process_next() is None  # empty now
+
+
+def test_process_next_empty_returns_none(db):
+    worker = JobWorker(db)
+    assert worker.process_next() is None
+
+
+def test_background_worker_drains_queue(db):
+    processed = []
+    worker = JobWorker(db, max_workers=2)
+    worker.register("bg", lambda ctx: processed.append(ctx.job.id) or "")
+    jobs = JobRepository(db)
+    ids = {jobs.enqueue("bg", params={"i": i}) for i in range(6)}
+
+    worker.start(poll_interval=0.05)
+    try:
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if all(jobs.get(j).status == "success" for j in ids):
+                break
+            time.sleep(0.05)
+    finally:
+        worker.stop()
+
+    assert all(jobs.get(j).status == "success" for j in ids)
+    assert sorted(processed) == sorted(ids)
+
+
+def test_orphaned_running_job_is_recovered(db):
+    """A job stuck in 'running' (crash) is requeued and can complete."""
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    worker.register("echo", lambda ctx: "ok")
+    jid = jobs.enqueue("echo")
+    claimed = jobs.claim_next()  # now 'running' (simulate crash before finish)
+    assert claimed.id == jid and jobs.get(jid).status == "running"
+
+    assert jobs.recover_orphans() == 1
+    assert jobs.get(jid).status == "queued"
+    worker.process_next()
+    assert jobs.get(jid).status == "success"
+
+
+def test_recover_orphans_unblocks_dedup(db):
+    jobs = JobRepository(db)
+    a = jobs.enqueue("echo", dedup_key="k")
+    jobs.claim_next()  # a -> running (orphaned)
+    jobs.recover_orphans()
+    # Same dedup key now reuses the recovered (re-queued) job, not a new one.
+    b = jobs.enqueue("echo", dedup_key="k")
+    assert b == a
+
+
+def test_cancel_is_queued_only(db):
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+    jobs.claim_next()  # -> running
+    assert jobs.cancel(jid) is False  # running jobs cannot be cancelled in v1
+    assert jobs.get(jid).status == "running"
+
+
+def test_mark_success_does_not_resurrect_cancelled(db):
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+    assert jobs.cancel(jid) is True  # queued -> cancelled
+    jobs.mark_success(jid, "x")      # guarded to 'running' -> no-op
+    assert jobs.get(jid).status == "cancelled"
+
+
+def test_background_concurrency_is_bounded(db):
+    jobs = JobRepository(db)
+    worker = JobWorker(db, max_workers=2)
+    live = {"now": 0, "max": 0}
+    lock = __import__("threading").Lock()
+
+    def busy(ctx):
+        with lock:
+            live["now"] += 1
+            live["max"] = max(live["max"], live["now"])
+        time.sleep(0.1)
+        with lock:
+            live["now"] -= 1
+        return ""
+
+    worker.register("busy", busy)
+    ids = {jobs.enqueue("busy", params={"i": i}) for i in range(8)}
+    worker.start(poll_interval=0.02)
+    try:
+        deadline = time.time() + 10
+        while time.time() < deadline and not all(jobs.get(j).status == "success" for j in ids):
+            time.sleep(0.05)
+    finally:
+        worker.stop()
+    assert all(jobs.get(j).status == "success" for j in ids)
+    assert live["max"] <= 2  # never exceeded max_workers
+
+
+def test_scheduler_queues_jobs_before_start():
+    sched = Scheduler()
+    sched.add_cron("noop", lambda: None, hour=3)
+    assert len(sched._pending) == 1
+    # start/shutdown should not raise and should register the pending job
+    sched.start()
+    try:
+        assert sched._scheduler.get_job("noop") is not None
+    finally:
+        sched.shutdown()

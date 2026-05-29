@@ -66,6 +66,14 @@ Authoritative plans: `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) a
 
 ## 2. OPEN QUESTIONS / BLOCKERS
 
+- **Scheduler/worker ownership vs gunicorn workers (deployment decision)**: the in-process
+  worker + APScheduler assume ONE owning process. "Single B1 instance" is not automatically
+  "single Python process" - if v3 runs gunicorn with multiple worker *processes*, each would start
+  its own scheduler/worker and double-schedule / over-claim. Decision needed: deploy gunicorn with
+  ONE worker process + threads (gthread) on B1, OR gate background startup to one process via an
+  env flag. I'll wire background startup behind an explicit flag in the reporting phase; confirm
+  the single-worker deployment is acceptable.
+
 - **Cache-scope leakage (deferred, needs eventual sign-off)**: `report_payload_cache` prevents
   cross-user/cross-scope leakage purely via the `cache_key` (which includes user scope +
   builder version + freshness). This is NOT enforced by a schema constraint. Plan: the
@@ -141,5 +149,25 @@ each request (the session cookie is trusted for identity only):
 |-------|--------|--------|-------|
 | 0/1. Rules + log + scaffold + config + engine foundation | DONE | 7ec6582 | 22 tests; GPT-5.5 findings resolved |
 | 2. Data layer (precious/cache, migrations, durable jobs, repos) | DONE | 97e1b99 | 31 tests; atomicity + concurrency proven |
-| 3. Auth + single authorization/scope layer | DONE | (this commit) | 46 tests; DB-authoritative, fail-closed |
-| 4. Jobs worker + APScheduler | next | - | - |
+| 3. Auth + single authorization/scope layer | DONE | f8eaae1 | 46 tests; DB-authoritative, fail-closed |
+| 4. Jobs worker + APScheduler | DONE | (this commit) | 59 tests; restart recovery + bounded concurrency |
+| 5. Reporting orchestration (HTTP client, lookups, runner, ONE cache, export) | next | - | - |
+
+### Phase 4 - Background jobs (bounded worker + scheduler)
+
+GPT-5.5 found two real blockers; both fixed:
+
+- **Fixed (BLOCKER) - no restart recovery**: added `JobRepository.recover_orphans()`, called at
+  `JobWorker.start()`. Jobs orphaned in `running` by a crash are requeued (and the dedup block they
+  held is released). Tests: `test_orphaned_running_job_is_recovered`,
+  `test_recover_orphans_unblocks_dedup`.
+- **Fixed (BLOCKER) - cancel/terminal inconsistency**: `cancel()` is now QUEUED-ONLY and
+  `mark_success`/`mark_failure` are guarded to `status='running'`, so a cancelled job can't be
+  resurrected as success. Tests: `test_cancel_is_queued_only`,
+  `test_mark_success_does_not_resurrect_cancelled`.
+- **Decision (was sign-off) - running-job cancellation**: declared QUEUED-ONLY for v1; cooperative
+  cancellation is a documented future addition. (Engineering decision, not a business one.)
+- **Hardened (non-blocking)**: poller survives infra errors (claim/submit) without dying;
+  scheduler sets explicit `coalesce/misfire_grace_time/max_instances` for a sleepy process; added a
+  bounded-concurrency test proving we never exceed `max_workers`.
+- **Deferred to human**: scheduler/worker single-owner deployment contract (section 2).
