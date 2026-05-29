@@ -14,9 +14,14 @@ These rules govern the clean rebuild in `v3/`. The authoritative step plan is
 The LIVE app's reports are the source of truth ("god"). The test app was a rebuild for a nicer
 on-screen experience. Build v3 by splitting concerns:
 
+- **Data source -> follow the TEST app.** Pull report data from the on-prem Reporting API the
+  test app uses (`REPORTING_API_*` stored-procedure service via `test/webapp/services/reporting_api.py`),
+  NOT the live app's direct D365 OData. Each report gets a thin source adapter (Reporting API rows
+  -> typed facts); apply live math/format on the facts. If the API lacks a field the live math
+  needs, flag it under NEEDS HUMAN SIGN-OFF (do not guess).
 - **Architecture + UX/behavior -> follow the TEST app.** Reports render as an interactive
-  on-screen table FIRST; Excel is produced ONLY on Export (never build the report in Excel and
-  then show it). Keep the test app's interactivity/customization.
+  on-screen table FIRST (Tabulator-style); Excel is produced ONLY on Export (never build the report
+  in Excel and then show it). Keep the test app's interactivity/customization.
 - **Report format -> follow the LIVE app.** Columns, their order, and layout match the LIVE app's
   EXPORT format. The on-screen table shows those same live columns.
 - **Math / business logic -> follow the LIVE app, exactly.** Never show a number that differs

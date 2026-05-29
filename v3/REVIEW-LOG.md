@@ -80,6 +80,17 @@ Azure can wipe that file on a restart. Litestream copies it to cloud storage so 
   (via a dispatcher). I'll **swap the v3 app into the `/test` slot** and move the old one to
   `/test-legacy` - a small, reversible change in one file. No impact on the live `/` app.
 
+**9. Where the data comes from (you added this after).**
+- *Decision:* v3 pulls report data from the **same on-prem Reporting API the TEST app uses**
+  (the `REPORTING_API_*` stored-procedure service), NOT the live app's direct D365 connection.
+- *What this means in practice:* the LIVE app talks straight to D365 (OData). The TEST app instead
+  calls an on-prem API that runs stored procedures and returns rows. v3 uses that TEST-style API.
+- *Why it matters / what I'll watch:* the two sources can name or shape fields differently, so for
+  each report I keep a thin "adapter" that turns the Reporting API's rows into a clean shape, then
+  apply the LIVE math/format on top. If the API doesn't expose a field the LIVE math needs, I'll
+  flag it in "NEEDS HUMAN SIGN-OFF" rather than guess (e.g. the live `ordered` report uses some
+  D365-only joins). Good news: v3's data client was already built against this Reporting API.
+
 **8. (My call, logged) Shipping the built front-end to Azure.**
 - The front-end is bundled by a Node tool (esbuild) into files the browser loads. Azure's Python
   image may not run that Node build. *Decision:* I'll **commit the built files** so the deploy is
