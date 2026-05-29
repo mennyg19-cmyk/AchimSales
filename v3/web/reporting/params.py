@@ -46,15 +46,18 @@ def _resolve_window(params: dict) -> tuple[date | None, date | None]:
     start_raw = (params.get("start_date") or "").strip()
     end_raw = (params.get("end_date") or "").strip()
 
+    # Blank / all_time -> no date filter (the SP applies its own default).
+    # Matches the test-app contract: a named period is required to bound dates.
     if period in ("all_time", ""):
-        if start_raw and end_raw:  # explicit range with no named period
-            p = parse_custom_range(start_raw, end_raw)
-            return p.start_date, p.end_date
         return (None, None)
     if period == "custom":
         if not (start_raw and end_raw):
             return (None, None)
-        p = parse_custom_range(start_raw, end_raw)
+        try:
+            p = parse_custom_range(start_raw, end_raw)
+        except ValueError:
+            # Unparseable custom dates -> omit the filter rather than 500.
+            return (None, None)
         return p.start_date, p.end_date
     p = parse_period(period)
     return p.start_date, p.end_date

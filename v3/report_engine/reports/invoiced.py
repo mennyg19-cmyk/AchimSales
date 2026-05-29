@@ -144,6 +144,16 @@ def _month_of(row: dict) -> int | None:
     return None
 
 
+def _year_of(row: dict) -> int | None:
+    d = row.get("InvoiceDate")
+    if isinstance(d, str) and len(d) >= 4:
+        try:
+            return int(d[:4])
+        except ValueError:
+            return None
+    return None
+
+
 # --- per-tab builders -------------------------------------------------------
 
 def _net_by_invoice(rows: Sequence[dict]) -> list[dict]:
@@ -164,9 +174,16 @@ def _net_by_invoice(rows: Sequence[dict]) -> list[dict]:
     return [buckets[k] for k in order]
 
 
-def _summary_by_customer(netted: Sequence[dict]) -> dict:
+def _summary_by_customer(raw: Sequence[dict]) -> dict:
+    """Per-(customer, salesman) aggregation from the full detail (credits incl.).
+
+    Matches LIVE `_build_summary(df)`: group by
+    (CustomerAccount, CustomerName, SalesmanNumber, SalesmanName); InvoiceCount
+    is nunique(InvoiceNumber); money columns are summed over all rows.
+    """
     buckets: dict[tuple, dict] = {}
-    for r in netted:
+    invoices_seen: dict[tuple, set] = {}
+    for r in raw:
         key = (r.get("CustomerAccount") or "", r.get("CustomerName") or "",
                r.get("SalesmanNumber") or "", r.get("SalesmanName") or "")
         b = buckets.get(key)
@@ -180,14 +197,17 @@ def _summary_by_customer(netted: Sequence[dict]) -> dict:
                 "_sales_group": r.get("_sales_group") or "",
             }
             buckets[key] = b
-        b["InvoiceCount"] += 1
+            invoices_seen[key] = set()
+        if r.get("InvoiceNumber"):
+            invoices_seen[key].add(r["InvoiceNumber"])
         b["SubTotal Invoices"] += num(r.get("SubTotal Invoices"))
         b["Total Tariff Charges"] += num(r.get("Tariff Charges"))
         b["Total Freight Charges"] += num(r.get("Freight Charges"))
         b["Total CC Charges"] += num(r.get("CC Charges"))
         b["Total Invoices"] += num(r.get("Total Invoice"))
     rows = list(buckets.values())
-    for b in rows:
+    for key, b in buckets.items():
+        b["InvoiceCount"] = len(invoices_seen[key])
         for f in ("SubTotal Invoices", "Total Tariff Charges", "Total Freight Charges",
                   "Total CC Charges", "Total Invoices"):
             b[f] = round(b[f], 2)
@@ -208,6 +228,10 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             continue
         sm = salesmen.get(salesman_key(sg))
         if not sm or sm.commission_pct <= 0 or not sm.number.strip():
+            continue
+        # Guard against a caller passing a wider window than Jan 1..period end:
+        # only count rows in the report year (LIVE fetches exactly that window).
+        if _year_of(r) != year:
             continue
         m = _month_of(r)
         if m is None or not 1 <= m <= end_month:
@@ -243,12 +267,12 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             crd = round(slot["credits"], 2)
             ti = round(sub + tar + fre + cc, 2)
             net = round(ti + crd - fre - cc, 2)
-            comm = round(net * pct, 2)
+            comm = net * pct  # kept UNrounded; YTD sums these (matches LIVE)
             monthly_out.append({
                 "month": idx + 1, "month_label": _MONTH_LABELS[idx],
                 "subtotal_invoices": sub, "tariff_charges": tar,
                 "freight_charges": fre, "cc_charges": cc, "total_invoices": ti,
-                "credits": crd, "net_commission": net, "commission": comm,
+                "credits": crd, "net_commission": net, "commission": round(comm, 2),
             })
             ytd["subtotal_invoices"] += sub
             ytd["tariff_charges"] += tar
@@ -341,13 +365,16 @@ def _audit_reversals(raw: Sequence[dict]) -> dict | None:
             "columns": CREDIT_INVOICE_COLS, "rows": rows}
 
 
-def _totals_by_salesman(raw: Sequence[dict]) -> dict | None:
-    distinct = {(r.get("Salesman") or "").strip() for r in raw if (r.get("Salesman") or "").strip()}
+def _totals_by_salesman(non_credit: Sequence[dict]) -> dict | None:
+    """Per-salesman aggregate from the NON-CREDIT invoices view (matches LIVE
+    `_maybe_write_totals_by_salesman(wb, invoices, ...)`). Only emitted for 2+
+    salesmen; InvoiceCount is nunique(InvoiceNumber)."""
+    distinct = {(r.get("Salesman") or "").strip() for r in non_credit if (r.get("Salesman") or "").strip()}
     if len(distinct) < 2:
         return None
     buckets: dict[tuple, dict] = {}
     invoices_seen: dict[tuple, set] = {}
-    for r in raw:
+    for r in non_credit:
         key = (r.get("SalesmanNumber") or "", r.get("SalesmanName") or "",
                r.get("Salesman") or "")
         b = buckets.get(key)
@@ -391,7 +418,8 @@ def build(facts: Iterable[InvoiceChargeFact], *,
     """
     raw = [_enriched(f, salesmen) for f in facts]
     netted = _net_by_invoice(raw)
-    summary = _summary_by_customer(netted)
+    non_credit = [r for r in raw if not r.get("_is_credit")]
+    summary = _summary_by_customer(raw)
 
     if ytd_facts is not None and year is not None and end_month is not None:
         ytd_rows = [_enriched(f, salesmen) for f in ytd_facts]
@@ -404,6 +432,6 @@ def build(facts: Iterable[InvoiceChargeFact], *,
     tabs = [summary, commissions, _full_details(netted), _credits(raw), _invoices(raw)]
     if (audit := _audit_reversals(raw)) is not None:
         tabs.append(audit)
-    if (totals := _totals_by_salesman(raw)) is not None:
+    if (totals := _totals_by_salesman(non_credit)) is not None:
         tabs.append(totals)
     return tabs

@@ -108,6 +108,29 @@ Azure can wipe that file on a restart. Litestream copies it to cloud storage so 
   reliable without depending on a Node step on the server. (If you'd rather build on deploy, easy
   to switch - noted as a future option.)
 
+**11. Invoiced report: a few math details I matched to LIVE (after a GPT-5.5 review).**
+When I built the Invoiced report I had GPT-5.5 tear it apart and check the numbers against the
+real live report. It caught four things where I'd drifted, and I fixed all four to match LIVE
+(your "god"):
+- *What counts as a credit:* the live report flags a row as a credit if the invoice number
+  **contains** "CRD", "CM", or "FC" anywhere (not just at the start). The test app only looked at
+  the start - I'd copied that idea. Switched to the live "contains" rule. (Side effect to be aware
+  of: an invoice number that happens to contain those letters mid-string gets treated as a credit -
+  that's exactly what live does, so we match it.)
+- *"Totals by Salesman" tab:* live builds this from **invoices only** (credits excluded). I was
+  including credits. Fixed.
+- *"Summary by Customer" invoice count:* live counts **distinct invoice numbers**. Mine could
+  over-count in a rare case (same invoice number split across two customers). Switched to a
+  distinct count.
+- *Commissions cents:* live adds up the **unrounded** monthly commission for the year-to-date
+  total (each month is only rounded for display). I was rounding every month first, which could be
+  off by a penny over a year. Now it matches live.
+- I also made the date filter safer: a blank period or a bad custom date now just means "no date
+  filter" instead of erroring.
+- *Why this matters:* these are the kinds of tiny differences that would make you not trust the new
+  app. Locking each one to live - with a test that fails if it ever drifts again - is how I keep
+  "same numbers as live" honest.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
@@ -248,6 +271,32 @@ each request (the session cookie is trusted for identity only):
 - **Deferred to human (sign-off)**: report-visibility default, manager semantics, and
   customer-scope-on-unknown (section 1).
 
+### Phase 6 - Report engine: dates, params, invoiced (first report)
+
+GPT-5.5 reviewed the engine foundation + the first rebuilt report against the LIVE
+(`reports/invoiced/`) + test (`test/webapp/services/`) reference. Findings + resolutions:
+
+- **Fixed (BLOCKER) - credit detection**: changed from prefix (`^(CRD|CM|FC)`, the test app's
+  rule) to LIVE's substring `InvoiceNumber.upper().contains("CRD|CM|FC")`
+  (`report_engine/sources/invoiced.py`); `test_adapter_detects_credits_as_substring_case_insensitive`.
+- **Fixed (BLOCKER) - Totals by Salesman included credits**: now built from the non-credit
+  invoices view, matching LIVE `_maybe_write_totals_by_salesman(wb, invoices, ...)`;
+  `test_totals_by_salesman_excludes_credits`.
+- **Fixed (SHOULD) - Summary invoice count**: now `nunique(InvoiceNumber)` over the full detail,
+  matching LIVE `_build_summary`; previously a per-netted-row count.
+- **Fixed (SHOULD) - commission rounding**: YTD now sums UNrounded monthly commission (monthly
+  rounded for display only), matching LIVE `sum(comm_vals)`; `test_commissions_pivot_*`.
+- **Fixed (SHOULD) - commissions year leak**: monthly pivot now ignores rows outside the report
+  year even if a caller passes a wider window; `test_commissions_pivot_ignores_prior_year_rows`.
+- **Fixed (SHOULD) - date param contract**: blank period or invalid custom dates now omit the date
+  filter (no crash), matching the test-app contract; `test_blank_period_with_dates_still_omits_dates`,
+  `test_custom_with_invalid_dates_omits_rather_than_raises`.
+- **Verified good**: `report_engine` is pure (no Flask/DB/requests/pandas/IO); column order+headers
+  match the live export; private `_`-keys stripped from output; commission net formula
+  (`net = total_invoices + credits - freight - cc`) matches.
+- All invoiced math rules remain PROVISIONAL pending the section-1 sign-offs (credit rule,
+  unassigned-salesman handling, etc.).
+
 ---
 
 ## 4. PHASE PROGRESS
@@ -259,7 +308,7 @@ each request (the session cookie is trusted for identity only):
 | 3. Auth + single authorization/scope layer | DONE | f8eaae1 | 46 tests; DB-authoritative, fail-closed |
 | 4. Jobs worker + APScheduler | DONE | b9aa4db | 59 tests; restart recovery + bounded concurrency |
 | 5. Reporting infra (client, ONE scope-safe cache, runner, export, durable wiring) | DONE | (this commit) | 80 tests; cache-scope item resolved |
-| 6. report_engine builders (6 reports) | GATED on human sign-offs (section 1) | - | source adapters + parity harness can start; calc rules need sign-off |
+| 6. report_engine builders (5 reports) | IN PROGRESS | (this commit) | dates+params+invoiced DONE (127 tests); ordered/salesman/number_4/customer_activity pending; calc rules PROVISIONAL pending section-1 sign-off |
 | 7. Blueprints (thin routes, feature parity) | pending | - | needs builders (sign-off) + shell (done) |
 | 8. Frontend shell (pixel-parity base.html, token CSS, esbuild bundle) | DONE | (this commit) | 89 tests; live-faithful shell, GPT-5.5 parity gaps fixed |
 

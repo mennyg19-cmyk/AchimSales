@@ -42,10 +42,16 @@ def test_adapter_parses_rfc1123_date_without_truncation():
     assert fact.invoice_date == "2026-04-30"
 
 
-def test_adapter_detects_credit_prefixes():
-    for n in ("CRD100", "CM5", "FC9", "cm-1"):
+def test_adapter_detects_credits_as_substring_case_insensitive():
+    # LIVE uses InvoiceNumber.upper().contains("CRD|CM|FC") - substring, not prefix.
+    for n in ("CRD100", "CM5", "FC9", "cm-1", "X-CRD-9", "INVCM7"):
         assert S.to_fact({"Invoice": n, "Amount": "-5"}).is_credit is True
     assert S.to_fact({"Invoice": "INV9", "Amount": "5"}).is_credit is False
+
+
+def test_adapter_falls_back_to_sh_tariff_when_sl_missing():
+    fact = S.to_fact({"Invoice": "INV1", "Amount": "100", "SH_TariffCharges": "9"})
+    assert fact.tariff == 9.0
 
 
 # --- builder ---------------------------------------------------------------
@@ -114,6 +120,46 @@ def test_totals_by_salesman_only_when_multiple():
     tabs = _tabs_by_key(B.build(facts, salesmen=salesmen))
     assert "totals_by_salesman" in tabs
     assert len(tabs["totals_by_salesman"]["rows"]) == 2
+
+
+def test_totals_by_salesman_excludes_credits():
+    # LIVE builds Totals by Salesman from the non-credit invoices view.
+    facts = S.to_facts([
+        {"Invoice": "A1", "InvoiceAccount": "1", "Amount": "100", "SalesGroup": "REdwards",
+         "InvoiceDate": "2026-04-01"},
+        {"Invoice": "B1", "InvoiceAccount": "2", "Amount": "200", "SalesGroup": "JDoe",
+         "InvoiceDate": "2026-04-01"},
+        {"Invoice": "CRD9", "InvoiceAccount": "1", "Amount": "-50", "SalesGroup": "REdwards",
+         "InvoiceDate": "2026-04-02"},
+    ])
+    salesmen = _salesmen()
+    salesmen[salesman_key("JDoe")] = _sm("jdoe", "11", "Jane Doe", 0.04)
+    totals = _tabs_by_key(B.build(facts, salesmen=salesmen))["totals_by_salesman"]["rows"]
+    redwards = next(r for r in totals if r["SalesmanNumber"] == "10")
+    assert redwards["Total Invoice"] == 100.0   # credit -50 excluded
+    assert redwards["InvoiceCount"] == 1
+
+
+def test_commissions_pivot_ignores_prior_year_rows():
+    facts = S.to_facts([
+        {"Invoice": "INV1", "InvoiceAccount": "1", "InvoiceDate": "2026-04-10",
+         "Amount": "1000", "SalesGroup": "REdwards"},
+        {"Invoice": "INV0", "InvoiceAccount": "1", "InvoiceDate": "2025-04-10",
+         "Amount": "9999", "SalesGroup": "REdwards"},  # prior year - must be ignored
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    sm = comm["salesmen"][0]
+    assert sm["ytd"]["subtotal_invoices"] == 1000.0
+
+
+def test_unresolved_nonempty_salesgroup_keeps_code():
+    facts = S.to_facts([{"Invoice": "X", "InvoiceAccount": "1", "Amount": "5",
+                         "SalesGroup": "ZZTOP"}])
+    row = _tabs_by_key(B.build(facts, salesmen={}))["invoices"]["rows"][0]
+    assert row["Salesman"] == "ZZTOP"        # raw code, not "Unassigned"
+    assert row["SalesmanNumber"] == ""
+    assert row["SalesmanName"] == ""
 
 
 def test_commissions_monthly_pivot_math():

@@ -14,13 +14,15 @@ from typing import Iterable, Mapping
 from report_engine.facts import InvoiceChargeFact
 from report_engine.lib import first_of, iso_date, num, text
 
-# Invoice numbers beginning CRD / CM / FC are credit notes (no row-type flag
-# comes back from the SP, so we infer from the number, matching live).
-_CREDIT_PREFIX_RE = re.compile(r"^(CRD|CM|FC)", re.IGNORECASE)
+# Credit notes carry CRD / CM / FC anywhere in the invoice number (no row-type
+# flag comes back from the SP). This is a SUBSTRING match, case-insensitive,
+# matching LIVE exactly (reports/invoiced/aggregator.py:
+# `InvoiceNumber.str.upper().str.contains("CRD|CM|FC")`) - NOT a prefix.
+_CREDIT_RE = re.compile(r"CRD|CM|FC", re.IGNORECASE)
 
 
 def is_credit_number(invoice_number: str) -> bool:
-    return bool(invoice_number and _CREDIT_PREFIX_RE.match(invoice_number.strip()))
+    return bool(invoice_number and _CREDIT_RE.search(invoice_number))
 
 
 def to_fact(raw: Mapping) -> InvoiceChargeFact:

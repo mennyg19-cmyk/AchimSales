@@ -43,6 +43,21 @@ def test_ordered_all_time_omits_dates():
     assert "CreatedDateTimeTo" not in out
 
 
+def test_blank_period_with_dates_still_omits_dates():
+    # A named period is required to bound dates (matches the test-app contract).
+    out = P.translate("ordered", {"period": "", "start_date": "2026-04-01",
+                                  "end_date": "2026-04-30"})
+    assert "CreatedDateTimeFrom" not in out
+    assert "CreatedDateTimeTo" not in out
+
+
+def test_custom_with_invalid_dates_omits_rather_than_raises():
+    out = P.translate("ordered", {"period": "custom", "start_date": "not-a-date",
+                                  "end_date": "also-bad"})
+    assert "CreatedDateTimeFrom" not in out
+    assert "CreatedDateTimeTo" not in out
+
+
 def test_invoiced_single_customer_pushes_invoiceaccount():
     out = P.translate("invoiced", {"period": "mtd", "customers": ["100001"]})
     assert out["InvoiceAccount"] == "100001"
