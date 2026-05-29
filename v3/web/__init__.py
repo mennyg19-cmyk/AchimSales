@@ -8,9 +8,11 @@ registered as later phases land - this file stays thin.
 
 from __future__ import annotations
 
-from flask import Flask
+from flask import Flask, jsonify
 
+from web.auth.authorization import Authorization, Forbidden
 from web.config import Config, load_config
+from web.data.connection import from_config
 from web.extensions import init_csrf
 
 
@@ -24,9 +26,15 @@ def create_app(config: Config | None = None) -> Flask:
     # real secret, so this never falls back insecurely.
     app.secret_key = cfg.flask_secret or _ephemeral_dev_secret(cfg)
 
+    db = from_config(cfg)
+    app.config["DB"] = db
+    app.config["AUTHZ"] = Authorization(db)
+
     init_csrf(app)
     _register_context(app, cfg)
     _register_blueprints(app)
+    _register_error_handlers(app)
+    _register_cli(app, db)
     return app
 
 
@@ -46,6 +54,23 @@ def _register_context(app: Flask, cfg: Config) -> None:
 
 
 def _register_blueprints(app: Flask) -> None:
+    from web.blueprints.auth import auth_bp
     from web.blueprints.health import health_bp
 
     app.register_blueprint(health_bp)
+    app.register_blueprint(auth_bp)
+
+
+def _register_error_handlers(app: Flask) -> None:
+    @app.errorhandler(Forbidden)
+    def _forbidden(exc: Forbidden):
+        return jsonify({"error": str(exc), "status": exc.status_code}), exc.status_code
+
+
+def _register_cli(app: Flask, db) -> None:
+    @app.cli.command("migrate")
+    def migrate_cmd():  # pragma: no cover - invoked via `flask migrate`
+        from web.data.migrate import migrate
+
+        applied = migrate(db)
+        print("Applied migrations:", applied)

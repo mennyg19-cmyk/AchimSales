@@ -41,6 +41,20 @@ Authoritative plans: `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) a
 | salesman | group_key_cardinality | Grouping grain (one row per SalesGroup vs combined) | live/root |
 | customer_activity | last_order_grain | Last-order grain: sales header vs sales line | live/root |
 
+### Authorization policy decisions (from phase 3 - pick one each)
+
+- [ ] **Report visibility default**: v3 currently FAILS CLOSED - a non-privileged user sees a
+      built report only if they have an explicit allow row. The LIVE app instead has a
+      conditional default-visible set + global-visibility flags + salesman-filter metadata.
+      Decide: keep strict default-deny (you grant per user/role), or have me model live's
+      default-visible set. Until you decide, salesmen see no reports by default.
+- [ ] **Manager semantics**: live treats `manager` as privileged for the report LIST but scoped
+      for salesman DATA. v3 currently treats manager as fully scoped (non-privileged). Confirm
+      which you want.
+- [ ] **Customer scope when sales-group unknown**: live `access.py` ALLOWS a scoped user to
+      proceed when there's no cache row (so D365 is queried); v3 DENIES (safer). Confirm the
+      stricter behavior is acceptable or restore live's allow-on-unknown.
+
 ### Engineering parity items (not business decisions; for your awareness)
 
 - `text()` helper: the sandbox originals were inconsistent - 4 modules' `_str` did NOT strip,
@@ -99,6 +113,26 @@ GPT-5.5 (gpt-5.5-high, readonly) reviewed against the rules + plans. Resolution:
   enforced in the repo layer (comment added in the migration).
 - **Deferred to human**: cache-scope leakage enforcement approach (see section 2).
 
+### Phase 3 - Auth + single authorization/scope layer
+
+GPT-5.5 found four real security blockers; all fixed by making the DATABASE authoritative
+each request (the session cookie is trusted for identity only):
+
+- **Fixed (BLOCKER) - stale-role escalation**: role/privilege is now re-resolved from `users`
+  on every check, so a downgraded admin loses access immediately
+  (`test_role_revocation_takes_effect_immediately`).
+- **Fixed (BLOCKER) - inactive users**: unknown/disabled users are denied everything and
+  refused at login (`test_inactive_user_denied_everything`, `test_inactive_user_cannot_login`).
+- **Fixed (BLOCKER) - report access too broad**: `can_view_report` now FAILS CLOSED for
+  non-privileged (explicit allow row required). The broader live policy is a sign-off item
+  (section 1).
+- **Fixed (BLOCKER) - logout via GET**: logout is now POST (CSRF-protected);
+  `test_logout_requires_post` asserts GET -> 405.
+- **Hardened**: open-redirect-safe `next` (relative only), MSAL `next` carried in session,
+  dev-login XSS-escaped, MSAL no-flow path returns 400 not a crash.
+- **Deferred to human (sign-off)**: report-visibility default, manager semantics, and
+  customer-scope-on-unknown (section 1).
+
 ---
 
 ## 4. PHASE PROGRESS
@@ -106,5 +140,6 @@ GPT-5.5 (gpt-5.5-high, readonly) reviewed against the rules + plans. Resolution:
 | Phase | Status | Commit | Notes |
 |-------|--------|--------|-------|
 | 0/1. Rules + log + scaffold + config + engine foundation | DONE | 7ec6582 | 22 tests; GPT-5.5 findings resolved |
-| 2. Data layer (precious/cache, migrations, durable jobs, repos) | DONE | (this commit) | 31 tests; atomicity + concurrency proven |
-| 3. Auth + single authorization/scope layer | next | - | - |
+| 2. Data layer (precious/cache, migrations, durable jobs, repos) | DONE | 97e1b99 | 31 tests; atomicity + concurrency proven |
+| 3. Auth + single authorization/scope layer | DONE | (this commit) | 46 tests; DB-authoritative, fail-closed |
+| 4. Jobs worker + APScheduler | next | - | - |

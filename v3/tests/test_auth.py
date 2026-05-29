@@ -1,0 +1,233 @@
+"""Auth + the single authorization/scope layer (rule 6)."""
+
+from pathlib import Path
+
+import pytest
+
+from report_engine import registry
+from report_engine.registry import ReportSpec, ReportStatus
+from web import create_app
+from web.auth.authorization import Authorization, Forbidden
+from web.auth.principal import Principal
+from web.config import Config
+from web.data.connection import Database
+from web.data.migrate import migrate
+from web.data.repositories.users import UserRepository
+
+
+def _dev_cfg(tmp_path) -> Config:
+    return Config(
+        app_env="dev", auth_mode="dev", flask_secret="t",
+        tenant_id="", client_id="", client_secret="",
+        reporting_api_base_url="", reporting_api_key="",
+        precious_db_path=tmp_path / "precious.db", cache_db_path=tmp_path / "cache.db",
+        litestream_blob_url="", new_app_marker=True,
+    )
+
+
+@pytest.fixture
+def db(tmp_path):
+    d = Database(tmp_path / "precious.db", tmp_path / "cache.db")
+    migrate(d)
+    return d
+
+
+def _seed_salesman_scope(db, email, role, keys):
+    users = UserRepository(db)
+    u = users.upsert(email, role=role)
+    with db.precious() as conn:
+        for k in keys:
+            conn.execute("INSERT OR IGNORE INTO salesmen(key) VALUES (?)", (k,))
+            conn.execute(
+                "INSERT INTO user_salesman_access(user_id, salesman_key) VALUES (?, ?)",
+                (u.id, k),
+            )
+    return u
+
+
+# --- Principal --------------------------------------------------------------
+
+def test_principal_defaults_unknown_role_to_salesman():
+    p = Principal.from_dict({"email": "a@b.com", "role": "wizard"})
+    assert p.role == "salesman" and not p.is_privileged
+
+
+def test_principal_requires_email():
+    assert Principal.from_dict({"name": "x"}) is None
+
+
+# --- scope ------------------------------------------------------------------
+
+def test_privileged_is_unrestricted(db):
+    UserRepository(db).upsert("admin@b.com", role="admin")
+    authz = Authorization(db)
+    admin = Principal("admin@b.com", "A", "admin")
+    assert authz.visible_salesman_keys(admin) is None
+    assert authz.can_view_customer(admin, "anything") is True
+
+
+def test_unknown_user_is_denied_even_with_privileged_cookie(db):
+    """A privileged-looking cookie for a user not in the DB sees nothing."""
+    authz = Authorization(db)
+    ghost = Principal("ghost@b.com", "G", "admin")
+    assert authz.visible_salesman_keys(ghost) == set()
+    assert authz.can_view_customer(ghost, "anything") is False
+
+
+def test_salesman_scope_is_enforced(db):
+    _seed_salesman_scope(db, "sm@b.com", "salesman", ["mkolko"])
+    authz = Authorization(db)
+    p = Principal("sm@b.com", "S", "salesman")
+    assert authz.visible_salesman_keys(p) == {"mkolko"}
+    assert authz.can_view_customer(p, "M Kolko") is True       # normalizes to mkolko
+    assert authz.can_view_customer(p, "H Kaufman") is False
+    with pytest.raises(Forbidden):
+        authz.assert_can_view_customer(p, "H Kaufman")
+
+
+# --- report access ----------------------------------------------------------
+
+def test_backlog_report_never_viewable(db):
+    authz = Authorization(db)
+    admin = Principal("admin@b.com", "A", "admin")
+    # ordered is BACKLOG in the registry -> even an admin cannot view it (no fake stub)
+    assert authz.can_view_report(admin, "ordered") is False
+    assert authz.can_view_report(admin, "does_not_exist") is False
+
+
+def test_built_report_is_default_deny_for_non_privileged(db, monkeypatch):
+    # Pretend "ordered" is BUILT for this test.
+    monkeypatch.setitem(
+        registry._BY_KEY, "ordered", ReportSpec("ordered", "Ordered", ReportStatus.BUILT)
+    )
+    authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("admin@b.com", role="admin")
+    users.upsert("sm@b.com", role="salesman")
+
+    admin = Principal("admin@b.com", "A", "admin")
+    p = Principal("sm@b.com", "S", "salesman")
+    assert authz.can_view_report(admin, "ordered") is True   # privileged sees built reports
+    assert authz.can_view_report(p, "ordered") is False      # FAIL CLOSED: no allow row
+
+    u = users.get_by_email("sm@b.com")
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO user_report_access(user_id, report_key, allowed) VALUES (?, 'ordered', 1)",
+            (u.id,),
+        )
+    assert authz.can_view_report(p, "ordered") is True       # explicit allow
+    with db.precious() as conn:
+        conn.execute(
+            "UPDATE user_report_access SET allowed=0 WHERE user_id=? AND report_key='ordered'",
+            (u.id,),
+        )
+    assert authz.can_view_report(p, "ordered") is False      # explicit deny
+
+
+def test_role_revocation_takes_effect_immediately(db):
+    """Downgrading a user in the DB must drop privileges even with an old cookie."""
+    authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("u@b.com", role="admin")
+    # Session still claims admin (stale cookie):
+    stale = Principal("u@b.com", "U", "admin")
+    assert authz.visible_salesman_keys(stale) is None  # privileged now
+    with db.precious() as conn:
+        conn.execute("UPDATE users SET role='salesman' WHERE email='u@b.com'")
+    assert authz.visible_salesman_keys(stale) == set()  # downgraded -> scoped, no keys
+
+
+def test_inactive_user_denied_everything(db, monkeypatch):
+    monkeypatch.setitem(
+        registry._BY_KEY, "ordered", ReportSpec("ordered", "Ordered", ReportStatus.BUILT)
+    )
+    authz = Authorization(db)
+    users = UserRepository(db)
+    u = users.upsert("gone@b.com", role="admin")
+    with db.precious() as conn:
+        conn.execute("INSERT INTO user_report_access(user_id, report_key, allowed) VALUES (?, 'ordered', 1)", (u.id,))
+        conn.execute("UPDATE users SET is_active=0, sharepoint_access=1 WHERE email='gone@b.com'")
+    p = Principal("gone@b.com", "G", "admin")
+    assert authz.visible_salesman_keys(p) == set()
+    assert authz.can_view_customer(p, "anything") is False
+    assert authz.can_view_report(p, "ordered") is False
+    assert authz.has_sharepoint_access(p) is False
+
+
+def test_sharepoint_access(db):
+    authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("sm@b.com", role="salesman")
+    p = Principal("sm@b.com", "S", "salesman")
+    assert authz.has_sharepoint_access(p) is False
+    with db.precious() as conn:
+        conn.execute("UPDATE users SET sharepoint_access=1 WHERE email='sm@b.com'")
+    assert authz.has_sharepoint_access(p) is True
+    users.upsert("a@b.com", role="developer")
+    assert authz.has_sharepoint_access(Principal("a@b.com", "A", "developer")) is True
+
+
+# --- blueprint flows --------------------------------------------------------
+
+@pytest.fixture
+def app(tmp_path):
+    cfg = _dev_cfg(tmp_path)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    return application
+
+
+def test_dev_login_and_session(app):
+    client = app.test_client()
+    page = client.get("/login")
+    assert page.status_code == 200 and b"Dev sign in" in page.data
+    # CSRF token is in the form; reuse the session token the GET established.
+    with client.session_transaction() as sess:
+        token = sess["_csrf_token"]
+    resp = client.post(
+        "/login/dev",
+        data={"email": "dev@b.com", "role": "admin", "csrf_token": token},
+    )
+    assert resp.status_code == 302
+    with client.session_transaction() as sess:
+        assert sess["v3_user"]["email"] == "dev@b.com"
+        assert sess["v3_user"]["role"] == "admin"
+
+
+def test_dev_login_refused_when_not_dev(tmp_path):
+    cfg = _dev_cfg(tmp_path)
+    object.__setattr__(cfg, "auth_mode", "msal")  # frozen dataclass
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    client = application.test_client()
+    with client.session_transaction() as sess:
+        sess["_csrf_token"] = "t"
+    resp = client.post("/login/dev", data={"email": "x@b.com", "csrf_token": "t"})
+    assert resp.status_code == 403
+
+
+def test_inactive_user_cannot_login(app):
+    client = app.test_client()
+    # First sign-in creates an active user.
+    with client.session_transaction() as sess:
+        token = sess.get("_csrf_token", "seed")
+        sess["_csrf_token"] = token
+    client.post("/login/dev", data={"email": "d@b.com", "role": "salesman", "csrf_token": token})
+    # Disable the account, then try again.
+    with app.config["DB"].precious() as conn:
+        conn.execute("UPDATE users SET is_active=0 WHERE email='d@b.com'")
+    client.get("/logout")  # GET should not log out (POST-only)
+    resp = client.post("/login/dev", data={"email": "d@b.com", "role": "salesman", "csrf_token": token})
+    assert resp.status_code == 403
+
+
+def test_logout_requires_post(app):
+    client = app.test_client()
+    assert client.get("/logout").status_code == 405  # state change must be POST
+
+
+def test_msal_callback_without_flow_is_rejected(app):
+    # No auth flow in session -> safe error, not a crash.
+    resp = app.test_client().get("/auth/callback")
+    assert resp.status_code == 400
