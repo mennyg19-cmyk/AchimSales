@@ -36,17 +36,26 @@ class OrderLineFact:
 
 
 @dataclass(frozen=True)
-class InvoiceLineFact:
-    """One invoiced charge line (invoiced report)."""
+class InvoiceChargeFact:
+    """One invoiced-order-charges row (invoiced + salesman reports).
+
+    Source-shaped: money split into subtotal + the three charge buckets, with
+    `total` = subtotal + tariff + freight + cc. Salesman LABEL resolution is the
+    builder's job (it owns the live business mapping); the fact carries only the
+    raw `sales_group` so the same fact can feed multiple builders.
+    """
     source: Source
     invoice_number: str
-    invoice_date: str
+    invoice_date: str          # 'YYYY-MM-DD' (day precision) or ''
     customer_account: str
     customer_name: str
+    sales_order_number: str
+    subtotal: float
+    tariff: float
+    freight: float
+    cc: float
+    total: float
     sales_group: str
-    item_number: str
-    amount: float
-    tariff_charges: float
     is_credit: bool
     raw: dict = field(default_factory=dict, compare=False, repr=False)
 

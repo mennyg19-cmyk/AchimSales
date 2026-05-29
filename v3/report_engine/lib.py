@@ -55,9 +55,53 @@ def first_of(raw: Mapping[str, Any], *keys: str) -> Any:
 
 
 def date_only(value: Any) -> str:
-    """Trim 'YYYY-MM-DDTHH:MM:SS' (or ' ' separator) to 'YYYY-MM-DD'."""
+    """Trim 'YYYY-MM-DDTHH:MM:SS' (or ' ' separator) to 'YYYY-MM-DD'.
+
+    Only safe for values already in ISO order. For SP fields that can also be
+    RFC-1123 ('Thu, 30 Apr 2026 ...'), use iso_date() instead.
+    """
     s = text(value)
     return s[:10] if len(s) >= 10 else s
+
+
+# Date shapes the Reporting API has been observed to return for invoice dates.
+_RFC1123_FMTS = ("%a, %d %b %Y %H:%M:%S %Z", "%a, %d %b %Y %H:%M:%S")
+
+
+def iso_date(value: Any) -> str:
+    """Robustly coerce an SP date to day-precision 'YYYY-MM-DD'.
+
+    Handles ISO ('2026-04-30T..' / '2026-04-30 ..' / '2026-04-30'), RFC-1123
+    ('Thu, 30 Apr 2026 00:00:00 GMT'), and date/datetime objects. Returns ''
+    for blanks; returns the raw string unchanged when nothing parses (so a bad
+    value is visible rather than silently dropped).
+
+    Carries only the calendar date (no time/tz): an SP 'midnight UTC' value
+    must not shift to the previous day when rendered in Eastern time.
+    """
+    from datetime import date as _date, datetime as _datetime
+
+    if value in _BLANKS:
+        return ""
+    if isinstance(value, _datetime):
+        return value.date().isoformat()
+    if isinstance(value, _date):
+        return value.isoformat()
+    s = str(value).strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        try:
+            return _datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
+        except ValueError:
+            try:
+                return _datetime.strptime(s[:10], "%Y-%m-%d").date().isoformat()
+            except ValueError:
+                pass
+    for fmt in _RFC1123_FMTS:
+        try:
+            return _datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return s
 
 
 def salesman_key(sales_group: str | None) -> str:
