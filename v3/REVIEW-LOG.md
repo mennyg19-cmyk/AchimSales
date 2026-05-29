@@ -80,6 +80,17 @@ Azure can wipe that file on a restart. Litestream copies it to cloud storage so 
   (via a dispatcher). I'll **swap the v3 app into the `/test` slot** and move the old one to
   `/test-legacy` - a small, reversible change in one file. No impact on the live `/` app.
 
+**10. Reference vs copy (you flagged this while reading my thinking).**
+- *Decision:* the test and live apps are a **reference for WHAT the app does** - the behavior, the
+  data source, the report columns, and the math - **NOT code to copy**. v3 is a clean rebuild; I
+  re-implement everything in v3's own architecture and coding standards.
+- *In practice:* when I open a test/live file, it's to read off the rules ("ERROR ITEM rows are
+  dropped", "credits are invoice numbers starting CRD/CM/FC", "Summary columns are X, Y, Z") and
+  then write fresh, well-structured v3 code for it. I won't paste their functions in. Same outcome
+  and same numbers, better internals.
+- *Why:* the whole point of v3 is correct, maintainable code - copying the old implementations
+  would drag their shortcuts along with them.
+
 **9. Where the data comes from (you added this after).**
 - *Decision:* v3 pulls report data from the **same on-prem Reporting API the TEST app uses**
   (the `REPORTING_API_*` stored-procedure service), NOT the live app's direct D365 connection.

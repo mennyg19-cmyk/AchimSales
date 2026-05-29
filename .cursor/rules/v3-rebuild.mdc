@@ -9,6 +9,14 @@ These rules govern the clean rebuild in `v3/`. The authoritative step plan is
 `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) reconciled with
 `.cursor/plans/gpt55_rebuild_plan_8e9d2b54.plan.md` (gpt55). Re-read both before each phase.
 
+## Reference, not copy (owner directive, 2026-05-29)
+
+The test and live apps are a REFERENCE for WHAT the app does (behavior, data source, columns,
+math) - NEVER code to copy. v3 is a clean rebuild in its own architecture. Read the old files to
+extract rules/columns/math, then re-implement properly under v3's structure and the clean-code
+rule. Do not paste or port their function bodies. Same observable behavior + identical numbers,
+clean internals.
+
 ## Source-of-truth split (owner directive, 2026-05-29)
 
 The LIVE app's reports are the source of truth ("god"). The test app was a rebuild for a nicer
