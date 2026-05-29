@@ -1,0 +1,77 @@
+"""Versioned migration runner (plan section 6: no ad-hoc ALTER TABLE at boot).
+
+Each database has its own ordered set of `NNNN_name.sql` files. Applied versions
+are tracked in a `schema_migrations` table; pending files are applied in order,
+each in its own transaction. Re-running is a no-op (idempotent).
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+
+from web.data.connection import Database, _connect
+
+_MIGRATIONS_ROOT = Path(__file__).resolve().parent / "migrations"
+
+
+def _ensure_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations ("
+        " version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+    )
+
+
+def _applied(conn: sqlite3.Connection) -> set[str]:
+    return {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
+    """Apply pending migrations in `migrations_dir` to the DB at `path`.
+
+    Each migration's DDL AND its `schema_migrations` row are applied in a SINGLE
+    transaction, so a failure can never leave the schema changed but the version
+    untracked (atomicity). Returns the list of versions newly applied.
+    """
+    conn = _connect(path)
+    newly: list[str] = []
+    try:
+        _ensure_table(conn)
+        done = _applied(conn)
+        files = sorted(migrations_dir.glob("*.sql")) if migrations_dir.exists() else []
+        for f in files:
+            version = f.stem
+            if version in done:
+                continue
+            ts = datetime.now(timezone.utc).isoformat()
+            # version + ts embedded as literals so the version insert lives inside
+            # the same BEGIN/COMMIT as the migration body (one atomic unit).
+            script = (
+                "BEGIN;\n"
+                + f.read_text(encoding="utf-8")
+                + "\nINSERT INTO schema_migrations(version, applied_at) VALUES "
+                + f"({_sql_literal(version)}, {_sql_literal(ts)});\n"
+                + "COMMIT;"
+            )
+            try:
+                conn.executescript(script)
+            except Exception:
+                conn.rollback()  # discard the partial, uncommitted migration
+                raise
+            newly.append(version)
+        return newly
+    finally:
+        conn.close()
+
+
+def migrate(db: Database) -> dict[str, list[str]]:
+    """Apply both databases' migrations. Returns {db_name: [applied versions]}."""
+    return {
+        "precious": apply_migrations(db.precious_path, _MIGRATIONS_ROOT / "precious"),
+        "cache": apply_migrations(db.cache_path, _MIGRATIONS_ROOT / "cache"),
+    }

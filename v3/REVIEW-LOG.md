@@ -52,7 +52,11 @@ Authoritative plans: `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) a
 
 ## 2. OPEN QUESTIONS / BLOCKERS
 
-_(populated as encountered)_
+- **Cache-scope leakage (deferred, needs eventual sign-off)**: `report_payload_cache` prevents
+  cross-user/cross-scope leakage purely via the `cache_key` (which includes user scope +
+  builder version + freshness). This is NOT enforced by a schema constraint. Plan: the
+  cache-key builder will be the single source of truth and the reporting phase will add explicit
+  cache-scope leakage tests. Flagging so you can confirm that approach is acceptable.
 
 ---
 
@@ -79,11 +83,28 @@ GPT-5.5 (gpt-5.5-high, readonly) reviewed against the rules + plans. Resolution:
   user-global `.cursor/plans/`, outside the repo. Plans are referenced by absolute path in the
   rule; consider exporting a copy into the repo for CI/team review (deferred, non-blocking).
 
+### Phase 2 - Data layer (connection, migrations, durable jobs, repos)
+
+- **Fixed (BLOCKER) - migration atomicity**: the runner embedded the DDL and its
+  `schema_migrations` row in a single transaction, so a failed migration can no longer leave the
+  schema changed but untracked. Added `test_migration_failure_is_atomic`.
+- **Fixed - concurrency proof**: added threaded tests - `test_concurrent_enqueue_dedups`
+  (8 threads, same dedup_key -> exactly one active job) and
+  `test_concurrent_claim_never_double_claims` (4 workers drain 12 jobs, none claimed twice).
+- **Accepted (non-blocking)**: `claim_next()` may return None under contention while jobs remain
+  queued; the worker loop polls/retries, so this is by design, not a correctness bug.
+- **Accepted (non-blocking)**: repositories contain SQLite dialect (ON CONFLICT, partial index).
+  This matches the stated off-ramp (Postgres = later adapter work, not drop-in today).
+- **Documented**: `schedule_runs.schedule_id` is intentionally polymorphic (no FK); integrity is
+  enforced in the repo layer (comment added in the migration).
+- **Deferred to human**: cache-scope leakage enforcement approach (see section 2).
+
 ---
 
 ## 4. PHASE PROGRESS
 
 | Phase | Status | Commit | Notes |
 |-------|--------|--------|-------|
-| 0/1. Rules + log + scaffold + config + engine foundation | DONE | (this commit) | 22 tests green; GPT-5.5 review findings resolved |
-| 2. Data layer (precious/cache, migrations, durable jobs, repos) | next | - | - |
+| 0/1. Rules + log + scaffold + config + engine foundation | DONE | 7ec6582 | 22 tests; GPT-5.5 findings resolved |
+| 2. Data layer (precious/cache, migrations, durable jobs, repos) | DONE | (this commit) | 31 tests; atomicity + concurrency proven |
+| 3. Auth + single authorization/scope layer | next | - | - |
