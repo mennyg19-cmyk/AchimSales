@@ -1,0 +1,15 @@
+{
+  "name": "sales-reports-v3-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Front-end build (TypeScript + CSS) for the v3 Sales Reports app, bundled by esbuild.",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}

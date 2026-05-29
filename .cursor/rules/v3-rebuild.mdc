@@ -1,0 +1,60 @@
+---
+description: v3 Sales Reports rebuild - builder discipline, non-negotiables, and mandatory per-phase GPT-5.5 review. Applies to all work under v3/.
+alwaysApply: true
+---
+
+# v3 Sales Reports Rebuild - Agent Operating Rules
+
+These rules govern the clean rebuild in `v3/`. The authoritative step plan is
+`.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) reconciled with
+`.cursor/plans/gpt55_rebuild_plan_8e9d2b54.plan.md` (gpt55). Re-read both before each phase.
+
+## How this runs (one agent, real cross-model review)
+
+- A single agent builds. After EACH phase, launch a review subagent on model
+  `gpt-5.5-high` (readonly), give it the phase diff + both plan files + this rule,
+  and have it report findings BACK to this agent.
+- Record every finding in `v3/REVIEW-LOG.md`. Resolve blocking findings before the next
+  phase; log non-blocking ones and anything needing the human under the right heading.
+- This is best-effort discipline, not enforcement. Tests are the real gate; the HUMAN owns
+  the report-calculation sign-offs and the cutover decision.
+
+## Non-negotiables (never violate, never decide silently)
+
+1. NEVER choose a report calculation rule silently. Default to LIVE/root behavior, log every
+   drift decision in `v3/REVIEW-LOG.md` under "NEEDS HUMAN SIGN-OFF", keep the parity harness
+   green. Do not invent business meaning.
+2. Use signed-off semantic contracts once they exist; until then build to root behavior and
+   mark the code + log entry as PROVISIONAL.
+3. `report_engine/` stays shared and TOP-LEVEL under `v3/` (importable by web + CLI/runbook).
+   No duplicated report math between web and automation paths.
+4. Live-blue pixel parity (`--primary: #2563eb`). Target the LIVE app look, NOT the green test app.
+5. Persistence: Litestream-backed local SQLite on a single B1 - `precious.db` + disposable
+   `cache.db`. NEVER Azure Files/SMB SQLite. NEVER revive the `/tmp`->`/home` snapshot + JSON
+   sidecar + `iterdump` stack. Keep Postgres a documented off-ramp behind repository interfaces.
+6. Central authorization on EVERY data route: resolve `(user, report, customer/salesman scope)`
+   in one place. No insecure defaults: refuse to boot in prod with `AUTH_MODE=dev` or a default
+   `FLASK_SECRET`. CSRF on all state-changing requests.
+7. No long report work in request handlers - enqueue to the durable job table + in-process worker.
+8. No fake/stub report keys that look real; no dead assets carried over from test/.
+9. Tests required for: report parity, authorization/scope, job lifecycle, cache scoping,
+   migrations, and security (boot refusal, CSRF, path sanitization, admin-only probe/diag).
+
+## Coding conventions
+
+- Clean code per the repo clean-code user rule: no god files (>500 lines or mixed concerns),
+  no duplication, no dead code, named constants, single source of truth for types/helpers.
+- Keep routes thin; business logic lives in services/engine.
+- Front-end authored as TypeScript modules bundled by esbuild; design tokens + one component of
+  each kind (modal/button/chip/badge/spinner/card/table); no new inline styles.
+- Commit + push after each completed phase (always-commit rule). One logical change per commit.
+  Honest commit messages referencing the phase.
+
+## Per-phase checklist
+
+1. Re-read both plan files for the phase scope.
+2. Build the phase to the non-negotiables above.
+3. Run smoke tests for the phase.
+4. Launch a `gpt-5.5-high` readonly review subagent; collect findings.
+5. Update `v3/REVIEW-LOG.md` (resolved, deferred, NEEDS HUMAN SIGN-OFF).
+6. Resolve blockers, then commit + push.
