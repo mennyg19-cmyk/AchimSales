@@ -272,3 +272,158 @@ SQLite/PG cache (regenerable: mirror rows, rendered payloads)
 4. **Security is Phase 1, not part of the rebuild.** The `dev` auth default + IDOR
    are exploitable today and must be fixed in the current code immediately,
    independent of any rebuild timeline.
+
+---
+
+## 7. Deeper pass — function-level audit of under-covered files
+
+The first audit (§1–6) read the large files in full and characterized the rest.
+This pass read the remaining service/blueprint/JS files **function by function**.
+
+### 7.1 Confirmed dead code (delete on rebuild — and ideally now)
+
+| File | Lines | Evidence |
+|---|---|---|
+| `static/app.js` | 733 | Zero `<script>` references in any template. Report-run + notification logic superseded by `report_view.js` + inline `base.html`. |
+| `static/table_tools.js` | ~382 | Zero references; `window.TableTools` unused; `init()` never runs. Its CSS (`.table-toolbar`, `.col-resizer`, ~`style.css:3143+`) is orphaned too. |
+| `static/_live_report_form.js` | ~99 | Zero references; replaced by `js/report_form.js`; preset-save lives in `report_view.js`. |
+| `services/_archive_mock_data.py.txt` | — | Archived, not imported. |
+| `fixtures/ordered_dump.json` | — | Not referenced anywhere in code. |
+
+**Partially dead:** `help_content.js` is loaded globally but **~40+ of its HELP
+keys are orphaned** — only ~6 `data-help` hooks exist in templates. Either wire
+the help hooks or drop the unused copy.
+
+### 7.2 New security findings (beyond the §2 list)
+
+| # | Issue | Where |
+|---|---|---|
+| 9 | **SharePoint path traversal** — `_abs_path` / `ensure_folder` / `upload_file` never sanitize `..` in `rel_path`; a crafted schedule path can target folders outside the intended tree. | `services/sharepoint.py:166-169, 208-236, 239-269` |
+| 10 | **OAuth token never refreshed** — `_get_token` caches the Graph token process-globally with no expiry handling; once it expires, *all* SharePoint ops fail until the worker restarts. | `services/sharepoint.py:38-39, 52-70` |
+| 11 | **SharePoint upload bypasses the user gate in the service layer** — blueprints gate the picker, but `email_outbox.send_report_email` and `schedule_runner.run_schedule` call `upload_file` directly without re-checking `has_sharepoint_access`. | `services/email_outbox.py:96-105`, `services/schedule_runner.py:132-142` |
+| 12 | **Notifications dismiss is a silent no-op** on empty/malformed body — returns `{success: true}` having done nothing. | `blueprints/notifications.py:41-52` |
+
+The §2 Customer-Last-Order IDOR is **confirmed and broader** than first thought:
+`customers.json` leaks the *entire* customer list, and `view()` performs **three**
+separate line-fetches per page load (`fetch_customer_info` → `pick_default_order`
+→ `fetch_orders_with_lines`), none access-scoped.
+
+### 7.3 Error-handling & duplication notes
+
+- **Silent degradation**: `customer_last_order.py` swallows all exceptions to `[]`
+  or a stub dict (113-114, 142-143, 222-223) — users see "no data" instead of
+  "the API failed." `schedule_runner._load_json` swallows JSON parse errors.
+- **`run_schedule` "never raises" is not quite true** — an `assert schedule_type`
+  (line 57) can still raise under normal (non-`-O`) Python.
+- **Confirmed cross-app duplication**: `rollup_lines` and `common_po_prefix` in
+  `services/customer_last_order.py:278-334` are copied from the live
+  `webapp/blueprints/reports.py` (the docstrings admit it).
+
+---
+
+## 8. Report-engine drift — `test/` vs root `reports/` (correctness risk)
+
+This is the **highest-value pre-rebuild finding**. The two implementations were
+written to mirror each other's tab/column contracts, but they pull from
+**different data sources** (root = D365 OData + WHS/packing-slip joins; v2 =
+flat on-prem SP rows), so the *numbers* can disagree. Literal comparison:
+
+| Report | Structure | Columns | **Math / numbers** | Overall |
+|---|---:|---:|---:|---:|
+| **ordered** | ~85% | ~70% | **~35%** | **~45%** — highest risk |
+| **invoiced** | ~95% | ~95% | ~70% | ~75% |
+| **salesman** | ~90% | ~75% | ~85% | ~80% |
+| **number_4** | ~90% | ~85% | ~65% | ~70% |
+| **customer_activity** | ~95% | ~100% | ~75% | ~80% |
+
+### Critical numeric divergences (will produce different figures)
+
+| Report | Divergence | Root | v2 |
+|---|---|---|---|
+| **ordered** | Summary **QtyRemainder** | `QtyOrdered - QtyCancelled` (`builder.py:421`) | `+= QtyOpen` (`ordered.py:482`) |
+| **ordered** | Summary **Extended Price Remainder** | `QtyRemainder × SalesPrice` (`builder.py:439,445`) | `+= Open $` (`ordered.py:484`) |
+| **ordered** | Qty/$ + status engine | WHS + packing-slip joins (`builder.py:359-445`) | SP-derived (`ordered.py:210-215`) |
+| **ordered** | Amazon (acct 9300/9301) open→cancelled temp rule | present (`_temp_rules.py:36-76`) | **absent** |
+| **ordered** | `ERROR ITEM` line filter | present (`builder.py:229`) | **absent** |
+| **invoiced** | **Tariff source** | MarkupTrans classify (`loader.py:27-31`) | `SL_TariffCharges` first (`invoiced.py:271-279`) — v2 comment notes a $700k+ swing |
+| **invoiced** | **Credit detection** | `InvoiceNumber` **contains** `CRD\|CM\|FC` (`aggregator.py:35`) | **prefix** `^(CRD\|CM\|FC)` (`invoiced.py:51`) |
+| **number_4** | **Book Price** column | present (`loader.py:98-105`) | **omitted** (`number_4.py:16-17`) |
+| **number_4** | **Free-text invoice lines** (no SO#) | excluded (`loader.py:65-68`) | **not filtered** → extra rows |
+| **salesman** | Group key | 4 cols incl. salesman #/name (`builder.py:44`) | 2 cols `(account, salesman)` (`salesman.py:154`) — can collapse rows |
+| **customer_activity** | Last-order grain | order **headers** (`builder.py:55-88`) | order **lines** (`customer_activity.py:134-157`) — tie-breaking differs |
+
+**Implication for the rebuild:** this is the single strongest argument for
+**Principle 2 (one shared report engine)**. Maintaining two copies has *already*
+let real business rules (tariff source, credit detection, BookPrice, free-text
+exclusion, the Amazon temp rule) drift. Top reconciliation checks before trusting
+v2 numbers: ordered Summary remainders, invoiced Total Tariff, number_4 row
+counts, customer_activity last-order dates, invoiced Credits row count.
+
+---
+
+## 9. Styling conventions — consistency audit + the standard to adopt
+
+**Verdict: partially tokenized, not consistent.** There is a real `:root` token
+system (colors, radii, shadows) but it's bypassed constantly, and several parallel
+systems coexist.
+
+### Inconsistencies, ranked by prevalence
+
+1. **No spacing/typography scale** — 100+ ad-hoc px values (2/4/6/8/10/12/14/16/18/20/24…) for padding/margin/gap; ~10 distinct font sizes; no `--space-*` or `--text-*` tokens.
+2. **~150 inline `style=""` attributes** in templates — `settings.html` alone has **67** (`report_form.html` has 0 — that's the clean baseline).
+3. **Inline Feather icon sizing** (`style="width:14px;height:14px"`) duplicated **30+** times across templates + JS; no `.icon-sm/md/lg` utility.
+4. **~100 hardcoded hex colors** outside `:root`, including Tailwind grays (`#374151`, `#e5e7eb`) and blue.
+5. **Five competing modal systems** (`.modal-overlay/.modal-content`, `.v2-modal-backdrop/.v2-modal`, `.v2-modal-overlay/.v2-modal`, `.modal/.modal-panel`, `.sp-picker-*`) — and `.v2-modal` is defined **twice** with conflicting layout (`style.css:4081` vs `4455`). `.form-row` is also dual-defined (`4483` vs `5023`).
+6. **Duplicate toggle/chip patterns** — `.status-btn` vs `.period-btn` vs `.pill` vs `.weekday` vs `.weekday-chip` (two separate weekday UIs).
+7. **Four badge/status families** — `.badge`, `.status-*`, `.status-dash-*`, `.data-source-badge` with overlapping semantics.
+8. **"Monochrome grays + green, no blue" policy is violated** (`style.css:11-12` comment) — blue appears in `var(--primary, #2563eb)` fallbacks (8 spots), `.status-dash-new`, `.status-running`, commission cards (`5206-5237`), the cache badge, and a hardcoded `#3b82f6` progress bar in `diag.html:115`.
+9. **`.muted` class has no global rule** — used in many templates but only defined scoped (`style.css:4805`); most instances rely on duplicated inline `color:var(--text-muted)`.
+10. **Nine breakpoint widths** (400/480/540/600/768/**769**/960…) with a 768-vs-769 off-by-one gap; no `--bp-*` tokens.
+
+### The single convention to standardize on
+
+**Tokens** — extend `:root` with:
+```css
+--space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px;
+--text-xs:11px; --text-sm:13px; --text-base:15px; --text-lg:18px; --text-xl:24px;
+--bp-sm:480px; --bp-md:768px; --bp-lg:960px;
+```
+Replace every `var(--x, #hex)` fallback with token-only references.
+
+**One component of each kind:**
+- **Modal**: `.modal` + `.modal__backdrop/__panel/__header/__body/__footer` (BEM-ish). Deprecate the other four.
+- **Button**: `.btn` + modifiers only; toggle groups → `.btn-toggle.is-active`.
+- **Chip**: `.chip` everywhere (weekdays → `.chip--day`).
+- **Badge**: `.badge` + `--success|--warning|--error|--info|--neutral`; fold `status-dash-*` into these.
+- **Spinner**: `.spinner` + `--sm/--inline` (no inline dimensions).
+- **Card**: `.card` + `--stat/--settings` modifiers.
+
+**Utilities (small set):** `.icon-sm/md/lg`, `.hidden`, `.cluster`/`.stack` (flex + gap via `--space-*`), `.text-muted`, `.section-gap`. Then ban inline `style=""` for icon sizing, fl/gap layout, and `display:none` toggles.
+
+**Color policy — make an explicit decision and write it in the CSS header:** either
+(A) test sandbox is green-only → convert all intentional blues to green/neutral
+semantic tokens, or (B) allow a semantic `--info` blue via token (never raw hex).
+Today the comment says one thing and the code does another.
+
+**Baseline to copy:** `templates/report_form.html` (0 inline styles) is the
+cleanest template — use it as the pattern for the others.
+
+### Files to touch first (styling)
+
+1. `static/style.css:4081-4520, 2277-2298, 4811-4864` — collapse modals; fix the duplicate `.v2-modal`/`.form-row`.
+2. `templates/settings.html` — 67 inline styles.
+3. `static/style.css:2340-2430, 5206-5237` — blue fallbacks + commission block.
+4. `templates/diag.html:114-115` — hardcoded `#3b82f6`.
+5. All templates + `dashboard.js`/`settings.js`/`app.js` — icon + spinner utilities.
+
+---
+
+## 10. Audit coverage statement (for apples-to-apples comparison)
+
+This document reflects: full reads of all large modules; **function-level** reads
+of every service/blueprint/static-JS file in `test/`; a **literal business-rule
+diff** of all five reports against the root `reports/` package; and a full
+**styling-conventions** pass over `style.css` + every template + injecting JS.
+Not done: executing code/tests, dynamic analysis, or verifying that any report's
+output numbers are *correct* against D365 (only that the two implementations
+*diverge*).
