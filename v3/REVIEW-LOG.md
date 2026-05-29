@@ -3,6 +3,8 @@
 This is the running log of the autonomous v3 rebuild. Read the sections in this order
 when you get back:
 
+0. **DECISION JOURNAL (plain English)** - every choice I made, in normal words: what I had
+   to decide, the options, what I picked, and why. Start here.
 1. **NEEDS HUMAN SIGN-OFF** - decisions only you can make (report calculation rules,
    cutover). Nothing financial was decided silently; each item below is built to LIVE/root
    behavior as PROVISIONAL until you sign off.
@@ -12,6 +14,77 @@ when you get back:
 
 Authoritative plans: `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) and
 `.cursor/plans/gpt55_rebuild_plan_8e9d2b54.plan.md` (gpt55). Rules: `.cursor/rules/v3-rebuild.mdc`.
+
+---
+
+## 0. DECISION JOURNAL (plain English)
+
+> Plain-words record of every real decision, newest at the bottom. Format for each:
+> **What I had to decide -> The options -> What I chose -> Why.** Skim the bold lines if
+> you're in a hurry; we'll walk through anything you want to change.
+
+### Session: Fri May 29 (before Shabbos) - your ground rules + going live at /test
+
+**1. The big one: which app is the "source of truth" for reports?**
+You told me: the LIVE app's reports are "god." The test app was a rebuild whose *point* was a
+nicer on-screen table (interactive, customizable) instead of dumping straight to Excel.
+- *Options:* (a) copy the test app wholesale, (b) copy the live app wholesale, (c) blend them.
+- *Chosen (c), split by concern:*
+  - **How it's built / how it behaves (architecture + UX)** -> follow the **TEST app**:
+    reports render as an interactive table **on screen first**, and only turn into an Excel
+    file **when you click Export**.
+  - **What the report looks like - the columns, their order, the layout/format** -> follow the
+    **LIVE app** (specifically, match the format of the live app's *exports*).
+  - **The numbers / all the math** -> follow the **LIVE app**, exactly.
+- *Why:* you said the live numbers are what the business runs on, so I never want v3 to show a
+  different number than live. But the test app's on-screen experience is the upgrade you want to
+  keep. Splitting it this way gives you live-correct content in the better test-style shell.
+
+**2. Special case: the Commissions tab inside the Invoiced report.**
+- *Decision:* build it the way the **test app** does (views nicely on screen), and when exported
+  it should match the **live app's** export. (Same rule as #1, called out because you flagged it.)
+
+**3. Sign-in for the preview at report.achimonline.com/test.**
+- *Options:* real Microsoft (Entra) login like live; a dev "pick a user" screen; or just mimic the
+  test app.
+- *Chosen:* **real Microsoft (Entra) login, same as the live app**, reusing the redirect URL that
+  already works for /test.
+- *Why:* it's going on the real domain, so it should behave like the real thing - no fake login.
+
+**4. If I run out of time to verify every report's math by Sunday.**
+- *Options:* hide any report I haven't fully matched to live ("coming soon"), OR show everything
+  and clearly flag the not-yet-verified numbers.
+- *Chosen:* **show everything, with a clear "numbers not yet verified" flag** on anything I
+  haven't confirmed against live.
+- *Why:* you said you want to *see* the whole app Sunday. The flag makes sure you're never misled
+  into trusting an unverified number.
+
+**5. Backing up saved settings (the "Litestream" question).**
+Plain version: the app keeps a small file on the server for prefs, schedules, and who-can-see-what.
+Azure can wipe that file on a restart. Litestream copies it to cloud storage so it survives.
+- *You asked me to just set it up* (you're logged into the Azure CLI).
+- *What I did:* created an Azure Storage account **`achimsalesreportsv3`** with a container
+  **`litestream`** in your existing resource group **`AchimReportsApp`** (Canada Central, same
+  region as the app). At deploy time I'll pull the access key straight from your Azure CLI session
+  and set it as an app setting, so **the secret never gets written into the code or this chat.**
+- *Why this account/region:* same resource group and region as the web app = lowest latency and
+  one place to manage everything. Cheapest redundancy tier (LRS) is plenty for a settings backup.
+
+**6. Don't lose the old test app.**
+- *Chosen:* keep the current test app in the codebase **and** still reachable at a second URL
+  (planned: **/test-legacy**); point **/test** at the new v3 app.
+- *Why:* you can compare old vs new side by side, and we can instantly flip back if needed.
+
+**7. (My call, logged) How /test will switch to v3.**
+- Today `wsgi.py` already serves the live app at `/` and the old test app at `/test` side by side
+  (via a dispatcher). I'll **swap the v3 app into the `/test` slot** and move the old one to
+  `/test-legacy` - a small, reversible change in one file. No impact on the live `/` app.
+
+**8. (My call, logged) Shipping the built front-end to Azure.**
+- The front-end is bundled by a Node tool (esbuild) into files the browser loads. Azure's Python
+  image may not run that Node build. *Decision:* I'll **commit the built files** so the deploy is
+  reliable without depending on a Node step on the server. (If you'd rather build on deploy, easy
+  to switch - noted as a future option.)
 
 ---
 

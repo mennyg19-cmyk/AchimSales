@@ -9,6 +9,38 @@ These rules govern the clean rebuild in `v3/`. The authoritative step plan is
 `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) reconciled with
 `.cursor/plans/gpt55_rebuild_plan_8e9d2b54.plan.md` (gpt55). Re-read both before each phase.
 
+## Source-of-truth split (owner directive, 2026-05-29)
+
+The LIVE app's reports are the source of truth ("god"). The test app was a rebuild for a nicer
+on-screen experience. Build v3 by splitting concerns:
+
+- **Architecture + UX/behavior -> follow the TEST app.** Reports render as an interactive
+  on-screen table FIRST; Excel is produced ONLY on Export (never build the report in Excel and
+  then show it). Keep the test app's interactivity/customization.
+- **Report format -> follow the LIVE app.** Columns, their order, and layout match the LIVE app's
+  EXPORT format. The on-screen table shows those same live columns.
+- **Math / business logic -> follow the LIVE app, exactly.** Never show a number that differs
+  from live. Port live math; don't reinvent it.
+- **Invoiced report "Commissions" tab:** on-screen view like the TEST app, export like the LIVE app.
+- If time is short, SHOW every report/page but clearly flag any report whose math is not yet
+  verified against live as "numbers not yet verified" (owner chose visibility + flag over hiding).
+
+## Decision logging (owner directive: plain English)
+
+The owner is a self-taught programmer: reads code fine, dislikes jargon. For EVERY real decision,
+append an entry to `v3/REVIEW-LOG.md` section 0 "DECISION JOURNAL" in plain words using:
+**What I had to decide -> The options -> What I chose -> Why.** No unexplained jargon. This is in
+addition to the technical sections. Secrets (keys, connection strings) NEVER go in the repo or the
+log - pull them from the Azure CLI at deploy time and set them as Azure app settings.
+
+## Deployment target (owner directive)
+
+v3 goes live at `report.achimonline.com/test`. `wsgi.py` already serves live `/` + the old test
+app at `/test` via `DispatcherMiddleware`. Swap v3 into the `/test` slot and move the old test app
+to `/test-legacy` (keep its code; keep it viewable). Real Entra login (reuse the existing /test
+redirect URI). Litestream backup uses Azure Storage account `achimsalesreportsv3`, container
+`litestream`, in resource group `AchimReportsApp` (key fetched via az CLI at deploy).
+
 ## How this runs (one agent, real cross-model review)
 
 - A single agent builds. After EACH phase, launch a review subagent on model
@@ -56,5 +88,6 @@ These rules govern the clean rebuild in `v3/`. The authoritative step plan is
 2. Build the phase to the non-negotiables above.
 3. Run smoke tests for the phase.
 4. Launch a `gpt-5.5-high` readonly review subagent; collect findings.
-5. Update `v3/REVIEW-LOG.md` (resolved, deferred, NEEDS HUMAN SIGN-OFF).
+5. Update `v3/REVIEW-LOG.md`: section 0 DECISION JOURNAL (plain English) for any new decisions,
+   plus the technical sections (resolved, deferred, NEEDS HUMAN SIGN-OFF).
 6. Resolve blockers, then commit + push.
