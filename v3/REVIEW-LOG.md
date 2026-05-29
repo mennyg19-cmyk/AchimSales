@@ -74,11 +74,12 @@ Authoritative plans: `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48) a
   env flag. I'll wire background startup behind an explicit flag in the reporting phase; confirm
   the single-worker deployment is acceptable.
 
-- **Cache-scope leakage (deferred, needs eventual sign-off)**: `report_payload_cache` prevents
-  cross-user/cross-scope leakage purely via the `cache_key` (which includes user scope +
-  builder version + freshness). This is NOT enforced by a schema constraint. Plan: the
-  cache-key builder will be the single source of truth and the reporting phase will add explicit
-  cache-scope leakage tests. Flagging so you can confirm that approach is acceptable.
+- **Cache-scope leakage - RESOLVED (phase 5)**: the scope token is now produced ONLY by
+  `canonical_scope_token()` (order-stable; None->ALL, empty->NONE, never ""), `build_cache_key()`
+  rejects an empty token, and `ReportRunner` derives the token internally from the authorization
+  result so a route can't pass a raw/unordered token. Tests prove cross-scope isolation
+  (`test_runner_scope_isolates_cache`, `test_cache_key_isolates_scope`). Schema-level enforcement
+  is unnecessary given this single chokepoint, but confirm you're comfortable with the approach.
 
 ---
 
@@ -150,8 +151,30 @@ each request (the session cookie is trusted for identity only):
 | 0/1. Rules + log + scaffold + config + engine foundation | DONE | 7ec6582 | 22 tests; GPT-5.5 findings resolved |
 | 2. Data layer (precious/cache, migrations, durable jobs, repos) | DONE | 97e1b99 | 31 tests; atomicity + concurrency proven |
 | 3. Auth + single authorization/scope layer | DONE | f8eaae1 | 46 tests; DB-authoritative, fail-closed |
-| 4. Jobs worker + APScheduler | DONE | (this commit) | 59 tests; restart recovery + bounded concurrency |
-| 5. Reporting orchestration (HTTP client, lookups, runner, ONE cache, export) | next | - | - |
+| 4. Jobs worker + APScheduler | DONE | b9aa4db | 59 tests; restart recovery + bounded concurrency |
+| 5. Reporting infra (client, ONE scope-safe cache, runner, export, durable wiring) | DONE | (this commit) | 80 tests; cache-scope item resolved |
+| 6. report_engine builders (6 reports) | GATED on human sign-offs (section 1) | - | source adapters + parity harness can start; calc rules need sign-off |
+| 7. Blueprints (thin routes, feature parity) | pending | - | - |
+| 8. Frontend (pixel-parity base.html shell, token CSS, esbuild) | pending | - | unblocked; large |
+
+### Phase 5 - Reporting infrastructure
+
+GPT-5.5 found three blockers; all fixed:
+
+- **Fixed (BLOCKER) - rule 7 not wired**: added `web/reporting/jobs.py` - a `report.run` durable-job
+  handler + `enqueue_report_run()` (dedup = cache key). Routes will enqueue and poll, never run a
+  report in the request thread. Proven by `test_report_run_enqueues_and_worker_populates_cache`.
+- **Fixed (BLOCKER) - Excel formula injection**: `export.py` prefixes `'` on cells starting with
+  `= + - @` (and tab/CR) so D365/customer text can't execute as a formula.
+  `test_export_neutralizes_formula_injection`.
+- **Fixed (BLOCKER) - scope-token canonicalization**: `canonical_scope_token()` is the only way to
+  build a token; `build_cache_key` rejects empty; the runner derives it from the authz scope (see
+  resolved item in section 2).
+- **Hardened (non-blocking)**: client retries transient 5xx + network but not 4xx; tolerates a
+  non-list `rows`; corrupt cache JSON is quarantined (deleted) not re-read; `ReportCache.prune()`
+  added for a future scheduled reaper.
+- **Boundary recorded**: Reporting API report-id mapping + filter translation intentionally live
+  with the (gated) source adapters/builders, not the generic client.
 
 ### Phase 4 - Background jobs (bounded worker + scheduler)
 

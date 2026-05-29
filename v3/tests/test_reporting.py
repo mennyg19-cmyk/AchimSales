@@ -1,0 +1,290 @@
+"""Reporting infra: API client, scope-safe cache, runner, export."""
+
+import io
+
+import pytest
+
+from web.data.connection import Database
+from web.data.migrate import migrate
+from web.data.repositories.jobs import JobRepository
+from web.jobs.worker import JobWorker
+from web.reporting.cache import (
+    SCOPE_ALL,
+    SCOPE_NONE,
+    ReportCache,
+    build_cache_key,
+    canonical_scope_token,
+)
+from web.reporting.export import payload_to_xlsx
+from web.reporting.http_client import (
+    ReportingApiClient,
+    ReportingApiError,
+    ReportingApiNotConfigured,
+)
+from web.reporting.jobs import enqueue_report_run, make_report_run_handler
+from web.reporting.runner import ReportRunner
+
+
+@pytest.fixture
+def db(tmp_path):
+    d = Database(tmp_path / "precious.db", tmp_path / "cache.db")
+    migrate(d)
+    return d
+
+
+# --- HTTP client ------------------------------------------------------------
+
+class _FakeResp:
+    def __init__(self, status, body):
+        self.status_code = status
+        self._body = body
+
+    def json(self):
+        return self._body
+
+
+class _FakeSession:
+    def __init__(self, resp=None, exc=None):
+        self.resp, self.exc, self.calls = resp, exc, 0
+
+    def post(self, url, *, json, headers, timeout):
+        self.calls += 1
+        if self.exc:
+            raise self.exc
+        return self.resp
+
+
+def test_client_not_configured_raises():
+    with pytest.raises(ReportingApiNotConfigured):
+        ReportingApiClient("", "").run_report("ordered", {})
+
+
+def test_client_parses_rows():
+    sess = _FakeSession(_FakeResp(200, {"rows": [{"A": 1}], "row_count": 1, "columns": ["A"]}))
+    client = ReportingApiClient("http://api", "k", session=sess)
+    res = client.run_report("salesline_release", {"From": "2026-01-01"})
+    assert res.row_count == 1 and res.rows == [{"A": 1}] and res.columns == ["A"]
+
+
+def test_client_4xx_raises_without_retry():
+    sess = _FakeSession(_FakeResp(400, {}))
+    client = ReportingApiClient("http://api", "k", retries=3, session=sess)
+    with pytest.raises(ReportingApiError):
+        client.run_report("x", {})
+    assert sess.calls == 1  # client error is not retried
+
+
+def test_client_5xx_is_retried():
+    sess = _FakeSession(_FakeResp(503, {}))
+    client = ReportingApiClient("http://api", "k", retries=2, session=sess)
+    with pytest.raises(ReportingApiError):
+        client.run_report("x", {})
+    assert sess.calls == 3  # transient server error retried (initial + 2)
+
+
+def test_client_retries_network_then_fails():
+    sess = _FakeSession(exc=ConnectionError("down"))
+    client = ReportingApiClient("http://api", "k", retries=2, session=sess)
+    with pytest.raises(ReportingApiError):
+        client.run_report("x", {})
+    assert sess.calls == 3  # initial + 2 retries
+
+
+def test_client_tolerates_non_list_rows():
+    sess = _FakeSession(_FakeResp(200, {"rows": None}))
+    client = ReportingApiClient("http://api", "k", session=sess)
+    assert client.run_report("x", {}).rows == []
+
+
+# --- canonical scope token --------------------------------------------------
+
+def test_canonical_scope_token_is_order_stable():
+    assert canonical_scope_token({"b", "a"}) == canonical_scope_token({"a", "b"}) == "a,b"
+
+
+def test_canonical_scope_token_reserved_values():
+    assert canonical_scope_token(None) == SCOPE_ALL       # privileged
+    assert canonical_scope_token(set()) == SCOPE_NONE      # known user, no keys
+    assert canonical_scope_token(["", "  "]) == SCOPE_NONE  # blanks ignored
+
+
+def test_build_cache_key_rejects_empty_scope():
+    with pytest.raises(ValueError):
+        build_cache_key(report_key="ordered", identity="u", scope_token="",
+                        builder_version=1, params={})
+
+
+# --- cache key scope safety -------------------------------------------------
+
+def test_cache_key_isolates_scope():
+    base = dict(report_key="ordered", builder_version=1, params={"from": "2026-01-01"})
+    admin = build_cache_key(identity="shared", scope_token="ALL", **base)
+    sm_a = build_cache_key(identity="shared", scope_token="mkolko", **base)
+    sm_b = build_cache_key(identity="shared", scope_token="hkaufman", **base)
+    assert admin != sm_a != sm_b and admin != sm_b  # every scope -> distinct key
+
+
+def test_cache_key_changes_with_every_component():
+    k = lambda **o: build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                                    builder_version=1, params={"a": 1}, **o)
+    baseline = k()
+    assert baseline != build_cache_key(report_key="invoiced", identity="u", scope_token="ALL",
+                                       builder_version=1, params={"a": 1})
+    assert baseline != build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                                       builder_version=2, params={"a": 1})
+    assert baseline != build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                                       builder_version=1, params={"a": 2})
+
+
+def test_cache_round_trip_and_isolation(db):
+    cache = ReportCache(db)
+    key_a = build_cache_key(report_key="ordered", identity="x", scope_token="mkolko",
+                            builder_version=1, params={})
+    key_b = build_cache_key(report_key="ordered", identity="x", scope_token="hkaufman",
+                            builder_version=1, params={})
+    cache.put(key_a, "ordered", {"tabs": [{"name": "T", "rows": [{"v": "A-only"}]}]})
+    assert cache.get(key_b) is None  # other scope cannot read A's payload
+    assert cache.get(key_a).payload["tabs"][0]["rows"][0]["v"] == "A-only"
+
+
+# --- runner -----------------------------------------------------------------
+
+def test_runner_caches_then_serves_from_cache(db):
+    runner = ReportRunner(ReportCache(db))
+    calls = {"n": 0}
+
+    def builder(params):
+        calls["n"] += 1
+        return {"tabs": [{"name": "T", "rows": [{"x": params["x"]}]}]}
+
+    args = dict(report_key="ordered", identity="u", visible_salesman_keys=None,
+                builder_version=1, params={"x": 1}, builder=builder)
+    first = runner.run(**args)
+    second = runner.run(**args)
+    assert first.from_cache is False and second.from_cache is True
+    assert calls["n"] == 1  # builder ran once
+
+
+def test_runner_scope_isolates_cache(db):
+    """Two scoped users with the same params never share a cached payload."""
+    runner = ReportRunner(ReportCache(db))
+
+    def builder_a(params):
+        return {"tabs": [{"name": "T", "rows": [{"who": "a"}]}]}
+
+    def builder_b(params):
+        return {"tabs": [{"name": "T", "rows": [{"who": "b"}]}]}
+
+    out_a = runner.run(report_key="ordered", identity="shared", visible_salesman_keys={"mkolko"},
+                       builder_version=1, params={"x": 1}, builder=builder_a)
+    out_b = runner.run(report_key="ordered", identity="shared", visible_salesman_keys={"hkaufman"},
+                       builder_version=1, params={"x": 1}, builder=builder_b)
+    assert out_a.cache_key != out_b.cache_key
+    assert out_b.from_cache is False  # did not read user A's cache
+
+
+def test_runner_force_refresh_rebuilds(db):
+    runner = ReportRunner(ReportCache(db))
+    calls = {"n": 0}
+
+    def builder(params):
+        calls["n"] += 1
+        return {"tabs": []}
+
+    args = dict(report_key="ordered", identity="u", visible_salesman_keys=None,
+                builder_version=1, params={}, builder=builder)
+    runner.run(**args)
+    runner.run(**args, force_refresh=True)
+    assert calls["n"] == 2
+
+
+def test_runner_rejects_non_dict_payload(db):
+    runner = ReportRunner(ReportCache(db))
+    with pytest.raises(TypeError):
+        runner.run(report_key="ordered", identity="u", visible_salesman_keys=None,
+                   builder_version=1, params={}, builder=lambda p: ["not", "a", "dict"])
+
+
+def test_cache_prune_removes_old_rows(db):
+    cache = ReportCache(db)
+    key = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                          builder_version=1, params={})
+    cache.put(key, "ordered", {"tabs": []})
+    assert cache.prune(older_than_seconds=-1) == 1  # cutoff in the future -> prunes all
+    assert cache.get(key) is None
+
+
+def test_cache_quarantines_corrupt_json(db):
+    cache = ReportCache(db)
+    key = "deadbeef"
+    with db.cache() as conn:
+        conn.execute(
+            "INSERT INTO report_payload_cache(cache_key, report_key, payload_json, built_at)"
+            " VALUES (?, 'ordered', '{not json', datetime('now'))",
+            (key,),
+        )
+    assert cache.get(key) is None  # corrupt -> miss
+    with db.cache() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM report_payload_cache WHERE cache_key=?", (key,)
+        ).fetchone()[0] == 0  # and the bad row is deleted
+
+
+# --- durable report.run wiring (rule 7) -------------------------------------
+
+def test_report_run_enqueues_and_worker_populates_cache(db):
+    runner = ReportRunner(ReportCache(db))
+    job_repo = JobRepository(db)
+    worker = JobWorker(db)
+    worker.register("report.run", make_report_run_handler(
+        runner, builder_resolver=lambda key: (lambda params: {"tabs": [{"name": key, "rows": []}]})
+    ))
+
+    jid = enqueue_report_run(
+        job_repo, report_key="ordered", identity="u", visible_salesman_keys={"mkolko"},
+        builder_version=1, params={"from": "2026-01-01"},
+    )
+    # Same request collapses to one job (dedup).
+    jid2 = enqueue_report_run(
+        job_repo, report_key="ordered", identity="u", visible_salesman_keys={"mkolko"},
+        builder_version=1, params={"from": "2026-01-01"},
+    )
+    assert jid == jid2
+
+    worker.process_next()
+    done = job_repo.get(jid)
+    assert done.status == "success"
+    # result_ref is the cache key; the payload is now cached and readable.
+    assert ReportCache(db).get(done.result_ref).payload["tabs"][0]["name"] == "ordered"
+
+
+# --- export -----------------------------------------------------------------
+
+def test_export_produces_valid_xlsx():
+    openpyxl = pytest.importorskip("openpyxl")
+    payload = {"tabs": [
+        {"name": "Summary", "columns": ["Customer", "Total"], "rows": [{"Customer": "ACME", "Total": 10}]},
+        {"name": "Detail/Bad:Name*", "columns": ["X"], "rows": [{"X": 1}, {"X": 2}]},
+    ]}
+    data = payload_to_xlsx(payload)
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    assert "Summary" in wb.sheetnames
+    # Invalid sheet chars are sanitized.
+    assert all(not set(name) & set(":\\/?*[]") for name in wb.sheetnames)
+    ws = wb["Summary"]
+    assert [c.value for c in ws[1]] == ["Customer", "Total"]
+    assert ws[2][0].value == "ACME"
+
+
+def test_export_neutralizes_formula_injection():
+    openpyxl = pytest.importorskip("openpyxl")
+    payload = {"tabs": [{"name": "T", "columns": ["X"], "rows": [
+        {"X": "=cmd|'/c calc'!A1"}, {"X": "+1+1"}, {"X": "-2"}, {"X": "@SUM(1)"}, {"X": "safe"},
+    ]}]}
+    wb = openpyxl.load_workbook(io.BytesIO(payload_to_xlsx(payload)))
+    ws = wb["T"]
+    assert ws[2][0].value.startswith("'=")   # leading apostrophe forces literal text
+    assert ws[3][0].value.startswith("'+")
+    assert ws[4][0].value.startswith("'-")
+    assert ws[5][0].value.startswith("'@")
+    assert ws[6][0].value == "safe"          # ordinary text untouched
