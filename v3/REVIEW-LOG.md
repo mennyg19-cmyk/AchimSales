@@ -584,3 +584,31 @@ GPT-5.5 found two real blockers; both fixed:
   scheduler sets explicit `coalesce/misfire_grace_time/max_instances` for a sleepy process; added a
   bounded-concurrency test proving we never exceed `max_workers`.
 - **Deferred to human**: scheduler/worker single-owner deployment contract (section 2).
+
+### Phase 8 - Production deployment to /test (DONE, live)
+
+v3 is now serving live on Azure at `/test`, with the old test app moved to `/test-legacy`
+and the live app untouched at `/`. Verified end-to-end on the default app domain:
+
+- `/test/healthz` returns v3's `{"status":"ok"}` (v2 returned `{"auth_mode","mock_data",...}`).
+- `/test/` (unauthenticated) -> 302 -> `/test/login?next=/`.
+- `/test/login` -> 302 -> Microsoft Entra `authorize` URL with PKCE (S256) + nonce + state and
+  `redirect_uri=<host>/test/auth/callback`.
+- `/test-legacy/healthz` -> 200 (v2 still alive); `/` -> 302 (live untouched).
+
+**Redirect URI reuse**: the legacy `/test` app's callback was mount + `/auth/callback` =
+`/test/auth/callback`, which is exactly what v3 emits, so the already-registered Entra redirect
+URI is reused with no new app-registration change. The custom domain `report.achimonline.com`
+is bound to the same App Service, so `report.achimonline.com/test` routes to v3 identically
+(its `/test/auth/callback` on that host must also remain registered, as it was for the old app).
+
+**Root cause of the initial fallback (fixed)**: with `V3_MOUNT_ENABLED=1` set, `/test` still
+served v2. v3 was raising during boot and hitting the `wsgi.py` fail-safe. Cause: `wsgi.py`
+*appended* `v3/` to `sys.path`, so a same-named top-level `web` on the Azure image's path
+shadowed v3's `web` package and `create_app()` failed. Fix: insert `v3/` at the front of
+`sys.path` before `import web` (safe - live/v2 import `webapp`/`test.webapp`, never `web` or
+`report_engine`). Also added a best-effort write of any future boot traceback to
+`/home/LogFiles/v3_boot_error.log` for fast diagnosis. After redeploy, all checks above pass.
+
+**Mounting contract (unchanged, fail-safe)**: `/test` only mounts v3 when `V3_MOUNT_ENABLED=1`;
+on any v3 boot exception it falls back to v2 so `/test` can never hard-fail the site.
