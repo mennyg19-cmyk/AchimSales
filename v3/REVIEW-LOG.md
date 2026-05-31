@@ -647,3 +647,26 @@ then back to 1 after the fix deployed.
 saturates the on-prem API and locks SQLite during cold starts; that contention is pre-existing and
 independent of v3, but it makes every cold start fragile and is worth de-risking separately
 (e.g. defer/serialize the catch-up, or point the warmup probe at a cheap health path).
+
+### Phase 10 - Login fixes + user directory mirror
+
+Two issues surfaced once real users hit `/test`:
+
+- **"No auth flow in session" at the MSAL callback (fixed)**: v3 shared its host with the live
+  app, which uses Flask's default session cookie name `session`; v3 used the same default, so the
+  two apps overwrote each other's cookie and wiped the in-flight auth flow before the callback.
+  Fix (`web/__init__.py`): `SESSION_COOKIE_NAME="v3_session"` (v2 already uses `v2_session`) plus
+  `HttpOnly` / `SameSite=Lax` / `Secure` in prod. The `achimonline.com` accounts live in tenant
+  `17d20374...`, which `GRAPH_TENANT_ID` already points at, so the tenant was never the problem.
+  (Aside: the public domain is **`reports.achimonline.com`**, plural.)
+
+- **Everyone landed as no-access 'salesman' (fixed)**: v3 only knew the env-listed admins, so real
+  accounts had no role. New `web/data/seed_users.py` mirrors the live app's authoritative user
+  directory (`app_users` in `/home/data/app.db`) into v3's `users` table on every boot - read-only,
+  no live-code import. Roles map 1:1 (admin|developer|manager|salesman); each user's `salesman_key`
+  is mapped into `user_salesman_access` when that salesman exists in v3 (normalized, FK-safe).
+  Mirror semantics: live is the source of truth for *who can sign in*; explicit env admins
+  (`V3/V2_ADMIN_EMAILS`, currently `mennyg@achimonline.com`) are applied last and always win.
+  Verified in prod: `mirrored 11 users from live DB`. Users keep their existing session role until
+  they sign out / back in (authorization gating re-resolves from the DB live, but the session
+  Principal's role is captured at login).
