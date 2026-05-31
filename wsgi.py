@@ -61,9 +61,13 @@ _TEST_MOUNT = os.environ.get("V3_URL_PREFIX", "/test")
 
 def _build_v3_app():
     """Create the v3 app and start its background worker. Raises on bad config."""
-    v3_root = _REPO_ROOT / "v3"
-    if str(v3_root) not in sys.path:
-        sys.path.append(str(v3_root))  # append: never shadow live's top-level modules
+    v3_root = str(_REPO_ROOT / "v3")
+    # Insert at the FRONT so v3's top-level packages (web, report_engine) win over
+    # any same-named site-package. Live/v2 import webapp / test.webapp, never these
+    # names, so this can't shadow them.
+    if v3_root in sys.path:
+        sys.path.remove(v3_root)
+    sys.path.insert(0, v3_root)
     import web as v3_web
 
     app = v3_web.create_app()
@@ -77,6 +81,15 @@ if _env_bool("V3_MOUNT_ENABLED"):
         log.info("v3 mounted at %s", _TEST_MOUNT)
     except Exception:  # noqa: BLE001 - never let v3 take down live / /test
         log.exception("v3 failed to boot; %s falls back to the v2 app", _TEST_MOUNT)
+        try:  # persist the traceback where it can be downloaded for diagnosis
+            import traceback
+
+            err_path = os.environ.get("V3_BOOT_ERROR_LOG", "/home/LogFiles/v3_boot_error.log")
+            os.makedirs(os.path.dirname(err_path), exist_ok=True)
+            with open(err_path, "w", encoding="utf-8") as fh:
+                fh.write(traceback.format_exc())
+        except Exception:  # noqa: BLE001
+            log.exception("could not write v3 boot error file")
         MOUNTS[_TEST_MOUNT] = _v2_app
 else:
     # v3 disabled: preserve the current behavior (v2 serves /test).
