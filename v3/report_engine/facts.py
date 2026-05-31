@@ -74,6 +74,27 @@ class InvoiceChargeFact:
 
 
 @dataclass(frozen=True)
+class InvoiceItemFact:
+    """One invoice LINE (item-level) from the invoice_lines SP (Number 4 report).
+
+    Distinct from InvoiceChargeFact: that one is charge-level (one row per
+    invoice with the subtotal/tariff/freight/cc split); this one is line-level
+    (one row per invoiced item) carrying item, quantity, and line amount.
+    """
+    source: Source
+    invoice_number: str
+    invoice_date: str          # 'YYYY-MM-DD' or ''
+    customer_account: str
+    customer_name: str
+    sales_group: str
+    item_number: str
+    item_name: str
+    qty: float
+    amount: float
+    raw: dict = field(default_factory=dict, compare=False, repr=False)
+
+
+@dataclass(frozen=True)
 class CustomerFact:
     """One customer master record (customer activity / last order)."""
     source: Source
