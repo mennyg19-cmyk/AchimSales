@@ -167,6 +167,41 @@ You had time and asked me to surface every question across all 5 reports. Here's
 - LIVE: `Sales = Total Invoice - CC Charges - Freight Charges` (= SubTotal + Tariff). Verified in
   `reports/salesman/builder.py`. Building the salesman report to this exactly.
 
+**18. Built the Salesman report (12 month tabs).**
+- Done: one tab per calendar month (Jan-Dec), each row = a (customer, salesman) pair, comparing this
+  year's sales for that month vs the same month last year, plus YTD-through-this-month and full-year
+  totals, with `$ diff` and `% diff` columns. Sales uses the formula in #17. Rows with no usable
+  invoice date are dropped. Sorted by salesman number (zero-padded so "10" sorts after "2").
+- *Why month tabs:* matches your #16 choice and the test app's on-screen feel.
+
+**19. Built the Ordered report - and confirmed the "Book Price file" arrived for Number 4.**
+- *Ordered, what I shipped:* the six live tabs (Summary, By Customer, By Item, By Order, By Salesman,
+  Full Data) with the **exact live column names/order**. Dollar columns come **straight from the SP**
+  (authoritative, per #13). Quantity buckets (QtyShipped/QtyCancelled/QtyOpen) and Fulfillment % are
+  still **derived on the interim rule and flagged as a stub** (`stub_fields` on every tab + a note),
+  so the UI can mark them "pending API field" until your qty-cancelled change lands.
+- *One LIVE rule I added that the test app was missing:* LIVE **drops "ERROR ITEM" lines**; v3 does
+  too now (the test app kept them). Same numbers as live.
+- *Clean-up vs the test app:* the test app had four near-identical aggregation functions (By Customer
+  / Item / Order / Salesman). v3 has **one** generic aggregator they all call - same output, far less
+  code to keep in sync.
+
+**20. Number 4 "Book Price" source - resolved (you sent `released_products_report.md`).**
+- The new endpoint is `released_products` (SP `rpt.usp_releasedproducts`). It returns one row per item
+  with `SalesPrice`, `UnitCost`, `PurchasePrice`, etc.
+- *What "Book Price" actually is:* I traced the LIVE code - it maps the released product's
+  **`SalesPrice` -> `BookPrice`**, joined to invoice lines by **ItemNumber (upper-cased)**
+  (`data/field_maps.py: BOOK_PRICE_FIELD_MAP`). So Book Price = the item's catalog SalesPrice, not the
+  invoiced price.
+- *Where it goes:* LIVE puts **"Book Price" as the last column** (after Salesman) on the Number 4
+  tabs (`reports/number_4/writer_item.py`). v3 will match.
+- *How I'll wire it:* the Number 4 builder takes an optional `book_prices` map `{ITEM -> SalesPrice}`;
+  the web layer fetches `released_products` once and passes it in. If the lookup is empty (endpoint
+  down), Book Price renders blank rather than failing the report.
+- *Note to verify on the box:* the doc shows the request body wrapped as `{"parameters": {...}}`,
+  while `salesline_release` posts a flat body. I'll confirm which envelope this endpoint actually
+  wants when we can hit the API, and adjust the client if needed.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

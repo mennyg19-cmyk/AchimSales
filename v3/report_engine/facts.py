@@ -17,21 +17,34 @@ Source = Literal["reporting_api", "odata"]
 
 @dataclass(frozen=True)
 class OrderLineFact:
-    """One sales-order line (ordered report, dashboard)."""
+    """One sales-order line from salesline_release (ordered report, dashboard).
+
+    Source-shaped. The SP returns authoritative dollar columns
+    (ordered/shipped/cancelled) computed server-side from WHS + packing-slip
+    data, plus the raw qty inputs. It does NOT yet return an explicit
+    qty-cancelled, so the builder derives the qty buckets and flags them.
+    """
     source: Source
-    order_number: str
-    order_date: str
+    company: str
+    sales_order_number: str
+    order_date: str            # 'YYYY-MM-DD' or ''
     customer_account: str
     customer_name: str
     sales_group: str
+    po_number: str
+    line_number: int
     item_number: str
     item_name: str
+    unit_price: float
+    status: str
+    order_status: str
     qty_ordered: int
     qty_released: int
-    qty_shipped: int
-    qty_remaining: int
-    line_amount: float
-    status: str
+    delivery_remainder: int
+    qty_left_to_load: int
+    ordered_dollars: float     # authoritative (server-side)
+    shipped_dollars: float     # authoritative (server-side)
+    cancelled_dollars: float   # authoritative (server-side)
     raw: dict = field(default_factory=dict, compare=False, repr=False)
 
 
