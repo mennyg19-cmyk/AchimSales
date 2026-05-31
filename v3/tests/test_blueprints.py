@@ -184,3 +184,55 @@ def test_settings_renders_for_admin(tmp_path):
     _login(client, app)
     html = client.get("/settings").get_data(as_text=True)
     assert "Appearance" in html and "Profile" in html
+
+
+def test_granted_non_privileged_user_cannot_run_report(tmp_path):
+    """A manager with an explicit report grant may VIEW the report in the list
+    but must NOT be able to run it (scope enforcement pending; fail closed)."""
+    app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
+    db = app.config["DB"]
+    user = UserRepository(db).upsert("mgr@x.com", display_name="Mgr", role="manager")
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO user_report_access(user_id, report_key, allowed) VALUES (?, 'ordered', 1)",
+            (user.id,),
+        )
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "mgr@x.com", "name": "Mgr", "role": "manager", "is_dev": True}
+        s["_csrf_token"] = _CSRF
+    # Visible in the list...
+    assert "Ordered" in client.get("/").get_data(as_text=True)
+    # ...but cannot run / view it.
+    assert client.get("/reports/ordered").status_code == 403
+    assert client.post("/api/reports/ordered/run", json={},
+                       headers={"X-CSRF-Token": _CSRF}).status_code == 403
+
+
+def test_revoked_access_blocks_result_read(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post("/api/reports/ordered/run", json={},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    # Demote the admin to salesman (fail-closed) and confirm the cached result is denied.
+    db = app.config["DB"]
+    with db.precious() as conn:
+        conn.execute("UPDATE users SET role='salesman' WHERE email='admin@x.com'")
+    assert client.get(f"/api/reports/result/{job_id}").status_code == 403
+
+
+def test_invoiced_commissions_tab_is_not_blank(tmp_path):
+    rows = [
+        {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
+         "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path, rows_by_report={"invoiced_order_charges": rows})
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    payload = client.get(f"/api/reports/result/{job_id}").get_json()
+    comm = next(t for t in payload["tabs"] if t["key"] == "commissions")
+    assert comm["columns"] and comm["rows"]  # renders as a real table, not blank

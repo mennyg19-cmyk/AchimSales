@@ -21,7 +21,11 @@ def dashboard():
     p = current_principal()
     db = current_app.config["DB"]
     row = UserRepository(db).get_by_email(p.email)
-    allowed = bool(p.is_privileged or (row and row.dashboard_enabled))
+    # Live checks (never the session role): active privileged user, or the
+    # dashboard flag on the live DB row.
+    allowed = current_app.config["AUTHZ"].is_privileged(p) or bool(
+        row and row.is_active and row.dashboard_enabled
+    )
     if not allowed:
         abort(403, description="Dashboard access required")
 

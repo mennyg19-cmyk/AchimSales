@@ -43,6 +43,11 @@ class Authorization:
     def _is_privileged(u: User) -> bool:
         return u.role in _PRIVILEGED
 
+    def is_privileged(self, p: Principal | None) -> bool:
+        """Live (DB-resolved) privilege check - never trusts the session role."""
+        u = self._active_user(p)
+        return bool(u and self._is_privileged(u))
+
     # --- salesman / customer scope -----------------------------------------
 
     def visible_salesman_keys(self, p: Principal) -> set[str] | None:
@@ -93,6 +98,23 @@ class Authorization:
     def assert_can_view_report(self, p: Principal, report_key: str) -> None:
         if not self.can_view_report(p, report_key):
             raise Forbidden(f"Not authorized for report {report_key!r}")
+
+    def assert_report_runnable(self, p: Principal, report_key: str) -> None:
+        """Gate the run/result/export path. Re-resolves access live AND, until a
+        per-report scope adapter is signed off, restricts execution to privileged
+        (unrestricted) users - because the builders do not yet filter facts by the
+        principal's salesman scope (REVIEW-LOG: scope enforcement pending). This
+        fails closed: a granted non-privileged user can VIEW the report in the list
+        but cannot run it and pull unscoped data.
+        """
+        if not report_key:
+            raise Forbidden("Missing report")
+        self.assert_can_view_report(p, report_key)
+        if not self.is_privileged(p):
+            raise Forbidden(
+                "This report's per-salesman scoping is pending sign-off; "
+                "only admin/developer accounts can run it for now."
+            )
 
     # --- SharePoint ---------------------------------------------------------
 

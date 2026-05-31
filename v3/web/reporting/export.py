@@ -17,7 +17,7 @@ _INVALID_SHEET = re.compile(r"[:\\/?*\[\]]")
 
 # CSV/Excel formula-injection: a cell whose text starts with one of these can be
 # executed as a formula. Prefix with an apostrophe to force it to literal text.
-_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 
 def _safe_cell(value: Any) -> Any:

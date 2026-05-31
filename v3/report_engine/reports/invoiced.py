@@ -296,12 +296,47 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
     grand = {f: _g(f) for f in ("subtotal_invoices", "tariff_charges", "freight_charges",
                                 "cc_charges", "total_invoices", "credits",
                                 "net_commission", "commission", "total_payable")}
+    labels = list(_MONTH_LABELS[:end_month])
+    columns, rows = _commissions_flat_table(salesmen_out, grand, labels)
     return {
         "key": "commissions", "name": "Commissions", "layout": "commission_cards",
         "year": year, "end_month": end_month,
-        "month_labels": list(_MONTH_LABELS[:end_month]),
-        "salesmen": salesmen_out, "grand": grand, "columns": [], "rows": [],
+        "month_labels": labels,
+        # Rich per-salesman card data kept for a future card UI; columns/rows give
+        # the generic on-screen table + Excel export a real (non-blank) view now.
+        "salesmen": salesmen_out, "grand": grand,
+        "columns": columns, "rows": rows,
     }
+
+
+def _commissions_flat_table(salesmen_out: list[dict], grand: dict,
+                            labels: list[str]) -> tuple[list[dict], list[dict]]:
+    """Flatten the monthly commission cards into one row per salesman (+ a TOTAL
+    row): Salesman, %, a commission column per month, and YTD commission."""
+    columns = [
+        {"field": "Salesman", "header": "Salesman", "type": "text"},
+        {"field": "Commission %", "header": "Commission %", "type": "percent"},
+    ]
+    columns += [{"field": f"Comm {lbl}", "header": lbl, "type": "money"} for lbl in labels]
+    columns.append({"field": "YTD Commission", "header": "YTD Commission", "type": "money"})
+
+    rows: list[dict] = []
+    for s in salesmen_out:
+        name = (f"{s['salesman_number']} - {s['salesman_name']}".strip(" -")
+                or s["salesman_name"] or s["salesman_number"])
+        row = {"Salesman": name, "Commission %": s["commission_pct"]}
+        by_label = {m["month_label"]: m["commission"] for m in s["monthly"]}
+        for lbl in labels:
+            row[f"Comm {lbl}"] = by_label.get(lbl, 0.0)
+        row["YTD Commission"] = s["ytd"]["commission"]
+        rows.append(row)
+
+    total = {"Salesman": "TOTAL", "Commission %": ""}
+    for lbl in labels:
+        total[f"Comm {lbl}"] = round(sum(r.get(f"Comm {lbl}", 0.0) for r in rows), 2)
+    total["YTD Commission"] = grand.get("commission", 0.0)
+    rows.append(total)
+    return columns, rows
 
 
 def _commissions_simple(summary_rows: Sequence[dict],

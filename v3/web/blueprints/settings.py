@@ -34,7 +34,7 @@ def settings_page():
     p = current_principal()
     db = current_app.config["DB"]
     salesmen = []
-    if p.is_privileged:
+    if current_app.config["AUTHZ"].is_privileged(p):  # live DB check, not session role
         salesmen = sorted(
             SalesmanRepository(db).all_as_facts().values(),
             key=lambda s: (s.number or "", s.display_name or ""),

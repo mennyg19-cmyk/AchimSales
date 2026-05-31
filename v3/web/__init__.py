@@ -103,22 +103,33 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         p = current_principal()
         user = None
         dashboard_enabled = False
+        theme = session.get("theme")
         if p is not None:
             user = {"name": p.name, "role": p.role, "_dev": p.is_dev}
             try:
                 row = users.get_by_email(p.email)
                 dashboard_enabled = bool(row and row.dashboard_enabled) or p.is_privileged
+                if theme is None and row is not None:
+                    theme = _load_theme(db, row.id)
             except Exception:  # noqa: BLE001 - never let a nav query break a page render
-                app.logger.warning("dashboard-gate lookup failed for %s", p.email)
+                app.logger.warning("nav/theme lookup failed for %s", p.email)
         return {
             "new_app_marker": cfg.new_app_marker,  # removable header pill; deleted at cutover
             "app_env": cfg.app_env,
             "nav": nav,
             "user": user,
-            "theme": session.get("theme", "light"),
+            "theme": theme or "light",
             "dashboard_enabled": dashboard_enabled,
             "test_site_enabled": False,
         }
+
+
+def _load_theme(db, user_id: int) -> str | None:
+    with db.precious() as conn:
+        row = conn.execute(
+            "SELECT theme FROM user_preferences WHERE user_id = ?", (user_id,)
+        ).fetchone()
+    return row["theme"] if row else None
 
 
 def _register_blueprints(app: Flask) -> None:
@@ -151,15 +162,60 @@ def _register_cli(app: Flask, db) -> None:
 
 
 def bootstrap_background(app: Flask) -> None:
-    """Prod-only side effects: apply migrations and start the job worker.
+    """Prod-only side effects: migrate, seed admins/salesmen, start the worker.
 
     Kept OUT of create_app so tests can build an app without spawning threads or
-    touching schema. The wsgi entrypoint calls this once per process.
+    touching schema. The wsgi entrypoint calls this once per process. Seeding is
+    individually guarded so a bad data file can never stop the app from booting.
     """
     from web.data.migrate import migrate
 
     db = app.config["DB"]
     migrate(db)
+    _seed_admins(app, db)
+    _seed_salesmen_if_empty(app, db)
     worker = app.config.get("JOB_WORKER")
     if worker is not None:
         worker.start()
+
+
+def _seed_admins(app: Flask, db) -> None:
+    """Grant admin to the emails in V3_ADMIN_EMAILS (fallback V2_ADMIN_EMAILS).
+
+    Authorization is DB-authoritative + fail-closed, so without this the first
+    person to sign in would land as a no-access 'salesman'. Idempotent.
+    """
+    import os
+
+    raw = os.environ.get("V3_ADMIN_EMAILS") or os.environ.get("V2_ADMIN_EMAILS") or ""
+    emails = [e.strip().lower() for e in raw.split(",") if e.strip()]
+    if not emails:
+        return
+    try:
+        with db.precious() as conn:
+            for email in emails:
+                conn.execute(
+                    "INSERT INTO users(email, display_name, role, is_active)"
+                    " VALUES (?, '', 'admin', 1)"
+                    " ON CONFLICT(email) DO UPDATE SET role='admin', is_active=1",
+                    (email,),
+                )
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("admin seed failed")
+
+
+def _seed_salesmen_if_empty(app: Flask, db) -> None:
+    """Seed the salesmen table from config/salesman_map.xlsx on a fresh DB."""
+    from web.data.repositories.salesmen import SalesmanRepository
+
+    try:
+        if SalesmanRepository(db).count() > 0:
+            return
+        from web.data.seed_salesmen import read_seeds_from_xlsx
+
+        seeds = read_seeds_from_xlsx()
+        if seeds:
+            SalesmanRepository(db).upsert_many(seeds)
+            app.logger.info("seeded %d salesmen from config", len(seeds))
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("salesmen seed failed")

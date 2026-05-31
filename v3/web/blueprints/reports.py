@@ -93,8 +93,10 @@ def _built_spec_or_404(report_key: str):
 
 
 def _owned_job_or_404(job_id: str, uid: int | None):
+    # Fail closed: require a real current-user id AND an exact owner match. This
+    # keeps NULL-owner (system/orphaned) jobs unreadable through the user APIs.
     job = _job_repo().get(job_id)
-    if job is None or (uid is not None and job.owner_user_id not in (None, uid)):
+    if job is None or uid is None or job.owner_user_id != uid:
         abort(404, description="Unknown job")
     return job
 
@@ -119,7 +121,7 @@ def reports_list():
 def report_view(report_key: str):
     p = _principal_or_401()
     spec = _built_spec_or_404(report_key)
-    _authz().assert_can_view_report(p, report_key)
+    _authz().assert_report_runnable(p, report_key)
     return render_template(
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
@@ -133,25 +135,27 @@ def report_view(report_key: str):
 def run_report(report_key: str):
     p = _principal_or_401()
     spec = _built_spec_or_404(report_key)
-    _authz().assert_can_view_report(p, report_key)
+    authz = _authz()
+    authz.assert_report_runnable(p, report_key)
 
     params = request.get_json(silent=True)
     if not isinstance(params, dict):
         params = request.form.to_dict()
 
-    authz = _authz()
-    visible = authz.visible_salesman_keys(p)
     uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    visible = authz.visible_salesman_keys(p)
     job_id = enqueue_report_run(
         _job_repo(), report_key=report_key, identity=p.email,
         visible_salesman_keys=visible, builder_version=spec.builder_version,
         params=params, owner_user_id=uid,
     )
 
-    # In prod the background worker drains the queue; in dev/test (no poller)
-    # we run it inline so the very next poll resolves.
+    # In prod the background worker drains the queue; only in non-prod (no poller)
+    # do we run it inline so a local dev poll resolves without a worker thread.
     worker = current_app.config["JOB_WORKER"]
-    if not worker.running:
+    if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
         worker.drain()
 
     return jsonify({"job_id": job_id}), 202
@@ -173,6 +177,8 @@ def job_status(job_id: str):
 def report_result(job_id: str):
     p = _principal_or_401()
     job = _owned_job_or_404(job_id, _user_id(p.email))
+    # Re-check access live: a revoked grant must not be able to pull old results.
+    _authz().assert_report_runnable(p, job.params.get("report_key"))
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
     cached = _cache().get(job.result_ref)
@@ -186,8 +192,12 @@ def report_result(job_id: str):
 def export_report(report_key: str, job_id: str):
     p = _principal_or_401()
     _built_spec_or_404(report_key)
-    _authz().assert_can_view_report(p, report_key)
     job = _owned_job_or_404(job_id, _user_id(p.email))
+    # Authorize against the job's OWN report key (not just the URL) and re-resolve live.
+    job_report_key = job.params.get("report_key")
+    if job_report_key != report_key:
+        abort(404, description="Unknown job")
+    _authz().assert_report_runnable(p, job_report_key)
     if job.status != "success":
         abort(409, description="Report is not ready to export")
     cached = _cache().get(job.result_ref)

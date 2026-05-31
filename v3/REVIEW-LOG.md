@@ -310,6 +310,30 @@ You had time and asked me to surface every question across all 5 reports. Here's
   the compiled front-end bundle is now committed to git (I un-ignored `web/static_dist/`). All of
   v3's Python dependencies are already in `webapp/requirements.txt`, which is what Azure installs.
 
+**27. GPT-5.5 reviewed the new web layer; I fixed the security holes before going live.**
+- GPT-5.5 read every new route/template against the auth layer. It found three real
+  "anyone-could-see-too-much" bugs. I fixed all three; the live site was never affected (it's a
+  separate app), but I would not put this in front of real users with these open:
+  - **Running a report could have shown unscoped data to a non-admin.** The number-crunching code
+    doesn't yet trim rows to "just your salesmen" (that's the pending business decision logged above).
+    So I made the run/view/export path **admin/developer-only for now** - a non-admin can see a report
+    in the list but can't run it and pull everyone's numbers. This re-checks against the live database
+    every time, so revoking someone takes effect immediately.
+  - **You could read someone else's finished report if you guessed its job id.** Now you can only read
+    a job that is exactly yours (and "ownerless" leftover jobs are never readable through these URLs).
+  - **A revoked user could still pull an OLD cached result.** The result/export endpoints now
+    re-check your access (live) before handing anything back, using the report stored on the job
+    itself - not just what's in the URL.
+- *Also fixed:* the Dashboard and Settings pages now check your role against the live database instead
+  of trusting the signed-in session (so a demoted admin loses access right away); the Excel export now
+  also neutralizes cells starting with a newline (formula-injection hardening); the inline
+  "run-it-right-now" fallback is disabled in production (production always uses the background worker);
+  and your saved Light/Dark theme now loads back from the database.
+- *The Commissions tab is no longer blank.* The invoiced report had the commission data but in a
+  "card" shape the on-screen table couldn't draw. I flattened it into a real table (one row per
+  salesman, a column per month, plus a YTD column and a TOTAL row) so it both shows on screen and
+  exports to Excel. The richer card data is still in the payload for a nicer card UI later.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
