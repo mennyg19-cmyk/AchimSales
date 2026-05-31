@@ -28,6 +28,18 @@ def create_app(config: Config | None = None) -> Flask:
     # real secret, so this never falls back insecurely.
     app.secret_key = cfg.flask_secret or _ephemeral_dev_secret(cfg)
 
+    # v3 shares its host with the live app (/) and the v2 app (/test-legacy).
+    # All three are Flask; the live app uses the default cookie name "session" and
+    # v3 did too, so they stomp on each other's session cookie and wipe the
+    # in-flight MSAL auth flow (symptom: "No auth flow in session" at the callback).
+    # Give v3 its own name (v2 already uses "v2_session"). SameSite=Lax is required
+    # so the cookie is still sent on the top-level GET redirect back from Microsoft.
+    app.config["SESSION_COOKIE_NAME"] = "v3_session"
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    if cfg.is_prod:
+        app.config["SESSION_COOKIE_SECURE"] = True
+
     db = from_config(cfg)
     app.config["DB"] = db
     app.config["AUTHZ"] = Authorization(db)
