@@ -11,7 +11,8 @@ __pycache__/
 
 # Front-end build
 node_modules/
-web/static_dist/
+# NOTE: web/static_dist/ IS committed. Azure (Oryx) only runs pip, not esbuild,
+# so the built bundle must ship in git. Rebuild with `npm run build` before commit.
 
 # Env
 .env

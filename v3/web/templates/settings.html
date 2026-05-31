@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <h1 class="page-title">Settings</h1>
+</div>
+
+<section class="settings-card">
+    <h2 class="section-title">Profile</h2>
+    <dl class="profile-list">
+        <dt>Name</dt><dd>{{ profile.name }}</dd>
+        <dt>Email</dt><dd>{{ profile.email }}</dd>
+        <dt>Role</dt><dd>{{ profile.role|title }}</dd>
+    </dl>
+</section>
+
+<section class="settings-card">
+    <h2 class="section-title">Appearance</h2>
+    <form method="post" action="{{ url_for('settings.set_theme') }}" class="theme-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="filter-field">
+            <span>Theme</span>
+            <select name="theme">
+                <option value="light" {% if theme == 'light' %}selected{% endif %}>Light</option>
+                <option value="dark" {% if theme == 'dark' %}selected{% endif %}>Dark</option>
+            </select>
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    </form>
+</section>
+
+{% if salesmen %}
+<section class="settings-card">
+    <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
+    <table class="simple-table">
+        <thead><tr><th>#</th><th>Name</th><th>Commission</th></tr></thead>
+        <tbody>
+            {% for s in salesmen %}
+            <tr>
+                <td>{{ s.number }}</td>
+                <td>{{ s.display_name }}</td>
+                <td>{{ '%.2f%%'|format(s.commission_pct * 100) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endif %}
+{% endblock %}

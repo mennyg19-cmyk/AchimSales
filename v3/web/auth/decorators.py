@@ -22,7 +22,7 @@ def _deny(status: int, message: str):
     if _wants_json():
         return jsonify({"error": message, "status": status}), status
     if status == 401:
-        return redirect(url_for("auth.login", next=request.full_path.rstrip("?")))
+        return redirect(url_for("auth.login_page", next=request.full_path.rstrip("?")))
     abort(status, description=message)
 
 

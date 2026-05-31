@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ report.title }}{% endblock %}
+
+{% block head %}
+<link href="https://unpkg.com/tabulator-tables@5.6.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@5.6.1/dist/js/tabulator.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-head page-head-row">
+    <div>
+        <a class="back-link" href="{{ url_for('reports.reports_list') }}">
+            <i data-feather="arrow-left"></i> Reports
+        </a>
+        <h1 class="page-title">{{ report.title }}</h1>
+    </div>
+    <div class="page-head-actions">
+        <button type="button" id="runBtn" class="btn btn-primary">Run report</button>
+        <button type="button" id="exportBtn" class="btn btn-outline" disabled>Export</button>
+    </div>
+</div>
+
+<form id="filterForm" class="filter-bar" onsubmit="return false;">
+    {% if 'period' in filters %}
+    <label class="filter-field">
+        <span>Period</span>
+        <select name="period" id="periodSelect">
+            {% for value, label in period_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label class="filter-field filter-custom" data-custom hidden>
+        <span>From</span>
+        <input type="date" name="start_date">
+    </label>
+    <label class="filter-field filter-custom" data-custom hidden>
+        <span>To</span>
+        <input type="date" name="end_date">
+    </label>
+    {% endif %}
+    {% if 'year' in filters %}
+    <label class="filter-field">
+        <span>Year</span>
+        <input type="number" name="year" min="2025" max="2099" placeholder="{{ '' }}">
+    </label>
+    {% endif %}
+    {% if 'customers' in filters %}
+    <label class="filter-field">
+        <span>Customers</span>
+        <input type="text" name="customers" placeholder="acct or comma-separated">
+    </label>
+    {% endif %}
+    {% if 'salesman' in filters %}
+    <label class="filter-field">
+        <span>Salesman</span>
+        <input type="text" name="salesman" placeholder="sales group(s)">
+    </label>
+    {% endif %}
+</form>
+
+<div id="reportStatus" class="report-status" hidden></div>
+
+<div id="reportTabs" class="report-tabs" hidden></div>
+<div id="reportMeta" class="report-meta" hidden></div>
+<div id="reportTable"></div>
+
+<div id="reportRoot"
+     data-report-key="{{ report.key }}"
+     data-run-url="{{ url_for('reports.run_report', report_key=report.key) }}"
+     data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
+     data-result-url="{{ url_for('reports.report_result', job_id='__ID__') }}"
+     data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"
+     data-csrf="{{ csrf_token() }}"
+     hidden></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/report.js') }}"></script>
+{% endblock %}

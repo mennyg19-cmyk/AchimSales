@@ -7,6 +7,7 @@ import { cpSync, existsSync } from "node:fs";
 
 const entryPoints = [
   "web/static_src/js/main.ts",
+  "web/static_src/js/report.ts",
   "web/static_src/css/main.css",
 ].filter((p) => existsSync(p));
 

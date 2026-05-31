@@ -46,6 +46,11 @@ class JobWorker:
     def register(self, job_type: str, handler: Handler) -> None:
         self.handlers[job_type] = handler
 
+    @property
+    def running(self) -> bool:
+        """True once the background poller thread is started (see start())."""
+        return self._poller is not None
+
     # --- synchronous driving (used by tests + simple call sites) -----------
 
     def process_next(self) -> str | None:

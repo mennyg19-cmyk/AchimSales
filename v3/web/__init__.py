@@ -8,11 +8,13 @@ registered as later phases land - this file stays thin.
 
 from __future__ import annotations
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, session
 
 from web.auth.authorization import Authorization, Forbidden
+from web.auth.session import current_principal
 from web.config import Config, load_config
 from web.data.connection import from_config
+from web.data.repositories.users import UserRepository
 from web.extensions import init_csrf
 
 
@@ -31,11 +33,40 @@ def create_app(config: Config | None = None) -> Flask:
     app.config["AUTHZ"] = Authorization(db)
 
     init_csrf(app)
-    _register_context(app, cfg)
+    _register_reporting(app, cfg, db)
+    _register_context(app, cfg, db)
     _register_blueprints(app)
     _register_error_handlers(app)
     _register_cli(app, db)
     return app
+
+
+def _register_reporting(app: Flask, cfg: Config, db) -> None:
+    """Build the reporting stack (no background threads here - wsgi starts those).
+
+    Routes enqueue runs onto the durable job table and read results from the one
+    cache; the worker (started by `bootstrap_background`) drains the queue.
+    """
+    from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.salesmen import SalesmanRepository
+    from web.jobs.worker import JobWorker
+    from web.reporting.cache import ReportCache
+    from web.reporting.http_client import ReportingApiClient
+    from web.reporting.jobs import JOB_TYPE, make_report_run_handler
+    from web.reporting.report_service import ReportService
+    from web.reporting.runner import ReportRunner
+
+    client = ReportingApiClient(cfg.reporting_api_base_url, cfg.reporting_api_key)
+    service = ReportService(client, SalesmanRepository(db))
+    cache = ReportCache(db)
+    runner = ReportRunner(cache)
+    worker = JobWorker(db)
+    worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for))
+
+    app.config["REPORT_SERVICE"] = service
+    app.config["REPORT_CACHE"] = cache
+    app.config["JOB_REPO"] = JobRepository(db)
+    app.config["JOB_WORKER"] = worker
 
 
 def _ephemeral_dev_secret(cfg: Config) -> str:
@@ -46,18 +77,19 @@ def _ephemeral_dev_secret(cfg: Config) -> str:
     return secrets.token_hex(32)
 
 
-def _register_context(app: Flask, cfg: Config) -> None:
+def _register_context(app: Flask, cfg: Config, db) -> None:
     from flask import url_for
 
     def _safe_url(endpoint: str, **kw) -> str:
-        # Nav links resolve as their blueprints land; until then they're inert (#)
-        # so the shell renders at every build stage. A missing endpoint is logged at
-        # WARNING (not silently swallowed) so a real routing bug can't hide behind "#".
+        # A missing endpoint is logged at WARNING (not silently swallowed) so a
+        # real routing bug can't hide behind "#".
         try:
             return url_for(endpoint, **kw)
         except Exception:
-            app.logger.warning("nav endpoint not registered yet: %s", endpoint)
+            app.logger.warning("nav endpoint not registered: %s", endpoint)
             return "#"
+
+    users = UserRepository(db)
 
     @app.context_processor
     def inject_globals():
@@ -68,22 +100,39 @@ def _register_context(app: Flask, cfg: Config) -> None:
             "login": _safe_url("auth.login_page"),
             "logout": _safe_url("auth.logout_route"),
         }
+        p = current_principal()
+        user = None
+        dashboard_enabled = False
+        if p is not None:
+            user = {"name": p.name, "role": p.role, "_dev": p.is_dev}
+            try:
+                row = users.get_by_email(p.email)
+                dashboard_enabled = bool(row and row.dashboard_enabled) or p.is_privileged
+            except Exception:  # noqa: BLE001 - never let a nav query break a page render
+                app.logger.warning("dashboard-gate lookup failed for %s", p.email)
         return {
             "new_app_marker": cfg.new_app_marker,  # removable header pill; deleted at cutover
             "app_env": cfg.app_env,
             "nav": nav,
-            # Feature gates (default off). Wired to config flags as those pages land.
-            "dashboard_enabled": False,
+            "user": user,
+            "theme": session.get("theme", "light"),
+            "dashboard_enabled": dashboard_enabled,
             "test_site_enabled": False,
         }
 
 
 def _register_blueprints(app: Flask) -> None:
     from web.blueprints.auth import auth_bp
+    from web.blueprints.dashboard import dashboard_bp
     from web.blueprints.health import health_bp
+    from web.blueprints.reports import reports_bp
+    from web.blueprints.settings import settings_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(reports_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(settings_bp)
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -99,3 +148,18 @@ def _register_cli(app: Flask, db) -> None:
 
         applied = migrate(db)
         print("Applied migrations:", applied)
+
+
+def bootstrap_background(app: Flask) -> None:
+    """Prod-only side effects: apply migrations and start the job worker.
+
+    Kept OUT of create_app so tests can build an app without spawning threads or
+    touching schema. The wsgi entrypoint calls this once per process.
+    """
+    from web.data.migrate import migrate
+
+    db = app.config["DB"]
+    migrate(db)
+    worker = app.config.get("JOB_WORKER")
+    if worker is not None:
+        worker.start()

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">At-a-glance status.</p>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ built_reports|length }}</div>
+        <div class="stat-label">Built reports</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ backlog_reports|length }}</div>
+        <div class="stat-label">In backlog</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ recent_jobs|length }}</div>
+        <div class="stat-label">Your recent runs</div>
+    </div>
+</div>
+
+<h2 class="section-title">Recent runs</h2>
+{% if recent_jobs %}
+<table class="simple-table">
+    <thead><tr><th>Report</th><th>Status</th><th>Progress</th></tr></thead>
+    <tbody>
+        {% for j in recent_jobs %}
+        <tr>
+            <td>{{ j.params.get('report_key', j.type) }}</td>
+            <td><span class="status-pill status-{{ j.status }}">{{ j.status }}</span></td>
+            <td>{{ j.progress }}%</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state"><p>No runs yet. Open a report to get started.</p></div>
+{% endif %}
+{% endblock %}

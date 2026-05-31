@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <h1 class="page-title">Reports</h1>
+    <p class="page-subtitle">Run a report to view it on screen, then export to Excel.</p>
+</div>
+
+{% if built_reports %}
+<div class="report-grid">
+    {% for r in built_reports %}
+    <a class="report-card" href="{{ url_for('reports.report_view', report_key=r.key) }}">
+        <div class="report-card-icon"><i data-feather="bar-chart-2"></i></div>
+        <div class="report-card-body">
+            <div class="report-card-title">{{ r.title }}</div>
+            <div class="report-card-meta">Interactive &middot; Excel export</div>
+        </div>
+        <i data-feather="chevron-right" class="report-card-arrow"></i>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <i data-feather="lock"></i>
+    <p>You don't have access to any reports yet. Ask an administrator to grant access.</p>
+</div>
+{% endif %}
+
+{% if backlog_reports %}
+<h2 class="section-title">Coming soon</h2>
+<div class="report-grid">
+    {% for r in backlog_reports %}
+    <div class="report-card report-card-disabled" aria-disabled="true">
+        <div class="report-card-icon"><i data-feather="clock"></i></div>
+        <div class="report-card-body">
+            <div class="report-card-title">{{ r.title }}</div>
+            <div class="report-card-meta">Not built yet</div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

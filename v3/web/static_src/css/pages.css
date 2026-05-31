@@ -1,0 +1,94 @@
+/* Per-page styles for reports list / report viewer / dashboard / settings.
+   Built on the shared tokens; the navigation chrome lives in shell.css. */
+
+/* -- Page headers -- */
+.page-head { margin-bottom: 20px; }
+.page-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.page-head-actions { display: flex; gap: 8px; }
+.page-title { font-size: 24px; font-weight: 700; color: var(--text); }
+.page-subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+.section-title { font-size: 15px; font-weight: 700; color: var(--text-muted); margin: 24px 0 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.back-link { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); text-decoration: none; font-size: 13px; font-weight: 600; }
+.back-link svg { width: 16px; height: 16px; }
+.back-link:hover { color: var(--primary); }
+
+/* -- Report list cards -- */
+.report-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 600px) { .report-grid { grid-template-columns: 1fr 1fr; } }
+.report-card {
+    display: flex; align-items: center; gap: 14px; padding: 16px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    text-decoration: none; color: var(--text); transition: box-shadow 0.15s, transform 0.1s;
+}
+.report-card:hover { box-shadow: var(--shadow-md); }
+.report-card:active { transform: scale(0.99); }
+.report-card-icon {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: var(--radius-sm);
+    background: var(--primary-light); color: var(--primary); flex-shrink: 0;
+}
+.report-card-icon svg { width: 20px; height: 20px; }
+.report-card-body { flex: 1; min-width: 0; }
+.report-card-title { font-weight: 600; font-size: 16px; }
+.report-card-meta { color: var(--text-light); font-size: 12px; margin-top: 2px; }
+.report-card-arrow { width: 18px; height: 18px; color: var(--text-light); }
+.report-card-disabled { opacity: 0.55; cursor: not-allowed; }
+.report-card-disabled .report-card-icon { background: var(--bg); color: var(--text-light); }
+
+.empty-state {
+    text-align: center; padding: 48px 16px; color: var(--text-muted);
+    background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius);
+}
+.empty-state svg { width: 32px; height: 32px; margin-bottom: 8px; color: var(--text-light); }
+
+/* -- Filter bar -- */
+.filter-bar {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;
+    padding: 16px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 16px;
+}
+.filter-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.filter-field span { text-transform: uppercase; letter-spacing: 0.4px; }
+.filter-field select, .filter-field input {
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: var(--text); background: var(--bg-card); min-width: 160px;
+}
+.filter-field select:focus, .filter-field input:focus { outline: none; border-color: var(--border-focus); }
+
+/* -- Run status + tabs + table -- */
+.report-status { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }
+.report-status-info { background: var(--primary-light); color: var(--primary); }
+.report-status-error { background: var(--error-light); color: var(--error); }
+.report-meta { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
+.report-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.report-tab {
+    padding: 7px 14px; border: 1px solid var(--border); background: var(--bg-card);
+    border-radius: 99px; font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer;
+}
+.report-tab:hover { border-color: var(--primary); color: var(--primary); }
+.report-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+#reportTable { background: var(--bg-card); border-radius: var(--radius); overflow: hidden; }
+
+/* -- Dashboard -- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat-card { padding: 18px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
+.stat-label { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+
+/* -- Simple tables (dashboard / settings) -- */
+.simple-table { width: 100%; border-collapse: collapse; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; font-size: 14px; }
+.simple-table th, .simple-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.simple-table th { background: var(--bg); color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+.simple-table tr:last-child td { border-bottom: none; }
+.status-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; text-transform: uppercase; }
+.status-success { background: var(--success-light); color: var(--success); }
+.status-failure { background: var(--error-light); color: var(--error); }
+.status-running, .status-queued { background: var(--primary-light); color: var(--primary); }
+.status-cancelled { background: var(--bg); color: var(--text-muted); }
+
+/* -- Settings -- */
+.settings-card { padding: 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 16px; }
+.profile-list { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; }
+.profile-list dt { color: var(--text-muted); font-weight: 600; }
+.theme-form { display: flex; align-items: flex-end; gap: 12px; }

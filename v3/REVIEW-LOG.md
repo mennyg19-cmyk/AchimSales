@@ -279,6 +279,37 @@ You had time and asked me to surface every question across all 5 reports. Here's
   - **Number 4 salesman source**: LIVE derives the salesman from the customer master; v3 currently uses
     the salesman that comes on the invoice line. Need to confirm they're the same before changing.
 
+**26. Built the actual app you'll click through: pages, the on-screen table, and the /test wiring.**
+- *The pages* (thin routes in `web/blueprints/`): a Reports list, a Report viewer, a Dashboard
+  (admin/dev), and Settings. Each route only does: check you're logged in -> check you're allowed
+  (the single Authorization layer) -> kick off the work -> hand back data. No math in the routes.
+- *How a report runs* (so numbers can never block the page): clicking "Run" POSTs to
+  `/api/reports/<key>/run`, which puts a job on the durable job table and returns a job id. The
+  browser polls `/api/jobs/<id>` until it's done, then pulls the result from the one cache and draws
+  it. This is the test-app behavior (build on screen, not in Excel) on top of the durable-job system.
+  In production a background worker drains the queue; in local dev (no worker thread) the request
+  drains it inline so it still works.
+- *The on-screen table*: I used Tabulator (a small JS table library, loaded from a CDN like the icons
+  already are) for sorting/column-filtering/resizing - the "more customizable effects" the test app
+  has. One tab button per report tab (e.g. Ordered's 6 tabs); the Export button downloads the same
+  data as an .xlsx whose columns/sheets match what's on screen (which match the LIVE export).
+  - *Decision*: Tabulator from CDN vs bundling it. Chose CDN to keep our build simple and match how
+    the app already loads Feather icons. Trade-off: needs internet to load the table library. If you'd
+    rather it be fully self-hosted, say so and I'll vendor it.
+- *Security choices baked in*: the run endpoint requires the CSRF token (sent as a header from JS);
+  you can only read/expert a job you own; the report cache key already includes your access scope so
+  two people with different access can never read each other's cached numbers. Today only admin/dev
+  (unrestricted) users can open a report at all (fail-closed default), so per-salesman data scoping is
+  still the pending business decision logged above - not a hole, just not enabled yet.
+- *The /test cutover wiring* (`wsgi.py`): the live app stays at `/`. The old test app is now also
+  reachable at `/test-legacy` (and `/v2`). The new v3 app takes over `/test` ONLY when I set
+  `V3_MOUNT_ENABLED=1` in Azure AND its config is present; if it's off or v3 fails to boot, `/test`
+  silently keeps serving the old test app. This means deploying the code is safe - nothing about the
+  live site or `/test` changes until I deliberately flip the switch.
+- *Deploy mechanics I had to account for*: Azure builds with pip only (it won't run our JS build), so
+  the compiled front-end bundle is now committed to git (I un-ignored `web/static_dist/`). All of
+  v3's Python dependencies are already in `webapp/requirements.txt`, which is what Azure installs.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
