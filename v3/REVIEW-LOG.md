@@ -202,6 +202,23 @@ You had time and asked me to surface every question across all 5 reports. Here's
   while `salesline_release` posts a flat body. I'll confirm which envelope this endpoint actually
   wants when we can hit the API, and adjust the client if needed.
 
+**21. Built the Number 4 report (with Book Price wired in).**
+- Four tabs: By Item / By Customer, each over a rolling-12-month and a year-to-date window. Monthly
+  Qty (and Qty+$ on the customer tabs) pivoted out, Total Qty / Total $ / Avg Price / Salesman, and
+  **Book Price as the last column** exactly like the live workbook. If the released-products lookup
+  isn't loaded, Book Price is blank instead of erroring.
+
+**22. Built the Customer Activity report.**
+- Starts from the **customer universe** and shows each customer's most-recent order (date, PO #, Sales
+  Order). Customers with no orders show "N/A" like live. Tabs: "All" (Salesman column up front), one
+  per assigned salesman (resolved to display names), then "Unassigned". Salesman/manager scope hides
+  other people's customers (and the Unassigned tab) - same rule the test app uses.
+- *Per #15:* the web layer will feed it the universe from the `customer_master` SP each run, falling
+  back to the local mirror if the API is down. The builder itself is pure - it just takes the customer
+  list + order rows, so that fallback lives in one place and is easy to test.
+- *That's all 5 report builders done* (invoiced, salesman, ordered, number 4, customer activity), each
+  with its own tests. Next: a GPT-5.5 parity pass over all of them, then the web routes + screens.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
