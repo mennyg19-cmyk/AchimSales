@@ -20,7 +20,7 @@ import calendar
 from typing import Iterable, Mapping
 
 from report_engine.facts import InvoiceChargeFact, SalesmanFact
-from report_engine.lib import num, salesman_key
+from report_engine.lib import salesman_key
 
 _COMPARISON_FIELDS = (
     "Sales_Current", "Sales_Prior", "Sales_YTD_Current", "Sales_YTD_Prior",
@@ -52,6 +52,8 @@ def _normalize(fact: InvoiceChargeFact, salesmen: Mapping[str, SalesmanFact]) ->
         month = int(d[5:7])
     except ValueError:
         return None
+    if not (1 <= month <= 12):  # guard against malformed ISO-like dates
+        return None
     label, number = _resolve(fact.sales_group, salesmen)
     return {
         "year": year,
@@ -68,9 +70,12 @@ def _normalize(fact: InvoiceChargeFact, salesmen: Mapping[str, SalesmanFact]) ->
 def _columns(year: int, month: int) -> list[dict]:
     mon = calendar.month_name[month]
     prior = year - 1
+    # Header text matches LIVE export (reports/salesman/writer.py _build_monthly_headers).
+    # LIVE leads with Sort Number / Cust. # / Customer Name; v3 keeps a Salesman
+    # column too because all salesmen share one tab (owner layout choice #16).
     return [
+        {"field": "Sort Number", "header": "Sort Number", "type": "text"},
         {"field": "Salesman", "header": "Salesman", "type": "text"},
-        {"field": "SalesmanNumber", "header": "Salesman #", "type": "text"},
         {"field": "Cust. #", "header": "Cust. #", "type": "text"},
         {"field": "Customer Name", "header": "Customer Name", "type": "text"},
         {"field": f"Sales {mon} {year}", "header": f"Sales {mon} {year}", "type": "money"},
@@ -79,12 +84,14 @@ def _columns(year: int, month: int) -> list[dict]:
         {"field": "% This Year to Last Year", "header": "% This Year to Last Year", "type": "percent"},
         {"field": f"Sales {year} Jan Thru {mon}", "header": f"Sales {year} Jan Thru {mon}", "type": "money"},
         {"field": f"Sales {prior} Jan Thru {mon}", "header": f"Sales {prior} Jan Thru {mon}", "type": "money"},
-        {"field": "$ YTD Diff", "header": "$ YTD Diff", "type": "money"},
-        {"field": "% YTD Diff", "header": "% YTD Diff", "type": "percent"},
+        {"field": "$ This Year to Last Year (YTD)", "header": "$ This Year to Last Year (YTD)", "type": "money"},
+        {"field": "% This Year to Last Year (YTD)", "header": "% This Year to Last Year (YTD)", "type": "percent"},
         {"field": f"Sales Year to Date {year}", "header": f"Sales Year to Date {year}", "type": "money"},
         {"field": f"Sales Year to Date {prior}", "header": f"Sales Year to Date {prior}", "type": "money"},
-        {"field": "$ Full Year Diff", "header": "$ Full Year Diff", "type": "money"},
-        {"field": "% Full Year Diff", "header": "% Full Year Diff", "type": "percent"},
+        {"field": "$ This Year to Last Year (YTD Full Year)",
+         "header": "$ This Year to Last Year (YTD Full Year)", "type": "money"},
+        {"field": "% This Year to Last Year (YTD Full Year)",
+         "header": "% This Year to Last Year (YTD Full Year)", "type": "percent"},
     ]
 
 
@@ -131,7 +138,9 @@ def _build_month_tab(lines: list[dict], year: int, month: int) -> dict:
         month_diff = round(b["Sales_Current"] - b["Sales_Prior"], 2)
         ytd_diff = round(b["Sales_YTD_Current"] - b["Sales_YTD_Prior"], 2)
         full_diff = round(b["Sales_FullYear_Current"] - b["Sales_FullYear_Prior"], 2)
+        sort_number = _pad_salesman_number(b["SalesmanNumber"])
         rows.append({
+            "Sort Number": sort_number,
             "Salesman": b["Salesman"],
             "SalesmanNumber": b["SalesmanNumber"],
             "Cust. #": b["CustomerAccount"],
@@ -142,13 +151,14 @@ def _build_month_tab(lines: list[dict], year: int, month: int) -> dict:
             "% This Year to Last Year": (month_diff / b["Sales_Prior"]) if b["Sales_Prior"] else 0.0,
             f"Sales {year} Jan Thru {mon}": b["Sales_YTD_Current"],
             f"Sales {prior} Jan Thru {mon}": b["Sales_YTD_Prior"],
-            "$ YTD Diff": ytd_diff,
-            "% YTD Diff": (ytd_diff / b["Sales_YTD_Prior"]) if b["Sales_YTD_Prior"] else 0.0,
+            "$ This Year to Last Year (YTD)": ytd_diff,
+            "% This Year to Last Year (YTD)": (ytd_diff / b["Sales_YTD_Prior"]) if b["Sales_YTD_Prior"] else 0.0,
             f"Sales Year to Date {year}": b["Sales_FullYear_Current"],
             f"Sales Year to Date {prior}": b["Sales_FullYear_Prior"],
-            "$ Full Year Diff": full_diff,
-            "% Full Year Diff": (full_diff / b["Sales_FullYear_Prior"]) if b["Sales_FullYear_Prior"] else 0.0,
-            "_sort": _pad_salesman_number(b["SalesmanNumber"]) or (b["Salesman"] or "").lower(),
+            "$ This Year to Last Year (YTD Full Year)": full_diff,
+            "% This Year to Last Year (YTD Full Year)":
+                (full_diff / b["Sales_FullYear_Prior"]) if b["Sales_FullYear_Prior"] else 0.0,
+            "_sort": sort_number or (b["Salesman"] or "").lower(),
         })
 
     rows.sort(key=lambda r: (r["_sort"], r["Cust. #"] or ""))

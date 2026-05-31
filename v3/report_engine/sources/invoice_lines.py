@@ -22,6 +22,7 @@ def to_fact(raw: Mapping) -> InvoiceItemFact:
         customer_account=text(first_of(raw, "InvoiceAccount", "CustomerAccount", "AccountNum")),
         customer_name=text(first_of(raw, "CustomerName", "customername", "Name")),
         sales_group=text(first_of(raw, "SalesGroup", "salesgroup", "Salesman")),
+        sales_order_number=text(first_of(raw, "SalesOrder", "SalesOrderNumber", "SalesId")),
         item_number=text(first_of(raw, "Item", "ItemId", "Item#", "ItemNumber")),
         item_name=text(first_of(raw, "ItemName", "ItemDescription")),
         qty=num(first_of(raw, "InventQTY", "Qty", "Quantity")),

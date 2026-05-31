@@ -14,11 +14,14 @@ from typing import Iterable, Mapping
 from report_engine.lib import first_of, num, text
 
 
-def to_book_price_map(rows: Iterable[Mapping]) -> dict[str, float]:
-    out: dict[str, float] = {}
+def to_book_price_map(rows: Iterable[Mapping]) -> dict[str, float | None]:
+    """{UPPER(ItemNumber) -> SalesPrice}. A blank/missing price maps to None so
+    Book Price renders blank (LIVE shows NaN), not a misleading 0.00."""
+    out: dict[str, float | None] = {}
     for raw in rows:
         item = text(first_of(raw, "ItemNumber", "Item", "ItemId", "Item#")).strip().upper()
         if not item or item in out:
             continue
-        out[item] = num(first_of(raw, "SalesPrice", "BookPrice"))
+        price_raw = first_of(raw, "SalesPrice", "BookPrice")
+        out[item] = num(price_raw) if price_raw is not None else None
     return out

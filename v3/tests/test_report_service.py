@@ -63,7 +63,7 @@ def test_invoiced_does_ytd_fetch_for_commissions():
 def test_number_4_blank_book_price_when_released_products_down():
     rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
              "Item": "ITM-A", "ItemName": "W", "InventQTY": "1", "Amount": "9",
-             "SalesGroup": "REdwards"}]
+             "SalesGroup": "REdwards", "SalesOrder": "SO1"}]
     svc = _svc({"invoice_lines": rows}, fail_ids={"released_products"})
     out = svc.builder_for("number_4")({})
     by_item = next(t for t in out["tabs"] if t["key"] == "by_item_12mo")
@@ -73,7 +73,7 @@ def test_number_4_blank_book_price_when_released_products_down():
 def test_number_4_book_price_joined_when_available():
     rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
              "Item": "ITM-A", "ItemName": "W", "InventQTY": "1", "Amount": "9",
-             "SalesGroup": "REdwards"}]
+             "SalesGroup": "REdwards", "SalesOrder": "SO1"}]
     released = [{"ItemNumber": "ITM-A", "SalesPrice": "2.50"}]
     svc = _svc({"invoice_lines": rows, "released_products": released})
     out = svc.builder_for("number_4")({})

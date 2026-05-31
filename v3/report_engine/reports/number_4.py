@@ -61,9 +61,14 @@ def _line(fact: InvoiceItemFact, salesmen: Mapping[str, SalesmanFact]) -> dict |
     d = fact.invoice_date
     if not (isinstance(d, str) and len(d) >= 7 and d[4] == "-") or not fact.item_number:
         return None
+    # LIVE excludes free-text invoice lines (no SalesOrderNumber).
+    if not fact.sales_order_number.strip():
+        return None
     try:
         year, month = int(d[:4]), int(d[5:7])
     except ValueError:
+        return None
+    if not (1 <= month <= 12):
         return None
     return {
         "year": year, "month": month, "_ym": _ym(year, month),
@@ -81,7 +86,10 @@ def _aggregate(lines: list[dict], months: list[tuple[int, int]]) -> tuple[dict, 
     for ln in lines:
         if ln["_ym"] not in month_set:
             continue
-        key = (ln["Item#"], ln["CustomerAccount"])
+        # LIVE groups by item, item name, customer account, customer name, salesman
+        # (reports/number_4/aggregator.py).
+        key = (ln["Item#"], ln["ItemName"], ln["CustomerAccount"],
+               ln["CustomerName"], ln["Salesman"])
         b = buckets.get(key)
         if b is None:
             b = buckets[key] = {

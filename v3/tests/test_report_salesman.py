@@ -45,11 +45,12 @@ def test_march_tab_comparison_math():
     assert round(r["% This Year to Last Year"], 4) == 1.2
     assert r["Sales 2026 Jan Thru March"] == 1300.0   # Feb 200 + Mar 1100
     assert r["Sales 2025 Jan Thru March"] == 500.0
-    assert r["$ YTD Diff"] == 800.0
+    assert r["$ This Year to Last Year (YTD)"] == 800.0
     assert r["Sales Year to Date 2026"] == 1300.0
     assert r["Sales Year to Date 2025"] == 500.0
-    assert r["$ Full Year Diff"] == 800.0
+    assert r["$ This Year to Last Year (YTD Full Year)"] == 800.0
     assert r["SalesmanNumber"] == "10"
+    assert r["Sort Number"] == "0010"
     assert r["Cust. #"] == "100"
 
 

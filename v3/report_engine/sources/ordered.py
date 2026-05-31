@@ -13,11 +13,10 @@ from typing import Iterable, Mapping
 from report_engine.facts import OrderLineFact
 from report_engine.lib import as_int, first_of, iso_date, num, text
 
-_ORDER_DATE_KEYS = (
-    "OrderDate", "OrderCreationDateTime", "CreatedDateTime",
-    "ShippingDateRequested", "RequestedShipDate",
-    "ReceiptDateRequested", "RequestedReceiptDate",
-)
+# Customer Activity's "last order" needs a true order/created date, so we only
+# accept those here - never a requested ship/receipt date (LIVE uses the header
+# OrderDate). The ordered report shows the same OrderDate.
+_ORDER_DATE_KEYS = ("OrderDate", "OrderCreationDateTime", "CreatedDateTime")
 
 
 def to_fact(raw: Mapping) -> OrderLineFact:
@@ -25,6 +24,7 @@ def to_fact(raw: Mapping) -> OrderLineFact:
         source="reporting_api",
         company=text(first_of(raw, "Company", "DataAreaId")),
         sales_order_number=text(first_of(raw, "SalesOrderNumber", "SalesId", "OrderNumber")),
+        sales_order_name=text(first_of(raw, "SalesOrderName", "SalesName", "OrderName")),
         order_date=iso_date(first_of(raw, *_ORDER_DATE_KEYS)),
         customer_account=text(first_of(raw, "CustomerAccount", "customeraccount", "AccountNum")),
         customer_name=text(first_of(raw, "customername", "CustomerName", "Name")),
@@ -36,10 +36,10 @@ def to_fact(raw: Mapping) -> OrderLineFact:
         unit_price=round(num(first_of(raw, "SalesPrice", "UnitPrice")), 4),
         status=text(first_of(raw, "SalesStatus", "Status")),
         order_status=text(first_of(raw, "OrderStatus", "orderstatus", "HeaderStatus")),
-        qty_ordered=as_int(first_of(raw, "QuantityOrdered", "QtyOrdered")),
-        qty_released=as_int(first_of(raw, "ReleasedQuantity", "QtyReleased")),
-        delivery_remainder=as_int(first_of(raw, "DeliveryRemainder", "QuantityRemainder", "QtyRemainder")),
-        qty_left_to_load=as_int(first_of(raw, "QuantityLefttoLoad", "QtyLeftToLoad")),
+        qty_ordered=num(first_of(raw, "QuantityOrdered", "QtyOrdered")),
+        qty_released=num(first_of(raw, "ReleasedQuantity", "QtyReleased")),
+        delivery_remainder=num(first_of(raw, "DeliveryRemainder", "QuantityRemainder", "QtyRemainder")),
+        qty_left_to_load=num(first_of(raw, "QuantityLefttoLoad", "QtyLeftToLoad")),
         ordered_dollars=round(num(first_of(raw, "Ordered $", "OrderedDollars", "OrderedAmount")), 2),
         shipped_dollars=round(num(first_of(raw, "Shipped $", "ShippedDollars", "ShippedAmount")), 2),
         cancelled_dollars=round(num(first_of(raw, "Cancelled $", "CancelledDollars", "CancelledAmount")), 2),

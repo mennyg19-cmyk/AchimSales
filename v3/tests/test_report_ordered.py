@@ -57,13 +57,20 @@ def test_stub_fields_flagged_on_every_tab():
     assert "QtyCancelled" in full["stub_fields"]
 
 
-def test_error_item_lines_dropped():
-    rows = _rows() + [{
-        "SalesOrderNumber": "SO9", "CustomerAccount": "100", "Item": "ERR",
-        "ItemDescription": "ERROR ITEM - unmatched", "QuantityOrdered": "5",
-        "Ordered $": "999", "SalesStatus": "Open"}]
+def test_error_item_lines_dropped_by_item_number_only():
+    rows = _rows() + [
+        # ERROR ITEM in the Item NUMBER -> dropped (LIVE filters Item# only)
+        {"SalesOrderNumber": "SO9", "CustomerAccount": "100", "Item": "ERROR ITEM",
+         "ItemDescription": "x", "QuantityOrdered": "5", "Ordered $": "999",
+         "SalesStatus": "Open"},
+        # ERROR ITEM only in the NAME -> kept (matches LIVE)
+        {"SalesOrderNumber": "SO8", "CustomerAccount": "100", "Item": "REAL-1",
+         "ItemDescription": "ERROR ITEM in name", "QuantityOrdered": "5",
+         "Ordered $": "10", "SalesStatus": "Open"}]
     full = next(t for t in B.build(S.to_facts(rows)) if t["key"] == "full_data")
-    assert all(r["SalesOrderNumber"] != "SO9" for r in full["rows"])
+    sos = {r["SalesOrderNumber"] for r in full["rows"]}
+    assert "SO9" not in sos
+    assert "SO8" in sos
 
 
 def test_by_customer_aggregates_dollars():

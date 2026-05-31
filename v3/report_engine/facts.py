@@ -27,6 +27,7 @@ class OrderLineFact:
     source: Source
     company: str
     sales_order_number: str
+    sales_order_name: str
     order_date: str            # 'YYYY-MM-DD' or ''
     customer_account: str
     customer_name: str
@@ -38,10 +39,12 @@ class OrderLineFact:
     unit_price: float
     status: str
     order_status: str
-    qty_ordered: int
-    qty_released: int
-    delivery_remainder: int
-    qty_left_to_load: int
+    # Quantities are floats (LIVE keeps them numeric; the SP may return
+    # fractional units) - never int-truncated before aggregation.
+    qty_ordered: float
+    qty_released: float
+    delivery_remainder: float
+    qty_left_to_load: float
     ordered_dollars: float     # authoritative (server-side)
     shipped_dollars: float     # authoritative (server-side)
     cancelled_dollars: float   # authoritative (server-side)
@@ -87,6 +90,7 @@ class InvoiceItemFact:
     customer_account: str
     customer_name: str
     sales_group: str
+    sales_order_number: str    # blank = free-text line (LIVE excludes these)
     item_number: str
     item_name: str
     qty: float

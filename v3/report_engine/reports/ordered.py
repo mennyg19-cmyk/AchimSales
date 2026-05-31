@@ -45,18 +45,18 @@ _DOL: tuple[str, ...] = ("Ordered $", "Shipped $", "Cancelled $", "Released $", 
 # Column definitions (LIVE names, LIVE order)
 # --------------------------------------------------------------------------- #
 
+# LIVE order (reports/ordered/builder.py FULL_DATA_ORDER). LIVE's DataQualityFlag
+# is a product of its WHS/packing-slip merge pipeline and can't be reproduced
+# from the flat SP - omitted and logged as a known drift in REVIEW-LOG.
 FULL_DATA_COLS = [
     {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
     {"field": "CustomerAccount",  "header": "CustomerAccount",  "type": "text"},
-    {"field": "CustomerName",     "header": "CustomerName",      "type": "text"},
-    {"field": "Salesman",         "header": "Salesman",          "type": "text"},
+    {"field": "SalesOrderName",   "header": "SalesOrderName",    "type": "text"},
     {"field": "OrderDate",        "header": "OrderDate",         "type": "date"},
-    {"field": "PO #",             "header": "PO #",              "type": "text"},
     {"field": "LineNumber",       "header": "LineNumber",        "type": "int"},
     {"field": "Item#",            "header": "Item#",             "type": "text"},
     {"field": "ItemName",         "header": "ItemName",          "type": "text"},
     {"field": "UnitPrice",        "header": "UnitPrice",         "type": "money"},
-    {"field": "OrderStatus",      "header": "Order Status",      "type": "text"},
     {"field": "Status",           "header": "Status",            "type": "text"},
     {"field": "Fulfillment %",    "header": "Fulfillment %",     "type": "percent"},
     {"field": "QtyOrdered",       "header": "QtyOrdered",        "type": "int"},
@@ -119,13 +119,21 @@ SUMMARY_COLS = [
 # Per-line normalization
 # --------------------------------------------------------------------------- #
 
+_CANCELLED = {"canceled", "cancelled"}
+
+
 def _line(f: OrderLineFact) -> dict:
     qty_ord = f.qty_ordered
-    qty_cancelled = qty_ord if f.status.lower() == "cancelled" else 0       # stub
-    qty_shipped = max(0, qty_ord - f.delivery_remainder - f.qty_left_to_load - qty_cancelled)
-    qty_open = max(0, qty_ord - qty_shipped - qty_cancelled)
+    # LIVE treats a line as cancelled when the line status OR the order status is
+    # canceled/cancelled (both spellings). Still a stub for QtyCancelled until the
+    # SP returns an explicit cancelled quantity.
+    is_cancelled = f.status.lower() in _CANCELLED or f.order_status.lower() in _CANCELLED
+    qty_cancelled = qty_ord if is_cancelled else 0.0
+    qty_shipped = max(0.0, qty_ord - f.delivery_remainder - f.qty_left_to_load - qty_cancelled)
+    qty_open = max(0.0, qty_ord - qty_shipped - qty_cancelled)
     return {
         "SalesOrderNumber": f.sales_order_number,
+        "SalesOrderName":   f.sales_order_name,
         "CustomerAccount":  f.customer_account,
         "CustomerName":     f.customer_name,
         "Salesman":         f.sales_group,
@@ -147,7 +155,9 @@ def _line(f: OrderLineFact) -> dict:
         "Shipped $":        f.shipped_dollars,
         "Cancelled $":      f.cancelled_dollars,
         "Released $":       round(f.qty_released * f.unit_price, 2),
-        "Open $":           round(max(0.0, f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars), 2),
+        # Owner rule: Open $ = Ordered - Shipped - Cancelled (authoritative $),
+        # not clamped (a credit/over-ship can legitimately make it negative).
+        "Open $":           round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2),
     }
 
 
@@ -159,7 +169,8 @@ def _ff_pct(qty_ordered: float, qty_cancelled: float) -> float | None:
 
 
 def _is_error_item(line: dict) -> bool:
-    return bool(_ERROR_ITEM_RE.search(line["Item#"]) or _ERROR_ITEM_RE.search(line["ItemName"]))
+    # LIVE filters the Item number only (reports/ordered/builder.py), not the name.
+    return bool(_ERROR_ITEM_RE.search(line["Item#"]))
 
 
 # --------------------------------------------------------------------------- #

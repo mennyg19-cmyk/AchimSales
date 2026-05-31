@@ -39,10 +39,14 @@ def as_int(value: Any) -> int:
 
 
 def text(value: Any) -> str:
-    """Coerce to str, treating None / 'NULL' as empty string."""
+    """Coerce to a stripped str, treating None / 'NULL' as empty string.
+
+    Stripping mirrors LIVE (.str.strip() on every SP string field) so account /
+    item / sales-group join + scope keys match across SPs.
+    """
     if value is None or value == "NULL":
         return ""
-    return str(value)
+    return str(value).strip()
 
 
 def first_of(raw: Mapping[str, Any], *keys: str) -> Any:

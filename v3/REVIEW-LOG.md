@@ -248,6 +248,37 @@ You had time and asked me to surface every question across all 5 reports. Here's
   body while the other SPs take a flat body. The service currently calls it with an empty body to get
   all items; if the live endpoint insists on the wrapped shape I'll adjust the client then.
 
+**25. GPT-5.5 parity audit of all 5 reports - what I fixed and what I'm leaving for you.**
+- GPT-5.5 re-read every builder against LIVE and flagged a list of mismatches. I fixed the ones where
+  LIVE's behavior is clear and the SP can support it; I'm flagging the rest for your sign-off (below).
+- *Fixed (clear LIVE wins):*
+  - **Numbers were getting rounded to whole units too early.** Order quantities are now kept as decimals
+    all the way through (like LIVE), so sums can't drift from rounding each line.
+  - **Stray spaces in IDs could break joins.** The text-cleanup helper now trims leading/trailing spaces
+    on every field (LIVE does this everywhere), so customer/item codes line up across the different SPs.
+    This was the real risk behind the Customer Activity "BLOCKER".
+  - **Number 4 was missing LIVE's free-text filter.** LIVE throws away invoice lines that have no sales
+    order (hand-typed/free-text lines). v3 now carries the sales-order number and drops those lines too.
+  - **Number 4 was grouping too loosely.** It now groups by the full LIVE key (item #, item name,
+    customer #, customer name, salesman) instead of just item + customer.
+  - **Ordered "cancelled" detection.** Now catches both spellings ("canceled"/"cancelled") and an
+    order-level cancellation, matching LIVE.
+  - **Ordered "Open $" was clamped at zero.** Removed - the rule is literally Ordered - Shipped -
+    Cancelled, so a credit/over-ship can legitimately show negative (LIVE doesn't clamp).
+  - **Ordered "ERROR ITEM" filter** now matches on the item NUMBER only (LIVE), not the description.
+  - **Salesman export headers** now match LIVE word-for-word ("Sort Number" first, "$ This Year to Last
+    Year (YTD)" / "(YTD Full Year)" instead of my shorter "$ YTD Diff" names). v3 keeps an extra
+    Salesman column because all salesmen share one tab (your 12-tab layout, #16).
+  - **Number 4 missing Book Price** now shows blank instead of $0.00.
+  - Small cleanups: dropped an unused import; reject impossible months (e.g. "month 13") before totaling.
+- *Left for your sign-off (added to section 1):*
+  - **Ordered "Full Data" columns**: LIVE's export has a `DataQualityFlag` column that comes from its
+    WHS/packing-slip merge - the flat SP can't produce it, so I left it off. I matched the rest of
+    LIVE's column order and added `SalesOrderName` (blank if the SP doesn't return it).
+  - **Ordered Amazon 9300/9301 temporary cancellation rule** - LIVE has it; v3 doesn't yet.
+  - **Number 4 salesman source**: LIVE derives the salesman from the customer master; v3 currently uses
+    the salesman that comes on the invoice line. Need to confirm they're the same before changing.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
@@ -269,12 +300,14 @@ You had time and asked me to surface every question across all 5 reports. Here's
 | invoiced | credit_detection | Credits by substring "contains" vs invoice-number prefix? | live/root |
 | ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | live/root |
 | ordered | status_qty_engine | Status/qty via WHS + packing-slip joins (root) vs flat SP rows (web) | live/root |
-| ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling | live/root |
-| ordered | error_item_filter | Exclude rows flagged "ERROR ITEM"? | live/root |
+| ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling - NOT in v3 yet | live/root |
+| ordered | error_item_filter | Exclude rows flagged "ERROR ITEM" - v3 now filters Item# only (matches live) | live/root |
+| ordered | full_data_columns | v3 omits live's `DataQualityFlag` (needs WHS/packing pipeline the SP lacks); rest of columns match live order | live/root |
 | number_4 | book_price | Book Price column source/derivation | live/root |
-| number_4 | free_text_exclusion | Exclude free-text (non-item) invoice lines? | live/root |
+| number_4 | free_text_exclusion | Exclude free-text (no sales-order) invoice lines - v3 now excludes (matches live) | live/root |
+| number_4 | salesman_source | Salesman from customer-master (live) vs invoice-line SalesGroup (v3 now) | live/root |
 | salesman | group_key_cardinality | Grouping grain (one row per SalesGroup vs combined) | live/root |
-| customer_activity | last_order_grain | Last-order grain: sales header vs sales line | live/root |
+| customer_activity | last_order_grain | Last-order grain: sales header vs sales line (v3 takes max order-date per customer; same result) | live/root |
 
 ### Authorization policy decisions (from phase 3 - pick one each)
 
