@@ -230,6 +230,24 @@ You had time and asked me to surface every question across all 5 reports. Here's
 - *Editable later:* it's a normal table now - the seed only fills it once; from here you edit salesmen
   in v3. Re-running the seed upserts (won't duplicate).
 
+**24. Wired the reports together (the "report service") + marked all 5 BUILT.**
+- Built `web/reporting/report_service.py` - the glue that turns a report key into a runnable report:
+  it translates your filter form into the SP's parameters, calls the Reporting API, converts the rows
+  into typed facts, runs the matching builder, and hands back the on-screen tabs.
+- *Where the multi-source reports do their extra fetches (kept OUT of the pure builders):*
+  - Invoiced: a **second YTD fetch** (Jan 1 -> period end) feeds the monthly commissions pivot, so the
+    commissions tab shows the rich live layout, not the simple fallback.
+  - Number 4: pulls `released_products` for Book Price; if that endpoint is down, Book Price is just
+    blank and the report still runs.
+  - Customer Activity: pulls the customer universe from `customer_master`, and if the API is down it
+    falls back to a local mirror (per #15).
+- Flipped the report registry for all five (ordered, invoiced, salesman, number 4, customer activity)
+  from BACKLOG to **BUILT**, so the app will show them as real, runnable reports (the two we haven't
+  built - Amazon Weekly, Customer Aging - stay BACKLOG and won't pretend to work).
+- *Open item to verify on the box:* the released_products doc shows a `{"parameters": {...}}` request
+  body while the other SPs take a flat body. The service currently calls it with an empty body to get
+  all items; if the live endpoint insists on the wrapped shape I'll adjust the client then.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
