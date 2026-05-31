@@ -59,8 +59,51 @@ MOUNTS: dict[str, object] = {
 _TEST_MOUNT = os.environ.get("V3_URL_PREFIX", "/test")
 
 
+def _write_boot_error(text: str) -> None:
+    """Best-effort dump of a v3 boot traceback to a downloadable location."""
+    import tempfile
+
+    for candidate in (
+        os.environ.get("V3_BOOT_ERROR_LOG"),
+        "/home/LogFiles/v3_boot_error.log",
+        os.path.join(tempfile.gettempdir(), "v3_boot_error.log"),
+    ):
+        if not candidate:
+            continue
+        try:
+            os.makedirs(os.path.dirname(candidate), exist_ok=True)
+            with open(candidate, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            log.error("v3 boot error written to %s", candidate)
+            return
+        except Exception:  # noqa: BLE001 - try the next candidate
+            continue
+
+
+def _bootstrap_v3_async(v3_web, app) -> None:
+    """Run v3's migrate/seed/worker-start OFF the worker-import path.
+
+    bootstrap_background touches SQLite (migrations + seeding) and starts the job
+    worker. Doing that synchronously during `import wsgi` can block the gunicorn
+    worker long enough to miss Azure's container warmup probe, which silently kills
+    the whole site. Running it in a daemon thread lets the dispatcher come up
+    immediately; v3's schema/seed land a moment later (healthz + login start don't
+    need them).
+    """
+    import threading
+
+    def _run():
+        try:
+            v3_web.bootstrap_background(app)
+            log.info("v3 bootstrap_background complete")
+        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
+            log.exception("v3 bootstrap_background failed (v3 stays mounted, may be degraded)")
+
+    threading.Thread(target=_run, name="v3-bootstrap", daemon=True).start()
+
+
 def _build_v3_app():
-    """Create the v3 app and start its background worker. Raises on bad config."""
+    """Create the v3 app (fast, pure wiring). Bootstrap runs async, not here."""
     v3_root = str(_REPO_ROOT / "v3")
     # Insert at the FRONT so v3's top-level packages (web, report_engine) win over
     # any same-named site-package. Live/v2 import webapp / test.webapp, never these
@@ -71,7 +114,7 @@ def _build_v3_app():
     import web as v3_web
 
     app = v3_web.create_app()
-    v3_web.bootstrap_background(app)
+    _bootstrap_v3_async(v3_web, app)
     return app
 
 
@@ -80,16 +123,10 @@ if _env_bool("V3_MOUNT_ENABLED"):
         MOUNTS[_TEST_MOUNT] = _build_v3_app()
         log.info("v3 mounted at %s", _TEST_MOUNT)
     except Exception:  # noqa: BLE001 - never let v3 take down live / /test
-        log.exception("v3 failed to boot; %s falls back to the v2 app", _TEST_MOUNT)
-        try:  # persist the traceback where it can be downloaded for diagnosis
-            import traceback
+        import traceback
 
-            err_path = os.environ.get("V3_BOOT_ERROR_LOG", "/home/LogFiles/v3_boot_error.log")
-            os.makedirs(os.path.dirname(err_path), exist_ok=True)
-            with open(err_path, "w", encoding="utf-8") as fh:
-                fh.write(traceback.format_exc())
-        except Exception:  # noqa: BLE001
-            log.exception("could not write v3 boot error file")
+        log.exception("v3 failed to boot; %s falls back to the v2 app", _TEST_MOUNT)
+        _write_boot_error(traceback.format_exc())
         MOUNTS[_TEST_MOUNT] = _v2_app
 else:
     # v3 disabled: preserve the current behavior (v2 serves /test).
