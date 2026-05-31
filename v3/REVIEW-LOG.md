@@ -131,6 +131,42 @@ real live report. It caught four things where I'd drifted, and I fixed all four 
   app. Locking each one to live - with a test that fails if it ever drifts again - is how I keep
   "same numbers as live" honest.
 
+### Session: Sun May 31 - your answers to my per-report questions
+
+You had time and asked me to surface every question across all 5 reports. Here's what we decided:
+
+**12. Where commission rates + salesman names/numbers come from.**
+- *Options:* live config files / a v3 editable table / seed-from-config-then-edit.
+- *Chosen:* **seed v3's salesmen table from the live config files now, editable later.** So the
+  numbers start identical to live (commission $ match), and you can edit them in v3 going forward.
+
+**13. Ordered report - does the on-prem API actually give shipped/cancelled quantities?**
+- I dug into a real `salesline_release` dump. The API returns the order/released/remainder/left-to-load
+  quantities + **precomputed** Ordered $ / Shipped $ / Cancelled $, but NOT an explicit
+  "qty cancelled" column or the WHS/packing-slip detail live uses.
+- *You told me:* the API's precomputed **$ columns are authoritative** (the SP already does the
+  WHS/packing-slip math server-side), and you'll **update the endpoint to add qty cancelled**.
+- *Chosen:* trust the SP's dollar columns as live-equal; **stub the cancelled-based quantity columns
+  (QtyCancelled / QtyOpen / Fulfillment %) for now** and flag them, then wire the real values when
+  the endpoint ships.
+
+**14. Number 4 "Book Price" column.**
+- The current `invoice_lines` API doesn't return Book Price. *You'll send a file* describing a new
+  released-products endpoint that has it.
+- *Chosen:* build Number 4 now WITHOUT Book Price (omit + flag); add the column when that endpoint
+  is ready.
+
+**15. Customer Activity - where the customer list comes from.**
+- *Chosen:* pull the customer universe **live from the `customer_master` SP each run, with a fallback
+  to the local mirror** if the API is down.
+
+**16. Monthly Salesman report on screen.**
+- *Chosen:* **12 month tabs (Jan-Dec), interactive** (the test-app architecture).
+
+**17. Salesman "Sales" formula - confirmed against LIVE.**
+- LIVE: `Sales = Total Invoice - CC Charges - Freight Charges` (= SubTotal + Tariff). Verified in
+  `reports/salesman/builder.py`. Building the salesman report to this exactly.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
