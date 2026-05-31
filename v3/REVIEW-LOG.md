@@ -219,6 +219,17 @@ You had time and asked me to surface every question across all 5 reports. Here's
 - *That's all 5 report builders done* (invoiced, salesman, ordered, number 4, customer activity), each
   with its own tests. Next: a GPT-5.5 parity pass over all of them, then the web routes + screens.
 
+**23. Seeded v3's salesmen table from the live config (per #12).**
+- The live app stores salesman number/names/commission in `config/salesman_map.xlsx` (columns Key,
+  Number, FullName, DisplayName, Email, Commission %). v3 now has its own editable `salesmen` table
+  and a one-time seed (`web/data/seed_salesmen.py`) that reads that .xlsx **directly** (no importing
+  live code - keeps v3 decoupled) and upserts it.
+- *Commission scale:* the .xlsx stores commission as a **fraction** (e.g. 0.05 = 5%). I verified this
+  against the live commissions writer (`reports/invoiced/writer.py`: displays `f"{pct:.0%}"`, computes
+  `commission = net * pct`). v3 stores and applies it the same way, so commission $ match live.
+- *Editable later:* it's a normal table now - the seed only fills it once; from here you edit salesmen
+  in v3. Re-running the seed upserts (won't duplicate).
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
