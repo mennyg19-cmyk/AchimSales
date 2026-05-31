@@ -612,3 +612,38 @@ shadowed v3's `web` package and `create_app()` failed. Fix: insert `v3/` at the 
 
 **Mounting contract (unchanged, fail-safe)**: `/test` only mounts v3 when `V3_MOUNT_ENABLED=1`;
 on any v3 boot exception it falls back to v2 so `/test` can never hard-fail the site.
+
+### Phase 9 - Cold-start incident: warmup timeout / crash loop (fixed)
+
+**Symptom**: hours after the Phase 8 cutover, `/test` reverted to the v2 app, then the whole
+site started timing out. The container was in a crash loop: Azure logged `Container did not
+start within expected time limit` -> `ContainerTimeout` -> `Site ... stopped`. The public domain
+is **`reports.achimonline.com`** (plural); `report.achimonline.com` does not resolve - that was a
+separate red herring for "can't reach /test".
+
+**Root cause**: `wsgi.py` ran v3's `bootstrap_background` (SQLite migrate + seed admins/salesmen +
+start job worker) **synchronously inside `import wsgi`**, i.e. on the gunicorn worker-import path.
+Each gunicorn worker also creates the live and v2 apps, which each spawn a catch-up mirror thread
+that hammers the (currently slow/timing-out) on-prem Reporting API and contends on SQLite. On a
+genuine cold start (full container rebuild + `pip install`), the extra synchronous v3 bootstrap
+pushed worker import past Azure's warmup probe window. Tellingly, the failing boots logged
+**neither** "v3 mounted" **nor** "v3 failed to boot" - the import blocked (didn't return, didn't
+raise), so the probe never got a response and the platform killed the container.
+
+**Fix** (`wsgi.py`): `create_app()` (fast, pure wiring - no network, no DB writes) still mounts v3
+synchronously, but `bootstrap_background` now runs in a **daemon thread** (`_bootstrap_v3_async`).
+The dispatcher comes up immediately so warmup passes; migrations/seed/worker land ~1s later in the
+background (v3 `healthz` and the login *start* don't need the schema, and by the time anyone
+finishes the Microsoft round-trip the `users` table exists). The boot-error dump now falls back
+through `V3_BOOT_ERROR_LOG` -> `/home/LogFiles` -> temp dir so a future create_app failure is
+always captured. Verified post-fix: both workers log `v3 mounted at /test` then
+`v3 bootstrap_background complete`, and `/test`, `/test-legacy`, `/` are all healthy.
+
+**Azure settings touched (not in git)**: `WEBSITES_CONTAINER_START_TIME_LIMIT=1800` added as a
+warmup-headroom safety net; `V3_MOUNT_ENABLED` toggled 0 (to restore service during diagnosis)
+then back to 1 after the fix deployed.
+
+**Follow-up (not blocking)**: the live + v2 apps each run a heavy startup catch-up mirror that
+saturates the on-prem API and locks SQLite during cold starts; that contention is pre-existing and
+independent of v3, but it makes every cold start fragile and is worth de-risking separately
+(e.g. defer/serialize the catch-up, or point the warmup probe at a cheap health path).
