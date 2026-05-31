@@ -184,8 +184,9 @@ def bootstrap_background(app: Flask) -> None:
 
     db = app.config["DB"]
     migrate(db)
-    _seed_admins(app, db)
-    _seed_salesmen_if_empty(app, db)
+    _seed_salesmen_if_empty(app, db)  # salesmen first: user_salesman_access FKs them
+    _seed_users_from_live(app, db)    # mirror the live user directory into v3
+    _seed_admins(app, db)             # explicit env admins win last
     worker = app.config.get("JOB_WORKER")
     if worker is not None:
         worker.start()
@@ -214,6 +215,23 @@ def _seed_admins(app: Flask, db) -> None:
                 )
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("admin seed failed")
+
+
+def _seed_users_from_live(app: Flask, db) -> None:
+    """Mirror the live app's user directory (roles + flags) into v3's users table.
+
+    Live (webapp/) is the authoritative list of who may sign in. Reading it here
+    means every existing account works on /test without manual re-entry. Guarded:
+    a missing/locked live DB must never block boot.
+    """
+    from web.data.seed_users import live_db_path, seed_users_from_live
+
+    try:
+        n = seed_users_from_live(db)
+        if n:
+            app.logger.info("mirrored %d users from live DB (%s)", n, live_db_path())
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("live user mirror failed")
 
 
 def _seed_salesmen_if_empty(app: Flask, db) -> None:
