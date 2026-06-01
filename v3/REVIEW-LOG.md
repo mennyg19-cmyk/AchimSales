@@ -670,3 +670,68 @@ Two issues surfaced once real users hit `/test`:
   Verified in prod: `mirrored 11 users from live DB`. Users keep their existing session role until
   they sign out / back in (authorization gating re-resolves from the DB live, but the session
   Principal's role is captured at login).
+
+### Phase 11 - Feature-parity audit + full build scope (locked)
+
+After the first online build, we ran a three-pass feature-gap audit (me + two GPT-5.5 subagents,
+read-only) comparing the v2 test app (`test/webapp/`, the UX/behaviour reference) against the
+current v3 rebuild. Findings were triaged in a canvas (`canvases/feature-gap-audit.canvas.tsx`).
+The owner reviewed every gap and chose **Build** for all but three. This phase records the locked
+scope so every subsequent review subagent reads from one source of truth.
+
+**Source-of-truth split (unchanged):** behaviour/UX/architecture from v2; report format/columns/
+layout + math from the LIVE app; data from the on-prem Reporting API. Rebuild for WHAT, not HOW -
+do not copy v2 code.
+
+**Owner decisions (from the triage canvas):**
+
+- BUILD (everything below): full-width scrollable table; Save/Email/Schedule actions; single-row
+  filter bar; customer + salesman dropdowns from the customer API (with `/years`, lookup-status,
+  mirror-first-then-live); dark/light table theming; column filter popovers; column hide/show +
+  restore; multi-level sort; all tabs incl. commission-card layout; WYSIWYG Excel export; column
+  reordering; grouping + subtotal/grand-total rows; frozen/pinned columns; per-tab layout
+  persistence; refresh-data (preserve layout); duplicate/delete tab; reset view; cache-age +
+  fresh-data prompt; date formatter; friendly staged errors; Ordered status filter; bookmarkable
+  filter deep-links; live API-preview panel; Save preset + "My Presets" home; email-now; schedule
+  + run-now + history; master schedules (admin); SharePoint picker + SharePoint-only delivery;
+  customer-activity dashboard + customer/order detail; customer exclusions; admin user mgmt +
+  report-access + salesman-access; always-available header theme toggle; notifications; salesman
+  master editing; feature flags; report run log; role-specific report labels; diagnostics/mirror/
+  db tools; help-content popups; prefix-aware PWA manifest; dev-login template; Customer's Last
+  Order builder.
+- LATER (defer, do not build yet): export "X of Y rows" counter (`exportcount`); Ordered derived
+  qty / fulfillment stub fields stay flagged as provisional (`orderedstub`).
+- SKIP: persistent TEST-sandbox banner (`banner`).
+
+**Corrections honoured (do NOT rebuild):** v2 `static/table_tools.js` and `static/app.js` are dead/
+orphaned code - their autofit/resize/cancel-run/send-to-background behaviour is NOT a real v2
+feature and is out of scope. v3 export already produces a real server-side XLSX; the gap is only
+that it ignores the visible layout. Regular-grid percent precision already matches (1 dp); the
+2-dp case is specific to commission cards/Excel.
+
+**Invoiced YTD anchoring (resolved):** v3 had added a `year` filter to Invoiced and anchored the
+Commissions YTD window to that year, which can diverge from the selected period. Decision: revert
+to v2 parity - anchor the Commissions YTD window to the **selected period end**, and drop the extra
+`year` filter from Invoiced. (Math source of truth stays the LIVE app.)
+
+**Build order (phases):**
+
+- Phase A - Report viewer parity: upgrade Tabulator to 6.x; full-width + horizontal scroll;
+  dark/light theme; multi-sort; column hide/show/reorder; header-filter popovers; grouping +
+  totals; frozen columns; render all tabs incl. commission cards; date formatter; per-tab layout
+  persistence; reset view; refresh-data; duplicate/delete tab; cache-age + fresh prompt; friendly
+  errors; WYSIWYG export reflecting the visible layout.
+- Phase B - Filters: single-row bar; `/salesmen`, `/customers`, `/years`, lookup-status endpoints
+  (mirror-first then live); searchable customer multi-select; Ordered status filter; bookmarkable
+  deep-links; live API-preview panel.
+- Phase C - Actions/delivery: save preset + "My Presets" home; email-now; schedule + run-now +
+  history; master schedules; SharePoint picker + SharePoint-only delivery.
+- Phase D - Other areas: dashboard + customer/order detail; exclusions; admin user/report/salesman
+  access; header theme toggle; notifications; salesman master editing; feature flags; run log;
+  role labels; diagnostics tools; help content; prefix-aware PWA manifest; dev-login template.
+- Phase E - Reports coverage: Customer's Last Order builder.
+
+**Review discipline:** after each phase, spawn a GPT-5.5 subagent (read-only) to review the work
+against this scope. Each review prompt MUST include: the source-of-truth split, the full decision
+list above, the corrections, the YTD decision, and what NOT to flag (the LATER/SKIP items and the
+dead-code corrections). Fix findings before moving to the next phase.
