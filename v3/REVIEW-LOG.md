@@ -951,3 +951,62 @@ pages.
 - Replaced the inline-HTML dev picker with `login.html` (extends the shell) plus
   an `.auth-*` CSS block keyed to tokens (light/dark aware). MSAL mode still
   redirects before render; this only affects `AUTH_MODE=dev`.
+
+### D3a - mount-aware PWA manifest (done)
+
+- The static `manifest.json` hardcoded `/` + `/static/...`, which breaks once the
+  app is served under the `/test` prefix (installed app launches at the wrong
+  path). Now served dynamically at `health.manifest` with `url_for`-resolved
+  start_url/scope/icons. Deleted the dead static manifest (icons stay).
+
+### D3b - feature flags (done)
+
+- `FeatureFlagRepository` (precious `feature_flags`) with `DEFAULTS` as the single
+  source of truth: `dashboard_enabled`, `order_entry_enabled`, `test_site_enabled`.
+  Seeded idempotently in `bootstrap_background`.
+- Context processor now resolves nav gating from the flags: dashboard tab = global
+  flag AND (per-user opt-in OR privileged); test-site link = global flag AND
+  per-user opt-in. Admins always keep the dashboard tab (template `or` clause) so
+  turning the global flag off can't lock an admin out of managing it.
+- Admin `POST /api/admin/feature-flags` (privileged, validates the key) + toggle
+  switches on the Settings admin card driven by `settings.ts` (optimistic with
+  rollback). Tests: set+reflect, unknown-key 400, salesman 403.
+
+### D3c - report run-log (done)
+
+- `ReportRunLogRepository` (precious `report_run_log`) + the report-run job handler
+  now records every run (user, report, status, rows, duration_ms, source) as a
+  best-effort audit write (an audit failure never fails the run). Admin
+  `/admin/run-log` page lists the 200 most recent. Tests: records+renders, 403 for
+  salesman.
+
+### D3d - admin users & access + salesman edit (done)
+
+- New `admin` blueprint (privileged, fail-closed via `Authorization`, re-resolved
+  per request). Users & access page: list/add/edit/delete users; set role + flags
+  (active, dashboard, sharepoint, test, external); replace-all per-salesman scope;
+  per-report access overrides (a checked box writes an explicit allow row); and
+  salesman edit (active toggle + number/full/display name). Self-delete is blocked.
+- `UserRepository` gained `list_all/get_by_id/create/update/delete`, salesman-access
+  get/set (replace-all), and report-access get/set. `SalesmanRepository` gained
+  `list_all` (active+inactive) and a guarded `update`. The read-only salesmen table
+  moved out of Settings into the admin page (dedupe). `admin.ts` drives the modals.
+- Tests: user CRUD + scope, self-delete guard, salesman 403, salesman active toggle.
+
+### D3e - in-app help (done)
+
+- Ported the live `HELP` dictionary verbatim into `static_src/public/help_content.js`
+  (added the two keys the live app referenced but never defined:
+  `settings-test-access`, `settings-assigned-salesmen`), loaded in `base.html`. The
+  existing `openHelp()` shell now has content. Added `data-help` "?" triggers on the
+  report-view title (`report-<key>`), each filter label (`param-*`), and the Settings
+  feature-flags heading. Test asserts the dictionary + triggers render.
+
+### Still pending in D (mirror-dependent)
+
+- **Notifications** (report-ready banner + overdue badges) and **customer
+  exclusions** both hang off the dashboard/customer mirror (overdue needs the
+  mirror's order-cadence math; the exclusions UI needs the mirror's customer list).
+  Deferred into the mirror slice rather than shipping half a feature.
+- **D4 customer mirror** + **D5 dashboard / customer + order detail** remain. These
+  are the heavy, math-sensitive pieces (live is the source of truth for the math).
