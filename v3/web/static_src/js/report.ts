@@ -102,7 +102,12 @@ function formatterFor(col: Column): Record<string, unknown> {
     case "money":
       return money(2);
     case "int":
-      return { ...money(0), formatterParams: { precision: 0, thousand: "," } };
+      return {
+        formatter: "money",
+        formatterParams: { symbol: "", precision: 0, thousand: "," },
+        sorter: "number",
+        hozAlign: "right",
+      };
     case "percent":
       return {
         sorter: "number",
@@ -189,9 +194,18 @@ function headerMenu(tab: Tab): any[] {
 
 function buildColumns(tab: Tab): any[] {
   const v = view(tab.key);
-  const ordered = v.order
-    ? [...tab.columns].sort((a, b) => v.order!.indexOf(a.field) - v.order!.indexOf(b.field))
-    : tab.columns;
+  let ordered = tab.columns;
+  if (v.order) {
+    // Saved order first (only fields that still exist), then any columns the
+    // payload gained since the order was captured, in server order.
+    const saved = v.order.filter((f) => tab.columns.some((c) => c.field === f));
+    const savedSet = new Set(saved);
+    const byField = new Map(tab.columns.map((c) => [c.field, c]));
+    ordered = [
+      ...saved.map((f) => byField.get(f)!),
+      ...tab.columns.filter((c) => !savedSet.has(c.field)),
+    ];
+  }
   return ordered.map((c) => ({
     title: c.header,
     field: c.field,
@@ -253,6 +267,7 @@ function rebuild(tab: Tab): void {
 function buildTable(tab: Tab): void {
   const host = $("reportTable");
   if (!host) return;
+  closeColumnsPanel(); // panel belongs to whichever tab was active before
   if (state.table) {
     try { state.table.destroy(); } catch { /* noop */ }
     state.table = null;
@@ -357,11 +372,23 @@ function renderTabs(): void {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "report-tab" + (key === state.active ? " active" : "");
-    btn.textContent = tab.name;
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = tab.name;
+    btn.appendChild(nameSpan);
+    const caret = document.createElement("span");
+    caret.className = "report-tab-caret";
+    caret.textContent = "\u25be";
+    caret.title = "Tab options";
+    caret.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const r = caret.getBoundingClientRect();
+      openTabMenuAt(key, r.left + window.scrollX, r.bottom + window.scrollY);
+    });
+    btn.appendChild(caret);
     btn.addEventListener("click", () => activateTab(key));
     btn.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      openTabMenu(key, e as MouseEvent);
+      openTabMenuAt(key, (e as MouseEvent).pageX, (e as MouseEvent).pageY);
     });
     tabsEl.appendChild(btn);
   });
@@ -382,13 +409,13 @@ function closeTabMenu(): void {
   tabMenuEl?.remove();
   tabMenuEl = null;
 }
-function openTabMenu(key: string, e: MouseEvent): void {
+function openTabMenuAt(key: string, x: number, y: number): void {
   closeTabMenu();
   const tab = state.tabs[key];
   const menu = document.createElement("div");
   menu.className = "tab-context-menu";
-  menu.style.left = e.pageX + "px";
-  menu.style.top = e.pageY + "px";
+  menu.style.left = x + "px";
+  menu.style.top = y + "px";
 
   const mk = (label: string, fn: () => void, danger = false) => {
     const b = document.createElement("button");
@@ -407,6 +434,7 @@ function openTabMenu(key: string, e: MouseEvent): void {
 }
 
 function duplicateTab(key: string): void {
+  if (state.active === key) captureActive(); // snapshot the live view we're cloning
   const src = state.tabs[key];
   let i = 2;
   let newKey = `${key}__copy`;
@@ -415,8 +443,10 @@ function duplicateTab(key: string): void {
   clone.key = newKey;
   clone.name = `${src.name} (copy)`;
   (clone as any)._isDuplicate = true;
+  // Track the underlying server tab so a Refresh can re-clone with fresh data.
+  (clone as any)._baseKey = (src as any)._baseKey || src.key;
   state.tabs[newKey] = clone;
-  state.views[newKey] = freshView();
+  state.views[newKey] = cloneView(view(key));
   const idx = state.order.indexOf(key);
   state.order.splice(idx + 1, 0, newKey);
   activateTab(newKey);
@@ -442,8 +472,12 @@ function syncColumnsButton(tab: Tab): void {
 }
 
 let columnsPanel: HTMLElement | null = null;
+function closeColumnsPanel(): void {
+  if (columnsPanel) { columnsPanel.remove(); columnsPanel = null; }
+  document.removeEventListener("click", onColumnsOutside);
+}
 function toggleColumnsPanel(): void {
-  if (columnsPanel) { columnsPanel.remove(); columnsPanel = null; return; }
+  if (columnsPanel) { closeColumnsPanel(); return; }
   if (!state.active) return;
   const tab = state.tabs[state.active];
   if (tab.layout === "commission_cards") return;
@@ -485,9 +519,7 @@ function toggleColumnsPanel(): void {
 }
 function onColumnsOutside(e: MouseEvent): void {
   if (columnsPanel && !columnsPanel.contains(e.target as Node) && (e.target as HTMLElement).id !== "columnsBtn") {
-    columnsPanel.remove();
-    columnsPanel = null;
-    document.removeEventListener("click", onColumnsOutside);
+    closeColumnsPanel();
   }
 }
 
@@ -510,8 +542,19 @@ function exportExcel(): void {
     return;
   }
   const name = `${attr("data-report-key")}-${tab.key}`;
-  // WYSIWYG: Tabulator exports the current sort/filter/column view.
-  state.table.download("xlsx", `${name}.xlsx`, { sheetName: tab.name.slice(0, 28) });
+  // WYSIWYG: Tabulator exports the current sort/filter/column view. Needs the
+  // SheetJS global; if its CDN failed, fall back to the server payload export.
+  if (typeof (window as any).XLSX === "undefined") {
+    if (state.jobId) window.location.href = attr("data-export-url").replace("__ID__", state.jobId);
+    else setStatus("Excel export library didn't load — check your connection and retry.", "error");
+    return;
+  }
+  try {
+    state.table.download("xlsx", `${name}.xlsx`, { sheetName: tab.name.slice(0, 28) });
+  } catch {
+    if (state.jobId) window.location.href = attr("data-export-url").replace("__ID__", state.jobId);
+    else setStatus("Could not export this view. Please try again.", "error");
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -529,7 +572,7 @@ function collectParams(): Record<string, string> {
   return out;
 }
 
-function loadPayload(payload: Payload): void {
+function loadPayload(payload: Payload, render = true): void {
   state.tabs = {};
   state.order = [];
   state.views = {};
@@ -540,12 +583,76 @@ function loadPayload(payload: Payload): void {
     state.views[tab.key] = freshView();
   });
   state.active = state.order[0] || null;
+  setToolbarEnabled(true);
+  if (render) {
+    renderTabs();
+    if (state.active) {
+      buildTable(state.tabs[state.active]);
+      syncColumnsButton(state.tabs[state.active]);
+    }
+  }
+}
+
+/**
+ * Swap in fresh data while keeping the user where they were: same active tab,
+ * same tab order, the same per-tab layout (sort/filter/columns/group), and any
+ * duplicated tabs re-created from their (now-refreshed) source tab.
+ */
+function loadPayloadPreserving(payload: Payload): void {
+  const prevViews = state.views;
+  const prevActive = state.active;
+  const prevOrder = [...state.order];
+  const duplicates = state.order
+    .filter((k) => (state.tabs[k] as any)?._isDuplicate)
+    .map((k) => ({
+      key: k,
+      name: state.tabs[k].name,
+      baseKey: (state.tabs[k] as any)._baseKey as string,
+      view: prevViews[k],
+    }));
+
+  loadPayload(payload, false); // resets to the fresh server tabs (no render yet)
+
+  // Re-create duplicates from their refreshed base tab, preserving their views.
+  duplicates.forEach((d) => {
+    const base = state.tabs[d.baseKey];
+    if (!base) return; // base tab dropped from the payload -> drop the duplicate
+    const clone: Tab = JSON.parse(JSON.stringify(base));
+    clone.key = d.key;
+    clone.name = d.name;
+    (clone as any)._isDuplicate = true;
+    (clone as any)._baseKey = d.baseKey;
+    state.tabs[d.key] = clone;
+    state.views[d.key] = d.view || freshView();
+  });
+
+  // Restore saved views for surviving server tabs.
+  Object.keys(prevViews).forEach((k) => {
+    if (state.tabs[k] && !(state.tabs[k] as any)._isDuplicate) state.views[k] = prevViews[k];
+  });
+
+  // Restore order: previous keys that still exist, then any newly-added tabs.
+  const restored = prevOrder.filter((k) => state.tabs[k]);
+  state.order.forEach((k) => { if (!restored.includes(k)) restored.push(k); });
+  state.order = restored;
+
+  state.active = prevActive && state.tabs[prevActive] ? prevActive : state.order[0] || null;
   renderTabs();
   if (state.active) {
     buildTable(state.tabs[state.active]);
     syncColumnsButton(state.tabs[state.active]);
   }
-  setToolbarEnabled(true);
+}
+
+function cloneView(v: ViewState): ViewState {
+  return {
+    hidden: new Set(v.hidden),
+    frozen: new Set(v.frozen),
+    order: v.order ? [...v.order] : null,
+    sorters: v.sorters ? v.sorters.map((s) => ({ ...s })) : null,
+    headerFilters: v.headerFilters ? v.headerFilters.map((f) => ({ ...f })) : null,
+    group: [...v.group],
+  };
 }
 
 async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Promise<void> {
@@ -562,15 +669,8 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Pro
       const payload: Payload = await r.json();
       state.jobId = jobId;
       clearStatus();
-      if (opts.preserveLayout) {
-        // Keep the user's current per-tab view; just swap the data underneath.
-        const keptViews = state.views;
-        loadPayload(payload);
-        state.views = keptViews;
-        if (state.active) buildTable(state.tabs[state.active]);
-      } else {
-        loadPayload(payload);
-      }
+      if (opts.preserveLayout) loadPayloadPreserving(payload);
+      else loadPayload(payload);
       return;
     }
     if (job.status === "failure") throw new Error(friendlyError(job.error));
