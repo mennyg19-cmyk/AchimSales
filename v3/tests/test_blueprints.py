@@ -530,6 +530,14 @@ def test_preferences_api_rejects_unknown_user(tmp_path):
     assert resp.status_code == 403
 
 
+def test_manifest_is_dynamic_and_prefix_aware(tmp_path):
+    app = _make_app(tmp_path)
+    data = app.test_client().get("/manifest.json").get_json()
+    assert data["start_url"].endswith("/") or data["start_url"] != ""
+    assert data["scope"].endswith("/")
+    assert all(i["src"].endswith(".png") for i in data["icons"])
+
+
 def test_header_has_theme_toggle(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
