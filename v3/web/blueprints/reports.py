@@ -22,6 +22,7 @@ from flask import (
     abort,
     current_app,
     jsonify,
+    redirect,
     render_template,
     request,
     send_file,
@@ -33,6 +34,8 @@ from urllib.parse import urlencode
 
 from report_engine import registry
 from report_engine.registry import ReportStatus
+from report_engine.lib import salesman_key
+from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
@@ -178,6 +181,9 @@ def _my_presets(p) -> list[dict]:
 def report_view(report_key: str):
     p = _principal_or_401()
     spec = _built_spec_or_404(report_key)
+    # In-app reports (customer picker driven) have their own pages.
+    if spec.in_app and report_key == "customer_last_order":
+        return redirect(url_for("reports.customer_last_order_pick"))
     _authz().assert_report_runnable(p, report_key)
     return render_template(
         "report_view.html", active_tab="reports", report=spec,
@@ -273,6 +279,117 @@ def export_report(report_key: str, job_id: str):
         io.BytesIO(data),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True, download_name=f"{report_key}.xlsx",
+    )
+
+
+# --- Customer's Last Order (in-app, customer-picker driven) ---------------- #
+
+_CLO_KEY = "customer_last_order"
+
+
+def _report_service():
+    return current_app.config["REPORT_SERVICE"]
+
+
+def _assert_clo_access(p):
+    """Page access: per-report grant (or privileged). Customer-level scope is
+    enforced separately, per fetched customer, in the view itself."""
+    _built_spec_or_404(_CLO_KEY)
+    _authz().assert_can_view_report(p, _CLO_KEY)
+
+
+def _visible_customers(p, salesman: str | None) -> list[dict]:
+    """Customer picker list, narrowed to the principal's visible salesman scope."""
+    customers = _lookups().customers(salesman)
+    keys = _authz().visible_salesman_keys(p)
+    if keys is None:
+        return customers
+    return [c for c in customers if salesman_key(c.get("salesman")) in keys]
+
+
+@reports_bp.get("/report/customer-last-order")
+@require_login
+def customer_last_order_pick():
+    p = _principal_or_401()
+    _assert_clo_access(p)
+    authz = _authz()
+    # Admin/dev (unrestricted) get a salesman picker; scoped users don't need one.
+    show_picker = authz.visible_salesman_keys(p) is None
+    return render_template(
+        "customer_last_order_pick.html", active_tab="reports",
+        report=registry.get(_CLO_KEY), show_salesman_picker=show_picker,
+    )
+
+
+@reports_bp.get("/api/report/customer-last-order/customers")
+@require_login
+def customer_last_order_customers():
+    p = _principal_or_401()
+    _assert_clo_access(p)
+    salesman = (request.args.get("salesman") or "").strip() or None
+    return jsonify({"customers": _visible_customers(p, salesman)})
+
+
+@reports_bp.get("/api/report/customer-last-order/salesmen")
+@require_login
+def customer_last_order_salesmen():
+    p = _principal_or_401()
+    _assert_clo_access(p)
+    return jsonify({"salesmen": _lookups().salesmen()})
+
+
+def _clo_facts_or_403(p, account: str):
+    """Fetch the customer's full history and enforce customer-level scope.
+
+    Returns (facts, customer_dict). Aborts 403 when the customer's salesman
+    group is outside the principal's scope. An empty history leaks nothing
+    (no name/group), so it is allowed through to a clean "no orders" page.
+    """
+    facts = _report_service().last_order_facts(account)
+    sales_group = next((f.sales_group for f in facts if f.sales_group), "")
+    name = next((f.customer_name for f in facts if f.customer_name), "")
+    if facts:
+        _authz().assert_can_view_customer(p, sales_group)
+    return facts, {"account": account, "name": name or account, "sales_group": sales_group}
+
+
+@reports_bp.get("/api/report/customer-last-order/<account>/recent-invoiced")
+@require_login
+def customer_last_order_recent_invoiced(account: str):
+    p = _principal_or_401()
+    _assert_clo_access(p)
+    facts, _ = _clo_facts_or_403(p, account)
+    orders = [
+        {"order_number": o.order_number, "order_date": o.order_date,
+         "status": o.status, "customer_req": o.customer_req, "order_name": o.order_name}
+        for o in clo.invoiced_orders(facts)[:10]
+    ]
+    return jsonify({"orders": orders})
+
+
+@reports_bp.get("/report/customer-last-order/<account>")
+@require_login
+def customer_last_order_view(account: str):
+    p = _principal_or_401()
+    _assert_clo_access(p)
+
+    requested = [o.strip() for o in (request.args.get("orders") or "").split(",") if o.strip()]
+    error = None
+    try:
+        facts, customer = _clo_facts_or_403(p, account)
+        view = clo.build(facts, requested_orders=requested)
+    except Exception as exc:  # noqa: BLE001 - render a clean error card, never 500
+        if getattr(exc, "status_code", None) == 403:
+            raise
+        current_app.logger.exception("customer last order failed for %s", account)
+        return render_template(
+            "customer_last_order_view.html", active_tab="reports",
+            customer={"account": account, "name": account, "sales_group": ""},
+            view=None, error=str(exc),
+        )
+    return render_template(
+        "customer_last_order_view.html", active_tab="reports",
+        customer=customer, view=view, error=None,
     )
 
 

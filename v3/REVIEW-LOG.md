@@ -1002,11 +1002,58 @@ pages.
   report-view title (`report-<key>`), each filter label (`param-*`), and the Settings
   feature-flags heading. Test asserts the dictionary + triggers render.
 
-### Still pending in D (mirror-dependent)
+### D4/D5 - customer mirror + dashboard + customer detail (done)
 
-- **Notifications** (report-ready banner + overdue badges) and **customer
-  exclusions** both hang off the dashboard/customer mirror (overdue needs the
-  mirror's order-cadence math; the exclusions UI needs the mirror's customer list).
-  Deferred into the mirror slice rather than shipping half a feature.
-- **D4 customer mirror** + **D5 dashboard / customer + order detail** remain. These
-  are the heavy, math-sensitive pieces (live is the source of truth for the math).
+- Persistent customer mirror (`cache.db dashboard_customers`) rebuilt by the
+  `dashboard.refresh` job from the all-time order facts. Per-customer cadence math
+  (`web/dashboard/metrics.py`) is ported cell-for-cell from the LIVE
+  `_compute_customer_metrics`: mean gap, **population** stdev as the overdue buffer,
+  and the New/Active/Overdue/Inactive bucketing. Dashboard read model applies the
+  principal's salesman scope + per-user exclusions; tiles filter the table client-side.
+- 4-hourly cron tick refreshes the mirror; primed on boot if empty.
+
+### D3-deferred - overdue notifications + exclusions (done)
+
+- `NotificationRepository` (precious `notifications`): create / list-undismissed /
+  counts / dismiss, with account-level dedup (`json_extract` on the payload) and a
+  7-day re-alert cooldown. After every mirror rebuild, `generate_overdue_notifications`
+  creates one `overdue_customer` alert per overdue account **per user, scope-aware**
+  (privileged = all; others only their granted salesman keys), skipping excluded /
+  already-notified / recently-dismissed accounts. A notification failure never fails
+  the refresh. `/api/notifications` + dismiss endpoints feed a 30s nav-badge poll
+  (Dashboard = overdue, Reports = report-ready). Exclusions toggle from customer detail.
+
+## Phase E - Customer's Last Order (in-app report)
+
+### Decision: reuse the Ordered classifier, fetch from salesline_release
+
+- LIVE builds this report by running the **Ordered report's** per-line classifier to
+  get Qty Shipped / Qty Cancelled, then rolling lines up by (item, price). v3 does the
+  same: `report_engine.reports.ordered.classify_line` is now public and the new
+  `report_engine.reports.customer_last_order` builder consumes the same `OrderLineFact`s
+  (so the numbers match the Ordered Excel cell-for-cell). Same stub caveat as Ordered:
+  Qty Cancelled is provisional until salesline_release returns an explicit cancelled qty.
+- Data path: `ReportService.last_order_facts(account)` pulls the customer's full history
+  (go-live..today, like customer_activity) from `salesline_release` — NOT a second
+  OData pipeline. "Invoiced order" = header `OrderStatus` contains "invoiced"
+  (covers "Partially invoiced"), matching LIVE. Default view = latest invoiced order;
+  the "Add previous order" modal merges more, rolling identical (item, price) lines
+  across orders. PO header uses the longest shared prefix (LIVE `_common_po_prefix`).
+
+### Decision: in-app report, single-customer scope is the access control
+
+- Marked `customer_last_order` BUILT with `in_app=True`. It is customer-picker driven,
+  so it has its own pages (`/report/customer-last-order[/<account>]`) instead of the
+  standard filter→table viewer; the reports list links to the picker and the standard
+  `report_view` redirects there.
+- Access: page entry is gated by `assert_can_view_report` (per-report grant or
+  privileged) — deliberately NOT the privileged-only `assert_report_runnable` the bulk
+  reports use. The bulk reports are gated to privileged because their builders don't yet
+  filter facts by the caller's salesman scope; this report is **single-customer**, so the
+  exact `assert_can_view_customer(sales_group)` check IS the scope enforcement. The
+  picker's customer list is filtered to the principal's visible salesman keys. An empty
+  history leaks nothing, so unknown/empty accounts fall through to a clean "no orders"
+  page rather than a probe oracle.
+- Tests: builder (invoiced-only history, default-to-latest, merge rollup, PO prefix,
+  unknown-order fallback, empty); routes (pick renders, listed as in-app link, view shows
+  latest, recent-invoiced API, viewer redirect, 403 for ungranted salesman).

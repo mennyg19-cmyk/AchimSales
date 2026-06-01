@@ -122,7 +122,13 @@ SUMMARY_COLS = [
 _CANCELLED = {"canceled", "cancelled"}
 
 
-def _line(f: OrderLineFact) -> dict:
+def classify_line(f: OrderLineFact) -> dict:
+    """One OrderLineFact -> the canonical per-line row (LIVE columns + math).
+
+    Public because the Customer's Last Order report reuses the exact same
+    Qty Shipped / Qty Cancelled classification so its line breakdown matches the
+    Ordered report cell-for-cell (single source of truth for the qty buckets).
+    """
     qty_ord = f.qty_ordered
     # LIVE treats a line as cancelled when the line status OR the order status is
     # canceled/cancelled (both spellings). Still a stub for QtyCancelled until the
@@ -264,7 +270,7 @@ def _build_summary(lines: list[dict]) -> dict:
 # --------------------------------------------------------------------------- #
 
 def build(facts: Iterable[OrderLineFact]) -> list[dict]:
-    lines = [ln for ln in (_line(f) for f in facts) if not _is_error_item(ln)]
+    lines = [ln for ln in (classify_line(f) for f in facts) if not _is_error_item(ln)]
 
     by_customer = _aggregate(
         lines,

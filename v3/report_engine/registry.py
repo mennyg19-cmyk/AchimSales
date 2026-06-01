@@ -23,6 +23,9 @@ class ReportSpec:
     title: str
     status: ReportStatus
     builder_version: int = 1
+    # In-app reports (e.g. Customer's Last Order) are customer-picker driven and
+    # have their own dedicated pages, NOT the standard filter -> table viewer.
+    in_app: bool = False
 
 
 # Matches the live app's report keys. Status reflects v3 build reality, updated
@@ -34,7 +37,7 @@ REGISTRY: tuple[ReportSpec, ...] = (
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
     ReportSpec("number_4", "Number 4", ReportStatus.BUILT),
     ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT),
-    ReportSpec("customer_last_order", "Customer Last Order", ReportStatus.BACKLOG),
+    ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT, in_app=True),
     ReportSpec("amazon_weekly", "Amazon Weekly", ReportStatus.BACKLOG),
     ReportSpec("customer_aging", "Customer Aging", ReportStatus.BACKLOG),
 )

@@ -10,6 +10,16 @@
 {% if built_reports %}
 <div class="report-grid">
     {% for r in built_reports %}
+    {% if r.in_app %}
+    <a class="report-card" href="{{ url_for('reports.customer_last_order_pick') }}">
+        <div class="report-card-icon"><i data-feather="user-check"></i></div>
+        <div class="report-card-body">
+            <div class="report-card-title">{{ r.title }}</div>
+            <div class="report-card-meta">Pick a customer &middot; store-visit view</div>
+        </div>
+        <i data-feather="chevron-right" class="report-card-arrow"></i>
+    </a>
+    {% else %}
     <a class="report-card" href="{{ url_for('reports.report_view', report_key=r.key) }}">
         <div class="report-card-icon"><i data-feather="bar-chart-2"></i></div>
         <div class="report-card-body">
@@ -18,6 +28,7 @@
         </div>
         <i data-feather="chevron-right" class="report-card-arrow"></i>
     </a>
+    {% endif %}
     {% endfor %}
 </div>
 {% else %}

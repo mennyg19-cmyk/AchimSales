@@ -104,6 +104,22 @@ class ReportService:
         sp = P.translate("ordered", {"period": "all_time", "customers": [account]})
         return src_ordered.to_facts(self._rows("salesline_release", sp))
 
+    def last_order_facts(self, account: str) -> list:
+        """Full-history OrderLineFacts for one customer (Customer's Last Order).
+
+        Anchors the window to go-live..today explicitly (like customer_activity)
+        so the "last invoiced order" is found over the customer's whole history,
+        not just the SP's default window.
+        """
+        from report_engine.dates import D365_GO_LIVE
+
+        sp = {
+            "CreatedDateTimeFrom": sp_datetime(D365_GO_LIVE, end_of_day=False),
+            "CreatedDateTimeTo": sp_datetime(today_eastern(), end_of_day=True),
+            "CustomerAccount": account,
+        }
+        return src_ordered.to_facts(self._rows("salesline_release", sp))
+
     def _book_prices(self) -> dict | None:
         """released_products SalesPrice map for Book Price; None if unavailable."""
         try:

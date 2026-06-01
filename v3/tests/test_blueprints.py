@@ -721,6 +721,71 @@ def test_feature_flag_forbidden_for_salesman(tmp_path):
     assert resp.status_code == 403
 
 
+def _clo_rows():
+    return [
+        {"SalesOrderNumber": "SO3", "CustomerAccount": "100", "customername": "Acme",
+         "SalesGroup": "REdwards", "OrderStatus": "Invoiced", "OrderDate": "2026-03-10",
+         "CustomerRequisition": "PO-9", "LineNumber": "1", "Item": "ITM-A",
+         "ItemDescription": "Widget", "SalesPrice": "2.00", "SalesStatus": "Delivered",
+         "QuantityOrdered": "10", "ReleasedQuantity": "10", "DeliveryRemainder": "0",
+         "QuantityLefttoLoad": "0", "Ordered $": "20.00", "Shipped $": "20.00", "Cancelled $": "0"},
+    ]
+
+
+def test_customer_last_order_pick_renders(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/report/customer-last-order").get_data(as_text=True)
+    assert "Customer's Last Order" in html
+    assert "Pick a customer" in html
+
+
+def test_customer_last_order_listed_as_built(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/").get_data(as_text=True)
+    assert "Customer&#39;s Last Order" in html or "Customer's Last Order" in html
+    # It's an in-app report -> links to the picker, not the standard viewer.
+    assert "/report/customer-last-order" in html
+
+
+def test_customer_last_order_view_shows_latest_invoiced(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/report/customer-last-order/100").get_data(as_text=True)
+    assert "Last Invoiced Order" in html
+    assert "SO3" in html and "ITM-A" in html
+    assert "Acme" in html
+
+
+def test_customer_last_order_recent_invoiced_api(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    client = app.test_client()
+    _login(client, app)
+    data = client.get("/api/report/customer-last-order/100/recent-invoiced").get_json()
+    assert [o["order_number"] for o in data["orders"]] == ["SO3"]
+
+
+def test_customer_last_order_view_redirects_from_standard_viewer(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.get("/reports/customer_last_order")
+    assert resp.status_code in (301, 302)
+    assert "/report/customer-last-order" in resp.headers["Location"]
+
+
+def test_customer_last_order_forbidden_for_ungranted_salesman(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    # No per-report grant -> page access denied (fail closed).
+    assert client.get("/report/customer-last-order").status_code == 403
+
+
 def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     rows = [
         {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
