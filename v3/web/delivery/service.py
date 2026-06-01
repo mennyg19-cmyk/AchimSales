@@ -14,7 +14,7 @@ from typing import Iterable
 
 from web.delivery.email import DeliveryResult, EmailService
 from web.delivery.layout import apply_layout
-from web.reporting.export import payload_to_xlsx
+from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
 from web.reporting.runner import ReportRunner
 
@@ -44,7 +44,7 @@ class DeliveryService:
             params=params or {}, builder=builder, force_refresh=True,
         )
         payload = apply_layout(outcome.payload, layout)
-        xlsx = payload_to_xlsx(payload)
+        xlsx = build_workbook(payload, layout)
         result = self.email.deliver(
             subject=subject or report_name, recipients_raw=recipients, body_text=body_text,
             report_name=report_name, filename=_filename(report_name), xlsx_bytes=xlsx,

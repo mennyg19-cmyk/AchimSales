@@ -288,3 +288,40 @@ def test_export_neutralizes_formula_injection():
     assert ws[4][0].value.startswith("'-")
     assert ws[5][0].value.startswith("'@")
     assert ws[6][0].value == "safe"          # ordinary text untouched
+
+
+def test_export_styles_header_and_money_format():
+    openpyxl = pytest.importorskip("openpyxl")
+    payload = {"tabs": [{"name": "S", "columns": [
+        {"field": "Cust", "header": "Cust", "type": "text"},
+        {"field": "Amt", "header": "Amt", "type": "money"},
+    ], "rows": [{"Cust": "ACME", "Amt": 12.5}]}]}
+    wb = openpyxl.load_workbook(io.BytesIO(payload_to_xlsx(payload)))
+    ws = wb["S"]
+    header = ws["A1"]
+    assert header.font.bold is True
+    assert str(header.fill.fgColor.rgb).endswith("E0E0E0")   # live grey header
+    assert ws["B2"].value == 12.5                            # money stored as number
+    assert "$" in ws["B2"].number_format
+
+
+def test_export_grouped_adds_subtotals_and_grand_total():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Cust", "header": "Cust", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [{"Cust": "A", "Amt": 10}, {"Cust": "A", "Amt": 5}, {"Cust": "B", "Amt": 7}],
+    }]}
+    layout = {"views": {"t": {"group": ["Cust"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    ws = wb["T"]
+    col_a = [c.value for c in ws["A"]]
+    assert any(str(v).startswith("Cust: A") for v in col_a)        # group banner
+    assert any(str(v).startswith("Total \u2014 A") for v in col_a)  # per-group subtotal
+    assert "Grand total" in col_a
+    grand = next(row for row in ws.iter_rows() if row[0].value == "Grand total")
+    assert grand[1].value == 22                                     # 10 + 5 + 7

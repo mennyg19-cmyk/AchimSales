@@ -1465,3 +1465,36 @@ Three viewer fixes/changes you asked for:
   columns for that group) and a **grand-total** line at the end — matching the
   legacy test app's grouped totals. On screen, Tabulator already shows per-group
   column calcs because `columnCalcs:"both"` is enabled alongside `groupBy`.
+
+**5. Export moved server-side for true live-app formatting (cell coloring etc.).**
+Follow-up to #4: you wanted the export to carry the live app's *visual*
+formatting — cell coloring, shaded headers, borders — "exactly the same." The
+community SheetJS build (client-side) genuinely can't do font/fill styling, so I
+moved the export to the **server**, where the live app already builds its
+workbooks with **openpyxl**. v3's `web/reporting/export.py` is now a styled
+writer (one sheet per tab) using the **live palette** from `core/excel_styles.py`:
+- bold **grey header** row (`E0E0E0`) with thin black borders,
+- subtle **zebra striping** (`F2F2F2`) on alternate data rows,
+- real Excel **number formats** by column type (`$#,##0.00`, `#,##0`, `0.0%`,
+  `M/D/YYYY`) so money/percent/dates display and sum correctly,
+- **group banners** (`BDD7EE`) + bold **subtotal / grand-total** rows (`D9D9D9`)
+  when a tab is grouped,
+- frozen header, auto-filter, autosized columns, and a live-style commission
+  pivot for the commission tab.
+The Export button now **POSTs the current per-tab view** (order / hidden / sort /
+filters / group, via the same `serializeLayout()` the save/email/schedule paths
+use) to `/reports/<key>/export/<job>`, the server replays it with the existing
+`apply_layout()` and streams back the `.xlsx`. Scheduled/emailed deliveries go
+through the same `build_workbook()` now, so a grouped saved view gets totals in
+its emailed file too. The old client-side SheetJS path and its CDN script were
+removed (dead code). It's all the same value-sanitisation as before (formula-
+injection apostrophe guard, NaN/inf, control chars, 31-char sheet names).
+
+*Honest scope note:* this matches the live app's **house style** (the shared
+`core/excel_styles` look) and is built by the same library (openpyxl), so it
+reads as a live-app export. It does **not** reproduce each report's *bespoke*
+per-sheet quirks (e.g. the Ordered report's red→yellow→green fulfillment-score
+gradient, sheet-to-sheet hyperlinks, or multi-section Summary banner) — those
+live in each `reports/<name>/writer.py` and are driven by raw builder columns v3
+doesn't carry in its viewer payload. If you want a specific report's exact
+gradient/hyperlink layout, that's a per-report add-on we can do next.

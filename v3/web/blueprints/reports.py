@@ -42,8 +42,9 @@ from web.data.repositories.saved_reports import SavedReport, SavedReportReposito
 from web.data.repositories.users import UserRepository
 from web.delivery.email import split_recipients
 from web.delivery.jobs import enqueue_delivery
+from web.delivery.layout import apply_layout
 from web.reporting import params as P
-from web.reporting.export import payload_to_xlsx
+from web.reporting.export import build_workbook
 from web.reporting.jobs import enqueue_report_run
 
 reports_bp = Blueprint("reports", __name__)
@@ -258,7 +259,7 @@ def report_result(job_id: str):
     return jsonify(cached.payload)
 
 
-@reports_bp.get("/reports/<report_key>/export/<job_id>")
+@reports_bp.route("/reports/<report_key>/export/<job_id>", methods=["GET", "POST"])
 @require_login
 def export_report(report_key: str, job_id: str):
     p = _principal_or_401()
@@ -274,7 +275,11 @@ def export_report(report_key: str, job_id: str):
     cached = _cache().get(job.result_ref)
     if cached is None:
         abort(404, description="Result expired; please re-run")
-    data = payload_to_xlsx(cached.payload)
+    # POST carries the viewer's serialized layout (order/hide/sort/filter +
+    # group) so the workbook matches what's on screen; GET is the plain export.
+    layout = request.get_json(silent=True) if request.method == "POST" else None
+    payload = apply_layout(cached.payload, layout) if layout else cached.payload
+    data = build_workbook(payload, layout)
     return send_file(
         io.BytesIO(data),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
