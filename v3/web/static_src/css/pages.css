@@ -48,13 +48,18 @@
     padding: 16px; background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius); margin-bottom: 16px;
 }
-.filter-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+/* Single-row variant: keep every filter on one line, scroll if it overflows. */
+.filter-bar-row { flex-wrap: nowrap; overflow-x: auto; }
+.filter-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); flex: 0 0 auto; }
 .filter-field span { text-transform: uppercase; letter-spacing: 0.4px; }
 .filter-field select, .filter-field input {
     padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-    font-size: 14px; font-weight: 500; color: var(--text); background: var(--bg-card); min-width: 160px;
+    font-size: 14px; font-weight: 500; color: var(--text); background: var(--bg-card); min-width: 150px;
 }
 .filter-field select:focus, .filter-field input:focus { outline: none; border-color: var(--border-focus); }
+
+/* -- Report toolbar -- */
+.report-toolbar { flex-wrap: wrap; }
 
 /* -- Run status + tabs + table -- */
 .report-status { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }
@@ -68,7 +73,63 @@
 }
 .report-tab:hover { border-color: var(--primary); color: var(--primary); }
 .report-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-#reportTable { background: var(--bg-card); border-radius: var(--radius); overflow: hidden; }
+
+/* Full-width grid shell with its own horizontal scrollbar (natural-width table). */
+.report-table-scroll { width: 100%; overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+#reportTable { min-height: 120px; }
+
+/* -- Tabulator theming (drives off the shared light/dark tokens) -- */
+.tabulator { background: var(--bg-card); border: none; font-size: 13px; }
+.tabulator .tabulator-header { background: var(--bg); border-bottom: 1px solid var(--border); color: var(--text-muted); }
+.tabulator .tabulator-header .tabulator-col {
+    background: var(--bg); border-right: 1px solid var(--border);
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-title {
+    color: var(--text-muted); font-weight: 700; font-size: 12px;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-header-filter input {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 3px 6px;
+}
+.tabulator .tabulator-row { background: var(--bg-card); border-bottom: 1px solid var(--border); color: var(--text); }
+.tabulator .tabulator-row.tabulator-row-even { background: var(--bg); }
+.tabulator .tabulator-row.tabulator-selectable:hover { background: var(--primary-light); }
+.tabulator .tabulator-row .tabulator-cell { border-right: 1px solid var(--border); }
+.tabulator .tabulator-row.tabulator-group { background: var(--bg); color: var(--text); font-weight: 700; border-bottom: 1px solid var(--border); }
+.tabulator .tabulator-row.tabulator-calcs,
+.tabulator .tabulator-footer { background: var(--bg); color: var(--text); font-weight: 700; border-top: 1px solid var(--border); }
+.tabulator .tabulator-footer .tabulator-paginator { color: var(--text-muted); }
+.tabulator-menu, .tabulator-edit-list { background: var(--bg-card); border: 1px solid var(--border); color: var(--text); }
+.tabulator-menu .tabulator-menu-item:hover { background: var(--primary-light); }
+
+/* -- Tab right-click menu + columns panel -- */
+.tab-context-menu, .columns-panel {
+    position: absolute; z-index: 1000; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); padding: 6px; min-width: 180px;
+}
+.tab-context-item {
+    display: block; width: 100%; text-align: left; padding: 8px 10px; border: none;
+    background: none; color: var(--text); font-size: 13px; border-radius: 6px; cursor: pointer;
+}
+.tab-context-item:hover { background: var(--bg); }
+.tab-context-item.danger { color: var(--error); }
+.columns-panel { max-height: 320px; overflow-y: auto; }
+.columns-panel-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+.columns-panel-item:hover { background: var(--bg); border-radius: 6px; }
+.columns-panel-restore { margin-top: 6px; width: 100%; }
+
+/* -- Commission cards -- */
+.commission-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; padding: 14px; }
+.commission-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; background: var(--bg-card); }
+.commission-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.commission-card-title { font-weight: 700; color: var(--text); }
+.commission-card-payable { text-align: right; font-size: 12px; color: var(--text-muted); }
+.commission-card-payable strong { display: block; font-size: 16px; color: var(--success); }
+.commission-card-sub { font-size: 12px; color: var(--text-muted); margin: 4px 0 10px; }
+.commission-month-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.commission-month-table th, .commission-month-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--border); color: var(--text); }
+.commission-month-table th:first-child, .commission-month-table td:first-child { text-align: left; color: var(--text-muted); }
+.commission-month-table tfoot td { font-weight: 700; border-top: 1px solid var(--border); border-bottom: none; }
 
 /* -- Dashboard -- */
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }

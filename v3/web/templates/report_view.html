@@ -2,8 +2,9 @@
 {% block title %}{{ report.title }}{% endblock %}
 
 {% block head %}
-<link href="https://unpkg.com/tabulator-tables@5.6.1/dist/css/tabulator_simple.min.css" rel="stylesheet">
-<script src="https://unpkg.com/tabulator-tables@5.6.1/dist/js/tabulator.min.js"></script>
+<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -14,13 +15,16 @@
         </a>
         <h1 class="page-title">{{ report.title }}</h1>
     </div>
-    <div class="page-head-actions">
+    <div class="page-head-actions report-toolbar">
         <button type="button" id="runBtn" class="btn btn-primary">Run report</button>
-        <button type="button" id="exportBtn" class="btn btn-outline" disabled>Export</button>
+        <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout">Refresh data</button>
+        <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
+        <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
+        <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Export exactly what's on screen">Export</button>
     </div>
 </div>
 
-<form id="filterForm" class="filter-bar" onsubmit="return false;">
+<form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
     {% if 'period' in filters %}
     <label class="filter-field">
         <span>Period</span>
@@ -42,13 +46,7 @@
     {% if 'year' in filters %}
     <label class="filter-field">
         <span>Year</span>
-        <input type="number" name="year" min="2025" max="2099" placeholder="{{ '' }}">
-    </label>
-    {% endif %}
-    {% if 'customers' in filters %}
-    <label class="filter-field">
-        <span>Customers</span>
-        <input type="text" name="customers" placeholder="acct or comma-separated">
+        <input type="number" name="year" min="2025" max="2099">
     </label>
     {% endif %}
     {% if 'salesman' in filters %}
@@ -57,13 +55,21 @@
         <input type="text" name="salesman" placeholder="sales group(s)">
     </label>
     {% endif %}
+    {% if 'customers' in filters %}
+    <label class="filter-field">
+        <span>Customers</span>
+        <input type="text" name="customers" placeholder="acct or comma-separated">
+    </label>
+    {% endif %}
 </form>
 
 <div id="reportStatus" class="report-status" hidden></div>
 
 <div id="reportTabs" class="report-tabs" hidden></div>
 <div id="reportMeta" class="report-meta" hidden></div>
-<div id="reportTable"></div>
+<div class="report-table-scroll">
+    <div id="reportTable"></div>
+</div>
 
 <div id="reportRoot"
      data-report-key="{{ report.key }}"
