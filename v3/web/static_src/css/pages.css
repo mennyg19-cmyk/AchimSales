@@ -66,8 +66,11 @@
     padding: 16px; background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius); margin-bottom: 16px;
 }
-/* Single-row variant: keep every filter on one line, scroll if it overflows. */
-.filter-bar-row { flex-wrap: nowrap; overflow-x: auto; }
+/* Fields sit in their own wrapping block so the Run button can stay pinned to
+   the far right; the block wraps to a second row (e.g. when many customer pills
+   are selected) without pushing Run off-screen. */
+.filter-bar-row { flex-wrap: nowrap; align-items: flex-end; }
+.filter-fields { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .filter-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); flex: 0 0 auto; }
 .filter-field span { text-transform: uppercase; letter-spacing: 0.4px; }
 .filter-field select, .filter-field input {
@@ -92,30 +95,26 @@
 .lookup-status { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); font-style: italic; }
 
 /* -- Searchable customer multi-select --
-   Bounded control: the selected chips and the search input share one line and
-   scroll INTERNALLY (max-height), so a long selection never grows the filter
-   row. The options list is positioned `fixed` by JS so the filter row's
-   horizontal scroll can't clip the dropdown. */
-.customer-picker { position: relative; width: 260px; }
-/* One fixed-height line: chips + the search input never wrap, they scroll
-   horizontally instead, so selecting customers can't grow the filter row.
-   Scrollbar hidden for looks; focusing the input auto-scrolls it into view. */
-.customer-control {
-    display: flex; flex-wrap: nowrap; align-items: center; gap: 4px;
-    height: 38px; overflow-x: auto; overflow-y: hidden; cursor: text;
-    padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-    background: var(--bg-card); scrollbar-width: none;
+   The field itself is a single, normal-looking dropdown (same chrome as the
+   <select>s). Selected customers render as separate pills AFTER the field (see
+   .customer-pills) so the field never turns into a box-within-a-box and never
+   grows. The options list is positioned `fixed` by JS so nothing clips it. */
+.filter-field-customers { min-width: 200px; }
+.customer-picker { position: relative; width: 100%; }
+.customer-search {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500; color: var(--text); background: var(--bg-card);
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='12'%20height='12'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%2364748b'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='6%209%2012%2015%2018%209'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; background-size: 12px; padding-right: 30px;
 }
-.customer-control::-webkit-scrollbar { display: none; }
-.customer-control:focus-within { border-color: var(--border-focus); }
+.customer-search:focus { outline: none; border-color: var(--border-focus); }
+
+/* Selected customers: free pills in the filter row, wrap to the next line. */
+.customer-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; align-self: flex-end; padding-bottom: 8px; }
+.customer-pills:empty { display: none; }
 .customer-chip {
     background: var(--primary-light); color: var(--primary); border: none; cursor: pointer;
-    padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
-    white-space: nowrap; flex: 0 0 auto;
-}
-.customer-search {
-    flex: 1 0 80px; min-width: 80px; border: none; outline: none; background: transparent;
-    padding: 2px; font-size: 14px; color: var(--text);
+    padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
 }
 .customer-options {
     max-height: 240px; overflow-y: auto; border: 1px solid var(--border);
@@ -139,9 +138,8 @@
 
 /* -- Report toolbar (sits BELOW the filter box) -- */
 .report-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-/* "Run report" lives inside the filter box; align it to the bottom of the row. */
-.filter-field-run { justify-content: flex-end; }
-.filter-field-run .btn { white-space: nowrap; }
+/* "Run report" lives in the filter box, pinned to the far right + bottom. */
+.filter-run-btn { flex: 0 0 auto; align-self: flex-end; white-space: nowrap; }
 
 /* -- Run status + tabs + table -- */
 .report-status { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }

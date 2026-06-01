@@ -18,6 +18,7 @@
 </div>
 
 <form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
+    <div class="filter-fields">
     {% if 'period' in filters %}
     <label class="filter-field">
         <span>Period <button type="button" class="help-btn" data-help="param-period" data-no-guard aria-label="Help">?</button></span>
@@ -65,14 +66,14 @@
     </label>
     {% endif %}
     {% if 'customers' in filters %}
-    <div class="filter-field filter-field-wide">
+    <div class="filter-field filter-field-customers">
         <span>Customers <button type="button" class="help-btn" data-help="param-customers" data-no-guard aria-label="Help">?</button> <em id="customerStatus" class="lookup-status"></em></span>
         <div id="customerPicker" class="customer-picker" data-placeholder="All customers"></div>
     </div>
+    <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
     {% endif %}
-    <div class="filter-field filter-field-run">
-        <button type="button" id="runBtn" class="btn btn-primary">Run report</button>
     </div>
+    <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
 </form>
 
 <div class="report-toolbar">

@@ -1300,3 +1300,22 @@ More owner feedback after using the report viewer:
 - Not changed: the select chevron uses a fixed `#64748b` stroke in its data URI
   (a data-URI background can't read a CSS var / currentColor). It's a neutral
   grey that reads on both light and dark, so it's left as-is.
+
+### Round 3b (customer field redesign per owner screenshot)
+
+The bordered picker control sitting inside the bordered filter bar read as a
+"box within a box", and pills-inside-the-field still felt off. Redesigned:
+
+- The Customers field is now a single, normal dropdown-styled input (same
+  chrome + chevron as the `<select>`s) - no inner wrapper box.
+- Selected customers render as separate pills AFTER the field (a `#customerPills`
+  container in the filter row), not inside the field. The filter row is now a
+  `.filter-fields` block (wraps) so when there are too many pills they flow onto
+  the next row instead of growing/clipping.
+- "Run report" is a direct child of the bar pinned far-right + bottom
+  (`.filter-run-btn`, `flex:0 0 auto`), so it stays in the top-right regardless
+  of how many pills wrap below.
+- The picker JS was reworked to a persistent input (no more rebuild-on-keystroke
+  / refocus hack): `renderCustomerOptions()` fills a fixed-positioned dropdown
+  that opens on focus/type and closes on outside-click/Esc; `renderCustomerPills()`
+  fills the separate pills container; positioning is off the input's rect.

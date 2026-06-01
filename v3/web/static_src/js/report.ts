@@ -793,14 +793,14 @@ async function loadCustomers(): Promise<void> {
   renderCustomerPicker();
 }
 
-/** Position the options list as a fixed overlay under the control, so the
- *  filter row's horizontal scroll (overflow:auto) can't clip it. */
+/** Position the options list as a fixed overlay under the search field, so no
+ *  overflow ancestor (the filter row) can clip it. */
 function positionCustomerOptions(): void {
   const host = $("customerPicker");
-  const control = host?.querySelector<HTMLElement>(".customer-control");
+  const search = host?.querySelector<HTMLElement>(".customer-search");
   const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!control || !list) return;
-  const r = control.getBoundingClientRect();
+  if (!search || !list || list.hidden) return;
+  const r = search.getBoundingClientRect();
   list.style.position = "fixed";
   list.style.top = `${Math.round(r.bottom + 2)}px`;
   list.style.left = `${Math.round(r.left)}px`;
@@ -811,112 +811,120 @@ function positionCustomerOptions(): void {
 function ensureCustomerHandlers(): void {
   if (customerHandlersBound) return;
   customerHandlersBound = true;
+  const inside = (t: Node) => {
+    const p = $("customerPicker");
+    const pills = $("customerPills");
+    return !!((p && p.contains(t)) || (pills && pills.contains(t)));
+  };
   document.addEventListener("click", (e) => {
-    if (!customerPickerOpen) return;
-    const host = $("customerPicker");
-    if (host && !host.contains(e.target as Node)) {
-      customerPickerOpen = false;
-      renderCustomerPicker();
-    }
+    if (customerPickerOpen && !inside(e.target as Node)) closeCustomerOptions();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && customerPickerOpen) {
-      customerPickerOpen = false;
-      renderCustomerPicker();
-    }
+    if (e.key === "Escape" && customerPickerOpen) closeCustomerOptions();
   });
   window.addEventListener("scroll", positionCustomerOptions, true);
   window.addEventListener("resize", positionCustomerOptions);
 }
 
-function renderCustomerPicker(filterText = ""): void {
+/** Build the persistent search input + (hidden) options list once. */
+function ensureCustomerInput(): HTMLInputElement | null {
   const host = $("customerPicker");
-  if (!host) return;
-  ensureCustomerHandlers();
-  const q = filterText.trim().toLowerCase();
+  if (!host) return null;
+  let search = host.querySelector<HTMLInputElement>(".customer-search");
+  if (search) return search;
+  host.innerHTML = "";
+  search = document.createElement("input");
+  search.type = "text";
+  search.className = "customer-search";
+  search.placeholder = host.dataset.placeholder || "All customers";
+  search.setAttribute("role", "combobox");
+  search.addEventListener("focus", () => { customerPickerOpen = true; renderCustomerOptions(); });
+  search.addEventListener("input", () => { customerPickerOpen = true; renderCustomerOptions(); });
+  host.appendChild(search);
+  const list = document.createElement("div");
+  list.className = "customer-options";
+  list.hidden = true;
+  host.appendChild(list);
+  return search;
+}
+
+function closeCustomerOptions(): void {
+  customerPickerOpen = false;
+  const list = $("customerPicker")?.querySelector<HTMLElement>(".customer-options");
+  if (list) list.hidden = true;
+}
+
+/** Render the open dropdown of matching customers (checkbox per row). */
+function renderCustomerOptions(): void {
+  const host = $("customerPicker");
+  const search = ensureCustomerInput();
+  const list = host?.querySelector<HTMLElement>(".customer-options");
+  if (!host || !search || !list) return;
+  if (!customerPickerOpen) { list.hidden = true; return; }
+
+  const q = search.value.trim().toLowerCase();
   const matches = q
     ? customerOptions.filter(
         (c) => c.name.toLowerCase().includes(q) || c.key.toLowerCase().includes(q),
       )
     : customerOptions;
 
-  host.innerHTML = "";
-
-  const control = document.createElement("div");
-  control.className = "customer-control";
-  control.addEventListener("click", (e) => {
-    if (e.target === control) {
-      customerPickerOpen = true;
-      renderCustomerPicker(filterText);
-    }
+  list.innerHTML = "";
+  matches.slice(0, 200).forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "customer-option";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = selectedCustomers.has(c.key);
+    cb.addEventListener("change", () => {
+      if (cb.checked) selectedCustomers.set(c.key, c.name);
+      else selectedCustomers.delete(c.key);
+      renderCustomerPills();
+      refreshPreviewIfOpen();
+    });
+    row.appendChild(cb);
+    const text = document.createElement("span");
+    text.textContent = `${c.key} — ${c.name}`;
+    row.appendChild(text);
+    list.appendChild(row);
   });
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "customer-empty";
+    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
+    list.appendChild(empty);
+  }
+  list.hidden = false;
+  positionCustomerOptions();
+}
 
+/** Render the selected customers as removable pills (separate from the field). */
+function renderCustomerPills(): void {
+  const host = $("customerPills");
+  if (!host) return;
+  host.innerHTML = "";
   selectedCustomers.forEach((name, key) => {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "customer-chip";
     chip.textContent = `${name} ✕`;
     chip.title = `Remove ${key}`;
-    chip.addEventListener("click", (e) => {
-      e.stopPropagation();
+    chip.addEventListener("click", () => {
       selectedCustomers.delete(key);
-      renderCustomerPicker(filterText);
+      renderCustomerPills();
+      if (customerPickerOpen) renderCustomerOptions();
       refreshPreviewIfOpen();
     });
-    control.appendChild(chip);
+    host.appendChild(chip);
   });
+}
 
-  const search = document.createElement("input");
-  search.type = "text";
-  search.className = "customer-search";
-  search.placeholder = selectedCustomers.size ? "" : host.dataset.placeholder || "All customers";
-  search.value = filterText;
-  search.addEventListener("focus", () => {
-    if (!customerPickerOpen) {
-      customerPickerOpen = true;
-      renderCustomerPicker(search.value);
-    }
-  });
-  search.addEventListener("input", () => {
-    customerPickerOpen = true;
-    renderCustomerPicker(search.value);
-  });
-  control.appendChild(search);
-  host.appendChild(control);
-
-  if (customerPickerOpen) {
-    const list = document.createElement("div");
-    list.className = "customer-options";
-    matches.slice(0, 200).forEach((c) => {
-      const row = document.createElement("label");
-      row.className = "customer-option";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = selectedCustomers.has(c.key);
-      cb.addEventListener("change", () => {
-        if (cb.checked) selectedCustomers.set(c.key, c.name);
-        else selectedCustomers.delete(c.key);
-        renderCustomerPicker(search.value);
-        refreshPreviewIfOpen();
-      });
-      row.appendChild(cb);
-      const text = document.createElement("span");
-      text.textContent = `${c.key} — ${c.name}`;
-      row.appendChild(text);
-      list.appendChild(row);
-    });
-    if (!matches.length) {
-      const empty = document.createElement("div");
-      empty.className = "customer-empty";
-      empty.textContent = customerOptions.length ? "No matches" : "Loading…";
-      list.appendChild(empty);
-    }
-    host.appendChild(list);
-    positionCustomerOptions();
-    // Keep typing fluid: refocus the search after the rebuild.
-    search.focus();
-    if (filterText) search.setSelectionRange(filterText.length, filterText.length);
-  }
+function renderCustomerPicker(): void {
+  if (!hasFilter("customerPicker")) return;
+  ensureCustomerHandlers();
+  ensureCustomerInput();
+  renderCustomerPills();
+  renderCustomerOptions();
 }
 
 function setLookupStatusText(text: string): void {
