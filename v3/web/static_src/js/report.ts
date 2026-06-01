@@ -675,6 +675,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Pro
       clearStatus();
       if (opts.preserveLayout) loadPayloadPreserving(payload);
       else loadPayload(payload);
+      if (pendingLayout) { applyLayout(pendingLayout); pendingLayout = null; }
       return;
     }
     if (job.status === "failure") throw new Error(friendlyError(job.error));
@@ -714,7 +715,7 @@ async function run(opts: { preserveLayout?: boolean } = {}): Promise<void> {
 }
 
 function setToolbarEnabled(hasData: boolean): void {
-  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn"] as const).forEach((id) => {
+  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
@@ -748,6 +749,8 @@ let customerOptions: LookupRow[] = [];
 let lookupPollTimer: number | null = null;
 let pendingSalesman: string | null = null; // deep-link salesman, applied after options load
 let previewTimer: number | null = null;
+let pendingLayout: SavedLayout | null = null; // preset layout to apply after the next run
+let autoRunRequested = false;                 // ?preset=<id> deep-link wants an auto-run
 
 function hasFilter(id: string): boolean {
   return !!$(id);
@@ -988,22 +991,172 @@ function refreshPreviewIfOpen(): void {
   previewTimer = window.setTimeout(renderApiPreview, 300);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+// --------------------------------------------------------------------------
+// Saved views (presets): capture filters + per-tab layout, restore on demand.
+// --------------------------------------------------------------------------
+
+interface SavedLayout { active: string | null; views: Record<string, unknown>; }
+
+function serializeView(v: ViewState): unknown {
+  return {
+    hidden: [...v.hidden], frozen: [...v.frozen], order: v.order,
+    sorters: v.sorters, headerFilters: v.headerFilters, group: v.group,
+  };
+}
+
+function deserializeView(o: any): ViewState {
+  return {
+    hidden: new Set<string>(o?.hidden || []), frozen: new Set<string>(o?.frozen || []),
+    order: o?.order || null, sorters: o?.sorters || null,
+    headerFilters: o?.headerFilters || null, group: o?.group || [],
+  };
+}
+
+function serializeLayout(): SavedLayout {
+  captureActive();
+  const views: Record<string, unknown> = {};
+  Object.keys(state.views).forEach((k) => { views[k] = serializeView(state.views[k]); });
+  return { active: state.active, views };
+}
+
+function applyLayout(layout: SavedLayout | null): void {
+  if (!layout || !layout.views) return;
+  Object.keys(layout.views).forEach((k) => {
+    if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
+  });
+  if (layout.active && state.tabs[layout.active]) state.active = layout.active;
+  renderTabs();
+  if (state.active) { buildTable(state.tabs[state.active]); syncColumnsButton(state.tabs[state.active]); }
+}
+
+function presetUrl(id: number | string): string {
+  return attr("data-preset-url").replace(/\/0$/, `/${id}`);
+}
+
+const csrfHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": attr("data-csrf") });
+
+async function saveView(): Promise<void> {
+  const name = window.prompt("Save this view as:");
+  if (!name || !name.trim()) return;
+  try {
+    const res = await fetch(attr("data-presets-url"), {
+      method: "POST", headers: csrfHeaders(),
+      body: JSON.stringify({ name: name.trim(), params: collectParams(), layout: serializeLayout() }),
+    });
+    if (!res.ok) throw new Error();
+    setStatus(`Saved “${name.trim()}”.`);
+  } catch {
+    setStatus("Could not save this view. Please try again.", "error");
+  }
+}
+
+function applyParamsObject(params: Record<string, unknown>): void {
+  (["period", "status", "year"] as const).forEach((name) => {
+    const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
+    if (el && params[name] != null) el.value = String(params[name]);
+  });
+  const sd = document.querySelector<HTMLInputElement>('[name="start_date"]');
+  const ed = document.querySelector<HTMLInputElement>('[name="end_date"]');
+  if (sd && params.start_date != null) sd.value = String(params.start_date);
+  if (ed && params.end_date != null) ed.value = String(params.end_date);
+  const sel = $("salesmanSelect") as HTMLSelectElement | null;
+  if (params.salesman != null) {
+    const val = String(params.salesman);
+    if (sel && [...sel.options].some((o) => o.value === val)) sel.value = val;
+    else pendingSalesman = val;
+  }
+  selectedCustomers.clear();
+  const custs = params.customers;
+  const list = Array.isArray(custs) ? custs : (custs ? String(custs).split(",") : []);
+  list.forEach((c) => { const k = String(c).trim(); if (k) selectedCustomers.set(k, k); });
+  if (hasFilter("customerPicker")) renderCustomerPicker();
+  // Re-sync custom-range field visibility via the listener bound at boot.
+  ($("periodSelect") as HTMLSelectElement | null)?.dispatchEvent(new Event("change"));
+}
+
+function closePresetsPanel(): void {
+  $("presetsPanel")?.remove();
+  document.removeEventListener("click", onPresetsOutside, true);
+}
+
+function onPresetsOutside(e: MouseEvent): void {
+  const panel = $("presetsPanel");
+  if (panel && !panel.contains(e.target as Node) && (e.target as HTMLElement).id !== "presetsBtn") {
+    closePresetsPanel();
+  }
+}
+
+async function togglePresetsPanel(): Promise<void> {
+  if ($("presetsPanel")) { closePresetsPanel(); return; }
+  const data = await getJSON<{ presets: any[] }>(attr("data-presets-url"));
+  const presets = data?.presets || [];
+  const panel = document.createElement("div");
+  panel.id = "presetsPanel";
+  panel.className = "presets-panel";
+  if (!presets.length) {
+    panel.innerHTML = '<div class="presets-empty">No saved views yet. Use “Save view”.</div>';
+  } else {
+    presets.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "presets-row";
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "presets-open";
+      open.textContent = p.name;
+      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p); });
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "presets-del";
+      del.textContent = "✕";
+      del.title = "Delete this view";
+      del.addEventListener("click", async () => {
+        if (!window.confirm(`Delete “${p.name}”?`)) return;
+        await fetch(presetUrl(p.id), { method: "DELETE", headers: csrfHeaders() });
+        row.remove();
+      });
+      row.append(open, del);
+      panel.appendChild(row);
+    });
+  }
+  ($("presetsBtn") as HTMLElement)?.insertAdjacentElement("afterend", panel);
+  setTimeout(() => document.addEventListener("click", onPresetsOutside, true), 0);
+}
+
+function loadPreset(preset: { params?: Record<string, unknown>; layout?: SavedLayout }): void {
+  applyParamsObject(preset.params || {});
+  pendingLayout = preset.layout || null;
+  updateDeepLink();
+  run();
+}
+
+async function autoOpenPresetIfRequested(): Promise<void> {
+  const id = new URLSearchParams(window.location.search).get("preset");
+  if (!id) return;
+  const preset = await getJSON<any>(presetUrl(id));
+  if (preset?.layout) pendingLayout = preset.layout;
+  autoRunRequested = true;
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
   if (!root) return;
   // Apply deep-links BEFORE wiring the custom-range toggle so a period=custom
   // link reveals the date inputs when the toggle does its initial sync.
   applyDeepLink();
   initCustomRangeToggle();
-  initLookups();
   $("runBtn")?.addEventListener("click", () => { updateDeepLink(); run(); });
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportBtn")?.addEventListener("click", exportExcel);
   $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
+  $("saveViewBtn")?.addEventListener("click", saveView);
+  $("presetsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); togglePresetsPanel(); });
   $("previewBtn")?.addEventListener("click", showApiPreview);
   $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
   $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);
   setToolbarEnabled(false);
+  await initLookups();
+  await autoOpenPresetIfRequested();
+  if (autoRunRequested) { autoRunRequested = false; run(); }
 });
 
 export {};

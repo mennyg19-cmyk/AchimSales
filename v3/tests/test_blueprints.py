@@ -287,6 +287,62 @@ def test_preview_body_shows_sp_params(tmp_path):
     assert "CreatedDateTimeFrom" in body["body"]
 
 
+def test_preset_create_list_get_delete_and_home(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+
+    # Create
+    created = client.post("/api/reports/ordered/presets",
+                          json={"name": "March", "params": {"period": "mtd"},
+                                "layout": {"active": "summary", "views": {}}},
+                          headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    pid = created.get_json()["id"]
+
+    # List for the report
+    lst = client.get("/api/reports/ordered/presets").get_json()["presets"]
+    assert len(lst) == 1 and lst[0]["name"] == "March"
+
+    # Single fetch carries the layout
+    one = client.get(f"/api/reports/presets/{pid}").get_json()
+    assert one["layout"]["active"] == "summary"
+
+    # Cross-report list (My Presets) + home page shows it
+    allp = client.get("/api/saved-reports").get_json()["presets"]
+    assert any(p["id"] == pid for p in allp)
+    assert "My presets" in client.get("/").get_data(as_text=True)
+    assert "March" in client.get("/").get_data(as_text=True)
+
+    # Delete
+    assert client.delete(f"/api/reports/presets/{pid}",
+                         headers={"X-CSRF-Token": _CSRF}).status_code == 200
+    assert client.get("/api/reports/ordered/presets").get_json()["presets"] == []
+
+
+def test_preset_is_owner_scoped(tmp_path):
+    app = _make_app(tmp_path)
+    owner = app.test_client()
+    _login(owner, app)
+    pid = owner.post("/api/reports/ordered/presets",
+                     json={"name": "mine", "params": {}, "layout": {}},
+                     headers={"X-CSRF-Token": _CSRF}).get_json()["id"]
+    other = app.test_client()
+    _login(other, app, email="other@x.com", role="admin")
+    assert other.get(f"/api/reports/presets/{pid}").status_code == 404
+    assert other.delete(f"/api/reports/presets/{pid}",
+                        headers={"X-CSRF-Token": _CSRF}).status_code == 404
+
+
+def test_preset_requires_name(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/reports/ordered/presets", json={"params": {}},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
 def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     rows = [
         {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",

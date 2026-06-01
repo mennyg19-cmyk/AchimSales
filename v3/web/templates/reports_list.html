@@ -27,6 +27,22 @@
 </div>
 {% endif %}
 
+{% if presets %}
+<h2 class="section-title">My presets</h2>
+<div class="report-grid">
+    {% for s in presets %}
+    <a class="report-card" href="{{ s.url }}">
+        <div class="report-card-icon"><i data-feather="bookmark"></i></div>
+        <div class="report-card-body">
+            <div class="report-card-title">{{ s.name }}</div>
+            <div class="report-card-meta">{{ s.report_title }} &middot; saved view</div>
+        </div>
+        <i data-feather="chevron-right" class="report-card-arrow"></i>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% if backlog_reports %}
 <h2 class="section-title">Coming soon</h2>
 <div class="report-grid">

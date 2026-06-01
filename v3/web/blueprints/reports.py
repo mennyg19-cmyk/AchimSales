@@ -25,14 +25,17 @@ from flask import (
     render_template,
     request,
     send_file,
+    url_for,
 )
 
 import io
+from urllib.parse import urlencode
 
 from report_engine import registry
 from report_engine.registry import ReportStatus
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
+from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
 from web.data.repositories.users import UserRepository
 from web.reporting import params as P
 from web.reporting.export import payload_to_xlsx
@@ -89,6 +92,15 @@ def _lookups():
     return current_app.config["LOOKUP_SERVICE"]
 
 
+def _saved_repo() -> SavedReportRepository:
+    return SavedReportRepository(current_app.config["DB"])
+
+
+def _preset_dict(s: SavedReport) -> dict:
+    return {"id": s.id, "report_key": s.report_key, "name": s.name,
+            "params": s.params, "layout": s.layout, "created_at": s.created_at}
+
+
 def _principal_or_401():
     p = current_principal()
     if p is None:
@@ -128,8 +140,31 @@ def reports_list():
     backlog = list(registry.backlog_reports())
     return render_template(
         "reports_list.html", active_tab="reports",
-        built_reports=built, backlog_reports=backlog,
+        built_reports=built, backlog_reports=backlog, presets=_my_presets(p),
     )
+
+
+def _my_presets(p) -> list[dict]:
+    """The current user's presets as home-page cards (deep-link 'Open' URLs)."""
+    uid = _user_id(p.email)
+    if uid is None:
+        return []
+    authz = _authz()
+    titles = {s.key: s.title for s in registry.built_reports()}
+    out: list[dict] = []
+    for s in _saved_repo().list_for_user(uid):
+        if not authz.can_view_report(p, s.report_key):
+            continue
+        q: dict = {}
+        for k, v in (s.params or {}).items():
+            q[k] = ",".join(map(str, v)) if isinstance(v, (list, tuple)) else str(v)
+        q["preset"] = s.id
+        out.append({
+            "id": s.id, "name": s.name, "report_key": s.report_key,
+            "report_title": titles.get(s.report_key, s.report_key),
+            "url": url_for("reports.report_view", report_key=s.report_key) + "?" + urlencode(q),
+        })
+    return out
 
 
 @reports_bp.get("/reports/<report_key>")
@@ -305,3 +340,76 @@ def preview_body(report_key: str):
             "configured": bool(base and cfg.reporting_api_key),
             "warning": str(exc),
         })
+
+
+# --- saved reports (presets) ----------------------------------------------- #
+
+@reports_bp.get("/api/saved-reports")
+@require_login
+def saved_reports_list():
+    """All of the current user's presets (across reports they can still view)."""
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    authz = _authz()
+    items = [_preset_dict(s) for s in _saved_repo().list_for_user(uid)
+             if authz.can_view_report(p, s.report_key)]
+    return jsonify({"presets": items})
+
+
+@reports_bp.get("/api/reports/<report_key>/presets")
+@require_login
+def report_presets(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    items = [_preset_dict(s) for s in _saved_repo().list_for_user(uid)
+             if s.report_key == report_key]
+    return jsonify({"presets": items})
+
+
+@reports_bp.post("/api/reports/<report_key>/presets")
+@require_login
+def create_preset(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        abort(400, description="A preset name is required")
+    pid = _saved_repo().create(uid, report_key, name,
+                               body.get("params") or {}, body.get("layout") or {})
+    return jsonify({"id": pid, "name": name}), 201
+
+
+@reports_bp.get("/api/reports/presets/<int:preset_id>")
+@require_login
+def get_preset(preset_id: int):
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    s = _saved_repo().get(preset_id, uid)
+    if s is None or not _authz().can_view_report(p, s.report_key):
+        abort(404, description="Unknown preset")
+    return jsonify(_preset_dict(s))
+
+
+@reports_bp.delete("/api/reports/presets/<int:preset_id>")
+@require_login
+def delete_preset(preset_id: int):
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    if not _saved_repo().delete(preset_id, uid):
+        abort(404, description="Unknown preset")
+    return jsonify({"deleted": True})
