@@ -34,6 +34,38 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger(__name__)
 
 
+def _under_gunicorn() -> bool:
+    """True when this process is a gunicorn worker (not flask run / werkzeug)."""
+    if os.environ.get("GUNICORN_EMAIL_DIST_LEADER") is not None:
+        return True
+    if "GUNICORN_CMD_ARGS" in os.environ:
+        return True
+    return "gunicorn" in (os.environ.get("SERVER_SOFTWARE") or "").lower()
+
+
+def _start_email_distribution_check():
+    """Start the 15-minute email distribution loop.
+
+    Under gunicorn, only worker 0 starts the loop (see gunicorn.conf.py post_fork).
+    Other workers skip it so daily emails are not duplicated and runbook sync
+    for distributions does not run twice. Local dev (single process) still starts
+    the loop here.
+    """
+    if os.environ.get("GUNICORN_EMAIL_DIST_LEADER") == "0":
+        log.info("Email distribution check skipped (non-leader gunicorn worker)")
+        print("[app] Email distribution check skipped (non-leader worker).", flush=True)
+        return
+    if _under_gunicorn():
+        log.info("Email distribution check deferred to gunicorn leader worker")
+        print("[app] Email distribution check deferred to gunicorn worker 0.", flush=True)
+        return
+    from webapp.services.email_distributions import start_distribution_check
+
+    start_distribution_check()
+    log.info("Email distribution check thread started (single-process / dev)")
+    print("[app] Email distribution check thread started.", flush=True)
+
+
 def _cleanup_old_reports(max_age_days: int = 7):
     """Delete report output files older than *max_age_days*."""
     from webapp.config import REPORT_OUTPUT_DIR
@@ -107,9 +139,7 @@ def create_app() -> Flask:
     start_background_refresh()
     print("[app] Background refresh thread started.", flush=True)
 
-    from webapp.services.email_distributions import start_distribution_check
-    start_distribution_check()
-    print("[app] Email distribution check thread started.", flush=True)
+    _start_email_distribution_check()
 
     _cleanup_old_reports()
     print("[app] App factory complete.", flush=True)
