@@ -76,6 +76,19 @@
 }
 .filter-field select:focus, .filter-field input:focus { outline: none; border-color: var(--border-focus); }
 .filter-field-wide { flex: 0 0 auto; min-width: 260px; }
+
+/* Native <select> chrome is ugly + ignores our theme; replace it with our own
+   chevron and let the box inherit the card/border tokens (works in both themes).
+   Covers every styled dropdown: filters, the schedule modal, settings + auth. */
+.filter-field select,
+.modal-field select,
+.auth-field select {
+    -webkit-appearance: none; -moz-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='12'%20height='12'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%2364748b'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='6%209%2012%2015%2018%209'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; background-size: 12px;
+    padding-right: 30px; cursor: pointer;
+}
+.filter-field select:hover, .modal-field select:hover, .auth-field select:hover { border-color: var(--border-focus); }
 .lookup-status { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); font-style: italic; }
 
 /* -- Searchable customer multi-select -- */
@@ -196,6 +209,10 @@
     position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center;
     justify-content: center; background: rgba(0, 0, 0, 0.45); padding: 16px;
 }
+/* The JS toggles the `hidden` attribute to open/close; the `display:flex` above
+   would otherwise override the UA `[hidden]` rule and leave every modal stuck
+   open on page load (and impossible to close). Keep this immediately after. */
+.modal-overlay[hidden] { display: none; }
 .modal {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
     box-shadow: var(--shadow-lg); width: 100%; max-width: 520px; max-height: 90vh;
@@ -206,7 +223,7 @@
 .modal-close { border: none; background: none; font-size: 20px; line-height: 1; color: var(--text-muted); cursor: pointer; }
 .modal-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .modal-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text); }
-.modal-field input { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); }
+.modal-field input, .modal-field select { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 14px; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--border); }
 .modal-msg { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 13px; }
 .modal-msg-error { background: var(--error-light); color: var(--error); }
@@ -298,7 +315,13 @@
 .clo-provisional { font-size: 12px; margin: 0 0 8px; display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
 .data-table td.num, .data-table th.num { text-align: right; }
 
-/* -- Settings -- */
+/* -- Settings --
+   Full-width page. Admins/developers get a two-column card layout; salesmen get
+   a single, half-width column (the page itself is set to container-narrow for
+   them in the template). */
+.settings-grid { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+@media (min-width: 900px) { .settings-grid-2col { grid-template-columns: 1fr 1fr; } }
+.settings-grid > .settings-card { margin-bottom: 0; }
 .settings-card { padding: 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 16px; }
 .profile-list { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; }
 .profile-list dt { color: var(--text-muted); font-weight: 600; }

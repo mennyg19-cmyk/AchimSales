@@ -1216,3 +1216,40 @@ user was observed using it during cutover.
   exactly one worker starts the email loop and exactly one owns v3 background work.
 - `.gitattributes` pins `*.sh` / `litestream.yml` / `gunicorn.conf.py` to LF so a
   CRLF `startup.sh` can't break the Linux container.
+
+### UI/UX round 2 (page widths, modal bug, dropdowns, mirror-backed pickers)
+
+Owner feedback after using the deployed app. Plain-English decisions:
+
+- **Page widths.** Every page was locked to the 800px reading column. Now the
+  default container is full width; only the report picker (front page) and the
+  schedules pages (`schedules`, `master_schedules`, `schedule_history`) opt back
+  into the narrow column via a `container-narrow` block. So report viewers, the
+  dashboard, settings, and the admin tables now use the full screen, exactly as
+  asked. (Mechanism: `base.html` exposes a `container_class` block; `.container`
+  is full width, `.container-narrow` caps at 800px.)
+- **Settings layout by role.** Admins/developers get the full-width page with a
+  two-column card grid; salesmen get a single half-width column (the page is set
+  to `container-narrow` for them). Driven by `user.role` in `settings.html` +
+  `.settings-grid`/`.settings-grid-2col`.
+- **Schedule modal opening by default / couldn't close.** The modals are toggled
+  by setting the HTML `hidden` attribute, but `.modal-overlay { display:flex }`
+  overrode the browser's `[hidden]` rule, so every overlay rendered on page load
+  and re-hiding did nothing. Added `.modal-overlay[hidden] { display:none }` so
+  `hidden` actually hides. This fixes both the email and schedule modals.
+- **Ugly native dropdowns.** Native `<select>`s ignored the theme and showed the
+  OS chrome. They now use `appearance:none` with our own chevron and inherit the
+  card/border tokens (works in light + dark). The schedule modal's Frequency
+  select also had no base styling at all - it now matches the inputs.
+- **Customer dropdown not populating from the API or the mirror.** Root cause:
+  each gunicorn worker warms its OWN in-process customer universe with a separate
+  live `customer_master` call, so a dropdown request landing on a not-yet-warm
+  worker got nothing, and there was no shared fallback (the live mirror hook was
+  unwired). The dashboard already keeps a shared, persisted customer universe
+  (`dashboard_customers`, primed on boot + refreshed every 4h from the same
+  `customer_master` SP). The `LookupService` dropdowns now read that mirror when
+  this worker's live cache is empty/cold - the same "serve the dropdown from a
+  refreshed table" approach the test app uses. Live cache still wins when warm;
+  the salesman VALUE stays the raw SalesGroup (the mirror stores it), so SP
+  round-trips are unchanged. `status().mirror_row_count` now reports the real
+  mirror size instead of a hardcoded 0.

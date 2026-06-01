@@ -51,7 +51,7 @@
     </header>
     {% endif %}
 
-    <main class="container">
+    <main class="container {% block container_class %}{% endblock %}">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         <div class="flash-messages">

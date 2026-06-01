@@ -134,6 +134,33 @@ def test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key():
     assert sm[0]["name"] == "Reggie"                # display enriched from master
 
 
+class _MirrorCustomer:
+    """Minimal stand-in for a persisted dashboard-mirror customer row."""
+
+    def __init__(self, account, name, salesgroup):
+        self.customer_account = account
+        self.customer_name = name
+        self.sales_group = salesgroup
+
+
+def test_lookup_dropdowns_populate_from_mirror_before_universe_warms():
+    """The dropdowns must populate from the shared persisted mirror even when
+    this worker's live universe hasn't been populated yet (multi-worker case)."""
+    from web.reporting.lookups import LookupService
+
+    svc = _svc({"customer_master": []})  # live universe never warmed here
+    mirror = [_MirrorCustomer("100", "Acme", "REdwards"),
+              _MirrorCustomer("200", "Globex", "REdwards")]
+    lk = LookupService(svc, _FakeSalesmenRepo(), mirror_customers=lambda: mirror)
+
+    custs = lk.customers()
+    assert [c["key"] for c in custs] == ["100", "200"]
+    sm = lk.salesmen()
+    assert [r["key"] for r in sm] == ["REdwards"]   # raw SalesGroup from the mirror
+    assert sm[0]["name"] == "Reggie"                # still enriched from the master
+    assert lk.status()["mirror_row_count"] == 2
+
+
 def test_customer_activity_uses_mirror_when_master_down():
     orders = [{"CustomerAccount": "100", "SalesOrderNumber": "SO1",
                "CreatedDateTime": "2026-03-01T00:00:00", "QuantityOrdered": "1", "Item": "A"}]

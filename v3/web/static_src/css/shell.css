@@ -78,8 +78,12 @@ body {
     padding: 0 4px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
-/* -- Container -- */
-.container { max-width: 800px; margin: 0 auto; padding: 16px; }
+/* -- Container --
+   Default is full width (dashboard, report viewers, settings, admin tables all
+   want the room). The report picker + schedules pages opt into the narrow,
+   centred reading width with `container-narrow`. */
+.container { width: 100%; margin: 0 auto; padding: 16px; }
+.container-narrow { max-width: 800px; }
 @media (min-width: 768px) { .container { padding: 24px 32px; } }
 
 /* -- Buttons -- */

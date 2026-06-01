@@ -109,7 +109,12 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     app.config["MIRROR_SERVICE"] = mirror
 
     app.config["REPORT_SERVICE"] = service
-    app.config["LOOKUP_SERVICE"] = LookupService(service, salesmen_repo)
+    # Back the filter dropdowns with the shared, persisted customer mirror (the
+    # dashboard aggregates) so they populate immediately on any worker - the live
+    # universe is per-process and may not be warm yet on the worker serving the
+    # request. Mirrors how the test app feeds its dropdown from a refreshed table.
+    app.config["LOOKUP_SERVICE"] = LookupService(
+        service, salesmen_repo, mirror_customers=dash_repo.all)
     app.config["REPORT_CACHE"] = cache
     app.config["JOB_REPO"] = JobRepository(db)
     app.config["RUN_LOG_REPO"] = run_log

@@ -26,9 +26,17 @@ from web.reporting.report_service import ReportService
 
 class LookupService:
     def __init__(self, service: ReportService, salesmen_repo: SalesmanRepository,
-                 *, ttl_seconds: int = 3600, retry_cooldown_seconds: int = 15):
+                 *, mirror_customers=None, ttl_seconds: int = 3600,
+                 retry_cooldown_seconds: int = 15):
         self.service = service
         self.salesmen_repo = salesmen_repo
+        # Persisted customer universe (the dashboard mirror). Each gunicorn worker
+        # warms its OWN in-process live cache, so a dropdown request can land on a
+        # worker that hasn't populated yet; the mirror is the shared, durable
+        # source every worker can read immediately. This is how the test app feeds
+        # its dropdown (WHAT, not HOW). Callable -> iterable of objects exposing
+        # .customer_account / .customer_name / .sales_group; None disables it.
+        self.mirror_customers = mirror_customers
         self.ttl = ttl_seconds
         self.retry_cooldown = retry_cooldown_seconds
         self._lock = threading.Lock()
@@ -86,6 +94,31 @@ class LookupService:
             with self._lock:
                 self._thread = None
 
+    def _mirror_rows(self) -> list:
+        """Persisted customer universe (dashboard mirror); [] if unavailable."""
+        if self.mirror_customers is None:
+            return []
+        try:
+            return list(self.mirror_customers())
+        except Exception:  # noqa: BLE001 - the mirror is a best-effort fallback
+            return []
+
+    def _universe(self) -> list:
+        """Rows that drive the dropdowns.
+
+        Prefer this worker's freshly-cached live universe; otherwise serve the
+        shared persisted mirror so the dropdowns populate immediately (before
+        this worker's own background populate finishes, or if the live API is
+        down). A background live populate is still kicked so the cache warms.
+        """
+        rows = self._cached_rows()
+        if rows is None:
+            self._kick()
+            return self._mirror_rows()
+        if not rows:
+            return self._mirror_rows() or rows
+        return rows
+
     def _name_map(self) -> dict[str, str]:
         """normalized salesman key -> display/full name (from the v3 master)."""
         out: dict[str, str] = {}
@@ -102,15 +135,12 @@ class LookupService:
         SP, sourced from the cached customer universe and enriched with the
         salesman master's display name. We deliberately do NOT fall back to the
         master's keys while the universe loads: those keys are normalized
-        (lowercased) and would be the WRONG value to send the SP. Instead we kick
-        a background populate and return empty; the form polls status() and
-        reloads when the real (raw) list is warm.
+        (lowercased) and would be the WRONG value to send the SP. The persisted
+        mirror stores the raw SalesGroup, so it's a safe source; absent both the
+        live cache and the mirror we return empty and the form polls status().
         """
         names = self._name_map()
-        rows = self._cached_rows()
-        if rows is None:
-            self._kick()
-            return []
+        rows = self._universe()
         seen: set[str] = set()
         for f in rows:
             sg = (getattr(f, "sales_group", "") or "").strip()
@@ -121,10 +151,7 @@ class LookupService:
 
     def customers(self, salesman: str | None = None) -> list[dict]:
         """Distinct customers (optionally narrowed to one salesman). Never blocks."""
-        rows = self._cached_rows()
-        if rows is None:
-            self._kick()
-            return []
+        rows = self._universe()
         sm = (salesman or "").strip() or None
         seen: dict[str, dict] = {}
         for f in rows:
@@ -174,9 +201,7 @@ class LookupService:
         state["configured"] = self._configured
         cached = self._cached_rows()
         state["cached_row_count"] = len(cached) if cached is not None else 0
-        # Mirror count isn't tracked separately in v3 yet (the persistent customer
-        # mirror is deferred to the Phase D mirror/diagnostics work), so report 0.
-        state["mirror_row_count"] = 0
+        state["mirror_row_count"] = len(self._mirror_rows())
 
         if state["configured"] and state["status"] not in ("loading", "ready"):
             # idle or error -> consider a (re)populate, backing off after errors.
