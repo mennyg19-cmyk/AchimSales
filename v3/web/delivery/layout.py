@@ -18,9 +18,48 @@ per-column operators in the viewer; older saved presets used a flat
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 _NUMERIC_TYPES = {"money", "int", "percent"}
+
+
+def expand_clones(payload: dict, layout: dict | None) -> dict:
+    """Recreate the viewer's duplicated tabs and reorder to match the screen.
+
+    The viewer can duplicate a tab (client-only ``<key>__copy`` tabs) to hold a
+    different filter/sort/group view; those don't exist in the server payload.
+    ``serializeLayout`` reports them as ``clones: [{key, baseKey, name}]`` plus
+    the on-screen ``order``. We deep-copy each clone's base tab so ``apply_layout``
+    can then apply the clone's own per-tab view by key. No-op without clones/order.
+    """
+    if not isinstance(layout, dict):
+        return payload
+    clones = layout.get("clones") if isinstance(layout.get("clones"), list) else []
+    order = layout.get("order") if isinstance(layout.get("order"), list) else []
+    if not clones and not order:
+        return payload
+    tabs = list(payload.get("tabs") or [])
+    by_key = {t.get("key"): t for t in tabs}
+    for clone in clones:
+        if not isinstance(clone, dict):
+            continue
+        key, base = clone.get("key"), clone.get("baseKey")
+        if not key or key in by_key:
+            continue
+        src = by_key.get(base)
+        if src is None:
+            continue
+        new = copy.deepcopy(src)
+        new["key"] = key
+        if clone.get("name"):
+            new["name"] = str(clone["name"])
+        tabs.append(new)
+        by_key[key] = new
+    if order:
+        pos = {k: i for i, k in enumerate(order)}
+        tabs.sort(key=lambda t: pos.get(t.get("key"), len(order)))
+    return {**payload, "tabs": tabs}
 
 
 def apply_layout(payload: dict, layout: dict | None) -> dict:

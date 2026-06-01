@@ -1498,3 +1498,34 @@ gradient, sheet-to-sheet hyperlinks, or multi-section Summary banner) — those
 live in each `reports/<name>/writer.py` and are driven by raw builder columns v3
 doesn't carry in its viewer payload. If you want a specific report's exact
 gradient/hyperlink layout, that's a per-report add-on we can do next.
+
+**6. Review pass (me + a GPT-5.5 subagent) on the export commits — fixes.**
+After shipping #4/#5 I reviewed the commits and had a GPT-5.5 agent review them
+independently, then folded in the real findings:
+- **Duplicated tabs were dropped from the export (HIGH).** The viewer can clone
+  a tab (client-only `…__copy` keys) to hold a different filter/group view; the
+  server export only looped the cached payload tabs, so clones vanished from the
+  workbook. `serializeLayout()` now also reports the on-screen `order` and the
+  `clones` ([{key, baseKey, name}]); a new `expand_clones()` (in `layout.py`)
+  deep-copies each clone's base tab and reorders to match the screen before
+  `apply_layout`. Wired into both the export route and scheduled/emailed
+  deliveries.
+- **Percent columns were being summed in totals (HIGH).** A 50% + 50% subtotal
+  showed `100%` (and could show nonsense like `250%`). Totals now sum only
+  money/int (`_SUMMABLE_TYPES`); percent total cells stay blank — same rule the
+  on-screen grid uses (it excludes percent from bottom-calcs).
+- **Formula-injection guard missing in the commission pivot (HIGH).** The
+  generic grid escaped text, but the commission writer wrote salesman titles /
+  labels raw. All commission text now goes through `_safe_text()`.
+- **Grouping by a hidden column silently no-op'd (MED).** `apply_layout` drops
+  hidden columns before the export grouped, so a group-by-hidden field was lost.
+  The grouper now accepts a group field that's present in the row data even if
+  it isn't a visible column.
+- **Malformed POST body could 500 (MED).** The export route now coerces a
+  non-dict JSON body to "no layout", and `build_workbook` defends its `views`
+  shape. (I'd already added the top-level guard; this hardens the nested case.)
+Cleared on review: CSRF still enforced on the new POST, authorization still runs
+before building, percent stored as a fraction matching the grid, no leftover
+SheetJS/`XLSX` references, and the dark-theme menu CSS doesn't break light theme.
+Added tests for clone expansion, percent-not-summed, and group-by-hidden
+(v3 suite: 285 passing).

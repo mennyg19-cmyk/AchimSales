@@ -325,3 +325,41 @@ def test_export_grouped_adds_subtotals_and_grand_total():
     assert "Grand total" in col_a
     grand = next(row for row in ws.iter_rows() if row[0].value == "Grand total")
     assert grand[1].value == 22                                     # 10 + 5 + 7
+
+
+def test_export_percent_columns_not_summed_in_totals():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Cust", "header": "Cust", "type": "text"},
+            {"field": "Rate", "header": "Rate", "type": "percent"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [{"Cust": "A", "Rate": 0.5, "Amt": 10}, {"Cust": "A", "Rate": 0.5, "Amt": 5}],
+    }]}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, {"views": {"t": {"group": ["Cust"]}}})))
+    ws = wb["T"]
+    sub = next(row for row in ws.iter_rows() if str(row[0].value).startswith("Total \u2014"))
+    assert sub[1].value in (None, "")   # percent col not summed (would be 1.0/100%)
+    assert sub[2].value == 15           # money still summed
+
+
+def test_export_group_by_hidden_column_still_groups():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    from web.delivery.layout import apply_layout
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Cust", "header": "Cust", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [{"Cust": "A", "Amt": 10}, {"Cust": "B", "Amt": 7}],
+    }]}
+    layout = {"views": {"t": {"hidden": ["Cust"], "group": ["Cust"]}}}
+    shaped = apply_layout(payload, layout)           # drops the Cust column
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(shaped, layout)))
+    col_a = [c.value for c in wb["T"]["A"]]
+    assert any(str(v).startswith("Cust: A") for v in col_a)   # still grouped by hidden col

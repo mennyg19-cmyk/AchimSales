@@ -9,7 +9,7 @@ from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.outbox import OutboxRepository
 from web.delivery.email import EmailService, split_recipients
-from web.delivery.layout import apply_layout
+from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.service import DeliveryService
 from web.delivery.sharepoint import SharePointService
 
@@ -36,6 +36,29 @@ def _payload():
         "rows": [{"a": "x", "b": 3, "c": "keep"}, {"a": "y", "b": 1, "c": "drop"},
                  {"a": "z", "b": 2, "c": "keep"}],
     }]}
+
+
+def test_expand_clones_recreates_duplicate_tab_and_orders():
+    payload = _payload()
+    layout = {
+        "order": ["summary__copy", "summary"],
+        "clones": [{"key": "summary__copy", "baseKey": "summary", "name": "Summary (copy)"}],
+        "views": {},
+    }
+    out = expand_clones(payload, layout)
+    keys = [t["key"] for t in out["tabs"]]
+    assert keys == ["summary__copy", "summary"]          # clone created + on-screen order
+    clone = out["tabs"][0]
+    assert clone["name"] == "Summary (copy)"
+    assert clone["rows"] == payload["tabs"][0]["rows"]    # data copied from base
+    # Independence: mutating the clone must not touch the base tab.
+    clone["rows"].append({"a": "new"})
+    assert len(out["tabs"][1]["rows"]) == 3
+
+
+def test_expand_clones_noop_without_clones_or_order():
+    assert expand_clones(_payload(), None) == _payload()
+    assert expand_clones(_payload(), {"views": {}}) == _payload()
 
 
 def test_apply_layout_hides_reorders_sorts_and_filters():

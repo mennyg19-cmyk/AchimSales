@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from web.delivery.email import DeliveryResult, EmailService
-from web.delivery.layout import apply_layout
+from web.delivery.layout import apply_layout, expand_clones
 from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
 from web.reporting.runner import ReportRunner
@@ -43,7 +43,7 @@ class DeliveryService:
             visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
             params=params or {}, builder=builder, force_refresh=True,
         )
-        payload = apply_layout(outcome.payload, layout)
+        payload = apply_layout(expand_clones(outcome.payload, layout), layout)
         xlsx = build_workbook(payload, layout)
         result = self.email.deliver(
             subject=subject or report_name, recipients_raw=recipients, body_text=body_text,

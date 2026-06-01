@@ -42,7 +42,7 @@ from web.data.repositories.saved_reports import SavedReport, SavedReportReposito
 from web.data.repositories.users import UserRepository
 from web.delivery.email import split_recipients
 from web.delivery.jobs import enqueue_delivery
-from web.delivery.layout import apply_layout
+from web.delivery.layout import apply_layout, expand_clones
 from web.reporting import params as P
 from web.reporting.export import build_workbook
 from web.reporting.jobs import enqueue_report_run
@@ -278,7 +278,11 @@ def export_report(report_key: str, job_id: str):
     # POST carries the viewer's serialized layout (order/hide/sort/filter +
     # group) so the workbook matches what's on screen; GET is the plain export.
     layout = request.get_json(silent=True) if request.method == "POST" else None
-    payload = apply_layout(cached.payload, layout) if layout else cached.payload
+    if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)
+        layout = None
+    payload = cached.payload
+    if layout:
+        payload = apply_layout(expand_clones(payload, layout), layout)
     data = build_workbook(payload, layout)
     return send_file(
         io.BytesIO(data),

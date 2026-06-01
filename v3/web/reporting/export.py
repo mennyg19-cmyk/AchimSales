@@ -40,6 +40,10 @@ _BAD_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 _MAX_CELL_CHARS = 32767
 
 _NUMERIC_TYPES = {"money", "int", "percent"}
+# Columns that can be meaningfully summed for subtotal/grand-total rows. Percent
+# is deliberately excluded: summing raw percentages is nonsense (the on-screen
+# grid excludes percent bottom-calcs too), so percent total cells stay blank.
+_SUMMABLE_TYPES = {"money", "int"}
 
 # --- Number formats (match the on-screen grid + the live exports) ---
 _FMT = {
@@ -166,7 +170,7 @@ def _write_data_row(ws, r: int, metas, row: dict, zebra: bool, acc: dict[str, fl
             cell.number_format = fmt
         if zebra:
             cell.fill = _ZEBRA_FILL
-        if ctype in _NUMERIC_TYPES:
+        if ctype in _SUMMABLE_TYPES:
             x = _num(row.get(field))
             if x is not None:
                 acc[field] = acc.get(field, 0.0) + x
@@ -257,10 +261,10 @@ def _write_commission(ws, tab: dict) -> None:
     for s in salesmen:
         title = f"{s.get('salesman_number', '')} - {s.get('salesman_name', '')}".strip(" -")
         ytd_col = first_col + len(labels)
-        banner = ws.cell(row=r, column=1, value=title)
+        banner = ws.cell(row=r, column=1, value=_safe_text(title))
         banner.font, banner.fill = _GROUP_FONT, _GROUP_FILL
         for mi, lab in enumerate(labels):
-            c = ws.cell(row=r, column=first_col + mi, value=lab)
+            c = ws.cell(row=r, column=first_col + mi, value=_safe_text(lab))
             c.font, c.fill = _GROUP_FONT, _GROUP_FILL
             c.alignment = Alignment(horizontal="center")
         c = ws.cell(row=r, column=ytd_col, value="YTD")
@@ -269,7 +273,7 @@ def _write_commission(ws, tab: dict) -> None:
         monthly = s.get("monthly") or []
         ytd = s.get("ytd") or {}
         for label, field in lines:
-            ws.cell(row=r, column=1, value=label).font = Font(bold=True)
+            ws.cell(row=r, column=1, value=_safe_text(label)).font = Font(bold=True)
             for mi in range(len(labels)):
                 m = monthly[mi] if mi < len(monthly) else {}
                 cell = ws.cell(row=r, column=first_col + mi, value=float(m.get(field) or 0.0))
@@ -288,7 +292,8 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
     wb = Workbook()
     wb.remove(wb.active)
     used: set[str] = set()
-    views = (layout or {}).get("views") or {}
+    views = (layout or {}).get("views") if isinstance(layout, dict) else None
+    views = views if isinstance(views, dict) else {}
     tabs = payload.get("tabs") or []
     if not tabs:
         wb.create_sheet(_safe_sheet_title("Report", used))
@@ -299,8 +304,13 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
             continue
         rows = list(tab.get("rows") or [])
         metas = _columns_meta(list(tab.get("columns") or []), rows)
-        v = views.get(tab.get("key")) or {}
-        group_fields = [g for g in (v.get("group") or []) if any(f == g for _h, f, _t in metas)]
+        v = views.get(tab.get("key"))
+        v = v if isinstance(v, dict) else {}
+        # A group field may be hidden (so absent from metas) yet still present in
+        # the row dicts - honour it from the row data, not just visible columns.
+        known = {f for _h, f, _t in metas} | (set(rows[0].keys()) if rows else set())
+        wanted = v.get("group") if isinstance(v.get("group"), list) else []
+        group_fields = [g for g in wanted if g in known]
         _write_grid(ws, metas, rows, group_fields)
     buffer = BytesIO()
     wb.save(buffer)

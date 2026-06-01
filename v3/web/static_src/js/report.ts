@@ -1365,7 +1365,12 @@ function refreshPreviewIfOpen(): void {
 // Saved views (presets): capture filters + per-tab layout, restore on demand.
 // --------------------------------------------------------------------------
 
-interface SavedLayout { active: string | null; views: Record<string, unknown>; }
+interface SavedLayout {
+  active: string | null;
+  views: Record<string, unknown>;
+  order?: string[];
+  clones?: { key: string; baseKey: string; name: string }[];
+}
 
 function serializeView(v: ViewState): unknown {
   return {
@@ -1397,7 +1402,13 @@ function serializeLayout(): SavedLayout {
   captureActive();
   const views: Record<string, unknown> = {};
   Object.keys(state.views).forEach((k) => { views[k] = serializeView(state.views[k]); });
-  return { active: state.active, views };
+  // Report duplicated (client-only) tabs so a server-side export/delivery can
+  // recreate them, and the on-screen tab order so sheets come out in order.
+  const clones = state.order
+    .map((k) => state.tabs[k])
+    .filter((t): t is Tab => !!t && !!(t as any)._isDuplicate)
+    .map((t) => ({ key: t.key, baseKey: (t as any)._baseKey || t.key, name: t.name }));
+  return { active: state.active, order: [...state.order], clones, views };
 }
 
 function applyLayout(layout: SavedLayout | null): void {
