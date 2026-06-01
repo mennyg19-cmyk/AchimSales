@@ -1435,3 +1435,33 @@ don't yet filter the underlying data down to a salesman's own customers
 get a "pending sign-off" message on run. That run-scoping is the separate,
 larger, money-sensitive piece flagged under NEEDS HUMAN SIGN-OFF — I left it
 gated rather than risk leaking another salesman's numbers.
+
+**4. Column-options menu, all-tab export, and group totals.**
+Three viewer fixes/changes you asked for:
+
+- *Invisible column menu (dark themes).* The right-click/column header menu
+  ("Hide column", "Freeze", "Group by this column", "Clear grouping") was
+  white-on-white on the dark + dark-monochrome themes — the same root cause as
+  the earlier invisible header: Tabulator's own stylesheet loads after ours and
+  forces a white surface. Pinned `.tabulator-menu` / `.tabulator-edit-list`
+  background + text + hover to the theme tokens with `!important`.
+
+- *Export now covers every tab.* The Export button used to download only the
+  **active** tab (Tabulator's WYSIWYG single-sheet download). It now builds one
+  workbook with **one sheet per tab**, in tab order, and each sheet reflects
+  that tab's on-screen view (column order, hidden columns, multi-sort, and the
+  active column filters — replayed with the same match/parse logic the grid
+  uses). Numbers carry real Excel **number formats** by column type ($ money,
+  thousands-separated ints, `0.0%` percent, m/d/yyyy dates), columns auto-size,
+  and the header row is frozen. *Honest limit:* the community SheetJS build can
+  set number formats and widths but **not** font/fill styling, so headers aren't
+  bold-and-shaded like the live app's per-report `.xlsx`. Matching that exactly
+  would mean rendering server-side with openpyxl and shipping the per-tab view
+  state to it — a bigger change I flagged rather than half-did. The server
+  fallback export (still one-sheet-per-tab) kicks in if SheetJS fails to load.
+
+- *Group totals like the legacy app.* When a tab is grouped, the export now
+  emits, after each group's rows, a **subtotal line** (sums of the numeric
+  columns for that group) and a **grand-total** line at the end — matching the
+  legacy test app's grouped totals. On screen, Tabulator already shows per-group
+  column calcs because `columnCalcs:"both"` is enabled alongside `groupBy`.
