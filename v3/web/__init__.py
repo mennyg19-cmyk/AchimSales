@@ -261,7 +261,8 @@ def bootstrap_background(app: Flask) -> None:
     _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
     _seed_salesmen_if_empty(app, db)  # salesmen first: user_salesman_access FKs them
     _seed_users_from_live(app, db)    # mirror the live user directory into v3
-    _seed_admins(app, db)             # explicit env admins win last
+    _seed_admins(app, db)             # explicit env admins override the mirror
+    _seed_developers(app, db)         # explicit env developers win last (outrank admin)
 
     # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
     # must run in exactly ONE process. Under gunicorn we have multiple workers, so
@@ -388,6 +389,31 @@ def _seed_admins(app: Flask, db) -> None:
                 )
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("admin seed failed")
+
+
+def _seed_developers(app: Flask, db) -> None:
+    """Grant 'developer' to the emails in V3_DEVELOPER_EMAILS. Runs AFTER admins so
+    a developer listed here also in V2_ADMIN_EMAILS ends up developer, not admin
+    (developer outranks admin: it adds the dev tools). Creates the row if missing
+    so an account that isn't in the live directory yet still works. Idempotent.
+    """
+    import os
+
+    raw = os.environ.get("V3_DEVELOPER_EMAILS") or ""
+    emails = [e.strip().lower() for e in raw.split(",") if e.strip()]
+    if not emails:
+        return
+    try:
+        with db.precious() as conn:
+            for email in emails:
+                conn.execute(
+                    "INSERT INTO users(email, display_name, role, is_active)"
+                    " VALUES (?, '', 'developer', 1)"
+                    " ON CONFLICT(email) DO UPDATE SET role='developer', is_active=1",
+                    (email,),
+                )
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("developer seed failed")
 
 
 def _seed_users_from_live(app: Flask, db) -> None:
