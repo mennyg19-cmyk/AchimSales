@@ -14,6 +14,7 @@ from web.auth.authorization import Authorization, Forbidden
 from web.auth.session import current_principal
 from web.config import Config, load_config
 from web.data.connection import from_config
+from web.data.repositories.feature_flags import FeatureFlagRepository
 from web.data.repositories.users import UserRepository
 from web.extensions import init_csrf
 
@@ -138,6 +139,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             return "#"
 
     users = UserRepository(db)
+    flags = FeatureFlagRepository(db)
 
     @app.context_processor
     def inject_globals():
@@ -153,12 +155,24 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         p = current_principal()
         user = None
         dashboard_enabled = False
+        order_entry_enabled = False
+        test_site_enabled = False
         theme = session.get("theme")
         if p is not None:
             user = {"name": p.name, "role": p.role, "_dev": p.is_dev}
             try:
+                flag_map = flags.all()
+                order_entry_enabled = flag_map.get("order_entry_enabled", False)
                 row = users.get_by_email(p.email)
-                dashboard_enabled = bool(row and row.dashboard_enabled) or p.is_privileged
+                # Dashboard tab: global flag AND (per-user opt-in OR privileged).
+                dashboard_global = flag_map.get("dashboard_enabled", True)
+                dashboard_enabled = dashboard_global and (
+                    bool(row and row.dashboard_enabled) or p.is_privileged
+                )
+                # Test-site link: global flag AND per-user opt-in (privileged always).
+                test_site_enabled = flag_map.get("test_site_enabled", False) and (
+                    bool(row and row.test_access) or p.is_privileged
+                )
                 if theme is None and row is not None:
                     theme = _load_theme(db, row.id)
             except Exception:  # noqa: BLE001 - never let a nav query break a page render
@@ -170,7 +184,8 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             "user": user,
             "theme": theme or "light",
             "dashboard_enabled": dashboard_enabled,
-            "test_site_enabled": False,
+            "order_entry_enabled": order_entry_enabled,
+            "test_site_enabled": test_site_enabled,
         }
 
 
@@ -224,6 +239,7 @@ def bootstrap_background(app: Flask) -> None:
 
     db = app.config["DB"]
     migrate(db)
+    _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
     _seed_salesmen_if_empty(app, db)  # salesmen first: user_salesman_access FKs them
     _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins win last
@@ -251,6 +267,14 @@ def _start_scheduler(app: Flask, db) -> None:
         app.logger.info("schedule cron tick started")
     except Exception:  # noqa: BLE001 - scheduler is optional; never block boot
         app.logger.exception("scheduler start failed (schedules will only run via Run now)")
+
+
+def _seed_feature_flags(app: Flask, db) -> None:
+    """Insert default feature flags on a fresh DB (idempotent)."""
+    try:
+        FeatureFlagRepository(db).seed_defaults()
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("feature-flag seed failed")
 
 
 def _seed_admins(app: Flask, db) -> None:

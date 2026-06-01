@@ -73,7 +73,7 @@
             </div>
             <span class="bottom-nav-label">Reports</span>
         </a>
-        {% if dashboard_enabled or (user.role == 'admin' or user.role == 'developer') %}
+        {% if dashboard_enabled or user.role in ('admin', 'developer') %}
         <a href="{{ nav.dashboard }}" class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="bar-chart-2"></i>

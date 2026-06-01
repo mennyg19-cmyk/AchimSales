@@ -21,6 +21,8 @@ from flask import (
 
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
+from web.data.repositories.feature_flags import DEFAULTS as FLAG_DEFAULTS
+from web.data.repositories.feature_flags import FeatureFlagRepository
 from web.data.repositories.preferences import PreferencesRepository
 from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
@@ -34,9 +36,19 @@ def _prefs() -> PreferencesRepository:
     return PreferencesRepository(current_app.config["DB"])
 
 
+def _flags() -> FeatureFlagRepository:
+    return FeatureFlagRepository(current_app.config["DB"])
+
+
 def _uid(email: str) -> int | None:
     user = UserRepository(current_app.config["DB"]).get_by_email(email)
     return user.id if user else None
+
+
+def _require_admin():
+    """Return the principal if privileged, else None (caller 403s)."""
+    p = current_principal()
+    return p if current_app.config["AUTHZ"].is_privileged(p) else None
 
 
 @settings_bp.get("/settings")
@@ -45,14 +57,33 @@ def settings_page():
     p = current_principal()
     db = current_app.config["DB"]
     salesmen = []
+    flags = []
     if current_app.config["AUTHZ"].is_privileged(p):  # live DB check, not session role
         salesmen = sorted(
             SalesmanRepository(db).all_as_facts().values(),
             key=lambda s: (s.number or "", s.display_name or ""),
         )
+        current = _flags().all()
+        flags = [
+            {"key": key, "enabled": current.get(key, default), "description": desc}
+            for key, (default, desc) in FLAG_DEFAULTS.items()
+        ]
     return render_template(
-        "settings.html", active_tab="settings", profile=p, salesmen=salesmen,
+        "settings.html", active_tab="settings", profile=p, salesmen=salesmen, flags=flags,
     )
+
+
+@settings_bp.post("/api/admin/feature-flags")
+@require_login
+def set_feature_flag():
+    if _require_admin() is None:
+        return jsonify({"error": "Forbidden"}), 403
+    body = request.get_json(silent=True) or {}
+    key = (body.get("key") or "").strip()
+    if key not in FLAG_DEFAULTS:
+        return jsonify({"error": "Unknown flag"}), 400
+    _flags().set(key, bool(body.get("enabled")))
+    return jsonify({"key": key, "enabled": bool(body.get("enabled"))})
 
 
 @settings_bp.post("/settings/theme")

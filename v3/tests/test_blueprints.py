@@ -545,6 +545,37 @@ def test_header_has_theme_toggle(tmp_path):
     assert 'id="themeToggleBtn"' in client.get("/settings").get_data(as_text=True)
 
 
+def test_feature_flag_admin_set_and_reflects_in_settings(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)  # admin
+    resp = client.post("/api/admin/feature-flags", json={"key": "test_site_enabled", "enabled": True},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200 and resp.get_json()["enabled"] is True
+    from web.data.repositories.feature_flags import FeatureFlagRepository
+    assert FeatureFlagRepository(app.config["DB"]).is_enabled("test_site_enabled") is True
+
+
+def test_feature_flag_rejects_unknown_key(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/admin/feature-flags", json={"key": "nope", "enabled": True},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
+def test_feature_flag_forbidden_for_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "rep@x.com", "name": "Rep", "role": "salesman", "is_dev": True}
+        s["_csrf_token"] = _CSRF
+    resp = client.post("/api/admin/feature-flags", json={"key": "test_site_enabled", "enabled": True},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 403
+
+
 def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     rows = [
         {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",

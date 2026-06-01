@@ -31,9 +31,27 @@
 </section>
 
 {% if user.role in ('admin', 'developer') %}
-<section class="settings-card">
+<section class="settings-card" id="adminSettings" data-flag-url="{{ url_for('settings.set_feature_flag') }}" data-csrf="{{ csrf_token() }}">
     <h2 class="section-title">Admin</h2>
     <a class="btn btn-outline btn-sm" href="{{ nav.master_schedules }}">Manage master schedules</a>
+
+    {% if flags %}
+    <h3 class="settings-subhead">Feature flags</h3>
+    <ul class="flag-list">
+        {% for f in flags %}
+        <li class="flag-row">
+            <label class="switch">
+                <input type="checkbox" class="flag-toggle" data-key="{{ f.key }}" {% if f.enabled %}checked{% endif %}>
+                <span class="switch-track"></span>
+            </label>
+            <span class="flag-meta">
+                <span class="flag-name">{{ f.key.replace('_', ' ')|title }}</span>
+                <span class="flag-desc">{{ f.description }}</span>
+            </span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
 </section>
 {% endif %}
 
@@ -54,4 +72,8 @@
     </table>
 </section>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
 {% endblock %}
