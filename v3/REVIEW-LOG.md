@@ -1172,3 +1172,47 @@ the actual `salesline_release` data shape. Fixes:
 - Tests: a real-dump-shaped builder test (line `SalesStatus`, no `OrderStatus`, null
   `SalesGroup`); route tests for a scoped salesman in-scope (200) and out-of-scope (403),
   and the scoped `/salesmen` endpoint.
+
+## Deployment cutover (Azure App Service)
+
+v3 runs in the SAME gunicorn process as the live app, behind the dispatcher in
+`wsgi.py`: live at `/`, v2 at `/test-legacy`, v3 at `/test`. It's deployed to the
+existing `achim-sales-reports` App Service (RG `AchimReportsApp`) via the GitHub
+Actions workflow that auto-builds+deploys every push to the `webapp-cache` branch.
+v3 is already live in prod at `reports.achimonline.com/test` with real Microsoft
+(Entra) login (`APP_ENV=prod`, `AUTH_MODE=msal`, `V3_MOUNT_ENABLED=1`), and a real
+user was observed using it during cutover.
+
+### Litestream durability for precious.db (now actually wired)
+
+- `precious.db` is the durable store. The startup command used to run gunicorn
+  directly, so Litestream was never running. `startup.sh` now downloads the
+  Litestream binary (cached under `/home/bin`), `litestream restore`s on a cold
+  instance, then runs gunicorn UNDER `litestream replicate` so every write streams
+  to Azure Blob (`achimsalesreportsv3` storage account, `litestream` container).
+  Config is `litestream.yml` (abs replica; account name/key/container/path come
+  from app settings `LITESTREAM_AZURE_*`).
+- EVERY Litestream step is fail-open: a failed binary download / restore / config
+  logs and falls back to launching gunicorn directly. Litestream can never take
+  down the shared live+v3 process. Verified in prod: snapshots + WAL segments are
+  present in the `litestream` container.
+- The App Service "Startup Command" was switched to `bash /home/site/wwwroot/startup.sh`.
+
+### Background-owner election via file lock (replaces the gunicorn env scheme)
+
+- Background work that must run in exactly ONE process - the live email-distribution
+  loop, and v3's job worker + cron scheduler - was being gated on a gunicorn
+  `post_fork` env marker (`GUNICORN_EMAIL_DIST_LEADER`). Two real bugs: (1)
+  `gunicorn.conf.py` was UNTRACKED, so it never deployed and `post_fork` never ran;
+  (2) `worker.age == 0` never matches (gunicorn worker ages start at 1). Even after
+  fixing both, `post_fork` runs before the worker's import path is ready, so its
+  email-loop start failed silently - leaving the loop running in NO worker.
+- Fix: both apps now elect their background owner with an exclusive, non-blocking
+  `flock` taken AFTER imports (live: `webapp.app._start_email_distribution_check`
+  on `/tmp/achim-email-dist.lock`; v3: `web._is_background_leader` on a lock next to
+  `precious.db`). The one worker that grabs the lock owns the work and holds the
+  lock for its lifetime; others skip. Fail-open to leader on non-POSIX/dev.
+  `gunicorn.conf.py`'s `post_fork` no longer starts anything. Verified in prod:
+  exactly one worker starts the email loop and exactly one owns v3 background work.
+- `.gitattributes` pins `*.sh` / `litestream.yml` / `gunicorn.conf.py` to LF so a
+  CRLF `startup.sh` can't break the Linux container.
