@@ -746,6 +746,8 @@ interface LookupRow { key: string; name: string; salesman?: string; }
 
 const selectedCustomers = new Map<string, string>(); // account -> display name
 let customerOptions: LookupRow[] = [];
+let customerPickerOpen = false;       // is the options dropdown showing?
+let customerHandlersBound = false;    // document/window listeners bound once
 let lookupPollTimer: number | null = null;
 let pendingSalesman: string | null = null; // deep-link salesman, applied after options load
 let previewTimer: number | null = null;
@@ -791,9 +793,46 @@ async function loadCustomers(): Promise<void> {
   renderCustomerPicker();
 }
 
+/** Position the options list as a fixed overlay under the control, so the
+ *  filter row's horizontal scroll (overflow:auto) can't clip it. */
+function positionCustomerOptions(): void {
+  const host = $("customerPicker");
+  const control = host?.querySelector<HTMLElement>(".customer-control");
+  const list = host?.querySelector<HTMLElement>(".customer-options");
+  if (!control || !list) return;
+  const r = control.getBoundingClientRect();
+  list.style.position = "fixed";
+  list.style.top = `${Math.round(r.bottom + 2)}px`;
+  list.style.left = `${Math.round(r.left)}px`;
+  list.style.width = `${Math.round(r.width)}px`;
+}
+
+/** Bind document/window listeners that close + reposition the picker. Once. */
+function ensureCustomerHandlers(): void {
+  if (customerHandlersBound) return;
+  customerHandlersBound = true;
+  document.addEventListener("click", (e) => {
+    if (!customerPickerOpen) return;
+    const host = $("customerPicker");
+    if (host && !host.contains(e.target as Node)) {
+      customerPickerOpen = false;
+      renderCustomerPicker();
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && customerPickerOpen) {
+      customerPickerOpen = false;
+      renderCustomerPicker();
+    }
+  });
+  window.addEventListener("scroll", positionCustomerOptions, true);
+  window.addEventListener("resize", positionCustomerOptions);
+}
+
 function renderCustomerPicker(filterText = ""): void {
   const host = $("customerPicker");
   if (!host) return;
+  ensureCustomerHandlers();
   const q = filterText.trim().toLowerCase();
   const matches = q
     ? customerOptions.filter(
@@ -803,75 +842,80 @@ function renderCustomerPicker(filterText = ""): void {
 
   host.innerHTML = "";
 
-  const chips = document.createElement("div");
-  chips.className = "customer-chips";
-  if (selectedCustomers.size === 0) {
-    const ph = document.createElement("span");
-    ph.className = "customer-placeholder";
-    ph.textContent = host.dataset.placeholder || "All";
-    chips.appendChild(ph);
-  } else {
-    selectedCustomers.forEach((name, key) => {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "customer-chip";
-      chip.textContent = `${name} ✕`;
-      chip.title = `Remove ${key}`;
-      chip.addEventListener("click", () => {
-        selectedCustomers.delete(key);
-        renderCustomerPicker(search.value);
-        refreshPreviewIfOpen();
-      });
-      chips.appendChild(chip);
+  const control = document.createElement("div");
+  control.className = "customer-control";
+  control.addEventListener("click", (e) => {
+    if (e.target === control) {
+      customerPickerOpen = true;
+      renderCustomerPicker(filterText);
+    }
+  });
+
+  selectedCustomers.forEach((name, key) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "customer-chip";
+    chip.textContent = `${name} ✕`;
+    chip.title = `Remove ${key}`;
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      selectedCustomers.delete(key);
+      renderCustomerPicker(filterText);
+      refreshPreviewIfOpen();
     });
-  }
-  host.appendChild(chips);
+    control.appendChild(chip);
+  });
 
   const search = document.createElement("input");
   search.type = "text";
   search.className = "customer-search";
-  search.placeholder = "Search customers…";
+  search.placeholder = selectedCustomers.size ? "" : host.dataset.placeholder || "All customers";
   search.value = filterText;
-  search.addEventListener("input", () => renderCustomerPicker(search.value));
-  host.appendChild(search);
-
-  const list = document.createElement("div");
-  list.className = "customer-options";
-  matches.slice(0, 200).forEach((c) => {
-    const row = document.createElement("label");
-    row.className = "customer-option";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = selectedCustomers.has(c.key);
-    cb.addEventListener("change", () => {
-      if (cb.checked) selectedCustomers.set(c.key, c.name);
-      else selectedCustomers.delete(c.key);
-      // Re-render chips without losing the search box focus/value.
-      renderChipsOnly();
-      refreshPreviewIfOpen();
-    });
-    row.appendChild(cb);
-    const text = document.createElement("span");
-    text.textContent = `${c.key} — ${c.name}`;
-    row.appendChild(text);
-    list.appendChild(row);
+  search.addEventListener("focus", () => {
+    if (!customerPickerOpen) {
+      customerPickerOpen = true;
+      renderCustomerPicker(search.value);
+    }
   });
-  if (!matches.length) {
-    const empty = document.createElement("div");
-    empty.className = "customer-empty";
-    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
-    list.appendChild(empty);
-  }
-  host.appendChild(list);
-
-  // Keep focus in the search box after a re-render triggered by typing.
-  if (filterText) {
-    search.focus();
-    search.setSelectionRange(filterText.length, filterText.length);
-  }
-
-  function renderChipsOnly(): void {
+  search.addEventListener("input", () => {
+    customerPickerOpen = true;
     renderCustomerPicker(search.value);
+  });
+  control.appendChild(search);
+  host.appendChild(control);
+
+  if (customerPickerOpen) {
+    const list = document.createElement("div");
+    list.className = "customer-options";
+    matches.slice(0, 200).forEach((c) => {
+      const row = document.createElement("label");
+      row.className = "customer-option";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = selectedCustomers.has(c.key);
+      cb.addEventListener("change", () => {
+        if (cb.checked) selectedCustomers.set(c.key, c.name);
+        else selectedCustomers.delete(c.key);
+        renderCustomerPicker(search.value);
+        refreshPreviewIfOpen();
+      });
+      row.appendChild(cb);
+      const text = document.createElement("span");
+      text.textContent = `${c.key} — ${c.name}`;
+      row.appendChild(text);
+      list.appendChild(row);
+    });
+    if (!matches.length) {
+      const empty = document.createElement("div");
+      empty.className = "customer-empty";
+      empty.textContent = customerOptions.length ? "No matches" : "Loading…";
+      list.appendChild(empty);
+    }
+    host.appendChild(list);
+    positionCustomerOptions();
+    // Keep typing fluid: refocus the search after the rebuild.
+    search.focus();
+    if (filterText) search.setSelectionRange(filterText.length, filterText.length);
   }
 }
 
@@ -970,7 +1014,12 @@ async function renderApiPreview(): Promise<void> {
       body: JSON.stringify(collectParams()),
     });
     const data = await res.json();
-    panel.textContent = JSON.stringify(data, null, 2);
+    // Show ONLY the request body (the PascalCase SP params), not the method /
+    // url / wrapper - that's the part the owner cares about.
+    const body = data && typeof data === "object" && "body" in data ? data.body : data;
+    let out = JSON.stringify(body, null, 2);
+    if (data && data.warning) out = `// ${data.warning}\n${out}`;
+    panel.textContent = out;
   } catch {
     panel.textContent = "Could not load the API preview.";
   }

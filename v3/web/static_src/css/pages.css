@@ -91,28 +91,38 @@
 .filter-field select:hover, .modal-field select:hover, .auth-field select:hover { border-color: var(--border-focus); }
 .lookup-status { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); font-style: italic; }
 
-/* -- Searchable customer multi-select -- */
-.customer-picker { position: relative; min-width: 260px; }
-.customer-chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; margin-bottom: 4px; }
-.customer-placeholder { color: var(--text-muted); font-weight: 500; }
+/* -- Searchable customer multi-select --
+   Bounded control: the selected chips and the search input share one line and
+   scroll INTERNALLY (max-height), so a long selection never grows the filter
+   row. The options list is positioned `fixed` by JS so the filter row's
+   horizontal scroll can't clip the dropdown. */
+.customer-picker { position: relative; width: 260px; }
+.customer-control {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+    min-height: 38px; max-height: 74px; overflow-y: auto; cursor: text;
+    padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg-card);
+}
+.customer-control:focus-within { border-color: var(--border-focus); }
 .customer-chip {
     background: var(--primary-light); color: var(--primary); border: none; cursor: pointer;
     padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    white-space: nowrap; flex: 0 0 auto;
 }
 .customer-search {
-    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-    font-size: 14px; color: var(--text); background: var(--bg-card);
+    flex: 1 1 60px; min-width: 60px; border: none; outline: none; background: transparent;
+    padding: 2px; font-size: 14px; color: var(--text);
 }
 .customer-options {
-    max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-top: none;
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--bg-card);
-    position: absolute; left: 0; right: 0; z-index: 30; box-shadow: var(--shadow-md);
+    max-height: 240px; overflow-y: auto; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--bg-card);
+    z-index: 1000; box-shadow: var(--shadow-md);
 }
 .customer-option {
     display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px;
     font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; cursor: pointer;
 }
-.customer-option:hover { background: var(--bg-hover, rgba(0,0,0,0.04)); }
+.customer-option:hover { background: var(--primary-light); }
 .customer-option input { min-width: 0; width: auto; }
 .customer-empty { padding: 8px 10px; color: var(--text-muted); font-size: 13px; }
 
@@ -123,8 +133,11 @@
     max-height: 280px; overflow: auto; white-space: pre; font-family: ui-monospace, monospace;
 }
 
-/* -- Report toolbar -- */
-.report-toolbar { flex-wrap: wrap; }
+/* -- Report toolbar (sits BELOW the filter box) -- */
+.report-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+/* "Run report" lives inside the filter box; align it to the bottom of the row. */
+.filter-field-run { justify-content: flex-end; }
+.filter-field-run .btn { white-space: nowrap; }
 
 /* -- Run status + tabs + table -- */
 .report-status { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }

@@ -8,27 +8,13 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-head page-head-row">
-    <div>
-        <a class="back-link" href="{{ url_for('reports.reports_list') }}">
-            <i data-feather="arrow-left"></i> Reports
-        </a>
-        <h1 class="page-title">{{ report.title }}
-            <button type="button" class="help-btn" data-help="report-{{ report.key }}" data-no-guard aria-label="About this report">?</button>
-        </h1>
-    </div>
-    <div class="page-head-actions report-toolbar">
-        <button type="button" id="runBtn" class="btn btn-primary">Run report</button>
-        <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout">Refresh data</button>
-        <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
-        <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
-        <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Export exactly what's on screen">Export</button>
-        <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)">Email</button>
-        <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view">Schedule</button>
-        <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
-        <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view">Presets</button>
-        <button type="button" id="previewBtn" class="btn btn-outline" title="Show the exact request sent to the Reporting API">API preview</button>
-    </div>
+<div class="page-head">
+    <a class="back-link" href="{{ url_for('reports.reports_list') }}">
+        <i data-feather="arrow-left"></i> Reports
+    </a>
+    <h1 class="page-title">{{ report.title }}
+        <button type="button" class="help-btn" data-help="report-{{ report.key }}" data-no-guard aria-label="About this report">?</button>
+    </h1>
 </div>
 
 <form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
@@ -84,7 +70,22 @@
         <div id="customerPicker" class="customer-picker" data-placeholder="All customers"></div>
     </div>
     {% endif %}
+    <div class="filter-field filter-field-run">
+        <button type="button" id="runBtn" class="btn btn-primary">Run report</button>
+    </div>
 </form>
+
+<div class="report-toolbar">
+    <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout">Refresh data</button>
+    <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
+    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
+    <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Export exactly what's on screen">Export</button>
+    <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)">Email</button>
+    <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view">Schedule</button>
+    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
+    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view">Presets</button>
+    <button type="button" id="previewBtn" class="btn btn-outline" title="Show the body that would be sent to the Reporting API">API preview</button>
+</div>
 
 <pre id="apiPreview" class="api-preview" hidden></pre>
 

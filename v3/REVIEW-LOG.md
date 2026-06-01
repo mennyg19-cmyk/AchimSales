@@ -1253,3 +1253,31 @@ Owner feedback after using the deployed app. Plain-English decisions:
   the salesman VALUE stays the raw SalesGroup (the mirror stores it), so SP
   round-trips are unchanged. `status().mirror_row_count` now reports the real
   mirror size instead of a hardcoded 0.
+
+### UI/UX round 3 (report viewer toolbar layout + customer picker overlay)
+
+More owner feedback after using the report viewer:
+
+- **Toolbar moved below the filter box; Run report moved into it.** The action
+  buttons (Refresh data, Columns, Reset, Export, Email, Schedule, Save view,
+  Presets, API preview) used to sit in the page header above the filters. They
+  now live in a `.report-toolbar` row directly BELOW the filter box, and the
+  primary "Run report" button sits INSIDE the filter box (a `.filter-field-run`
+  cell, bottom-aligned with the other filter controls). So the flow reads
+  top-to-bottom: pick filters -> run, then act on the result.
+- **API preview shows only the body.** The preview endpoint returns
+  `{report_id, method, url, body, ...}`; the panel now renders just `body` (the
+  PascalCase SP params), with any `warning` shown as a leading comment. The
+  method/url wrapper is dropped - that's noise for the owner.
+- **Customer picker fixed (overlay + box growth).** Two real bugs:
+  (1) The options list was `position:absolute` inside the filter row, which is
+  `overflow-x:auto`; per spec that also clips overflow-y, so the dropdown was
+  cut off / scrolled instead of overlaying. It's now `position:fixed`, placed
+  under the control via `getBoundingClientRect()` and repositioned on
+  scroll/resize, so it escapes the clip and floats over the page.
+  (2) The selected pills rendered in an unbounded block that grew the whole
+  filter row as you added customers. The picker is now a fixed-width (260px)
+  bounded control: chips + the search input share one line and scroll
+  internally (`max-height`), so the row height stays stable. The list is also a
+  real open/close dropdown now (opens on focus/type, closes on outside-click or
+  Esc) instead of being permanently rendered.
