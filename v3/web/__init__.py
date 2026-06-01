@@ -60,6 +60,10 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     Routes enqueue runs onto the durable job table and read results from the one
     cache; the worker (started by `bootstrap_background`) drains the queue.
     """
+    from web.dashboard.jobs import DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler
+    from web.dashboard.mirror import MirrorService
+    from web.dashboard.service import DashboardService
+    from web.data.repositories.dashboard import DashboardRepository
     from web.data.repositories.jobs import JobRepository
     from web.data.repositories.outbox import OutboxRepository
     from web.data.repositories.run_log import ReportRunLogRepository
@@ -93,6 +97,14 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
 
     schedule_runner = _build_schedule_runner(db, delivery, app.config["AUTHZ"])
     worker.register(SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler(schedule_runner))
+
+    dash_repo = DashboardRepository(db)
+    mirror = MirrorService(
+        customers_fetch=service.customer_universe, orders_fetch=service.all_orders, repo=dash_repo)
+    worker.register(DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler(mirror))
+    app.config["DASHBOARD_REPO"] = dash_repo
+    app.config["DASHBOARD_SERVICE"] = DashboardService(dash_repo)
+    app.config["MIRROR_SERVICE"] = mirror
 
     app.config["REPORT_SERVICE"] = service
     app.config["LOOKUP_SERVICE"] = LookupService(service, salesmen_repo)
@@ -261,17 +273,36 @@ def _start_scheduler(app: Flask, db) -> None:
     simply doesn't run - schedules can still be triggered with "Run now" - and
     boot is never blocked.
     """
+    from web.dashboard.jobs import enqueue_refresh
     from web.jobs.scheduler import Scheduler
     from web.scheduling.tick import make_tick
 
+    job_repo = app.config["JOB_REPO"]
+
+    def _tick_mirror():
+        try:
+            enqueue_refresh(job_repo)
+        except Exception:  # noqa: BLE001 - a tick failure must not kill the scheduler
+            app.logger.exception("dashboard mirror tick failed")
+
     try:
         scheduler = Scheduler()
-        scheduler.add_cron("schedule-tick", make_tick(db, app.config["JOB_REPO"]), minute="*")
+        scheduler.add_cron("schedule-tick", make_tick(db, job_repo), minute="*")
+        # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence).
+        scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
         scheduler.start()
         app.config["SCHEDULER"] = scheduler
-        app.logger.info("schedule cron tick started")
+        app.logger.info("schedule + mirror cron ticks started")
     except Exception:  # noqa: BLE001 - scheduler is optional; never block boot
         app.logger.exception("scheduler start failed (schedules will only run via Run now)")
+
+    # Prime the mirror on boot if it's empty so the dashboard isn't blank on a
+    # cold container (LIVE does an immediate refresh when the cache is empty).
+    try:
+        if app.config["DASHBOARD_REPO"].count() == 0:
+            enqueue_refresh(job_repo)
+    except Exception:  # noqa: BLE001 - best-effort prime
+        app.logger.exception("dashboard mirror prime failed")
 
 
 def _seed_feature_flags(app: Flask, db) -> None:

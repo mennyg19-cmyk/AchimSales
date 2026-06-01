@@ -99,6 +99,11 @@ class ReportService:
         rows = self._rows("salesline_release", P.translate("customer_activity", {}))
         return src_ordered.to_facts(rows)
 
+    def customer_orders(self, account: str) -> list:
+        """All-time OrderLineFacts for one customer (dashboard customer detail)."""
+        sp = P.translate("ordered", {"period": "all_time", "customers": [account]})
+        return src_ordered.to_facts(self._rows("salesline_release", sp))
+
     def _book_prices(self) -> dict | None:
         """released_products SalesPrice map for Book Price; None if unavailable."""
         try:

@@ -285,7 +285,38 @@ def test_dashboard_renders_for_admin(tmp_path):
     client = app.test_client()
     _login(client, app)
     html = client.get("/dashboard").get_data(as_text=True)
-    assert "Built reports" in html
+    assert "Customer Dashboard" in html
+    assert 'data-status="overdue"' in html  # tiles present
+    assert "Refresh data" in html
+
+
+def test_dashboard_tiles_and_exclusion(tmp_path):
+    app = _make_app(tmp_path)
+    # Seed mirror rows directly so the tiles + table have data.
+    from web.data.repositories.dashboard import DashboardCustomer, DashboardRepository
+    DashboardRepository(app.config["DB"]).replace_all([
+        DashboardCustomer("100", "Acme", "", "2026-05-01", 5, 30.0, 2.0, 32.0, 5, "active"),
+        DashboardCustomer("200", "Beta", "", "2026-01-01", 3, 10.0, 1.0, 11.0, 120, "overdue"),
+    ])
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/dashboard").get_data(as_text=True)
+    assert "Acme" in html and "Beta" in html
+
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    resp = client.post("/api/dashboard/exclusion",
+                       json={"customer_account": "200", "excluded": True},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    from web.data.repositories.exclusions import ExclusionRepository
+    assert "200" in ExclusionRepository(app.config["DB"]).get(uid)
+
+
+def test_dashboard_forbidden_for_plain_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    assert client.get("/dashboard").status_code == 403
 
 
 def test_settings_renders_for_admin(tmp_path):

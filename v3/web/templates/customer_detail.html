@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.customer_name or customer.customer_account }}{% endblock %}
+
+{% block content %}
+<div class="page-head" id="custRoot"
+     data-csrf="{{ csrf_token() }}"
+     data-exclusion-url="{{ url_for('dashboard.toggle_exclusion') }}"
+     data-account="{{ customer.customer_account }}">
+    <a class="back-link" href="{{ url_for('dashboard.dashboard') }}"><i data-feather="arrow-left"></i> Dashboard</a>
+    <h1 class="page-title">{{ customer.customer_name or customer.customer_account }}</h1>
+    <p class="page-subtitle">Account {{ customer.customer_account }} &middot; {{ customer.sales_group or 'Unassigned' }}</p>
+</div>
+
+<section class="settings-card">
+    <div class="cust-metrics">
+        <div><span class="cust-metric-label">Status</span>
+            <span class="status-pill status-{{ customer.status }}">{{ customer.status }}</span></div>
+        <div><span class="cust-metric-label">Days since last
+            <button type="button" class="help-btn" data-help="dashboard-tile-overdue" data-no-guard aria-label="Help">?</button></span>
+            <span class="cust-metric-value">{{ customer.days_since_last if customer.days_since_last is not none else '\u2014' }}</span></div>
+        <div><span class="cust-metric-label">Avg frequency
+            <button type="button" class="help-btn" data-help="dashboard-avg-freq" data-no-guard aria-label="Help">?</button></span>
+            <span class="cust-metric-value">{{ customer.avg_gap_days if customer.avg_gap_days is not none else '\u2014' }}</span></div>
+        <div><span class="cust-metric-label">Threshold
+            <button type="button" class="help-btn" data-help="dashboard-threshold" data-no-guard aria-label="Help">?</button></span>
+            <span class="cust-metric-value">{{ customer.overdue_threshold if customer.overdue_threshold is not none else '\u2014' }}</span></div>
+        <div><span class="cust-metric-label">Orders</span>
+            <span class="cust-metric-value">{{ customer.order_count }}</span></div>
+    </div>
+    <label class="flag-row" style="margin-top:14px;">
+        <span class="switch">
+            <input type="checkbox" id="custInclude" {% if not is_excluded %}checked{% endif %}>
+            <span class="switch-track"></span>
+        </span>
+        <span>Include in dashboard
+            <button type="button" class="help-btn" data-help="dashboard-include" data-no-guard aria-label="Help">?</button></span>
+    </label>
+</section>
+
+<h2 class="section-title">Order history ({{ orders|length }})</h2>
+{% if orders %}
+<div class="report-table-scroll">
+<table class="simple-table">
+    <thead><tr><th>Date</th><th>Order #</th><th>PO #</th><th>Item</th><th>Description</th><th>Qty</th><th>Status</th></tr></thead>
+    <tbody>
+        {% for o in orders %}
+        <tr>
+            <td>{{ o.order_date or '\u2014' }}</td>
+            <td>{{ o.sales_order_number }}</td>
+            <td>{{ o.po_number or '\u2014' }}</td>
+            <td>{{ o.item_number }}</td>
+            <td>{{ o.item_name }}</td>
+            <td>{{ '%g'|format(o.qty_ordered) }}</td>
+            <td>{{ o.status or o.order_status }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state"><i data-feather="inbox"></i><p>No orders on record for this customer.</p></div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}
