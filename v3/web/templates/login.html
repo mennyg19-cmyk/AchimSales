@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Sign in &mdash; Sales Reports{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1 class="auth-title">Sales Reports</h1>
+    <p class="auth-sub">Developer sign-in</p>
+    <form method="post" action="{{ url_for('auth.login_dev') }}" class="auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next_val }}">
+      <label class="auth-field">
+        <span class="auth-label">Email</span>
+        <input name="email" type="email" placeholder="you@achimonline.com" required autofocus>
+      </label>
+      <label class="auth-field">
+        <span class="auth-label">Role</span>
+        <select name="role">
+          {% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Sign in</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

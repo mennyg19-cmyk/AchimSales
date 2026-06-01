@@ -181,7 +181,7 @@ def app(tmp_path):
 def test_dev_login_and_session(app):
     client = app.test_client()
     page = client.get("/login")
-    assert page.status_code == 200 and b"Dev sign in" in page.data
+    assert page.status_code == 200 and b"Developer sign-in" in page.data
     # CSRF token is in the form; reuse the session token the GET established.
     with client.session_transaction() as sess:
         token = sess["_csrf_token"]

@@ -1,6 +1,24 @@
 /* Per-page styles for reports list / report viewer / dashboard / settings.
    Built on the shared tokens; the navigation chrome lives in shell.css. */
 
+/* -- Auth / login -- */
+.auth-wrap { display: flex; justify-content: center; padding: 48px 16px; }
+.auth-card {
+    width: 100%; max-width: 360px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow-md); padding: 28px 24px;
+}
+.auth-title { font-size: 22px; font-weight: 700; color: var(--text); text-align: center; }
+.auth-sub { color: var(--text-muted); font-size: 13px; text-align: center; margin: 4px 0 20px; }
+.auth-form { display: flex; flex-direction: column; gap: 14px; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.auth-field input, .auth-field select {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-size: 14px; color: var(--text); background: var(--bg-card);
+}
+.auth-field input:focus, .auth-field select:focus { outline: none; border-color: var(--border-focus); }
+
 /* -- Page headers -- */
 .page-head { margin-bottom: 20px; }
 .page-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

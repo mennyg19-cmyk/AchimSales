@@ -7,8 +7,16 @@ here; the pixel-matched templates land in the front-end phase. Dev login is hard
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, redirect, request, session, url_for
-from markupsafe import escape
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
 from web.auth import msal_flow
 from web.auth.principal import VALID_ROLES, Principal
@@ -49,19 +57,7 @@ def login_page():
     if cfg.auth_mode == "msal":
         session[_NEXT_KEY] = _safe_next()  # carry intended destination across the redirect
         return redirect(msal_flow.build_login_url(cfg))
-    # dev mode: minimal picker (replaced by the live-styled template in FE phase)
-    from web.extensions import csrf_token
-
-    next_val = escape(_safe_next())
-    return (
-        "<form method='post' action='" + url_for("auth.login_dev") + "'>"
-        f"<input type='hidden' name='csrf_token' value='{csrf_token()}'>"
-        f"<input type='hidden' name='next' value='{next_val}'>"
-        "<input name='email' placeholder='email' required>"
-        "<select name='role'>"
-        + "".join(f"<option value='{r}'>{r}</option>" for r in VALID_ROLES)
-        + "</select><button type='submit'>Dev sign in</button></form>"
-    ), 200
+    return render_template("login.html", next_val=_safe_next(), roles=VALID_ROLES)
 
 
 @auth_bp.post("/login/dev")
