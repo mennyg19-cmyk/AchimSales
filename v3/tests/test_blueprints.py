@@ -504,6 +504,39 @@ def test_master_schedule_admin_only(tmp_path):
     assert "Nightly" in admin.get("/master-schedules").get_data(as_text=True)
 
 
+def test_preferences_api_persists_theme(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/settings/preferences", json={"theme": "dark"},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200 and resp.get_json()["theme"] == "dark"
+    # persisted in user_preferences
+    from web.data.repositories.preferences import PreferencesRepository
+    from web.data.repositories.users import UserRepository as _UR
+    uid = _UR(app.config["DB"]).get_by_email("admin@x.com").id
+    assert PreferencesRepository(app.config["DB"]).get(uid).theme == "dark"
+
+
+def test_preferences_api_rejects_unknown_user(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    # session without a DB-backed user row
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "ghost@x.com", "name": "G", "role": "salesman", "is_dev": True}
+        s["_csrf_token"] = _CSRF
+    resp = client.post("/api/settings/preferences", json={"theme": "dark"},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 403
+
+
+def test_header_has_theme_toggle(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    assert 'id="themeToggleBtn"' in client.get("/settings").get_data(as_text=True)
+
+
 def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     rows = [
         {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",

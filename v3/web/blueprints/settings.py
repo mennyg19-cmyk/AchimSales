@@ -11,6 +11,7 @@ from flask import (
     Blueprint,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -20,12 +21,22 @@ from flask import (
 
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
+from web.data.repositories.preferences import PreferencesRepository
 from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 
 settings_bp = Blueprint("settings", __name__)
 
 _THEMES = ("light", "dark")
+
+
+def _prefs() -> PreferencesRepository:
+    return PreferencesRepository(current_app.config["DB"])
+
+
+def _uid(email: str) -> int | None:
+    user = UserRepository(current_app.config["DB"]).get_by_email(email)
+    return user.id if user else None
 
 
 @settings_bp.get("/settings")
@@ -51,19 +62,30 @@ def set_theme():
     if theme not in _THEMES:
         theme = "light"
     session["theme"] = theme
-    _persist_theme(current_principal().email, theme)
+    uid = _uid(current_principal().email)
+    if uid is not None:
+        _prefs().set(uid, theme=theme)
     flash(f"Theme set to {theme}.", "success")
     return redirect(url_for("settings.settings_page"))
 
 
-def _persist_theme(email: str, theme: str) -> None:
-    db = current_app.config["DB"]
-    user = UserRepository(db).get_by_email(email)
-    if user is None:
-        return
-    with db.precious() as conn:
-        conn.execute(
-            "INSERT INTO user_preferences(user_id, theme) VALUES (?, ?)"
-            " ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme",
-            (user.id, theme),
-        )
+@settings_bp.post("/api/settings/preferences")
+@require_login
+def set_preferences():
+    """JSON preference update used by the header theme toggle + settings page.
+
+    Accepts any subset of {theme, landing_page, default_report_tab}; only the
+    provided fields change. Returns the resolved preferences.
+    """
+    body = request.get_json(silent=True) or {}
+    uid = _uid(current_principal().email)
+    if uid is None:
+        return jsonify({"error": "Unknown user"}), 403
+    prefs = _prefs().set(
+        uid, theme=body.get("theme"), landing_page=body.get("landing_page"),
+        default_report_tab=body.get("default_report_tab"),
+    )
+    if "theme" in body:
+        session["theme"] = prefs.theme
+    return jsonify({"theme": prefs.theme, "landing_page": prefs.landing_page,
+                    "default_report_tab": prefs.default_report_tab})

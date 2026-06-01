@@ -32,6 +32,11 @@
             <span class="user-role badge {% if user.role == 'admin' or user.role == 'developer' %}badge-admin{% elif user.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">
                 {{ user.role|title }}
             </span>
+            <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
+                    title="Toggle light/dark theme"
+                    data-url="{{ url_for('settings.set_preferences') }}" data-csrf="{{ csrf_token() }}">
+                <i data-feather="{{ 'sun' if theme == 'dark' else 'moon' }}" style="width:16px;height:16px;"></i>
+            </button>
             {% if user._dev %}
             <a href="{{ nav.login }}" class="btn btn-sm btn-outline btn-icon" title="Switch user">
                 <i data-feather="repeat" style="width:16px;height:16px;"></i>

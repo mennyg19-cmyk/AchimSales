@@ -178,12 +178,36 @@ function initPullToRefresh(): void {
   });
 }
 
+function initThemeToggle(): void {
+  const btn = document.getElementById("themeToggleBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const dark = !document.body.classList.contains("dark-theme");
+    document.body.classList.toggle("dark-theme", dark);
+    const icon = btn.querySelector("i");
+    if (icon) {
+      icon.setAttribute("data-feather", dark ? "sun" : "moon");
+      if (typeof feather !== "undefined") feather.replace();
+    }
+    try {
+      await fetch(btn.getAttribute("data-url") || "", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": btn.getAttribute("data-csrf") || "" },
+        body: JSON.stringify({ theme: dark ? "dark" : "light" }),
+      });
+    } catch {
+      /* visual toggle already applied; persistence is best-effort */
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (typeof feather !== "undefined") feather.replace();
   document.addEventListener("click", onClick);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeHelp();
   });
+  initThemeToggle();
   initPullToRefresh();
 });
 
