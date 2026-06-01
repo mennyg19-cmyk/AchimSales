@@ -335,21 +335,34 @@ def customer_last_order_customers():
 def customer_last_order_salesmen():
     p = _principal_or_401()
     _assert_clo_access(p)
-    return jsonify({"salesmen": _lookups().salesmen()})
+    salesmen = _lookups().salesmen()
+    keys = _authz().visible_salesman_keys(p)
+    if keys is not None:  # scoped users only see their own salesmen (endpoint is callable directly)
+        salesmen = [s for s in salesmen if salesman_key(s.get("key")) in keys]
+    return jsonify({"salesmen": salesmen})
 
 
 def _clo_facts_or_403(p, account: str):
-    """Fetch the customer's full history and enforce customer-level scope.
+    """Resolve the customer authoritatively, enforce scope, then fetch history.
 
-    Returns (facts, customer_dict). Aborts 403 when the customer's salesman
-    group is outside the principal's scope. An empty history leaks nothing
-    (no name/group), so it is allowed through to a clean "no orders" page.
+    Returns (facts, customer_dict). Scope is checked against the CUSTOMER MASTER's
+    sales group (LookupService), never the order lines - salesline_release lines
+    can carry a blank SalesGroup, so trusting them would both deny valid customers
+    and skip authorization on empty history. When the master knows the customer we
+    authorize on its group even with zero orders; when it can't resolve the account
+    (unknown, or universe not warm) we fall back to the facts' group and only
+    authorize when there ARE facts (an empty unknown account leaks nothing).
     """
+    info = _lookups().customer(account)
     facts = _report_service().last_order_facts(account)
-    sales_group = next((f.sales_group for f in facts if f.sales_group), "")
-    name = next((f.customer_name for f in facts if f.customer_name), "")
-    if facts:
+    if info is not None:
+        sales_group, name = info["salesman"], info["name"]
         _authz().assert_can_view_customer(p, sales_group)
+    else:
+        sales_group = next((f.sales_group for f in facts if f.sales_group), "")
+        name = next((f.customer_name for f in facts if f.customer_name), "")
+        if facts:
+            _authz().assert_can_view_customer(p, sales_group)
     return facts, {"account": account, "name": name or account, "sales_group": sales_group}
 
 
@@ -385,11 +398,11 @@ def customer_last_order_view(account: str):
         return render_template(
             "customer_last_order_view.html", active_tab="reports",
             customer={"account": account, "name": account, "sales_group": ""},
-            view=None, error=str(exc),
+            view=None, error=str(exc), provisional_note=clo.PROVISIONAL_NOTE,
         )
     return render_template(
         "customer_last_order_view.html", active_tab="reports",
-        customer=customer, view=view, error=None,
+        customer=customer, view=view, error=None, provisional_note=clo.PROVISIONAL_NOTE,
     )
 
 

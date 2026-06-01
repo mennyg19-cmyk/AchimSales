@@ -1128,3 +1128,47 @@ GPT-5.5 read-only reviews of Phases C/D flagged real production-safety gaps. Fix
 - Customer detail lacks the TEST app's period/last-N filters and an order-detail drilldown
   route; deferred as a Phase D parity item (dashboard read model is complete; this is
   additive UI).
+
+## Phase E final parity review - remediation
+
+GPT-5.5's final parity review caught three real Customer's Last Order blockers tied to
+the actual `salesline_release` data shape. Fixes:
+
+### Blocker: "invoiced" must come from the line, not a header status
+
+- LIVE reads `OrderStatus` from a SEPARATE sales-order-header entity. The v3 on-prem
+  `salesline_release` SP is LINE-level: the real dump (`test/fixtures/ordered_dump.json`)
+  has `SalesStatus: "Invoiced"` and NO `OrderStatus`. The builder previously filtered on
+  `f.order_status`, so it returned ZERO orders for valid invoiced customers. Fix:
+  `customer_last_order` now treats an order as invoiced when ANY of its lines'
+  `SalesStatus` contains "invoiced" (covers "Partially invoiced"); a header `OrderStatus`
+  is still honored if a future SP revision adds it. Documented as a deliberate line-level
+  adaptation, not a false claim of header-status parity.
+
+### Blocker: authorize on the customer master's salesman, not the order lines
+
+- The real dump has `SalesGroup: null` on the lines, so deriving customer scope from order
+  facts both denied valid customers and (on empty history) skipped authorization entirely.
+  Fix: `LookupService.customer(account)` resolves the authoritative customer record
+  (account/name/salesman) from the `customer_master` universe - the same source LIVE's
+  `fetch_customer_info` uses, and the one entity that actually assigns the salesman. The
+  route authorizes on that group even for zero-order customers; it only falls back to the
+  facts' group when the master can't resolve the account (unknown, or universe not warm),
+  and then only authorizes when there ARE facts. The `/salesmen` picker endpoint (directly
+  callable even though the UI hides it for scoped users) now filters to the caller's
+  `visible_salesman_keys`.
+
+### Blocker: provisional quantity math is now flagged in the UI
+
+- Qty Shipped / Qty Cancelled are DERIVED by the shared Ordered classifier (no explicit
+  cancelled qty from the SP yet), so Total (= price x qty_shipped) is provisional too. The
+  view now shows the same "provisional / derived" marker the Ordered report uses, instead
+  of presenting those columns as final. Dollar INPUTS from the SP remain authoritative.
+- Rounding parity: the (item, price) rollup now rounds each line's total before summing
+  (matches LIVE `_rollup_lines`), removing a cents-level rounding-timing drift.
+- Header fields per order are now taken from the best non-blank / newest-date line rather
+  than the first line seen, so an out-of-order or partially-blank first line can't pick
+  weaker date/PO/name data.
+- Tests: a real-dump-shaped builder test (line `SalesStatus`, no `OrderStatus`, null
+  `SalesGroup`); route tests for a scoped salesman in-scope (200) and out-of-scope (403),
+  and the scoped `/salesmen` endpoint.

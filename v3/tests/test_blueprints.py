@@ -808,6 +808,70 @@ def test_customer_last_order_view_redirects_from_standard_viewer(tmp_path):
     assert "/report/customer-last-order" in resp.headers["Location"]
 
 
+def _clo_real_rows(sales_group):
+    # Real salesline_release shape: per-line SalesStatus, no header OrderStatus.
+    return {"salesline_release": [
+        {"SalesOrderNumber": "SO3", "CustomerAccount": "100", "customername": "Acme",
+         "SalesGroup": sales_group, "SalesStatus": "Invoiced", "OrderDate": "2026-03-10",
+         "CustomerRequisition": "PO-9", "LineNumber": "1", "Item": "ITM-A",
+         "ItemDescription": "Widget", "SalesPrice": "2.00",
+         "QuantityOrdered": "10", "ReleasedQuantity": "10", "DeliveryRemainder": "0",
+         "QuantityLefttoLoad": "0", "Ordered $": "20.00", "Shipped $": "20.00", "Cancelled $": "0"},
+    ]}
+
+
+def _grant_clo_salesman(app, *, salesman_group):
+    from report_engine.lib import salesman_key
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+
+    db = app.config["DB"]
+    # The salesman key must exist (user_salesman_access FKs salesmen.key).
+    SalesmanRepository(db).upsert_many([SalesmanSeed(
+        raw_key=salesman_group, number="1", full_name=salesman_group,
+        display_name=salesman_group)])
+    user = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="salesman")
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO user_report_access(user_id, report_key, allowed) "
+            "VALUES (?, 'customer_last_order', 1)", (user.id,))
+        conn.execute(
+            "INSERT INTO user_salesman_access(user_id, salesman_key) VALUES (?, ?)",
+            (user.id, salesman_key(salesman_group)))
+
+
+def test_customer_last_order_scoped_salesman_in_scope_ok(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_clo_real_rows("REdwards"))
+    _grant_clo_salesman(app, salesman_group="REdwards")
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    resp = client.get("/report/customer-last-order/100")
+    assert resp.status_code == 200
+    assert "SO3" in resp.get_data(as_text=True)
+
+
+def test_customer_last_order_scoped_salesman_out_of_scope_denied(tmp_path):
+    # Granted the report + a salesman key, but this customer's line belongs to a
+    # different salesgroup -> customer-level scope denies it (403), even from the
+    # line-level data (blank/foreign SalesGroup must not slip through).
+    app = _make_app(tmp_path, rows_by_report=_clo_real_rows("OtherRep"))
+    _grant_clo_salesman(app, salesman_group="REdwards")
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    assert client.get("/report/customer-last-order/100").status_code == 403
+
+
+def test_customer_last_order_salesmen_endpoint_scoped(tmp_path):
+    # The picker is hidden for scoped users, but the endpoint is directly callable;
+    # it must not enumerate salesmen outside the caller's scope.
+    app = _make_app(tmp_path, rows_by_report=_clo_real_rows("REdwards"))
+    _grant_clo_salesman(app, salesman_group="REdwards")
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    data = client.get("/api/report/customer-last-order/salesmen").get_json()
+    from report_engine.lib import salesman_key
+    assert all(salesman_key(s["key"]) == salesman_key("REdwards") for s in data["salesmen"])
+
+
 def test_customer_last_order_forbidden_for_ungranted_salesman(tmp_path):
     app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
     client = app.test_client()

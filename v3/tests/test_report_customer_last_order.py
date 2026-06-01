@@ -85,3 +85,33 @@ def test_no_invoiced_orders_yields_empty_view():
     view = B.build(S.to_facts(open_only))
     assert view.headers == [] and view.lines == [] and view.primary is None
     assert view.totals["total"] == 0
+
+
+def _real_dump_rows():
+    # Mirrors the actual salesline_release dump: per-line SalesStatus "Invoiced",
+    # NO header OrderStatus, and a null SalesGroup. The old header-only check
+    # returned nothing for this shape.
+    return [
+        {"SalesOrderNumber": "ORD795", "CustomerAccount": 11528,
+         "customername": "All Pro Building Supplies LLC", "SalesGroup": None,
+         "CustomerRequisition": "APBS-001", "LineNumber": 14, "SalesStatus": "Invoiced",
+         "Item": "REDTEE-332", "ItemDescription": "Reducing tee", "SalesPrice": 2.29,
+         "QuantityOrdered": 30, "ReleasedQuantity": 30, "DeliveryRemainder": 0,
+         "QuantityLefttoLoad": 0, "Ordered $": 68.7, "Shipped $": 68.7, "Cancelled $": 0,
+         "CreatedDateTime": "2026-03-27T18:21:08"},
+        {"SalesOrderNumber": "ORD795", "CustomerAccount": 11528,
+         "customername": "All Pro Building Supplies LLC", "SalesGroup": None,
+         "CustomerRequisition": "APBS-001", "LineNumber": 12, "SalesStatus": "Invoiced",
+         "Item": "1/8HxS-040", "ItemDescription": "1/8 bend", "SalesPrice": 2.44,
+         "QuantityOrdered": 9, "ReleasedQuantity": 9, "DeliveryRemainder": 0,
+         "QuantityLefttoLoad": 0, "Ordered $": 21.96, "Shipped $": 21.96, "Cancelled $": 0,
+         "CreatedDateTime": "2026-03-27T18:21:07"},
+    ]
+
+
+def test_invoiced_detected_from_line_status_without_header_status():
+    view = B.build(S.to_facts(_real_dump_rows()))
+    assert view.primary is not None and view.primary.order_number == "ORD795"
+    assert {l.item for l in view.lines} == {"REDTEE-332", "1/8HxS-040"}
+    # 2.29*30 + 2.44*9 = 68.7 + 21.96
+    assert view.totals["total"] == 90.66

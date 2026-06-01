@@ -81,6 +81,12 @@
 </div>
 
 <div class="table-wrap">
+    {% if view.lines and provisional_note %}
+    <p class="muted clo-provisional" title="{{ provisional_note }}">
+        <i data-feather="alert-triangle" style="width:13px;height:13px;vertical-align:-1px;"></i>
+        Qty Shipped / Qty Cancelled / Total are provisional (derived).
+    </p>
+    {% endif %}
     {% if view.lines %}
     <table class="data-table">
         <thead>

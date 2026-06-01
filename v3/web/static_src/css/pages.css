@@ -295,6 +295,7 @@
 .merged-orders-list { margin-top: 12px; font-size: 13px; color: var(--text); }
 .merged-orders-list ul { margin: 6px 0 0; padding-left: 18px; }
 .muted { color: var(--text-muted); }
+.clo-provisional { font-size: 12px; margin: 0 0 8px; display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
 .data-table td.num, .data-table th.num { text-align: right; }
 
 /* -- Settings -- */

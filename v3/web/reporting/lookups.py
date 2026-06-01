@@ -140,6 +140,28 @@ class LookupService:
             seen[acct] = {"key": acct, "name": name or acct, "salesman": sg}
         return sorted(seen.values(), key=lambda c: c["name"].lower())
 
+    def customer(self, account: str) -> dict | None:
+        """Authoritative customer-master record for one account (key/name/salesman),
+        or None when the account is unknown OR the universe isn't warm yet.
+
+        Callers that need to authorize a customer must use THIS (the customer
+        master assigns the salesman), not the order lines - salesline_release can
+        carry a blank SalesGroup, which would both deny valid customers and skip
+        authorization on empty history."""
+        acct = (account or "").strip()
+        if not acct:
+            return None
+        rows = self._cached_rows()
+        if rows is None:
+            self._kick()
+            return None
+        for f in rows:
+            if (getattr(f, "customer_account", "") or "").strip() == acct:
+                return {"key": acct,
+                        "name": (getattr(f, "customer_name", "") or "").strip() or acct,
+                        "salesman": (getattr(f, "sales_group", "") or "").strip()}
+        return None
+
     def status(self) -> dict[str, Any]:
         """Populate progress for the form's poll loop.
 

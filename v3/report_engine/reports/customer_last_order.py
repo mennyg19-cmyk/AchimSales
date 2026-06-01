@@ -23,10 +23,22 @@ from dataclasses import dataclass, field
 from report_engine.facts import OrderLineFact
 from report_engine.reports.ordered import classify_line
 
-# A line is part of the customer's order history only when its order is invoiced.
-# Mirrors LIVE: the header OrderStatus must contain "invoiced" (covers
-# "Invoiced" and "Partially invoiced"), case-insensitive.
+# "Invoiced" detection. LIVE reads the header OrderStatus (from a SEPARATE header
+# entity). The v3 on-prem `salesline_release` SP is LINE-level and does NOT return
+# a header OrderStatus - it carries the per-line `SalesStatus` ("Invoiced" /
+# "Partially invoiced"). So v3 treats an order as invoiced when ANY of its lines is
+# invoiced (which also covers the partial case). Header status is still honored
+# when a future SP revision provides it.
 _INVOICED = "invoiced"
+
+# Qty Shipped / Qty Cancelled are DERIVED by the shared Ordered classifier (the SP
+# has no explicit cancelled qty yet), so Total (= price x qty_shipped) is provisional
+# too. The view surfaces this note, exactly like the Ordered report's stub marker.
+PROVISIONAL_NOTE = (
+    "Qty Shipped / Qty Cancelled - and the Total derived from Qty Shipped - are "
+    "provisional until the salesline_release endpoint returns an explicit cancelled "
+    "quantity. Dollar inputs from the SP are authoritative."
+)
 
 
 @dataclass(frozen=True)
@@ -65,31 +77,42 @@ class LastOrder:
         return self.headers[0] if self.headers else None
 
 
-def _is_invoiced(order_status: str) -> bool:
-    return _INVOICED in (order_status or "").lower()
+def _line_is_invoiced(f: OrderLineFact) -> bool:
+    """True when the line (or its header, if present) is invoiced.
+
+    Primary signal is the line `SalesStatus`, because the line-level SP is the only
+    source v3 has; the header `OrderStatus` is accepted too for forward-compat."""
+    return (_INVOICED in (f.status or "").lower()
+            or _INVOICED in (f.order_status or "").lower())
 
 
 def invoiced_orders(facts: list[OrderLineFact]) -> list[OrderSummary]:
     """Distinct invoiced orders for the customer, newest first.
 
-    One summary per SalesOrderNumber, taking the header fields off the first
-    line seen for that order. Sorted by order_date descending (blank dates last).
+    An order qualifies if any of its lines is invoiced. Header fields are taken
+    from the best (non-blank, newest-date) line for that order so an out-of-order
+    or partially-blank first line can't pick weaker data. Sorted by order_date
+    descending (blank dates last).
     """
-    seen: dict[str, OrderSummary] = {}
+    agg: dict[str, dict] = {}
     for f in facts:
-        if not _is_invoiced(f.order_status):
+        if not _line_is_invoiced(f):
             continue
         num = (f.sales_order_number or "").strip()
-        if not num or num in seen:
+        if not num:
             continue
-        seen[num] = OrderSummary(
-            order_number=num,
-            order_date=f.order_date or "",
-            status=f.order_status or "",
-            customer_req=f.po_number or "",
-            order_name=f.sales_order_name or "",
-        )
-    return sorted(seen.values(), key=lambda o: o.order_date or "", reverse=True)
+        a = agg.get(num)
+        if a is None:
+            a = agg[num] = {"order_number": num, "order_date": "", "status": "",
+                            "customer_req": "", "order_name": ""}
+        date = f.order_date or ""
+        if date > a["order_date"]:
+            a["order_date"] = date
+        a["status"] = a["status"] or f.order_status or f.status or ""
+        a["customer_req"] = a["customer_req"] or (f.po_number or "")
+        a["order_name"] = a["order_name"] or (f.sales_order_name or "")
+    summaries = [OrderSummary(**a) for a in agg.values()]
+    return sorted(summaries, key=lambda o: o.order_date or "", reverse=True)
 
 
 def _common_po_prefix(pos: list[str]) -> str:
@@ -134,7 +157,9 @@ def _rollup(lines: list[dict]) -> list[LineRow]:
         g["qty_ordered"] += float(ln.get("QtyOrdered") or 0)
         g["qty_shipped"] += float(ln.get("QtyShipped") or 0)
         g["qty_cancelled"] += float(ln.get("QtyCancelled") or 0)
-        g["total"] += price * float(ln.get("QtyShipped") or 0)
+        # Round the line total first, THEN sum (matches LIVE _rollup_lines, which
+        # sums each line's already-rounded total - avoids a rounding-timing drift).
+        g["total"] += round(price * float(ln.get("QtyShipped") or 0), 2)
         onum = ln.get("SalesOrderNumber")
         if onum and onum not in orders_for[key]:
             orders_for[key].append(onum)
