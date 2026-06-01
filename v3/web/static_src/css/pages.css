@@ -197,12 +197,16 @@
 
 /* -- Tabulator theming (drives off the shared light/dark tokens) -- */
 .tabulator { background: var(--bg-card); border: none; font-size: 13px; }
+/* Tabulator's base stylesheet loads AFTER main.css (it's in the page's head
+   block) and ships a light header background. Force the theme token with
+   !important so the header isn't white-on-dark (invisible) under the dark /
+   monochrome-dark themes. */
 .tabulator .tabulator-header {
-    background: var(--bg); border-bottom: 2px solid var(--border);
-    color: var(--text); font-weight: 700;
+    background: var(--bg) !important; border-bottom: 2px solid var(--border);
+    color: var(--text) !important; font-weight: 700;
 }
 .tabulator .tabulator-header .tabulator-col {
-    background: var(--bg); border-right: 1px solid var(--border);
+    background: var(--bg) !important; border-right: 1px solid var(--border);
 }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content { padding: 8px 8px; }
 /* Readable headers: full-strength text, not the muted grey, beating Tabulator's base theme. */
