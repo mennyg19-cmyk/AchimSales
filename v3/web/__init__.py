@@ -265,23 +265,57 @@ def bootstrap_background(app: Flask) -> None:
 
     # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
     # must run in exactly ONE process. Under gunicorn we have multiple workers, so
-    # gate it on the same leader signal the live app uses (gunicorn.conf.py
-    # post_fork sets GUNICORN_EMAIL_DIST_LEADER=1 only on worker.age==0). Absent
-    # (dev / tests / single process) the default is leader=True. Without this,
-    # every worker's recover_orphans() would requeue jobs another worker is
-    # actively running -> duplicate report deliveries + schedule fires.
-    if _is_background_leader():
+    # we elect a single owner with an exclusive OS file lock (see
+    # _is_background_leader). Without this, every worker's recover_orphans() would
+    # requeue jobs another worker is actively running -> duplicate report
+    # deliveries + schedule fires.
+    if _is_background_leader(app):
+        app.logger.info("v3 background ownership acquired by this worker (pid=%s)", os.getpid())
         worker = app.config.get("JOB_WORKER")
         if worker is not None:
             worker.start()
         _start_scheduler(app, db)
     else:
-        app.logger.info("v3 background ownership skipped on non-leader worker")
+        app.logger.info("v3 background ownership held by another worker; skipping (pid=%s)", os.getpid())
 
 
-def _is_background_leader() -> bool:
-    """True in the one process that should own v3 background work."""
-    return (os.environ.get("GUNICORN_EMAIL_DIST_LEADER", "1") or "1").strip() != "0"
+# Held open for the whole process lifetime so the advisory lock below stays held.
+_BG_LOCK_FH = None
+
+
+def _is_background_leader(app: Flask) -> bool:
+    """Elect exactly ONE process to own v3 background work (job worker + cron).
+
+    Uses a real OS advisory lock instead of the gunicorn env signal. That signal
+    depends on post_fork setting the env BEFORE the worker imports the app, which
+    is unreliable in our dispatcher: the live app is imported during the worker's
+    synchronous load while v3 bootstraps in a later daemon thread, so the two read
+    different env values (observed in prod). An exclusive, non-blocking flock is
+    immune to that ordering - the one worker that grabs it wins and holds it until
+    the process dies.
+
+    Fail-open to leader=True when fcntl is unavailable (Windows/local dev) or the
+    lock can't be taken for an unexpected reason, so single-process/dev still runs
+    background work.
+    """
+    global _BG_LOCK_FH
+    try:
+        import fcntl
+    except Exception:  # noqa: BLE001 - non-POSIX (local dev): single process owns it
+        return True
+    cfg = app.config["APP_CONFIG"]
+    lock_path = cfg.precious_db_path.parent / ".v3-background.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(lock_path, "w")  # noqa: SIM115 - intentionally kept open
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False  # another worker already holds the lock
+    except Exception:  # noqa: BLE001 - never block boot on an unexpected lock error
+        app.logger.exception("v3 background lock errored; assuming leader")
+        return True
+    _BG_LOCK_FH = fh  # keep the handle alive so GC can't drop the lock
+    return True
 
 
 def _start_scheduler(app: Flask, db) -> None:
