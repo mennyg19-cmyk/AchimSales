@@ -78,6 +78,25 @@ def test_invoiced_ytd_window_anchors_to_selected_period_end():
     assert ytd_params["InvoiceDateTo"].startswith("2025-06-15")
 
 
+def test_invoiced_multi_customer_is_post_filtered():
+    """The SP can only push one InvoiceAccount, so a 2+ customer selection must
+    be narrowed in-process (period + YTD facts) instead of returning everyone."""
+    rows = [
+        {"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
+         "Amount": "100", "SalesGroup": "REdwards"},
+        {"Invoice": "I2", "InvoiceAccount": "200", "InvoiceDate": "2026-03-02",
+         "Amount": "200", "SalesGroup": "REdwards"},
+        {"Invoice": "I3", "InvoiceAccount": "300", "InvoiceDate": "2026-03-03",
+         "Amount": "300", "SalesGroup": "REdwards"},
+    ]
+    svc = _svc({"invoiced_order_charges": rows})
+    out = svc.builder_for("invoiced")({"customers": ["100", "300"]})
+    accts = {r["CustomerAccount"]
+             for t in out["tabs"] if t["key"] == "invoices" for r in t["rows"]}
+    assert accts == {"100", "300"}     # 200 excluded
+    assert out["row_count"] == 2
+
+
 def test_number_4_blank_book_price_when_released_products_down():
     rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
              "Item": "ITM-A", "ItemName": "W", "InventQTY": "1", "Amount": "9",
@@ -97,6 +116,22 @@ def test_number_4_book_price_joined_when_available():
     out = svc.builder_for("number_4")({})
     by_item = next(t for t in out["tabs"] if t["key"] == "by_item_12mo")
     assert by_item["rows"][0]["BookPrice"] == 2.50
+
+
+def test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key():
+    """The salesman dropdown VALUE must be the raw SalesGroup the SP expects.
+    Before the universe warms we return [] (never the normalized master keys)."""
+    from web.reporting.lookups import LookupService
+
+    svc = _svc({"customer_master": [
+        {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+    ]})
+    lk = LookupService(svc, _FakeSalesmenRepo())
+    assert lk.salesmen() == []          # not warm yet -> no (wrong) fallback values
+    lk._populate()
+    sm = lk.salesmen()
+    assert [r["key"] for r in sm] == ["REdwards"]   # raw, not "redwards"
+    assert sm[0]["name"] == "Reggie"                # display enriched from master
 
 
 def test_customer_activity_uses_mirror_when_master_down():

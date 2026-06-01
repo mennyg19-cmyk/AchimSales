@@ -26,10 +26,11 @@ from web.reporting.report_service import ReportService
 
 class LookupService:
     def __init__(self, service: ReportService, salesmen_repo: SalesmanRepository,
-                 *, ttl_seconds: int = 3600):
+                 *, ttl_seconds: int = 3600, retry_cooldown_seconds: int = 15):
         self.service = service
         self.salesmen_repo = salesmen_repo
         self.ttl = ttl_seconds
+        self.retry_cooldown = retry_cooldown_seconds
         self._lock = threading.Lock()
         self._rows: list | None = None          # cached CustomerFact list
         self._fetched_at = 0.0
@@ -97,27 +98,26 @@ class LookupService:
     def salesmen(self) -> list[dict]:
         """Distinct salesmen for the dropdown. Never blocks.
 
-        Primary source: distinct SalesGroup from the cached customer universe
-        (raw value the SP expects). Fallback while that loads: the seeded
-        salesman master, so the dropdown is usable instantly.
+        Values are the raw ``SalesGroup`` strings the run endpoint pushes to the
+        SP, sourced from the cached customer universe and enriched with the
+        salesman master's display name. We deliberately do NOT fall back to the
+        master's keys while the universe loads: those keys are normalized
+        (lowercased) and would be the WRONG value to send the SP. Instead we kick
+        a background populate and return empty; the form polls status() and
+        reloads when the real (raw) list is warm.
         """
         names = self._name_map()
         rows = self._cached_rows()
-        if rows is not None:
-            seen: set[str] = set()
-            for f in rows:
-                sg = (getattr(f, "sales_group", "") or "").strip()
-                if sg:
-                    seen.add(sg)
-            if seen:
-                out = [{"key": sg, "name": names.get(salesman_key(sg)) or sg} for sg in seen]
-                return sorted(out, key=lambda r: r["name"].lower())
-        # Nothing cached yet: start a populate and serve the master meanwhile.
-        self._kick()
-        return sorted(
-            ({"key": key, "name": names.get(key) or key} for key in names),
-            key=lambda r: r["name"].lower(),
-        )
+        if rows is None:
+            self._kick()
+            return []
+        seen: set[str] = set()
+        for f in rows:
+            sg = (getattr(f, "sales_group", "") or "").strip()
+            if sg:
+                seen.add(sg)
+        out = [{"key": sg, "name": names.get(salesman_key(sg)) or sg} for sg in seen]
+        return sorted(out, key=lambda r: r["name"].lower())
 
     def customers(self, salesman: str | None = None) -> list[dict]:
         """Distinct customers (optionally narrowed to one salesman). Never blocks."""
@@ -141,20 +141,33 @@ class LookupService:
         return sorted(seen.values(), key=lambda c: c["name"].lower())
 
     def status(self) -> dict[str, Any]:
-        """Populate progress for the form's poll loop."""
+        """Populate progress for the form's poll loop.
+
+        Self-warming but bounded: a populate is (re)kicked only when we're idle
+        or after a failed attempt's cooldown elapses. A successful populate that
+        returned 0 rows is treated as "ready" (a real empty universe), NOT as a
+        reason to retry forever.
+        """
         state = dict(self._state)
         state["configured"] = self._configured
         cached = self._cached_rows()
         state["cached_row_count"] = len(cached) if cached is not None else 0
-        # Mirror count isn't tracked separately in v3 (the universe fetch already
-        # falls back to the mirror inside ReportService), so report 0 here.
+        # Mirror count isn't tracked separately in v3 yet (the persistent customer
+        # mirror is deferred to the Phase D mirror/diagnostics work), so report 0.
         state["mirror_row_count"] = 0
-        # Kick a (re)populate if we're configured but have nothing cached and
-        # aren't already loading - mirrors v2's status-driven warm-up.
-        if state["configured"] and state["cached_row_count"] == 0 and state["status"] != "loading":
-            if self._kick():
+
+        if state["configured"] and state["status"] not in ("loading", "ready"):
+            # idle or error -> consider a (re)populate, backing off after errors.
+            now = time.time()
+            finished = state.get("finished_at")
+            cooldown_ok = (
+                state["status"] != "error"
+                or not finished
+                or (now - float(finished)) >= self.retry_cooldown
+            )
+            if cooldown_ok and self._kick():
                 state["status"] = "loading"
-                state["started_at"] = time.time()
+                state["started_at"] = now
                 state["finished_at"] = None
                 state["error"] = None
         return state

@@ -785,4 +785,39 @@ through the period end (open-ended/all_time falls back to today) - via a new pub
 `params.resolve_window()`. Added `test_invoiced_ytd_window_anchors_to_selected_period_end` to lock it.
 Math source of truth stays the LIVE app.
 
-Pending: the GPT-5.5 Phase B review.
+### Phase B - GPT-5.5 review + fixes (done)
+
+The read-only GPT-5.5 review raised three blockers, three should-fixes, and one nice-to-have. All
+addressed:
+
+- **Blocker - Invoiced multi-customer silently dropped (fixed).** The SP's `InvoiceAccount` is a
+  single exact-match value, so a 2+ customer selection wasn't pushed down and the report returned
+  the whole salesman/date scope. `_orch_invoiced` now post-filters BOTH the period facts and the
+  YTD-commissions facts to the selected account set when 2+ are chosen, and the YTD fetch now reuses
+  the period's SP params (same customer/salesman scope, only the date range widens) instead of
+  date-only. `row_count` reflects the filtered facts. New test:
+  `test_invoiced_multi_customer_is_post_filtered`.
+- **Blocker - salesman fallback emitted normalized keys (fixed).** The salesman master table is keyed
+  by `salesman_key()` (lowercased), which is the WRONG value to send the SP (`SalesGroup` is raw,
+  e.g. `REdwards`). `LookupService.salesmen()` no longer falls back to master keys; before the
+  universe warms it returns `[]` and kicks a background populate (consistent with `customers()`), and
+  the form's status poll swaps in the real raw list when ready. Display names still come from the
+  master. New test: `test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key`.
+- **Blocker - "mirror-first" not wired (DEFERRED, documented).** v3 has no persistent customer mirror
+  table yet (the `customer_mirror` hook on `ReportService` is unwired), so true mirror-first isn't
+  possible without building that subsystem. Decision: the lookups are robustly NON-BLOCKING now
+  (serve cached-or-empty immediately, warm in the background, poll swaps in the live list), and the
+  persistent customer mirror is deferred to the **Phase D** "diagnostics/mirror/db tools" work where
+  the rest of the mirror tooling lives. Until then, on a cold process the dropdowns are briefly empty
+  while the first live `customer_master` fetch completes.
+- **Should-fix - deep-link ordering (fixed).** Deep-links now apply BEFORE `initCustomRangeToggle()`
+  so `period=custom` reveals the date inputs; a deep-linked `salesman` is stashed and applied AFTER
+  `loadSalesmen()` (setting `.value` before the option exists was silently dropped), then its
+  customers load - without clearing deep-linked customer picks.
+- **Should-fix - unbounded lookup retries (fixed).** `status()` now only (re)kicks a populate when
+  idle or after a failed attempt's cooldown (15s); a successful populate that returned 0 rows is
+  treated as "ready" (a real empty universe), not a reason to retry forever.
+- **Nice-to-have - live API preview (fixed).** The preview panel now refreshes (debounced) on filter/
+  customer/salesman changes while it's open, so it stays in parity with the next run body.
+
+Full v3 suite green (182 passed).

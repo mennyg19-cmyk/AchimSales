@@ -746,6 +746,8 @@ interface LookupRow { key: string; name: string; salesman?: string; }
 const selectedCustomers = new Map<string, string>(); // account -> display name
 let customerOptions: LookupRow[] = [];
 let lookupPollTimer: number | null = null;
+let pendingSalesman: string | null = null; // deep-link salesman, applied after options load
+let previewTimer: number | null = null;
 
 function hasFilter(id: string): boolean {
   return !!$(id);
@@ -815,6 +817,7 @@ function renderCustomerPicker(filterText = ""): void {
       chip.addEventListener("click", () => {
         selectedCustomers.delete(key);
         renderCustomerPicker(search.value);
+        refreshPreviewIfOpen();
       });
       chips.appendChild(chip);
     });
@@ -842,6 +845,7 @@ function renderCustomerPicker(filterText = ""): void {
       else selectedCustomers.delete(c.key);
       // Re-render chips without losing the search box focus/value.
       renderChipsOnly();
+      refreshPreviewIfOpen();
     });
     row.appendChild(cb);
     const text = document.createElement("span");
@@ -900,9 +904,17 @@ async function initLookups(): Promise<void> {
   if (!hasFilter("salesmanSelect") && !hasFilter("customerPicker")) return;
   if (hasFilter("salesmanSelect")) {
     await loadSalesmen();
-    $("salesmanSelect")?.addEventListener("change", () => {
+    // Apply a deep-linked salesman now that its <option> exists (setting .value
+    // before load is silently dropped). Don't clear deep-linked customers here.
+    const sel = $("salesmanSelect") as HTMLSelectElement | null;
+    if (sel && pendingSalesman != null) {
+      sel.value = pendingSalesman;
+      pendingSalesman = null;
+    }
+    sel?.addEventListener("change", () => {
       selectedCustomers.clear();
       loadCustomers();
+      refreshPreviewIfOpen();
     });
   }
   if (hasFilter("customerPicker")) {
@@ -921,8 +933,9 @@ function applyDeepLink(): void {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
     if (el && q.has(name)) el.value = q.get(name) || "";
   });
-  const sm = $("salesmanSelect") as HTMLSelectElement | null;
-  if (sm && q.has("salesman")) sm.value = q.get("salesman") || "";
+  // The salesman <option>s aren't loaded yet; stash the value and apply it in
+  // initLookups() after the list arrives (setting .value now would be lost).
+  if (q.has("salesman")) pendingSalesman = q.get("salesman") || "";
   const sd = document.querySelector<HTMLInputElement>('[name="start_date"]');
   const ed = document.querySelector<HTMLInputElement>('[name="end_date"]');
   if (sd && q.has("start_date")) sd.value = q.get("start_date") || "";
@@ -943,11 +956,9 @@ function updateDeepLink(): void {
 
 // --- live API preview ----------------------------------------------------- //
 
-async function showApiPreview(): Promise<void> {
+async function renderApiPreview(): Promise<void> {
   const panel = $("apiPreview");
-  if (!panel) return;
-  if (!panel.hidden) { panel.hidden = true; return; }
-  panel.hidden = false;
+  if (!panel || panel.hidden) return;
   panel.textContent = "Loading preview…";
   try {
     const res = await fetch(attr("data-preview-url"), {
@@ -962,10 +973,27 @@ async function showApiPreview(): Promise<void> {
   }
 }
 
+function showApiPreview(): void {
+  const panel = $("apiPreview");
+  if (!panel) return;
+  panel.hidden = !panel.hidden; // toggle
+  if (!panel.hidden) renderApiPreview();
+}
+
+/** Keep the preview panel in sync with the current filters while it's open. */
+function refreshPreviewIfOpen(): void {
+  const panel = $("apiPreview");
+  if (!panel || panel.hidden) return;
+  if (previewTimer) window.clearTimeout(previewTimer);
+  previewTimer = window.setTimeout(renderApiPreview, 300);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (!root) return;
-  initCustomRangeToggle();
+  // Apply deep-links BEFORE wiring the custom-range toggle so a period=custom
+  // link reveals the date inputs when the toggle does its initial sync.
   applyDeepLink();
+  initCustomRangeToggle();
   initLookups();
   $("runBtn")?.addEventListener("click", () => { updateDeepLink(); run(); });
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
@@ -973,6 +1001,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("exportBtn")?.addEventListener("click", exportExcel);
   $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
   $("previewBtn")?.addEventListener("click", showApiPreview);
+  $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
+  $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);
   setToolbarEnabled(false);
 });
 

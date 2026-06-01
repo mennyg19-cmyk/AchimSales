@@ -107,25 +107,46 @@ def _orch_ordered(svc: ReportService, params: dict) -> dict:
     return svc._payload("ordered", tabs, len(rows))
 
 
+def _selected_accounts(params: dict) -> set[str]:
+    """Customer accounts selected in the filter, as a set of trimmed strings."""
+    c = (params or {}).get("customers")
+    if isinstance(c, (list, tuple, set)):
+        return {str(x).strip() for x in c if str(x).strip()}
+    if c:
+        return {s.strip() for s in str(c).split(",") if s.strip()}
+    return set()
+
+
 def _orch_invoiced(svc: ReportService, params: dict) -> dict:
-    rows = svc._rows("invoiced_order_charges", P.translate("invoiced", params))
-    facts = src_invoiced.to_facts(rows)
+    sp = P.translate("invoiced", params)
+    facts = src_invoiced.to_facts(svc._rows("invoiced_order_charges", sp))
 
     # v2 parity: anchor the commissions YTD window to the SELECTED PERIOD END
     # (Jan 1 of that year .. period end), NOT a separate year filter. Open-ended
-    # periods (all_time) fall back to today.
+    # periods (all_time) fall back to today. The YTD fetch keeps the SAME
+    # customer/salesman scope as the selected period - only the date range widens.
     _, period_end = P.resolve_window(params)
     end = period_end or today_eastern()
     year = end.year
-    ytd_rows = svc._rows("invoiced_order_charges", {
-        "InvoiceDateFrom": sp_datetime(date(year, 1, 1), end_of_day=False),
-        "InvoiceDateTo": sp_datetime(end, end_of_day=True),
-    })
+    ytd_sp = dict(sp)
+    ytd_sp["InvoiceDateFrom"] = sp_datetime(date(year, 1, 1), end_of_day=False)
+    ytd_sp["InvoiceDateTo"] = sp_datetime(end, end_of_day=True)
+    ytd_facts = src_invoiced.to_facts(svc._rows("invoiced_order_charges", ytd_sp))
+
+    # The SP's InvoiceAccount is a single exact-match value, so a multi-customer
+    # selection isn't pushed down (the SP returns the whole salesman/date scope).
+    # Narrow both the period and YTD facts in-process so the report honours the
+    # full selection instead of silently returning everyone.
+    accounts = _selected_accounts(params)
+    if len(accounts) > 1:
+        facts = [f for f in facts if f.customer_account in accounts]
+        ytd_facts = [f for f in ytd_facts if f.customer_account in accounts]
+
     tabs = rpt_invoiced.build(
         facts, salesmen=svc._salesmen(),
-        ytd_facts=src_invoiced.to_facts(ytd_rows), year=year, end_month=end.month,
+        ytd_facts=ytd_facts, year=year, end_month=end.month,
     )
-    return svc._payload("invoiced", tabs, len(rows))
+    return svc._payload("invoiced", tabs, len(facts))
 
 
 def _orch_salesman(svc: ReportService, params: dict) -> dict:
