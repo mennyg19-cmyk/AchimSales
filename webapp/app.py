@@ -8,6 +8,7 @@ lives in the services layer, and this file is kept minimal.
 import logging
 import os
 import sys
+import tempfile
 
 _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
@@ -34,35 +35,47 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger(__name__)
 
 
-def _under_gunicorn() -> bool:
-    """True when this process is a gunicorn worker (not flask run / werkzeug)."""
-    if os.environ.get("GUNICORN_EMAIL_DIST_LEADER") is not None:
-        return True
-    if "GUNICORN_CMD_ARGS" in os.environ:
-        return True
-    return "gunicorn" in (os.environ.get("SERVER_SOFTWARE") or "").lower()
+# Held open for the whole process lifetime so the advisory lock below stays held.
+_EMAIL_DIST_LOCK_FH = None
 
 
 def _start_email_distribution_check():
-    """Start the 15-minute email distribution loop.
+    """Start the 15-minute email distribution loop in exactly ONE process.
 
-    Under gunicorn, only worker 0 starts the loop (see gunicorn.conf.py post_fork).
-    Other workers skip it so daily emails are not duplicated and runbook sync
-    for distributions does not run twice. Local dev (single process) still starts
-    the loop here.
+    Under gunicorn there are multiple workers; the loop must run in only one or
+    the daily reports get re-sent (the was_distribution_sent_today guard helps but
+    is racy across processes). We elect the owner with an exclusive, non-blocking
+    file lock on local disk: the one worker that grabs it starts the loop and
+    holds the lock for its lifetime; the others skip.
+
+    This replaces the older gunicorn post_fork / env-marker scheme, which was
+    unreliable here -- post_fork runs before the worker's import path is ready, so
+    its start could fail silently and leave the loop running in NO worker. The
+    lock is taken from create_app (after imports), which is dependable. Fail-open
+    to "start" on non-POSIX/dev so a single local process still runs the loop.
     """
-    if os.environ.get("GUNICORN_EMAIL_DIST_LEADER") == "0":
-        log.info("Email distribution check skipped (non-leader gunicorn worker)")
-        print("[app] Email distribution check skipped (non-leader worker).", flush=True)
-        return
-    if _under_gunicorn():
-        log.info("Email distribution check deferred to gunicorn leader worker")
-        print("[app] Email distribution check deferred to gunicorn worker 0.", flush=True)
-        return
+    global _EMAIL_DIST_LOCK_FH
+    try:
+        import fcntl
+    except Exception:  # noqa: BLE001 - non-POSIX (local dev): single process owns it
+        fcntl = None
+    if fcntl is not None:
+        lock_path = os.path.join(tempfile.gettempdir(), "achim-email-dist.lock")
+        try:
+            fh = open(lock_path, "w")  # noqa: SIM115 - intentionally kept open
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _EMAIL_DIST_LOCK_FH = fh  # keep the handle alive so GC can't drop the lock
+        except OSError:
+            log.info("Email distribution loop owned by another worker; skipping")
+            print("[app] Email distribution check skipped (another worker owns it).", flush=True)
+            return
+        except Exception:  # noqa: BLE001 - never block boot on an unexpected lock error
+            log.exception("Email distribution lock errored; starting loop anyway")
+
     from webapp.services.email_distributions import start_distribution_check
 
     start_distribution_check()
-    log.info("Email distribution check thread started (single-process / dev)")
+    log.info("Email distribution check thread started")
     print("[app] Email distribution check thread started.", flush=True)
 
 
