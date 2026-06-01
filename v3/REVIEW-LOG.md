@@ -1403,6 +1403,12 @@ component themes for free. The header theme button now **cycles** light → dark
 monochrome (icons: sun → moon → aperture), and the Settings → Appearance dropdown
 has the third option too.
 
+*Follow-up:* added a **dark monochrome** ("graphite night") as a fourth theme on
+request - the dark counterpart of monochrome (zinc-900 surfaces, white text,
+mid-zinc primary so the white button text keeps contrast, error red preserved).
+The cycle is now light → dark → monochrome → monochrome_dark (icon: disc), and
+it's the fourth Settings dropdown option.
+
 **3. Per-user report settings now behave like the legacy test app ("inherit").**
 You asked for the legacy model where each user's per-report access is a tri-state
 **Inherit / Allow / Deny**, defaulting to Inherit. We already *seed* users from

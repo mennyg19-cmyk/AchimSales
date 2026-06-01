@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from web.data.connection import Database
 
-THEMES = ("light", "dark", "monochrome")
+THEMES = ("light", "dark", "monochrome", "monochrome_dark")
 LANDING_PAGES = ("reports", "dashboard")
 
 

@@ -178,19 +178,23 @@ function initPullToRefresh(): void {
   });
 }
 
-const THEME_ORDER = ["light", "dark", "monochrome"] as const;
+const THEME_ORDER = ["light", "dark", "monochrome", "monochrome_dark"] as const;
 type Theme = (typeof THEME_ORDER)[number];
-const THEME_ICONS: Record<Theme, string> = { light: "sun", dark: "moon", monochrome: "aperture" };
+const THEME_ICONS: Record<Theme, string> = {
+  light: "sun", dark: "moon", monochrome: "aperture", monochrome_dark: "disc",
+};
 
 function currentTheme(): Theme {
   if (document.body.classList.contains("dark-theme")) return "dark";
   if (document.body.classList.contains("monochrome-theme")) return "monochrome";
+  if (document.body.classList.contains("monochrome-dark-theme")) return "monochrome_dark";
   return "light";
 }
 
 function applyTheme(btn: HTMLElement, theme: Theme): void {
   document.body.classList.toggle("dark-theme", theme === "dark");
   document.body.classList.toggle("monochrome-theme", theme === "monochrome");
+  document.body.classList.toggle("monochrome-dark-theme", theme === "monochrome_dark");
   const icon = btn.querySelector("i");
   if (icon) {
     icon.setAttribute("data-feather", THEME_ICONS[theme]);

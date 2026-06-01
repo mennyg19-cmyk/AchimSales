@@ -17,7 +17,7 @@
     <script src="{{ url_for('static', filename='help_content.js') }}"></script>
     {% block head %}{% endblock %}
 </head>
-<body class="{% if theme == 'dark' %}dark-theme{% elif theme == 'monochrome' %}monochrome-theme{% endif %}">
+<body class="{% if theme == 'dark' %}dark-theme{% elif theme == 'monochrome' %}monochrome-theme{% elif theme == 'monochrome_dark' %}monochrome-dark-theme{% endif %}">
     {% if user %}
     <header class="app-header">
         <div class="header-left">
@@ -36,7 +36,7 @@
             <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
                     title="Switch theme (light / dark / monochrome)"
                     data-url="{{ url_for('settings.set_preferences') }}" data-csrf="{{ csrf_token() }}">
-                <i data-feather="{{ {'dark': 'moon', 'monochrome': 'aperture'}.get(theme, 'sun') }}" style="width:16px;height:16px;"></i>
+                <i data-feather="{{ {'dark': 'moon', 'monochrome': 'aperture', 'monochrome_dark': 'disc'}.get(theme, 'sun') }}" style="width:16px;height:16px;"></i>
             </button>
             {% if user._dev %}
             <a href="{{ nav.login }}" class="btn btn-sm btn-outline btn-icon" title="Switch user">

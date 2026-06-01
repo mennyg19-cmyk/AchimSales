@@ -307,16 +307,20 @@ def test_settings_theme_toggle(tmp_path):
         assert s["theme"] == "dark"
 
 
-def test_settings_accepts_monochrome_theme(tmp_path):
+@pytest.mark.parametrize("theme,body_class", [
+    ("monochrome", "monochrome-theme"),
+    ("monochrome_dark", "monochrome-dark-theme"),
+])
+def test_settings_accepts_monochrome_themes(tmp_path, theme, body_class):
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app)
-    resp = client.post("/settings/theme", data={"theme": "monochrome", "csrf_token": _CSRF})
+    resp = client.post("/settings/theme", data={"theme": theme, "csrf_token": _CSRF})
     assert resp.status_code in (301, 302)
     with client.session_transaction() as s:
-        assert s["theme"] == "monochrome"
-    # And it actually renders: the body carries the monochrome class.
-    assert "monochrome-theme" in client.get("/settings").get_data(as_text=True)
+        assert s["theme"] == theme
+    # And it actually renders: the body carries the right theme class.
+    assert f'class="{body_class}"' in client.get("/settings").get_data(as_text=True)
 
 
 def test_session_role_self_heals_from_db(tmp_path):

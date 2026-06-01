@@ -90,3 +90,36 @@ body.monochrome-theme .badge-admin { background: #27272a; color: #fafafa; }
 body.monochrome-theme .badge-manager { background: #e4e4e7; color: #27272a; }
 body.monochrome-theme .badge-salesman { background: #f4f4f5; color: #52525b; border: 1px solid #e4e4e7; }
 body.monochrome-theme .alert-success { background: var(--success-light); color: #3f3f46; border-color: #d4d4d8; }
+
+/* Monochrome DARK ("graphite night"): the dark counterpart of the monochrome
+   theme - same neutral zinc palette, inverted for low light. Primary stays a
+   mid-zinc so the white button text keeps contrast on dark cards; errors keep a
+   legible red. */
+body.monochrome-dark-theme {
+    --primary: #52525b;
+    --primary-hover: #71717a;
+    --primary-light: #3f3f46;
+    --success: #a1a1aa;
+    --success-light: #27272a;
+    --error: #ef4444;
+    --error-light: #450a0a;
+    --warning: #d6d3d1;
+    --warning-light: #292524;
+    --bg: #18181b;
+    --bg-card: #27272a;
+    --text: #f4f4f5;
+    --text-muted: #a1a1aa;
+    --text-light: #71717a;
+    --border: #3f3f46;
+    --border-focus: #a1a1aa;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.3), 0 2px 4px rgba(0,0,0,0.2);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.4), 0 4px 6px rgba(0,0,0,0.2);
+}
+
+body.monochrome-dark-theme .badge-admin { background: #fafafa; color: #18181b; }
+body.monochrome-dark-theme .badge-manager { background: #3f3f46; color: #e4e4e7; }
+body.monochrome-dark-theme .badge-salesman { background: #27272a; color: #d4d4d8; border: 1px solid #3f3f46; }
+body.monochrome-dark-theme .btn-outline { border-color: var(--border); color: var(--text-muted); }
+body.monochrome-dark-theme .alert-success { background: var(--success-light); color: #d4d4d8; border-color: #3f3f46; }
+body.monochrome-dark-theme .alert-error { background: var(--error-light); color: #f87171; border-color: #7f1d1d; }
