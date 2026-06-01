@@ -923,3 +923,31 @@ New `web/scheduling/` package + a `schedules` blueprint:
 
 Tests: `test_scheduling.py` (cadence, runner personal/master, tick due/dedup/window)
 plus schedule route tests in `test_blueprints.py`. Full v3 suite green (216 passed).
+
+## Phase D - Other areas (in progress)
+
+Phase D is broad. A scope map (v3-now vs v2) showed two groups: (a) small,
+self-contained items that need no new subsystem, and (b) a heavy group
+(**Dashboard**, **Customer/Order detail**) that sits on top of a **persistent
+customer mirror** which v3 does not have yet (see the Phase B "mirror-first
+deferral" note). Plan: ship the self-contained items first (continuous visible
+progress), then tackle the mirror as its own slice before the mirror-dependent
+pages.
+
+### D1 - preferences + header theme toggle (done)
+
+- `PreferencesRepository` (precious `user_preferences`): theme / landing_page /
+  default_report_tab with safe defaults and a partial-update `set()` so a single
+  field can change without clobbering the others. Reads tolerate a missing row.
+- `POST /api/settings/preferences` (JSON) updates any subset and returns the
+  resolved prefs; the legacy `/settings/theme` form now routes through the repo.
+- Header gains an instant light/dark **theme toggle** (moon/sun) that flips
+  `body.dark-theme`, swaps the icon, and persists via the API (best-effort; the
+  visual flip is applied regardless of the network result).
+- Tests: persist theme, reject unknown user (403), toggle present in header.
+
+### D2 - styled dev-login template (done)
+
+- Replaced the inline-HTML dev picker with `login.html` (extends the shell) plus
+  an `.auth-*` CSS block keyed to tokens (light/dark aware). MSAL mode still
+  redirects before render; this only affects `AUTH_MODE=dev`.
