@@ -21,6 +21,7 @@
         <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
         <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
         <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Export exactly what's on screen">Export</button>
+        <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)">Email</button>
         <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
         <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view">Presets</button>
         <button type="button" id="previewBtn" class="btn btn-outline" title="Show the exact request sent to the Reporting API">API preview</button>
@@ -104,8 +105,41 @@
      data-preview-url="{{ url_for('reports.preview_body', report_key=report.key) }}"
      data-presets-url="{{ url_for('reports.report_presets', report_key=report.key) }}"
      data-preset-url="{{ url_for('reports.get_preset', preset_id=0) }}"
+     data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
+     data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
+     data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
      data-csrf="{{ csrf_token() }}"
      hidden></div>
+
+<div id="emailModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="emailTitle">
+        <div class="modal-head">
+            <h2 id="emailTitle">Email report</h2>
+            <button type="button" id="emailClose" class="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <label class="modal-field">
+                <span>Recipients</span>
+                <input type="text" id="emailRecipients" placeholder="name@achimonline.com, other@achimonline.com">
+            </label>
+            <label class="modal-field">
+                <span>Subject</span>
+                <input type="text" id="emailSubject">
+            </label>
+            <div class="modal-field" id="spSection" hidden>
+                <span>Also save to SharePoint <em id="spStatus" class="lookup-status"></em></span>
+                <div id="spBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="spPicker" class="sp-picker"></div>
+                <div id="spSelected" class="sp-selected"></div>
+            </div>
+            <div id="emailMsg" class="modal-msg" hidden></div>
+        </div>
+        <div class="modal-foot">
+            <button type="button" id="emailCancel" class="btn btn-outline">Cancel</button>
+            <button type="button" id="emailSend" class="btn btn-primary">Send</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

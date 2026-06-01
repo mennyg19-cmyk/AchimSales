@@ -715,7 +715,7 @@ async function run(opts: { preserveLayout?: boolean } = {}): Promise<void> {
 }
 
 function setToolbarEnabled(hasData: boolean): void {
-  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn"] as const).forEach((id) => {
+  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn", "emailBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
@@ -1137,6 +1137,159 @@ async function autoOpenPresetIfRequested(): Promise<void> {
   autoRunRequested = true;
 }
 
+// --------------------------------------------------------------------------
+// Email delivery + SharePoint folder picker
+// --------------------------------------------------------------------------
+
+let spCurrentPath = "";
+let spSelectedPath: string | null = null;
+
+function emailMsg(text: string, isError: boolean): void {
+  const el = $("emailMsg");
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+  el.className = "modal-msg" + (isError ? " modal-msg-error" : "");
+}
+
+function openEmailModal(): void {
+  const modal = $("emailModal");
+  if (!modal) return;
+  (($("emailSubject") as HTMLInputElement)).value = document.title || "Report";
+  (($("emailRecipients") as HTMLInputElement)).value = "";
+  emailMsg("", false);
+  spSelectedPath = null;
+  spCurrentPath = "";
+  const sel = $("spSelected");
+  if (sel) sel.textContent = "";
+  modal.hidden = false;
+  initSharePointSection();
+}
+
+function closeEmailModal(): void {
+  const modal = $("emailModal");
+  if (modal) modal.hidden = true;
+}
+
+async function initSharePointSection(): Promise<void> {
+  const section = $("spSection");
+  if (!section) return;
+  const st = await getJSON<{ enabled: boolean; configured: boolean }>(attr("data-sp-status-url"));
+  if (!st || !st.enabled) { section.hidden = true; return; }
+  section.hidden = false;
+  const status = $("spStatus");
+  if (status) status.textContent = st.configured ? "" : "(mock folders in dev)";
+  loadSpFolders("");
+}
+
+async function loadSpFolders(path: string): Promise<void> {
+  spCurrentPath = path;
+  const url = attr("data-sp-folders-url") + "?path=" + encodeURIComponent(path);
+  const data = await getJSON<{ folders: { name: string; path: string }[] }>(url);
+  renderSpBreadcrumb(path);
+  renderSpFolders((data && data.folders) || []);
+}
+
+function renderSpBreadcrumb(path: string): void {
+  const bc = $("spBreadcrumb");
+  if (!bc) return;
+  bc.innerHTML = "";
+  const parts = path ? path.split("/") : [];
+  const mkCrumb = (label: string, target: string) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sp-crumb";
+    b.textContent = label;
+    b.addEventListener("click", () => loadSpFolders(target));
+    return b;
+  };
+  bc.appendChild(mkCrumb("Root", ""));
+  let acc = "";
+  parts.forEach((p) => {
+    acc = acc ? `${acc}/${p}` : p;
+    bc.appendChild(document.createTextNode(" / "));
+    bc.appendChild(mkCrumb(p, acc));
+  });
+  const use = document.createElement("button");
+  use.type = "button";
+  use.className = "sp-use";
+  use.textContent = "Use this folder";
+  use.addEventListener("click", () => {
+    spSelectedPath = spCurrentPath;
+    const sel = $("spSelected");
+    if (sel) sel.textContent = `Will save to: ${spCurrentPath || "Direct Reports (root)"}`;
+  });
+  bc.appendChild(use);
+}
+
+function renderSpFolders(folders: { name: string; path: string }[]): void {
+  const picker = $("spPicker");
+  if (!picker) return;
+  picker.innerHTML = "";
+  if (!folders.length) {
+    picker.innerHTML = '<div class="sp-empty">No subfolders here.</div>';
+    return;
+  }
+  folders.forEach((f) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sp-folder";
+    b.textContent = f.name;
+    b.addEventListener("click", () => loadSpFolders(f.path));
+    picker.appendChild(b);
+  });
+}
+
+async function sendEmail(): Promise<void> {
+  const recipients = (($("emailRecipients") as HTMLInputElement)).value.trim();
+  const subject = (($("emailSubject") as HTMLInputElement)).value.trim();
+  if (!recipients && !spSelectedPath) {
+    emailMsg("Enter at least one recipient or pick a SharePoint folder.", true);
+    return;
+  }
+  const sendBtn = $("emailSend") as HTMLButtonElement | null;
+  if (sendBtn) sendBtn.disabled = true;
+  emailMsg("Sending…", false);
+  try {
+    const res = await fetch(attr("data-email-url"), {
+      method: "POST", headers: csrfHeaders(),
+      body: JSON.stringify({
+        recipients, subject, sharepoint_path: spSelectedPath || "",
+        params: collectParams(), layout: serializeLayout(),
+      }),
+    });
+    if (res.status !== 202) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error((e as any).error || "Could not queue the email.");
+    }
+    const { job_id } = await res.json();
+    await pollEmailJob(job_id);
+  } catch (e) {
+    emailMsg((e as Error).message || "Could not send.", true);
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+async function pollEmailJob(jobId: string): Promise<void> {
+  const jobUrl = attr("data-job-url").replace("__ID__", jobId);
+  for (let i = 0; i < 60; i++) {
+    const j = await getJSON<{ status: string; error: string }>(jobUrl);
+    if (!j) break;
+    if (j.status === "success") {
+      emailMsg("Delivered.", false);
+      setTimeout(closeEmailModal, 1200);
+      return;
+    }
+    if (j.status === "failure" || j.status === "cancelled") {
+      emailMsg(j.error || "Delivery failed.", true);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  emailMsg("Still processing — check the outbox shortly.", false);
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   if (!root) return;
   // Apply deep-links BEFORE wiring the custom-range toggle so a period=custom
@@ -1150,6 +1303,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
   $("saveViewBtn")?.addEventListener("click", saveView);
   $("presetsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); togglePresetsPanel(); });
+  $("emailBtn")?.addEventListener("click", openEmailModal);
+  $("emailClose")?.addEventListener("click", closeEmailModal);
+  $("emailCancel")?.addEventListener("click", closeEmailModal);
+  $("emailSend")?.addEventListener("click", sendEmail);
+  $("emailModal")?.addEventListener("click", (e) => { if (e.target === $("emailModal")) closeEmailModal(); });
   $("previewBtn")?.addEventListener("click", showApiPreview);
   $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
   $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);

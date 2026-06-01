@@ -60,7 +60,12 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     cache; the worker (started by `bootstrap_background`) drains the queue.
     """
     from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.outbox import OutboxRepository
     from web.data.repositories.salesmen import SalesmanRepository
+    from web.delivery.email import EmailService
+    from web.delivery.jobs import DELIVERY_JOB_TYPE, make_delivery_handler
+    from web.delivery.service import DeliveryService
+    from web.delivery.sharepoint import SharePointService
     from web.jobs.worker import JobWorker
     from web.reporting.cache import ReportCache
     from web.reporting.http_client import ReportingApiClient
@@ -77,11 +82,18 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     worker = JobWorker(db)
     worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for))
 
+    sharepoint = SharePointService(cfg)
+    email = EmailService(cfg, OutboxRepository(db), sharepoint)
+    delivery = DeliveryService(runner, service.builder_for, email)
+    worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery))
+
     app.config["REPORT_SERVICE"] = service
     app.config["LOOKUP_SERVICE"] = LookupService(service, salesmen_repo)
     app.config["REPORT_CACHE"] = cache
     app.config["JOB_REPO"] = JobRepository(db)
     app.config["JOB_WORKER"] = worker
+    app.config["SHAREPOINT_SERVICE"] = sharepoint
+    app.config["DELIVERY_SERVICE"] = delivery
 
 
 def _ephemeral_dev_secret(cfg: Config) -> str:

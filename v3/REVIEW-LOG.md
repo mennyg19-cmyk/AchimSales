@@ -821,3 +821,70 @@ addressed:
   customer/salesman changes while it's open, so it stays in parity with the next run body.
 
 Full v3 suite green (182 passed).
+
+## Phase C - Actions / delivery (in progress)
+
+Phase C adds the "do something with a report" layer: save it as a preset, email
+it, and (next) schedule it. Built in tested vertical slices, one commit each.
+
+### C1 - repositories (done)
+
+New owner-scoped repos under `web/data/repositories/`, all on the existing
+schema (no migration needed):
+
+- `saved_reports.py` - `SavedReportRepository` (create/upsert-by-name, list, get,
+  delete), every method scoped by `user_id` so presets are private.
+- `schedules.py` - `ScheduleRepository` (personal), `MasterScheduleRepository`
+  (admin), `ScheduleRunRepository` (history ledger). Cadence is stored as JSON in
+  the `cadence` TEXT column (e.g. `{"freq":"weekly","time":"08:00","weekdays":[1]}`)
+  so we avoid a schema migration and can compute "is it due?" at cron time without
+  a `next_run_utc` column. `ScheduleRunRepository.last_run_at()` is the input to
+  the due calc; `get_any()` is the owner-agnostic fetch the worker uses.
+- `outbox.py` - `OutboxRepository` audit log (enqueue/mark/get/list_recent).
+
+### C2 - presets (done)
+
+- API on the reports blueprint (reuses `_principal_or_401` + `AUTHZ`): list/create/
+  get/delete per report, plus cross-report `GET /api/saved-reports` for the home.
+  All writes go through CSRF (`X-CSRF-Token`). Creating re-uses the name (upsert).
+- Home page gained a **My presets** section: server-rendered cards whose "Open"
+  URL is a filter deep-link plus `?preset=<id>`.
+- Viewer gained **Save view** (prompts a name, POSTs `collectParams()` +
+  `serializeLayout()`) and **Presets** (panel to load/delete). A preset captures
+  per-tab layout (hidden/order/sorters/headerFilters/active tab). Opening a report
+  with `?preset=<id>` applies the filters, auto-runs, then replays the layout once
+  the data lands (`pendingLayout`).
+
+### C3 - delivery (done)
+
+New `web/delivery/` package, decoupled from Flask so the same path serves the
+interactive "Email now" and (next) scheduled runs:
+
+- `layout.py` - `apply_layout(payload, layout)` replays the saved view onto the
+  payload **server-side** before export: hide columns, reorder, header-filter rows,
+  multi-sort (stable, numbers-before-text). Group/freeze are viewer-only so ignored.
+  This is the WYSIWYG-for-delivery analog of the browser's WYSIWYG export.
+- `sharepoint.py` - `SharePointService`, a config-driven Graph wrapper (app-only
+  client credentials) targeting `<DriveRootPath>/Direct Reports`. **Mock fallback**
+  when Graph creds are absent: returns a small folder tree and pretends uploads
+  succeed, so the picker + delivery work in local dev.
+- `email.py` - `EmailService` composes an RFC-822 message with the xlsx attached,
+  writes a `.eml` artifact to `OUTBOX_DIR`, optionally relays via SMTP (only if
+  `SMTP_HOST` is set), optionally uploads to SharePoint, and logs every attempt to
+  the `outbox` table. With no SMTP configured the `.eml` + outbox row ARE the
+  delivery record (mirrors the live app) - nothing is silently dropped.
+- `service.py` - `DeliveryService.run_and_deliver(...)` = build (force refresh) ->
+  apply layout -> export -> deliver. `jobs.py` adds a durable `report.deliver` job
+  type so deliveries run off the request thread (rule 7); a failed delivery raises
+  so it shows as a failed job.
+- Endpoints: `POST /api/reports/<key>/email-now` (validates recipients up front,
+  enqueues a delivery job, returns 202 + job_id; SharePoint path requires
+  `has_sharepoint_access`), `GET /api/sharepoint/status`, `GET /api/sharepoint/folders`.
+- Viewer **Email** button opens a modal (recipients, subject, SharePoint folder
+  picker with breadcrumb navigation) and polls the delivery job to success/failure.
+- Config gained optional delivery fields (`OUTBOX_DIR`, `EMAIL_FROM`, `SMTP_*`,
+  `SP_SITE_URL`, `DriveRootPath`). None gate boot - delivery degrades to outbox +
+  mock SharePoint when unset.
+
+Tests: `test_repositories_delivery.py`, `test_delivery.py`, plus preset/email/
+SharePoint route tests in `test_blueprints.py`. Full v3 suite green (205 passed).

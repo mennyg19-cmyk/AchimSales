@@ -47,6 +47,7 @@ def _cfg(tmp_path) -> Config:
         reporting_api_base_url="", reporting_api_key="",
         precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
         litestream_blob_url="", new_app_marker=True,
+        outbox_dir=tmp_path / "outbox",
     )
 
 
@@ -54,14 +55,23 @@ def _make_app(tmp_path, rows_by_report=None):
     app = create_app(_cfg(tmp_path))
     migrate(app.config["DB"])
     if rows_by_report is not None:
-        # Swap in a fake-backed service + re-register the worker handler so the
-        # inline drain uses it.
+        # Swap in a fake-backed service + re-register the worker handlers (run +
+        # deliver) so the inline drain uses the fake data.
+        from web.data.repositories.outbox import OutboxRepository
+        from web.delivery.email import EmailService
+        from web.delivery.jobs import DELIVERY_JOB_TYPE, make_delivery_handler
+        from web.delivery.service import DeliveryService
+
         service = ReportService(_FakeClient(rows_by_report), _FakeSalesmen())
         app.config["REPORT_SERVICE"] = service
         runner = ReportRunner(app.config["REPORT_CACHE"])
-        app.config["JOB_WORKER"].register(
-            JOB_TYPE, make_report_run_handler(runner, service.builder_for)
-        )
+        worker = app.config["JOB_WORKER"]
+        worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for))
+        email = EmailService(app.config["APP_CONFIG"], OutboxRepository(app.config["DB"]),
+                             app.config["SHAREPOINT_SERVICE"])
+        delivery = DeliveryService(runner, service.builder_for, email)
+        app.config["DELIVERY_SERVICE"] = delivery
+        worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery))
     return app
 
 
@@ -341,6 +351,56 @@ def test_preset_requires_name(tmp_path):
     resp = client.post("/api/reports/ordered/presets", json={"params": {}},
                        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 400
+
+
+def test_email_now_enqueues_and_delivers(tmp_path):
+    rows = {"salesline_release": [
+        {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+         "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+         "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+    ]}
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/reports/ordered/email-now",
+                       json={"recipients": "a@x.com", "subject": "Ordered",
+                             "params": {"period": "all_time"}, "layout": {}},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 202
+    job_id = resp.get_json()["job_id"]
+    status = client.get(f"/api/jobs/{job_id}").get_json()
+    assert status["status"] == "success"
+    # an outbox row + .eml artifact were produced
+    from web.data.repositories.outbox import OutboxRepository
+    assert OutboxRepository(app.config["DB"]).list_recent()
+    assert list((tmp_path / "outbox").glob("*.eml"))
+
+
+def test_email_now_rejects_no_target(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/reports/ordered/email-now",
+                       json={"recipients": "not-an-email", "params": {}},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
+def test_sharepoint_status_and_folders_mock(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)  # admin -> has sharepoint access
+    st = client.get("/api/sharepoint/status").get_json()
+    assert st["enabled"] is True and st["configured"] is False
+    folders = client.get("/api/sharepoint/folders?path=").get_json()["folders"]
+    assert any(f["name"] == "Ordered" for f in folders)
+
+
+def test_sharepoint_folders_forbidden_for_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    assert client.get("/api/sharepoint/folders").status_code == 403
 
 
 def test_invoiced_commissions_tab_is_not_blank(tmp_path):

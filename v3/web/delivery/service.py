@@ -1,0 +1,59 @@
+"""Run-and-deliver orchestration shared by "email now" and scheduled runs.
+
+Builds the report (forcing a fresh recompute), replays the saved grid layout
+onto the payload, exports to xlsx, and hands off to the email service. Decoupled
+from Flask so the job worker and the scheduler can both call it.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Iterable
+
+from web.delivery.email import DeliveryResult, EmailService
+from web.delivery.layout import apply_layout
+from web.reporting.export import payload_to_xlsx
+from web.reporting.jobs import BuilderResolver
+from web.reporting.runner import ReportRunner
+
+
+@dataclass
+class DeliveryOutcome:
+    result: DeliveryResult
+    row_count: int
+
+
+class DeliveryService:
+    def __init__(self, runner: ReportRunner, builder_resolver: BuilderResolver,
+                 email: EmailService):
+        self.runner = runner
+        self.builder_resolver = builder_resolver
+        self.email = email
+
+    def run_and_deliver(self, *, report_key: str, identity: str,
+                        visible_salesman_keys: Iterable[str] | None,
+                        builder_version: int, params: dict, layout: dict,
+                        recipients: str, subject: str, report_name: str,
+                        sharepoint_path: str = "", body_text: str = "") -> DeliveryOutcome:
+        builder = self.builder_resolver(report_key)
+        outcome = self.runner.run(
+            report_key=report_key, identity=identity,
+            visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
+            params=params or {}, builder=builder, force_refresh=True,
+        )
+        payload = apply_layout(outcome.payload, layout)
+        xlsx = payload_to_xlsx(payload)
+        result = self.email.deliver(
+            subject=subject or report_name, recipients_raw=recipients, body_text=body_text,
+            report_name=report_name, filename=_filename(report_name), xlsx_bytes=xlsx,
+            sharepoint_path=sharepoint_path or None,
+        )
+        rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
+        return DeliveryOutcome(result=result, row_count=rows)
+
+
+def _filename(report_name: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", (report_name or "report").strip()).strip("_") or "report"
+    return f"{slug}_{datetime.now(timezone.utc):%Y%m%d}.xlsx"

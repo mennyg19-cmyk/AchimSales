@@ -173,6 +173,37 @@
 .presets-del:hover { color: var(--error); background: var(--error-light); }
 .presets-empty { padding: 10px; color: var(--text-muted); font-size: 13px; }
 
+/* -- Email modal + SharePoint picker -- */
+.modal-overlay {
+    position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center;
+    justify-content: center; background: rgba(0, 0, 0, 0.45); padding: 16px;
+}
+.modal {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow-lg); width: 100%; max-width: 520px; max-height: 90vh;
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.modal-head h2 { margin: 0; font-size: 16px; color: var(--text); }
+.modal-close { border: none; background: none; font-size: 20px; line-height: 1; color: var(--text-muted); cursor: pointer; }
+.modal-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.modal-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text); }
+.modal-field input { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--border); }
+.modal-msg { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 13px; }
+.modal-msg-error { background: var(--error-light); color: var(--error); }
+
+.sp-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 13px; }
+.sp-crumb { border: none; background: none; color: var(--primary); cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.sp-crumb:hover { background: var(--bg); }
+.sp-use { margin-left: auto; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 12px; padding: 3px 8px; border-radius: var(--radius-sm); cursor: pointer; }
+.sp-picker { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; }
+.sp-folder { text-align: left; border: none; background: none; color: var(--text); font-size: 13px; padding: 7px 9px; border-radius: 6px; cursor: pointer; }
+.sp-folder::before { content: "\1F4C1"; margin-right: 6px; }
+.sp-folder:hover { background: var(--bg); }
+.sp-empty { padding: 8px; color: var(--text-muted); font-size: 13px; }
+.sp-selected { font-size: 13px; color: var(--primary); min-height: 18px; }
+
 /* -- Commission cards -- */
 .commission-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; padding: 14px; }
 .commission-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; background: var(--bg-card); }

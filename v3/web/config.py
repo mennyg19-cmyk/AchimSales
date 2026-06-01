@@ -45,6 +45,17 @@ class Config:
     new_app_marker: bool
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
+    # Delivery (Phase C) - all optional; absent => email writes .eml to the outbox
+    # dir and SharePoint runs in mock mode. None of these gate boot.
+    outbox_dir: Path = field(default_factory=lambda: Path("./.data/outbox"))
+    email_from: str = "reports@achimonline.com"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    sp_site_url: str = ""
+    sp_drive_root: str = "D365 F&O"
 
     @property
     def is_prod(self) -> bool:
@@ -117,6 +128,15 @@ def load_config() -> Config:
         cache_db_path=_env_path("CACHE_DB_PATH", "./.data/cache.db"),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
         new_app_marker=_env_bool("NEW_APP_MARKER", True),
+        outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),
+        email_from=os.environ.get("EMAIL_FROM", "reports@achimonline.com").strip(),
+        smtp_host=os.environ.get("SMTP_HOST", "").strip(),
+        smtp_port=int(os.environ.get("SMTP_PORT", "587") or "587"),
+        smtp_user=os.environ.get("SMTP_USER", "").strip(),
+        smtp_password=os.environ.get("SMTP_PASSWORD", ""),
+        smtp_starttls=_env_bool("SMTP_STARTTLS", True),
+        sp_site_url=os.environ.get("SP_SITE_URL", "").strip(),
+        sp_drive_root=os.environ.get("DriveRootPath", "D365 F&O").strip().strip("/"),
     )
     cfg.validate()
     return cfg
