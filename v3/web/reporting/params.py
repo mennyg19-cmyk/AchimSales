@@ -63,6 +63,14 @@ def _resolve_window(params: dict) -> tuple[date | None, date | None]:
     return p.start_date, p.end_date
 
 
+def resolve_window(params: dict) -> tuple[date | None, date | None]:
+    """Public: the selected period's (start, end) dates, or (None, None) when
+    open-ended. Callers that need to anchor a secondary window (e.g. the
+    Invoiced commissions YTD pivot) to the selected period use this.
+    """
+    return _resolve_window(params or {})
+
+
 def _date_range(params: dict, from_key: str, to_key: str) -> dict[str, Any]:
     start, end = _resolve_window(params)
     out: dict[str, Any] = {}

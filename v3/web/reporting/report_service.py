@@ -111,9 +111,12 @@ def _orch_invoiced(svc: ReportService, params: dict) -> dict:
     rows = svc._rows("invoiced_order_charges", P.translate("invoiced", params))
     facts = src_invoiced.to_facts(rows)
 
-    year = _resolved_year(params)
-    today = today_eastern()
-    end = today if year == today.year else date(year, 12, 31)
+    # v2 parity: anchor the commissions YTD window to the SELECTED PERIOD END
+    # (Jan 1 of that year .. period end), NOT a separate year filter. Open-ended
+    # periods (all_time) fall back to today.
+    _, period_end = P.resolve_window(params)
+    end = period_end or today_eastern()
+    year = end.year
     ytd_rows = svc._rows("invoiced_order_charges", {
         "InvoiceDateFrom": sp_datetime(date(year, 1, 1), end_of_day=False),
         "InvoiceDateTo": sp_datetime(end, end_of_day=True),

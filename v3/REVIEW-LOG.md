@@ -774,6 +774,15 @@ SP, exactly like v2 but rebuilt clean:
   "API preview" toggle that shows the live preview-body JSON. Lookup lists load non-blocking and the
   form polls lookup-status, swapping in the live list when the warm-up is ready.
 
-Tests: added lookup/preview/status + status-filter route tests; full v3 suite green (179 passed).
-NOT yet done: the Invoiced YTD revert (`year` filter still present - tracked separately) and the
-GPT-5.5 Phase B review.
+Tests: added lookup/preview/status + status-filter route tests; full v3 suite green.
+
+### Invoiced YTD revert (done)
+
+Reverted the Invoiced report to v2 parity per the Phase 11 decision: dropped the extra `year` filter
+(`REPORT_FILTERS["invoiced"]` is now `period, customers, salesman`) and re-anchored the commissions
+YTD pivot window in `_orch_invoiced` to the **selected period end** - Jan 1 of the period-end's year
+through the period end (open-ended/all_time falls back to today) - via a new public
+`params.resolve_window()`. Added `test_invoiced_ytd_window_anchors_to_selected_period_end` to lock it.
+Math source of truth stays the LIVE app.
+
+Pending: the GPT-5.5 Phase B review.

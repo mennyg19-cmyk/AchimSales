@@ -15,9 +15,11 @@ class _FakeClient:
         self.rows_by_id = rows_by_id
         self.fail_ids = fail_ids or set()
         self.calls: list[str] = []
+        self.params_calls: list[tuple[str, dict]] = []
 
     def run_report(self, report_id: str, params: dict) -> ReportResult:
         self.calls.append(report_id)
+        self.params_calls.append((report_id, dict(params)))
         if report_id in self.fail_ids:
             raise ReportingApiError(f"forced failure for {report_id}")
         rows = self.rows_by_id.get(report_id, [])
@@ -58,6 +60,22 @@ def test_invoiced_does_ytd_fetch_for_commissions():
     assert out["report_key"] == "invoiced"
     # invoiced_order_charges fetched twice: selected period + YTD window
     assert svc.client.calls.count("invoiced_order_charges") == 2
+
+
+def test_invoiced_ytd_window_anchors_to_selected_period_end():
+    """v2 parity: the commissions YTD window is Jan 1 .. selected period end,
+    derived from the period filter (not a separate year filter)."""
+    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2025-06-01",
+             "Amount": "100", "SalesGroup": "REdwards"}]
+    svc = _svc({"invoiced_order_charges": rows})
+    svc.builder_for("invoiced")({"period": "custom",
+                                 "start_date": "2025-02-01", "end_date": "2025-06-15"})
+    # Second invoiced fetch = the YTD window; it must open at Jan 1 of the period
+    # end's year and close at the period end (end-of-day), regardless of start.
+    ytd_params = [p for (rid, p) in svc.client.params_calls
+                  if rid == "invoiced_order_charges"][1]
+    assert ytd_params["InvoiceDateFrom"].startswith("2025-01-01")
+    assert ytd_params["InvoiceDateTo"].startswith("2025-06-15")
 
 
 def test_number_4_blank_book_price_when_released_products_down():

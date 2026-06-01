@@ -44,7 +44,7 @@ reports_bp = Blueprint("reports", __name__)
 # by report.js). Reports with a fixed server-side window expose none.
 REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "ordered": ("period", "status", "customers", "salesman"),
-    "invoiced": ("period", "customers", "salesman", "year"),
+    "invoiced": ("period", "customers", "salesman"),
     "salesman": ("year",),
     "number_4": (),
     "customer_activity": ("salesman",),
