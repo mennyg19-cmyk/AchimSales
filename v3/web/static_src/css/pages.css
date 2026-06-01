@@ -223,8 +223,18 @@
 .tabulator .tabulator-row.tabulator-calcs,
 .tabulator .tabulator-footer { background: var(--bg); color: var(--text); font-weight: 700; border-top: 2px solid var(--border); }
 .tabulator .tabulator-footer .tabulator-paginator { color: var(--text-muted); }
-.tabulator-menu, .tabulator-edit-list { background: var(--bg-card); border: 1px solid var(--border); color: var(--text); }
-.tabulator-menu .tabulator-menu-item:hover { background: var(--primary-light); }
+/* Header/cell context menu + edit lists. Tabulator's base theme (loaded after
+   main.css) forces a white menu, so themed text was white-on-white under the
+   dark themes - pin the surface + text to theme tokens with !important. */
+.tabulator-menu, .tabulator-edit-list {
+    background: var(--bg-card) !important; border: 1px solid var(--border) !important;
+    color: var(--text) !important; box-shadow: var(--shadow-lg);
+}
+.tabulator-menu .tabulator-menu-item { color: var(--text) !important; }
+.tabulator-menu .tabulator-menu-item:hover { background: var(--primary-light) !important; color: var(--primary) !important; }
+.tabulator-edit-list .tabulator-edit-list-item { color: var(--text) !important; }
+.tabulator-edit-list .tabulator-edit-list-item.active,
+.tabulator-edit-list .tabulator-edit-list-item:hover { background: var(--primary-light) !important; color: var(--primary) !important; }
 
 /* Custom header cell: label + Excel-style filter funnel button. */
 .col-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-width: 0; }
