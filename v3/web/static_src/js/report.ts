@@ -92,6 +92,26 @@ function clearStatus(): void {
   if (el) el.hidden = true;
 }
 
+let statusTimer: number | null = null;
+
+function fmtElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** Show a status line with a live elapsed-time counter (ticks each second) so a
+ *  slow build/export reads as progress, not a hang. Returns a stop() to end it. */
+function setStatusTimed(label: string): () => void {
+  const start = Date.now();
+  const tick = () => setStatus(`${label} (${fmtElapsed(Date.now() - start)})`);
+  tick();
+  if (statusTimer) window.clearInterval(statusTimer);
+  statusTimer = window.setInterval(tick, 1000);
+  return () => {
+    if (statusTimer) { window.clearInterval(statusTimer); statusTimer = null; }
+  };
+}
+
 function money(precision: number) {
   return {
     formatter: "money",
@@ -809,15 +829,31 @@ function resetView(): void {
  *  and per-group + grand totals - so it matches the live app's exports exactly.
  *  We POST the current per-tab view (order/hide/sort/filter/group) so the file
  *  mirrors what's on screen, then stream the .xlsx back as a download. */
+/** Map an export HTTP failure to a human, actionable message. Flask abort()
+ *  bodies are HTML, so we key off the status rather than parsing the body. */
+function exportErrorFor(status: number): string {
+  switch (status) {
+    case 404: return "The report result expired \u2014 re-run the report, then export.";
+    case 409: return "The report isn't ready yet \u2014 run it first, then export.";
+    case 413: return "This export is too large \u2014 hide some columns or narrow the date range.";
+    default:  return `Could not build the Excel file (HTTP ${status}). Please try again.`;
+  }
+}
+
 async function exportExcel(): Promise<void> {
   if (!state.jobId) { setStatus("Run the report first, then export.", "error"); return; }
   const url = attr("data-export-url").replace("__ID__", state.jobId);
+  const stop = setStatusTimed("Building your Excel file\u2026");
+  // Abort well before Azure's ~4-min front-end idle cap so the user gets a clear
+  // message instead of a dead request that silently times out at the gateway.
+  const ctrl = new AbortController();
+  const timeout = window.setTimeout(() => ctrl.abort(), 230_000);
   try {
-    setStatus("Building your Excel file\u2026");
     const res = await fetch(url, {
-      method: "POST", headers: csrfHeaders(), body: JSON.stringify(serializeLayout()),
+      method: "POST", headers: csrfHeaders(),
+      body: JSON.stringify(serializeLayout()), signal: ctrl.signal,
     });
-    if (!res.ok) throw new Error("export failed");
+    if (!res.ok) throw new Error(exportErrorFor(res.status));
     const blob = await res.blob();
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -827,9 +863,16 @@ async function exportExcel(): Promise<void> {
     a.click();
     a.remove();
     URL.revokeObjectURL(href);
+    stop();
     clearStatus();
-  } catch {
-    setStatus("Could not build the Excel file. Please try again.", "error");
+  } catch (err) {
+    stop();
+    const msg = err instanceof DOMException && err.name === "AbortError"
+      ? "The export took too long and timed out \u2014 hide some columns or narrow the date range."
+      : (err instanceof Error && err.message) || "Could not build the Excel file. Please try again.";
+    setStatus(msg, "error");
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
@@ -942,6 +985,7 @@ function cloneView(v: ViewState): ViewState {
 async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
   const resultUrl = attr("data-result-url").replace("__ID__", jobId);
+  const started = Date.now();
 
   for (let i = 0; i < 600; i++) {
     const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
@@ -960,7 +1004,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Pro
     }
     if (job.status === "failure") throw new Error(friendlyError(job.error));
     if (job.status === "cancelled") throw new Error("The run was cancelled.");
-    setStatus(`Building report… ${job.progress || 0}%`);
+    setStatus(`Building report… ${job.progress || 0}% (${fmtElapsed(Date.now() - started)})`);
     await new Promise((r) => setTimeout(r, 1000));
   }
   throw new Error("Timed out waiting for the report (over 10 minutes). Try a narrower date range.");

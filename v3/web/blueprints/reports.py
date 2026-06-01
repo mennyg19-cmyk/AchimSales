@@ -30,6 +30,7 @@ from flask import (
 )
 
 import io
+import time
 from urllib.parse import urlencode
 
 from report_engine import registry
@@ -280,10 +281,26 @@ def export_report(report_key: str, job_id: str):
     layout = request.get_json(silent=True) if request.method == "POST" else None
     if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)
         layout = None
-    payload = cached.payload
-    if layout:
-        payload = apply_layout(expand_clones(payload, layout), layout)
-    data = build_workbook(payload, layout)
+    # Build synchronously in the request. This is CPU-heavy for big reports
+    # (openpyxl styles every cell), so time it and log any failure with a stack
+    # trace -- otherwise the client only sees an opaque "could not build".
+    started = time.perf_counter()
+    try:
+        payload = cached.payload
+        if layout:
+            payload = apply_layout(expand_clones(payload, layout), layout)
+        data = build_workbook(payload, layout)
+    except Exception:  # noqa: BLE001 - surface as 500 but keep the trace in logs
+        current_app.logger.exception(
+            "export build failed for report=%s job=%s", report_key, job_id
+        )
+        abort(500, description="Could not build the workbook")
+    elapsed = time.perf_counter() - started
+    rows = sum(len(t.get("rows") or []) for t in (payload.get("tabs") or []))
+    current_app.logger.info(
+        "export built report=%s job=%s tabs=%d rows=%d bytes=%d in %.1fs",
+        report_key, job_id, len(payload.get("tabs") or []), rows, len(data), elapsed,
+    )
     return send_file(
         io.BytesIO(data),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

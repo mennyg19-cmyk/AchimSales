@@ -24,7 +24,11 @@ set -u
 ROOT="/home/site/wwwroot"
 WORKERS="${WEB_CONCURRENCY:-2}"
 THREADS="${GUNICORN_THREADS:-8}"
-TIMEOUT="${GUNICORN_TIMEOUT:-120}"
+# 230s aligns with Azure App Service's front-end idle cap. Big report exports
+# build the .xlsx synchronously in-request (openpyxl styles every cell), so a
+# short worker timeout would kill the worker mid-build and surface as a generic
+# "could not build" in the browser. Override via the GUNICORN_TIMEOUT app setting.
+TIMEOUT="${GUNICORN_TIMEOUT:-230}"
 PORT="${PORT:-8000}"
 LS_BIN="/home/bin/litestream"
 LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"

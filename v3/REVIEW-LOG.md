@@ -1529,3 +1529,33 @@ before building, percent stored as a fraction matching the grid, no leftover
 SheetJS/`XLSX` references, and the dark-theme menu CSS doesn't break light theme.
 Added tests for clone expansion, percent-not-summed, and group-by-hidden
 (v3 suite: 285 passing).
+
+## 7. Export "Could not build the Excel file" + a build timer
+
+The user hit a generic "Could not build the Excel file. Please try again." and
+said the build was "taking a while." Diagnosis: the move to server-side openpyxl
+made the export build synchronously inside the web request, and openpyxl styles
+every cell, so a large report is genuinely slow. A local benchmark put a single
+30k-row tab at ~5s plain and ~19s grouped; a multi-tab report (e.g. `ordered`
+has six tabs) over a wide date range can stack well past the old **120s** gunicorn
+worker timeout, which kills the worker mid-build and surfaces as that opaque
+browser error. There was also no server log when the build itself raised, so any
+real exception was invisible.
+
+Fixes:
+- **Worker timeout raised to 230s** (`startup.sh` default + `GUNICORN_TIMEOUT`
+  app setting), aligned with Azure's front-end idle cap so a big export finishes
+  instead of being killed. The export is the only long-running request; run/poll
+  endpoints stay quick.
+- **Server logs the build.** The export route now times the build and logs
+  `tabs/rows/bytes/seconds`; on any exception it logs the stack trace and returns
+  a real 500 ("Could not build the workbook") instead of an opaque failure — so
+  the next failure is diagnosable from the logs.
+- **Live elapsed timer on the progress card.** New `setStatusTimed()` ticks the
+  status line each second ("Building your Excel file… (12s)"), and the run/poll
+  status now shows elapsed alongside the percentage, so a slow build reads as
+  progress rather than a hang.
+- **Honest client errors + abort.** The export `fetch` now aborts at 230s (clear
+  "timed out — hide columns / narrow range" message) and maps HTTP status to a
+  human message: 404 → result expired, re-run; 409 → not ready; 413 → too large;
+  otherwise shows the status code. No more blanket "please try again."
