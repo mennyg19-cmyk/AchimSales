@@ -73,18 +73,21 @@ function openUserModal(tr: HTMLTableRowElement): void {
   (($("euTest") as HTMLInputElement)).checked = tr.dataset.test === "1";
   (($("euExternal") as HTMLInputElement)).checked = tr.dataset.external === "1";
 
-  // Load current scope/report access.
+  // Load current per-salesman + per-report access so the modal reflects the
+  // user's live state (rather than blank defaults).
   Promise.all([
     api(`${usersUrl}/${editingUserId}/salesman-access`, "GET").then((r) => r.json()),
-  ]).then(([scope]) => {
+    api(`${usersUrl}/${editingUserId}/report-access`, "GET").then((r) => r.json()),
+  ]).then(([scope, reports]) => {
     const keys: string[] = scope.keys || [];
     document.querySelectorAll<HTMLInputElement>("#euSalesmen input").forEach((c) => {
       c.checked = keys.includes(c.value);
     });
+    const access: Record<string, string> = reports.access || {};
+    document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select").forEach((sel) => {
+      sel.value = access[sel.getAttribute("data-report") || ""] || "inherit";
+    });
   });
-  // Report-access overrides aren't returned in bulk; reset to unchecked and let
-  // the admin set them explicitly (a checked box writes an explicit allow).
-  document.querySelectorAll<HTMLInputElement>("#euReports input").forEach((c) => (c.checked = false));
 
   setMsg("euMsg", "");
   show("editUserModal");
@@ -108,9 +111,9 @@ async function saveUser(): Promise<void> {
   await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
 
   const reportPosts = Array.from(
-    document.querySelectorAll<HTMLInputElement>("#euReports input:checked")
-  ).map((c) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
-    { report_key: c.getAttribute("data-report"), allowed: true }));
+    document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
+  ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
+    { report_key: sel.getAttribute("data-report"), access: sel.value }));
   await Promise.all(reportPosts);
   window.location.reload();
 }

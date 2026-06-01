@@ -56,3 +56,37 @@ body.dark-theme .badge-salesman { background: var(--primary-light); color: #60a5
 body.dark-theme .btn-outline { border-color: var(--border); color: var(--text-muted); }
 body.dark-theme .alert-success { background: var(--success-light); color: #4ade80; border-color: #166534; }
 body.dark-theme .alert-error { background: var(--error-light); color: #f87171; border-color: #7f1d1d; }
+
+/* Monochrome ("graphite") theme: a calm grayscale palette. The brand/primary
+   goes charcoal instead of blue and all surfaces are neutral zinc; errors keep
+   a muted red so destructive/alert states stay legible (pure grayscale would
+   hide them). Same token contract as light/dark, so every component themes for
+   free. */
+body.monochrome-theme {
+    --primary: #3f3f46;
+    --primary-hover: #27272a;
+    --primary-light: #e4e4e7;
+    --success: #52525b;
+    --success-light: #f4f4f5;
+    --error: #b91c1c;
+    --error-light: #fef2f2;
+    --warning: #854d0e;
+    --warning-light: #fafaf9;
+    --bg: #fafafa;
+    --bg-card: #ffffff;
+    --text: #18181b;
+    --text-muted: #52525b;
+    --text-light: #a1a1aa;
+    --border: #e4e4e7;
+    --border-focus: #3f3f46;
+    --shadow: 0 1px 3px rgba(24,24,27,0.08), 0 1px 2px rgba(24,24,27,0.06);
+    --shadow-md: 0 4px 6px rgba(24,24,27,0.08), 0 2px 4px rgba(24,24,27,0.06);
+    --shadow-lg: 0 10px 15px rgba(24,24,27,0.12), 0 4px 6px rgba(24,24,27,0.06);
+}
+
+/* Monochrome shell overrides: grayscale the role badges so nothing reads as a
+   stray color accent in an otherwise neutral UI. */
+body.monochrome-theme .badge-admin { background: #27272a; color: #fafafa; }
+body.monochrome-theme .badge-manager { background: #e4e4e7; color: #27272a; }
+body.monochrome-theme .badge-salesman { background: #f4f4f5; color: #52525b; border: 1px solid #e4e4e7; }
+body.monochrome-theme .alert-success { background: var(--success-light); color: #3f3f46; border-color: #d4d4d8; }

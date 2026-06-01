@@ -103,10 +103,18 @@
         {% endfor %}
       </div>
 
-      <h4 class="settings-subhead">Report access (override)</h4>
-      <div class="flag-list" id="euReports">
+      <h4 class="settings-subhead">Per-report access</h4>
+      <p class="form-hint">Override the default. Leave on <strong>Inherit</strong> to use role defaults (managers see all; salesmen see salesman-filter reports).</p>
+      <div class="report-overrides" id="euReports">
         {% for r in reports %}
-        <label class="flag-row"><input type="checkbox" data-report="{{ r.key }}"> <span>{{ r.title }}</span></label>
+        <div class="report-override-row">
+          <span class="report-override-name">{{ r.title }}</span>
+          <select class="report-access-select" data-report="{{ r.key }}">
+            <option value="inherit">Inherit</option>
+            <option value="allow">Allow</option>
+            <option value="deny">Deny</option>
+          </select>
+        </div>
         {% endfor %}
       </div>
     </div>

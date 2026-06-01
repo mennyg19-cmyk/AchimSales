@@ -133,3 +133,12 @@ class UserRepository:
                 " ON CONFLICT(user_id, report_key) DO UPDATE SET allowed=excluded.allowed",
                 (user_id, report_key, 1 if allowed else 0),
             )
+
+    def clear_report_access(self, user_id: int, report_key: str) -> None:
+        """Remove an explicit override so the report reverts to 'inherit' (the
+        role default). Idempotent: a no-op when no override exists."""
+        with self.db.precious() as conn:
+            conn.execute(
+                "DELETE FROM user_report_access WHERE user_id = ? AND report_key = ?",
+                (user_id, report_key),
+            )

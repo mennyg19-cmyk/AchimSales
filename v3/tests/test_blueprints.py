@@ -113,12 +113,15 @@ def test_reports_list_shows_built_reports_for_admin(tmp_path):
     assert "Coming soon" in html  # backlog section
 
 
-def test_salesman_with_no_grants_sees_no_reports(tmp_path):
+def test_salesman_inherit_shows_salesman_default_reports(tmp_path):
+    """With no per-user overrides ('inherit'), a salesman sees the salesman-filter
+    reports by default (legacy parity) but not the non-default ones."""
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app, email="rep@x.com", role="salesman")
     html = client.get("/").get_data(as_text=True)
-    assert "don't have access" in html
+    assert "Ordered" in html and "Invoiced" in html and "Customer Activity" in html
+    assert "Number 4" not in html  # non-salesman-default: inherit-hidden until allowed
 
 
 def test_report_view_renders_filters(tmp_path):
@@ -213,6 +216,37 @@ def test_admin_user_crud_and_scope(tmp_path):
     assert deleted.status_code == 200
 
 
+def test_admin_report_access_tristate(tmp_path):
+    """The per-report override API is tri-state: inherit (clears the row), allow,
+    deny. GET returns only the explicit overrides; inherit keys are absent."""
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)  # admin
+    created = client.post("/api/admin/users", json={"email": "rep@x.com", "role": "salesman"},
+                          headers={"X-CSRF-Token": _CSRF})
+    uid = created.get_json()["id"]
+
+    # allow + deny
+    client.post(f"/api/admin/users/{uid}/report-access",
+                json={"report_key": "salesman", "access": "allow"}, headers={"X-CSRF-Token": _CSRF})
+    client.post(f"/api/admin/users/{uid}/report-access",
+                json={"report_key": "number_4", "access": "deny"}, headers={"X-CSRF-Token": _CSRF})
+    access = client.get(f"/api/admin/users/{uid}/report-access").get_json()["access"]
+    assert access == {"salesman": "allow", "number_4": "deny"}
+
+    # inherit clears the row
+    client.post(f"/api/admin/users/{uid}/report-access",
+                json={"report_key": "salesman", "access": "inherit"}, headers={"X-CSRF-Token": _CSRF})
+    access = client.get(f"/api/admin/users/{uid}/report-access").get_json()["access"]
+    assert access == {"number_4": "deny"}
+
+    # back-compat: bare {allowed: true} still maps to allow
+    client.post(f"/api/admin/users/{uid}/report-access",
+                json={"report_key": "ordered", "allowed": True}, headers={"X-CSRF-Token": _CSRF})
+    access = client.get(f"/api/admin/users/{uid}/report-access").get_json()["access"]
+    assert access["ordered"] == "allow"
+
+
 def test_admin_cannot_delete_self(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
@@ -271,6 +305,54 @@ def test_settings_theme_toggle(tmp_path):
     assert resp.status_code in (301, 302)
     with client.session_transaction() as s:
         assert s["theme"] == "dark"
+
+
+def test_settings_accepts_monochrome_theme(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/settings/theme", data={"theme": "monochrome", "csrf_token": _CSRF})
+    assert resp.status_code in (301, 302)
+    with client.session_transaction() as s:
+        assert s["theme"] == "monochrome"
+    # And it actually renders: the body carries the monochrome class.
+    assert "monochrome-theme" in client.get("/settings").get_data(as_text=True)
+
+
+def test_session_role_self_heals_from_db(tmp_path):
+    """A stale session role (captured at an old login) must not hide the live
+    DB role: the role badge + admin settings should reflect the DB on the next
+    request, with no re-login. Security was always DB-authoritative; this fixes
+    presentation parity."""
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    UserRepository(app.config["DB"]).upsert("dev@x.com", display_name="Dev", role="developer")
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "dev@x.com", "name": "Dev", "role": "salesman", "is_dev": False}
+        s["_csrf_token"] = _CSRF
+
+    body = client.get("/settings").get_data(as_text=True)
+    assert "/admin/users" in body  # admin section is visible (role resolved to developer)
+    with client.session_transaction() as s:
+        assert s["v3_user"]["role"] == "developer"  # session was rewritten to the live role
+
+
+def test_session_role_fails_closed_for_disabled_user(tmp_path):
+    """A disabled (or deleted) account that still carries a privileged session
+    role must not render privileged UI: the cached role is dropped to salesman."""
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    repo = UserRepository(app.config["DB"])
+    u = repo.upsert("ex@x.com", display_name="Ex", role="developer")
+    repo.update(u.id, is_active=False)
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "ex@x.com", "name": "Ex", "role": "developer", "is_dev": False}
+        s["_csrf_token"] = _CSRF
+
+    body = client.get("/settings").get_data(as_text=True)
+    assert "/admin/users" not in body  # admin section hidden
+    with client.session_transaction() as s:
+        assert s["v3_user"]["role"] == "salesman"  # downgraded to fail closed
 
 
 def test_dashboard_forbidden_for_salesman(tmp_path):

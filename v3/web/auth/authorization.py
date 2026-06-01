@@ -16,7 +16,7 @@ from __future__ import annotations
 from report_engine import registry
 from report_engine.lib import salesman_key
 from report_engine.registry import ReportStatus
-from web.auth.principal import _PRIVILEGED, Principal
+from web.auth.principal import _PRIVILEGED, ROLE_MANAGER, Principal
 from web.data.connection import Database
 from web.data.repositories.users import User, UserRepository
 
@@ -84,16 +84,28 @@ class Authorization:
             return False
         if self._is_privileged(u):
             return True
-        # Non-privileged: FAIL CLOSED. Visible only with an explicit allow row.
-        # NOTE: the live "default visible set" / global-visibility model is a
-        # business policy pending human sign-off (see REVIEW-LOG); until then we
-        # default-deny rather than guess a broader rule.
+        # Non-privileged: an explicit per-user override (allow/deny) wins. With no
+        # row the access is "inherit" -> fall back to the legacy role default
+        # (test/webapp report_access.list_accessible_reports): managers see all
+        # reports; salesmen see only salesman-filter reports. This is the per-user
+        # report-settings model the live/legacy app uses; seeded users start at
+        # "inherit" (no rows) and behave per their role.
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT allowed FROM user_report_access WHERE user_id = ? AND report_key = ?",
                 (u.id, report_key),
             ).fetchone()
-        return bool(row and row["allowed"])
+        if row is not None:
+            return bool(row["allowed"])
+        return self._role_default_report_visible(u.role, spec)
+
+    @staticmethod
+    def _role_default_report_visible(role: str, spec) -> bool:
+        """Legacy 'inherit' default: managers see all; salesmen see salesman-filter
+        reports only. (admin/developer never reach here - they're privileged.)"""
+        if role == ROLE_MANAGER:
+            return True
+        return bool(spec.salesman_default)
 
     def assert_can_view_report(self, p: Principal, report_key: str) -> None:
         if not self.can_view_report(p, report_key):

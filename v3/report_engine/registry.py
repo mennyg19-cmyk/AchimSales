@@ -26,20 +26,26 @@ class ReportSpec:
     # In-app reports (e.g. Customer's Last Order) are customer-picker driven and
     # have their own dedicated pages, NOT the standard filter -> table viewer.
     in_app: bool = False
+    # Legacy parity (test/config/reports.py `salesman_filter`): a salesman-filter
+    # report is the set a salesman sees by DEFAULT when their per-report access is
+    # left on "inherit". Non-salesman_filter reports are inherit-hidden for
+    # salesmen until an explicit allow. Managers/admins/developers see everything
+    # by default regardless of this flag.
+    salesman_default: bool = False
 
 
 # Matches the live app's report keys. Status reflects v3 build reality, updated
 # as builders land. customer_aging / amazon_weekly are BACKLOG until built - they
 # must never appear as working reports (this is the "no fake stub" guarantee).
 REGISTRY: tuple[ReportSpec, ...] = (
-    ReportSpec("ordered", "Ordered", ReportStatus.BUILT),
-    ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT),
+    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, salesman_default=True),
+    ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
     ReportSpec("number_4", "Number 4", ReportStatus.BUILT),
-    ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT),
+    ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT, in_app=True),
     ReportSpec("amazon_weekly", "Amazon Weekly", ReportStatus.BACKLOG),
-    ReportSpec("customer_aging", "Customer Aging", ReportStatus.BACKLOG),
+    ReportSpec("customer_aging", "Customer Aging", ReportStatus.BACKLOG, salesman_default=True),
 )
 
 _BY_KEY = {spec.key: spec for spec in REGISTRY}

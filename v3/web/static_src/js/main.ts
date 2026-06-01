@@ -178,22 +178,37 @@ function initPullToRefresh(): void {
   });
 }
 
+const THEME_ORDER = ["light", "dark", "monochrome"] as const;
+type Theme = (typeof THEME_ORDER)[number];
+const THEME_ICONS: Record<Theme, string> = { light: "sun", dark: "moon", monochrome: "aperture" };
+
+function currentTheme(): Theme {
+  if (document.body.classList.contains("dark-theme")) return "dark";
+  if (document.body.classList.contains("monochrome-theme")) return "monochrome";
+  return "light";
+}
+
+function applyTheme(btn: HTMLElement, theme: Theme): void {
+  document.body.classList.toggle("dark-theme", theme === "dark");
+  document.body.classList.toggle("monochrome-theme", theme === "monochrome");
+  const icon = btn.querySelector("i");
+  if (icon) {
+    icon.setAttribute("data-feather", THEME_ICONS[theme]);
+    if (typeof feather !== "undefined") feather.replace();
+  }
+}
+
 function initThemeToggle(): void {
   const btn = document.getElementById("themeToggleBtn");
   if (!btn) return;
   btn.addEventListener("click", async () => {
-    const dark = !document.body.classList.contains("dark-theme");
-    document.body.classList.toggle("dark-theme", dark);
-    const icon = btn.querySelector("i");
-    if (icon) {
-      icon.setAttribute("data-feather", dark ? "sun" : "moon");
-      if (typeof feather !== "undefined") feather.replace();
-    }
+    const next = THEME_ORDER[(THEME_ORDER.indexOf(currentTheme()) + 1) % THEME_ORDER.length];
+    applyTheme(btn, next);
     try {
       await fetch(btn.getAttribute("data-url") || "", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": btn.getAttribute("data-csrf") || "" },
-        body: JSON.stringify({ theme: dark ? "dark" : "light" }),
+        body: JSON.stringify({ theme: next }),
       });
     } catch {
       /* visual toggle already applied; persistence is best-effort */

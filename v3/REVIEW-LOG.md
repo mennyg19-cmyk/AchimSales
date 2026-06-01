@@ -1370,3 +1370,62 @@ toggle); and strict numeric parsing (`Number` not `parseFloat`) to match
 Python's `float()` so client/server filtering agree. The percent-display nit
 (filter compares the raw 0.x fraction) was left as-is since client and server
 stay consistent.
+
+### Session: Mon Jun 1 - "why am I still a salesman?", monochrome theme, inherit report access
+
+**1. The recurring "my role is still salesman / I can't see all the settings" bug.**
+I finally chased this to the root instead of re-seeding again. First I *verified*
+the live database: I pulled `precious.db` off the server and queried it — **both
+your accounts (`mennyg@achimonline.com` and `mennyg@ad.achimonline.com`) are
+already `developer` and active.** The env var `V3_DEVELOPER_EMAILS` has both
+emails and the boot seed was doing its job. So the seeding was never the problem.
+
+The real problem: we store *who you are* (your email) in the signed-in session,
+and we **cached your role there at the moment you logged in**. Security never
+trusted that cache — every permission check re-reads your role from the DB — but
+the *presentation* did: the role badge in the header, and the "is this person an
+admin?" check that decides whether the Settings page shows the admin sections.
+You logged in back when you were a `salesman`, got promoted to `developer` in the
+DB afterward, and the page kept showing the stale cookie role until a re-login.
+
+**What I chose:** make the session self-heal. On every request (for a logged-in
+user, skipping static files) I re-read the role from the DB and, if it drifted,
+rewrite the cached session role. Now a promotion shows up on the **next page
+load — no log out / log in needed**, and it can never get stuck again. This is
+presentation-only; the security layer was always DB-authoritative.
+
+**2. Monochrome theme.** Added a third theme ("monochrome") alongside light and
+dark. It's a calm graphite/zinc grayscale: the brand/primary goes charcoal
+instead of blue and every surface is neutral gray, but I deliberately **kept
+errors a muted red** so alert/destructive states stay legible (a pure-gray theme
+hides them). It uses the exact same CSS token contract as light/dark, so every
+component themes for free. The header theme button now **cycles** light → dark →
+monochrome (icons: sun → moon → aperture), and the Settings → Appearance dropdown
+has the third option too.
+
+**3. Per-user report settings now behave like the legacy test app ("inherit").**
+You asked for the legacy model where each user's per-report access is a tri-state
+**Inherit / Allow / Deny**, defaulting to Inherit. We already *seed* users from
+the live directory with no per-report rows (= inherit), but v3 used to treat
+"inherit" as **deny-everything** for non-privileged users (a deliberate
+placeholder while the visibility policy was unsigned). I've now wired inherit to
+resolve to the **legacy role defaults** (from `test/webapp/services/report_access.py`):
+- admin / developer: see everything (unchanged).
+- manager: sees all reports by default.
+- salesman: sees only the **salesman-filter** reports by default (Ordered,
+  Invoiced, Customer Activity; Customer Aging too once it's built). The others
+  (Salesman, Number 4, Customer's Last Order) stay hidden until explicitly
+  allowed.
+An explicit Allow or Deny always overrides the inherited default. The admin
+"Users & access" → Edit user dialog now shows a real Inherit/Allow/Deny dropdown
+per report (it loads the user's current state and saving "Inherit" clears the
+override).
+
+**Caveat I did NOT silently cross (still needs your sign-off):** non-privileged
+users can now *see* their default reports in the list, but **running** a report
+is still admin/developer-only. That guard exists because the report builders
+don't yet filter the underlying data down to a salesman's own customers
+(per-salesman fact scoping). So a salesman would see "Ordered" in their list but
+get a "pending sign-off" message on run. That run-scoping is the separate,
+larger, money-sensitive piece flagged under NEEDS HUMAN SIGN-OFF — I left it
+gated rather than risk leaking another salesman's numbers.

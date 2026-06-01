@@ -149,7 +149,10 @@ def _ephemeral_dev_secret(cfg: Config) -> str:
 
 
 def _register_context(app: Flask, cfg: Config, db) -> None:
-    from flask import url_for
+    from flask import request, url_for
+
+    from web.auth.principal import ROLE_SALESMAN
+    from web.auth.session import sync_role
 
     def _safe_url(endpoint: str, **kw) -> str:
         # A missing endpoint is logged at WARNING (not silently swallowed) so a
@@ -162,6 +165,30 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
 
     users = UserRepository(db)
     flags = FeatureFlagRepository(db)
+
+    @app.before_request
+    def _refresh_session_role():
+        # Keep the cached session role in step with the live DB row so the role
+        # badge + settings sections reflect promotions (e.g. seeded developer)
+        # without a re-login. Security never trusts this cache (Authorization
+        # re-resolves from the DB), so this is purely presentation. Skip static
+        # assets to avoid a DB hit on every CSS/JS request.
+        if request.endpoint == "static":
+            return
+        p = current_principal()
+        if p is None:
+            return
+        try:
+            row = users.get_by_email(p.email)
+            if row is not None and row.is_active:
+                sync_role(row.role)
+            else:
+                # Locked out (deleted/disabled): drop any cached privileged role so
+                # the UI (badge + admin sections) matches the DB-enforced denial.
+                # Identity stays; the security layer already denies everything.
+                sync_role(ROLE_SALESMAN)
+        except Exception:  # noqa: BLE001 - a role refresh must never break a request
+            app.logger.warning("session role refresh failed for %s", p.email)
 
     @app.context_processor
     def inject_globals():

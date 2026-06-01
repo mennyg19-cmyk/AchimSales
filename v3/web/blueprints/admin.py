@@ -157,6 +157,17 @@ def set_salesman_access(user_id: int):
     return jsonify({"keys": sorted(_users().get_salesman_access(user_id))})
 
 
+@admin_bp.get("/api/admin/users/<int:user_id>/report-access")
+@require_login
+def get_report_access(user_id: int):
+    blocked = _guard()
+    if blocked:
+        return blocked
+    # Only explicit overrides are stored; a key absent here means "inherit".
+    overrides = _users().get_report_access(user_id)
+    return jsonify({"access": {k: ("allow" if v else "deny") for k, v in overrides.items()}})
+
+
 @admin_bp.post("/api/admin/users/<int:user_id>/report-access")
 @require_login
 def set_report_access(user_id: int):
@@ -167,8 +178,22 @@ def set_report_access(user_id: int):
     report_key = (body.get("report_key") or "").strip()
     if registry.get(report_key) is None:
         return jsonify({"error": "Unknown report"}), 400
-    _users().set_report_access(user_id, report_key, bool(body.get("allowed")))
-    return jsonify({"report_key": report_key, "allowed": bool(body.get("allowed"))})
+    # Tri-state per the legacy model: inherit (clear the row -> role default),
+    # allow, or deny. Back-compat: a bare {allowed: bool} still works.
+    access = (body.get("access") or "").strip().lower()
+    if not access:
+        # Back-compat: a bare {allowed: bool}. A request with NEITHER field is
+        # malformed - never default to a destructive "deny" write.
+        if "allowed" not in body:
+            return jsonify({"error": "access must be inherit|allow|deny"}), 400
+        access = "allow" if body.get("allowed") else "deny"
+    if access == "inherit":
+        _users().clear_report_access(user_id, report_key)
+    elif access in ("allow", "deny"):
+        _users().set_report_access(user_id, report_key, access == "allow")
+    else:
+        return jsonify({"error": "access must be inherit|allow|deny"}), 400
+    return jsonify({"report_key": report_key, "access": access})
 
 
 # --- salesman edit ----------------------------------------------------------

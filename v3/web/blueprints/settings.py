@@ -28,7 +28,7 @@ from web.data.repositories.users import UserRepository
 
 settings_bp = Blueprint("settings", __name__)
 
-_THEMES = ("light", "dark")
+_THEMES = ("light", "dark", "monochrome")
 
 
 def _prefs() -> PreferencesRepository:

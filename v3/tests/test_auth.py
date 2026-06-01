@@ -89,9 +89,11 @@ def test_salesman_scope_is_enforced(db):
 
 def test_backlog_report_never_viewable(db):
     authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("admin@b.com", role="admin")
     admin = Principal("admin@b.com", "A", "admin")
-    # ordered is BACKLOG in the registry -> even an admin cannot view it (no fake stub)
-    assert authz.can_view_report(admin, "ordered") is False
+    # customer_aging is BACKLOG -> even an active admin cannot view it (no fake stub)
+    assert authz.can_view_report(admin, "customer_aging") is False
     assert authz.can_view_report(admin, "does_not_exist") is False
 
 
@@ -123,6 +125,42 @@ def test_built_report_is_default_deny_for_non_privileged(db, monkeypatch):
             (u.id,),
         )
     assert authz.can_view_report(p, "ordered") is False      # explicit deny
+
+
+def test_inherit_resolves_to_role_default(db, monkeypatch):
+    """No override row = 'inherit': managers see all built reports; salesmen see
+    only salesman-default reports. Explicit allow/deny still override."""
+    monkeypatch.setitem(
+        registry._BY_KEY, "ordered",
+        ReportSpec("ordered", "Ordered", ReportStatus.BUILT, salesman_default=True),
+    )
+    monkeypatch.setitem(
+        registry._BY_KEY, "salesman",
+        ReportSpec("salesman", "Salesman", ReportStatus.BUILT, salesman_default=False),
+    )
+    authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("sm@b.com", role="salesman")
+    users.upsert("mgr@b.com", role="manager")
+    sm = Principal("sm@b.com", "S", "salesman")
+    mgr = Principal("mgr@b.com", "M", "manager")
+
+    # Salesman inherits role defaults: salesman-default report visible, others not.
+    assert authz.can_view_report(sm, "ordered") is True
+    assert authz.can_view_report(sm, "salesman") is False
+    # Manager inherits "see all".
+    assert authz.can_view_report(mgr, "ordered") is True
+    assert authz.can_view_report(mgr, "salesman") is True
+
+    # Explicit overrides beat the inherited default in both directions.
+    u = users.get_by_email("sm@b.com")
+    users.set_report_access(u.id, "salesman", True)   # allow a non-default report
+    users.set_report_access(u.id, "ordered", False)   # deny a default report
+    assert authz.can_view_report(sm, "salesman") is True
+    assert authz.can_view_report(sm, "ordered") is False
+    # Clearing reverts to inherit.
+    users.clear_report_access(u.id, "ordered")
+    assert authz.can_view_report(sm, "ordered") is True
 
 
 def test_role_revocation_takes_effect_immediately(db):
