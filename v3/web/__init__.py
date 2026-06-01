@@ -201,6 +201,7 @@ def _load_theme(db, user_id: int) -> str | None:
 
 
 def _register_blueprints(app: Flask) -> None:
+    from web.blueprints.admin import admin_bp
     from web.blueprints.auth import auth_bp
     from web.blueprints.dashboard import dashboard_bp
     from web.blueprints.health import health_bp
@@ -214,6 +215,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(schedules_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(admin_bp)
 
 
 def _register_error_handlers(app: Flask) -> None:

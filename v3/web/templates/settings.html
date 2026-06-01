@@ -34,6 +34,7 @@
 <section class="settings-card" id="adminSettings" data-flag-url="{{ url_for('settings.set_feature_flag') }}" data-csrf="{{ csrf_token() }}">
     <h2 class="section-title">Admin</h2>
     <div class="admin-links">
+        <a class="btn btn-outline btn-sm" href="{{ url_for('admin.users_page') }}">Users &amp; access</a>
         <a class="btn btn-outline btn-sm" href="{{ nav.master_schedules }}">Manage master schedules</a>
         <a class="btn btn-outline btn-sm" href="{{ url_for('settings.run_log_page') }}">Report run log</a>
     </div>
@@ -58,23 +59,6 @@
 </section>
 {% endif %}
 
-{% if salesmen %}
-<section class="settings-card">
-    <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
-    <table class="simple-table">
-        <thead><tr><th>#</th><th>Name</th><th>Commission</th></tr></thead>
-        <tbody>
-            {% for s in salesmen %}
-            <tr>
-                <td>{{ s.number }}</td>
-                <td>{{ s.display_name }}</td>
-                <td>{{ '%.2f%%'|format(s.commission_pct * 100) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</section>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}

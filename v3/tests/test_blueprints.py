@@ -182,6 +182,67 @@ def test_run_log_forbidden_for_salesman(tmp_path):
     assert client.get("/admin/run-log").status_code == 403
 
 
+def _seed_salesman(app, key="redwards", number="42"):
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO salesmen(key, number, display_name, is_active)"
+            " VALUES (?, ?, ?, 1)", (key, number, "R Edwards"))
+
+
+def test_admin_user_crud_and_scope(tmp_path):
+    app = _make_app(tmp_path)
+    _seed_salesman(app)
+    client = app.test_client()
+    _login(client, app)  # admin
+
+    created = client.post("/api/admin/users", json={"email": "new@x.com", "role": "salesman"},
+                          headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    uid = created.get_json()["id"]
+
+    upd = client.put(f"/api/admin/users/{uid}", json={"role": "manager", "dashboard_enabled": True},
+                     headers={"X-CSRF-Token": _CSRF})
+    assert upd.status_code == 200 and upd.get_json()["role"] == "manager"
+    assert upd.get_json()["dashboard_enabled"] is True
+
+    scope = client.post(f"/api/admin/users/{uid}/salesman-access", json={"keys": ["redwards"]},
+                        headers={"X-CSRF-Token": _CSRF})
+    assert scope.get_json()["keys"] == ["redwards"]
+
+    deleted = client.delete(f"/api/admin/users/{uid}", headers={"X-CSRF-Token": _CSRF})
+    assert deleted.status_code == 200
+
+
+def test_admin_cannot_delete_self(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    resp = client.delete(f"/api/admin/users/{uid}", headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
+def test_admin_users_forbidden_for_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    assert client.get("/admin/users").status_code == 403
+    assert client.get("/api/admin/users").status_code == 403
+
+
+def test_admin_salesman_active_toggle(tmp_path):
+    app = _make_app(tmp_path)
+    _seed_salesman(app)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.put("/api/admin/salesmen/redwards", json={"is_active": False},
+                      headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    from web.data.repositories.salesmen import SalesmanRepository
+    rows = {s.key: s for s in SalesmanRepository(app.config["DB"]).list_all()}
+    assert rows["redwards"].is_active is False
+
+
 def test_run_requires_csrf(tmp_path):
     app = _make_app(tmp_path, rows_by_report={})
     client = app.test_client()

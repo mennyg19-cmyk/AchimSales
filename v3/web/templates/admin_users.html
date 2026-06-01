@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Users &amp; access{% endblock %}
+
+{% macro role_badge(role) -%}
+<span class="badge {% if role in ('admin', 'developer') %}badge-admin{% elif role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">{{ role|title }}</span>
+{%- endmacro %}
+
+{% block content %}
+<div class="page-head" id="adminUsers"
+     data-csrf="{{ csrf_token() }}"
+     data-users-url="{{ url_for('admin.list_users') }}">
+  <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
+  <h1 class="page-title">Users &amp; access</h1>
+  <p class="page-subtitle">{{ users|length }} users. Roles and per-salesman scope are enforced live from the database.</p>
+</div>
+
+<details class="settings-card">
+  <summary class="settings-subhead" style="cursor:pointer;">Add user</summary>
+  <form id="addUserForm" class="auth-form" style="margin-top:12px;max-width:420px;">
+    <label class="auth-field"><span class="auth-label">Email</span>
+      <input name="email" type="email" required placeholder="name@achimonline.com"></label>
+    <label class="auth-field"><span class="auth-label">Role</span>
+      <select name="role">{% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}</select></label>
+    <label class="auth-field"><span class="auth-label">Display name</span>
+      <input name="display_name" type="text"></label>
+    <label class="flag-row"><input type="checkbox" name="is_external"> <span>External login</span></label>
+    <button type="submit" class="btn btn-primary btn-sm">Add user</button>
+    <span class="form-msg" id="addUserMsg"></span>
+  </form>
+</details>
+
+<section class="settings-card">
+  <input type="search" id="userSearch" class="user-search" placeholder="Search users by email or name\u2026">
+  <table class="simple-table" id="userTable">
+    <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Flags</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr data-user-id="{{ u.id }}" data-email="{{ u.email }}" data-name="{{ u.display_name }}" data-role="{{ u.role }}"
+          data-active="{{ 1 if u.is_active else 0 }}" data-external="{{ 1 if u.is_external else 0 }}"
+          data-dashboard="{{ 1 if u.dashboard_enabled else 0 }}" data-sharepoint="{{ 1 if u.sharepoint_access else 0 }}"
+          data-test="{{ 1 if u.test_access else 0 }}">
+        <td class="cell-email">{{ u.email }}</td>
+        <td>{{ u.display_name or '\u2014' }}</td>
+        <td>{{ role_badge(u.role) }}</td>
+        <td class="cell-flags">
+          {% if not u.is_active %}<span class="mini-flag mini-off">Disabled</span>{% endif %}
+          {% if u.dashboard_enabled %}<span class="mini-flag">Dashboard</span>{% endif %}
+          {% if u.sharepoint_access %}<span class="mini-flag">SharePoint</span>{% endif %}
+          {% if u.test_access %}<span class="mini-flag">Test</span>{% endif %}
+          {% if u.is_external %}<span class="mini-flag">External</span>{% endif %}
+        </td>
+        <td class="cell-actions"><button type="button" class="btn btn-outline btn-sm btn-edit-user">Edit</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="settings-card">
+  <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
+  <table class="simple-table" id="salesmanTable">
+    <thead><tr><th>#</th><th>Name</th><th>Active in dropdowns</th><th></th></tr></thead>
+    <tbody>
+      {% for s in salesmen %}
+      <tr data-key="{{ s.key }}" data-number="{{ s.number }}" data-full="{{ s.full_name }}" data-display="{{ s.display_name }}">
+        <td>{{ s.number }}</td>
+        <td class="cell-sm-name">{{ s.display_name }}</td>
+        <td>
+          <label class="switch">
+            <input type="checkbox" class="sm-active-toggle" data-key="{{ s.key }}" {% if s.is_active %}checked{% endif %}>
+            <span class="switch-track"></span>
+          </label>
+        </td>
+        <td class="cell-actions"><button type="button" class="btn btn-outline btn-sm btn-edit-sm">Edit</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- Edit user modal -->
+<div class="modal-overlay" id="editUserModal" style="display:none;"
+     data-csrf="{{ csrf_token() }}">
+  <div class="modal">
+    <div class="modal-head"><h3 id="editUserTitle">Edit user</h3>
+      <button type="button" class="modal-close" data-close-user>&times;</button></div>
+    <div class="modal-body">
+      <label class="auth-field"><span class="auth-label">Role</span>
+        <select id="euRole">{% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}</select></label>
+      <div class="flag-list" style="margin-top:12px;">
+        <label class="flag-row"><input type="checkbox" id="euActive"> <span>Active (can sign in)</span></label>
+        <label class="flag-row"><input type="checkbox" id="euDashboard"> <span>Dashboard access</span></label>
+        <label class="flag-row"><input type="checkbox" id="euSharepoint"> <span>SharePoint access</span></label>
+        <label class="flag-row"><input type="checkbox" id="euTest"> <span>Test-site access</span></label>
+        <label class="flag-row"><input type="checkbox" id="euExternal"> <span>External login</span></label>
+      </div>
+
+      <h4 class="settings-subhead">Per-salesman access</h4>
+      <p class="form-hint">Only applies to non-privileged roles. Admins/developers see all.</p>
+      <div class="access-grid" id="euSalesmen">
+        {% for s in salesmen %}
+        <label class="access-item"><input type="checkbox" value="{{ s.key }}"> {{ s.display_name }} ({{ s.number }})</label>
+        {% endfor %}
+      </div>
+
+      <h4 class="settings-subhead">Report access (override)</h4>
+      <div class="flag-list" id="euReports">
+        {% for r in reports %}
+        <label class="flag-row"><input type="checkbox" data-report="{{ r.key }}"> <span>{{ r.title }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-outline btn-sm" id="euDelete">Delete user</button>
+      <span style="flex:1;"></span>
+      <button type="button" class="btn btn-outline btn-sm" data-close-user>Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="euSave">Save</button>
+    </div>
+    <div class="form-msg" id="euMsg"></div>
+  </div>
+</div>
+
+<!-- Edit salesman modal -->
+<div class="modal-overlay" id="editSmModal" style="display:none;">
+  <div class="modal">
+    <div class="modal-head"><h3>Edit salesman</h3>
+      <button type="button" class="modal-close" data-close-sm>&times;</button></div>
+    <div class="modal-body">
+      <label class="auth-field"><span class="auth-label">Number</span><input id="esNumber" type="text"></label>
+      <label class="auth-field"><span class="auth-label">Full name</span><input id="esFull" type="text"></label>
+      <label class="auth-field"><span class="auth-label">Display name</span><input id="esDisplay" type="text"></label>
+    </div>
+    <div class="modal-foot">
+      <span style="flex:1;"></span>
+      <button type="button" class="btn btn-outline btn-sm" data-close-sm>Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="esSave">Save</button>
+    </div>
+    <div class="form-msg" id="esMsg"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

@@ -24,7 +24,6 @@ from web.auth.session import current_principal
 from web.data.repositories.feature_flags import DEFAULTS as FLAG_DEFAULTS
 from web.data.repositories.feature_flags import FeatureFlagRepository
 from web.data.repositories.preferences import PreferencesRepository
-from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 
 settings_bp = Blueprint("settings", __name__)
@@ -55,21 +54,15 @@ def _require_admin():
 @require_login
 def settings_page():
     p = current_principal()
-    db = current_app.config["DB"]
-    salesmen = []
     flags = []
     if current_app.config["AUTHZ"].is_privileged(p):  # live DB check, not session role
-        salesmen = sorted(
-            SalesmanRepository(db).all_as_facts().values(),
-            key=lambda s: (s.number or "", s.display_name or ""),
-        )
         current = _flags().all()
         flags = [
             {"key": key, "enabled": current.get(key, default), "description": desc}
             for key, (default, desc) in FLAG_DEFAULTS.items()
         ]
     return render_template(
-        "settings.html", active_tab="settings", profile=p, salesmen=salesmen, flags=flags,
+        "settings.html", active_tab="settings", profile=p, flags=flags,
     )
 
 

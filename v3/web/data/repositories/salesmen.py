@@ -26,6 +26,16 @@ class SalesmanSeed:
     commission_pct: float = 0.0
 
 
+@dataclass(frozen=True)
+class SalesmanRow:
+    """A full salesman row for the admin grid (active and inactive)."""
+    key: str
+    number: str
+    full_name: str
+    display_name: str
+    is_active: bool
+
+
 class SalesmanRepository:
     def __init__(self, db: Database):
         self.db = db
@@ -49,6 +59,37 @@ class SalesmanRepository:
     def count(self) -> int:
         with self.db.precious() as conn:
             return conn.execute("SELECT COUNT(*) AS n FROM salesmen").fetchone()["n"]
+
+    def list_all(self) -> list[SalesmanRow]:
+        """Every salesman (active + inactive) for the admin grid, by number."""
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT key, number, full_name, display_name, is_active FROM salesmen"
+                " ORDER BY number, display_name"
+            ).fetchall()
+        return [
+            SalesmanRow(key=r["key"], number=r["number"], full_name=r["full_name"],
+                        display_name=r["display_name"], is_active=bool(r["is_active"]))
+            for r in rows
+        ]
+
+    _EDITABLE = ("number", "full_name", "display_name", "is_active")
+
+    def update(self, key: str, **fields) -> bool:
+        """Update editable fields of a salesman. Returns False if the key is unknown."""
+        sets: list[str] = []
+        vals: list[object] = []
+        for name, value in fields.items():
+            if name not in self._EDITABLE or value is None:
+                continue
+            sets.append(f"{name} = ?")
+            vals.append((1 if value else 0) if name == "is_active" else value)
+        if not sets:
+            return False
+        vals.append(key)
+        with self.db.precious() as conn:
+            cur = conn.execute(f"UPDATE salesmen SET {', '.join(sets)} WHERE key = ?", vals)
+            return cur.rowcount > 0
 
     def upsert_many(self, seeds: list[SalesmanSeed]) -> int:
         """Insert/update salesmen keyed by normalized SalesGroup. Returns count."""
