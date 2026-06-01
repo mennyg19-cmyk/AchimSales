@@ -13,7 +13,9 @@
         <a class="back-link" href="{{ url_for('reports.reports_list') }}">
             <i data-feather="arrow-left"></i> Reports
         </a>
-        <h1 class="page-title">{{ report.title }}</h1>
+        <h1 class="page-title">{{ report.title }}
+            <button type="button" class="help-btn" data-help="report-{{ report.key }}" data-no-guard aria-label="About this report">?</button>
+        </h1>
     </div>
     <div class="page-head-actions report-toolbar">
         <button type="button" id="runBtn" class="btn btn-primary">Run report</button>
@@ -32,7 +34,7 @@
 <form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
     {% if 'period' in filters %}
     <label class="filter-field">
-        <span>Period</span>
+        <span>Period <button type="button" class="help-btn" data-help="param-period" data-no-guard aria-label="Help">?</button></span>
         <select name="period" id="periodSelect">
             {% for value, label in period_options %}
             <option value="{{ value }}">{{ label }}</option>
@@ -50,7 +52,7 @@
     {% endif %}
     {% if 'status' in filters %}
     <label class="filter-field">
-        <span>Status</span>
+        <span>Status <button type="button" class="help-btn" data-help="param-status" data-no-guard aria-label="Help">?</button></span>
         <select name="status" id="statusSelect">
             {% for value, label in status_options %}
             <option value="{{ value }}">{{ label }}</option>
@@ -60,7 +62,7 @@
     {% endif %}
     {% if 'year' in filters %}
     <label class="filter-field">
-        <span>Year</span>
+        <span>Year <button type="button" class="help-btn" data-help="param-year" data-no-guard aria-label="Help">?</button></span>
         <select name="year" id="yearSelect">
             {% for y in year_options %}
             <option value="{{ y }}">{{ y }}</option>
@@ -70,7 +72,7 @@
     {% endif %}
     {% if 'salesman' in filters %}
     <label class="filter-field">
-        <span>Salesman <em id="salesmanStatus" class="lookup-status"></em></span>
+        <span>Salesman <button type="button" class="help-btn" data-help="param-salesman" data-no-guard aria-label="Help">?</button> <em id="salesmanStatus" class="lookup-status"></em></span>
         <select name="salesman" id="salesmanSelect">
             <option value="">All salesmen</option>
         </select>
@@ -78,7 +80,7 @@
     {% endif %}
     {% if 'customers' in filters %}
     <div class="filter-field filter-field-wide">
-        <span>Customers <em id="customerStatus" class="lookup-status"></em></span>
+        <span>Customers <button type="button" class="help-btn" data-help="param-customers" data-no-guard aria-label="Help">?</button> <em id="customerStatus" class="lookup-status"></em></span>
         <div id="customerPicker" class="customer-picker" data-placeholder="All customers"></div>
     </div>
     {% endif %}

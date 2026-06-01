@@ -305,3 +305,12 @@
 .form-msg { font-size: 13px; color: var(--error); padding: 0 16px 12px; }
 .form-hint { font-size: 12px; color: var(--text-muted); margin: -4px 0 4px; }
 .modal-head h3 { margin: 0; font-size: 16px; color: var(--text); }
+
+/* Inline help "?" trigger */
+.help-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; padding: 0; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
+    font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle;
+}
+.help-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }

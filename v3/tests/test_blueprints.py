@@ -615,6 +615,16 @@ def test_preferences_api_rejects_unknown_user(tmp_path):
     assert resp.status_code == 403
 
 
+def test_report_view_has_help_triggers(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/reports/ordered").get_data(as_text=True)
+    assert 'help_content.js' in html          # dictionary loaded in <head>
+    assert 'data-help="report-ordered"' in html
+    assert 'data-help="param-period"' in html
+
+
 def test_manifest_is_dynamic_and_prefix_aware(tmp_path):
     app = _make_app(tmp_path)
     data = app.test_client().get("/manifest.json").get_json()
