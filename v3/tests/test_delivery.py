@@ -103,6 +103,50 @@ def test_sharepoint_mock_lists_folders(tmp_path):
     assert "Ordered" in names and "Invoiced" in names
 
 
+def test_sharepoint_only_failure_fails_the_delivery(email):
+    svc, *_ = email
+    # Force the (mock) upload to fail: a SharePoint-only send must NOT report ok.
+    def boom(*a, **k):
+        raise RuntimeError("graph 500")
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    res = svc.deliver(subject="S", recipients_raw="", body_text="",
+                      report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+                      sharepoint_path="Ordered/Daily")
+    assert res.ok is False
+    assert "graph 500" in (res.error or "") or "SharePoint" in (res.error or "")
+
+
+def test_email_ok_but_sharepoint_failure_still_fails(email):
+    svc, *_ = email
+    def boom(*a, **k):
+        raise RuntimeError("graph down")
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="",
+                      report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+                      sharepoint_path="Ordered/Daily")
+    # A requested target failed -> the whole delivery is a failure (surfaced to the job).
+    assert res.ok is False
+
+
+def test_sharepoint_rejects_path_traversal(tmp_path):
+    from web.delivery.sharepoint import _validate_segments
+
+    with pytest.raises(ValueError):
+        _validate_segments("Ordered/../../etc")
+    with pytest.raises(ValueError):
+        _validate_segments("Ordered/Da:ily")
+    assert _validate_segments("Ordered/Daily") == ["Ordered", "Daily"]
+
+
+def test_sharepoint_prod_without_config_raises(tmp_path):
+    sp = SharePointService(_cfg(tmp_path, app_env="prod",
+                                tenant_id="t", client_id="c", client_secret="s"))
+    # creds present but SP_SITE_URL blank -> not configured, and prod must not mock.
+    assert sp.is_configured() is False
+    with pytest.raises(RuntimeError):
+        sp.upload_file("Ordered", "r.xlsx", b"x")
+
+
 # --- orchestration ---------------------------------------------------------
 
 def test_delivery_service_builds_applies_layout_and_delivers(tmp_path):

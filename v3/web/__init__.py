@@ -8,6 +8,8 @@ registered as later phases land - this file stays thin.
 
 from __future__ import annotations
 
+import os
+
 from flask import Flask, jsonify, session
 
 from web.auth.authorization import Authorization, Forbidden
@@ -93,7 +95,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     sharepoint = SharePointService(cfg)
     email = EmailService(cfg, OutboxRepository(db), sharepoint)
     delivery = DeliveryService(runner, service.builder_for, email)
-    worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery))
+    worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery, app.config["AUTHZ"]))
 
     schedule_runner = _build_schedule_runner(db, delivery, app.config["AUTHZ"])
     worker.register(SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler(schedule_runner))
@@ -260,10 +262,26 @@ def bootstrap_background(app: Flask) -> None:
     _seed_salesmen_if_empty(app, db)  # salesmen first: user_salesman_access FKs them
     _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins win last
-    worker = app.config.get("JOB_WORKER")
-    if worker is not None:
-        worker.start()
-    _start_scheduler(app, db)
+
+    # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
+    # must run in exactly ONE process. Under gunicorn we have multiple workers, so
+    # gate it on the same leader signal the live app uses (gunicorn.conf.py
+    # post_fork sets GUNICORN_EMAIL_DIST_LEADER=1 only on worker.age==0). Absent
+    # (dev / tests / single process) the default is leader=True. Without this,
+    # every worker's recover_orphans() would requeue jobs another worker is
+    # actively running -> duplicate report deliveries + schedule fires.
+    if _is_background_leader():
+        worker = app.config.get("JOB_WORKER")
+        if worker is not None:
+            worker.start()
+        _start_scheduler(app, db)
+    else:
+        app.logger.info("v3 background ownership skipped on non-leader worker")
+
+
+def _is_background_leader() -> bool:
+    """True in the one process that should own v3 background work."""
+    return (os.environ.get("GUNICORN_EMAIL_DIST_LEADER", "1") or "1").strip() != "0"
 
 
 def _start_scheduler(app: Flask, db) -> None:

@@ -48,6 +48,16 @@ class ScheduleRunner:
         try:
             identity, scope = self._scope(sched, schedule_type)
             spec = registry.get(sched.report_key)
+            # Re-authorize the owner live (personal schedules only; masters are
+            # admin-owned + unrestricted). A run that the owner can no longer
+            # perform - report access pulled, account disabled, SharePoint revoked
+            # - fails closed here instead of delivering stale-scoped data.
+            if schedule_type != MASTER:
+                principal = self.authz.principal_for_user_id(sched.owner_user_id)
+                scope = self.authz.authorize_delivery(
+                    principal, sched.report_key,
+                    sharepoint=bool(sched.sharepoint_path))
+                identity = principal.email
             report_name = spec.title if spec else sched.report_key
             subject = self._subject(sched, schedule_type, report_name)
             outcome = self.delivery.run_and_deliver(

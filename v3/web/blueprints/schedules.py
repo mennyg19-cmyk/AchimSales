@@ -13,6 +13,7 @@ from flask import Blueprint, abort, current_app, jsonify, render_template, reque
 from report_engine import registry
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
+from web.delivery.email import split_recipients
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -90,6 +91,18 @@ def _check_sharepoint(p, body: dict) -> str:
     return path
 
 
+def _clean_recipients(body: dict, *, sharepoint_path: str) -> str:
+    """Validate recipients up front (same parser as delivery), so a schedule can't
+    be saved with addresses that would silently drop at send time."""
+    raw = (body.get("recipients") or "").strip()
+    valid = split_recipients(raw)
+    if raw and not valid:
+        abort(400, description="No valid email recipients (use name@domain.com).")
+    if not valid and not sharepoint_path:
+        abort(400, description="A schedule needs recipients or a SharePoint folder.")
+    return ", ".join(valid)
+
+
 def _drain_if_dev():
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
@@ -125,12 +138,11 @@ def create_schedule():
     _validate_report(p, report_key)
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
-    if not (body.get("recipients") or "").strip() and not sp:
-        abort(400, description="A schedule needs recipients or a SharePoint folder.")
+    recipients = _clean_recipients(body, sharepoint_path=sp)
     sid = _repo().create(
         _uid(p.email), report_key, params=body.get("params") or {},
         layout=body.get("layout") or {}, cadence=cadence,
-        recipients=(body.get("recipients") or "").strip(), sharepoint_path=sp,
+        recipients=recipients, sharepoint_path=sp,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
     )
     return jsonify({"id": sid}), 201
@@ -143,10 +155,11 @@ def update_schedule(schedule_id: int):
     body = request.get_json(silent=True) or {}
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
+    recipients = _clean_recipients(body, sharepoint_path=sp)
     ok = _repo().update(
         schedule_id, _uid(p.email), params=body.get("params") or {},
         layout=body.get("layout") or {}, cadence=cadence,
-        recipients=(body.get("recipients") or "").strip(), sharepoint_path=sp,
+        recipients=recipients, sharepoint_path=sp,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
     )
     if not ok:
@@ -237,9 +250,10 @@ def create_master():
         abort(400, description="A master schedule needs a name.")
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
+    recipients = _clean_recipients(body, sharepoint_path=sp)
     mid = _master().create(
         report_key, name, params=body.get("params") or {}, layout=body.get("layout") or {},
-        cadence=cadence, recipients=(body.get("recipients") or "").strip(), sharepoint_path=sp,
+        cadence=cadence, recipients=recipients, sharepoint_path=sp,
     )
     return jsonify({"id": mid}), 201
 
@@ -255,9 +269,10 @@ def update_master(schedule_id: int):
         abort(400, description="A master schedule needs a name.")
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
+    recipients = _clean_recipients(body, sharepoint_path=sp)
     if not _master().update(schedule_id, name=name, params=body.get("params") or {},
                             layout=body.get("layout") or {}, cadence=cadence,
-                            recipients=(body.get("recipients") or "").strip(), sharepoint_path=sp):
+                            recipients=recipients, sharepoint_path=sp):
         abort(404, description="Unknown master schedule")
     return jsonify({"updated": True})
 

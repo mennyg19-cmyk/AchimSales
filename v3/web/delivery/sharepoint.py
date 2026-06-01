@@ -12,8 +12,9 @@ singleton in app.config).
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from web.config import Config
 
@@ -23,6 +24,10 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 TIMEOUT = 30
 UPLOAD_TIMEOUT = 120
 REPORTS_SUBFOLDER = "Direct Reports"
+
+# Characters that must never appear in a folder/file segment we interpolate into a
+# Graph path (path traversal, drive-path separators, and OneDrive-reserved chars).
+_BAD_SEGMENT = re.compile(r'[\\/:*?"<>|#%]')
 
 _MOCK_TREE: dict[str, list[str]] = {
     "": ["Invoiced", "Ordered", "Salesman", "Customer Activity"],
@@ -40,15 +45,26 @@ class SharePointService:
         self._drive_id: str | None = None
 
     def is_configured(self) -> bool:
-        return bool(self.cfg.tenant_id and self.cfg.client_id and self.cfg.client_secret)
+        # Real Graph mode needs the site URL too - without it we can't resolve a
+        # drive, so MSAL creds alone must NOT be treated as configured.
+        return bool(self.cfg.tenant_id and self.cfg.client_id
+                    and self.cfg.client_secret and self.cfg.sp_site_url)
 
     def root_path(self) -> str:
         return self._root
+
+    def _mock_or_raise(self, what: str):
+        """Non-prod falls back to the mock tree; prod must fail loudly rather than
+        silently pretend a delivery happened."""
+        if self.cfg.is_prod:
+            raise RuntimeError(f"SharePoint is not configured (cannot {what})")
+        return None
 
     # -- public API ---------------------------------------------------------
 
     def list_folders(self, rel_path: str = "") -> list[dict]:
         if not self.is_configured():
+            self._mock_or_raise("list folders")
             return _mock_folders(rel_path)
         import requests
 
@@ -68,7 +84,10 @@ class SharePointService:
         return out
 
     def upload_file(self, rel_folder: str, filename: str, content: bytes) -> dict[str, Any]:
+        _validate_segments(rel_folder)
+        _validate_segments(filename)
         if not self.is_configured():
+            self._mock_or_raise("upload file")
             log.info("SharePoint mock: pretending to upload %s (%d bytes) to %r",
                      filename, len(content), rel_folder)
             return {"webUrl": f"mock://{rel_folder}/{filename}", "name": filename,
@@ -76,7 +95,7 @@ class SharePointService:
         import requests
 
         self._ensure_folder(rel_folder)
-        url = f"{self._drive_base()}/root:/{self._abs(rel_folder)}/{filename}:/content"
+        url = f"{self._drive_base()}/root:/{self._abs(rel_folder)}/{quote(filename)}:/content"
         r = requests.put(
             url,
             headers={"Authorization": f"Bearer {self._get_token()}",
@@ -91,8 +110,14 @@ class SharePointService:
     # -- internals ----------------------------------------------------------
 
     def _abs(self, rel_path: str) -> str:
-        rel = (rel_path or "").replace("\\", "/").strip("/")
-        return f"{self._root}/{rel}" if rel else self._root
+        """Build the Graph drive-path under our root, URL-encoding every segment.
+
+        Validates the caller-supplied segments first so a crafted path can't escape
+        the root (`..`) or inject Graph path operators."""
+        segments = _validate_segments(rel_path)
+        root_enc = "/".join(quote(s) for s in self._root.split("/") if s)
+        rel_enc = "/".join(quote(s) for s in segments)
+        return f"{root_enc}/{rel_enc}" if rel_enc else root_enc
 
     def _get_token(self) -> str:
         if self._token:
@@ -132,21 +157,39 @@ class SharePointService:
     def _ensure_folder(self, rel_path: str) -> None:
         import requests
 
-        rel = (rel_path or "").replace("\\", "/").strip("/")
-        if not rel:
+        segments = [s for s in self._root.split("/") if s] + _validate_segments(rel_path)
+        if not segments:
             return
         headers = {"Authorization": f"Bearer {self._get_token()}", "Content-Type": "application/json"}
         base = self._drive_base()
-        current = ""
-        for part in f"{self._root}/{rel}".split("/"):
-            if not part:
-                continue
-            url = f"{base}/root:/{current}:/children" if current else f"{base}/root/children"
+        current_enc = ""
+        for part in segments:
+            url = f"{base}/root:/{current_enc}:/children" if current_enc else f"{base}/root/children"
             r = requests.post(url, headers=headers, timeout=TIMEOUT, json={
                 "name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
             if r.status_code not in (201, 409):
                 r.raise_for_status()
-            current = f"{current}/{part}" if current else part
+            seg_enc = quote(part)
+            current_enc = f"{current_enc}/{seg_enc}" if current_enc else seg_enc
+
+
+def _validate_segments(rel_path: str) -> list[str]:
+    """Split a caller-supplied relative path into clean segments or raise.
+
+    Rejects empty/`.`/`..` segments and OneDrive/Graph-reserved characters so a
+    crafted folder path can neither traverse out of our root nor inject path ops."""
+    rel = (rel_path or "").replace("\\", "/").strip("/")
+    if not rel:
+        return []
+    segments: list[str] = []
+    for raw in rel.split("/"):
+        seg = raw.strip()
+        if not seg or seg in (".", ".."):
+            raise ValueError(f"invalid SharePoint path segment: {raw!r}")
+        if _BAD_SEGMENT.search(seg):
+            raise ValueError(f"illegal character in SharePoint path segment: {raw!r}")
+        segments.append(seg)
+    return segments
 
 
 def _mock_folders(rel_path: str) -> list[dict]:

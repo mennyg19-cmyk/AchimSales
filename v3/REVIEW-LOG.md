@@ -1057,3 +1057,74 @@ pages.
 - Tests: builder (invoiced-only history, default-to-latest, merge rollup, PO prefix,
   unknown-order fallback, empty); routes (pick renders, listed as in-app link, view shows
   latest, recent-invoiced API, viewer redirect, 403 for ungranted salesman).
+
+## Phases C & D review - blocker/should-fix remediation
+
+GPT-5.5 read-only reviews of Phases C/D flagged real production-safety gaps. Fixes:
+
+### Blocker: one background owner under multiple gunicorn workers
+
+- `startup.sh` runs 2 gunicorn workers; v3's `bootstrap_background` previously started
+  the job worker + cron scheduler in EVERY worker, and `JobWorker.start()` calls
+  `recover_orphans()` (requeues all `running` jobs). Two workers would requeue each
+  other's in-flight jobs → duplicate report deliveries / schedule fires / mirror
+  rebuilds. Fix: gate worker + scheduler start on a single-leader signal
+  (`_is_background_leader()`), reusing the live app's existing `GUNICORN_EMAIL_DIST_LEADER`
+  env (set to "1" only on `worker.age==0` in `gunicorn.conf.py post_fork`). Dev / tests /
+  single-process default to leader=True. HTTP still serves on every worker; only the
+  background OWNERSHIP is single-process. This also removes the notification-dedup race
+  (only the leader generates overdue notifications now).
+
+### Blocker: re-authorize deferred deliveries at execution time
+
+- Both the durable `report.deliver` job and the `ScheduleRunner` previously trusted the
+  identity/scope captured at enqueue. After a role downgrade / disable / SharePoint
+  revoke between enqueue and run, that stale scope could deliver data the owner is no
+  longer allowed to see. Also, personal-schedule "owner scope" was only fed to the cache
+  KEY — the builder still ran unfiltered. Fix: `Authorization.principal_for_user_id()` +
+  `authorize_delivery()` re-resolve the owner LIVE and apply the same fail-closed gate as
+  an interactive run (`assert_report_runnable` — today privileged-only, since builders
+  don't yet scope facts — plus a live SharePoint-access check). The delivery handler and
+  the personal-schedule path both call it; identity + scope come from the live principal,
+  never the stored payload. Master schedules stay admin-owned/unrestricted. Net effect:
+  a non-privileged owner's queued/scheduled send now fails closed (consistent with the
+  fact they can't create one either), so no unscoped data escapes.
+
+### Blocker: SharePoint-only delivery failure is now a failure
+
+- `EmailService._record` set `ok=True` unless SMTP hard-failed, so a SharePoint-only
+  send whose upload threw was reported successful with nothing delivered. Fix: success
+  now means every REQUESTED target was delivered — a requested SharePoint upload that
+  fails sets `error` (and `ok=False`), which propagates to the job/schedule run as a
+  failure visible in history.
+
+### Should-fix items addressed
+
+- Schedule start/end windows now compare against the US/Eastern date
+  (`cadence.eastern_date_iso`), matching the cadence timezone, so a late-evening Eastern
+  schedule no longer starts/stops a day early around UTC midnight.
+- Schedule create/update (personal + master) now validate recipients with the same
+  `split_recipients` parser used at delivery, rejecting a non-empty-but-all-invalid
+  recipient string at save time instead of silently dropping addresses at send.
+- SharePoint hardening: `is_configured()` now also requires `SP_SITE_URL` (MSAL creds
+  alone are not enough to resolve a drive); in prod an unconfigured SharePoint send
+  raises instead of silently using the mock; folder/file path segments are validated
+  (`_validate_segments` rejects `.`/`..` and reserved chars) and URL-encoded per segment.
+- `.eml` artifacts get a short random suffix so two sends within one second don't collide.
+- Dashboard `refresh-status` returns the SCOPED customer count, not the global mirror
+  size, so a scoped user can't learn how many customers exist outside their book.
+- Preset deep-links now apply the saved `params` directly (not only the layout), instead
+  of relying on the home-page URL also duplicating the filters into the query string.
+
+### Accepted parity deviations (logged, not changed)
+
+- Cadence contract is intentionally simpler than the TEST app (daily/weekly/monthly with a
+  single 1..28 monthday; no `once`, multi-monthday, day `-1`/`29..31`). Revisit if a user
+  needs month-end or one-shot schedules.
+- The dashboard table still shows excluded customers with an "excluded" flag rather than
+  hiding them (LIVE hides them). Kept visible on purpose: the per-row toggle is the only
+  un-exclude affordance, and hiding the row would make un-excluding impossible from the
+  dashboard.
+- Customer detail lacks the TEST app's period/last-N filters and an order-detail drilldown
+  route; deferred as a Phase D parity item (dashboard read model is complete; this is
+  additive UI).

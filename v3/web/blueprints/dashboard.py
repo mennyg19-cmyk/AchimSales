@@ -75,9 +75,15 @@ def refresh():
 @dashboard_bp.get("/api/dashboard/refresh-status")
 @require_login
 def refresh_status():
-    _require_dashboard_user()
+    p, row = _require_dashboard_user()
+    authz = current_app.config["AUTHZ"]
+    excluded = ExclusionRepository(_db()).get(row.id) if row else set()
+    # Scoped count, not the global mirror size: a scoped user must not learn how
+    # many customers exist outside their book.
+    _, rows = current_app.config["DASHBOARD_SERVICE"].view(
+        allowed_keys=authz.visible_salesman_keys(p), excluded=excluded)
     return jsonify({"last_refreshed": current_app.config["DASHBOARD_SERVICE"].last_refreshed(),
-                    "count": current_app.config["DASHBOARD_REPO"].count()})
+                    "count": len(rows)})
 
 
 @dashboard_bp.post("/api/dashboard/exclusion")

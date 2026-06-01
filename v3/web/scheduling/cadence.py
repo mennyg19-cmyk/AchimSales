@@ -44,6 +44,17 @@ def normalize(cadence: dict | None) -> dict:
     return out
 
 
+def eastern_date_iso(now_utc: datetime | None = None) -> str:
+    """The current calendar date in US/Eastern as 'YYYY-MM-DD'.
+
+    Schedule start/end windows must compare against the SAME business timezone the
+    cadence fires in, or a late-evening Eastern schedule starts/ends a day early
+    around UTC midnight.
+    """
+    now = (now_utc or datetime.now(timezone.utc)).astimezone(_EASTERN)
+    return now.date().isoformat()
+
+
 def describe(cadence: dict | None) -> str:
     """Human label for the schedules list, e.g. 'Weekly (Mon, Wed) at 08:00'."""
     c = cadence or {}

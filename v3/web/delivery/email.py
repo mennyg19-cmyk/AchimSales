@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from uuid import uuid4
 
 from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
@@ -94,7 +95,9 @@ class EmailService:
     def _write_eml(self, msg: EmailMessage, report_name: str) -> str:
         self.cfg.outbox_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        name = f"{ts}_{_slug(report_name)}.eml"
+        # Short random suffix so two sends of the same report within one second
+        # don't collide and overwrite each other's .eml artifact.
+        name = f"{ts}_{_slug(report_name)}_{uuid4().hex[:8]}.eml"
         (self.cfg.outbox_dir / name).write_bytes(bytes(msg))
         return name
 
@@ -120,7 +123,18 @@ class EmailService:
 
     def _record(self, subject, recipients, filename, eml_name, *, sent,
                 sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
-        status = "failed" if error else ("sent" if sent else "outbox")
+        # "Success" means every REQUESTED target was actually delivered. An email
+        # target is delivered when recipients exist and SMTP didn't hard-fail (the
+        # .eml + outbox row is the delivery record when SMTP is unconfigured). A
+        # requested SharePoint upload that failed makes the whole delivery fail -
+        # otherwise a SharePoint-only send could be reported as success while
+        # nothing was actually delivered.
+        sp_requested = bool(sp_path)
+        if not error and sp_requested and not sp_saved:
+            error = sp_error or "SharePoint upload failed"
+        email_delivered = bool(recipients) and not error
+        ok = (email_delivered or sp_saved) and not error
+        status = "sent" if (ok and sent) else ("outbox" if ok else "failed")
         outbox_id = self.outbox.enqueue(
             subject=subject, recipients=", ".join(recipients),
             attachment_meta={"filename": filename, "eml": eml_name},
@@ -128,7 +142,7 @@ class EmailService:
             status=status,
         )
         return DeliveryResult(
-            ok=not error, error=error, recipients=recipients, eml_name=eml_name,
+            ok=ok, error=error, recipients=recipients, eml_name=eml_name,
             sent_via_smtp=sent, sharepoint_saved=sp_saved, sharepoint_url=sp_url,
             sharepoint_error=sp_error, outbox_id=outbox_id,
         )

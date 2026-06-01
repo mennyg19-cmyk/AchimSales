@@ -72,7 +72,7 @@ def _make_app(tmp_path, rows_by_report=None):
                              app.config["SHAREPOINT_SERVICE"])
         delivery = DeliveryService(runner, service.builder_for, email)
         app.config["DELIVERY_SERVICE"] = delivery
-        worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery))
+        worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery, app.config["AUTHZ"]))
 
         from web.data.repositories.schedules import (
             MasterScheduleRepository, ScheduleRepository, ScheduleRunRepository)
@@ -532,6 +532,36 @@ def test_email_now_rejects_no_target(tmp_path):
     resp = client.post("/api/reports/ordered/email-now",
                        json={"recipients": "not-an-email", "params": {}},
                        headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
+def test_delivery_job_reauthorizes_owner_and_fails_closed(tmp_path):
+    # A queued delivery owned by a non-privileged user must fail at execution time
+    # (live re-auth), even though the enqueue path normally gates it. This guards
+    # against a role being downgraded between enqueue and run.
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    db = app.config["DB"]
+    rep = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="salesman")
+    from web.delivery.jobs import enqueue_delivery
+
+    job_id = enqueue_delivery(app.config["JOB_REPO"], owner_user_id=rep.id, payload={
+        "report_key": "ordered", "identity": "rep@x.com", "builder_version": 1,
+        "params": {"period": "all_time"}, "layout": {}, "recipients": "a@x.com",
+        "subject": "x", "report_name": "Ordered", "sharepoint_path": "",
+    })
+    app.config["JOB_WORKER"].drain()
+    job = app.config["JOB_REPO"].get(job_id)
+    assert job.status == "failure"
+
+
+def test_schedule_rejects_invalid_recipients(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "not-an-email",
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 400
 
 

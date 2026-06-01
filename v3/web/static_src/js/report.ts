@@ -1133,6 +1133,9 @@ async function autoOpenPresetIfRequested(): Promise<void> {
   const id = new URLSearchParams(window.location.search).get("preset");
   if (!id) return;
   const preset = await getJSON<any>(presetUrl(id));
+  // Apply the preset's saved filters too (don't rely on the home-page URL also
+  // duplicating them into the query string) and then its layout.
+  if (preset?.params) applyParamsObject(preset.params);
   if (preset?.layout) pendingLayout = preset.layout;
   autoRunRequested = true;
 }

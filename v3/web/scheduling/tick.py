@@ -63,8 +63,11 @@ def make_tick(db, job_repo: JobRepository):
 
 
 def _within_window(schedule, now: datetime) -> bool:
-    """Honor a personal schedule's optional start/end date bounds (inclusive)."""
-    today = now.date().isoformat()
+    """Honor a personal schedule's optional start/end date bounds (inclusive).
+
+    Compared in US/Eastern (the cadence's business timezone), not UTC, so the
+    window flips on the right business day."""
+    today = C.eastern_date_iso(now)
     if schedule.start_date and today < schedule.start_date:
         return False
     if schedule.end_date and today > schedule.end_date:

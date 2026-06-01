@@ -116,6 +116,37 @@ class Authorization:
                 "only admin/developer accounts can run it for now."
             )
 
+    # --- deferred delivery (durable jobs + scheduled runs) ------------------
+
+    def principal_for_user_id(self, user_id: int | None) -> Principal | None:
+        """The live principal for a stored owner id, or None if gone/inactive.
+
+        Used by the job worker + scheduler to RE-RESOLVE the owner at execution
+        time instead of trusting whatever identity/scope was captured at enqueue
+        (which can be stale after a role change or a disable)."""
+        if user_id is None:
+            return None
+        u = self.users.get_by_id(user_id)
+        if u is None or not u.is_active:
+            return None
+        return Principal(email=u.email, name=u.display_name or u.email, role=u.role)
+
+    def authorize_delivery(self, p: Principal | None, report_key: str,
+                           *, sharepoint: bool) -> set[str] | None:
+        """Gate a deferred delivery and return the live salesman scope.
+
+        Fails closed exactly like an interactive run: `assert_report_runnable`
+        (today: privileged-only, because the builders don't yet scope facts) and a
+        live SharePoint-access check. Raises Forbidden otherwise. This is what
+        prevents a queued/scheduled send from delivering data the owner is no
+        longer allowed to see."""
+        if p is None:
+            raise Forbidden("Delivery owner is unknown or inactive")
+        self.assert_report_runnable(p, report_key)
+        if sharepoint and not self.has_sharepoint_access(p):
+            raise Forbidden("SharePoint delivery is not permitted for this user")
+        return self.visible_salesman_keys(p)
+
     # --- SharePoint ---------------------------------------------------------
 
     def has_sharepoint_access(self, p: Principal) -> bool:
