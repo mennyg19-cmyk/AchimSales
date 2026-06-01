@@ -1,0 +1,5 @@
+# Shell scripts MUST stay LF: they run on Linux (Azure App Service). A CRLF
+# startup.sh fails with "bash\r: No such file or directory".
+*.sh text eol=lf
+litestream.yml text eol=lf
+gunicorn.conf.py text eol=lf
