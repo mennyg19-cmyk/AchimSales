@@ -312,6 +312,25 @@ def test_dashboard_tiles_and_exclusion(tmp_path):
     assert "200" in ExclusionRepository(app.config["DB"]).get(uid)
 
 
+def test_notifications_api_lists_and_dismisses(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    from web.data.repositories.notifications import OVERDUE, NotificationRepository
+    repo = NotificationRepository(app.config["DB"])
+    repo.create(uid, OVERDUE, {"customer_account": "100", "customer_name": "Acme"})
+
+    data = client.get("/api/notifications").get_json()
+    assert data["overdue_count"] == 1 and data["total"] == 1
+    assert data["items"][0]["customer_account"] == "100"
+
+    dis = client.post("/api/notifications/dismiss", json={"all": True},
+                      headers={"X-CSRF-Token": _CSRF})
+    assert dis.get_json()["dismissed"] == 1
+    assert client.get("/api/notifications").get_json()["total"] == 0
+
+
 def test_dashboard_forbidden_for_plain_salesman(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()

@@ -201,6 +201,35 @@ function initThemeToggle(): void {
   });
 }
 
+function setBadge(id: string, count: number): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (count > 0) {
+    el.textContent = count > 99 ? "99+" : String(count);
+    el.style.display = "";
+  } else {
+    el.style.display = "none";
+  }
+}
+
+function initNotificationBadges(): void {
+  const nav = document.querySelector<HTMLElement>(".bottom-nav[data-notifications-url]");
+  if (!nav) return;
+  const url = nav.getAttribute("data-notifications-url") || "";
+
+  async function poll(): Promise<void> {
+    try {
+      const data = await fetch(url).then((r) => r.json());
+      setBadge("badgeDashboard", data.overdue_count || 0);
+      setBadge("badgeReports", data.report_ready_count || 0);
+    } catch {
+      /* transient; try again next tick */
+    }
+  }
+  poll();
+  setInterval(poll, 30000);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (typeof feather !== "undefined") feather.replace();
   document.addEventListener("click", onClick);
@@ -208,6 +237,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Escape") closeHelp();
   });
   initThemeToggle();
+  initNotificationBadges();
   initPullToRefresh();
 });
 

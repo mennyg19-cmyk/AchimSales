@@ -15,6 +15,11 @@ from report_engine.lib import salesman_key
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
 from web.data.repositories.exclusions import ExclusionRepository
+from web.data.repositories.notifications import (
+    OVERDUE,
+    REPORT_READY,
+    NotificationRepository,
+)
 from web.data.repositories.users import UserRepository
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -22,6 +27,11 @@ dashboard_bp = Blueprint("dashboard", __name__)
 
 def _db():
     return current_app.config["DB"]
+
+
+def _uid() -> int | None:
+    row = UserRepository(_db()).get_by_email(current_principal().email)
+    return row.id if row else None
 
 
 def _require_dashboard_user():
@@ -80,6 +90,35 @@ def toggle_exclusion():
         return jsonify({"error": "customer_account required"}), 400
     ExclusionRepository(_db()).set(row.id, account, bool(body.get("excluded")))
     return jsonify({"customer_account": account, "excluded": bool(body.get("excluded"))})
+
+
+@dashboard_bp.get("/api/notifications")
+@require_login
+def notifications():
+    uid = _uid()
+    if uid is None:
+        return jsonify({"total": 0, "overdue_count": 0, "report_ready_count": 0, "items": []})
+    repo = NotificationRepository(_db())
+    counts = repo.counts(uid)
+    items = [{"id": n.id, "type": n.type, **n.payload} for n in repo.list_undismissed(uid)]
+    return jsonify({
+        "total": sum(counts.values()),
+        "overdue_count": counts.get(OVERDUE, 0),
+        "report_ready_count": counts.get(REPORT_READY, 0),
+        "items": items,
+    })
+
+
+@dashboard_bp.post("/api/notifications/dismiss")
+@require_login
+def dismiss_notification():
+    uid = _uid()
+    if uid is None:
+        return jsonify({"dismissed": 0})
+    body = request.get_json(silent=True) or {}
+    n = NotificationRepository(_db()).dismiss(
+        uid, notif_id=body.get("id"), type_=body.get("type"), all_=bool(body.get("all")))
+    return jsonify({"dismissed": n})
 
 
 @dashboard_bp.get("/customer/<account>")

@@ -101,7 +101,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     dash_repo = DashboardRepository(db)
     mirror = MirrorService(
         customers_fetch=service.customer_universe, orders_fetch=service.all_orders, repo=dash_repo)
-    worker.register(DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler(mirror))
+    worker.register(DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler(mirror, db))
     app.config["DASHBOARD_REPO"] = dash_repo
     app.config["DASHBOARD_SERVICE"] = DashboardService(dash_repo)
     app.config["MIRROR_SERVICE"] = mirror

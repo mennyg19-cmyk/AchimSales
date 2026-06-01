@@ -54,6 +54,25 @@ def test_rebuild_computes_status_per_customer(db):
     assert by_acct["100"].order_count == 4
 
 
+def test_overdue_notifications_generated_and_deduped(db):
+    from web.dashboard.notifications import generate_overdue_notifications
+    from web.data.repositories.dashboard import DashboardCustomer, DashboardRepository
+    from web.data.repositories.notifications import OVERDUE, NotificationRepository
+    from web.data.repositories.users import UserRepository
+
+    admin = UserRepository(db).upsert("admin@x.com", display_name="A", role="admin")
+    DashboardRepository(db).replace_all([
+        DashboardCustomer("100", "Acme", "REdwards", "2026-01-01", 3, 10.0, 1.0, 11.0, 120, "overdue"),
+        DashboardCustomer("200", "Beta", "REdwards", "2026-05-01", 5, 30.0, 2.0, 32.0, 5, "active"),
+    ])
+    n = generate_overdue_notifications(db)
+    assert n == 1  # only the overdue one, for the admin (sees all)
+    # Re-running doesn't duplicate (undismissed alert already exists).
+    assert generate_overdue_notifications(db) == 0
+    items = NotificationRepository(db).list_undismissed(admin.id, OVERDUE)
+    assert len(items) == 1 and items[0].payload["customer_account"] == "100"
+
+
 def test_rebuild_is_full_replace(db):
     repo = DashboardRepository(db)
     svc = MirrorService(
