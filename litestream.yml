@@ -1,0 +1,15 @@
+# Litestream replication for v3's precious.db -> Azure Blob.
+#
+# Loaded by startup.sh ONLY when LITESTREAM_AZURE_ACCOUNT_KEY is present; the
+# launch is fail-open, so a misconfiguration here never blocks gunicorn (which
+# also serves the LIVE production app via the dispatcher).
+#
+# All values come from app settings (env). ${VAR} is expanded by Litestream.
+dbs:
+  - path: ${PRECIOUS_DB_PATH}
+    replicas:
+      - type: abs
+        account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
+        account-key: ${LITESTREAM_AZURE_ACCOUNT_KEY}
+        bucket: ${LITESTREAM_AZURE_CONTAINER}
+        path: ${LITESTREAM_AZURE_PATH}
