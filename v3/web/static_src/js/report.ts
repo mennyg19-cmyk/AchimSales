@@ -9,7 +9,8 @@
  * natural-width table that scrolls horizontally, multi-sort, per-column
  * header filters, hide/show + reorder + freeze columns, group-by with totals,
  * a special card layout for Commissions, duplicate/hide tabs, reset/refresh,
- * and a WYSIWYG Excel export that mirrors exactly what's on screen.
+ * and an Excel export of every tab (one sheet each) that reflects each tab's
+ * on-screen view, with number formats and per-group + grand totals.
  */
 
 declare const Tabulator: any;
@@ -803,24 +804,183 @@ function resetView(): void {
   buildTable(state.tabs[state.active]);
 }
 
+/** Excel number format per column type (mirrors the on-screen formatting). */
+function numFmt(type?: string): string | undefined {
+  switch (type) {
+    case "money": return "$#,##0.00;-$#,##0.00";
+    case "int": return "#,##0";
+    case "percent": return "0.0%";  // stored value is a 0..1 fraction, like the grid
+    default: return undefined;
+  }
+}
+
+/** One Excel cell ({t,v,z}) for a value in a typed column. */
+function xlsxCell(val: unknown, type?: string): Record<string, unknown> {
+  if (isNumericType(type)) {
+    const x = num(val);
+    return x == null ? { t: "s", v: "" } : { t: "n", v: x, z: numFmt(type) };
+  }
+  if (type === "date") {
+    const v = String(val ?? "");
+    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return { t: "s", v: m ? `${Number(m[2])}/${Number(m[3])}/${m[1]}` : v };
+  }
+  return { t: "s", v: val == null ? "" : String(val) };
+}
+
+/** Ordered, visible columns for a tab's current view (order + hidden applied). */
+function exportColumns(tab: Tab): Column[] {
+  const v = view(tab.key);
+  let ordered = tab.columns;
+  if (v.order) {
+    const saved = v.order.filter((f) => tab.columns.some((c) => c.field === f));
+    const savedSet = new Set(saved);
+    const byField = new Map(tab.columns.map((c) => [c.field, c] as const));
+    ordered = [...saved.map((f) => byField.get(f)!), ...tab.columns.filter((c) => !savedSet.has(c.field))];
+  }
+  return ordered.filter((c) => !v.hidden.has(c.field));
+}
+
+/** Rows for a tab with its active column filters + multi-sort applied. */
+function exportRows(tab: Tab): Record<string, unknown>[] {
+  let rows = tab.rows.slice();
+  const active = activeColumnFilters(tab);
+  if (active.length) rows = rows.filter((r) => active.every((a) => rowMatches(r, a.field, a.type, a.f)));
+  const sorters = view(tab.key).sorters;
+  if (sorters && sorters.length) {
+    const typeByField = new Map(tab.columns.map((c) => [c.field, c.type] as const));
+    rows.sort((ra, rb) => {
+      for (const s of sorters) {
+        const t = typeByField.get(s.column);
+        const dir = s.dir === "desc" ? -1 : 1;
+        let cmp = 0;
+        if (isNumericType(t)) cmp = (num(ra[s.column]) ?? 0) - (num(rb[s.column]) ?? 0);
+        else { const a = String(ra[s.column] ?? ""), b = String(rb[s.column] ?? ""); cmp = a < b ? -1 : a > b ? 1 : 0; }
+        if (cmp) return cmp * dir;
+      }
+      return 0;
+    });
+  }
+  return rows;
+}
+
+/** Build a worksheet for one grid tab: header, rows, per-group subtotals (when
+ *  grouped, matching the legacy test app), and a grand-total line. */
+function buildGridSheet(tab: Tab): Record<string, unknown> {
+  const XLSX = (window as any).XLSX;
+  const cols = exportColumns(tab);
+  const rows = exportRows(tab);
+  const numericFields = cols.filter((c) => isNumericType(c.type)).map((c) => c.field);
+  const grid: Record<string, unknown>[][] = [];
+
+  grid.push(cols.map((c) => ({ t: "s", v: c.header })));
+
+  const grand: Record<string, number> = {};
+  numericFields.forEach((f) => (grand[f] = 0));
+
+  const dataRow = (r: Record<string, unknown>, acc: Record<string, number>) => {
+    grid.push(cols.map((c) => xlsxCell(r[c.field], c.type)));
+    numericFields.forEach((f) => { const x = num(r[f]); if (x != null) { acc[f] += x; grand[f] += x; } });
+  };
+  const totalRow = (label: string, acc: Record<string, number>) => {
+    grid.push(cols.map((c, i) => i === 0
+      ? { t: "s", v: label }
+      : isNumericType(c.type) ? { t: "n", v: acc[c.field] || 0, z: numFmt(c.type) } : { t: "s", v: "" }));
+  };
+
+  const group = view(tab.key).group;
+  if (group.length) {
+    const gf = group[0];
+    const gHeader = cols.find((c) => c.field === gf)?.header || gf;
+    const order: string[] = [];
+    const buckets = new Map<string, Record<string, unknown>[]>();
+    rows.forEach((r) => {
+      const k = String(r[gf] ?? "");
+      if (!buckets.has(k)) { buckets.set(k, []); order.push(k); }
+      buckets.get(k)!.push(r);
+    });
+    order.forEach((k) => {
+      grid.push([{ t: "s", v: `${gHeader}: ${k || "(blank)"}` }]);
+      const acc: Record<string, number> = {};
+      numericFields.forEach((f) => (acc[f] = 0));
+      buckets.get(k)!.forEach((r) => dataRow(r, acc));
+      if (numericFields.length) totalRow(`Total \u2014 ${k || "(blank)"}`, acc);
+    });
+    if (numericFields.length) totalRow("Grand total", grand);
+  } else {
+    rows.forEach((r) => dataRow(r, grand));
+    if (numericFields.length && rows.length) totalRow("Total", grand);
+  }
+
+  const ws: Record<string, unknown> = {};
+  grid.forEach((rowCells, r) => rowCells.forEach((cell, c) => {
+    ws[XLSX.utils.encode_cell({ r, c })] = cell;
+  }));
+  ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, grid.length - 1), c: Math.max(0, cols.length - 1) } });
+  ws["!cols"] = cols.map((c) => {
+    let w = c.header.length;
+    rows.forEach((r) => { const s = String(r[c.field] ?? ""); if (s.length > w) w = s.length; });
+    return { wch: Math.min(45, Math.max(8, w + 2)) };
+  });
+  ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+  return ws;
+}
+
+/** Commission cards have no grid; flatten each salesman's monthly + YTD rows. */
+function buildCommissionSheet(tab: Tab): Record<string, unknown> {
+  const XLSX = (window as any).XLSX;
+  const grid: Record<string, unknown>[][] = [[
+    { t: "s", v: "Salesman" }, { t: "s", v: "Month" },
+    { t: "s", v: "Net commission" }, { t: "s", v: "Commission" },
+  ]];
+  const money = (x: unknown) => ({ t: "n", v: n(x), z: "$#,##0.00;-$#,##0.00" });
+  (tab.salesmen || []).forEach((s) => {
+    const who = `${s.salesman_number} - ${s.salesman_name}`;
+    s.monthly.forEach((m) => grid.push([{ t: "s", v: who }, { t: "s", v: m.month_label },
+      money(m.net_commission), money(m.commission)]));
+    grid.push([{ t: "s", v: who }, { t: "s", v: "YTD" },
+      money(s.ytd.net_commission), money(s.ytd.commission)]);
+  });
+  const ws: Record<string, unknown> = {};
+  grid.forEach((rowCells, r) => rowCells.forEach((cell, c) => {
+    ws[XLSX.utils.encode_cell({ r, c })] = cell;
+  }));
+  ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, grid.length - 1), c: 3 } });
+  ws["!cols"] = [{ wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 14 }];
+  return ws;
+}
+
+function safeSheetName(name: string, used: Set<string>): string {
+  let title = (name || "Sheet").replace(/[:\\/?*\[\]]/g, " ").slice(0, 31) || "Sheet";
+  const base = title;
+  let i = 2;
+  while (used.has(title.toLowerCase())) { const sfx = " " + i++; title = base.slice(0, 31 - sfx.length) + sfx; }
+  used.add(title.toLowerCase());
+  return title;
+}
+
+/** Export EVERY tab as its own sheet (one workbook), each reflecting that tab's
+ *  on-screen view, with money/percent/date number formats and group totals. */
 function exportExcel(): void {
   if (!state.active) return;
-  const tab = state.tabs[state.active];
-  // Commission cards have no grid; fall back to the server payload export.
-  if (tab.layout === "commission_cards" || !state.table) {
+  const XLSX = (window as any).XLSX;
+  // Needs the SheetJS global; if its CDN failed, fall back to the server export
+  // (which also writes one sheet per tab).
+  if (typeof XLSX === "undefined") {
     if (state.jobId) window.location.href = attr("data-export-url").replace("__ID__", state.jobId);
-    return;
-  }
-  const name = `${attr("data-report-key")}-${tab.key}`;
-  // WYSIWYG: Tabulator exports the current sort/filter/column view. Needs the
-  // SheetJS global; if its CDN failed, fall back to the server payload export.
-  if (typeof (window as any).XLSX === "undefined") {
-    if (state.jobId) window.location.href = attr("data-export-url").replace("__ID__", state.jobId);
-    else setStatus("Excel export library didn't load — check your connection and retry.", "error");
+    else setStatus("Excel export library didn't load \u2014 check your connection and retry.", "error");
     return;
   }
   try {
-    state.table.download("xlsx", `${name}.xlsx`, { sheetName: tab.name.slice(0, 28) });
+    const wb = XLSX.utils.book_new();
+    const used = new Set<string>();
+    state.order.forEach((key) => {
+      const tab = state.tabs[key];
+      if (!tab) return;
+      const ws = tab.layout === "commission_cards" ? buildCommissionSheet(tab) : buildGridSheet(tab);
+      XLSX.utils.book_append_sheet(wb, ws, safeSheetName(tab.name || key, used));
+    });
+    XLSX.writeFile(wb, `${attr("data-report-key")}.xlsx`);
   } catch {
     if (state.jobId) window.location.href = attr("data-export-url").replace("__ID__", state.jobId);
     else setStatus("Could not export this view. Please try again.", "error");
