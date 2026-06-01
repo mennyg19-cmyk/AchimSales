@@ -88,6 +88,17 @@ class ReportService:
                 return src_customers.to_facts(self.customer_mirror())
             return []
 
+    # -- dashboard mirror feeds (public; used by the mirror refresh) -------
+
+    def customer_universe(self) -> list:
+        """CustomerFact universe for the dashboard mirror (customer_master)."""
+        return self._customer_universe()
+
+    def all_orders(self) -> list:
+        """All-time OrderLineFacts (go-live..today) for cadence metrics."""
+        rows = self._rows("salesline_release", P.translate("customer_activity", {}))
+        return src_ordered.to_facts(rows)
+
     def _book_prices(self) -> dict | None:
         """released_products SalesPrice map for Book Price; None if unavailable."""
         try:
