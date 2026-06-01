@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Run log{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
+  <h1 class="page-title">Report run log</h1>
+  <p class="page-subtitle">The {{ entries|length }} most recent report executions.</p>
+</div>
+
+{% if entries %}
+<table class="simple-table">
+  <thead>
+    <tr><th>When</th><th>User</th><th>Report</th><th>Status</th><th>Rows</th><th>Duration</th><th>Source</th></tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.created_at }}</td>
+      <td>{{ e.user_email or '\u2014' }}</td>
+      <td>{{ e.report_key }}</td>
+      <td><span class="status-pill status-{{ e.status }}">{{ e.status }}</span></td>
+      <td>{{ e.rows if e.rows is not none else '\u2014' }}</td>
+      <td>{{ '%d ms'|format(e.duration_ms) if e.duration_ms is not none else '\u2014' }}</td>
+      <td>{{ e.source }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty-state"><i data-feather="clock"></i><div>No report runs recorded yet.</div></div>
+{% endif %}
+{% endblock %}

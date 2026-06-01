@@ -62,6 +62,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     """
     from web.data.repositories.jobs import JobRepository
     from web.data.repositories.outbox import OutboxRepository
+    from web.data.repositories.run_log import ReportRunLogRepository
     from web.data.repositories.salesmen import SalesmanRepository
     from web.delivery.email import EmailService
     from web.delivery.jobs import DELIVERY_JOB_TYPE, make_delivery_handler
@@ -82,7 +83,8 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     cache = ReportCache(db)
     runner = ReportRunner(cache)
     worker = JobWorker(db)
-    worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for))
+    run_log = ReportRunLogRepository(db)
+    worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for, run_log))
 
     sharepoint = SharePointService(cfg)
     email = EmailService(cfg, OutboxRepository(db), sharepoint)
@@ -96,6 +98,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     app.config["LOOKUP_SERVICE"] = LookupService(service, salesmen_repo)
     app.config["REPORT_CACHE"] = cache
     app.config["JOB_REPO"] = JobRepository(db)
+    app.config["RUN_LOG_REPO"] = run_log
     app.config["JOB_WORKER"] = worker
     app.config["SHAREPOINT_SERVICE"] = sharepoint
     app.config["DELIVERY_SERVICE"] = delivery

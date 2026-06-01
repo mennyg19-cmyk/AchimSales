@@ -66,7 +66,8 @@ def _make_app(tmp_path, rows_by_report=None):
         app.config["REPORT_SERVICE"] = service
         runner = ReportRunner(app.config["REPORT_CACHE"])
         worker = app.config["JOB_WORKER"]
-        worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for))
+        worker.register(JOB_TYPE, make_report_run_handler(
+            runner, service.builder_for, app.config["RUN_LOG_REPO"]))
         email = EmailService(app.config["APP_CONFIG"], OutboxRepository(app.config["DB"]),
                              app.config["SHAREPOINT_SERVICE"])
         delivery = DeliveryService(runner, service.builder_for, email)
@@ -156,6 +157,29 @@ def test_run_poll_result_export_flow(tmp_path):
     xlsx = client.get(f"/reports/ordered/export/{job_id}")
     assert xlsx.status_code == 200
     assert xlsx.data[:2] == b"PK"  # xlsx is a zip
+
+
+def test_run_log_records_and_renders(tmp_path):
+    rows = {"salesline_release": [
+        {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+         "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+         "SalesStatus": "Open", "OrderDate": "2026-03-01"}]}
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    run = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                      headers={"X-CSRF-Token": _CSRF})
+    assert client.get(f"/api/jobs/{run.get_json()['job_id']}").get_json()["status"] == "success"
+
+    page = client.get("/admin/run-log").get_data(as_text=True)
+    assert "ordered" in page and "success" in page
+
+
+def test_run_log_forbidden_for_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    assert client.get("/admin/run-log").status_code == 403
 
 
 def test_run_requires_csrf(tmp_path):

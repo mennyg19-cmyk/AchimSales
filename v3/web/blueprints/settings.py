@@ -73,6 +73,15 @@ def settings_page():
     )
 
 
+@settings_bp.get("/admin/run-log")
+@require_login
+def run_log_page():
+    if _require_admin() is None:
+        return jsonify({"error": "Forbidden"}), 403
+    entries = current_app.config["RUN_LOG_REPO"].recent(limit=200)
+    return render_template("run_log.html", active_tab="settings", entries=entries)
+
+
 @settings_bp.post("/api/admin/feature-flags")
 @require_login
 def set_feature_flag():
