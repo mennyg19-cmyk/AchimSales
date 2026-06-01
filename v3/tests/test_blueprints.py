@@ -27,8 +27,9 @@ class _FakeResult:
 
 
 class _FakeClient:
-    def __init__(self, rows_by_report):
+    def __init__(self, rows_by_report, configured=False):
         self.rows_by_report = rows_by_report
+        self.configured = configured
 
     def run_report(self, report_id, params):
         return _FakeResult(self.rows_by_report.get(report_id, []))
@@ -220,6 +221,70 @@ def test_revoked_access_blocks_result_read(tmp_path):
     with db.precious() as conn:
         conn.execute("UPDATE users SET role='salesman' WHERE email='admin@x.com'")
     assert client.get(f"/api/reports/result/{job_id}").status_code == 403
+
+
+def test_report_view_renders_status_and_customer_filters(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/reports/ordered").get_data(as_text=True)
+    assert 'id="statusSelect"' in html      # Ordered status filter
+    assert 'id="customerPicker"' in html    # searchable customer multi-select
+    assert 'id="salesmanSelect"' in html
+
+
+def _with_lookups(app, rows):
+    """Replace the app's LookupService with one over a configured fake client
+    that returns `rows` for customer_master, and populate it synchronously."""
+    from web.reporting.lookups import LookupService
+
+    service = ReportService(_FakeClient({"customer_master": rows}, configured=True),
+                            _FakeSalesmen())
+    lookup = LookupService(service, _FakeSalesmen())
+    lookup._populate()  # synchronous fetch so the endpoints are deterministic
+    app.config["LOOKUP_SERVICE"] = lookup
+
+
+def test_salesmen_and_customers_lookups(tmp_path):
+    rows = [
+        {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        {"CustomerAccount": "200", "CustomerName": "Globex", "SalesGroup": "JSmith"},
+        {"CustomerAccount": "300", "CustomerName": "Initech", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path)
+    _with_lookups(app, rows)
+    client = app.test_client()
+    _login(client, app)
+
+    sm = client.get("/api/reports/ordered/salesmen").get_json()["salesmen"]
+    assert {r["key"] for r in sm} == {"REdwards", "JSmith"}
+
+    all_cust = client.get("/api/reports/ordered/customers").get_json()["customers"]
+    assert {c["key"] for c in all_cust} == {"100", "200", "300"}
+
+    one = client.get("/api/reports/ordered/customers?salesman=REdwards").get_json()["customers"]
+    assert {c["key"] for c in one} == {"100", "300"}
+
+
+def test_lookup_status_endpoint(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    status = client.get("/api/reports/lookups/status").get_json()
+    assert "configured" in status and "status" in status
+
+
+def test_preview_body_shows_sp_params(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/reports/ordered/preview-body",
+                       json={"period": "ytd", "salesman": "REdwards"},
+                       headers={"X-CSRF-Token": _CSRF})
+    body = resp.get_json()
+    assert body["report_id"] == "salesline_release"
+    assert body["body"]["SalesGroup"] == "REdwards"
+    assert "CreatedDateTimeFrom" in body["body"]
 
 
 def test_invoiced_commissions_tab_is_not_blank(tmp_path):

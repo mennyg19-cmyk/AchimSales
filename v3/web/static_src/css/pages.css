@@ -57,6 +57,40 @@
     font-size: 14px; font-weight: 500; color: var(--text); background: var(--bg-card); min-width: 150px;
 }
 .filter-field select:focus, .filter-field input:focus { outline: none; border-color: var(--border-focus); }
+.filter-field-wide { flex: 0 0 auto; min-width: 260px; }
+.lookup-status { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); font-style: italic; }
+
+/* -- Searchable customer multi-select -- */
+.customer-picker { position: relative; min-width: 260px; }
+.customer-chips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; margin-bottom: 4px; }
+.customer-placeholder { color: var(--text-muted); font-weight: 500; }
+.customer-chip {
+    background: var(--primary-light); color: var(--primary); border: none; cursor: pointer;
+    padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+}
+.customer-search {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-size: 14px; color: var(--text); background: var(--bg-card);
+}
+.customer-options {
+    max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-top: none;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--bg-card);
+    position: absolute; left: 0; right: 0; z-index: 30; box-shadow: var(--shadow-md);
+}
+.customer-option {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px;
+    font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; cursor: pointer;
+}
+.customer-option:hover { background: var(--bg-hover, rgba(0,0,0,0.04)); }
+.customer-option input { min-width: 0; width: auto; }
+.customer-empty { padding: 8px 10px; color: var(--text-muted); font-size: 13px; }
+
+/* -- Live API preview panel -- */
+.api-preview {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 12px 14px; margin-bottom: 12px; font-size: 12px; color: var(--text);
+    max-height: 280px; overflow: auto; white-space: pre; font-family: ui-monospace, monospace;
+}
 
 /* -- Report toolbar -- */
 .report-toolbar { flex-wrap: wrap; }

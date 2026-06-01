@@ -65,17 +65,20 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.reporting.cache import ReportCache
     from web.reporting.http_client import ReportingApiClient
     from web.reporting.jobs import JOB_TYPE, make_report_run_handler
+    from web.reporting.lookups import LookupService
     from web.reporting.report_service import ReportService
     from web.reporting.runner import ReportRunner
 
     client = ReportingApiClient(cfg.reporting_api_base_url, cfg.reporting_api_key)
-    service = ReportService(client, SalesmanRepository(db))
+    salesmen_repo = SalesmanRepository(db)
+    service = ReportService(client, salesmen_repo)
     cache = ReportCache(db)
     runner = ReportRunner(cache)
     worker = JobWorker(db)
     worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for))
 
     app.config["REPORT_SERVICE"] = service
+    app.config["LOOKUP_SERVICE"] = LookupService(service, salesmen_repo)
     app.config["REPORT_CACHE"] = cache
     app.config["JOB_REPO"] = JobRepository(db)
     app.config["JOB_WORKER"] = worker

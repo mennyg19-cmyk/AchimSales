@@ -735,3 +735,45 @@ to v2 parity - anchor the Commissions YTD window to the **selected period end**,
 against this scope. Each review prompt MUST include: the source-of-truth split, the full decision
 list above, the corrections, the YTD decision, and what NOT to flag (the LATER/SKIP items and the
 dead-code corrections). Fix findings before moving to the next phase.
+
+### Phase A - Report viewer parity (done + reviewed)
+
+Built the interactive viewer to parity (Tabulator 6.3 + SheetJS): full-width horizontal scroll,
+dark/light theming, multi-sort, column hide/show/reorder/freeze, header-filter popovers, grouping +
+subtotal/grand-total rows, all tabs incl. the commission-card layout, a date formatter, per-tab
+layout persistence, reset-view, refresh-data that preserves the active/duplicated tabs, duplicate/
+delete tab, friendly errors, and WYSIWYG Excel export that mirrors the on-screen view (server XLSX
+fallback). A GPT-5.5 review flagged one blocker (refresh wasn't preserving the active/duplicate tab
+layout) plus column-order, int-formatter, columns-panel-leak, duplicate-view-inheritance, and two
+nice-to-haves; all were fixed before moving on.
+
+### Phase B - Filters (done; review pending)
+
+Single-row filter bar with the customer/salesman dropdowns sourced from the on-prem customer_master
+SP, exactly like v2 but rebuilt clean:
+
+- **`web/reporting/lookups.py` (new `LookupService`):** wraps the existing `ReportService`
+  customer-universe fetch (which already falls back to the local mirror when the API is down),
+  caches it in-process with a 1h TTL, and warms it on a background thread so the dropdowns NEVER
+  block a page render. `salesmen()` returns distinct raw `SalesGroup` values (the value the run
+  endpoint pushes to the SP) enriched with the v3 salesman-master display name, falling back to the
+  seeded master while the universe loads. `customers(salesman)` returns distinct accounts optionally
+  narrowed to one salesman. `status()` reports populate progress and kicks a (re)populate when
+  configured-but-empty (mirrors v2's status-driven warm-up).
+- **Endpoints (`web/blueprints/reports.py`):** `GET /api/reports/<key>/salesmen`,
+  `/customers?salesman=`, `/years`; `GET /api/reports/lookups/status`; and a read-only
+  `POST /api/reports/<key>/preview-body` that returns the exact `{report_id, url, method, body}`
+  the SP would receive (built via `web.reporting.params`, no API call). All keyed endpoints run the
+  same `assert_report_runnable` access check as run/result.
+- **Ordered status filter:** added `status` to the Ordered filter set + a `STATUS_OPTIONS` select;
+  it maps to the SP's `SalesStatus` (already handled in `translate_ordered`).
+- **Frontend (`report.ts` + `report_view.html` + `pages.css`):** salesman + year are now real
+  selects; the customer field is a searchable multi-select that injects its picks into the run body
+  as a `customers` array (and the salesman select cascades the customer list). Added bookmarkable
+  deep-links (filters round-trip through the query string on Run and rehydrate on load) and an
+  "API preview" toggle that shows the live preview-body JSON. Lookup lists load non-blocking and the
+  form polls lookup-status, swapping in the live list when the warm-up is ready.
+
+Tests: added lookup/preview/status + status-filter route tests; full v3 suite green (179 passed).
+NOT yet done: the Invoiced YTD revert (`year` filter still present - tracked separately) and the
+GPT-5.5 Phase B review.

@@ -561,14 +561,18 @@ function exportExcel(): void {
 // Run + poll
 // --------------------------------------------------------------------------
 
-function collectParams(): Record<string, string> {
+function collectParams(): Record<string, unknown> {
   const form = $("filterForm") as HTMLFormElement | null;
-  const out: Record<string, string> = {};
+  const out: Record<string, unknown> = {};
   if (!form) return out;
   new FormData(form).forEach((value, key) => {
     const v = String(value).trim();
     if (v) out[key] = v;
   });
+  // The customer multi-select isn't a native form control; inject its picks as
+  // an array so the server pushes a CSV of accounts to the SP.
+  const customers = [...selectedCustomers.keys()];
+  if (customers.length) out.customers = customers;
   return out;
 }
 
@@ -731,14 +735,244 @@ function initCustomRangeToggle(): void {
   sync();
 }
 
+// --------------------------------------------------------------------------
+// Lookups: salesman dropdown + searchable customer multi-select, deep-links,
+// and the live API-preview panel. Lists load non-blocking and the form polls
+// lookup-status until the server-side warm-up is ready.
+// --------------------------------------------------------------------------
+
+interface LookupRow { key: string; name: string; salesman?: string; }
+
+const selectedCustomers = new Map<string, string>(); // account -> display name
+let customerOptions: LookupRow[] = [];
+let lookupPollTimer: number | null = null;
+
+function hasFilter(id: string): boolean {
+  return !!$(id);
+}
+
+async function getJSON<T>(url: string): Promise<T | null> {
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSalesmen(): Promise<void> {
+  const sel = $("salesmanSelect") as HTMLSelectElement | null;
+  if (!sel) return;
+  const data = await getJSON<{ salesmen: LookupRow[] }>(attr("data-salesmen-url"));
+  const rows = data?.salesmen || [];
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All salesmen</option>';
+  rows.forEach((r) => {
+    const o = document.createElement("option");
+    o.value = r.key;
+    o.textContent = r.name;
+    sel.appendChild(o);
+  });
+  if (current && rows.some((r) => r.key === current)) sel.value = current;
+}
+
+async function loadCustomers(): Promise<void> {
+  if (!hasFilter("customerPicker")) return;
+  const sel = $("salesmanSelect") as HTMLSelectElement | null;
+  const salesman = sel?.value ? `?salesman=${encodeURIComponent(sel.value)}` : "";
+  const data = await getJSON<{ customers: LookupRow[] }>(attr("data-customers-url") + salesman);
+  customerOptions = data?.customers || [];
+  renderCustomerPicker();
+}
+
+function renderCustomerPicker(filterText = ""): void {
+  const host = $("customerPicker");
+  if (!host) return;
+  const q = filterText.trim().toLowerCase();
+  const matches = q
+    ? customerOptions.filter(
+        (c) => c.name.toLowerCase().includes(q) || c.key.toLowerCase().includes(q),
+      )
+    : customerOptions;
+
+  host.innerHTML = "";
+
+  const chips = document.createElement("div");
+  chips.className = "customer-chips";
+  if (selectedCustomers.size === 0) {
+    const ph = document.createElement("span");
+    ph.className = "customer-placeholder";
+    ph.textContent = host.dataset.placeholder || "All";
+    chips.appendChild(ph);
+  } else {
+    selectedCustomers.forEach((name, key) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "customer-chip";
+      chip.textContent = `${name} ✕`;
+      chip.title = `Remove ${key}`;
+      chip.addEventListener("click", () => {
+        selectedCustomers.delete(key);
+        renderCustomerPicker(search.value);
+      });
+      chips.appendChild(chip);
+    });
+  }
+  host.appendChild(chips);
+
+  const search = document.createElement("input");
+  search.type = "text";
+  search.className = "customer-search";
+  search.placeholder = "Search customers…";
+  search.value = filterText;
+  search.addEventListener("input", () => renderCustomerPicker(search.value));
+  host.appendChild(search);
+
+  const list = document.createElement("div");
+  list.className = "customer-options";
+  matches.slice(0, 200).forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "customer-option";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = selectedCustomers.has(c.key);
+    cb.addEventListener("change", () => {
+      if (cb.checked) selectedCustomers.set(c.key, c.name);
+      else selectedCustomers.delete(c.key);
+      // Re-render chips without losing the search box focus/value.
+      renderChipsOnly();
+    });
+    row.appendChild(cb);
+    const text = document.createElement("span");
+    text.textContent = `${c.key} — ${c.name}`;
+    row.appendChild(text);
+    list.appendChild(row);
+  });
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "customer-empty";
+    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
+    list.appendChild(empty);
+  }
+  host.appendChild(list);
+
+  // Keep focus in the search box after a re-render triggered by typing.
+  if (filterText) {
+    search.focus();
+    search.setSelectionRange(filterText.length, filterText.length);
+  }
+
+  function renderChipsOnly(): void {
+    renderCustomerPicker(search.value);
+  }
+}
+
+function setLookupStatusText(text: string): void {
+  ["salesmanStatus", "customerStatus"].forEach((id) => {
+    const el = $(id);
+    if (el) el.textContent = text;
+  });
+}
+
+function pollLookupStatus(): void {
+  const url = attr("data-lookup-status-url");
+  if (!url) return;
+  const tick = async () => {
+    const s = await getJSON<any>(url);
+    if (!s) return;
+    if (s.status === "ready" || (s.cached_row_count || 0) > 0) {
+      setLookupStatusText("");
+      if (lookupPollTimer) { window.clearInterval(lookupPollTimer); lookupPollTimer = null; }
+      await loadSalesmen();
+      await loadCustomers();
+      return;
+    }
+    if (s.status === "loading") setLookupStatusText("(loading…)");
+    else if (s.status === "error") setLookupStatusText("(using cached list)");
+    else if (!s.configured) setLookupStatusText("");
+  };
+  tick();
+  lookupPollTimer = window.setInterval(tick, 2500);
+}
+
+async function initLookups(): Promise<void> {
+  if (!hasFilter("salesmanSelect") && !hasFilter("customerPicker")) return;
+  if (hasFilter("salesmanSelect")) {
+    await loadSalesmen();
+    $("salesmanSelect")?.addEventListener("change", () => {
+      selectedCustomers.clear();
+      loadCustomers();
+    });
+  }
+  if (hasFilter("customerPicker")) {
+    renderCustomerPicker();
+    await loadCustomers();
+  }
+  pollLookupStatus();
+}
+
+// --- bookmarkable deep-links --------------------------------------------- //
+
+function applyDeepLink(): void {
+  const q = new URLSearchParams(window.location.search);
+  if (![...q.keys()].length) return;
+  (["period", "status", "year"] as const).forEach((name) => {
+    const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
+    if (el && q.has(name)) el.value = q.get(name) || "";
+  });
+  const sm = $("salesmanSelect") as HTMLSelectElement | null;
+  if (sm && q.has("salesman")) sm.value = q.get("salesman") || "";
+  const sd = document.querySelector<HTMLInputElement>('[name="start_date"]');
+  const ed = document.querySelector<HTMLInputElement>('[name="end_date"]');
+  if (sd && q.has("start_date")) sd.value = q.get("start_date") || "";
+  if (ed && q.has("end_date")) ed.value = q.get("end_date") || "";
+  const custs = q.get("customers");
+  if (custs) custs.split(",").forEach((c) => { const k = c.trim(); if (k) selectedCustomers.set(k, k); });
+}
+
+function updateDeepLink(): void {
+  const params = collectParams();
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    q.set(k, Array.isArray(v) ? v.join(",") : String(v));
+  });
+  const url = `${window.location.pathname}?${q.toString()}`;
+  window.history.replaceState(null, "", url);
+}
+
+// --- live API preview ----------------------------------------------------- //
+
+async function showApiPreview(): Promise<void> {
+  const panel = $("apiPreview");
+  if (!panel) return;
+  if (!panel.hidden) { panel.hidden = true; return; }
+  panel.hidden = false;
+  panel.textContent = "Loading preview…";
+  try {
+    const res = await fetch(attr("data-preview-url"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": attr("data-csrf") },
+      body: JSON.stringify(collectParams()),
+    });
+    const data = await res.json();
+    panel.textContent = JSON.stringify(data, null, 2);
+  } catch {
+    panel.textContent = "Could not load the API preview.";
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (!root) return;
   initCustomRangeToggle();
-  $("runBtn")?.addEventListener("click", () => run());
+  applyDeepLink();
+  initLookups();
+  $("runBtn")?.addEventListener("click", () => { updateDeepLink(); run(); });
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportBtn")?.addEventListener("click", exportExcel);
   $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
+  $("previewBtn")?.addEventListener("click", showApiPreview);
   setToolbarEnabled(false);
 });
 

@@ -21,6 +21,7 @@
         <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
         <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
         <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Export exactly what's on screen">Export</button>
+        <button type="button" id="previewBtn" class="btn btn-outline" title="Show the exact request sent to the Reporting API">API preview</button>
     </div>
 </div>
 
@@ -43,25 +44,43 @@
         <input type="date" name="end_date">
     </label>
     {% endif %}
+    {% if 'status' in filters %}
+    <label class="filter-field">
+        <span>Status</span>
+        <select name="status" id="statusSelect">
+            {% for value, label in status_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
     {% if 'year' in filters %}
     <label class="filter-field">
         <span>Year</span>
-        <input type="number" name="year" min="2025" max="2099">
+        <select name="year" id="yearSelect">
+            {% for y in year_options %}
+            <option value="{{ y }}">{{ y }}</option>
+            {% endfor %}
+        </select>
     </label>
     {% endif %}
     {% if 'salesman' in filters %}
     <label class="filter-field">
-        <span>Salesman</span>
-        <input type="text" name="salesman" placeholder="sales group(s)">
+        <span>Salesman <em id="salesmanStatus" class="lookup-status"></em></span>
+        <select name="salesman" id="salesmanSelect">
+            <option value="">All salesmen</option>
+        </select>
     </label>
     {% endif %}
     {% if 'customers' in filters %}
-    <label class="filter-field">
-        <span>Customers</span>
-        <input type="text" name="customers" placeholder="acct or comma-separated">
-    </label>
+    <div class="filter-field filter-field-wide">
+        <span>Customers <em id="customerStatus" class="lookup-status"></em></span>
+        <div id="customerPicker" class="customer-picker" data-placeholder="All customers"></div>
+    </div>
     {% endif %}
 </form>
+
+<pre id="apiPreview" class="api-preview" hidden></pre>
 
 <div id="reportStatus" class="report-status" hidden></div>
 
@@ -77,6 +96,10 @@
      data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
      data-result-url="{{ url_for('reports.report_result', job_id='__ID__') }}"
      data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"
+     data-salesmen-url="{{ url_for('reports.report_salesmen', report_key=report.key) }}"
+     data-customers-url="{{ url_for('reports.report_customers', report_key=report.key) }}"
+     data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
+     data-preview-url="{{ url_for('reports.preview_body', report_key=report.key) }}"
      data-csrf="{{ csrf_token() }}"
      hidden></div>
 {% endblock %}

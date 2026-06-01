@@ -15,6 +15,8 @@ users can reach a report at all, via the fail-closed Authorization default.
 
 from __future__ import annotations
 
+from datetime import date
+
 from flask import (
     Blueprint,
     abort,
@@ -32,6 +34,7 @@ from report_engine.registry import ReportStatus
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
 from web.data.repositories.users import UserRepository
+from web.reporting import params as P
 from web.reporting.export import payload_to_xlsx
 from web.reporting.jobs import enqueue_report_run
 
@@ -40,7 +43,7 @@ reports_bp = Blueprint("reports", __name__)
 # Which filter inputs each report exposes (rendered by report_view.html and read
 # by report.js). Reports with a fixed server-side window expose none.
 REPORT_FILTERS: dict[str, tuple[str, ...]] = {
-    "ordered": ("period", "customers", "salesman"),
+    "ordered": ("period", "status", "customers", "salesman"),
     "invoiced": ("period", "customers", "salesman", "year"),
     "salesman": ("year",),
     "number_4": (),
@@ -58,6 +61,15 @@ PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
     ("custom", "Custom Range"),
 )
 
+# Sales order status filter (Ordered report). Empty value = all statuses.
+STATUS_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("", "All Statuses"),
+    ("Open order", "Open"),
+    ("Delivered", "Delivered"),
+    ("Invoiced", "Invoiced"),
+    ("Cancelled", "Cancelled"),
+)
+
 
 # --- helpers --------------------------------------------------------------- #
 
@@ -71,6 +83,10 @@ def _job_repo():
 
 def _cache():
     return current_app.config["REPORT_CACHE"]
+
+
+def _lookups():
+    return current_app.config["LOOKUP_SERVICE"]
 
 
 def _principal_or_401():
@@ -125,7 +141,15 @@ def report_view(report_key: str):
     return render_template(
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
+        status_options=STATUS_OPTIONS, year_options=_year_options(),
     )
+
+
+def _year_options() -> list[int]:
+    """Descending years for the year picker (current back to D365 go-live year)."""
+    from report_engine.dates import D365_GO_LIVE, today_eastern
+
+    return list(range(today_eastern().year, D365_GO_LIVE.year - 1, -1))
 
 
 # --- JSON API -------------------------------------------------------------- #
@@ -209,3 +233,75 @@ def export_report(report_key: str, job_id: str):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True, download_name=f"{report_key}.xlsx",
     )
+
+
+# --- filter lookups (dropdown data + live API preview) --------------------- #
+
+@reports_bp.get("/api/reports/lookups/status")
+@require_login
+def lookup_status():
+    """Populate progress for the customer/salesman dropdowns (form polls this)."""
+    _principal_or_401()
+    return jsonify(_lookups().status())
+
+
+@reports_bp.get("/api/reports/<report_key>/salesmen")
+@require_login
+def report_salesmen(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    return jsonify({"salesmen": _lookups().salesmen()})
+
+
+@reports_bp.get("/api/reports/<report_key>/customers")
+@require_login
+def report_customers(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    salesman = (request.args.get("salesman") or "").strip() or None
+    return jsonify({"customers": _lookups().customers(salesman)})
+
+
+@reports_bp.get("/api/reports/<report_key>/years")
+@require_login
+def report_years(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    return jsonify({"years": _year_options()})
+
+
+@reports_bp.post("/api/reports/<report_key>/preview-body")
+@require_login
+def preview_body(report_key: str):
+    """Show the exact request that would be sent to the on-prem Reporting API.
+
+    Read-only: builds the SP params from the current filters without calling the
+    API, so the form can surface a live "this is what we'll ask for" panel.
+    """
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+
+    filters = request.get_json(silent=True)
+    if not isinstance(filters, dict):
+        filters = request.form.to_dict()
+
+    cfg = current_app.config["APP_CONFIG"]
+    base = (cfg.reporting_api_base_url or "").rstrip("/")
+    try:
+        report_id = P.report_id_for(report_key)
+        body = P.translate(report_key, filters)
+        url = f"{base}/api/reports/{report_id}/run" if base else None
+        return jsonify({
+            "report_id": report_id, "method": "POST", "url": url,
+            "body": body, "configured": bool(base and cfg.reporting_api_key),
+        })
+    except KeyError as exc:
+        return jsonify({
+            "report_id": None, "method": "POST", "url": None, "body": {},
+            "configured": bool(base and cfg.reporting_api_key),
+            "warning": str(exc),
+        })
