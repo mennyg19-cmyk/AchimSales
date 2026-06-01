@@ -136,53 +136,118 @@
     max-height: 280px; overflow: auto; white-space: pre; font-family: ui-monospace, monospace;
 }
 
-/* -- Report toolbar (sits BELOW the filter box) -- */
-.report-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-/* "Run report" lives in the filter box, pinned to the far right + bottom. */
+/* -- Collapsible "Filters & options" panel -------------------------------- */
+/* While viewing a report this whole panel folds into a one-line summary bar so
+   the grid takes most of the screen; the toggle re-opens it to change filters. */
+.report-controls {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 16px; overflow: hidden;
+}
+.controls-toggle {
+    display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px;
+    border: none; background: none; cursor: pointer; color: var(--text); font-size: 14px;
+    font-weight: 600; text-align: left;
+}
+.controls-toggle-main { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.controls-toggle-main svg { width: 16px; height: 16px; }
+.controls-summary {
+    flex: 1 1 auto; min-width: 0; color: var(--text-muted); font-weight: 500; font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.controls-chevron { flex: 0 0 auto; width: 18px; height: 18px; color: var(--text-muted); transition: transform 0.15s ease; }
+.report-controls.collapsed .controls-chevron { transform: rotate(180deg); }
+.report-controls.collapsed .controls-body { display: none; }
+.controls-body { padding: 0 14px 14px; }
+/* The filter bar / toolbar no longer carry their own card chrome (the panel does). */
+.controls-body .filter-bar { padding: 4px 0 0; background: none; border: none; border-radius: 0; margin-bottom: 12px; }
+.report-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
 .filter-run-btn { flex: 0 0 auto; align-self: flex-end; white-space: nowrap; }
 
-/* -- Run status + tabs + table -- */
+/* -- Run status -- */
 .report-status { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }
 .report-status-info { background: var(--primary-light); color: var(--primary); }
 .report-status-error { background: var(--error-light); color: var(--error); }
-.report-meta { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
-.report-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-.report-tab {
-    padding: 7px 14px; border: 1px solid var(--border); background: var(--bg-card);
-    border-radius: 99px; font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer;
-}
-.report-tab:hover { border-color: var(--primary); color: var(--primary); }
-.report-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-.report-tab-caret { margin-left: 7px; opacity: 0.6; font-size: 11px; }
-.report-tab-caret:hover { opacity: 1; }
 
-/* Full-width grid shell with its own horizontal scrollbar (natural-width table). */
-.report-table-scroll { width: 100%; overflow-x: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
+/* -- Report surface: folder tabs joined to the grid as one card -- */
+.report-surface {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 24px; overflow: hidden;
+}
+.report-tabbar {
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap; padding: 8px 12px 0; background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.report-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.report-tab {
+    display: inline-flex; align-items: center; gap: 4px; position: relative; bottom: -1px;
+    padding: 8px 14px; border: 1px solid var(--border); border-bottom: none;
+    border-radius: 8px 8px 0 0; background: transparent; color: var(--text-muted);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.report-tab:hover { color: var(--primary); }
+/* Active tab merges into the grid card below by matching its background + hiding the seam. */
+.report-tab.active { background: var(--bg-card); color: var(--primary); border-color: var(--border); border-bottom: 1px solid var(--bg-card); }
+.report-tab-caret { opacity: 0.6; font-size: 11px; }
+.report-tab-caret:hover { opacity: 1; }
+.report-meta { color: var(--text-muted); font-size: 12px; padding-bottom: 8px; white-space: nowrap; }
+
+/* Natural-width grid scrolls horizontally inside the surface card. */
+.report-table-scroll { width: 100%; overflow-x: auto; background: var(--bg-card); }
 #reportTable { min-height: 120px; }
 
 /* -- Tabulator theming (drives off the shared light/dark tokens) -- */
 .tabulator { background: var(--bg-card); border: none; font-size: 13px; }
-.tabulator .tabulator-header { background: var(--bg); border-bottom: 1px solid var(--border); color: var(--text-muted); }
+.tabulator .tabulator-header {
+    background: var(--bg); border-bottom: 2px solid var(--border);
+    color: var(--text); font-weight: 700;
+}
 .tabulator .tabulator-header .tabulator-col {
     background: var(--bg); border-right: 1px solid var(--border);
 }
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content { padding: 8px 8px; }
+/* Readable headers: full-strength text, not the muted grey, beating Tabulator's base theme. */
 .tabulator .tabulator-header .tabulator-col .tabulator-col-title {
-    color: var(--text-muted); font-weight: 700; font-size: 12px;
+    color: var(--text) !important; font-weight: 700; font-size: 12.5px;
+    text-overflow: ellipsis; white-space: nowrap;
 }
-.tabulator .tabulator-header .tabulator-col .tabulator-header-filter input {
-    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
-    color: var(--text); padding: 3px 6px;
-}
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable:hover { background: var(--primary-light); }
 .tabulator .tabulator-row { background: var(--bg-card); border-bottom: 1px solid var(--border); color: var(--text); }
 .tabulator .tabulator-row.tabulator-row-even { background: var(--bg); }
 .tabulator .tabulator-row.tabulator-selectable:hover { background: var(--primary-light); }
 .tabulator .tabulator-row .tabulator-cell { border-right: 1px solid var(--border); }
 .tabulator .tabulator-row.tabulator-group { background: var(--bg); color: var(--text); font-weight: 700; border-bottom: 1px solid var(--border); }
 .tabulator .tabulator-row.tabulator-calcs,
-.tabulator .tabulator-footer { background: var(--bg); color: var(--text); font-weight: 700; border-top: 1px solid var(--border); }
+.tabulator .tabulator-footer { background: var(--bg); color: var(--text); font-weight: 700; border-top: 2px solid var(--border); }
 .tabulator .tabulator-footer .tabulator-paginator { color: var(--text-muted); }
 .tabulator-menu, .tabulator-edit-list { background: var(--bg-card); border: 1px solid var(--border); color: var(--text); }
 .tabulator-menu .tabulator-menu-item:hover { background: var(--primary-light); }
+
+/* Custom header cell: label + Excel-style filter funnel button. */
+.col-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-width: 0; }
+.col-header-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-filter-btn {
+    appearance: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 5px;
+    background: transparent; color: var(--text-light); cursor: pointer; line-height: 0;
+}
+.col-filter-btn:hover { background: var(--primary-light); color: var(--primary); border-color: var(--border); }
+.col-filter-btn.has-active-filter { color: var(--primary); border-color: var(--primary); background: var(--primary-light); }
+.col-filter-btn svg { width: 13px; height: 13px; }
+
+/* Excel-style column filter popover (fixed-position; floats above everything). */
+.col-filter-popover {
+    position: fixed; z-index: 1200; width: 240px; padding: 12px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+    display: flex; flex-direction: column; gap: 8px;
+}
+.col-filter-popover-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.col-filter-popover select,
+.col-filter-popover input {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg-card); color: var(--text); font-size: 13px;
+}
+.col-filter-popover .cf-values { display: flex; flex-direction: column; gap: 6px; }
+.col-filter-popover-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; }
 
 /* -- Tab right-click menu + columns panel -- */
 .tab-context-menu, .columns-panel {

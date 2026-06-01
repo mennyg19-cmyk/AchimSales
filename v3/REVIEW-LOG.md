@@ -1319,3 +1319,54 @@ The bordered picker control sitting inside the bordered filter bar read as a
   / refocus hack): `renderCustomerOptions()` fills a fixed-positioned dropdown
   that opens on focus/type and closes on outside-click/Esc; `renderCustomerPills()`
   fills the separate pills container; positioning is off the input's rect.
+
+## Report viewer rebuild: readable headers, Excel filters, folder tabs, collapsible bar
+
+Owner feedback on the live report grid: header text barely readable, filters
+should be Excel-style dropdowns (operators like >=, one-of, between), tabs
+should look attached to the report, and the top filter bar should collapse so
+the grid takes most of the screen. Used the test app under `test/webapp/` as a
+behavioral reference (not copied), then had a GPT-5.5 subagent review the diff.
+
+**1. Readable headers.** Tabulator header now uses full-strength `--text` (was
+the faint `--text-muted`), heavier weight, a 2px bottom rule, and `!important`
+on the title color so it beats Tabulator's base theme in dark mode. Removed the
+cramped inline header filter inputs.
+
+**2. Excel-style column filters.** Each header has a funnel button
+(`.col-filter-btn`) that opens a fixed-position popover with an OPERATOR
+dropdown + value input(s). Operators are typed: text (contains / equals /
+starts / ends / one-of / empty / not-empty), numeric (= ≠ > ≥ < ≤ between empty
+not-empty), date (on / before / after / between / empty / not-empty). Filters
+live in `view().columnFilters` and are applied through ONE Tabulator function
+filter (`applyColumnFilters`) so `columnCalcs:"both"` totals recalc on the
+filtered rows. The funnel highlights when a filter is active.
+
+**3. Folder tabs attached to the grid.** Tabs + grid are now one card
+(`.report-surface`): a `.report-tabbar` with a bottom border, folder-shaped
+tabs whose active state matches the card background and hides the seam
+(`bottom:-1px` + `border-bottom: 1px solid var(--bg-card)`). The row count /
+"as of" meta sits on the right of the tab bar.
+
+**4. Collapsible "Filters & options" panel.** The filter form + toolbar + API
+preview live inside `#reportControls`; a header toggle folds them into a
+one-line summary (selected period/status/salesman/year + custom dates +
+customer count). It auto-collapses after a successful run (and on refresh) so
+the grid — now `height: calc(100vh - 230px)` — fills the screen; re-open to
+change filters.
+
+**Server parity.** `delivery/layout.py` replays the same operators server-side
+for emailed/scheduled deliveries (`_filter_rows` + `_match`), deriving column
+type from the tab's column defs. Old presets that stored the flat
+`headerFilters` substring list still work via `_filter_rows_legacy`, and the
+client's `deserializeView` maps any legacy `headerFilters` to `contains`
+`columnFilters` so the browser doesn't silently drop them.
+
+**Review fixes applied (GPT-5.5):** legacy-preset conversion on the client; a
+stale-`tableBuilt` guard so a late build from a previous tab can't re-apply the
+wrong layout; popover listener lifecycle via `AbortController` (clean
+Escape/outside-click teardown, one-click switch between funnels, same-funnel
+toggle); and strict numeric parsing (`Number` not `parseFloat`) to match
+Python's `float()` so client/server filtering agree. The percent-display nit
+(filter compares the raw 0.x fraction) was left as-is since client and server
+stay consistent.

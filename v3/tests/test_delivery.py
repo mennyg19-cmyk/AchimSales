@@ -51,6 +51,40 @@ def test_apply_layout_hides_reorders_sorts_and_filters():
     assert all(r["c"] == "keep" for r in tab["rows"])
 
 
+def test_apply_layout_legacy_header_filters_still_work():
+    # Old presets stored a flat substring list under "headerFilters".
+    layout = {"views": {"summary": {"headerFilters": [{"field": "c", "value": "keep"}]}}}
+    out = apply_layout(_payload(), layout)
+    assert all(r["c"] == "keep" for r in out["tabs"][0]["rows"])
+
+
+def test_apply_layout_columnfilters_numeric_and_text_operators():
+    payload = {"tabs": [{
+        "key": "summary", "name": "Summary",
+        "columns": [{"field": "a", "header": "A", "type": "text"},
+                    {"field": "b", "header": "B", "type": "int"}],
+        "rows": [{"a": "apple", "b": 3}, {"a": "banana", "b": 1}, {"a": "apricot", "b": 5}],
+    }]}
+    # numeric "greater than or equal" 3  +  text "starts with" ap
+    layout = {"views": {"summary": {"columnFilters": {
+        "b": {"op": "ge", "v": "3"},
+        "a": {"op": "starts", "v": "ap"},
+    }}}}
+    rows = apply_layout(payload, layout)["tabs"][0]["rows"]
+    assert [r["a"] for r in rows] == ["apple", "apricot"]
+
+
+def test_apply_layout_columnfilters_between():
+    payload = {"tabs": [{
+        "key": "s", "name": "S",
+        "columns": [{"field": "b", "header": "B", "type": "money"}],
+        "rows": [{"b": 1}, {"b": 2}, {"b": 3}, {"b": 4}],
+    }]}
+    layout = {"views": {"s": {"columnFilters": {"b": {"op": "between", "v": "2", "v2": "3"}}}}}
+    rows = apply_layout(payload, layout)["tabs"][0]["rows"]
+    assert [r["b"] for r in rows] == [2, 3]
+
+
 def test_apply_layout_noop_without_views():
     assert apply_layout(_payload(), None) == _payload()
     assert apply_layout(_payload(), {"views": {}}) == _payload()

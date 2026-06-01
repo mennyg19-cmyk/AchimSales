@@ -55,13 +55,16 @@ interface Payload {
   generated_at?: string;
 }
 
+/** One Excel-style per-column filter: an operator plus up to two values. */
+interface ColFilter { op: string; v: string; v2?: string; }
+
 /** Captured, re-applyable view state for one tab. */
 interface ViewState {
   hidden: Set<string>;
   frozen: Set<string>;
   order: string[] | null;
   sorters: { column: string; dir: string }[] | null;
-  headerFilters: { field: string; value: unknown }[] | null;
+  columnFilters: Record<string, ColFilter>;
   group: string[];
 }
 
@@ -149,7 +152,7 @@ const state: {
 } = { tabs: {}, order: [], active: null, views: {}, table: null, jobId: null };
 
 function freshView(): ViewState {
-  return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, headerFilters: null, group: [] };
+  return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [] };
 }
 
 // --------------------------------------------------------------------------
@@ -211,8 +214,7 @@ function buildColumns(tab: Tab): any[] {
     field: c.field,
     visible: !v.hidden.has(c.field),
     frozen: v.frozen.has(c.field),
-    headerFilter: "input",
-    headerFilterPlaceholder: "filter…",
+    titleFormatter: () => columnHeaderEl(tab, c),
     headerMenu: headerMenu(tab),
     bottomCalc: isNumericType(c.type) && c.type !== "percent" ? "sum" : undefined,
     bottomCalcFormatter: c.type === "money" ? "money" : undefined,
@@ -221,9 +223,275 @@ function buildColumns(tab: Tab): any[] {
   }));
 }
 
+/** A header cell: the column label plus an Excel-style filter funnel button. */
+const FUNNEL_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>';
+
+function columnHeaderEl(tab: Tab, col: Column): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "col-header-inner";
+  const label = document.createElement("span");
+  label.className = "col-header-label";
+  label.textContent = col.header;
+  wrap.appendChild(label);
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "col-filter-btn";
+  btn.dataset.field = col.field;
+  btn.title = "Filter this column";
+  btn.innerHTML = FUNNEL_SVG;
+  if (view(tab.key).columnFilters[col.field]) btn.classList.add("has-active-filter");
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // don't trigger the column sort
+    openColumnFilterPopover(col, btn);
+  });
+  wrap.appendChild(btn);
+  return wrap;
+}
+
 function view(key: string): ViewState {
   if (!state.views[key]) state.views[key] = freshView();
   return state.views[key];
+}
+
+// --------------------------------------------------------------------------
+// Excel-style per-column filters (operator + value), applied client-side via a
+// single Tabulator function filter so totals recalc on the filtered rows.
+// --------------------------------------------------------------------------
+
+interface OpDef { op: string; label: string; }
+const TEXT_OPS: OpDef[] = [
+  { op: "contains", label: "contains" },
+  { op: "equals", label: "equals" },
+  { op: "starts", label: "starts with" },
+  { op: "ends", label: "ends with" },
+  { op: "in", label: "is one of (comma-separated)" },
+  { op: "empty", label: "is empty" },
+  { op: "notEmpty", label: "is not empty" },
+];
+const NUM_OPS: OpDef[] = [
+  { op: "eq", label: "equals" },
+  { op: "ne", label: "not equal to" },
+  { op: "gt", label: "greater than" },
+  { op: "ge", label: "greater than or equal" },
+  { op: "lt", label: "less than" },
+  { op: "le", label: "less than or equal" },
+  { op: "between", label: "between" },
+  { op: "empty", label: "is empty" },
+  { op: "notEmpty", label: "is not empty" },
+];
+const DATE_OPS: OpDef[] = [
+  { op: "on", label: "on" },
+  { op: "before", label: "before" },
+  { op: "after", label: "after" },
+  { op: "between", label: "between" },
+  { op: "empty", label: "is empty" },
+  { op: "notEmpty", label: "is not empty" },
+];
+
+function operatorsFor(type?: string): OpDef[] {
+  if (isNumericType(type)) return NUM_OPS;
+  if (type === "date") return DATE_OPS;
+  return TEXT_OPS;
+}
+function opNeedsTwoValues(op: string): boolean { return op === "between"; }
+function opNeedsNoValue(op: string): boolean { return op === "empty" || op === "notEmpty"; }
+
+function num(x: unknown): number | null {
+  // Strict: reject "12abc" so this stays in lock-step with the server-side
+  // parser in delivery/layout.py (which uses Python float()).
+  const s = String(x).replace(/[$,%\s]/g, "");
+  if (s === "") return null;
+  const v = Number(s);
+  return isFinite(v) ? v : null;
+}
+
+/** Does one row pass one column's filter? */
+function rowMatches(row: Record<string, unknown>, field: string, type: string | undefined, f: ColFilter): boolean {
+  const raw = row[field];
+  if (f.op === "empty") return raw === "" || raw == null;
+  if (f.op === "notEmpty") return !(raw === "" || raw == null);
+
+  if (isNumericType(type)) {
+    const x = num(raw);
+    const a = num(f.v);
+    if (x == null || a == null) return false;
+    switch (f.op) {
+      case "eq": return x === a;
+      case "ne": return x !== a;
+      case "gt": return x > a;
+      case "ge": return x >= a;
+      case "lt": return x < a;
+      case "le": return x <= a;
+      case "between": { const b = num(f.v2); return b == null ? x >= a : x >= a && x <= b; }
+    }
+    return true;
+  }
+  if (type === "date") {
+    const d = String(raw ?? "").slice(0, 10);
+    const a = String(f.v ?? "").slice(0, 10);
+    const b = String(f.v2 ?? "").slice(0, 10);
+    switch (f.op) {
+      case "on": return d === a;
+      case "before": return !!d && d < a;
+      case "after": return !!d && d > a;
+      case "between": return (!a || d >= a) && (!b || d <= b);
+    }
+    return true;
+  }
+  const s = String(raw ?? "").toLowerCase();
+  const q = String(f.v ?? "").toLowerCase();
+  switch (f.op) {
+    case "contains": return s.includes(q);
+    case "equals": return s === q;
+    case "starts": return s.startsWith(q);
+    case "ends": return s.endsWith(q);
+    case "in": return q.split(",").map((p) => p.trim()).filter(Boolean).includes(s);
+  }
+  return s.includes(q);
+}
+
+/** Filters that are actually "armed" (have the value(s) their operator needs). */
+function activeColumnFilters(tab: Tab): { field: string; type?: string; f: ColFilter }[] {
+  const cf = view(tab.key).columnFilters;
+  const typeByField = new Map(tab.columns.map((c) => [c.field, c.type]));
+  const out: { field: string; type?: string; f: ColFilter }[] = [];
+  Object.keys(cf).forEach((field) => {
+    const f = cf[field];
+    if (!f) return;
+    if (opNeedsNoValue(f.op)) out.push({ field, type: typeByField.get(field), f });
+    else if (f.v !== "" && f.v != null) out.push({ field, type: typeByField.get(field), f });
+  });
+  return out;
+}
+
+function applyColumnFilters(): void {
+  if (!state.table || !state.active) return;
+  const tab = state.tabs[state.active];
+  if (!tab || tab.layout === "commission_cards") return;
+  const active = activeColumnFilters(tab);
+  try {
+    if (!active.length) state.table.clearFilter();
+    else state.table.setFilter((row: Record<string, unknown>) => active.every((a) => rowMatches(row, a.field, a.type, a.f)));
+  } catch { /* table not ready */ }
+  updateFunnelStates();
+}
+
+function updateFunnelStates(): void {
+  if (!state.active) return;
+  const cf = view(state.active).columnFilters;
+  document.querySelectorAll<HTMLElement>(".col-filter-btn").forEach((btn) => {
+    btn.classList.toggle("has-active-filter", !!cf[btn.dataset.field || ""]);
+  });
+}
+
+let colFilterPopover: HTMLElement | null = null;
+let colFilterAbort: AbortController | null = null;
+function closeColumnFilterPopover(): void {
+  colFilterPopover?.remove();
+  colFilterPopover = null;
+  colFilterAbort?.abort(); // drops the Escape + outside-click listeners
+  colFilterAbort = null;
+}
+
+function openColumnFilterPopover(col: Column, anchor: HTMLElement): void {
+  // Clicking the same funnel toggles closed; a different funnel switches to it.
+  const sameField = colFilterPopover?.dataset.field === col.field;
+  closeColumnFilterPopover();
+  if (sameField || !state.active) return;
+  const cf = view(state.active).columnFilters;
+  const ops = operatorsFor(col.type);
+  const current: ColFilter = cf[col.field] || { op: ops[0].op, v: "", v2: "" };
+
+  const panel = document.createElement("div");
+  panel.className = "col-filter-popover";
+  panel.dataset.field = col.field;
+
+  const title = document.createElement("div");
+  title.className = "col-filter-popover-title";
+  title.textContent = col.header;
+  panel.appendChild(title);
+
+  const opSel = document.createElement("select");
+  ops.forEach((o) => {
+    const opt = document.createElement("option");
+    opt.value = o.op;
+    opt.textContent = o.label;
+    if (o.op === current.op) opt.selected = true;
+    opSel.appendChild(opt);
+  });
+  panel.appendChild(opSel);
+
+  const values = document.createElement("div");
+  values.className = "cf-values";
+  panel.appendChild(values);
+
+  const inputType = col.type === "date" ? "date" : isNumericType(col.type) ? "number" : "text";
+  const v1 = document.createElement("input");
+  v1.type = inputType;
+  v1.value = current.v || "";
+  const v2 = document.createElement("input");
+  v2.type = inputType;
+  v2.value = current.v2 || "";
+
+  const syncValueInputs = () => {
+    values.innerHTML = "";
+    const op = opSel.value;
+    if (opNeedsNoValue(op)) return;
+    v1.placeholder = col.type === "text" || !col.type ? (op === "in" ? "a, b, c" : "value") : "";
+    values.appendChild(v1);
+    if (opNeedsTwoValues(op)) { v2.placeholder = "and"; values.appendChild(v2); }
+  };
+  opSel.addEventListener("change", syncValueInputs);
+  syncValueInputs();
+
+  const foot = document.createElement("div");
+  foot.className = "col-filter-popover-foot";
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "btn btn-sm btn-outline";
+  clear.textContent = "Clear";
+  clear.addEventListener("click", () => {
+    delete cf[col.field];
+    applyColumnFilters();
+    closeColumnFilterPopover();
+  });
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.className = "btn btn-sm btn-primary";
+  apply.textContent = "Apply";
+  const doApply = () => {
+    const op = opSel.value;
+    if (opNeedsNoValue(op)) cf[col.field] = { op, v: "" };
+    else if (v1.value.trim() === "") delete cf[col.field];
+    else cf[col.field] = { op, v: v1.value.trim(), v2: opNeedsTwoValues(op) ? v2.value.trim() : "" };
+    applyColumnFilters();
+    closeColumnFilterPopover();
+  };
+  apply.addEventListener("click", doApply);
+  [v1, v2].forEach((i) => i.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") doApply(); }));
+  foot.append(clear, apply);
+  panel.appendChild(foot);
+
+  // Anchor under the funnel, nudged left so a 240px panel stays on screen.
+  const r = anchor.getBoundingClientRect();
+  panel.style.top = `${Math.round(r.bottom + 4)}px`;
+  panel.style.left = `${Math.round(Math.min(r.left, window.innerWidth - 252))}px`;
+  document.body.appendChild(panel);
+  colFilterPopover = panel;
+  colFilterAbort = new AbortController();
+  const { signal } = colFilterAbort;
+  (opNeedsNoValue(opSel.value) ? opSel : v1).focus();
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeColumnFilterPopover(); }, { signal });
+  // The funnel handler stops propagation, so this bubble-phase listener fires
+  // only for clicks elsewhere; the timeout skips the opening click itself.
+  setTimeout(() => {
+    document.addEventListener("click", (e) => {
+      if (colFilterPopover && !colFilterPopover.contains(e.target as Node)) closeColumnFilterPopover();
+    }, { signal });
+  }, 0);
 }
 
 // --------------------------------------------------------------------------
@@ -237,7 +505,6 @@ function captureActive(): void {
   const v = view(state.active);
   try {
     v.sorters = state.table.getSorters().map((s: any) => ({ column: s.field, dir: s.dir }));
-    v.headerFilters = state.table.getHeaderFilters();
     const cols = state.table.getColumns();
     v.order = cols.map((c: any) => c.getField()).filter(Boolean);
     v.hidden = new Set(cols.filter((c: any) => !c.isVisible()).map((c: any) => c.getField()));
@@ -281,22 +548,25 @@ function buildTable(tab: Tab): void {
   }
 
   const v = view(tab.key);
-  state.table = new Tabulator(host, {
+  const table = new Tabulator(host, {
     data: tab.rows,
     columns: buildColumns(tab),
     layout: "fitDataTable",
     movableColumns: true,
     columnCalcs: "both",
-    height: "62vh",
+    height: "calc(100vh - 230px)",
     nestedFieldSeparator: false, // fields contain "." (e.g. "Cust. #")
     placeholder: "No data for these filters.",
     initialSort: v.sorters?.map((s) => ({ column: s.column, dir: s.dir })),
-    initialHeaderFilter: v.headerFilters || undefined,
     groupBy: v.group.length ? v.group : undefined,
   });
-  if (v.group.length) {
-    state.table.on("tableBuilt", () => state.table.setGroupBy(v.group));
-  }
+  state.table = table;
+  table.on("tableBuilt", () => {
+    // A build from a previous tab can fire late; ignore it if we've moved on.
+    if (state.table !== table || state.active !== tab.key) return;
+    if (v.group.length) table.setGroupBy(v.group);
+    applyColumnFilters(); // replay any saved per-column filters
+  });
   renderMeta(tab);
 }
 
@@ -594,6 +864,8 @@ function loadPayload(payload: Payload, render = true): void {
       buildTable(state.tabs[state.active]);
       syncColumnsButton(state.tabs[state.active]);
     }
+    showReportSurface();
+    setControlsCollapsed(true);
   }
 }
 
@@ -646,6 +918,8 @@ function loadPayloadPreserving(payload: Payload): void {
     buildTable(state.tabs[state.active]);
     syncColumnsButton(state.tabs[state.active]);
   }
+  showReportSurface();
+  setControlsCollapsed(true);
 }
 
 function cloneView(v: ViewState): ViewState {
@@ -654,7 +928,7 @@ function cloneView(v: ViewState): ViewState {
     frozen: new Set(v.frozen),
     order: v.order ? [...v.order] : null,
     sorters: v.sorters ? v.sorters.map((s) => ({ ...s })) : null,
-    headerFilters: v.headerFilters ? v.headerFilters.map((f) => ({ ...f })) : null,
+    columnFilters: JSON.parse(JSON.stringify(v.columnFilters || {})),
     group: [...v.group],
   };
 }
@@ -721,6 +995,39 @@ function setToolbarEnabled(hasData: boolean): void {
   });
   const runBtn = $("runBtn") as HTMLButtonElement | null;
   if (runBtn) runBtn.disabled = false;
+}
+
+// --------------------------------------------------------------------------
+// Collapsible "Filters & options" panel: once a report is showing, fold the
+// controls into a one-line summary so the grid takes most of the screen.
+// --------------------------------------------------------------------------
+
+function showReportSurface(): void {
+  const s = $("reportSurface");
+  if (s) s.hidden = false;
+}
+
+function setControlsCollapsed(collapsed: boolean): void {
+  const c = $("reportControls");
+  if (!c) return;
+  c.classList.toggle("collapsed", collapsed);
+  $("controlsToggle")?.setAttribute("aria-expanded", String(!collapsed));
+  if (collapsed) updateControlsSummary();
+}
+
+function updateControlsSummary(): void {
+  const el = $("controlsSummary");
+  if (!el) return;
+  const parts: string[] = [];
+  document.querySelectorAll<HTMLSelectElement>("#filterForm select").forEach((sel) => {
+    const opt = sel.options[sel.selectedIndex];
+    if (opt && opt.textContent) parts.push(opt.textContent.trim());
+  });
+  const sd = (document.querySelector('[name="start_date"]') as HTMLInputElement | null)?.value;
+  const ed = (document.querySelector('[name="end_date"]') as HTMLInputElement | null)?.value;
+  if (sd || ed) parts.push(`${sd || "…"} – ${ed || "…"}`);
+  if (selectedCustomers.size) parts.push(`${selectedCustomers.size} customer${selectedCustomers.size > 1 ? "s" : ""}`);
+  el.textContent = parts.filter(Boolean).join("  ·  ");
 }
 
 // --------------------------------------------------------------------------
@@ -1057,15 +1364,26 @@ interface SavedLayout { active: string | null; views: Record<string, unknown>; }
 function serializeView(v: ViewState): unknown {
   return {
     hidden: [...v.hidden], frozen: [...v.frozen], order: v.order,
-    sorters: v.sorters, headerFilters: v.headerFilters, group: v.group,
+    sorters: v.sorters, columnFilters: v.columnFilters, group: v.group,
   };
 }
 
 function deserializeView(o: any): ViewState {
+  // Back-compat: presets saved before Excel-style filters stored a flat
+  // `headerFilters` list of substring matches. Map them to "contains".
+  let columnFilters: Record<string, ColFilter> = o?.columnFilters || {};
+  if (!o?.columnFilters && Array.isArray(o?.headerFilters)) {
+    columnFilters = {};
+    o.headerFilters.forEach((hf: any) => {
+      if (hf?.field && String(hf.value ?? "").trim() !== "") {
+        columnFilters[hf.field] = { op: "contains", v: String(hf.value), v2: "" };
+      }
+    });
+  }
   return {
     hidden: new Set<string>(o?.hidden || []), frozen: new Set<string>(o?.frozen || []),
     order: o?.order || null, sorters: o?.sorters || null,
-    headerFilters: o?.headerFilters || null, group: o?.group || [],
+    columnFilters, group: o?.group || [],
   };
 }
 
@@ -1447,6 +1765,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // link reveals the date inputs when the toggle does its initial sync.
   applyDeepLink();
   initCustomRangeToggle();
+  $("controlsToggle")?.addEventListener("click", () => {
+    setControlsCollapsed(!$("reportControls")?.classList.contains("collapsed"));
+  });
   $("runBtn")?.addEventListener("click", () => { updateDeepLink(); run(); });
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);

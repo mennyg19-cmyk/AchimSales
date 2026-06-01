@@ -17,6 +17,13 @@
     </h1>
 </div>
 
+<div class="report-controls" id="reportControls">
+    <button type="button" class="controls-toggle" id="controlsToggle" aria-expanded="true" aria-controls="controlsBody">
+        <span class="controls-toggle-main"><i data-feather="sliders"></i> <span>Filters &amp; options</span></span>
+        <span class="controls-summary" id="controlsSummary"></span>
+        <i data-feather="chevron-up" class="controls-chevron"></i>
+    </button>
+    <div class="controls-body" id="controlsBody">
 <form id="filterForm" class="filter-bar filter-bar-row" onsubmit="return false;">
     <div class="filter-fields">
     {% if 'period' in filters %}
@@ -89,13 +96,19 @@
 </div>
 
 <pre id="apiPreview" class="api-preview" hidden></pre>
+    </div>
+</div>
 
 <div id="reportStatus" class="report-status" hidden></div>
 
-<div id="reportTabs" class="report-tabs" hidden></div>
-<div id="reportMeta" class="report-meta" hidden></div>
-<div class="report-table-scroll">
-    <div id="reportTable"></div>
+<div id="reportSurface" class="report-surface" hidden>
+    <div class="report-tabbar">
+        <div id="reportTabs" class="report-tabs"></div>
+        <div id="reportMeta" class="report-meta"></div>
+    </div>
+    <div class="report-table-scroll">
+        <div id="reportTable"></div>
+    </div>
 </div>
 
 <div id="reportRoot"

@@ -10,13 +10,17 @@ Layout shape (produced by report.ts `serializeLayout`):
     {"active": <tabKey|null>,
      "views": {<tabKey>: {"hidden": [field...], "order": [field...],
                           "sorters": [{"column": field, "dir": "asc|desc"}],
-                          "headerFilters": [{"field": f, "value": v}]}}}
-Tabs are matched by their ``key``.
+                          "columnFilters": {<field>: {"op": str, "v": str, "v2": str}}}}}
+Tabs are matched by their ``key``. ``columnFilters`` mirrors the Excel-style
+per-column operators in the viewer; older saved presets used a flat
+``headerFilters`` list (substring contains) which is still honoured.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+_NUMERIC_TYPES = {"money", "int", "percent"}
 
 
 def apply_layout(payload: dict, layout: dict | None) -> dict:
@@ -33,8 +37,15 @@ def apply_layout(payload: dict, layout: dict | None) -> dict:
 def _apply_to_tab(tab: dict, v: dict) -> dict:
     columns = list(tab.get("columns") or [])
     rows = list(tab.get("rows") or [])
+    type_by_field = {
+        _field_of(c): (c.get("type") if isinstance(c, dict) else None) for c in columns
+    }
     columns = _reorder_and_hide(columns, v)
-    rows = _filter_rows(rows, v.get("headerFilters") or [])
+    col_filters = v.get("columnFilters")
+    if col_filters:
+        rows = _filter_rows(rows, col_filters, type_by_field)
+    else:
+        rows = _filter_rows_legacy(rows, v.get("headerFilters") or [])
     rows = _sort_rows(rows, v.get("sorters") or [])
     return {**tab, "columns": columns, "rows": rows}
 
@@ -57,16 +68,83 @@ def _reorder_and_hide(columns: list, v: dict) -> list:
     return ordered
 
 
-def _filter_rows(rows: list, header_filters: list) -> list:
+def _filter_rows_legacy(rows: list, header_filters: list) -> list:
+    """Old preset format: a flat list of {field, value} substring filters."""
     active = [(hf.get("field"), str(hf.get("value", "")).strip().lower())
               for hf in header_filters if hf.get("field") and str(hf.get("value", "")).strip()]
     if not active:
         return rows
-    out = []
-    for row in rows:
-        if all(needle in str(row.get(field, "")).lower() for field, needle in active):
-            out.append(row)
-    return out
+    return [row for row in rows
+            if all(needle in str(row.get(field, "")).lower() for field, needle in active)]
+
+
+def _filter_rows(rows: list, col_filters: dict, type_by_field: dict) -> list:
+    """Excel-style per-column operators. Mirrors report.ts ``rowMatches``."""
+    active = []
+    for field, f in (col_filters or {}).items():
+        if not isinstance(f, dict):
+            continue
+        op = f.get("op")
+        v, v2 = f.get("v"), f.get("v2")
+        if op in ("empty", "notEmpty"):
+            active.append((field, op, v, v2, type_by_field.get(field)))
+        elif v not in (None, ""):
+            active.append((field, op, v, v2, type_by_field.get(field)))
+    if not active:
+        return rows
+    return [row for row in rows
+            if all(_match(row.get(field), op, v, v2, t) for field, op, v, v2, t in active)]
+
+
+def _to_num(value: Any) -> float | None:
+    try:
+        return float(str(value).replace("$", "").replace(",", "").replace("%", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _match(raw: Any, op: str, v: Any, v2: Any, col_type: Any) -> bool:
+    if op == "empty":
+        return raw is None or str(raw) == ""
+    if op == "notEmpty":
+        return not (raw is None or str(raw) == "")
+
+    if col_type in _NUMERIC_TYPES:
+        x, a = _to_num(raw), _to_num(v)
+        if x is None or a is None:
+            return False
+        b = _to_num(v2)
+        return {
+            "eq": x == a, "ne": x != a, "gt": x > a, "ge": x >= a,
+            "lt": x < a, "le": x <= a,
+            "between": x >= a if b is None else (a <= x <= b),
+        }.get(op, True)
+
+    if col_type == "date":
+        d = str(raw or "")[:10]
+        a = str(v or "")[:10]
+        b = str(v2 or "")[:10]
+        if op == "on":
+            return d == a
+        if op == "before":
+            return bool(d) and d < a
+        if op == "after":
+            return bool(d) and d > a
+        if op == "between":
+            return (not a or d >= a) and (not b or d <= b)
+        return True
+
+    s = str(raw if raw is not None else "").lower()
+    q = str(v).lower()
+    if op == "equals":
+        return s == q
+    if op == "starts":
+        return s.startswith(q)
+    if op == "ends":
+        return s.endswith(q)
+    if op == "in":
+        return s in [p.strip() for p in q.split(",") if p.strip()]
+    return q in s  # "contains" (and default)
 
 
 def _sort_rows(rows: list, sorters: list) -> list:
