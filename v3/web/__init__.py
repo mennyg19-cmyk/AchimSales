@@ -73,6 +73,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.reporting.lookups import LookupService
     from web.reporting.report_service import ReportService
     from web.reporting.runner import ReportRunner
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler
 
     client = ReportingApiClient(cfg.reporting_api_base_url, cfg.reporting_api_key)
     salesmen_repo = SalesmanRepository(db)
@@ -87,6 +88,9 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     delivery = DeliveryService(runner, service.builder_for, email)
     worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery))
 
+    schedule_runner = _build_schedule_runner(db, delivery, app.config["AUTHZ"])
+    worker.register(SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler(schedule_runner))
+
     app.config["REPORT_SERVICE"] = service
     app.config["LOOKUP_SERVICE"] = LookupService(service, salesmen_repo)
     app.config["REPORT_CACHE"] = cache
@@ -94,6 +98,23 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     app.config["JOB_WORKER"] = worker
     app.config["SHAREPOINT_SERVICE"] = sharepoint
     app.config["DELIVERY_SERVICE"] = delivery
+    app.config["SCHEDULE_RUNNER"] = schedule_runner
+
+
+def _build_schedule_runner(db, delivery, authz):
+    from web.data.repositories.schedules import (
+        MasterScheduleRepository,
+        ScheduleRepository,
+        ScheduleRunRepository,
+    )
+    from web.data.repositories.users import UserRepository
+    from web.scheduling.runner import ScheduleRunner
+
+    return ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=authz, delivery=delivery,
+    )
 
 
 def _ephemeral_dev_secret(cfg: Config) -> str:
@@ -123,6 +144,8 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         nav = {
             "reports": _safe_url("reports.reports_list"),
             "dashboard": _safe_url("dashboard.dashboard"),
+            "schedules": _safe_url("schedules.schedules_page"),
+            "master_schedules": _safe_url("schedules.master_page"),
             "settings": _safe_url("settings.settings_page"),
             "login": _safe_url("auth.login_page"),
             "logout": _safe_url("auth.logout_route"),
@@ -164,12 +187,14 @@ def _register_blueprints(app: Flask) -> None:
     from web.blueprints.dashboard import dashboard_bp
     from web.blueprints.health import health_bp
     from web.blueprints.reports import reports_bp
+    from web.blueprints.schedules import schedules_bp
     from web.blueprints.settings import settings_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(schedules_bp)
     app.register_blueprint(settings_bp)
 
 

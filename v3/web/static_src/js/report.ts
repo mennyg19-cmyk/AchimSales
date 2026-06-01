@@ -715,7 +715,7 @@ async function run(opts: { preserveLayout?: boolean } = {}): Promise<void> {
 }
 
 function setToolbarEnabled(hasData: boolean): void {
-  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn", "emailBtn"] as const).forEach((id) => {
+  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
@@ -1141,8 +1141,88 @@ async function autoOpenPresetIfRequested(): Promise<void> {
 // Email delivery + SharePoint folder picker
 // --------------------------------------------------------------------------
 
-let spCurrentPath = "";
-let spSelectedPath: string | null = null;
+// A SharePoint folder picker bound to a set of element ids. Used by both the
+// email and schedule modals; each instance tracks its own selected path.
+interface SpPickerEls { section: string; breadcrumb: string; picker: string; selected: string; status: string; }
+
+function makeSpPicker(els: SpPickerEls) {
+  let cur = "";
+  let selected: string | null = null;
+
+  async function init(): Promise<void> {
+    const section = $(els.section);
+    if (!section) return;
+    selected = null;
+    cur = "";
+    const sel = $(els.selected);
+    if (sel) sel.textContent = "";
+    const st = await getJSON<{ enabled: boolean; configured: boolean }>(attr("data-sp-status-url"));
+    if (!st || !st.enabled) { section.hidden = true; return; }
+    section.hidden = false;
+    const status = $(els.status);
+    if (status) status.textContent = st.configured ? "" : "(mock folders in dev)";
+    load("");
+  }
+
+  async function load(path: string): Promise<void> {
+    cur = path;
+    const url = attr("data-sp-folders-url") + "?path=" + encodeURIComponent(path);
+    const data = await getJSON<{ folders: { name: string; path: string }[] }>(url);
+    renderBreadcrumb(path);
+    renderFolders((data && data.folders) || []);
+  }
+
+  function renderBreadcrumb(path: string): void {
+    const bc = $(els.breadcrumb);
+    if (!bc) return;
+    bc.innerHTML = "";
+    const crumb = (label: string, target: string) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "sp-crumb";
+      b.textContent = label;
+      b.addEventListener("click", () => load(target));
+      return b;
+    };
+    bc.appendChild(crumb("Root", ""));
+    let acc = "";
+    (path ? path.split("/") : []).forEach((p) => {
+      acc = acc ? `${acc}/${p}` : p;
+      bc.appendChild(document.createTextNode(" / "));
+      bc.appendChild(crumb(p, acc));
+    });
+    const use = document.createElement("button");
+    use.type = "button";
+    use.className = "sp-use";
+    use.textContent = "Use this folder";
+    use.addEventListener("click", () => {
+      selected = cur;
+      const sel = $(els.selected);
+      if (sel) sel.textContent = `Will save to: ${cur || "Direct Reports (root)"}`;
+    });
+    bc.appendChild(use);
+  }
+
+  function renderFolders(folders: { name: string; path: string }[]): void {
+    const picker = $(els.picker);
+    if (!picker) return;
+    picker.innerHTML = "";
+    if (!folders.length) { picker.innerHTML = '<div class="sp-empty">No subfolders here.</div>'; return; }
+    folders.forEach((f) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "sp-folder";
+      b.textContent = f.name;
+      b.addEventListener("click", () => load(f.path));
+      picker.appendChild(b);
+    });
+  }
+
+  return { init, path: () => selected };
+}
+
+const emailSp = makeSpPicker({ section: "spSection", breadcrumb: "spBreadcrumb",
+  picker: "spPicker", selected: "spSelected", status: "spStatus" });
 
 function emailMsg(text: string, isError: boolean): void {
   const el = $("emailMsg");
@@ -1158,12 +1238,8 @@ function openEmailModal(): void {
   (($("emailSubject") as HTMLInputElement)).value = document.title || "Report";
   (($("emailRecipients") as HTMLInputElement)).value = "";
   emailMsg("", false);
-  spSelectedPath = null;
-  spCurrentPath = "";
-  const sel = $("spSelected");
-  if (sel) sel.textContent = "";
   modal.hidden = false;
-  initSharePointSection();
+  emailSp.init();
 }
 
 function closeEmailModal(): void {
@@ -1171,79 +1247,10 @@ function closeEmailModal(): void {
   if (modal) modal.hidden = true;
 }
 
-async function initSharePointSection(): Promise<void> {
-  const section = $("spSection");
-  if (!section) return;
-  const st = await getJSON<{ enabled: boolean; configured: boolean }>(attr("data-sp-status-url"));
-  if (!st || !st.enabled) { section.hidden = true; return; }
-  section.hidden = false;
-  const status = $("spStatus");
-  if (status) status.textContent = st.configured ? "" : "(mock folders in dev)";
-  loadSpFolders("");
-}
-
-async function loadSpFolders(path: string): Promise<void> {
-  spCurrentPath = path;
-  const url = attr("data-sp-folders-url") + "?path=" + encodeURIComponent(path);
-  const data = await getJSON<{ folders: { name: string; path: string }[] }>(url);
-  renderSpBreadcrumb(path);
-  renderSpFolders((data && data.folders) || []);
-}
-
-function renderSpBreadcrumb(path: string): void {
-  const bc = $("spBreadcrumb");
-  if (!bc) return;
-  bc.innerHTML = "";
-  const parts = path ? path.split("/") : [];
-  const mkCrumb = (label: string, target: string) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "sp-crumb";
-    b.textContent = label;
-    b.addEventListener("click", () => loadSpFolders(target));
-    return b;
-  };
-  bc.appendChild(mkCrumb("Root", ""));
-  let acc = "";
-  parts.forEach((p) => {
-    acc = acc ? `${acc}/${p}` : p;
-    bc.appendChild(document.createTextNode(" / "));
-    bc.appendChild(mkCrumb(p, acc));
-  });
-  const use = document.createElement("button");
-  use.type = "button";
-  use.className = "sp-use";
-  use.textContent = "Use this folder";
-  use.addEventListener("click", () => {
-    spSelectedPath = spCurrentPath;
-    const sel = $("spSelected");
-    if (sel) sel.textContent = `Will save to: ${spCurrentPath || "Direct Reports (root)"}`;
-  });
-  bc.appendChild(use);
-}
-
-function renderSpFolders(folders: { name: string; path: string }[]): void {
-  const picker = $("spPicker");
-  if (!picker) return;
-  picker.innerHTML = "";
-  if (!folders.length) {
-    picker.innerHTML = '<div class="sp-empty">No subfolders here.</div>';
-    return;
-  }
-  folders.forEach((f) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "sp-folder";
-    b.textContent = f.name;
-    b.addEventListener("click", () => loadSpFolders(f.path));
-    picker.appendChild(b);
-  });
-}
-
 async function sendEmail(): Promise<void> {
   const recipients = (($("emailRecipients") as HTMLInputElement)).value.trim();
   const subject = (($("emailSubject") as HTMLInputElement)).value.trim();
-  if (!recipients && !spSelectedPath) {
+  if (!recipients && !emailSp.path()) {
     emailMsg("Enter at least one recipient or pick a SharePoint folder.", true);
     return;
   }
@@ -1254,7 +1261,7 @@ async function sendEmail(): Promise<void> {
     const res = await fetch(attr("data-email-url"), {
       method: "POST", headers: csrfHeaders(),
       body: JSON.stringify({
-        recipients, subject, sharepoint_path: spSelectedPath || "",
+        recipients, subject, sharepoint_path: emailSp.path() || "",
         params: collectParams(), layout: serializeLayout(),
       }),
     });
@@ -1290,6 +1297,90 @@ async function pollEmailJob(jobId: string): Promise<void> {
   emailMsg("Still processing — check the outbox shortly.", false);
 }
 
+// -- schedule modal ---------------------------------------------------------
+
+const scheduleSp = makeSpPicker({ section: "schedSpSection", breadcrumb: "schedSpBreadcrumb",
+  picker: "schedSpPicker", selected: "schedSpSelected", status: "schedSpStatus" });
+
+function schedMsg(text: string, isError: boolean): void {
+  const el = $("schedMsg");
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+  el.className = "modal-msg" + (isError ? " modal-msg-error" : "");
+}
+
+function syncCadenceFields(): void {
+  const freq = ($("schedFreq") as HTMLSelectElement | null)?.value || "daily";
+  const wd = $("schedWeekdays");
+  const md = $("schedMonthdayField");
+  if (wd) wd.hidden = freq !== "weekly";
+  if (md) md.hidden = freq !== "monthly";
+}
+
+function openScheduleModal(): void {
+  const modal = $("scheduleModal");
+  if (!modal) return;
+  (($("schedRecipients") as HTMLInputElement)).value = "";
+  schedMsg("", false);
+  syncCadenceFields();
+  modal.hidden = false;
+  scheduleSp.init();
+}
+
+function closeScheduleModal(): void {
+  const modal = $("scheduleModal");
+  if (modal) modal.hidden = true;
+}
+
+function collectCadence(): { ok: boolean; cadence?: any; error?: string } {
+  const freq = ($("schedFreq") as HTMLSelectElement).value;
+  const time = ($("schedTime") as HTMLInputElement).value || "08:00";
+  const cadence: any = { freq, time };
+  if (freq === "weekly") {
+    const days = [...document.querySelectorAll<HTMLInputElement>("#schedWeekdays input:checked")]
+      .map((c) => Number(c.value));
+    if (!days.length) return { ok: false, error: "Pick at least one day of the week." };
+    cadence.weekdays = days;
+  } else if (freq === "monthly") {
+    cadence.monthday = Number(($("schedMonthday") as HTMLInputElement).value) || 1;
+  }
+  return { ok: true, cadence };
+}
+
+async function saveSchedule(): Promise<void> {
+  const recipients = (($("schedRecipients") as HTMLInputElement)).value.trim();
+  if (!recipients && !scheduleSp.path()) {
+    schedMsg("Enter recipients or pick a SharePoint folder.", true);
+    return;
+  }
+  const cad = collectCadence();
+  if (!cad.ok) { schedMsg(cad.error || "Invalid cadence.", true); return; }
+  const btn = $("schedSave") as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  schedMsg("Saving…", false);
+  try {
+    const res = await fetch(attr("data-schedules-url"), {
+      method: "POST", headers: csrfHeaders(),
+      body: JSON.stringify({
+        report_key: attr("data-report-key"), recipients,
+        sharepoint_path: scheduleSp.path() || "", cadence: cad.cadence,
+        params: collectParams(), layout: serializeLayout(),
+      }),
+    });
+    if (res.status !== 201) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error((e as any).error || "Could not save the schedule.");
+    }
+    schedMsg("Schedule saved. Manage it under Schedules.", false);
+    setTimeout(closeScheduleModal, 1400);
+  } catch (e) {
+    schedMsg((e as Error).message || "Could not save.", true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   if (!root) return;
   // Apply deep-links BEFORE wiring the custom-range toggle so a period=custom
@@ -1308,6 +1399,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("emailCancel")?.addEventListener("click", closeEmailModal);
   $("emailSend")?.addEventListener("click", sendEmail);
   $("emailModal")?.addEventListener("click", (e) => { if (e.target === $("emailModal")) closeEmailModal(); });
+  $("scheduleBtn")?.addEventListener("click", openScheduleModal);
+  $("schedClose")?.addEventListener("click", closeScheduleModal);
+  $("schedCancel")?.addEventListener("click", closeScheduleModal);
+  $("schedFreq")?.addEventListener("change", syncCadenceFields);
+  $("schedSave")?.addEventListener("click", saveSchedule);
+  $("scheduleModal")?.addEventListener("click", (e) => { if (e.target === $("scheduleModal")) closeScheduleModal(); });
   $("previewBtn")?.addEventListener("click", showApiPreview);
   $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
   $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);

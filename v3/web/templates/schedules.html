@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Schedules{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <h1 class="page-title">Schedules</h1>
+    <p class="page-subtitle">Recurring deliveries you've set up. Create one from a report using the “Schedule” button.</p>
+</div>
+
+{% if schedules %}
+<div class="table-wrap" id="schedulesRoot" data-csrf="{{ csrf_token() }}">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Report</th><th>Cadence</th><th>Recipients</th><th>SharePoint</th>
+                <th>Last run</th><th>Active</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in schedules %}
+            <tr>
+                <td>{{ s.report_title }}</td>
+                <td>{{ s.cadence }}</td>
+                <td>{{ s.recipients or '—' }}</td>
+                <td>{{ s.sharepoint_path or '—' }}</td>
+                <td>{{ s.last_run or 'never' }}</td>
+                <td>
+                    <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
+                            data-url="{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}"
+                            data-active="{{ 'false' if s.is_active else 'true' }}">
+                        {{ 'On' if s.is_active else 'Off' }}
+                    </button>
+                </td>
+                <td class="row-actions">
+                    <button type="button" class="btn btn-sm btn-outline js-run"
+                            data-url="{{ url_for('schedules.run_schedule', schedule_id=s.id) }}">Run now</button>
+                    <a class="btn btn-sm btn-outline" href="{{ url_for('schedules.schedule_history', schedule_id=s.id) }}">History</a>
+                    <button type="button" class="btn btn-sm btn-outline js-delete"
+                            data-url="{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}"
+                            data-confirm="Delete this schedule?">Delete</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <i data-feather="clock"></i>
+    <p>No schedules yet. Open a report, set your filters, and use the “Schedule” button to create one.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/schedules.js') }}"></script>
+{% endblock %}

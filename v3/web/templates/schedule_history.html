@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Run history{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="{{ url_for('schedules.schedules_page') }}">
+        <i data-feather="arrow-left"></i> Schedules
+    </a>
+    <h1 class="page-title">{{ report_title }} — run history</h1>
+    <p class="page-subtitle">{{ cadence }}</p>
+</div>
+
+{% if runs %}
+<div class="table-wrap">
+    <table class="data-table">
+        <thead>
+            <tr><th>Started</th><th>Finished</th><th>Status</th><th>Rows</th><th>Details</th></tr>
+        </thead>
+        <tbody>
+            {% for r in runs %}
+            <tr>
+                <td>{{ r.started_at or '—' }}</td>
+                <td>{{ r.finished_at or '—' }}</td>
+                <td>
+                    <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
+                        {{ r.status|title }}
+                    </span>
+                </td>
+                <td>{{ r.rows if r.rows is not none else '—' }}</td>
+                <td>
+                    {% if r.debug_log %}<div class="run-debug">{{ r.debug_log }}</div>{% endif %}
+                    {% if r.output_meta.get('sharepoint_url') %}<div class="run-sp">SharePoint saved</div>{% endif %}
+                    {% if r.output_meta.get('recipients') %}<div class="run-rcpt">To: {{ r.output_meta['recipients']|join(', ') }}</div>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <i data-feather="inbox"></i>
+    <p>This schedule hasn't run yet.</p>
+</div>
+{% endif %}
+{% endblock %}

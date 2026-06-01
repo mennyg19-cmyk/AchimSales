@@ -30,6 +30,13 @@
     </form>
 </section>
 
+{% if user.role in ('admin', 'developer') %}
+<section class="settings-card">
+    <h2 class="section-title">Admin</h2>
+    <a class="btn btn-outline btn-sm" href="{{ nav.master_schedules }}">Manage master schedules</a>
+</section>
+{% endif %}
+
 {% if salesmen %}
 <section class="settings-card">
     <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>

@@ -22,6 +22,7 @@
         <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
         <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Export exactly what's on screen">Export</button>
         <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)">Email</button>
+        <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view">Schedule</button>
         <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
         <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view">Presets</button>
         <button type="button" id="previewBtn" class="btn btn-outline" title="Show the exact request sent to the Reporting API">API preview</button>
@@ -108,6 +109,8 @@
      data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
      data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
+     data-schedules-url="{{ url_for('schedules.create_schedule') }}"
+     data-schedules-page="{{ url_for('schedules.schedules_page') }}"
      data-csrf="{{ csrf_token() }}"
      hidden></div>
 
@@ -137,6 +140,58 @@
         <div class="modal-foot">
             <button type="button" id="emailCancel" class="btn btn-outline">Cancel</button>
             <button type="button" id="emailSend" class="btn btn-primary">Send</button>
+        </div>
+    </div>
+</div>
+
+<div id="scheduleModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
+        <div class="modal-head">
+            <h2 id="schedTitle">Schedule report</h2>
+            <button type="button" id="schedClose" class="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <label class="modal-field">
+                <span>Recipients</span>
+                <input type="text" id="schedRecipients" placeholder="name@achimonline.com, other@achimonline.com">
+            </label>
+            <div class="modal-field-row">
+                <label class="modal-field">
+                    <span>Frequency</span>
+                    <select id="schedFreq">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                </label>
+                <label class="modal-field">
+                    <span>Time</span>
+                    <input type="time" id="schedTime" value="08:00">
+                </label>
+            </div>
+            <div class="modal-field" id="schedWeekdays" hidden>
+                <span>Days of week</span>
+                <div class="sched-weekdays">
+                    {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+                    <label class="sched-day"><input type="checkbox" value="{{ i }}"> {{ d }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            <label class="modal-field" id="schedMonthdayField" hidden>
+                <span>Day of month (1-28)</span>
+                <input type="number" id="schedMonthday" min="1" max="28" value="1">
+            </label>
+            <div class="modal-field" id="schedSpSection" hidden>
+                <span>Also save to SharePoint <em id="schedSpStatus" class="lookup-status"></em></span>
+                <div id="schedSpBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedSpPicker" class="sp-picker"></div>
+                <div id="schedSpSelected" class="sp-selected"></div>
+            </div>
+            <div id="schedMsg" class="modal-msg" hidden></div>
+        </div>
+        <div class="modal-foot">
+            <button type="button" id="schedCancel" class="btn btn-outline">Cancel</button>
+            <button type="button" id="schedSave" class="btn btn-primary">Save schedule</button>
         </div>
     </div>
 </div>

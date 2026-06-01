@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Master schedules{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="{{ url_for('settings.settings_page') }}">
+        <i data-feather="arrow-left"></i> Settings
+    </a>
+    <h1 class="page-title">Master schedules</h1>
+    <p class="page-subtitle">Shared, admin-owned recurring deliveries. These run unrestricted (full data).</p>
+</div>
+
+<div class="settings-card">
+    <h2 class="section-title">New master schedule</h2>
+    <form id="masterCreateForm" class="filter-bar" data-create-url="{{ url_for('schedules.create_master') }}"
+          data-csrf="{{ csrf_token() }}">
+        <label class="modal-field"><span>Name</span><input type="text" name="name" required></label>
+        <label class="modal-field"><span>Report</span>
+            <select name="report_key">
+                {% for r in built_reports %}<option value="{{ r.key }}">{{ r.title }}</option>{% endfor %}
+            </select>
+        </label>
+        <label class="modal-field"><span>Frequency</span>
+            <select name="freq" id="mFreq">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+            </select>
+        </label>
+        <label class="modal-field"><span>Time</span><input type="time" name="time" value="08:00"></label>
+        <div class="modal-field" id="mWeekdays" hidden><span>Days</span>
+            <div class="sched-weekdays">
+                {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+                <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
+                {% endfor %}
+            </div>
+        </div>
+        <label class="modal-field" id="mMonthday" hidden><span>Day of month</span>
+            <input type="number" name="monthday" min="1" max="28" value="1"></label>
+        <label class="modal-field"><span>Recipients</span><input type="text" name="recipients" placeholder="team@achimonline.com"></label>
+        <label class="modal-field"><span>SharePoint folder (optional)</span><input type="text" name="sharepoint_path" placeholder="Ordered/Daily"></label>
+        <button type="submit" class="btn btn-primary">Create</button>
+        <div id="masterMsg" class="modal-msg" hidden></div>
+    </form>
+</div>
+
+{% if schedules %}
+<div class="table-wrap" data-csrf="{{ csrf_token() }}">
+    <table class="data-table">
+        <thead>
+            <tr><th>Name</th><th>Report</th><th>Cadence</th><th>Recipients</th><th>Last run</th><th>Active</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            {% for s in schedules %}
+            <tr>
+                <td>{{ s.name }}</td>
+                <td>{{ s.report_title }}</td>
+                <td>{{ s.cadence }}</td>
+                <td>{{ s.recipients or '—' }}</td>
+                <td>{{ s.last_run or 'never' }}</td>
+                <td>
+                    <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
+                            data-url="{{ url_for('schedules.toggle_master', schedule_id=s.id) }}"
+                            data-active="{{ 'false' if s.is_active else 'true' }}">
+                        {{ 'On' if s.is_active else 'Off' }}
+                    </button>
+                </td>
+                <td class="row-actions">
+                    <button type="button" class="btn btn-sm btn-outline js-run"
+                            data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Run now</button>
+                    <button type="button" class="btn btn-sm btn-outline js-delete"
+                            data-url="{{ url_for('schedules.delete_master', schedule_id=s.id) }}"
+                            data-confirm="Delete this master schedule?">Delete</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state"><i data-feather="clock"></i><p>No master schedules yet.</p></div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/schedules.js') }}"></script>
+{% endblock %}
