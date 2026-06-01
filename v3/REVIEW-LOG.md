@@ -1281,3 +1281,22 @@ More owner feedback after using the report viewer:
   internally (`max-height`), so the row height stays stable. The list is also a
   real open/close dropdown now (opens on focus/type, closes on outside-click or
   Esc) instead of being permanently rendered.
+
+### Round 3 follow-ups (from the GPT-5.5 review)
+
+- **`LookupService.customer()` now uses the mirror too.** The dropdowns fell back
+  to the persisted mirror but the authoritative `customer()` lookup (used to
+  authorize a customer, e.g. Customer's Last Order / zero-history customers) did
+  not - it returned None until this worker's live universe warmed. It now reads
+  the same `_universe()` (live cache -> mirror). Safe because the mirror is
+  sourced from `customer_master`, so its SalesGroup is the same authoritative
+  assignment. Covered by a new assertion in the mirror test.
+- **Customer control is now a true single line.** It was `flex-wrap:wrap` with a
+  74px max-height, so chips could still grow it to two rows before scrolling. It
+  is now a fixed 38px line that scrolls horizontally (`flex-wrap:nowrap`,
+  `overflow-x:auto`, scrollbar hidden); focusing the search auto-scrolls it into
+  view. The filter row height never changes regardless of how many customers are
+  selected.
+- Not changed: the select chevron uses a fixed `#64748b` stroke in its data URI
+  (a data-URI background can't read a CSS var / currentColor). It's a neutral
+  grey that reads on both light and dark, so it's left as-is.

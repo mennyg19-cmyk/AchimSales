@@ -169,20 +169,20 @@ class LookupService:
 
     def customer(self, account: str) -> dict | None:
         """Authoritative customer-master record for one account (key/name/salesman),
-        or None when the account is unknown OR the universe isn't warm yet.
+        or None when the account is unknown.
 
         Callers that need to authorize a customer must use THIS (the customer
         master assigns the salesman), not the order lines - salesline_release can
         carry a blank SalesGroup, which would both deny valid customers and skip
-        authorization on empty history."""
+        authorization on empty history. Uses the same universe as the dropdowns
+        (live cache, falling back to the persisted mirror) so authorization works
+        on any worker even before this one's live populate warms - the mirror is
+        sourced from customer_master, so its SalesGroup is the same authoritative
+        assignment."""
         acct = (account or "").strip()
         if not acct:
             return None
-        rows = self._cached_rows()
-        if rows is None:
-            self._kick()
-            return None
-        for f in rows:
+        for f in self._universe():
             if (getattr(f, "customer_account", "") or "").strip() == acct:
                 return {"key": acct,
                         "name": (getattr(f, "customer_name", "") or "").strip() or acct,

@@ -160,6 +160,11 @@ def test_lookup_dropdowns_populate_from_mirror_before_universe_warms():
     assert sm[0]["name"] == "Reggie"                # still enriched from the master
     assert lk.status()["mirror_row_count"] == 2
 
+    # The authorization path resolves from the mirror too (same authoritative
+    # SalesGroup), so auth works on a worker whose live universe is still cold.
+    rec = lk.customer("100")
+    assert rec == {"key": "100", "name": "Acme", "salesman": "REdwards"}
+
 
 def test_customer_activity_uses_mirror_when_master_down():
     orders = [{"CustomerAccount": "100", "SalesOrderNumber": "SO1",
