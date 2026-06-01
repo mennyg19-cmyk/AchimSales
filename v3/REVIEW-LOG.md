@@ -888,3 +888,38 @@ interactive "Email now" and (next) scheduled runs:
 
 Tests: `test_repositories_delivery.py`, `test_delivery.py`, plus preset/email/
 SharePoint route tests in `test_blueprints.py`. Full v3 suite green (205 passed).
+
+### C4 - schedules (done)
+
+New `web/scheduling/` package + a `schedules` blueprint:
+
+- `cadence.py` - JSON cadence: `normalize` (validate/clamp), `describe` (human
+  label), `due_now` (Eastern-time, once-per-day guard). Stored in the schedule's
+  `cadence` TEXT column.
+- `runner.py` - `ScheduleRunner.run(id, type)` brackets a `schedule_runs` row
+  around build->deliver. **Owner-scoped**: a personal schedule resolves its owner's
+  `visible_salesman_keys` so a rep's nightly email never leaks other reps' rows;
+  master schedules run unrestricted. Records status/rows/output_meta/debug.
+- `jobs.py` - durable `schedule.run` job (deduped per `type:id`) used by both
+  "Run now" and the cron tick.
+- Blueprint: personal CRUD + toggle + run-now + history page; admin-only master
+  CRUD + run-now. SharePoint paths require `has_sharepoint_access`; bad cadence ->
+  400; everything owner-scoped.
+- UI: viewer **Schedule** modal (cadence controls + a reusable SharePoint picker,
+  refactored out of the email modal so both share it), a Schedules list page
+  (toggle/run/history/delete), a run-history page, and an admin Master schedules
+  page (create form + table). `schedules.ts` drives the management pages; nav gained
+  a Schedules tab and Settings links to master schedules.
+
+### C5 - cron tick (done)
+
+- `tick.py` - `enqueue_due(db, job_repo, now)` scans active personal + master
+  schedules, honors personal start/end-date windows, and enqueues the due ones as
+  `schedule.run` jobs (dedup + once-per-day guard prevent double-fires). `make_tick`
+  wraps it for APScheduler.
+- Wired in `bootstrap_background` via the existing `Scheduler` (every minute,
+  America/New_York). **Best-effort**: if APScheduler is missing the tick is skipped
+  and boot continues (schedules still run via "Run now").
+
+Tests: `test_scheduling.py` (cadence, runner personal/master, tick due/dedup/window)
+plus schedule route tests in `test_blueprints.py`. Full v3 suite green (216 passed).

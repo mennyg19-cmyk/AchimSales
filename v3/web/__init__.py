@@ -230,6 +230,27 @@ def bootstrap_background(app: Flask) -> None:
     worker = app.config.get("JOB_WORKER")
     if worker is not None:
         worker.start()
+    _start_scheduler(app, db)
+
+
+def _start_scheduler(app: Flask, db) -> None:
+    """Start the once-a-minute cron tick that enqueues due schedules.
+
+    Best-effort: if APScheduler isn't installed (e.g. some local envs) the tick
+    simply doesn't run - schedules can still be triggered with "Run now" - and
+    boot is never blocked.
+    """
+    from web.jobs.scheduler import Scheduler
+    from web.scheduling.tick import make_tick
+
+    try:
+        scheduler = Scheduler()
+        scheduler.add_cron("schedule-tick", make_tick(db, app.config["JOB_REPO"]), minute="*")
+        scheduler.start()
+        app.config["SCHEDULER"] = scheduler
+        app.logger.info("schedule cron tick started")
+    except Exception:  # noqa: BLE001 - scheduler is optional; never block boot
+        app.logger.exception("scheduler start failed (schedules will only run via Run now)")
 
 
 def _seed_admins(app: Flask, db) -> None:

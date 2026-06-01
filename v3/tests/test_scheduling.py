@@ -108,3 +108,47 @@ def test_runner_master_runs_unrestricted(stack):
     runner.run(mid, MASTER)
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert len(hist) == 1 and hist[0].status == "success"
+
+
+# --- cron tick -------------------------------------------------------------
+
+def test_tick_enqueues_due_and_dedups(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    uid = UserRepository(db).upsert("rep@x.com", display_name="R", role="admin").id
+    sid = ScheduleRepository(db).create(uid, "ordered", params={}, layout={},
+                                        cadence={"freq": "daily", "time": "08:00"},
+                                        recipients="a@x.com")
+    job_repo = JobRepository(db)
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)  # past 08:00 Eastern
+    assert enqueue_due(db, job_repo, now) == 1
+    # A second tick before the run completes collapses onto the same active job
+    # (dedup at the job level), so no duplicate job is created.
+    enqueue_due(db, job_repo, now)
+    first = job_repo.claim_next()
+    assert first is not None and first.type == "schedule.run"
+    assert first.params["schedule_id"] == sid
+    assert job_repo.claim_next() is None
+
+
+def test_tick_skips_outside_window_and_inactive(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    uid = UserRepository(db).upsert("rep@x.com", display_name="R", role="admin").id
+    repo = ScheduleRepository(db)
+    # ends in the past -> skipped
+    repo.create(uid, "ordered", params={}, layout={},
+                cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com",
+                end_date="2020-01-01")
+    # inactive -> skipped
+    sid = repo.create(uid, "ordered", params={}, layout={},
+                      cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com")
+    repo.set_active(sid, uid, False)
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, JobRepository(db), now) == 0
