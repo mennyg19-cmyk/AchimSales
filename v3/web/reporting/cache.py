@@ -99,6 +99,15 @@ class ReportCache:
                 conn.execute("DELETE FROM report_payload_cache WHERE cache_key = ?", (cache_key,))
             return None
 
+    def exists(self, cache_key: str) -> bool:
+        """Cheap presence check that does NOT deserialize the (possibly large)
+        payload - used to validate an export request before enqueuing the job."""
+        with self.db.cache() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM report_payload_cache WHERE cache_key = ? LIMIT 1", (cache_key,)
+            ).fetchone()
+        return row is not None
+
     def put(self, cache_key: str, report_key: str, payload: dict) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with self.db.cache() as conn:

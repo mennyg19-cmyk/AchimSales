@@ -92,24 +92,9 @@ function clearStatus(): void {
   if (el) el.hidden = true;
 }
 
-let statusTimer: number | null = null;
-
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
-}
-
-/** Show a status line with a live elapsed-time counter (ticks each second) so a
- *  slow build/export reads as progress, not a hang. Returns a stop() to end it. */
-function setStatusTimed(label: string): () => void {
-  const start = Date.now();
-  const tick = () => setStatus(`${label} (${fmtElapsed(Date.now() - start)})`);
-  tick();
-  if (statusTimer) window.clearInterval(statusTimer);
-  statusTimer = window.setInterval(tick, 1000);
-  return () => {
-    if (statusTimer) { window.clearInterval(statusTimer); statusTimer = null; }
-  };
 }
 
 function money(precision: number) {
@@ -825,10 +810,13 @@ function resetView(): void {
 }
 
 /** Export every tab as a styled workbook. The server (openpyxl) owns the look -
- *  bold grey headers, borders, zebra striping, currency/percent/date formats,
- *  and per-group + grand totals - so it matches the live app's exports exactly.
- *  We POST the current per-tab view (order/hide/sort/filter/group) so the file
- *  mirrors what's on screen, then stream the .xlsx back as a download. */
+ *  bold grey headers, currency/percent/date formats, and per-group + grand
+ *  totals - so it matches the live app's exports. The server builds it in the
+ *  BACKGROUND (streaming openpyxl) so a huge report no longer blocks/times out
+ *  the request; we kick off the job, show a live timer, auto-download when ready,
+ *  and keep it in "Recent exports" so the user can navigate away and grab it
+ *  later in seconds. */
+
 /** Map an export HTTP failure to a human, actionable message. Flask abort()
  *  bodies are HTML, so we key off the status rather than parsing the body. */
 function exportErrorFor(status: number): string {
@@ -836,44 +824,148 @@ function exportErrorFor(status: number): string {
     case 404: return "The report result expired \u2014 re-run the report, then export.";
     case 409: return "The report isn't ready yet \u2014 run it first, then export.";
     case 413: return "This export is too large \u2014 hide some columns or narrow the date range.";
-    default:  return `Could not build the Excel file (HTTP ${status}). Please try again.`;
+    default:  return `Could not start the export (HTTP ${status}). Please try again.`;
   }
 }
 
 async function exportExcel(): Promise<void> {
   if (!state.jobId) { setStatus("Run the report first, then export.", "error"); return; }
   const url = attr("data-export-url").replace("__ID__", state.jobId);
-  const stop = setStatusTimed("Building your Excel file\u2026");
-  // Abort well before Azure's ~4-min front-end idle cap so the user gets a clear
-  // message instead of a dead request that silently times out at the gateway.
-  const ctrl = new AbortController();
-  const timeout = window.setTimeout(() => ctrl.abort(), 230_000);
   try {
     const res = await fetch(url, {
-      method: "POST", headers: csrfHeaders(),
-      body: JSON.stringify(serializeLayout()), signal: ctrl.signal,
+      method: "POST", headers: csrfHeaders(), body: JSON.stringify(serializeLayout()),
     });
     if (!res.ok) throw new Error(exportErrorFor(res.status));
-    const blob = await res.blob();
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = `${attr("data-report-key")}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(href);
-    stop();
-    clearStatus();
+    const { export_id } = await res.json();
+    setStatus("Your Excel file is building in the background \u2014 see Recent exports.");
+    loadExports();                 // surface it immediately as "building"
+    pollExport(export_id, true);   // auto-download when ready (best-effort)
   } catch (err) {
-    stop();
-    const msg = err instanceof DOMException && err.name === "AbortError"
-      ? "The export took too long and timed out \u2014 hide some columns or narrow the date range."
-      : (err instanceof Error && err.message) || "Could not build the Excel file. Please try again.";
-    setStatus(msg, "error");
-  } finally {
-    window.clearTimeout(timeout);
+    setStatus(err instanceof Error ? err.message : "Could not start the export.", "error");
   }
+}
+
+// --- Recent exports (durable background jobs) ---------------------------- //
+
+interface ExportRow {
+  export_id: string; status: string; progress: number; report_title: string;
+  filename: string; size_bytes: number; built_at: string; ready: boolean; error: string;
+}
+
+let exportsPollTimer: number | null = null;
+const autoDownloaded = new Set<string>();
+
+function downloadExportUrl(id: string): string {
+  return attr("data-export-download-url").replace("__ID__", id);
+}
+
+function triggerDownload(id: string): void {
+  const a = document.createElement("a");
+  a.href = downloadExportUrl(id);
+  a.download = "";  // let the server's Content-Disposition name it
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Poll one export job to completion; optionally auto-download it once. The job
+ *  is durable server-side, so navigating away doesn't lose it. */
+async function pollExport(id: string, autoDownload: boolean): Promise<void> {
+  const jobUrl = attr("data-job-url").replace("__ID__", id);
+  for (let i = 0; i < 600; i++) {
+    const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
+    if (!res.ok) break;
+    const job = await res.json();
+    loadExports();
+    if (job.status === "success") {
+      if (autoDownload && !autoDownloaded.has(id)) { autoDownloaded.add(id); triggerDownload(id); }
+      if (exportStatusActive()) clearStatus();
+      return;
+    }
+    if (job.status === "failure" || job.status === "cancelled") {
+      if (exportStatusActive()) setStatus(job.error || "The export failed. Please try again.", "error");
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+/** True while the status line is showing the export message (so a poll result
+ *  doesn't stomp on an unrelated run/refresh status). */
+function exportStatusActive(): boolean {
+  const el = $("reportStatus");
+  return !!el && !el.hidden && el.textContent !== null && el.textContent.indexOf("Excel") >= 0;
+}
+
+function fmtBytes(n: number): string {
+  if (!n) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function loadExports(): Promise<void> {
+  const list = $("exportsList");
+  if (!list) return;
+  const data = await getJSON<{ exports: ExportRow[] }>(attr("data-exports-url"));
+  const rows = data?.exports || [];
+  renderExports(rows);
+  // Keep polling the list while anything is still building.
+  const building = rows.some((r) => r.status === "queued" || r.status === "running");
+  if (building && exportsPollTimer == null) {
+    exportsPollTimer = window.setInterval(loadExports, 2000);
+  } else if (!building && exportsPollTimer != null) {
+    window.clearInterval(exportsPollTimer);
+    exportsPollTimer = null;
+  }
+}
+
+function renderExports(rows: ExportRow[]): void {
+  const list = $("exportsList");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "exports-empty";
+    empty.textContent = "No exports yet. Click Export to build one.";
+    list.appendChild(empty);
+    return;
+  }
+  rows.forEach((r) => {
+    const item = document.createElement("div");
+    item.className = "exports-item";
+    const label = document.createElement("span");
+    label.className = "exports-item-label";
+    label.textContent = r.report_title || r.filename || "Export";
+    item.appendChild(label);
+    const meta = document.createElement("span");
+    meta.className = "exports-item-meta";
+    if (r.status === "success" && r.ready) {
+      const dl = document.createElement("a");
+      dl.className = "btn btn-outline btn-sm";
+      dl.href = downloadExportUrl(r.export_id);
+      dl.textContent = `Download${r.size_bytes ? ` (${fmtBytes(r.size_bytes)})` : ""}`;
+      meta.appendChild(dl);
+    } else if (r.status === "success") {
+      // Job done but the blob was reaped/expired - re-export rebuilds it.
+      meta.textContent = "Expired \u2014 export again";
+      meta.classList.add("exports-item-failed");
+    } else if (r.status === "failure" || r.status === "cancelled") {
+      meta.textContent = r.error ? `Failed: ${r.error}` : "Failed";
+      meta.classList.add("exports-item-failed");
+    } else {
+      meta.textContent = `Building\u2026 ${r.progress || 0}%`;
+    }
+    item.appendChild(meta);
+    list.appendChild(item);
+  });
+}
+
+function toggleExportsPanel(): void {
+  const panel = $("exportsPanel");
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) loadExports();
 }
 
 // --------------------------------------------------------------------------
@@ -1833,6 +1925,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportBtn")?.addEventListener("click", exportExcel);
+  $("exportsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleExportsPanel(); });
   $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
   $("saveViewBtn")?.addEventListener("click", saveView);
   $("presetsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); togglePresetsPanel(); });
@@ -1851,6 +1944,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
   $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);
   setToolbarEnabled(false);
+  loadExports();  // pick up any in-flight exports started before a navigation/reload
   await initLookups();
   await autoOpenPresetIfRequested();
   if (autoRunRequested) { autoRunRequested = false; run(); }

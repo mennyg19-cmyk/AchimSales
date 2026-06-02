@@ -136,6 +136,24 @@
     max-height: 280px; overflow: auto; white-space: pre; font-family: ui-monospace, monospace;
 }
 
+/* -- Recent exports panel (background export jobs) ------------------------ */
+.exports-panel {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 10px 12px; margin-bottom: 12px;
+}
+.exports-head { font-weight: 700; font-size: 13px; color: var(--text); margin-bottom: 8px; }
+.exports-list { display: flex; flex-direction: column; gap: 6px; }
+.exports-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg); font-size: 13px;
+}
+.exports-item-label { color: var(--text); font-weight: 600; }
+.exports-item-meta { color: var(--text-muted); white-space: nowrap; }
+.exports-item-failed { color: var(--error); }
+.exports-empty { color: var(--text-muted); font-size: 13px; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
 /* -- Collapsible "Filters & options" panel -------------------------------- */
 /* While viewing a report this whole panel folds into a one-line summary bar so
    the grid takes most of the screen; the toggle re-opens it to change filters. */

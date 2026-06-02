@@ -30,7 +30,6 @@ from flask import (
 )
 
 import io
-import time
 from urllib.parse import urlencode
 
 from report_engine import registry
@@ -43,9 +42,8 @@ from web.data.repositories.saved_reports import SavedReport, SavedReportReposito
 from web.data.repositories.users import UserRepository
 from web.delivery.email import split_recipients
 from web.delivery.jobs import enqueue_delivery
-from web.delivery.layout import apply_layout, expand_clones
 from web.reporting import params as P
-from web.reporting.export import build_workbook
+from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
 
 reports_bp = Blueprint("reports", __name__)
@@ -93,6 +91,10 @@ def _job_repo():
 
 def _cache():
     return current_app.config["REPORT_CACHE"]
+
+
+def _exports():
+    return current_app.config["EXPORT_REPO"]
 
 
 def _lookups():
@@ -260,52 +262,95 @@ def report_result(job_id: str):
     return jsonify(cached.payload)
 
 
-@reports_bp.route("/reports/<report_key>/export/<job_id>", methods=["GET", "POST"])
+@reports_bp.post("/api/reports/<report_key>/export/<job_id>")
 @require_login
 def export_report(report_key: str, job_id: str):
+    """Kick off a BACKGROUND export of an already-run report and return the export
+    job id. Big workbooks took minutes and timed out the request; now the worker
+    builds the .xlsx off-thread (streaming) and the user downloads it after,
+    without losing it if they navigate away. Body is the viewer's serialized
+    layout so the file mirrors the screen."""
     p = _principal_or_401()
-    _built_spec_or_404(report_key)
-    job = _owned_job_or_404(job_id, _user_id(p.email))
+    spec = _built_spec_or_404(report_key)
+    uid = _user_id(p.email)
+    job = _owned_job_or_404(job_id, uid)
     # Authorize against the job's OWN report key (not just the URL) and re-resolve live.
-    job_report_key = job.params.get("report_key")
-    if job_report_key != report_key:
+    if job.params.get("report_key") != report_key:
         abort(404, description="Unknown job")
-    _authz().assert_report_runnable(p, job_report_key)
+    _authz().assert_report_runnable(p, report_key)
     if job.status != "success":
         abort(409, description="Report is not ready to export")
-    cached = _cache().get(job.result_ref)
-    if cached is None:
+    if not _cache().exists(job.result_ref):  # cheap presence check (no payload deserialize)
         abort(404, description="Result expired; please re-run")
-    # POST carries the viewer's serialized layout (order/hide/sort/filter +
-    # group) so the workbook matches what's on screen; GET is the plain export.
-    layout = request.get_json(silent=True) if request.method == "POST" else None
+    layout = request.get_json(silent=True)
     if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)
-        layout = None
-    # Build synchronously in the request. This is CPU-heavy for big reports
-    # (openpyxl styles every cell), so time it and log any failure with a stack
-    # trace -- otherwise the client only sees an opaque "could not build".
-    started = time.perf_counter()
-    try:
-        payload = cached.payload
-        if layout:
-            payload = apply_layout(expand_clones(payload, layout), layout)
-        data = build_workbook(payload, layout)
-    except Exception:  # noqa: BLE001 - surface as 500 but keep the trace in logs
-        current_app.logger.exception(
-            "export build failed for report=%s job=%s", report_key, job_id
-        )
-        abort(500, description="Could not build the workbook")
-    elapsed = time.perf_counter() - started
-    rows = sum(len(t.get("rows") or []) for t in (payload.get("tabs") or []))
-    current_app.logger.info(
-        "export built report=%s job=%s tabs=%d rows=%d bytes=%d in %.1fs",
-        report_key, job_id, len(payload.get("tabs") or []), rows, len(data), elapsed,
+        layout = {}
+    export_id = enqueue_export(
+        _job_repo(), owner_user_id=uid, source_job_id=job_id, report_key=report_key,
+        report_name=spec.title, layout=layout,
     )
+    # Non-prod has no background poller; drain inline so a local export resolves.
+    worker = current_app.config["JOB_WORKER"]
+    if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
+        worker.drain()
+    return jsonify({"export_id": export_id}), 202
+
+
+@reports_bp.get("/api/reports/exports/<export_id>/download")
+@require_login
+def download_export(export_id: str):
+    """Stream a finished background export. Owner-checked via the job row; the
+    blob lives in cache.db keyed by the export id."""
+    p = _principal_or_401()
+    job = _owned_job_or_404(export_id, _user_id(p.email))
+    if job.type != EXPORT_JOB_TYPE:
+        abort(404, description="Unknown export")
+    _authz().assert_report_runnable(p, job.params.get("report_key"))
+    if job.status != "success":
+        abort(409, description="Export is not ready yet")
+    found = _exports().content(export_id)
+    if found is None:
+        abort(404, description="Export expired; please export again")
+    filename, data = found
     return send_file(
         io.BytesIO(data),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True, download_name=f"{report_key}.xlsx",
+        as_attachment=True, download_name=filename,
     )
+
+
+@reports_bp.get("/api/reports/exports")
+@require_login
+def list_exports():
+    """The current user's recent background exports (for the 'Recent exports'
+    panel): newest first, with status + size so finished files are re-downloadable
+    in seconds."""
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        return jsonify({"exports": []})
+    authz = _authz()
+    # Re-check live report access so a revoked user can't even see old export
+    # metadata/titles (download is already owner+authz gated separately).
+    jobs = [j for j in _job_repo().list_for_user(uid, limit=100)
+            if j.type == EXPORT_JOB_TYPE
+            and authz.can_view_report(p, j.params.get("report_key", ""))][:15]
+    metas = _exports().metas_for([j.id for j in jobs if j.status == "success"])
+    titles = {s.key: s.title for s in registry.built_reports()}
+    out = []
+    for j in jobs:
+        rk = j.params.get("report_key", "")
+        m = metas.get(j.id)
+        out.append({
+            "export_id": j.id, "status": j.status, "progress": j.progress,
+            "report_key": rk, "report_title": titles.get(rk, rk),
+            "error": j.error or "",
+            "filename": m.filename if m else "",
+            "size_bytes": m.size_bytes if m else 0,
+            "built_at": m.built_at if m else "",
+            "ready": bool(m),
+        })
+    return jsonify({"exports": out})
 
 
 # --- Customer's Last Order (in-app, customer-picker driven) ---------------- #

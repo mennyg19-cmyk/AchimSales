@@ -1559,3 +1559,69 @@ Fixes:
   "timed out — hide columns / narrow range" message) and maps HTTP status to a
   human message: 404 → result expired, re-run; 409 → not ready; 413 → too large;
   otherwise shows the status code. No more blanket "please try again."
+
+## 8. Background exports + streaming openpyxl (the real fix for slow/timed-out exports)
+
+The 230s ceiling above was a band-aid: a one-month `ordered` export still took
+~3.5 min and timed out. Two changes fix it properly — mirroring **what** the live
+app does (build the file server-side, grab it after) without copying its code.
+
+**(a) Streaming workbook build.** `build_workbook` now uses openpyxl
+**write-only** mode: cells are appended top-to-bottom and flushed as we go, so
+memory stays flat instead of materialising a 100k×N styled grid in RAM. That RAM
+pressure (GC thrash / paging on the 1-vCPU B1) was the real reason a month of
+order lines took minutes. Same look (header fill, totals, number formats,
+grouping + grand total); the writers were rewritten to append rows of
+`WriteOnlyCell`s. (Note: the live app applies no per-cell borders/zebra on data
+rows; we kept ours to avoid silently changing the look the user has been seeing —
+flagged for the user to confirm. Dropping them would also speed things up.)
+
+**(b) Background export job (durable).** Export no longer builds in the request:
+- New `report.export` job type (`web/reporting/export_jobs.py`). The viewer POSTs
+  the run's job id + on-screen layout; the route enqueues and returns an
+  `export_id` (202). The worker re-authorizes the owner live (like delivery),
+  reads the run's cached payload, replays the layout, builds the workbook
+  (streaming), and stores the `.xlsx` as a blob.
+- New blob store `report_exports` in **cache.db** (migration `0003`) +
+  `ExportRepository`. Kept out of precious.db so the multi-MB blobs never bloat
+  the Litestream replica; a reaped/lost blob just means "export again".
+- New endpoints: `POST /api/reports/<key>/export/<job_id>` (enqueue),
+  `GET /api/reports/exports/<export_id>/download` (owner-checked stream),
+  `GET /api/reports/exports` (the user's recent exports). Polling reuses the
+  generic `/api/jobs/<id>` status route.
+- UI: clicking **Export** starts the job, shows "building in the background", and
+  a **Recent exports** panel lists each export with live progress and a Download
+  button. The user can navigate away and the durable job keeps going; on return,
+  the page re-attaches and the finished file downloads in seconds.
+
+Security: download + status go through the same `_owned_job_or_401` owner check
+as runs; a second user gets 404 (tested). Build runs only on the background
+leader; on the 1-vCPU B1 the worker pool is 2, so a long export shares those 2
+slots with runs/deliveries (acceptable; noted for future tuning). The
+`report_exports` reaper (`ExportRepository.prune`) exists but, like the payload
+cache, isn't scheduled yet. Tests: enqueue → build → list → download happy path
++ owner-isolation; full v3 suite 285 passing.
+
+### Review pass (me + GPT-5.5 subagent) — fixes applied
+- **Export jobs could stack on the 2-slot worker (HIGH).** `enqueue_export` now
+  dedups on (owner, source run, exact layout): re-clicking Export on the same view
+  collapses to the one in-flight job instead of queuing duplicate heavy builds. (A
+  dedicated export lane / per-type concurrency cap is noted as future tuning.)
+- **Grouped totals dropped a numeric first column (MED).** `_total_cells` always
+  wrote the label in column A, overwriting that column's subtotal when the first
+  column is money/int. It now puts the label in the first NON-summable column, so
+  every numeric column (incl. the first) keeps its total.
+- **Recent-exports list didn't re-check live access (MED).** `list_exports` now
+  filters rows through `can_view_report`, so a revoked user can't even see old
+  export titles/metadata (download was already owner+authz gated).
+- **Export start deserialized the whole payload (MED).** Added
+  `ReportCache.exists()` (a cheap `SELECT 1`) and use it in the enqueue route
+  instead of loading + JSON-parsing the full cached payload just to check presence.
+- **Malformed layout could 500 the export (MED).** `apply_layout` now coerces a
+  non-dict `views` / per-tab view to "ignore", matching `build_workbook`'s guards.
+- **Stale "Download" on an expired blob (LOW).** The list only shows Download when
+  the blob is actually present (`ready`); a done-but-reaped export shows
+  "Expired — export again".
+- **`prune()` format mismatch (LOW).** Compares against SQLite `datetime('now', ?)`
+  on both sides (built_at defaults to `datetime('now')`) instead of a Python ISO
+  cutoff, so the TTL reaper deletes the right rows.

@@ -75,7 +75,9 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.delivery.service import DeliveryService
     from web.delivery.sharepoint import SharePointService
     from web.jobs.worker import JobWorker
+    from web.data.repositories.exports import ExportRepository
     from web.reporting.cache import ReportCache
+    from web.reporting.export_jobs import EXPORT_JOB_TYPE, make_export_handler
     from web.reporting.http_client import ReportingApiClient
     from web.reporting.jobs import JOB_TYPE, make_report_run_handler
     from web.reporting.lookups import LookupService
@@ -91,6 +93,10 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     worker = JobWorker(db)
     run_log = ReportRunLogRepository(db)
     worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for, run_log))
+
+    exports = ExportRepository(db)
+    worker.register(EXPORT_JOB_TYPE, make_export_handler(
+        cache, exports, JobRepository(db), app.config["AUTHZ"]))
 
     sharepoint = SharePointService(cfg)
     email = EmailService(cfg, OutboxRepository(db), sharepoint)
@@ -116,6 +122,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     app.config["LOOKUP_SERVICE"] = LookupService(
         service, salesmen_repo, mirror_customers=dash_repo.all)
     app.config["REPORT_CACHE"] = cache
+    app.config["EXPORT_REPO"] = exports
     app.config["JOB_REPO"] = JobRepository(db)
     app.config["RUN_LOG_REPO"] = run_log
     app.config["JOB_WORKER"] = worker

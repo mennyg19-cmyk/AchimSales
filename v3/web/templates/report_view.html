@@ -86,7 +86,8 @@
     <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout">Refresh data</button>
     <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
     <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
-    <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Export exactly what's on screen">Export</button>
+    <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Build an Excel file in the background, then download it">Export</button>
+    <button type="button" id="exportsBtn" class="btn btn-outline" title="Your recent background exports">Recent exports</button>
     <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)">Email</button>
     <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view">Schedule</button>
     <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
@@ -95,6 +96,10 @@
 </div>
 
 <pre id="apiPreview" class="api-preview" hidden></pre>
+<div id="exportsPanel" class="exports-panel" hidden>
+    <div class="exports-head">Recent exports</div>
+    <div id="exportsList" class="exports-list"></div>
+</div>
     </div>
 </div>
 
@@ -116,6 +121,8 @@
      data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
      data-result-url="{{ url_for('reports.report_result', job_id='__ID__') }}"
      data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"
+     data-export-download-url="{{ url_for('reports.download_export', export_id='__ID__') }}"
+     data-exports-url="{{ url_for('reports.list_exports') }}"
      data-salesmen-url="{{ url_for('reports.report_salesmen', report_key=report.key) }}"
      data-customers-url="{{ url_for('reports.report_customers', report_key=report.key) }}"
      data-lookup-status-url="{{ url_for('reports.lookup_status') }}"

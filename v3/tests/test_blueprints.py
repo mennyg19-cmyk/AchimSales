@@ -157,9 +157,28 @@ def test_run_poll_result_export_flow(tmp_path):
     assert payload["report_key"] == "ordered"
     assert any(t["rows"] for t in payload["tabs"])
 
-    xlsx = client.get(f"/reports/ordered/export/{job_id}")
+    # Export is now a BACKGROUND job: POST kicks it off, the worker builds it
+    # (drained inline in tests), then we download the stored blob.
+    exp = client.post(f"/api/reports/ordered/export/{job_id}", json={},
+                      headers={"X-CSRF-Token": _CSRF})
+    assert exp.status_code == 202
+    export_id = exp.get_json()["export_id"]
+
+    st = client.get(f"/api/jobs/{export_id}").get_json()
+    assert st["status"] == "success"
+
+    listing = client.get("/api/reports/exports").get_json()["exports"]
+    assert any(e["export_id"] == export_id and e["ready"] for e in listing)
+
+    xlsx = client.get(f"/api/reports/exports/{export_id}/download")
     assert xlsx.status_code == 200
     assert xlsx.data[:2] == b"PK"  # xlsx is a zip
+
+    # A different user must not be able to download someone else's export.
+    _login(client, app, email="other@x.com", role="admin")
+    assert client.get(f"/api/reports/exports/{export_id}/download").status_code == 404
+    assert all(e["export_id"] != export_id
+               for e in client.get("/api/reports/exports").get_json()["exports"])
 
 
 def test_run_log_records_and_renders(tmp_path):

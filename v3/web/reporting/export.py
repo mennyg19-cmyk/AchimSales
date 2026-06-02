@@ -16,6 +16,11 @@ Payload shape: {"tabs": [{"key", "name", "columns": [...], "rows": [{col: val}],
 replay column order / hide / sort / filter; this module only adds grouping +
 styling on top. ``payload_to_xlsx`` is the no-layout shortcut kept for the
 delivery + test callers. Pure transform -> bytes; no Flask, no DB.
+
+Built in openpyxl **write-only (streaming) mode**: rows are appended top-to-bottom
+and flushed to a temp file as they go, so a six-tab report with hundreds of
+thousands of rows builds in seconds with flat memory instead of materialising
+every styled cell in RAM (which made big exports time out).
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from io import BytesIO
 from itertools import groupby
 from typing import Any
 
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -152,102 +158,115 @@ def _autosize(ws, metas: list[tuple[str, str, str | None]]) -> None:
         ws.column_dimensions[get_column_letter(idx)].width = width
 
 
-def _write_header(ws, metas: list[tuple[str, str, str | None]]) -> None:
-    for i, (header, _field, _ctype) in enumerate(metas, start=1):
-        cell = ws.cell(row=1, column=i, value=_safe_text(header))
-        cell.font = _HEADER_FONT
-        cell.fill = _HEADER_FILL
-        cell.border = _BORDER
-        cell.alignment = _HEADER_ALIGN
+def _cell(ws, value: Any, *, fmt: str | None = None, font: Font | None = None,
+          fill: PatternFill | None = None, align: Alignment | None = None,
+          border: Border | None = None) -> WriteOnlyCell:
+    """A styled write-only cell. Styles (Font/Fill/Border) are shared singletons
+    so openpyxl dedups them; only the lightweight cell object is per-value."""
+    c = WriteOnlyCell(ws, value=value)
+    if font:
+        c.font = font
+    if fill:
+        c.fill = fill
+    if border:
+        c.border = border
+    if align:
+        c.alignment = align
+    if fmt:
+        c.number_format = fmt
+    return c
 
 
-def _write_data_row(ws, r: int, metas, row: dict, zebra: bool, acc: dict[str, float]) -> None:
-    for i, (_header, field, ctype) in enumerate(metas, start=1):
+def _header_cells(ws, metas) -> list[WriteOnlyCell]:
+    return [_cell(ws, _safe_text(h), font=_HEADER_FONT, fill=_HEADER_FILL,
+                  align=_HEADER_ALIGN, border=_BORDER) for h, _f, _t in metas]
+
+
+def _data_cells(ws, metas, row: dict, zebra: bool, acc: dict[str, float]) -> list[WriteOnlyCell]:
+    cells = []
+    for _header, field, ctype in metas:
         value, fmt = _coerce(row.get(field), ctype)
-        cell = ws.cell(row=r, column=i, value=value)
-        cell.border = _BORDER
-        if fmt:
-            cell.number_format = fmt
-        if zebra:
-            cell.fill = _ZEBRA_FILL
+        cells.append(_cell(ws, value, fmt=fmt, fill=_ZEBRA_FILL if zebra else None, border=_BORDER))
         if ctype in _SUMMABLE_TYPES:
             x = _num(row.get(field))
             if x is not None:
                 acc[field] = acc.get(field, 0.0) + x
+    return cells
 
 
-def _write_total_row(ws, r: int, metas, sums: dict[str, float], label: str) -> None:
-    for i, (_header, field, ctype) in enumerate(metas, start=1):
-        if i == 1:
+def _total_cells(ws, metas, sums: dict[str, float], label: str) -> list[WriteOnlyCell]:
+    # Put the "Total"/"Grand total" label in the first NON-summable column so a
+    # numeric first column (e.g. an order number is text, but a money/qty first
+    # column isn't) keeps its own subtotal instead of being overwritten by text.
+    label_idx = next((i for i, (_h, _f, t) in enumerate(metas) if t not in _SUMMABLE_TYPES), 0)
+    cells = []
+    for i, (_header, field, ctype) in enumerate(metas):
+        if i == label_idx:
             value, fmt = label, None
         elif ctype in _NUMERIC_TYPES and field in sums:
             value, fmt = sums[field], _FMT[ctype]
         else:
             value, fmt = None, None
-        cell = ws.cell(row=r, column=i, value=value)
-        cell.font = _TOTAL_FONT
-        cell.fill = _TOTAL_FILL
-        cell.border = _BORDER
-        if fmt:
-            cell.number_format = fmt
+        cells.append(_cell(ws, value, fmt=fmt, font=_TOTAL_FONT, fill=_TOTAL_FILL, border=_BORDER))
+    return cells
 
 
-def _write_group_banner(ws, r: int, ncol: int, text: str) -> None:
-    for i in range(1, ncol + 1):
-        cell = ws.cell(row=r, column=i, value=_safe_text(text) if i == 1 else None)
-        cell.font = _GROUP_FONT
-        cell.fill = _GROUP_FILL
-        cell.border = _BORDER
+def _banner_cells(ws, ncol: int, text: str) -> list[WriteOnlyCell]:
+    cells = [_cell(ws, _safe_text(text), font=_GROUP_FONT, fill=_GROUP_FILL, border=_BORDER)]
+    cells += [_cell(ws, None, font=_GROUP_FONT, fill=_GROUP_FILL, border=_BORDER) for _ in range(ncol - 1)]
+    return cells
 
 
-def _write_grid(ws, metas, rows: list, group_fields: list[str]) -> None:
+def _stream_grid(ws, metas, rows: list, group_fields: list[str]) -> None:
     if not metas:
         return
     ncol = len(metas)
-    _write_header(ws, metas)
+    # Worksheet-level properties are written at save time, so they can be set
+    # before appending rows (write-only mode only forbids per-cell random access).
+    ws.freeze_panes = "A2"
+    _autosize(ws, metas)
+    if not group_fields and rows:
+        ws.auto_filter.ref = f"A1:{get_column_letter(ncol)}{len(rows) + 1}"
+    ws.append(_header_cells(ws, metas))
 
     if group_fields:
         gf = group_fields[0]
         glabel = next((h for h, f, _t in metas if f == gf), gf)
         ordered = sorted(rows, key=lambda x: _group_sort_key(x.get(gf)))
         grand: dict[str, float] = {}
-        r, data_n = 2, 0
+        data_n = 0
         for _key, grp_iter in groupby(ordered, key=lambda x: _group_sort_key(x.get(gf))):
             grp = list(grp_iter)
             gval = grp[0].get(gf)
-            _write_group_banner(ws, r, ncol, f"{glabel}: {gval if gval not in (None, '') else '(blank)'}")
-            r += 1
+            label = gval if gval not in (None, "") else "(blank)"
+            ws.append(_banner_cells(ws, ncol, f"{glabel}: {label}"))
             sub: dict[str, float] = {}
             for row in grp:
-                _write_data_row(ws, r, metas, row, data_n % 2 == 1, sub)
-                r += 1
+                ws.append(_data_cells(ws, metas, row, data_n % 2 == 1, sub))
                 data_n += 1
-            _write_total_row(ws, r, metas, sub, f"Total \u2014 {gval if gval not in (None, '') else '(blank)'}")
-            r += 1
+            ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}"))
             for k, val in sub.items():
                 grand[k] = grand.get(k, 0.0) + val
         if rows:
-            _write_total_row(ws, r, metas, grand, "Grand total")
+            ws.append(_total_cells(ws, metas, grand, "Grand total"))
     else:
         for idx, row in enumerate(rows):
-            _write_data_row(ws, idx + 2, metas, row, idx % 2 == 1, {})
-        if rows:
-            ws.auto_filter.ref = f"A1:{get_column_letter(ncol)}{len(rows) + 1}"
-
-    ws.freeze_panes = "A2"
-    _autosize(ws, metas)
+            ws.append(_data_cells(ws, metas, row, idx % 2 == 1, {}))
 
 
-def _write_commission(ws, tab: dict) -> None:
+def _stream_commission(ws, tab: dict) -> None:
     """Per-salesman monthly + YTD block (live-style commissions pivot)."""
     year = tab.get("year") or ""
     labels = list(tab.get("month_labels") or [])
     salesmen = tab.get("salesmen") or []
-    ws.cell(row=1, column=1, value=f"Commissions Summary {year}".strip()).font = Font(bold=True, size=14)
+    ws.freeze_panes = "A2"
+    ws.append([_cell(ws, f"Commissions Summary {year}".strip(), font=Font(bold=True, size=14))])
     if not salesmen:
-        ws.cell(row=3, column=1, value="No commissioned salesmen for this period.")
         ws.column_dimensions["A"].width = 40
+        ws.append([])  # row 2 spacer
+        ws.append([_cell(ws, "No commissioned salesmen for this period.")])
         return
+    ws.column_dimensions["A"].width = 30
 
     lines = [
         ("SubTotal Invoices", "subtotal_invoices"),
@@ -256,41 +275,31 @@ def _write_commission(ws, tab: dict) -> None:
         ("Net Commission", "net_commission"),
         ("Commission", "commission"),
     ]
-    first_col = 2
-    r = 3
+    ws.append([])  # row 2 spacer (block starts on row 3, matching the live layout)
+    center = Alignment(horizontal="center")
     for s in salesmen:
         title = f"{s.get('salesman_number', '')} - {s.get('salesman_name', '')}".strip(" -")
-        ytd_col = first_col + len(labels)
-        banner = ws.cell(row=r, column=1, value=_safe_text(title))
-        banner.font, banner.fill = _GROUP_FONT, _GROUP_FILL
-        for mi, lab in enumerate(labels):
-            c = ws.cell(row=r, column=first_col + mi, value=_safe_text(lab))
-            c.font, c.fill = _GROUP_FONT, _GROUP_FILL
-            c.alignment = Alignment(horizontal="center")
-        c = ws.cell(row=r, column=ytd_col, value="YTD")
-        c.font, c.fill = _GROUP_FONT, _GROUP_FILL
-        r += 1
+        banner = [_cell(ws, _safe_text(title), font=_GROUP_FONT, fill=_GROUP_FILL)]
+        banner += [_cell(ws, _safe_text(lab), font=_GROUP_FONT, fill=_GROUP_FILL, align=center)
+                   for lab in labels]
+        banner.append(_cell(ws, "YTD", font=_GROUP_FONT, fill=_GROUP_FILL))
+        ws.append(banner)
         monthly = s.get("monthly") or []
         ytd = s.get("ytd") or {}
         for label, field in lines:
-            ws.cell(row=r, column=1, value=_safe_text(label)).font = Font(bold=True)
+            line = [_cell(ws, _safe_text(label), font=_TOTAL_FONT)]
             for mi in range(len(labels)):
                 m = monthly[mi] if mi < len(monthly) else {}
-                cell = ws.cell(row=r, column=first_col + mi, value=float(m.get(field) or 0.0))
-                cell.number_format = _FMT["money"]
-            cell = ws.cell(row=r, column=ytd_col, value=float(ytd.get(field) or 0.0))
-            cell.number_format, cell.font = _FMT["money"], Font(bold=True)
-            r += 1
-        r += 1  # blank row between salesmen
-    ws.column_dimensions["A"].width = 30
-    ws.freeze_panes = "A2"
+                line.append(_cell(ws, float(m.get(field) or 0.0), fmt=_FMT["money"]))
+            line.append(_cell(ws, float(ytd.get(field) or 0.0), fmt=_FMT["money"], font=_TOTAL_FONT))
+            ws.append(line)
+        ws.append([])  # blank row between salesmen
 
 
 def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes:
     from openpyxl import Workbook
 
-    wb = Workbook()
-    wb.remove(wb.active)
+    wb = Workbook(write_only=True)  # streaming: flat memory, fast on huge reports
     used: set[str] = set()
     views = (layout or {}).get("views") if isinstance(layout, dict) else None
     views = views if isinstance(views, dict) else {}
@@ -300,7 +309,7 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
     for tab in tabs:
         ws = wb.create_sheet(_safe_sheet_title(tab.get("name", "Report"), used))
         if tab.get("layout") == "commission_cards" and tab.get("salesmen") is not None:
-            _write_commission(ws, tab)
+            _stream_commission(ws, tab)
             continue
         rows = list(tab.get("rows") or [])
         metas = _columns_meta(list(tab.get("columns") or []), rows)
@@ -311,7 +320,7 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         known = {f for _h, f, _t in metas} | (set(rows[0].keys()) if rows else set())
         wanted = v.get("group") if isinstance(v.get("group"), list) else []
         group_fields = [g for g in wanted if g in known]
-        _write_grid(ws, metas, rows, group_fields)
+        _stream_grid(ws, metas, rows, group_fields)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

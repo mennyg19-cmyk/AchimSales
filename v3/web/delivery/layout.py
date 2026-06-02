@@ -63,13 +63,15 @@ def expand_clones(payload: dict, layout: dict | None) -> dict:
 
 
 def apply_layout(payload: dict, layout: dict | None) -> dict:
-    views = (layout or {}).get("views") or {}
-    if not views:
+    # The layout comes straight from the client, so defend its shape: a non-dict
+    # `views` (or a non-dict per-tab view) must be ignored, not crash the export.
+    views = (layout or {}).get("views")
+    if not isinstance(views, dict) or not views:
         return payload
     tabs = []
     for tab in payload.get("tabs") or []:
         v = views.get(tab.get("key"))
-        tabs.append(_apply_to_tab(tab, v) if v else tab)
+        tabs.append(_apply_to_tab(tab, v) if isinstance(v, dict) and v else tab)
     return {**payload, "tabs": tabs}
 
 
