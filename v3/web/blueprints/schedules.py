@@ -228,7 +228,8 @@ def master_page():
         items.append({
             "id": s.id, "name": s.name, "report_key": s.report_key,
             "report_title": spec.title if spec else s.report_key,
-            "cadence": C.describe(s.cadence), "recipients": s.recipients,
+            "cadence": C.describe(s.cadence), "cadence_raw": s.cadence or {},
+            "recipients": s.recipients,
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, MASTER),
         })

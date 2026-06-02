@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Master schedules{% endblock %}
-{% block container_class %}container-narrow{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -11,53 +10,85 @@
     <p class="page-subtitle">Shared, admin-owned recurring deliveries. These run unrestricted (full data).</p>
 </div>
 
-<div class="settings-card">
-    <h2 class="section-title">New master schedule</h2>
-    <form id="masterCreateForm" class="filter-bar" data-create-url="{{ url_for('schedules.create_master') }}"
+<div class="settings-card ms-form-card">
+    <h2 class="section-title" id="formTitle">New master schedule</h2>
+    <form id="masterCreateForm" class="filter-bar ms-form"
+          data-create-url="{{ url_for('schedules.create_master') }}"
+          data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
+          data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
+          data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
           data-csrf="{{ csrf_token() }}">
-        <label class="modal-field"><span>Name</span><input type="text" name="name" required></label>
-        <label class="modal-field"><span>Report</span>
-            <select name="report_key">
-                {% for r in built_reports %}<option value="{{ r.key }}">{{ r.title }}</option>{% endfor %}
-            </select>
-        </label>
-        <label class="modal-field"><span>Frequency</span>
-            <select name="freq" id="mFreq">
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-            </select>
-        </label>
-        <label class="modal-field"><span>Time</span><input type="time" name="time" value="08:00"></label>
-        <div class="modal-field" id="mWeekdays" hidden><span>Days</span>
-            <div class="sched-weekdays">
-                {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
-                <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
-                {% endfor %}
+        <input type="hidden" name="editing_id" id="editingId" value="">
+        <div class="ms-form-fields">
+            <label class="filter-field"><span>Name</span><input type="text" name="name" required></label>
+            <label class="filter-field"><span>Report</span>
+                <select name="report_key">
+                    {% for r in built_reports %}<option value="{{ r.key }}">{{ r.title }}</option>{% endfor %}
+                </select>
+            </label>
+            <label class="filter-field"><span>Frequency</span>
+                <select name="freq" id="mFreq">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+            </label>
+            <label class="filter-field"><span>Time</span><input type="time" name="time" value="08:00"></label>
+            <div class="filter-field" id="mWeekdays" hidden><span>Days</span>
+                <div class="sched-weekdays">
+                    {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+                    <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
+                    {% endfor %}
+                </div>
             </div>
+            <label class="filter-field" id="mMonthday" hidden><span>Day of month</span>
+                <input type="number" name="monthday" min="1" max="28" value="1"></label>
+            <label class="filter-field"><span>Recipients</span>
+                <input type="text" name="recipients" placeholder="team@achimonline.com"></label>
+            <label class="filter-field sp-field"><span>SharePoint folder</span>
+                <div class="sp-input-row">
+                    <input type="text" name="sharepoint_path" id="spPathInput" placeholder="(none)" readonly>
+                    <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
+                    <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear selection">&times;</button>
+                </div>
+            </label>
         </div>
-        <label class="modal-field" id="mMonthday" hidden><span>Day of month</span>
-            <input type="number" name="monthday" min="1" max="28" value="1"></label>
-        <label class="modal-field"><span>Recipients</span><input type="text" name="recipients" placeholder="team@achimonline.com"></label>
-        <label class="modal-field"><span>SharePoint folder (optional)</span><input type="text" name="sharepoint_path" placeholder="Ordered/Daily"></label>
-        <button type="submit" class="btn btn-primary">Create</button>
-        <div id="masterMsg" class="modal-msg" hidden></div>
+        <div class="ms-form-actions">
+            <button type="submit" class="btn btn-primary" id="formSubmitBtn">Create</button>
+            <button type="button" class="btn btn-outline" id="formCancelBtn" hidden>Cancel</button>
+            <div id="masterMsg" class="modal-msg" hidden></div>
+        </div>
     </form>
 </div>
 
 {% if schedules %}
-<div class="table-wrap" data-csrf="{{ csrf_token() }}">
-    <table class="data-table">
+<div class="table-wrap ms-table-wrap" data-csrf="{{ csrf_token() }}">
+    <table class="data-table ms-table">
         <thead>
-            <tr><th>Name</th><th>Report</th><th>Cadence</th><th>Recipients</th><th>Last run</th><th>Active</th><th>Actions</th></tr>
+            <tr>
+                <th>Name</th>
+                <th>Report</th>
+                <th>Cadence</th>
+                <th>Recipients</th>
+                <th>SharePoint</th>
+                <th>Last run</th>
+                <th>Active</th>
+                <th>Actions</th>
+            </tr>
         </thead>
         <tbody>
             {% for s in schedules %}
-            <tr>
+            <tr data-id="{{ s.id }}"
+                data-name="{{ s.name }}"
+                data-report-key="{{ s.report_key }}"
+                data-cadence='{{ s.cadence_raw|tojson }}'
+                data-recipients="{{ s.recipients }}"
+                data-sharepoint-path="{{ s.sharepoint_path }}">
                 <td>{{ s.name }}</td>
                 <td>{{ s.report_title }}</td>
                 <td>{{ s.cadence }}</td>
-                <td>{{ s.recipients or '—' }}</td>
+                <td class="td-truncate">{{ s.recipients or '—' }}</td>
+                <td class="td-truncate">{{ s.sharepoint_path or '—' }}</td>
                 <td>{{ s.last_run or 'never' }}</td>
                 <td>
                     <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
@@ -67,6 +98,7 @@
                     </button>
                 </td>
                 <td class="row-actions">
+                    <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
                     <button type="button" class="btn btn-sm btn-outline js-run"
                             data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Run now</button>
                     <button type="button" class="btn btn-sm btn-outline js-delete"
@@ -81,6 +113,27 @@
 {% else %}
 <div class="empty-state"><i data-feather="clock"></i><p>No master schedules yet.</p></div>
 {% endif %}
+
+<div id="spPickerOverlay" class="sp-picker-overlay" style="display:none">
+    <div class="sp-picker-modal" role="dialog" aria-modal="true" aria-label="Choose SharePoint folder">
+        <div class="sp-picker-header">
+            <h3>Choose SharePoint folder</h3>
+            <button type="button" class="sp-picker-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="sp-picker-breadcrumb" id="spPickerCrumb"></div>
+        <div class="sp-picker-body" id="spPickerBody"></div>
+        <div class="sp-picker-footer">
+            <div class="sp-picker-current">
+                <span class="sp-picker-current-label">Selected:</span>
+                <span class="sp-picker-current-path" id="spPickerCurrentPath"></span>
+            </div>
+            <div class="sp-picker-actions">
+                <button type="button" class="btn btn-outline sp-picker-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary sp-picker-select">Select this folder</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
