@@ -229,5 +229,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/report.js') }}"></script>
+<script src="{{ url_for('static', filename='js/report.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

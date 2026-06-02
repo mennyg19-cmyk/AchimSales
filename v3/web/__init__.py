@@ -9,8 +9,11 @@ registered as later phases land - this file stays thin.
 from __future__ import annotations
 
 import os
+import time
 
 from flask import Flask, jsonify, session
+
+_ASSET_VERSION = str(int(time.time()))
 
 from web.auth.authorization import Authorization, Forbidden
 from web.auth.session import current_principal
@@ -236,6 +239,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         return {
             "new_app_marker": cfg.new_app_marker,  # removable header pill; deleted at cutover
             "app_env": cfg.app_env,
+            "asset_v": _ASSET_VERSION,
             "nav": nav,
             "user": user,
             "theme": theme or "light",
