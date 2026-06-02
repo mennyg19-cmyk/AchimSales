@@ -537,28 +537,28 @@ _AZURE_SCHEDULES: list[dict] = [
         "name": "Monthly Invoiced Report",
         "report_key": "invoiced",
         "params": {"period": "month"},
-        "cadence": {"freq": "monthly", "time": "05:00", "day_of_month": 1},
+        "cadence": {"freq": "monthly", "time": "05:00", "monthday": 1},
         "sharepoint_path": "Direct Reports/Invoiced Report/Monthly",
     },
     {
         "name": "Monthly Customer Activity",
         "report_key": "customer_activity",
         "params": {},
-        "cadence": {"freq": "monthly", "time": "00:00", "day_of_month": 1},
+        "cadence": {"freq": "monthly", "time": "00:00", "monthday": 1},
         "sharepoint_path": "Direct Reports/Salesman Report/Customer Activity",
     },
     {
         "name": "Monthly Salesman Report",
         "report_key": "salesman",
         "params": {},
-        "cadence": {"freq": "monthly", "time": "22:00", "day_of_month": 1},
+        "cadence": {"freq": "monthly", "time": "22:00", "monthday": 1},
         "sharepoint_path": "Direct Reports/Salesman Report/Monthly",
     },
     {
         "name": "Amazon Monthly Ordered",
         "report_key": "ordered",
         "params": {"period": "month"},
-        "cadence": {"freq": "monthly", "time": "19:59", "day_of_month": -1},
+        "cadence": {"freq": "monthly", "time": "19:59", "monthday": 28},
         "sharepoint_path": "Direct Reports/Amazon Weekly",
     },
     {
@@ -574,23 +574,26 @@ _AZURE_SCHEDULES: list[dict] = [
 def _seed_master_schedules(app: Flask, db) -> None:
     """Seed master_schedules from the current Azure Automation configuration.
 
-    Only seeds when the table is empty so we don't overwrite manual changes.
-    These are the schedules that Azure Automation currently runs; the v3 app
-    will eventually replace Azure Automation entirely.
+    Uses upsert-by-name: inserts any schedule whose name doesn't already exist.
+    Existing schedules (including manually edited ones) are left untouched.
     """
     from web.data.repositories.schedules import MasterScheduleRepository
 
     try:
         repo = MasterScheduleRepository(db)
-        if repo.list_all():
-            return
+        existing = {s.name for s in repo.list_all()}
+        added = 0
         for s in _AZURE_SCHEDULES:
+            if s["name"] in existing:
+                continue
             repo.create(
                 s["report_key"], s["name"],
                 params=s.get("params", {}), layout={},
                 cadence=s.get("cadence", {}),
                 sharepoint_path=s.get("sharepoint_path", ""),
             )
-        app.logger.info("seeded %d master schedules from Azure config", len(_AZURE_SCHEDULES))
+            added += 1
+        if added:
+            app.logger.info("seeded %d master schedules from Azure config", added)
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("master schedule seed failed")
