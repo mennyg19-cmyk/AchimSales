@@ -142,18 +142,22 @@ class SharePointService:
         headers = {"Authorization": f"Bearer {self._get_token()}"}
         site_url = (self.cfg.sp_site_url or "").strip()
 
+        site_id: str | None = None
+
         if site_url:
             parsed = urlparse(site_url.rstrip("/"))
             host = parsed.netloc
             path = (parsed.path or "").strip("/")
             site_ref = f"{host}:/{path}" if path else host
             site = requests.get(f"{GRAPH_BASE}/sites/{site_ref}", headers=headers, timeout=TIMEOUT)
-            site.raise_for_status()
-            site_id = site.json()["id"]
-        else:
+            if site.ok:
+                site_id = site.json()["id"]
+            else:
+                log.warning("SP_SITE_URL resolved to 404 (%s), falling back to search", site_ref)
+
+        if site_id is None:
             r = requests.get(f"{GRAPH_BASE}/sites?search=achim", headers=headers, timeout=TIMEOUT)
             r.raise_for_status()
-            site_id = None
             for s in r.json().get("value", []):
                 sid = s.get("id")
                 dr = requests.get(f"{GRAPH_BASE}/sites/{sid}/drive", headers=headers, timeout=TIMEOUT)

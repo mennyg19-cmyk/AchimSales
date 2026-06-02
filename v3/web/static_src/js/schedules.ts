@@ -59,7 +59,7 @@ function masterMsg(text: string, isError: boolean): void {
   if (!el) return;
   el.textContent = text;
   el.hidden = !text;
-  el.className = "modal-msg" + (isError ? " modal-msg-error" : "");
+  el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
 }
 
 function syncMasterCadence(): void {
@@ -80,7 +80,7 @@ function masterCadence(form: HTMLFormElement): { ok: boolean; cadence?: any; err
     if (!days.length) return { ok: false, error: "Pick at least one day." };
     cadence.weekdays = days;
   } else if (freq === "monthly") {
-    cadence.monthday = Number((form.elements.namedItem("monthday") as HTMLInputElement).value) || 1;
+    cadence.monthday = Number((form.elements.namedItem("monthday") as HTMLSelectElement).value) || 1;
   }
   return { ok: true, cadence };
 }
@@ -108,7 +108,7 @@ function enterEditMode(row: HTMLTableRowElement): void {
     form.querySelectorAll<HTMLInputElement>('input[name="weekday"]').forEach((c) => { c.checked = false; });
   }
   if (cad.freq === "monthly") {
-    (form.elements.namedItem("monthday") as HTMLInputElement).value = String(cad.monthday || 1);
+    (form.elements.namedItem("monthday") as HTMLSelectElement).value = String(cad.monthday ?? 1);
   }
 
   syncMasterCadence();

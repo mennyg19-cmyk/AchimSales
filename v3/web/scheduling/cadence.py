@@ -3,7 +3,7 @@
 Cadence shape (stored as JSON in the schedule's ``cadence`` column):
     {"freq": "daily"|"weekly"|"monthly", "time": "HH:MM",
      "weekdays": [0..6]   # Mon=0, only for weekly
-     "monthday": 1..28}   # only for monthly
+     "monthday": 1..28 | -1}  # only for monthly; -1 = last day of month
 
 All wall-clock reasoning is in US/Eastern (the business timezone) so an "8:00"
 schedule fires at 8am Eastern regardless of the container's UTC clock. A schedule
@@ -13,6 +13,7 @@ re-enqueued until the next eligible day.
 
 from __future__ import annotations
 
+import calendar
 from datetime import datetime, time, timezone
 
 try:  # zoneinfo is stdlib on 3.9+, but guard so imports never explode
@@ -40,7 +41,7 @@ def normalize(cadence: dict | None) -> dict:
         out["weekdays"] = days
     elif freq == "monthly":
         day = int(c.get("monthday", 1))
-        out["monthday"] = max(1, min(28, day))  # clamp to 28 so every month has it
+        out["monthday"] = -1 if day == -1 else max(1, min(28, day))
     return out
 
 
@@ -67,7 +68,9 @@ def describe(cadence: dict | None) -> str:
         days = ", ".join(names[d] for d in c.get("weekdays", []) if 0 <= d <= 6)
         return f"Weekly ({days}) at {t}"
     if freq == "monthly":
-        return f"Monthly on day {c.get('monthday', 1)} at {t}"
+        md = c.get("monthday", 1)
+        day_label = "last day" if md == -1 else f"day {md}"
+        return f"Monthly on {day_label} at {t}"
     return "Not scheduled"
 
 
@@ -103,7 +106,11 @@ def _day_matches(c: dict, now: datetime) -> bool:
     if freq == "weekly":
         return now.weekday() in (c.get("weekdays") or [])
     if freq == "monthly":
-        return now.day == max(1, min(28, int(c.get("monthday", 1))))
+        md = int(c.get("monthday", 1))
+        if md == -1:
+            last = calendar.monthrange(now.year, now.month)[1]
+            return now.day == last
+        return now.day == max(1, min(28, md))
     return False
 
 

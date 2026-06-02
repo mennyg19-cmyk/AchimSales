@@ -44,7 +44,11 @@
                 </div>
             </div>
             <label class="ms-field" id="mMonthday" hidden><span>Day of month</span>
-                <input type="number" name="monthday" min="1" max="28" value="1"></label>
+                <select name="monthday">
+                    {% for d in range(1, 29) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+                    <option value="-1">Last day</option>
+                </select>
+            </label>
             <label class="ms-field"><span>Recipients</span>
                 <input type="email" name="recipients" placeholder="team@achimonline.com" multiple></label>
             <label class="ms-field ms-field-sp"><span>SharePoint folder</span>
