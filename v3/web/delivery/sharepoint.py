@@ -45,10 +45,8 @@ class SharePointService:
         self._drive_id: str | None = None
 
     def is_configured(self) -> bool:
-        # Real Graph mode needs the site URL too - without it we can't resolve a
-        # drive, so MSAL creds alone must NOT be treated as configured.
         return bool(self.cfg.tenant_id and self.cfg.client_id
-                    and self.cfg.client_secret and self.cfg.sp_site_url)
+                    and self.cfg.client_secret)
 
     def root_path(self) -> str:
         return self._root
@@ -142,16 +140,40 @@ class SharePointService:
         import requests
 
         headers = {"Authorization": f"Bearer {self._get_token()}"}
-        parsed = urlparse(self.cfg.sp_site_url.rstrip("/"))
-        host = parsed.netloc
-        path = (parsed.path or "").strip("/")
-        site_ref = f"{host}:/{path}" if path else host
-        site = requests.get(f"{GRAPH_BASE}/sites/{site_ref}", headers=headers, timeout=TIMEOUT)
-        site.raise_for_status()
-        drive = requests.get(f"{GRAPH_BASE}/sites/{site.json()['id']}/drive",
+        site_url = (self.cfg.sp_site_url or "").strip()
+
+        if site_url:
+            parsed = urlparse(site_url.rstrip("/"))
+            host = parsed.netloc
+            path = (parsed.path or "").strip("/")
+            site_ref = f"{host}:/{path}" if path else host
+            site = requests.get(f"{GRAPH_BASE}/sites/{site_ref}", headers=headers, timeout=TIMEOUT)
+            site.raise_for_status()
+            site_id = site.json()["id"]
+        else:
+            r = requests.get(f"{GRAPH_BASE}/sites?search=achim", headers=headers, timeout=TIMEOUT)
+            r.raise_for_status()
+            site_id = None
+            for s in r.json().get("value", []):
+                sid = s.get("id")
+                dr = requests.get(f"{GRAPH_BASE}/sites/{sid}/drive", headers=headers, timeout=TIMEOUT)
+                if dr.status_code != 200:
+                    continue
+                did = dr.json()["id"]
+                test = requests.get(
+                    f"{GRAPH_BASE}/drives/{did}/root:/{self._root}:/children",
+                    headers=headers, timeout=TIMEOUT)
+                if test.status_code == 200:
+                    self._drive_id = did
+                    log.info("resolved SharePoint drive %s via search", did)
+                    return did
+            raise RuntimeError("Could not find SharePoint site with Direct Reports folder")
+
+        drive = requests.get(f"{GRAPH_BASE}/sites/{site_id}/drive",
                              headers=headers, timeout=TIMEOUT)
         drive.raise_for_status()
         self._drive_id = drive.json()["id"]
+        log.info("resolved SharePoint drive %s via site URL", self._drive_id)
         return self._drive_id
 
     def _ensure_folder(self, rel_path: str) -> None:

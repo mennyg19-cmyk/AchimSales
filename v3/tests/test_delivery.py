@@ -195,10 +195,9 @@ def test_sharepoint_rejects_path_traversal(tmp_path):
     assert _validate_segments("Ordered/Daily") == ["Ordered", "Daily"]
 
 
-def test_sharepoint_prod_without_config_raises(tmp_path):
+def test_sharepoint_prod_without_creds_raises(tmp_path):
     sp = SharePointService(_cfg(tmp_path, app_env="prod",
-                                tenant_id="t", client_id="c", client_secret="s"))
-    # creds present but SP_SITE_URL blank -> not configured, and prod must not mock.
+                                tenant_id="", client_id="", client_secret=""))
     assert sp.is_configured() is False
     with pytest.raises(RuntimeError):
         sp.upload_file("Ordered", "r.xlsx", b"x")
