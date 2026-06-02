@@ -289,6 +289,10 @@ async function spLoadPath(path: string): Promise<void> {
       body.innerHTML = `<div class="sp-picker-error">${esc(json.error || "HTTP " + r.status)}</div>`;
       return;
     }
+    if (json.error) {
+      body.innerHTML = `<div class="sp-picker-error">${esc(json.error)}</div>`;
+      return;
+    }
     spRenderFolders(json.folders || []);
   } catch (e: any) {
     body.innerHTML = `<div class="sp-picker-error">Could not load folders: ${esc(e.message)}</div>`;
