@@ -1013,7 +1013,11 @@ function loadPayload(payload: Payload, render = true): void {
   payload.tabs.forEach((tab) => {
     state.tabs[tab.key] = tab;
     state.order.push(tab.key);
-    state.views[tab.key] = freshView();
+    const v = freshView();
+    if (Array.isArray((tab as any).default_group) && (tab as any).default_group.length) {
+      v.group = [...(tab as any).default_group];
+    }
+    state.views[tab.key] = v;
   });
   state.active = state.order[0] || null;
   setToolbarEnabled(true);

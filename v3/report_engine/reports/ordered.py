@@ -302,11 +302,16 @@ def build(facts: Iterable[OrderLineFact]) -> list[dict]:
         sort=_by_ordered_desc,
     )
 
+    summary = _build_summary(lines)
+    summary["default_group"] = ["Salesman"]
+
     return [
-        _build_summary(lines),
-        _tab("by_customer", "By Customer", BY_CUSTOMER_COLS, by_customer, stub=STUB_FIELDS),
+        summary,
+        _tab("by_customer", "By Customer", BY_CUSTOMER_COLS, by_customer, stub=STUB_FIELDS,
+             default_group=["Salesman"]),
         _tab("by_item", "By Item", BY_ITEM_COLS, by_item, stub=STUB_FIELDS),
-        _tab("by_order", "By Order", BY_ORDER_COLS, by_order, stub=STUB_FIELDS),
+        _tab("by_order", "By Order", BY_ORDER_COLS, by_order, stub=STUB_FIELDS,
+             default_group=["Salesman"]),
         _tab("by_salesman", "By Salesman", BY_SALESMAN_COLS, by_salesman, stub=STUB_FIELDS),
         _tab("full_data", "Full Data", FULL_DATA_COLS, lines, stub=STUB_FIELDS),
     ]

@@ -255,8 +255,11 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str]) -> None:
         if rows:
             ws.append(_total_cells(ws, metas, grand, "Grand total"))
     else:
+        grand: dict[str, float] = {}
         for row in rows:
-            ws.append(_data_cells(ws, metas, row, {}))
+            ws.append(_data_cells(ws, metas, row, grand))
+        if rows:
+            ws.append(_total_cells(ws, metas, grand, "Total"))
 
 
 def _stream_commission(ws, tab: dict) -> None:
@@ -324,6 +327,8 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         # the row dicts - honour it from the row data, not just visible columns.
         known = {f for _h, f, _t in metas} | (set(rows[0].keys()) if rows else set())
         wanted = v.get("group") if isinstance(v.get("group"), list) else []
+        if not wanted:
+            wanted = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
         group_fields = [g for g in wanted if g in known]
         _stream_grid(ws, metas, rows, group_fields)
     buffer = BytesIO()
