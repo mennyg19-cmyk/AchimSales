@@ -831,6 +831,7 @@ function exportErrorFor(status: number): string {
 async function exportExcel(): Promise<void> {
   if (!state.jobId) { setStatus("Run the report first, then export.", "error"); return; }
   const url = attr("data-export-url").replace("__ID__", state.jobId);
+  exportPageKey = attr("data-report-key");  // lock the auto-download to this page
   try {
     const res = await fetch(url, {
       method: "POST", headers: csrfHeaders(), body: JSON.stringify(serializeLayout()),
@@ -839,7 +840,7 @@ async function exportExcel(): Promise<void> {
     const { export_id } = await res.json();
     setStatus("Your Excel file is building in the background \u2014 see Recent exports.");
     loadExports();                 // surface it immediately as "building"
-    pollExport(export_id, true);   // auto-download when ready (best-effort)
+    pollExport(export_id, true);   // auto-download when ready (if still on this page)
   } catch (err) {
     setStatus(err instanceof Error ? err.message : "Could not start the export.", "error");
   }
@@ -868,8 +869,22 @@ function triggerDownload(id: string): void {
   a.remove();
 }
 
-/** Poll one export job to completion; optionally auto-download it once. The job
- *  is durable server-side, so navigating away doesn't lose it. */
+/** The report key of the page at the time the user clicked Export. Checked
+ *  before auto-downloading so a navigation to a different report doesn't
+ *  trigger a stale download (the user can still grab it from Recent exports). */
+let exportPageKey: string | null = null;
+
+/** True when the user is still on the same report page they started the export
+ *  from AND the page is visible. If they navigated away within the SPA-like
+ *  shell or switched to a hidden tab, the auto-download is suppressed. */
+function isExportPageActive(): boolean {
+  return document.visibilityState === "visible"
+    && exportPageKey === attr("data-report-key");
+}
+
+/** Poll one export job to completion; auto-download ONLY if the user is still
+ *  on the same report page (visible). If they navigated away, the file is in
+ *  Recent exports for manual download — no surprise file appearing later. */
 async function pollExport(id: string, autoDownload: boolean): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", id);
   for (let i = 0; i < 600; i++) {
@@ -878,7 +893,10 @@ async function pollExport(id: string, autoDownload: boolean): Promise<void> {
     const job = await res.json();
     loadExports();
     if (job.status === "success") {
-      if (autoDownload && !autoDownloaded.has(id)) { autoDownloaded.add(id); triggerDownload(id); }
+      if (autoDownload && !autoDownloaded.has(id) && isExportPageActive()) {
+        autoDownloaded.add(id);
+        triggerDownload(id);
+      }
       if (exportStatusActive()) clearStatus();
       return;
     }

@@ -28,10 +28,50 @@ EXPORT_JOB_TYPE = "report.export"
 
 _BAD_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
 
+_MONTH_NAMES = {
+    "1": "Jan", "2": "Feb", "3": "Mar", "4": "Apr", "5": "May", "6": "Jun",
+    "7": "Jul", "8": "Aug", "9": "Sep", "10": "Oct", "11": "Nov", "12": "Dec",
+}
 
-def _safe_filename(name: str) -> str:
-    base = _BAD_FILENAME.sub("_", (name or "report").strip()).strip("._") or "report"
-    return f"{base[:80]}.xlsx"
+
+def _describe_params(run_params: dict) -> str:
+    """Build a short, human-readable suffix from the report run's filter params.
+
+    Examples: "May_2026", "Q2_2026", "2026-05-01_to_2026-05-31", "All_Time_2026".
+    """
+    parts: list[str] = []
+    period = str(run_params.get("period", "")).strip()
+    year = str(run_params.get("year", "")).strip()
+    if period == "custom":
+        sd = str(run_params.get("start_date", "")).strip()
+        ed = str(run_params.get("end_date", "")).strip()
+        if sd and ed:
+            parts.append(f"{sd}_to_{ed}")
+        elif sd:
+            parts.append(f"from_{sd}")
+        elif ed:
+            parts.append(f"to_{ed}")
+    elif period:
+        readable = period.replace("_", " ").title().replace(" ", "_")
+        # "month" → look up the month name if a month param is present
+        month_val = str(run_params.get("month", "")).strip()
+        month_name = _MONTH_NAMES.get(month_val)
+        if period == "month" and month_name:
+            readable = month_name
+        parts.append(readable)
+    if year and year not in ("", "None"):
+        parts.append(year)
+    return "_".join(parts) if parts else ""
+
+
+def _safe_filename(report_name: str, run_params: dict | None = None) -> str:
+    """Ordered_Report_May_2026.xlsx — descriptive, filesystem-safe."""
+    title = _BAD_FILENAME.sub("_", (report_name or "Report").strip()).strip("._") or "Report"
+    suffix = _describe_params(run_params or {})
+    base = f"{title}_Report" if not title.lower().endswith("report") else title
+    if suffix:
+        base = f"{base}_{suffix}"
+    return f"{base[:100]}.xlsx"
 
 
 def enqueue_export(job_repo: JobRepository, *, owner_user_id: int | None, source_job_id: str,
@@ -78,6 +118,7 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
         cached = cache.get(source.result_ref)
         if cached is None:
             raise RuntimeError("Report result expired; re-run the report, then export")
+        run_params = (source.params.get("params") or {}) if isinstance(source.params, dict) else {}
         ctx.set_progress(25)
 
         layout = p.get("layout") if isinstance(p.get("layout"), dict) else None
@@ -87,7 +128,8 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
         ctx.set_progress(55)
 
         data = build_workbook(payload, layout)
-        exports.put(ctx.job.id, p["report_key"], _safe_filename(p.get("report_name")), data)
+        exports.put(ctx.job.id, p["report_key"],
+                    _safe_filename(p.get("report_name"), run_params), data)
         ctx.set_progress(100)
         return ctx.job.id  # result_ref == export id == download key
 
