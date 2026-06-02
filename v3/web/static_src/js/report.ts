@@ -1131,15 +1131,16 @@ function friendlyError(raw: unknown): string {
   return s.split("\n")[0].slice(0, 300);
 }
 
-async function run(opts: { preserveLayout?: boolean } = {}): Promise<void> {
+async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<string, unknown> } = {}): Promise<void> {
   if (opts.preserveLayout) captureActive();
   setToolbarEnabled(false);
   setStatus(opts.preserveLayout ? "Refreshing data…" : "Starting…");
   try {
+    const params = opts.overrideParams ?? collectParams();
     const res = await fetch(attr("data-run-url"), {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": attr("data-csrf") },
-      body: JSON.stringify(collectParams()),
+      body: JSON.stringify(params),
     });
     if (!res.ok) throw new Error(`Could not start the report (HTTP ${res.status}).`);
     const { job_id } = await res.json();
@@ -1507,7 +1508,9 @@ async function renderApiPreview(): Promise<void> {
 function showApiPreview(): void {
   const panel = $("apiPreview");
   if (!panel) return;
-  panel.hidden = !panel.hidden; // toggle
+  const wrap = $("apiRunWrap");
+  panel.hidden = !panel.hidden;
+  if (wrap) wrap.hidden = panel.hidden;
   if (!panel.hidden) renderApiPreview();
 }
 
@@ -1944,6 +1947,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     setControlsCollapsed(!$("reportControls")?.classList.contains("collapsed"));
   });
   $("runBtn")?.addEventListener("click", () => { updateDeepLink(); run(); });
+  $("apiRunBtn")?.addEventListener("click", () => {
+    const panel = $("apiPreview") as HTMLTextAreaElement | null;
+    if (!panel) return;
+    try {
+      const parsed = JSON.parse(panel.value);
+      run({ overrideParams: parsed });
+    } catch {
+      setStatus("Invalid JSON in the API preview. Fix it and try again.", "error");
+    }
+  });
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportBtn")?.addEventListener("click", exportExcel);

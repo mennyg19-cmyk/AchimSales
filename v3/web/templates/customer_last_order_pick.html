@@ -110,16 +110,29 @@
         });
     }
 
-    if (salesmanEl) {
+    var smAttempts = 0;
+    function loadSalesmen() {
         fetch("{{ url_for('reports.customer_last_order_salesmen') }}")
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                (data.salesmen || []).forEach(function (s) {
+                var rows = data.salesmen || [];
+                if (!rows.length && smAttempts < 15) {
+                    smAttempts++;
+                    setTimeout(loadSalesmen, 1500);
+                    return;
+                }
+                rows.forEach(function (s) {
                     var opt = document.createElement("option");
                     opt.value = s.key; opt.textContent = s.name;
                     salesmanEl.appendChild(opt);
                 });
+            })
+            .catch(function () {
+                if (smAttempts < 15) { smAttempts++; setTimeout(loadSalesmen, 1500); }
             });
+    }
+    if (salesmanEl) {
+        loadSalesmen();
         salesmanEl.addEventListener("change", function () { attempts = 0; load(); });
     }
     searchEl.addEventListener("input", function () { render(searchEl.value); });

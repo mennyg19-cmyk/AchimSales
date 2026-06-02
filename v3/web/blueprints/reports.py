@@ -188,11 +188,13 @@ def report_view(report_key: str):
     # In-app reports (customer picker driven) have their own pages.
     if spec.in_app and report_key == "customer_last_order":
         return redirect(url_for("reports.customer_last_order_pick"))
-    _authz().assert_report_runnable(p, report_key)
+    authz = _authz()
+    authz.assert_report_runnable(p, report_key)
     return render_template(
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
+        is_privileged=authz.is_privileged(p),
     )
 
 

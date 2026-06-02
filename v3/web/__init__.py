@@ -302,6 +302,7 @@ def bootstrap_background(app: Flask) -> None:
     _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins override the mirror
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
+    _seed_master_schedules(app, db)   # migrate Azure Automation schedules into v3
 
     # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
     # must run in exactly ONE process. Under gunicorn we have multiple workers, so
@@ -487,3 +488,109 @@ def _seed_salesmen_if_empty(app: Flask, db) -> None:
             app.logger.info("seeded %d salesmen from config", len(seeds))
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("salesmen seed failed")
+
+
+_AZURE_SCHEDULES: list[dict] = [
+    {
+        "name": "Daily Invoiced Report",
+        "report_key": "invoiced",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "sharepoint_path": "Direct Reports/Invoiced Report/Daily",
+    },
+    {
+        "name": "Daily Ordered Report",
+        "report_key": "ordered",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
+    },
+    {
+        "name": "Daily Number 4 Report",
+        "report_key": "number_4",
+        "params": {},
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "sharepoint_path": "Direct Reports/Number 4 Report/Daily",
+    },
+    {
+        "name": "Daily Ordered (9am)",
+        "report_key": "ordered",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
+    },
+    {
+        "name": "Daily Salesmen Ordered (9am)",
+        "report_key": "ordered",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Salesman Report/Daily",
+    },
+    {
+        "name": "Daily Salesmen Shipped (9am)",
+        "report_key": "invoiced",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Salesman Report/Daily",
+    },
+    {
+        "name": "Monthly Invoiced Report",
+        "report_key": "invoiced",
+        "params": {"period": "month"},
+        "cadence": {"freq": "monthly", "time": "05:00", "day_of_month": 1},
+        "sharepoint_path": "Direct Reports/Invoiced Report/Monthly",
+    },
+    {
+        "name": "Monthly Customer Activity",
+        "report_key": "customer_activity",
+        "params": {},
+        "cadence": {"freq": "monthly", "time": "00:00", "day_of_month": 1},
+        "sharepoint_path": "Direct Reports/Salesman Report/Customer Activity",
+    },
+    {
+        "name": "Monthly Salesman Report",
+        "report_key": "salesman",
+        "params": {},
+        "cadence": {"freq": "monthly", "time": "22:00", "day_of_month": 1},
+        "sharepoint_path": "Direct Reports/Salesman Report/Monthly",
+    },
+    {
+        "name": "Amazon Monthly Ordered",
+        "report_key": "ordered",
+        "params": {"period": "month"},
+        "cadence": {"freq": "monthly", "time": "19:59", "day_of_month": -1},
+        "sharepoint_path": "Direct Reports/Amazon Weekly",
+    },
+    {
+        "name": "Weekly Amazon Ordered (Friday)",
+        "report_key": "ordered",
+        "params": {"period": "week"},
+        "cadence": {"freq": "weekly", "time": "00:00", "weekdays": [4]},
+        "sharepoint_path": "Direct Reports/Amazon Weekly",
+    },
+]
+
+
+def _seed_master_schedules(app: Flask, db) -> None:
+    """Seed master_schedules from the current Azure Automation configuration.
+
+    Only seeds when the table is empty so we don't overwrite manual changes.
+    These are the schedules that Azure Automation currently runs; the v3 app
+    will eventually replace Azure Automation entirely.
+    """
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    try:
+        repo = MasterScheduleRepository(db)
+        if repo.list_all():
+            return
+        for s in _AZURE_SCHEDULES:
+            repo.create(
+                s["report_key"], s["name"],
+                params=s.get("params", {}), layout={},
+                cadence=s.get("cadence", {}),
+                sharepoint_path=s.get("sharepoint_path", ""),
+            )
+        app.logger.info("seeded %d master schedules from Azure config", len(_AZURE_SCHEDULES))
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("master schedule seed failed")

@@ -135,6 +135,12 @@
     padding: 12px 14px; margin-bottom: 12px; font-size: 12px; color: var(--text);
     max-height: 280px; overflow: auto; white-space: pre; font-family: ui-monospace, monospace;
 }
+.api-preview-editable {
+    width: 100%; resize: vertical; tab-size: 2; white-space: pre-wrap;
+}
+.api-run-wrap {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: -8px;
+}
 
 /* -- Recent exports panel (background export jobs) ------------------------ */
 .exports-panel {
@@ -239,7 +245,11 @@
 .tabulator .tabulator-row .tabulator-cell { border-right: 1px solid var(--border); }
 .tabulator .tabulator-row.tabulator-group { background: var(--bg); color: var(--text); font-weight: 700; border-bottom: 1px solid var(--border); }
 .tabulator .tabulator-row.tabulator-calcs,
-.tabulator .tabulator-footer { background: var(--bg); color: var(--text); font-weight: 700; border-top: 2px solid var(--border); }
+.tabulator .tabulator-row.tabulator-calcs .tabulator-cell,
+.tabulator .tabulator-footer {
+    background: var(--bg-card) !important; color: var(--text) !important;
+    font-weight: 700; border-top: 2px solid var(--border) !important;
+}
 .tabulator .tabulator-footer .tabulator-paginator { color: var(--text-muted); }
 /* Header/cell context menu + edit lists. Tabulator's base theme (loaded after
    main.css) forces a white menu, so themed text was white-on-white under the
