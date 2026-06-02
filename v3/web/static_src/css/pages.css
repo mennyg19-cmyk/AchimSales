@@ -495,14 +495,35 @@
 .help-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 /* ── Master schedules page ── */
-.ms-form-card { margin-bottom: 16px; }
-.ms-form { display: flex; flex-direction: column; gap: 12px; }
-.ms-form-fields { display: flex; flex-wrap: wrap; gap: 10px 16px; }
-.ms-form-fields .filter-field { flex: 1 1 200px; min-width: 160px; }
-.ms-form-actions { display: flex; align-items: center; gap: 10px; }
-.ms-table-wrap { width: 100%; overflow-x: auto; }
-.ms-table { width: 100%; table-layout: auto; white-space: nowrap; }
-.td-truncate { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-panel {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 16px; overflow: hidden;
+}
+.ms-panel-head { padding: 14px 18px 0; }
+.ms-panel-title { font-size: 14px; font-weight: 700; color: var(--text); margin: 0; text-transform: uppercase; letter-spacing: .4px; }
+.ms-form { padding: 12px 18px 16px; }
+.ms-fields { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: flex-end; margin-bottom: 12px; }
+.ms-field {
+    display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+    font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px;
+}
+.ms-field[hidden] { display: none !important; }
+.ms-field input, .ms-field select {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 400; color: var(--text); background: var(--bg);
+    text-transform: none; letter-spacing: 0; min-width: 140px;
+}
+.ms-field input:focus, .ms-field select:focus { outline: none; border-color: var(--border-focus); }
+.ms-field select { appearance: none; padding-right: 28px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+}
+.ms-field-sp { flex: 1 1 250px; min-width: 200px; }
+.ms-actions { display: flex; align-items: center; gap: 10px; }
+.ms-msg { font-size: 13px; color: var(--danger, var(--error)); }
+.ms-msg[hidden] { display: none !important; }
+.ms-table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.td-truncate { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-input-row { display: flex; gap: 6px; align-items: center; }
 .sp-input-row input { flex: 1; }
 

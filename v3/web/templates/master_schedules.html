@@ -10,60 +10,62 @@
     <p class="page-subtitle">Shared, admin-owned recurring deliveries. These run unrestricted (full data).</p>
 </div>
 
-<div class="settings-card ms-form-card">
-    <h2 class="section-title" id="formTitle">New master schedule</h2>
-    <form id="masterCreateForm" class="filter-bar ms-form"
+<div class="ms-panel">
+    <div class="ms-panel-head">
+        <h2 id="formTitle" class="ms-panel-title">New master schedule</h2>
+    </div>
+    <form id="masterCreateForm" class="ms-form"
           data-create-url="{{ url_for('schedules.create_master') }}"
           data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
           data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
           data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
           data-csrf="{{ csrf_token() }}">
         <input type="hidden" name="editing_id" id="editingId" value="">
-        <div class="ms-form-fields">
-            <label class="filter-field"><span>Name</span><input type="text" name="name" required></label>
-            <label class="filter-field"><span>Report</span>
+        <div class="ms-fields">
+            <label class="ms-field"><span>Name</span><input type="text" name="name" required></label>
+            <label class="ms-field"><span>Report</span>
                 <select name="report_key">
                     {% for r in built_reports %}<option value="{{ r.key }}">{{ r.title }}</option>{% endfor %}
                 </select>
             </label>
-            <label class="filter-field"><span>Frequency</span>
+            <label class="ms-field"><span>Frequency</span>
                 <select name="freq" id="mFreq">
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                 </select>
             </label>
-            <label class="filter-field"><span>Time</span><input type="time" name="time" value="08:00"></label>
-            <div class="filter-field" id="mWeekdays" hidden><span>Days</span>
+            <label class="ms-field"><span>Time</span><input type="time" name="time" value="08:00"></label>
+            <div class="ms-field" id="mWeekdays" hidden><span>Days</span>
                 <div class="sched-weekdays">
                     {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
                     <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
                     {% endfor %}
                 </div>
             </div>
-            <label class="filter-field" id="mMonthday" hidden><span>Day of month</span>
+            <label class="ms-field" id="mMonthday" hidden><span>Day of month</span>
                 <input type="number" name="monthday" min="1" max="28" value="1"></label>
-            <label class="filter-field"><span>Recipients</span>
-                <input type="text" name="recipients" placeholder="team@achimonline.com"></label>
-            <label class="filter-field sp-field"><span>SharePoint folder</span>
+            <label class="ms-field"><span>Recipients</span>
+                <input type="email" name="recipients" placeholder="team@achimonline.com" multiple></label>
+            <label class="ms-field ms-field-sp"><span>SharePoint folder</span>
                 <div class="sp-input-row">
                     <input type="text" name="sharepoint_path" id="spPathInput" placeholder="(none)" readonly>
                     <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
-                    <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear selection">&times;</button>
+                    <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear">&times;</button>
                 </div>
             </label>
         </div>
-        <div class="ms-form-actions">
+        <div class="ms-actions">
             <button type="submit" class="btn btn-primary" id="formSubmitBtn">Create</button>
             <button type="button" class="btn btn-outline" id="formCancelBtn" hidden>Cancel</button>
-            <div id="masterMsg" class="modal-msg" hidden></div>
+            <span id="masterMsg" class="ms-msg" hidden></span>
         </div>
     </form>
 </div>
 
 {% if schedules %}
-<div class="table-wrap ms-table-wrap" data-csrf="{{ csrf_token() }}">
-    <table class="data-table ms-table">
+<div class="ms-table-wrap" data-csrf="{{ csrf_token() }}">
+    <table class="data-table">
         <thead>
             <tr>
                 <th>Name</th>
