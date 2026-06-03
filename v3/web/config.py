@@ -39,6 +39,7 @@ class Config:
     client_secret: str
     reporting_api_base_url: str
     reporting_api_key: str
+    reporting_api_timeout: float
     precious_db_path: Path
     cache_db_path: Path
     litestream_blob_url: str
@@ -124,6 +125,7 @@ def load_config() -> Config:
         client_secret=os.environ.get("GRAPH_CLIENT_SECRET", "").strip(),
         reporting_api_base_url=os.environ.get("REPORTING_API_BASE_URL", "").strip().rstrip("/"),
         reporting_api_key=os.environ.get("REPORTING_API_KEY", "").strip(),
+        reporting_api_timeout=float(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "300")),
         precious_db_path=_env_path("PRECIOUS_DB_PATH", "./.data/precious.db"),
         cache_db_path=_env_path("CACHE_DB_PATH", "./.data/cache.db"),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),

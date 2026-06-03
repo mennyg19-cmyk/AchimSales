@@ -88,7 +88,8 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.reporting.runner import ReportRunner
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler
 
-    client = ReportingApiClient(cfg.reporting_api_base_url, cfg.reporting_api_key)
+    client = ReportingApiClient(cfg.reporting_api_base_url, cfg.reporting_api_key,
+                                timeout=cfg.reporting_api_timeout)
     salesmen_repo = SalesmanRepository(db)
     service = ReportService(client, salesmen_repo)
     cache = ReportCache(db)

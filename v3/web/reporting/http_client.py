@@ -38,7 +38,7 @@ class ReportResult:
 
 
 class ReportingApiClient:
-    def __init__(self, base_url: str, api_key: str, *, timeout: float = 60.0,
+    def __init__(self, base_url: str, api_key: str, *, timeout: float = 300.0,
                  retries: int = 2, session: _Session | None = None):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key or ""
@@ -67,7 +67,8 @@ class ReportingApiClient:
         last_exc: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
-                resp = session.post(url, json=params, headers=headers, timeout=self.timeout)
+                resp = session.post(url, json=params, headers=headers,
+                                    timeout=(10, self.timeout))
                 status = resp.status_code
                 if 400 <= status < 500:
                     # Client error (bad params / SP rejection): don't retry.
