@@ -26,12 +26,55 @@ from config.settings import (
 from core.auth import D365TokenManager
 from core.dates import get_today_eastern
 from core.logging import setup_logging
-from reports.customer_activity.builder import build_customer_activity, fetch_all_data, split_by_salesman
+from reports.customer_activity.builder import (
+    OUTPUT_COLUMNS,
+    build_customer_activity,
+    fetch_all_data,
+    split_by_salesman,
+)
 from reports.customer_activity.writer import write_individual_report, write_management_report
 
 log = logging.getLogger(__name__)
 
 REPORT_NAME = "Customer Activity Report"
+
+
+def _resolve_target_display_names(
+    salesman_keys: list[str],
+    per_salesman: dict,
+) -> list[str]:
+    """Map salesman keys/identifiers to their display names.
+
+    Accepts the keys used by the salesman map (e.g. the webapp's
+    ``salesman_key``) or already-resolved display names.  Returns the list of
+    display names to generate, even if a salesman currently has no customers
+    (    so they still receive an empty report rather than someone else's data).
+    """
+    targets: list[str] = []
+    lowered_displays = {dn.strip().lower(): dn for dn in per_salesman}
+
+    for raw in salesman_keys:
+        if not raw:
+            continue
+        rec = lookup_salesman_xl(raw)
+        display = rec.display_name if (rec and rec.display_name and rec.display_name != "Unassigned") else ""
+
+        if not display:
+            # Maybe the caller already passed a display name
+            match = lowered_displays.get(str(raw).strip().lower())
+            if match:
+                display = match
+
+        if not display:
+            # Last resort: use the raw value so we at least scope to one name
+            display = str(raw).strip()
+            log.warning("Could not resolve salesman filter %r to a known display name; "
+                        "using it verbatim", raw)
+
+        if display not in targets:
+            targets.append(display)
+
+    return targets
 
 
 def _send_individual_emails(per_salesman_files: dict[str, str],
@@ -126,10 +169,26 @@ def _send_master_report_emails(mgmt_path: str, today, test_override: str | None 
             log.exception("Failed to email master customer activity report to %s (%s)", display_name, recipient)
 
 
-def run(send_email: bool = False, test_mode: bool = False) -> int:
-    """Run the Customer Activity Report."""
+def run(send_email: bool = False, test_mode: bool = False,
+        salesman_keys: list[str] | None = None) -> int:
+    """Run the Customer Activity Report.
+
+    Args:
+        send_email: Email each salesman their individual report.
+        test_mode: Append _TEST to filenames and redirect emails to TEST_EMAIL.
+        salesman_keys: If provided, ONLY generate individual report(s) for these
+            salesmen (used when a salesman/manager runs it on demand). The
+            management ("All") workbook is skipped entirely so a single
+            salesman never receives every rep's data.
+    """
+    import pandas as pd
+
     setup_logging()
     log.info("=== %s starting ===", REPORT_NAME)
+
+    filtered_run = bool(salesman_keys)
+    if filtered_run:
+        log.info("Scoped run -- generating only for salesman key(s): %s", salesman_keys)
 
     test_override: str | None = None
     if test_mode:
@@ -169,14 +228,27 @@ def run(send_email: bool = False, test_mode: bool = False) -> int:
         test_tag = "_TEST" if test_mode else ""
 
         sm_map = load_salesman_map()
-        subscribed_displays = {
-            rec.display_name for rec in sm_map.values()
-            if rec.subscriptions.get("customer_activity", False) and rec.email
-        }
+
+        # When scoped to specific salesmen, restrict to just those reps and
+        # bypass the email-subscription gate (an on-demand run should always
+        # produce a file even for a rep who opted out of the email blast).
+        if filtered_run:
+            targets = _resolve_target_display_names(salesman_keys, per_salesman)
+            scoped: dict[str, "pd.DataFrame"] = {}
+            for dn in targets:
+                scoped[dn] = per_salesman.get(dn, pd.DataFrame(columns=OUTPUT_COLUMNS))
+            per_salesman = scoped
+            unassigned_df = pd.DataFrame(columns=OUTPUT_COLUMNS)
+            allowed_displays = set(targets)
+        else:
+            allowed_displays = {
+                rec.display_name for rec in sm_map.values()
+                if rec.subscriptions.get("customer_activity", False) and rec.email
+            }
 
         per_salesman_files: dict[str, str] = {}
         for display_name, df in per_salesman.items():
-            if display_name not in subscribed_displays:
+            if not filtered_run and display_name not in allowed_displays:
                 log.debug("Skipping individual report for %s (not subscribed)", display_name)
                 continue
             filename = f"Customer_Activity_{display_name}_{today.isoformat()}{test_tag}.xlsx"
@@ -187,17 +259,23 @@ def run(send_email: bool = False, test_mode: bool = False) -> int:
             write_individual_report(df, display_name, out_path)
             per_salesman_files[display_name] = out_path
 
-        mgmt_filename = f"Customer_Activity_All_{today.isoformat()}{test_tag}.xlsx"
-        mgmt_path = get_output_path(
-            "Salesman Report", month_folder, mgmt_filename,
-            sub_report="Customer Activity",
-        )
-        write_management_report(per_salesman, mgmt_path, unassigned_df=unassigned_df)
+        # The management ("All salesmen") workbook is only for the full run.
+        # Never generate it for a scoped salesman/manager run.
+        if not filtered_run:
+            mgmt_filename = f"Customer_Activity_All_{today.isoformat()}{test_tag}.xlsx"
+            mgmt_path = get_output_path(
+                "Salesman Report", month_folder, mgmt_filename,
+                sub_report="Customer Activity",
+            )
+            write_management_report(per_salesman, mgmt_path, unassigned_df=unassigned_df)
 
-        if send_email:
-            log.info("Sending individual emails to salesmen")
+            if send_email:
+                log.info("Sending individual emails to salesmen")
+                _send_individual_emails(per_salesman_files, test_override=test_override)
+                _send_master_report_emails(mgmt_path, today, test_override=test_override)
+        elif send_email:
+            log.info("Sending scoped individual email(s)")
             _send_individual_emails(per_salesman_files, test_override=test_override)
-            _send_master_report_emails(mgmt_path, today, test_override=test_override)
 
         log.info("=== %s completed successfully ===", REPORT_NAME)
         return 0

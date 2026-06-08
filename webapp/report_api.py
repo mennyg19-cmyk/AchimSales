@@ -238,16 +238,30 @@ def run_amazon_weekly(params: dict) -> dict:
 
 
 def run_customer_activity(params: dict) -> dict:
-    """Run the Customer Activity Report and return results."""
+    """Run the Customer Activity Report and return results.
+
+    When a salesman or manager runs this on demand, ``params`` carries a
+    salesman scope so we only generate that rep's file(s) -- never the full
+    all-salesmen set. Admins (no scope, or salesman == 'all') get everything.
+    """
     from reports.customer_activity.runner import run as activity_run
     from config.paths import get_direct_reports_root
     import time
+
+    # Resolve the salesman scope from the request params.
+    salesman_keys: list[str] | None = None
+    if params.get("salesman_list"):
+        salesman_keys = [s for s in params["salesman_list"] if s]
+    else:
+        sk = (params.get("salesman") or "").strip()
+        if sk and sk.lower() != "all":
+            salesman_keys = [sk]
 
     output_root = get_direct_reports_root()
     before = time.time()
 
     try:
-        activity_run(send_email=False, test_mode=False)
+        activity_run(send_email=False, test_mode=False, salesman_keys=salesman_keys)
 
         all_files = _find_all_new_xlsx(
             os.path.join(output_root, "Salesman Report"), before
