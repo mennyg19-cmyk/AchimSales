@@ -39,11 +39,11 @@ class Config:
     client_secret: str
     reporting_api_base_url: str
     reporting_api_key: str
-    reporting_api_timeout: float
     precious_db_path: Path
     cache_db_path: Path
     litestream_blob_url: str
     new_app_marker: bool
+    reporting_api_timeout: float = 300.0
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
     # Delivery (Phase C) - all optional; absent => email writes .eml to the outbox

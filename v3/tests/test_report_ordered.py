@@ -1,4 +1,4 @@
-"""Ordered report: SP adapter + LIVE-format builder (authoritative $, stub qty)."""
+"""Ordered report: SP adapter + LIVE-format builder (authoritative $, qty)."""
 
 from report_engine.reports import ordered as B
 from report_engine.sources import ordered as S
@@ -10,14 +10,15 @@ def _rows():
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-01T08:30:00",
          "CustomerRequisition": "PO-1", "LineNumber": "1", "Item": "ITM-A",
          "ItemDescription": "Widget", "SalesPrice": "2.29", "SalesStatus": "Open",
-         "QuantityOrdered": "30", "ReleasedQuantity": "10", "DeliveryRemainder": "20",
-         "QuantityLefttoLoad": "0", "Ordered $": "68.70", "Shipped $": "22.90",
-         "Cancelled $": "0"},
+         "QuantityOrdered": "30", "ShippedQuantity": "10", "ReleasedQuantity": "10",
+         "DeliveryRemainder": "20", "QuantityLefttoLoad": "0",
+         "Ordered $": "68.70", "Shipped $": "22.90", "Cancelled $": "0"},
         {"SalesOrderNumber": "SO2", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-02T08:30:00",
          "LineNumber": "1", "Item": "ITM-B", "ItemDescription": "Gadget",
          "SalesPrice": "5.00", "SalesStatus": "Cancelled", "QuantityOrdered": "4",
-         "ReleasedQuantity": "0", "DeliveryRemainder": "0", "QuantityLefttoLoad": "0",
+         "ShippedQuantity": "0", "ReleasedQuantity": "0", "DeliveryRemainder": "0",
+         "QuantityLefttoLoad": "0",
          "Ordered $": "20.00", "Shipped $": "0", "Cancelled $": "20.00"},
     ]
 
@@ -27,16 +28,16 @@ def test_adapter_maps_authoritative_dollars_and_qty():
     assert f.sales_order_number == "SO1"
     assert f.customer_name == "Acme"
     assert f.order_date == "2026-03-01"
-    assert f.qty_ordered == 30 and f.qty_released == 10
+    assert f.qty_ordered == 30 and f.qty_shipped == 10 and f.qty_released == 10
     assert f.ordered_dollars == 68.70 and f.shipped_dollars == 22.90
     assert f.unit_price == 2.29
 
 
-def test_full_data_qty_derivation_and_open_dollars():
+def test_full_data_qty_and_open_dollars():
     tabs = B.build(S.to_facts(_rows()))
     full = next(t for t in tabs if t["key"] == "full_data")
     so1 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO1")
-    # shipped = 30 - 20 remainder - 0 load - 0 cancelled = 10
+    # shipped comes directly from SP's ShippedQuantity
     assert so1["QtyShipped"] == 10
     assert so1["QtyCancelled"] == 0
     assert so1["QtyOpen"] == 20

@@ -106,6 +106,10 @@ def translate_ordered(p: dict) -> dict[str, Any]:
         out["Item"] = v
     if v := _csv(p.get("company")):
         out["Company"] = v
+    if v := _csv(p.get("shipped_qty_min")):
+        out["shippedquantitymin"] = v
+    if v := _csv(p.get("shipped_qty_max")):
+        out["shippedquantitymax"] = v
     return out
 
 

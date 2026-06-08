@@ -21,8 +21,7 @@ class OrderLineFact:
 
     Source-shaped. The SP returns authoritative dollar columns
     (ordered/shipped/cancelled) computed server-side from WHS + packing-slip
-    data, plus the raw qty inputs. It does NOT yet return an explicit
-    qty-cancelled, so the builder derives the qty buckets and flags them.
+    data, plus qty_shipped (the actual shipped quantity from the SP).
     """
     source: Source
     company: str
@@ -42,6 +41,7 @@ class OrderLineFact:
     # Quantities are floats (LIVE keeps them numeric; the SP may return
     # fractional units) - never int-truncated before aggregation.
     qty_ordered: float
+    qty_shipped: float
     qty_released: float
     delivery_remainder: float
     qty_left_to_load: float

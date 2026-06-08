@@ -37,6 +37,7 @@ def to_fact(raw: Mapping) -> OrderLineFact:
         status=text(first_of(raw, "SalesStatus", "Status")),
         order_status=text(first_of(raw, "OrderStatus", "orderstatus", "HeaderStatus")),
         qty_ordered=num(first_of(raw, "QuantityOrdered", "QtyOrdered")),
+        qty_shipped=num(first_of(raw, "ShippedQuantity", "QuantityShipped", "QtyShipped")),
         qty_released=num(first_of(raw, "ReleasedQuantity", "QtyReleased")),
         delivery_remainder=num(first_of(raw, "DeliveryRemainder", "QuantityRemainder", "QtyRemainder")),
         qty_left_to_load=num(first_of(raw, "QuantityLefttoLoad", "QtyLeftToLoad")),
