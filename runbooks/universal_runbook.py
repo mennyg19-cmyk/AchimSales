@@ -31,6 +31,8 @@ Azure Automation Parameters:
   extra_args  (str, optional): Additional CLI args, e.g. "--period daily".
                                Merged with default_args from the registry.
                                Use "--force" to bypass the Shabbos/Yom Tov guard.
+                               Use "--skip-period ytd" to exclude a period from
+                               nightly all-periods runs (repeatable).
                                Use "--simulate-date 2026-04-02T05:00" to test the
                                guard for any date/time without running real reports.
 
@@ -644,7 +646,7 @@ def _get_last_success_date(log_path, display_name, merged_args=""):
     """
     from datetime import date as _date, datetime as _datetime
 
-    _FLAGS_WITH_VALUE = {"--from", "--to", "--period", "--date", "--subfolder"}
+    _FLAGS_WITH_VALUE = {"--from", "--to", "--period", "--date", "--subfolder", "--skip-period"}
     _FLAGS_STANDALONE = {"--force", "--test"}
 
     def _base_args(raw: str) -> str:
@@ -863,6 +865,28 @@ def _strip_period(argv):
     return new_argv
 
 
+def _parse_skip_periods(merged_args: str) -> tuple[set[str], str]:
+    """Extract --skip-period flags from merged_args.
+
+    Returns (set of period names to skip, cleaned args without --skip-period).
+    Supports repeating: ``--skip-period ytd --skip-period mtd``.
+    """
+    tokens = merged_args.split()
+    skip_set: set[str] = set()
+    cleaned: list[str] = []
+    skip_next = False
+    for t in tokens:
+        if skip_next:
+            skip_set.add(t.lower())
+            skip_next = False
+            continue
+        if t == "--skip-period":
+            skip_next = True
+            continue
+        cleaned.append(t)
+    return skip_set, " ".join(cleaned)
+
+
 # ---------------------------------------------------------------------------
 # Alert helper (standalone -- sends via Graph sendMail)
 # ---------------------------------------------------------------------------
@@ -986,6 +1010,11 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
 
     default_args = entry.get("default_args", "") or ""
     merged_args = f"{default_args} {extra_args}".strip()
+
+    skip_periods, merged_args = _parse_skip_periods(merged_args)
+    if skip_periods:
+        log.info("[%s] --skip-period requested: %s", display, ", ".join(sorted(skip_periods)))
+
     argv = merged_args.split() if merged_args else []
 
     log.info("--- Running: %s (key=%s, args=%s) ---", display, report_key, argv or "(none)")
@@ -1039,12 +1068,10 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         import gc
         gc.collect()
 
-        # Run each period independently instead of one massive all-periods pass.
-        # This keeps peak memory to the single largest period (YTD) rather than
-        # loading YTD and holding it while also writing Daily/MTD/Last7.
-        _ALL_PERIODS_ORDERED = ["daily", "last_7_days", "mtd", "ytd"]
-        log.info(">>> Running REGULAR SCHEDULED periods individually for '%s' (memory-safe mode)",
-                 display)
+        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd", "ytd"]
+                                if p not in skip_periods]
+        log.info(">>> Running REGULAR SCHEDULED periods individually for '%s' (memory-safe mode): %s",
+                 display, _ALL_PERIODS_ORDERED)
         for period_name in _ALL_PERIODS_ORDERED:
             period_argv = list(argv) + ["--period", period_name]
             log.info(">>> [%s] Period pass: %s", display, period_name)
@@ -1075,10 +1102,10 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         merged_args_display = merged_args or ""
 
     elif is_no_period_run:
-        # No catch-up needed but still a nightly all-periods run:
-        # split into individual periods for memory safety.
-        _ALL_PERIODS_ORDERED = ["daily", "last_7_days", "mtd", "ytd"]
-        log.info(">>> Running ALL PERIODS individually for '%s' (memory-safe mode)", display)
+        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd", "ytd"]
+                                if p not in skip_periods]
+        log.info(">>> Running ALL PERIODS individually for '%s' (memory-safe mode): %s",
+                 display, _ALL_PERIODS_ORDERED)
         for period_name in _ALL_PERIODS_ORDERED:
             period_argv = list(argv) + ["--period", period_name]
             log.info(">>> [%s] Period pass: %s", display, period_name)
