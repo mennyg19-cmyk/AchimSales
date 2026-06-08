@@ -1068,7 +1068,7 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         import gc
         gc.collect()
 
-        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd", "ytd"]
+        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd"]
                                 if p not in skip_periods]
         log.info(">>> Running REGULAR SCHEDULED periods individually for '%s' (memory-safe mode): %s",
                  display, _ALL_PERIODS_ORDERED)
@@ -1102,7 +1102,7 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         merged_args_display = merged_args or ""
 
     elif is_no_period_run:
-        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd", "ytd"]
+        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd"]
                                 if p not in skip_periods]
         log.info(">>> Running ALL PERIODS individually for '%s' (memory-safe mode): %s",
                  display, _ALL_PERIODS_ORDERED)
