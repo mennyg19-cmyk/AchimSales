@@ -647,7 +647,7 @@ def _get_last_success_date(log_path, display_name, merged_args=""):
     from datetime import date as _date, datetime as _datetime
 
     _FLAGS_WITH_VALUE = {"--from", "--to", "--period", "--date", "--subfolder", "--skip-period"}
-    _FLAGS_STANDALONE = {"--force", "--test"}
+    _FLAGS_STANDALONE = {"--force", "--test", "--no-email"}
 
     def _base_args(raw: str) -> str:
         tokens = raw.split()

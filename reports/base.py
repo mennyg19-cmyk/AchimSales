@@ -51,6 +51,9 @@ class BaseReportRunner(ABC):
                             help="Fetch and build reports but skip writing Excel / uploading")
         parser.add_argument("--test", dest="test", action="store_true", default=False,
                             help="Test mode: append _TEST to filenames and override email recipients to TEST_EMAIL")
+        parser.add_argument("--no-email", dest="no_email", action="store_true", default=False,
+                            help="Generate per-salesman files to disk but skip sending emails. "
+                                 "Useful for reviewing output before going live.")
         return parser
 
     def resolve_plan(self, args) -> FetchPlan:
@@ -95,6 +98,12 @@ class BaseReportRunner(ABC):
         """True when ``--test`` was passed on the command line."""
         cli = getattr(self, "_cli_args", None)
         return bool(getattr(cli, "test", False))
+
+    @property
+    def no_email(self) -> bool:
+        """True when ``--no-email`` was passed -- generate files but skip sending."""
+        cli = getattr(self, "_cli_args", None)
+        return bool(getattr(cli, "no_email", False))
 
     @abstractmethod
     def run(self, plan: FetchPlan, company_id: str | None = None) -> None:
