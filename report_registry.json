@@ -103,5 +103,18 @@
             "reports/customer_aging"
         ],
         "default_args": "--email"
+    },
+    "log_digest": {
+        "display_name": "Daily Log Digest",
+        "runner_module": "tools.daily_log_digest",
+        "runner_class": null,
+        "runner_type": "function",
+        "required_paths": [
+            "config",
+            "core",
+            "tools/daily_log_digest.py",
+            "logs"
+        ],
+        "default_args": ""
     }
 }
