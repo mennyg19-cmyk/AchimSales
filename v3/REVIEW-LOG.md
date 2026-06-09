@@ -334,6 +334,42 @@ You had time and asked me to surface every question across all 5 reports. Here's
   salesman, a column per month, plus a YTD column and a TOTAL row) so it both shows on screen and
   exports to Excel. The richer card data is still in the payload for a nicer card UI later.
 
+### Session: Mon Jun 2 - scoping, impersonation, export retention, drift sign-offs
+
+**28. Remainder formula: user chose Ordered - Released - Shipped - Cancelled.**
+- *Decision:* the Summary tab's "QtyRemainder" subtracts cancelled (live doesn't). User explicitly
+  chose this. builder_version bumped to 2 so old cached reports are invalidated.
+
+**29. Per-salesman report scoping is now live.**
+- *What I had to decide:* how to enforce row-level filtering so a salesman can only see their own
+  data when running a report.
+- *What I chose:* filter facts at the service layer (before the builder sees them) using the
+  user's `visible_salesman_keys`. The cache key includes the scope token so different users never
+  cross-read. Result/export endpoints re-check scope compatibility (a user whose scope shrinks
+  after a run can't view old wider-scoped results).
+- *Why:* central enforcement = one place to audit; the builder stays pure and testable.
+
+**30. Customer re-sync on unknown accounts.**
+- *Decision:* when a user selects a customer not in the local lookup, v3 forces a synchronous
+  resync of the customer SP. If still not found after resync, rejects with an error. This avoids
+  the "run with empty customer filter" footgun.
+
+**31. Production impersonation (developer-only).**
+- *Decision:* privileged users can impersonate any other user to see exactly what they see. Stored
+  in the session as `impersonating=True` + the real identity preserved. Nesting is blocked (400).
+  Ending impersonation restores the original session. Used for support/debugging only.
+
+**32. Export retention overhaul.**
+- *Decision:* exports tagged by type: one-time (7 day TTL), scheduled (30 days), master (never
+  expires). Owner tracked. Admin can browse export history via `/api/admin/exports`.
+- *OneDrive delivery deferred:* requires a new Azure app registration with `Files.ReadWrite.All`;
+  the DBA/admin needs to create that registration before we can wire it.
+
+**33. Drift ledger fully signed off.**
+- All 10 drift decisions in `report_engine/contracts.py` are now signed off. The only remaining
+  open item is `number_4 | salesman_source` (needs confirmation that customer-master salesman
+  matches invoice-line SalesGroup) — tracked in the table below.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
@@ -343,37 +379,37 @@ You had time and asked me to surface every question across all 5 reports. Here's
 > and are PROVISIONAL until you pick a rule and name yourself as owner. The builders are not
 > finalized until these are signed off.
 
-- [ ] **Pre-build data gate**: confirm the Reporting API / stored procedures expose the fields
-      needed to reproduce root's calculations (especially `ordered` WHS + packing-slip status).
-      If not, the SPs must be extended before web `ordered` numbers can match live. Status: OPEN.
+- [x] **Pre-build data gate**: ~~confirm the Reporting API / stored procedures expose the fields
+      needed to reproduce root's calculations.~~ **RESOLVED**: SP now returns authoritative
+      `ShippedQuantity` and `CancelledQuantity` directly; WHS/packing-slip derivation no longer
+      needed. `QtyOpen` and `Fulfillment %` are the only remaining derived fields.
 
 ### Drift decisions (pick one per item; default = live/root)
 
-| Report | Decision | Question | Default |
-|--------|----------|----------|---------|
-| invoiced | tariff_source | Tariff from sales-LINE (`SL_TariffCharges`) vs header (`SH_TariffCharges`)? | live/root |
-| invoiced | credit_detection | Credits by substring "contains" vs invoice-number prefix? | live/root |
-| ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | **SIGNED OFF: NEW** (Ordered - Released - Shipped - Cancelled; user chose to subtract cancelled, differs from live) |
-| ordered | status_qty_engine | Status/qty via WHS + packing-slip joins (root) vs flat SP rows (web) | live/root |
-| ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling - NOT in v3 yet | live/root |
-| ordered | error_item_filter | Exclude rows flagged "ERROR ITEM" - v3 now filters Item# only (matches live) | live/root |
-| ordered | full_data_columns | v3 omits live's `DataQualityFlag` (needs WHS/packing pipeline the SP lacks); rest of columns match live order | live/root |
-| number_4 | book_price | Book Price column source/derivation | live/root |
-| number_4 | free_text_exclusion | Exclude free-text (no sales-order) invoice lines - v3 now excludes (matches live) | live/root |
-| number_4 | salesman_source | Salesman from customer-master (live) vs invoice-line SalesGroup (v3 now) | live/root |
-| salesman | group_key_cardinality | Grouping grain (one row per SalesGroup vs combined) | live/root |
-| customer_activity | last_order_grain | Last-order grain: sales header vs sales line (v3 takes max order-date per customer; same result) | live/root |
+| Report | Decision | Question | Status |
+|--------|----------|----------|--------|
+| invoiced | tariff_source | Tariff from sales-LINE (`SL_TariffCharges`) vs header (`SH_TariffCharges`)? | **SIGNED OFF**: live/root (DBA grouping charges at order level; deferred until SP revision) |
+| invoiced | credit_detection | Credits by substring "contains" vs invoice-number prefix? | **SIGNED OFF**: live/root (substring-contains confirmed correct) |
+| ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | **SIGNED OFF: NEW** (Ordered - Released - Shipped - Cancelled; user chose to subtract cancelled) |
+| ordered | status_qty_engine | Status/qty via WHS + packing-slip joins (root) vs flat SP rows (web) | **SIGNED OFF**: live/root (SP now returns authoritative QtyShipped + QtyCancelled) |
+| ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling | **SIGNED OFF**: live/root (SP has correct data; temp rule no longer needed) |
+| ordered | error_item_filter | Exclude rows flagged "ERROR ITEM" - v3 filters Item# only (matches live) | **SIGNED OFF**: live/root (confirmed working) |
+| ordered | full_data_columns | v3 omits live's `DataQualityFlag` (needs WHS/packing pipeline the SP lacks); rest match live | **SIGNED OFF**: live/root (DataQualityFlag omitted by design; SP can't produce it) |
+| number_4 | book_price | Book Price column source/derivation | **SIGNED OFF**: live/root (SalesPrice from released_products, confirmed) |
+| number_4 | free_text_exclusion | Exclude free-text (no sales-order) invoice lines | **SIGNED OFF**: live/root (confirmed working) |
+| number_4 | salesman_source | Salesman from customer-master (live) vs invoice-line SalesGroup (v3 now) | live/root (pending confirmation they match) |
+| salesman | group_key_cardinality | Grouping grain (one row per SalesGroup vs combined) | **SIGNED OFF**: live/root (one per group, confirmed) |
+| customer_activity | last_order_grain | Last-order grain: sales header vs sales line | **SIGNED OFF**: live/root (max order-date per customer, same result) |
 
 ### Authorization policy decisions (from phase 3 - pick one each)
 
-- [ ] **Report visibility default**: v3 currently FAILS CLOSED - a non-privileged user sees a
-      built report only if they have an explicit allow row. The LIVE app instead has a
-      conditional default-visible set + global-visibility flags + salesman-filter metadata.
-      Decide: keep strict default-deny (you grant per user/role), or have me model live's
-      default-visible set. Until you decide, salesmen see no reports by default.
-- [ ] **Manager semantics**: live treats `manager` as privileged for the report LIST but scoped
-      for salesman DATA. v3 currently treats manager as fully scoped (non-privileged). Confirm
-      which you want.
+- [x] **Report visibility default**: ~~v3 currently FAILS CLOSED.~~ **RESOLVED**: v3 now uses
+      the legacy role-default model (Phase 11 / Mon Jun 1 session #3): admin/developer see all;
+      manager sees all; salesman sees only `salesman_default=True` reports by default. Explicit
+      Allow/Deny overrides always win. Per-salesman data scoping is implemented (Phase 1 of this
+      session): builders filter facts to the user's `visible_salesman_keys`.
+- [x] **Manager semantics**: **RESOLVED**: managers see all reports (list) but their DATA is
+      scoped to their `visible_salesman_keys` (same as a salesman). This matches v2 behavior.
 - [ ] **Customer scope when sales-group unknown**: live `access.py` ALLOWS a scoped user to
       proceed when there's no cache row (so D365 is queried); v3 DENIES (safer). Confirm the
       stricter behavior is acceptable or restore live's allow-on-unknown.
@@ -400,20 +436,21 @@ You had time and asked me to surface every question across all 5 reports. Here's
 
 ## 2. OPEN QUESTIONS / BLOCKERS
 
-- **Scheduler/worker ownership vs gunicorn workers (deployment decision)**: the in-process
-  worker + APScheduler assume ONE owning process. "Single B1 instance" is not automatically
-  "single Python process" - if v3 runs gunicorn with multiple worker *processes*, each would start
-  its own scheduler/worker and double-schedule / over-claim. Decision needed: deploy gunicorn with
-  ONE worker process + threads (gthread) on B1, OR gate background startup to one process via an
-  env flag. I'll wire background startup behind an explicit flag in the reporting phase; confirm
-  the single-worker deployment is acceptable.
+- **Scheduler/worker ownership vs gunicorn workers - RESOLVED**: the app runs 2 gunicorn workers
+  (B2 tier). Background ownership is single-leader via an exclusive `flock` (see Phase C/D review).
+  Only the lock-holder runs the job worker + cron scheduler; both workers serve HTTP. Verified in
+  production.
 
 - **Cache-scope leakage - RESOLVED (phase 5)**: the scope token is now produced ONLY by
   `canonical_scope_token()` (order-stable; None->ALL, empty->NONE, never ""), `build_cache_key()`
   rejects an empty token, and `ReportRunner` derives the token internally from the authorization
   result so a route can't pass a raw/unordered token. Tests prove cross-scope isolation
-  (`test_runner_scope_isolates_cache`, `test_cache_key_isolates_scope`). Schema-level enforcement
-  is unnecessary given this single chokepoint, but confirm you're comfortable with the approach.
+  (`test_runner_scope_isolates_cache`, `test_cache_key_isolates_scope`).
+
+- **OneDrive personal delivery (deferred)**: personal schedules delivering to the user's own
+  OneDrive requires app-only credentials with `Files.ReadWrite.All` and the user's drive ID
+  resolution via Graph. The Azure app registration for this hasn't been created yet. Flagged
+  as a future add-on once the Azure admin creates the registration.
 
 ---
 
@@ -512,10 +549,20 @@ GPT-5.5 reviewed the engine foundation + the first rebuilt report against the LI
 | 2. Data layer (precious/cache, migrations, durable jobs, repos) | DONE | 97e1b99 | 31 tests; atomicity + concurrency proven |
 | 3. Auth + single authorization/scope layer | DONE | f8eaae1 | 46 tests; DB-authoritative, fail-closed |
 | 4. Jobs worker + APScheduler | DONE | b9aa4db | 59 tests; restart recovery + bounded concurrency |
-| 5. Reporting infra (client, ONE scope-safe cache, runner, export, durable wiring) | DONE | (this commit) | 80 tests; cache-scope item resolved |
-| 6. report_engine builders (5 reports) | IN PROGRESS | (this commit) | dates+params+invoiced DONE (127 tests); ordered/salesman/number_4/customer_activity pending; calc rules PROVISIONAL pending section-1 sign-off |
-| 7. Blueprints (thin routes, feature parity) | pending | - | needs builders (sign-off) + shell (done) |
-| 8. Frontend shell (pixel-parity base.html, token CSS, esbuild bundle) | DONE | (this commit) | 89 tests; live-faithful shell, GPT-5.5 parity gaps fixed |
+| 5. Reporting infra (client, ONE scope-safe cache, runner, export, durable wiring) | DONE | (prev) | 80 tests; cache-scope item resolved |
+| 6. report_engine builders (5 reports) | DONE | (prev) | All 5 reports built; drift ledger fully signed off |
+| 7. Blueprints (thin routes, feature parity) | DONE | (prev) | Reports, admin, auth, schedules, delivery |
+| 8. Frontend shell (pixel-parity base.html, token CSS, esbuild bundle) | DONE | (prev) | live-faithful shell, GPT-5.5 parity gaps fixed |
+| A. Report viewer parity | DONE | (prev) | Tabulator 6.3 + full interactivity |
+| B. Filters | DONE | (prev) | single-row bar, deep-links, API preview |
+| C. Actions/delivery (presets, email, schedule, cron) | DONE | (prev) | SharePoint delivery, cron tick |
+| D. Other areas (prefs, PWA, flags, admin, help, dashboard, mirror) | DONE | (prev) | 285+ tests |
+| E. Customer's Last Order | DONE | (prev) | in-app report, parity-reviewed |
+| Post-deploy: Remainder formula fix | DONE | 0bd79e6 | builder_version=2, cache cleared |
+| Post-deploy: Per-salesman report scoping | DONE | (pushed) | facts filtered by visible_salesman_keys |
+| Post-deploy: Customer re-sync on unknown | DONE | (pushed) | ensure_customers resync |
+| Post-deploy: Production impersonation | DONE | (pushed) | developer-only session impersonation |
+| Post-deploy: Export retention overhaul | DONE | 0bd79e6 | tiered TTLs (7d/30d/never), admin history |
 
 ### Phase 5 - Reporting infrastructure
 
