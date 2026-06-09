@@ -90,8 +90,17 @@ def test_summary_net_price_and_remainder():
     assert summary["default_layout"]["group_levels"] == ["Customer Name"]
     a = next(r for r in summary["rows"] if r["Item Number"] == "ITM-A")
     assert a["Net Price"] == 2.29           # 68.70 / 30
-    assert a["QtyRemainder"] == 20          # open qty
-    assert a["Extended Price Remainder"] == 45.80
+    # Remainder = Ordered - Released - Shipped - Cancelled
+    # Qty: 30 - 10 - 10 - 0 = 10
+    assert a["QtyRemainder"] == 10
+    # $: 68.70 - 22.90 - 22.90 - 0 = 22.90
+    assert a["Extended Price Remainder"] == 22.90
+
+    # ITM-B: fully cancelled (proves cancelled is subtracted)
+    # Qty: 4 - 0 - 0 - 4 = 0; $: 20.00 - 0 - 0 - 20.00 = 0
+    b = next(r for r in summary["rows"] if r["Item Number"] == "ITM-B")
+    assert b["QtyRemainder"] == 0
+    assert b["Extended Price Remainder"] == 0.0
 
 
 def test_tab_order_matches_live():

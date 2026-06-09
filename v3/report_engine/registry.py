@@ -38,7 +38,7 @@ class ReportSpec:
 # as builders land. customer_aging / amazon_weekly are BACKLOG until built - they
 # must never appear as working reports (this is the "no fake stub" guarantee).
 REGISTRY: tuple[ReportSpec, ...] = (
-    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, salesman_default=True),
+    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=2, salesman_default=True),
     ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
     ReportSpec("number_4", "Number 4", ReportStatus.BUILT),

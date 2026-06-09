@@ -353,7 +353,7 @@ You had time and asked me to surface every question across all 5 reports. Here's
 |--------|----------|----------|---------|
 | invoiced | tariff_source | Tariff from sales-LINE (`SL_TariffCharges`) vs header (`SH_TariffCharges`)? | live/root |
 | invoiced | credit_detection | Credits by substring "contains" vs invoice-number prefix? | live/root |
-| ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | live/root |
+| ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | **SIGNED OFF: NEW** (Ordered - Released - Shipped - Cancelled; user chose to subtract cancelled, differs from live) |
 | ordered | status_qty_engine | Status/qty via WHS + packing-slip joins (root) vs flat SP rows (web) | live/root |
 | ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling - NOT in v3 yet | live/root |
 | ordered | error_item_filter | Exclude rows flagged "ERROR ITEM" - v3 now filters Item# only (matches live) | live/root |

@@ -236,9 +236,11 @@ def _build_summary(lines: list[dict]) -> dict:
             }
         g["QtyOrdered"] += ln["QtyOrdered"]
         g["QtyCancelled"] += ln["QtyCancelled"]
-        g["QtyRemainder"] += ln["QtyOpen"]
+        g["QtyRemainder"] += (ln["QtyOrdered"] - ln["QtyReleased"]
+                              - ln["QtyShipped"] - ln["QtyCancelled"])
         g["Extended Price - Ordered"] += ln["Ordered $"]
-        g["Extended Price Remainder"] += ln["Open $"]
+        g["Extended Price Remainder"] += (ln["Ordered $"] - ln["Released $"]
+                                          - ln["Shipped $"] - ln["Cancelled $"])
 
     for g in grouped.values():
         qo = g["QtyOrdered"]
