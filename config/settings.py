@@ -138,6 +138,14 @@ def get_graph_email_from() -> str:
     return get_config("AMAZON_EMAIL_FROM", ["EMAIL_FROM_ADDRESS", "AMAZON_EMAIL_FROM", "GRAPH_EMAIL_FROM"], default="").strip()
 
 
+def get_alert_recipients() -> list[str]:
+    """Semicolon-separated list of addresses that receive operational alerts (failures, digests)."""
+    raw = get_config("ALERT_RECIPIENTS", ["ALERT_RECIPIENTS"], default="")
+    if not raw or not str(raw).strip():
+        return []
+    return [a.strip() for a in str(raw).replace(",", ";").split(";") if a.strip()]
+
+
 def get_test_email() -> str:
     """Email address used when ``--test`` flag is passed. All emails are redirected here."""
     return get_config("TEST_EMAIL", ["TEST_EMAIL"], default="")

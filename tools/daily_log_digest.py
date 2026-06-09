@@ -32,6 +32,7 @@ _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+from config.settings import get_alert_recipients
 from core.email_report import send_report_email
 from core.logging import setup_logging
 
@@ -256,12 +257,21 @@ def main(argv=None):
             print("\n--- All clear ---")
         return 0
 
-    subject_prefix = "ALERT" if failures else "OK"
-    subject = f"[{subject_prefix}] Daily Report Digest - {datetime.now().strftime('%Y-%m-%d')}"
+    if not failures:
+        log.info("All runs succeeded in the last %d hours -- no alert email needed", args.hours)
+        return 0
 
     recipients = None
     if args.recipients:
         recipients = [r.strip() for r in args.recipients.split(";") if r.strip()]
+    else:
+        recipients = get_alert_recipients()
+
+    if not recipients:
+        log.warning("No recipients configured (set ALERT_RECIPIENTS or pass --recipients)")
+        return 1
+
+    subject = f"[ALERT] Daily Report Digest - {datetime.now().strftime('%Y-%m-%d')}"
 
     send_report_email(
         file_path=None,
@@ -270,7 +280,7 @@ def main(argv=None):
         recipients=recipients,
         content_type="HTML",
     )
-    log.info("Digest email sent (subject: %s)", subject)
+    log.info("Alert email sent to %s (subject: %s)", recipients, subject)
     return 0
 
 
