@@ -214,3 +214,26 @@ def update_salesman(key: str):
     if not _salesmen().update(key, **fields):
         return jsonify({"error": "Unknown salesman or no editable fields"}), 404
     return jsonify({"key": key, **fields})
+
+
+# --- export history (admin-only) -------------------------------------------
+
+@admin_bp.get("/api/admin/exports")
+@require_login
+def export_history():
+    """Browse past exports (admin only). Supports ?report_key= and ?owner= filters."""
+    blocked = _guard()
+    if blocked:
+        return blocked
+    from web.data.repositories.exports import ExportRepository
+
+    exports = ExportRepository(current_app.config["DB"])
+    report_key = request.args.get("report_key") or None
+    owner = request.args.get("owner") or None
+    metas = exports.history(report_key=report_key, owner_email=owner, limit=200)
+    return jsonify({"exports": [
+        {"job_id": m.job_id, "report_key": m.report_key, "filename": m.filename,
+         "size_bytes": m.size_bytes, "built_at": m.built_at,
+         "export_type": m.export_type, "owner_email": m.owner_email}
+        for m in metas
+    ]})
