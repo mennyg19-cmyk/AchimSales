@@ -218,7 +218,7 @@ def test_delivery_service_builds_applies_layout_and_delivers(tmp_path):
                          "columns": [{"field": "a"}, {"field": "b"}],
                          "rows": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}]}
     runner = ReportRunner(ReportCache(db))
-    svc = DeliveryService(runner, lambda key: (lambda params: payload), email)
+    svc = DeliveryService(runner, lambda key: (lambda params, vk: payload), email)
     outcome = svc.run_and_deliver(
         report_key="ordered", identity="u@x.com", visible_salesman_keys=None,
         builder_version=1, params={}, layout={"views": {"t": {"hidden": ["a"]}}},

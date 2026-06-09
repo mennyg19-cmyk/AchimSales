@@ -80,7 +80,7 @@ def stack(tmp_path):
     payload = {"tabs": [{"key": "t", "name": "T", "columns": [{"field": "a"}],
                          "rows": [{"a": 1}, {"a": 2}]}]}
     delivery = DeliveryService(ReportRunner(ReportCache(db)),
-                               lambda key: (lambda params: payload), email)
+                               lambda key: (lambda params, vk: payload), email)
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),

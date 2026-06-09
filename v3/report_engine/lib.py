@@ -111,3 +111,15 @@ def iso_date(value: Any) -> str:
 def salesman_key(sales_group: str | None) -> str:
     """Normalize a SalesGroup to the salesmen.key form (lowercase alphanumeric)."""
     return re.sub(r"[^a-z0-9]+", "", (sales_group or "").strip().lower())
+
+
+def filter_facts_by_scope(facts, visible_keys):
+    """Filter facts to those whose sales_group is in the caller's scope.
+
+    visible_keys=None means unrestricted (privileged user) — returns all facts.
+    An empty set means the user has no access — returns nothing.
+    """
+    if visible_keys is None:
+        return list(facts)
+    normalized = {salesman_key(k) for k in visible_keys}
+    return [f for f in facts if salesman_key(getattr(f, "sales_group", "")) in normalized]

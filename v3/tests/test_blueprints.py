@@ -451,9 +451,8 @@ def test_settings_renders_for_admin(tmp_path):
     assert "Appearance" in html and "Profile" in html
 
 
-def test_granted_non_privileged_user_cannot_run_report(tmp_path):
-    """A manager with an explicit report grant may VIEW the report in the list
-    but must NOT be able to run it (scope enforcement pending; fail closed)."""
+def test_granted_non_privileged_user_can_run_scoped_report(tmp_path):
+    """A manager with an explicit report grant can run it (scoped to their keys)."""
     app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
     db = app.config["DB"]
     user = UserRepository(db).upsert("mgr@x.com", display_name="Mgr", role="manager")
@@ -466,12 +465,11 @@ def test_granted_non_privileged_user_cannot_run_report(tmp_path):
     with client.session_transaction() as s:
         s["v3_user"] = {"email": "mgr@x.com", "name": "Mgr", "role": "manager", "is_dev": True}
         s["_csrf_token"] = _CSRF
-    # Visible in the list...
     assert "Ordered" in client.get("/").get_data(as_text=True)
-    # ...but cannot run / view it.
-    assert client.get("/reports/ordered").status_code == 403
-    assert client.post("/api/reports/ordered/run", json={},
-                       headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    assert client.get("/reports/ordered").status_code == 200
+    resp = client.post("/api/reports/ordered/run", json={},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 202
 
 
 def test_revoked_access_blocks_result_read(tmp_path):
@@ -641,12 +639,17 @@ def test_email_now_rejects_no_target(tmp_path):
 
 
 def test_delivery_job_reauthorizes_owner_and_fails_closed(tmp_path):
-    # A queued delivery owned by a non-privileged user must fail at execution time
-    # (live re-auth), even though the enqueue path normally gates it. This guards
-    # against a role being downgraded between enqueue and run.
+    """A queued delivery fails at execution time when the owner's access has been
+    revoked since enqueue (live re-auth). Guards against mid-flight role changes."""
     app = _make_app(tmp_path, rows_by_report=_ordered_rows())
     db = app.config["DB"]
     rep = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="salesman")
+    # Explicitly deny this user's access to the ordered report
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO user_report_access(user_id, report_key, allowed) VALUES (?, 'ordered', 0)",
+            (rep.id,),
+        )
     from web.delivery.jobs import enqueue_delivery
 
     job_id = enqueue_delivery(app.config["JOB_REPO"], owner_user_id=rep.id, payload={

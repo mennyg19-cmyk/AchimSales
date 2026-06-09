@@ -31,6 +31,7 @@ from report_engine.sources import customer_master as src_customers
 from report_engine.sources import invoice_lines as src_lines
 from report_engine.sources import invoiced as src_invoiced
 from report_engine.sources import ordered as src_ordered
+from report_engine.lib import filter_facts_by_scope
 from report_engine.sources import released_products as src_released
 from web.reporting import params as P
 from web.reporting.http_client import ReportingApiError
@@ -63,7 +64,7 @@ class ReportService:
         orchestrate = _ORCHESTRATORS.get(report_key)
         if orchestrate is None:
             raise KeyError(f"No report service for {report_key!r}")
-        return lambda params: orchestrate(self, params or {})
+        return lambda params, visible_keys: orchestrate(self, params or {}, visible_keys)
 
     # -- shared helpers ---------------------------------------------------
 
@@ -133,10 +134,11 @@ class ReportService:
 # Per-report orchestration (module-level so the closure stays thin)
 # --------------------------------------------------------------------------- #
 
-def _orch_ordered(svc: ReportService, params: dict) -> dict:
+def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
     rows = svc._rows("salesline_release", P.translate("ordered", params))
-    tabs = rpt_ordered.build(src_ordered.to_facts(rows))
-    return svc._payload("ordered", tabs, len(rows))
+    facts = filter_facts_by_scope(src_ordered.to_facts(rows), visible_keys)
+    tabs = rpt_ordered.build(facts)
+    return svc._payload("ordered", tabs, len(facts))
 
 
 def _selected_accounts(params: dict) -> set[str]:
@@ -149,26 +151,20 @@ def _selected_accounts(params: dict) -> set[str]:
     return set()
 
 
-def _orch_invoiced(svc: ReportService, params: dict) -> dict:
+def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     sp = P.translate("invoiced", params)
-    facts = src_invoiced.to_facts(svc._rows("invoiced_order_charges", sp))
+    facts = filter_facts_by_scope(
+        src_invoiced.to_facts(svc._rows("invoiced_order_charges", sp)), visible_keys)
 
-    # v2 parity: anchor the commissions YTD window to the SELECTED PERIOD END
-    # (Jan 1 of that year .. period end), NOT a separate year filter. Open-ended
-    # periods (all_time) fall back to today. The YTD fetch keeps the SAME
-    # customer/salesman scope as the selected period - only the date range widens.
     _, period_end = P.resolve_window(params)
     end = period_end or today_eastern()
     year = end.year
     ytd_sp = dict(sp)
     ytd_sp["InvoiceDateFrom"] = sp_datetime(date(year, 1, 1), end_of_day=False)
     ytd_sp["InvoiceDateTo"] = sp_datetime(end, end_of_day=True)
-    ytd_facts = src_invoiced.to_facts(svc._rows("invoiced_order_charges", ytd_sp))
+    ytd_facts = filter_facts_by_scope(
+        src_invoiced.to_facts(svc._rows("invoiced_order_charges", ytd_sp)), visible_keys)
 
-    # The SP's InvoiceAccount is a single exact-match value, so a multi-customer
-    # selection isn't pushed down (the SP returns the whole salesman/date scope).
-    # Narrow both the period and YTD facts in-process so the report honours the
-    # full selection instead of silently returning everyone.
     accounts = _selected_accounts(params)
     if len(accounts) > 1:
         facts = [f for f in facts if f.customer_account in accounts]
@@ -181,30 +177,32 @@ def _orch_invoiced(svc: ReportService, params: dict) -> dict:
     return svc._payload("invoiced", tabs, len(facts))
 
 
-def _orch_salesman(svc: ReportService, params: dict) -> dict:
+def _orch_salesman(svc: ReportService, params: dict, visible_keys) -> dict:
     rows = svc._rows("invoiced_order_charges", P.translate("salesman", params))
-    tabs = rpt_salesman.build(src_invoiced.to_facts(rows),
-                              salesmen=svc._salesmen(), year=_resolved_year(params))
-    return svc._payload("salesman", tabs, len(rows))
+    facts = filter_facts_by_scope(src_invoiced.to_facts(rows), visible_keys)
+    tabs = rpt_salesman.build(facts, salesmen=svc._salesmen(), year=_resolved_year(params))
+    return svc._payload("salesman", tabs, len(facts))
 
 
-def _orch_number_4(svc: ReportService, params: dict) -> dict:
+def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
     rows = svc._rows("invoice_lines", P.translate("number_4", params))
-    tabs = rpt_number_4.build(src_lines.to_facts(rows), today=today_eastern(),
+    facts = filter_facts_by_scope(src_lines.to_facts(rows), visible_keys)
+    tabs = rpt_number_4.build(facts, today=today_eastern(),
                               salesmen=svc._salesmen(), book_prices=svc._book_prices())
-    return svc._payload("number_4", tabs, len(rows))
+    return svc._payload("number_4", tabs, len(facts))
 
 
-def _orch_customer_activity(svc: ReportService, params: dict) -> dict:
+def _orch_customer_activity(svc: ReportService, params: dict, visible_keys) -> dict:
     order_rows = svc._rows("salesline_release", P.translate("customer_activity", params))
+    orders = filter_facts_by_scope(src_ordered.to_facts(order_rows), visible_keys)
+    customers = filter_facts_by_scope(svc._customer_universe(), visible_keys)
     tabs = rpt_customer_activity.build(
-        svc._customer_universe(), src_ordered.to_facts(order_rows),
-        salesmen=svc._salesmen(), scope=params,
+        customers, orders, salesmen=svc._salesmen(), scope=params,
     )
-    return svc._payload("customer_activity", tabs, len(order_rows))
+    return svc._payload("customer_activity", tabs, len(orders))
 
 
-_ORCHESTRATORS: dict[str, Callable[[ReportService, dict], dict]] = {
+_ORCHESTRATORS: dict[str, Callable[[ReportService, dict, set | None], dict]] = {
     "ordered": _orch_ordered,
     "invoiced": _orch_invoiced,
     "salesman": _orch_salesman,

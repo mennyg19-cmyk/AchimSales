@@ -8,9 +8,9 @@ web.reporting.report_service.
 
 Scope note: the principal's visible-salesman scope is folded into the cache key
 (scope-safe cache) AND the dedup key, so two users with different scope never
-share a cached payload. Per-grantee DATA filtering for non-privileged users is a
-pending business sign-off (REVIEW-LOG); today only unrestricted (admin/dev)
-users can reach a report at all, via the fail-closed Authorization default.
+share a cached payload. Builders filter facts to the user's scope at build time.
+The result endpoint also verifies scope compatibility so a demoted user cannot
+read stale wider-scoped cached data.
 """
 
 from __future__ import annotations
@@ -142,6 +142,24 @@ def _owned_job_or_404(job_id: str, uid: int | None):
     return job
 
 
+def _assert_scope_compatible(p, job):
+    """Deny if the user's current scope is narrower than the job's build scope.
+
+    Prevents a demoted user from reading a cached result that contains data
+    they can no longer access (e.g. admin -> salesman demotion).
+    """
+    current_keys = _authz().visible_salesman_keys(p)
+    if current_keys is None:
+        return  # unrestricted user can see everything
+    job_keys = job.params.get("visible_keys")
+    if job_keys is None:
+        abort(403, description="Result scope exceeds your current access; please re-run")
+    normalized_current = {salesman_key(k) for k in current_keys}
+    normalized_job = {salesman_key(k) for k in job_keys}
+    if not normalized_job.issubset(normalized_current):
+        abort(403, description="Result scope exceeds your current access; please re-run")
+
+
 # --- pages ----------------------------------------------------------------- #
 
 @reports_bp.get("/")
@@ -254,8 +272,8 @@ def job_status(job_id: str):
 def report_result(job_id: str):
     p = _principal_or_401()
     job = _owned_job_or_404(job_id, _user_id(p.email))
-    # Re-check access live: a revoked grant must not be able to pull old results.
     _authz().assert_report_runnable(p, job.params.get("report_key"))
+    _assert_scope_compatible(p, job)
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
     cached = _cache().get(job.result_ref)
@@ -276,10 +294,10 @@ def export_report(report_key: str, job_id: str):
     spec = _built_spec_or_404(report_key)
     uid = _user_id(p.email)
     job = _owned_job_or_404(job_id, uid)
-    # Authorize against the job's OWN report key (not just the URL) and re-resolve live.
     if job.params.get("report_key") != report_key:
         abort(404, description="Unknown job")
     _authz().assert_report_runnable(p, report_key)
+    _assert_scope_compatible(p, job)
     if job.status != "success":
         abort(409, description="Report is not ready to export")
     if not _cache().exists(job.result_ref):  # cheap presence check (no payload deserialize)
@@ -495,7 +513,11 @@ def report_salesmen(report_key: str):
     p = _principal_or_401()
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
-    return jsonify({"salesmen": _lookups().salesmen()})
+    visible = _authz().visible_salesman_keys(p)
+    all_sm = _lookups().salesmen()
+    if visible is not None:
+        all_sm = [s for s in all_sm if salesman_key(s["key"]) in visible]
+    return jsonify({"salesmen": all_sm})
 
 
 @reports_bp.get("/api/reports/<report_key>/customers")
@@ -505,7 +527,11 @@ def report_customers(report_key: str):
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
     salesman = (request.args.get("salesman") or "").strip() or None
-    return jsonify({"customers": _lookups().customers(salesman)})
+    visible = _authz().visible_salesman_keys(p)
+    all_custs = _lookups().customers(salesman)
+    if visible is not None:
+        all_custs = [c for c in all_custs if salesman_key(c.get("salesman", "")) in visible]
+    return jsonify({"customers": all_custs})
 
 
 @reports_bp.get("/api/reports/<report_key>/years")

@@ -112,21 +112,15 @@ class Authorization:
             raise Forbidden(f"Not authorized for report {report_key!r}")
 
     def assert_report_runnable(self, p: Principal, report_key: str) -> None:
-        """Gate the run/result/export path. Re-resolves access live AND, until a
-        per-report scope adapter is signed off, restricts execution to privileged
-        (unrestricted) users - because the builders do not yet filter facts by the
-        principal's salesman scope (REVIEW-LOG: scope enforcement pending). This
-        fails closed: a granted non-privileged user can VIEW the report in the list
-        but cannot run it and pull unscoped data.
+        """Gate the run/result/export path. Re-resolves access live.
+
+        Builders now apply per-salesman scope filtering at execution time, so
+        non-privileged users are no longer blocked. They see only facts whose
+        sales_group matches their visible_salesman_keys (Phase 1 scoping).
         """
         if not report_key:
             raise Forbidden("Missing report")
         self.assert_can_view_report(p, report_key)
-        if not self.is_privileged(p):
-            raise Forbidden(
-                "This report's per-salesman scoping is pending sign-off; "
-                "only admin/developer accounts can run it for now."
-            )
 
     # --- deferred delivery (durable jobs + scheduled runs) ------------------
 
@@ -147,11 +141,11 @@ class Authorization:
                            *, sharepoint: bool) -> set[str] | None:
         """Gate a deferred delivery and return the live salesman scope.
 
-        Fails closed exactly like an interactive run: `assert_report_runnable`
-        (today: privileged-only, because the builders don't yet scope facts) and a
-        live SharePoint-access check. Raises Forbidden otherwise. This is what
-        prevents a queued/scheduled send from delivering data the owner is no
-        longer allowed to see."""
+        Fails closed exactly like an interactive run: verifies the owner is still
+        active and has report access, plus SharePoint permission when applicable.
+        Returns visible_salesman_keys for the builder's scope filter. This prevents
+        a queued/scheduled send from delivering data the owner is no longer allowed
+        to see."""
         if p is None:
             raise Forbidden("Delivery owner is unknown or inactive")
         self.assert_report_runnable(p, report_key)

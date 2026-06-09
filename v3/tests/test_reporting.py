@@ -153,7 +153,7 @@ def test_runner_caches_then_serves_from_cache(db):
     runner = ReportRunner(ReportCache(db))
     calls = {"n": 0}
 
-    def builder(params):
+    def builder(params, visible_keys):
         calls["n"] += 1
         return {"tabs": [{"name": "T", "rows": [{"x": params["x"]}]}]}
 
@@ -169,10 +169,10 @@ def test_runner_scope_isolates_cache(db):
     """Two scoped users with the same params never share a cached payload."""
     runner = ReportRunner(ReportCache(db))
 
-    def builder_a(params):
+    def builder_a(params, visible_keys):
         return {"tabs": [{"name": "T", "rows": [{"who": "a"}]}]}
 
-    def builder_b(params):
+    def builder_b(params, visible_keys):
         return {"tabs": [{"name": "T", "rows": [{"who": "b"}]}]}
 
     out_a = runner.run(report_key="ordered", identity="shared", visible_salesman_keys={"mkolko"},
@@ -187,7 +187,7 @@ def test_runner_force_refresh_rebuilds(db):
     runner = ReportRunner(ReportCache(db))
     calls = {"n": 0}
 
-    def builder(params):
+    def builder(params, visible_keys):
         calls["n"] += 1
         return {"tabs": []}
 
@@ -202,7 +202,7 @@ def test_runner_rejects_non_dict_payload(db):
     runner = ReportRunner(ReportCache(db))
     with pytest.raises(TypeError):
         runner.run(report_key="ordered", identity="u", visible_salesman_keys=None,
-                   builder_version=1, params={}, builder=lambda p: ["not", "a", "dict"])
+                   builder_version=1, params={}, builder=lambda p, v: ["not", "a", "dict"])
 
 
 def test_cache_prune_removes_old_rows(db):
@@ -237,7 +237,7 @@ def test_report_run_enqueues_and_worker_populates_cache(db):
     job_repo = JobRepository(db)
     worker = JobWorker(db)
     worker.register("report.run", make_report_run_handler(
-        runner, builder_resolver=lambda key: (lambda params: {"tabs": [{"name": key, "rows": []}]})
+        runner, builder_resolver=lambda key: (lambda params, vk: {"tabs": [{"name": key, "rows": []}]})
     ))
 
     jid = enqueue_report_run(
