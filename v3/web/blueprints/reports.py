@@ -160,6 +160,16 @@ def _assert_scope_compatible(p, job):
         abort(403, description="Result scope exceeds your current access; please re-run")
 
 
+def _selected_customer_accounts(params: dict) -> list[str]:
+    """Extract customer account list from filter params (same format as the UI sends)."""
+    c = (params or {}).get("customers")
+    if isinstance(c, (list, tuple)):
+        return [str(x).strip() for x in c if str(x).strip()]
+    if c:
+        return [s.strip() for s in str(c).split(",") if s.strip()]
+    return []
+
+
 # --- pages ----------------------------------------------------------------- #
 
 @reports_bp.get("/")
@@ -236,6 +246,13 @@ def run_report(report_key: str):
     params = request.get_json(silent=True)
     if not isinstance(params, dict):
         params = request.form.to_dict()
+
+    # Validate selected customers: resync if unknown, error if still missing.
+    selected = _selected_customer_accounts(params)
+    if selected:
+        still_unknown = _lookups().ensure_customers(selected)
+        if still_unknown:
+            abort(400, description=f"Unknown customer(s): {', '.join(still_unknown)}")
 
     uid = _user_id(p.email)
     if uid is None:

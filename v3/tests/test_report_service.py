@@ -200,3 +200,22 @@ def test_scope_filters_facts_to_visible_keys():
     # Empty scope: sees nothing
     out_empty = svc.builder_for("ordered")({}, set())
     assert out_empty["row_count"] == 0
+
+
+def test_ensure_customers_resyncs_then_finds():
+    """ensure_customers triggers a resync; known customers return [] (no errors)."""
+    from web.reporting.lookups import LookupService
+
+    svc = _svc({"customer_master": [
+        {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        {"CustomerAccount": "200", "CustomerName": "Globex", "SalesGroup": "JSmith"},
+    ]})
+    lk = LookupService(svc, _FakeSalesmenRepo())
+    # Before any populate, 100 is unknown (cache cold)
+    assert lk.customer("100") is None
+    # ensure_customers triggers a resync
+    still_unknown = lk.ensure_customers(["100", "200"])
+    assert still_unknown == []
+    assert lk.customer("100") is not None
+    # Truly unknown customer remains unknown after resync
+    assert lk.ensure_customers(["999"]) == ["999"]

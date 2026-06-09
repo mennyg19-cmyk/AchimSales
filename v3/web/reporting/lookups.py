@@ -189,6 +189,20 @@ class LookupService:
                         "salesman": (getattr(f, "sales_group", "") or "").strip()}
         return None
 
+    def ensure_customers(self, accounts: list[str]) -> list[str]:
+        """Validate that accounts exist in the customer universe.
+
+        Returns the list of accounts that remain unknown after a forced resync.
+        If all are known, returns []. The caller decides whether to error or proceed.
+        """
+        if not accounts:
+            return []
+        unknown = [a for a in accounts if self.customer(a) is None]
+        if not unknown:
+            return []
+        self._populate()
+        return [a for a in unknown if self.customer(a) is None]
+
     def status(self) -> dict[str, Any]:
         """Populate progress for the form's poll loop.
 
