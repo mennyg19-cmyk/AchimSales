@@ -92,3 +92,82 @@ def callback():
 def logout_route():
     logout()
     return redirect(url_for("auth.login_page"))
+
+
+# --- Impersonation (developer-only, production-safe) ----------------------- #
+
+@auth_bp.get("/impersonate")
+def impersonate_page():
+    """User picker for developer impersonation. Shows all users (incl. inactive)."""
+    from web.auth.session import current_principal
+
+    p = current_principal()
+    if p is None:
+        return redirect(url_for("auth.login_page"))
+    if p.impersonating:
+        abort(400, description="Cannot nest impersonation; end the current session first")
+    authz = current_app.config["AUTHZ"]
+    if not authz.is_privileged(p):
+        abort(403, description="Impersonation is developer/admin only")
+
+    users = UserRepository(_db())
+    all_users = users.all_users(include_inactive=True)
+    grouped: dict[str, list] = {}
+    for u in all_users:
+        grouped.setdefault(u.role, []).append(u)
+    return render_template("impersonate.html", grouped_users=grouped, principal=p)
+
+
+@auth_bp.post("/impersonate")
+def impersonate_start():
+    """Start impersonating a target user (developer-only)."""
+    from web.auth.session import current_principal
+
+    p = current_principal()
+    if p is None:
+        return redirect(url_for("auth.login_page"))
+    if p.impersonating:
+        abort(400, description="Cannot nest impersonation")
+    authz = current_app.config["AUTHZ"]
+    if not authz.is_privileged(p):
+        abort(403, description="Impersonation is developer/admin only")
+
+    target_email = (request.form.get("email") or "").strip().lower()
+    if not target_email:
+        abort(400, description="Target email required")
+
+    target = UserRepository(_db()).get_by_email(target_email)
+    if target is None:
+        abort(404, description="User not found")
+
+    display = target.display_name or target.email
+    impersonated = Principal(
+        email=target.email,
+        name=f"{display} (as {p.name})",
+        role=target.role,
+        is_dev=p.is_dev,
+        impersonating=True,
+        real_email=p.email,
+        real_name=p.name,
+    )
+    login(impersonated)
+    return redirect(url_for("reports.reports_list"))
+
+
+@auth_bp.post("/impersonate/end")
+def impersonate_end():
+    """End impersonation, restoring the developer's own session."""
+    from web.auth.session import current_principal
+
+    p = current_principal()
+    if p is None or not p.impersonating:
+        return redirect(url_for("reports.reports_list"))
+    real_user = UserRepository(_db()).get_by_email(p.real_email)
+    if real_user is None or not real_user.is_active:
+        logout()
+        return redirect(url_for("auth.login_page"))
+    login(Principal(
+        email=real_user.email, name=p.real_name or real_user.display_name or real_user.email,
+        role=real_user.role, is_dev=p.is_dev,
+    ))
+    return redirect(url_for("reports.reports_list"))

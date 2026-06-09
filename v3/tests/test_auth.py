@@ -269,3 +269,57 @@ def test_msal_callback_without_flow_is_rejected(app):
     # No auth flow in session -> safe error, not a crash.
     resp = app.test_client().get("/auth/callback")
     assert resp.status_code == 400
+
+
+# --- impersonation ----------------------------------------------------------
+
+def test_impersonate_start_and_end(app):
+    """A developer can impersonate a user and end the session."""
+    db = app.config["DB"]
+    UserRepository(db).upsert("dev@x.com", role="developer")
+    UserRepository(db).upsert("rep@x.com", role="salesman", display_name="Sales Rep")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "dev@x.com", "name": "Dev", "role": "developer", "is_dev": True}
+        s["_csrf_token"] = "t"
+    # Start impersonation
+    resp = client.post("/impersonate", data={"email": "rep@x.com", "csrf_token": "t"})
+    assert resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["v3_user"]["email"] == "rep@x.com"
+        assert s["v3_user"]["impersonating"] is True
+        assert s["v3_user"]["real_email"] == "dev@x.com"
+        assert "as Dev" in s["v3_user"]["name"]
+    # End impersonation
+    resp = client.post("/impersonate/end", data={"csrf_token": "t"})
+    assert resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["v3_user"]["email"] == "dev@x.com"
+        assert s["v3_user"].get("impersonating") is not True
+
+
+def test_impersonate_denied_for_non_privileged(app):
+    """Non-privileged users cannot impersonate."""
+    db = app.config["DB"]
+    UserRepository(db).upsert("mgr@x.com", role="manager")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "mgr@x.com", "name": "Mgr", "role": "manager", "is_dev": False}
+        s["_csrf_token"] = "t"
+    assert client.get("/impersonate").status_code == 403
+    assert client.post("/impersonate", data={"email": "x@x.com", "csrf_token": "t"}).status_code == 403
+
+
+def test_impersonate_cannot_nest(app):
+    """An impersonating session cannot start another impersonation."""
+    db = app.config["DB"]
+    UserRepository(db).upsert("dev@x.com", role="developer")
+    UserRepository(db).upsert("rep@x.com", role="salesman")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "rep@x.com", "name": "Rep (as Dev)", "role": "salesman",
+                        "is_dev": True, "impersonating": True, "real_email": "dev@x.com",
+                        "real_name": "Dev"}
+        s["_csrf_token"] = "t"
+    assert client.get("/impersonate").status_code == 400
+    assert client.post("/impersonate", data={"email": "x@x.com", "csrf_token": "t"}).status_code == 400
