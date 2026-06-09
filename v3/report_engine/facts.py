@@ -21,7 +21,7 @@ class OrderLineFact:
 
     Source-shaped. The SP returns authoritative dollar columns
     (ordered/shipped/cancelled) computed server-side from WHS + packing-slip
-    data, plus qty_shipped (the actual shipped quantity from the SP).
+    data, plus authoritative qty_shipped and qty_cancelled.
     """
     source: Source
     company: str
@@ -42,6 +42,7 @@ class OrderLineFact:
     # fractional units) - never int-truncated before aggregation.
     qty_ordered: float
     qty_shipped: float
+    qty_cancelled: float
     qty_released: float
     delivery_remainder: float
     qty_left_to_load: float

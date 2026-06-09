@@ -7,11 +7,11 @@ Summary, By Customer, By Item, By Order, By Salesman, Full Data.
 Authoritative fields
 --------------------
 The SP returns server-side dollar columns (Ordered/Shipped/Cancelled $) that
-already apply the WHS + packing-slip math, plus an authoritative QtyShipped.
-QtyCancelled is still derived from status until the SP adds it explicitly::
+already apply the WHS + packing-slip math, plus authoritative QtyShipped and
+QtyCancelled. Only QtyOpen and Fulfillment % are derived::
 
     QtyShipped   = from SP (authoritative)
-    QtyCancelled = QtyOrdered            when status == 'cancelled', else 0
+    QtyCancelled = from SP (authoritative)
     QtyOpen      = QtyOrdered - QtyShipped - QtyCancelled
     Released $   = QtyReleased * UnitPrice
     Open $       = Ordered $ - Shipped $ - Cancelled $   (from authoritative $)
@@ -26,12 +26,12 @@ from typing import Callable, Iterable, Sequence
 
 from report_engine.facts import OrderLineFact
 
-# QtyCancelled is still derived from status (the SP doesn't return it yet).
-# QtyOpen and Fulfillment % depend on QtyCancelled, so they're also provisional.
-STUB_FIELDS: tuple[str, ...] = ("QtyCancelled", "QtyOpen", "Fulfillment %")
-STUB_NOTE = ("QtyCancelled (and the QtyOpen/Fulfillment % derived from it) are "
-             "provisional until the salesline_release endpoint returns an explicit "
-             "cancelled quantity. QtyShipped and dollar columns are authoritative.")
+# QtyOpen is derived (QtyOrdered - QtyShipped - QtyCancelled); Fulfillment %
+# depends on it. Everything else is authoritative from the SP.
+STUB_FIELDS: tuple[str, ...] = ("QtyOpen", "Fulfillment %")
+STUB_NOTE = ("QtyOpen and Fulfillment % are derived from the authoritative "
+             "QtyShipped + QtyCancelled. All other qty and dollar columns come "
+             "directly from the SP.")
 
 _ERROR_ITEM_RE = re.compile(r"ERROR\s*ITEM", re.IGNORECASE)
 
@@ -117,8 +117,6 @@ SUMMARY_COLS = [
 # Per-line normalization
 # --------------------------------------------------------------------------- #
 
-_CANCELLED = {"canceled", "cancelled"}
-
 
 def classify_line(f: OrderLineFact) -> dict:
     """One OrderLineFact -> the canonical per-line row (LIVE columns + math).
@@ -129,10 +127,7 @@ def classify_line(f: OrderLineFact) -> dict:
     """
     qty_ord = f.qty_ordered
     qty_shipped = f.qty_shipped
-    # LIVE treats a line as cancelled when the line status OR the order status is
-    # canceled/cancelled (both spellings). Still derived until the SP adds it.
-    is_cancelled = f.status.lower() in _CANCELLED or f.order_status.lower() in _CANCELLED
-    qty_cancelled = qty_ord if is_cancelled else 0.0
+    qty_cancelled = f.qty_cancelled
     qty_open = max(0.0, qty_ord - qty_shipped - qty_cancelled)
     return {
         "SalesOrderNumber": f.sales_order_number,

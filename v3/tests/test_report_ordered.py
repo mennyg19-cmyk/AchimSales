@@ -10,15 +10,15 @@ def _rows():
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-01T08:30:00",
          "CustomerRequisition": "PO-1", "LineNumber": "1", "Item": "ITM-A",
          "ItemDescription": "Widget", "SalesPrice": "2.29", "SalesStatus": "Open",
-         "QuantityOrdered": "30", "ShippedQuantity": "10", "ReleasedQuantity": "10",
-         "DeliveryRemainder": "20", "QuantityLefttoLoad": "0",
+         "QuantityOrdered": "30", "ShippedQuantity": "10", "CancelledQuantity": "0",
+         "ReleasedQuantity": "10", "DeliveryRemainder": "20", "QuantityLefttoLoad": "0",
          "Ordered $": "68.70", "Shipped $": "22.90", "Cancelled $": "0"},
         {"SalesOrderNumber": "SO2", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-02T08:30:00",
          "LineNumber": "1", "Item": "ITM-B", "ItemDescription": "Gadget",
          "SalesPrice": "5.00", "SalesStatus": "Cancelled", "QuantityOrdered": "4",
-         "ShippedQuantity": "0", "ReleasedQuantity": "0", "DeliveryRemainder": "0",
-         "QuantityLefttoLoad": "0",
+         "ShippedQuantity": "0", "CancelledQuantity": "4", "ReleasedQuantity": "0",
+         "DeliveryRemainder": "0", "QuantityLefttoLoad": "0",
          "Ordered $": "20.00", "Shipped $": "0", "Cancelled $": "20.00"},
     ]
 
@@ -28,7 +28,8 @@ def test_adapter_maps_authoritative_dollars_and_qty():
     assert f.sales_order_number == "SO1"
     assert f.customer_name == "Acme"
     assert f.order_date == "2026-03-01"
-    assert f.qty_ordered == 30 and f.qty_shipped == 10 and f.qty_released == 10
+    assert f.qty_ordered == 30 and f.qty_shipped == 10 and f.qty_cancelled == 0
+    assert f.qty_released == 10
     assert f.ordered_dollars == 68.70 and f.shipped_dollars == 22.90
     assert f.unit_price == 2.29
 
@@ -37,7 +38,7 @@ def test_full_data_qty_and_open_dollars():
     tabs = B.build(S.to_facts(_rows()))
     full = next(t for t in tabs if t["key"] == "full_data")
     so1 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO1")
-    # shipped comes directly from SP's ShippedQuantity
+    # shipped and cancelled come directly from SP
     assert so1["QtyShipped"] == 10
     assert so1["QtyCancelled"] == 0
     assert so1["QtyOpen"] == 20
@@ -46,7 +47,7 @@ def test_full_data_qty_and_open_dollars():
     assert so1["Released $"] == 22.90  # 10 * 2.29
 
     so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
-    assert so2["QtyCancelled"] == 4          # cancelled status -> all ordered
+    assert so2["QtyCancelled"] == 4          # from SP CancelledQuantity
     assert so2["Fulfillment %"] == 0.0       # (4-4)/4
 
 
@@ -55,7 +56,8 @@ def test_stub_fields_flagged_on_every_tab():
     for t in tabs:
         assert "stub_fields" in t and t["stub_fields"]
     full = next(t for t in tabs if t["key"] == "full_data")
-    assert "QtyCancelled" in full["stub_fields"]
+    assert "QtyOpen" in full["stub_fields"]
+    assert "QtyCancelled" not in full["stub_fields"]
 
 
 def test_error_item_lines_dropped_by_item_number_only():
