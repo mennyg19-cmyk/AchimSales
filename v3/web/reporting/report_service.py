@@ -187,8 +187,13 @@ def _orch_salesman(svc: ReportService, params: dict, visible_keys) -> dict:
 def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
     rows = svc._rows("invoice_lines", P.translate("number_4", params))
     facts = filter_facts_by_scope(src_lines.to_facts(rows), visible_keys)
+    # Fallback salesman: if the invoice line has no SalesGroup, use the
+    # customer master's current assigned rep.
+    customers = svc._customer_universe()
+    cust_sm = {c.customer_account: c.sales_group for c in customers if c.sales_group}
     tabs = rpt_number_4.build(facts, today=today_eastern(),
-                              salesmen=svc._salesmen(), book_prices=svc._book_prices())
+                              salesmen=svc._salesmen(), book_prices=svc._book_prices(),
+                              customer_salesmen=cust_sm)
     return svc._payload("number_4", tabs, len(facts))
 
 

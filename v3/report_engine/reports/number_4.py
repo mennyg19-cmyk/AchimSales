@@ -50,14 +50,30 @@ def _ytd_months(today: date) -> list[tuple[int, int]]:
     return [(today.year, m) for m in range(1, today.month + 1)]
 
 
-def _resolve_salesman(sales_group: str, salesmen: Mapping[str, SalesmanFact]) -> str:
-    sm = salesmen.get(salesman_key(sales_group)) if sales_group else None
+def _resolve_salesman(
+    sales_group: str,
+    salesmen: Mapping[str, SalesmanFact],
+    customer_account: str = "",
+    customer_salesmen: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve salesman display name.
+
+    Priority: order line's sales_group -> customer master's current rep -> Unassigned.
+    """
+    group = sales_group
+    if not group and customer_salesmen:
+        group = customer_salesmen.get(customer_account, "")
+    sm = salesmen.get(salesman_key(group)) if group else None
     if sm:
-        return sm.display_name or sm.full_name or sales_group
-    return sales_group or "Unassigned"
+        return sm.display_name or sm.full_name or group
+    return group or "Unassigned"
 
 
-def _line(fact: InvoiceItemFact, salesmen: Mapping[str, SalesmanFact]) -> dict | None:
+def _line(
+    fact: InvoiceItemFact,
+    salesmen: Mapping[str, SalesmanFact],
+    customer_salesmen: Mapping[str, str] | None = None,
+) -> dict | None:
     d = fact.invoice_date
     if not (isinstance(d, str) and len(d) >= 7 and d[4] == "-") or not fact.item_number:
         return None
@@ -74,7 +90,8 @@ def _line(fact: InvoiceItemFact, salesmen: Mapping[str, SalesmanFact]) -> dict |
         "year": year, "month": month, "_ym": _ym(year, month),
         "Item#": fact.item_number, "ItemName": fact.item_name,
         "CustomerAccount": fact.customer_account, "CustomerName": fact.customer_name,
-        "Salesman": _resolve_salesman(fact.sales_group, salesmen),
+        "Salesman": _resolve_salesman(
+            fact.sales_group, salesmen, fact.customer_account, customer_salesmen),
         "Qty": fact.qty, "Total_$": fact.amount,
     }
 
@@ -192,9 +209,11 @@ def build(
     today: date,
     salesmen: Mapping[str, SalesmanFact] | None = None,
     book_prices: Mapping[str, float] | None = None,
+    customer_salesmen: Mapping[str, str] | None = None,
 ) -> list[dict]:
     salesmen = salesmen or {}
-    lines = [ln for ln in (_line(f, salesmen) for f in facts) if ln is not None]
+    lines = [ln for ln in (_line(f, salesmen, customer_salesmen) for f in facts)
+             if ln is not None]
 
     buckets_12, keys_12 = _aggregate(lines, _rolling_12_months(today))
     buckets_ytd, keys_ytd = _aggregate(lines, _ytd_months(today))

@@ -397,7 +397,7 @@ You had time and asked me to surface every question across all 5 reports. Here's
 | ordered | full_data_columns | v3 omits live's `DataQualityFlag` (needs WHS/packing pipeline the SP lacks); rest match live | **SIGNED OFF**: live/root (DataQualityFlag omitted by design; SP can't produce it) |
 | number_4 | book_price | Book Price column source/derivation | **SIGNED OFF**: live/root (SalesPrice from released_products, confirmed) |
 | number_4 | free_text_exclusion | Exclude free-text (no sales-order) invoice lines | **SIGNED OFF**: live/root (confirmed working) |
-| number_4 | salesman_source | Salesman from customer-master (live) vs invoice-line SalesGroup (v3 now) | live/root (pending confirmation they match) |
+| number_4 | salesman_source | Salesman from customer-master (live) vs invoice-line SalesGroup (v3 now) | **SIGNED OFF: NEW** (use order line's SalesGroup first; fall back to customer master if empty) |
 | salesman | group_key_cardinality | Grouping grain (one row per SalesGroup vs combined) | **SIGNED OFF**: live/root (one per group, confirmed) |
 | customer_activity | last_order_grain | Last-order grain: sales header vs sales line | **SIGNED OFF**: live/root (max order-date per customer, same result) |
 
@@ -410,9 +410,9 @@ You had time and asked me to surface every question across all 5 reports. Here's
       session): builders filter facts to the user's `visible_salesman_keys`.
 - [x] **Manager semantics**: **RESOLVED**: managers see all reports (list) but their DATA is
       scoped to their `visible_salesman_keys` (same as a salesman). This matches v2 behavior.
-- [ ] **Customer scope when sales-group unknown**: live `access.py` ALLOWS a scoped user to
-      proceed when there's no cache row (so D365 is queried); v3 DENIES (safer). Confirm the
-      stricter behavior is acceptable or restore live's allow-on-unknown.
+- [x] **Customer scope when sales-group unknown**: **RESOLVED**: v3 resyncs the customer mirror
+      from the SP. If the customer is still not found after resync, it blocks (denies). User
+      confirmed this is the correct behavior.
 
 ### Frontend parity deviations (from phase 8 - confirm or tell me to restore live)
 
