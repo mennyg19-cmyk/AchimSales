@@ -57,6 +57,11 @@ def _resolve_drive_id() -> str:
         else:
             req_url = f"{GRAPH_BASE}/sites/{hostname}"
         r = requests.get(req_url, headers=headers, timeout=TIMEOUT)
+        if r.status_code == 404:
+            raise RuntimeError(
+                f"SharePoint site lookup failed: SP_SITE_URL points to a site that "
+                f"does not exist ({site_url}). Fix the SP_SITE_URL app setting."
+            )
         r.raise_for_status()
         site_id = r.json()["id"]
     else:

@@ -638,54 +638,43 @@ def sync_runbook_history():
 
     # 2) Download run_log.csv from SharePoint
     try:
-        from config.settings import get_client_id, get_client_secret, get_tenant_id
-        from core.auth import get_graph_token
-        import requests as req
+        from webapp.services.sharepoint import download_file_by_path
 
-        token = get_graph_token(get_tenant_id(), get_client_id(), get_client_secret())
-        if token:
-            site_name = os.environ.get("SHAREPOINT_SITE_NAME", "AchimImportingCoInc")
-            drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_name}/drive"
-            csv_path = "D365 F&O/scripts/logs/run_log.csv"
-            url = f"{drive_url}/root:/{csv_path}:/content"
+        csv_path = "D365 F&O/scripts/logs/run_log.csv"
+        csv_bytes = download_file_by_path(csv_path)
+        reader = csv.DictReader(io.StringIO(csv_bytes.decode("utf-8-sig")))
+        for row in reader:
+            ts = row.get("timestamp", "").strip()
+            rn = row.get("report_name", "").strip()
+            status = row.get("status", "").strip()
+            if not ts or not rn:
+                continue
+            if status == "STARTED":
+                continue
 
-            resp = req.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
-            if resp.status_code == 200:
-                reader = csv.DictReader(io.StringIO(resp.text))
-                for row in reader:
-                    ts = row.get("timestamp", "").strip()
-                    rn = row.get("report_name", "").strip()
-                    status = row.get("status", "").strip()
-                    if not ts or not rn:
-                        continue
-                    if status == "STARTED":
-                        continue
+            def _safe_float(v):
+                try:
+                    return float(v) if v and v.strip() else None
+                except ValueError:
+                    return None
 
-                    def _safe_float(v):
-                        try:
-                            return float(v) if v and v.strip() else None
-                        except ValueError:
-                            return None
+            def _safe_int(v):
+                try:
+                    return int(v) if v and v.strip() else None
+                except ValueError:
+                    return None
 
-                    def _safe_int(v):
-                        try:
-                            return int(v) if v and v.strip() else None
-                        except ValueError:
-                            return None
-
-                    csv_rows_list.append({
-                        "timestamp": ts,
-                        "report_name": rn,
-                        "status": status,
-                        "duration_sec": _safe_float(row.get("duration_sec", "")),
-                        "rows_output": _safe_int(row.get("rows_output", "")),
-                        "files_uploaded": _safe_int(row.get("files_uploaded", "")),
-                        "args": row.get("args", "").strip(),
-                        "error": row.get("error", "").strip(),
-                    })
-                log.info("Parsed %d rows from run_log.csv", len(csv_rows_list))
-            else:
-                log.warning("Could not download run_log.csv: HTTP %d", resp.status_code)
+            csv_rows_list.append({
+                "timestamp": ts,
+                "report_name": rn,
+                "status": status,
+                "duration_sec": _safe_float(row.get("duration_sec", "")),
+                "rows_output": _safe_int(row.get("rows_output", "")),
+                "files_uploaded": _safe_int(row.get("files_uploaded", "")),
+                "args": row.get("args", "").strip(),
+                "error": row.get("error", "").strip(),
+            })
+        log.info("Parsed %d rows from run_log.csv", len(csv_rows_list))
     except Exception:
         log.exception("Failed to download run_log.csv from SharePoint")
 
