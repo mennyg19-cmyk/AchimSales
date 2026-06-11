@@ -45,7 +45,6 @@ def to_fact(raw: Mapping) -> OrderLineFact:
         ordered_dollars=round(num(first_of(raw, "Ordered $", "OrderedDollars", "OrderedAmount")), 2),
         shipped_dollars=round(num(first_of(raw, "Shipped $", "ShippedDollars", "ShippedAmount")), 2),
         cancelled_dollars=round(num(first_of(raw, "Cancelled $", "CancelledDollars", "CancelledAmount")), 2),
-        raw=dict(raw),
     )
 
 

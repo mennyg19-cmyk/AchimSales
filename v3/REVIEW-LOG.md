@@ -370,6 +370,27 @@ You had time and asked me to surface every question across all 5 reports. Here's
   open item is `number_4 | salesman_source` (needs confirmation that customer-master salesman
   matches invoice-line SalesGroup) — tracked in the table below.
 
+### Session: Thu Jun 11 - memory: stop carrying the full SP rows around
+
+**34. Drop the unused `raw` copy from every fact.**
+- *What I had to decide:* you noticed reports were holding more data in memory than needed and
+  asked to keep only the columns each report uses. Looking at the code, every fact (the slim
+  typed row each report builds from) was ALSO carrying `raw` -- a copy of the entire stored
+  procedure row with every column. Nothing in the codebase ever read it.
+- *Options:* (a) keep `raw` "just in case" a future feature wants an original column,
+  (b) delete it everywhere.
+- *Chose (b), deleted it* from all five fact types and the four source adapters that filled it.
+- *Why:* zero readers today, and the cost was real -- on a 216K-row ordered report it roughly
+  doubled the per-row memory. If a future report needs an extra SP column, the right move is to
+  add a named field to the fact (like every existing field), not haul the whole row around.
+  All 290 tests (including report parity) pass unchanged.
+
+**35. Free the raw SP rows before the report builds.**
+- *Decision:* added a `_facts()` helper in the report service that fetches the SP rows, converts
+  them to facts, and lets the raw rows go out of scope immediately -- instead of each report
+  orchestrator keeping the full row list alive while all the tabs build. Peak memory during a
+  report run is now roughly one copy of the data instead of two.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

@@ -9,7 +9,7 @@ feed identical facts to two builders and the only difference can be the rules.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 Source = Literal["reporting_api", "odata"]
@@ -49,7 +49,6 @@ class OrderLineFact:
     ordered_dollars: float     # authoritative (server-side)
     shipped_dollars: float     # authoritative (server-side)
     cancelled_dollars: float   # authoritative (server-side)
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -74,7 +73,6 @@ class InvoiceChargeFact:
     total: float
     sales_group: str
     is_credit: bool
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -96,7 +94,6 @@ class InvoiceItemFact:
     item_name: str
     qty: float
     amount: float
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -107,7 +104,6 @@ class CustomerFact:
     customer_name: str
     sales_group: str
     last_order_date: str
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -119,4 +115,3 @@ class SalesmanFact:
     full_name: str
     display_name: str
     commission_pct: float
-    raw: dict = field(default_factory=dict, compare=False, repr=False)

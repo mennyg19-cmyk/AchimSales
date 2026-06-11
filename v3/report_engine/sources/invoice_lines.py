@@ -27,7 +27,6 @@ def to_fact(raw: Mapping) -> InvoiceItemFact:
         item_name=text(first_of(raw, "ItemName", "ItemDescription")),
         qty=num(first_of(raw, "InventQTY", "Qty", "Quantity")),
         amount=num(first_of(raw, "Amount", "Total_$", "TotalAmount")),
-        raw=dict(raw),
     )
 
 

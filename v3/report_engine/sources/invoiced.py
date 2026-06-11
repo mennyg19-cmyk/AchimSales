@@ -49,7 +49,6 @@ def to_fact(raw: Mapping) -> InvoiceChargeFact:
         total=round(subtotal + tariff + freight + cc, 2),
         sales_group=text(first_of(raw, "SalesGroup", "salesgroup", "Salesman")),
         is_credit=is_credit_number(invoice_number),
-        raw=dict(raw),
     )
 
 

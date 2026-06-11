@@ -21,7 +21,6 @@ def to_fact(raw: Mapping) -> CustomerFact:
         customer_name=text(first_of(raw, "CustomerName", "customer_name", "customername", "Name")),
         sales_group=text(first_of(raw, "SalesGroup", "sales_group", "salesgroup", "Salesman")),
         last_order_date=iso_date(first_of(raw, "LastOrderDate", "last_order_date")),
-        raw=dict(raw),
     )
 
 

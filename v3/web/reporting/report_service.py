@@ -74,6 +74,16 @@ class ReportService:
     def _rows(self, report_id: str, sp_params: dict) -> list[dict]:
         return self.client.run_report(report_id, sp_params).rows
 
+    def _facts(self, report_id: str, sp_params: dict, adapter, visible_keys) -> list:
+        """Fetch SP rows, adapt to facts, and scope-filter -- in one scope.
+
+        The raw row dicts (every SP column) only live inside this method, so
+        Python can reclaim that memory before the builder starts. Keeps peak
+        memory at roughly one copy of the data instead of two.
+        """
+        rows = self._rows(report_id, sp_params)
+        return filter_facts_by_scope(adapter(rows), visible_keys)
+
     @staticmethod
     def _payload(report_key: str, tabs: list[dict], row_count: int, **extra) -> dict:
         return {"report_key": report_key, "tabs": tabs, "row_count": row_count, **extra}
@@ -135,8 +145,8 @@ class ReportService:
 # --------------------------------------------------------------------------- #
 
 def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
-    rows = svc._rows("salesline_release", P.translate("ordered", params))
-    facts = filter_facts_by_scope(src_ordered.to_facts(rows), visible_keys)
+    facts = svc._facts("salesline_release", P.translate("ordered", params),
+                       src_ordered.to_facts, visible_keys)
     tabs = rpt_ordered.build(facts)
     return svc._payload("ordered", tabs, len(facts))
 
@@ -153,8 +163,7 @@ def _selected_accounts(params: dict) -> set[str]:
 
 def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     sp = P.translate("invoiced", params)
-    facts = filter_facts_by_scope(
-        src_invoiced.to_facts(svc._rows("invoiced_order_charges", sp)), visible_keys)
+    facts = svc._facts("invoiced_order_charges", sp, src_invoiced.to_facts, visible_keys)
 
     _, period_end = P.resolve_window(params)
     end = period_end or today_eastern()
@@ -162,8 +171,7 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     ytd_sp = dict(sp)
     ytd_sp["InvoiceDateFrom"] = sp_datetime(date(year, 1, 1), end_of_day=False)
     ytd_sp["InvoiceDateTo"] = sp_datetime(end, end_of_day=True)
-    ytd_facts = filter_facts_by_scope(
-        src_invoiced.to_facts(svc._rows("invoiced_order_charges", ytd_sp)), visible_keys)
+    ytd_facts = svc._facts("invoiced_order_charges", ytd_sp, src_invoiced.to_facts, visible_keys)
 
     accounts = _selected_accounts(params)
     if len(accounts) > 1:
@@ -178,15 +186,15 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
 
 
 def _orch_salesman(svc: ReportService, params: dict, visible_keys) -> dict:
-    rows = svc._rows("invoiced_order_charges", P.translate("salesman", params))
-    facts = filter_facts_by_scope(src_invoiced.to_facts(rows), visible_keys)
+    facts = svc._facts("invoiced_order_charges", P.translate("salesman", params),
+                       src_invoiced.to_facts, visible_keys)
     tabs = rpt_salesman.build(facts, salesmen=svc._salesmen(), year=_resolved_year(params))
     return svc._payload("salesman", tabs, len(facts))
 
 
 def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
-    rows = svc._rows("invoice_lines", P.translate("number_4", params))
-    facts = filter_facts_by_scope(src_lines.to_facts(rows), visible_keys)
+    facts = svc._facts("invoice_lines", P.translate("number_4", params),
+                       src_lines.to_facts, visible_keys)
     # Fallback salesman: if the invoice line has no SalesGroup, use the
     # customer master's current assigned rep.
     customers = svc._customer_universe()
@@ -198,8 +206,8 @@ def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
 
 
 def _orch_customer_activity(svc: ReportService, params: dict, visible_keys) -> dict:
-    order_rows = svc._rows("salesline_release", P.translate("customer_activity", params))
-    orders = filter_facts_by_scope(src_ordered.to_facts(order_rows), visible_keys)
+    orders = svc._facts("salesline_release", P.translate("customer_activity", params),
+                        src_ordered.to_facts, visible_keys)
     customers = filter_facts_by_scope(svc._customer_universe(), visible_keys)
     tabs = rpt_customer_activity.build(
         customers, orders, salesmen=svc._salesmen(), scope=params,
