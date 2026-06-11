@@ -37,6 +37,7 @@ from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
+from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
 from web.data.repositories.users import UserRepository
@@ -222,7 +223,7 @@ def report_view(report_key: str):
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
-        is_privileged=authz.is_privileged(p),
+        is_developer=(p.role == ROLE_DEVELOPER),
     )
 
 
@@ -567,8 +568,11 @@ def preview_body(report_key: str):
 
     Read-only: builds the SP params from the current filters without calling the
     API, so the form can surface a live "this is what we'll ask for" panel.
+    Developer-only -- the panel is a dev tool, not a user-facing feature.
     """
     p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
 

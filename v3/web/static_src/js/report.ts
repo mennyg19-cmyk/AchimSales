@@ -1451,7 +1451,11 @@ async function initLookups(): Promise<void> {
   pollLookupStatus();
 }
 
-// --- bookmarkable deep-links --------------------------------------------- //
+// --- inbound deep-links ---------------------------------------------------- //
+// Other pages (dashboard cards, preset links) link in with query params; we
+// read them once on load to seed the filters. We deliberately do NOT write
+// filter state back into the URL -- the report runs on the page, so the
+// address bar stays clean.
 
 function applyDeepLink(): void {
   const q = new URLSearchParams(window.location.search);
@@ -1469,16 +1473,6 @@ function applyDeepLink(): void {
   if (ed && q.has("end_date")) ed.value = q.get("end_date") || "";
   const custs = q.get("customers");
   if (custs) custs.split(",").forEach((c) => { const k = c.trim(); if (k) selectedCustomers.set(k, k); });
-}
-
-function updateDeepLink(): void {
-  const params = collectParams();
-  const q = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => {
-    q.set(k, Array.isArray(v) ? v.join(",") : String(v));
-  });
-  const url = `${window.location.pathname}?${q.toString()}`;
-  window.history.replaceState(null, "", url);
 }
 
 // --- live API preview ----------------------------------------------------- //
@@ -1678,7 +1672,6 @@ async function togglePresetsPanel(): Promise<void> {
 function loadPreset(preset: { params?: Record<string, unknown>; layout?: SavedLayout }): void {
   applyParamsObject(preset.params || {});
   pendingLayout = preset.layout || null;
-  updateDeepLink();
   run();
 }
 
@@ -1946,7 +1939,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("controlsToggle")?.addEventListener("click", () => {
     setControlsCollapsed(!$("reportControls")?.classList.contains("collapsed"));
   });
-  $("runBtn")?.addEventListener("click", () => { updateDeepLink(); run(); });
+  $("runBtn")?.addEventListener("click", () => run());
   $("apiRunBtn")?.addEventListener("click", () => {
     const panel = $("apiPreview") as HTMLTextAreaElement | null;
     if (!panel) return;

@@ -92,17 +92,17 @@
     <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view">Schedule</button>
     <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
     <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view">Presets</button>
+    {% if is_developer %}
     <button type="button" id="previewBtn" class="btn btn-outline" title="Show the body that would be sent to the Reporting API">API preview</button>
+    {% endif %}
 </div>
 
-{% if is_privileged %}
+{% if is_developer %}
 <textarea id="apiPreview" class="api-preview api-preview-editable" hidden rows="12" spellcheck="false"></textarea>
 <div id="apiRunWrap" class="api-run-wrap" hidden>
     <button type="button" id="apiRunBtn" class="btn btn-primary btn-sm">Run with this body</button>
     <span class="muted" style="font-size:12px;">Edit the JSON above, then hit Run to override the form filters.</span>
 </div>
-{% else %}
-<pre id="apiPreview" class="api-preview" hidden></pre>
 {% endif %}
 <div id="exportsPanel" class="exports-panel" hidden>
     <div class="exports-head">Recent exports</div>

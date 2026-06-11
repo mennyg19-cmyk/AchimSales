@@ -142,6 +142,9 @@
 .api-run-wrap {
     display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: -8px;
 }
+/* display:flex above would otherwise override the browser's [hidden] rule,
+   leaving "Run with this body" floating over the toolbar when closed. */
+.api-run-wrap[hidden] { display: none; }
 
 /* -- Recent exports panel (background export jobs) ------------------------ */
 .exports-panel {

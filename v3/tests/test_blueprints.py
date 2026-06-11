@@ -536,10 +536,10 @@ def test_lookup_status_endpoint(tmp_path):
     assert "configured" in status and "status" in status
 
 
-def test_preview_body_shows_sp_params(tmp_path):
+def test_preview_body_shows_sp_params_for_developer(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
-    _login(client, app)
+    _login(client, app, email="dev@x.com", role="developer")
     resp = client.post("/api/reports/ordered/preview-body",
                        json={"period": "ytd", "salesman": "REdwards"},
                        headers={"X-CSRF-Token": _CSRF})
@@ -547,6 +547,16 @@ def test_preview_body_shows_sp_params(tmp_path):
     assert body["report_id"] == "salesline_release"
     assert body["body"]["SalesGroup"] == "REdwards"
     assert "CreatedDateTimeFrom" in body["body"]
+
+
+def test_preview_body_forbidden_for_non_developer(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)  # admin -- privileged, but not a developer
+    resp = client.post("/api/reports/ordered/preview-body",
+                       json={"period": "ytd"},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 403
 
 
 def test_preset_create_list_get_delete_and_home(tmp_path):

@@ -391,6 +391,22 @@ You had time and asked me to surface every question across all 5 reports. Here's
   orchestrator keeping the full row list alive while all the tabs build. Peak memory during a
   report run is now roughly one copy of the data instead of two.
 
+**36. API preview + "Run with this body" are developer-only now (owner request).**
+- *What you reported:* (a) the "Run with this body" button was floating on top of the "Refresh
+  data" button, (b) these dev tools shouldn't be visible to regular users, (c) the address bar
+  was growing "?period=ytd" style endings that nobody needs.
+- *Fixes:*
+  - The button overlap was a CSS bug: `.api-run-wrap` sets `display:flex`, which silently
+    cancels the HTML `hidden` attribute, so the button rendered even when "closed." One line
+    (`.api-run-wrap[hidden] { display:none }`) fixes it -- same pattern the modals already use.
+  - "API preview" + the editable body + "Run with this body" now render ONLY for the
+    `developer` role (not admin -- developer outranks admin for dev tools, same as
+    impersonation). The preview endpoint is also blocked server-side for non-developers (403),
+    with a regression test.
+  - The page no longer writes your filter choices into the address bar after each run.
+    Inbound links still work (dashboard cards and presets link in with "?period=mtd" etc. and
+    the page still reads those on load) -- it just stops echoing them back.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
