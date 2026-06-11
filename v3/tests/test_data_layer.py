@@ -106,6 +106,29 @@ def test_migration_failure_is_atomic(tmp_path):
         conn.close()
 
 
+def test_parallel_workers_can_migrate_the_same_fresh_db(tmp_path):
+    """Regression (2026-06-11): gunicorn workers boot in parallel and both ran
+    migrate() on a brand-new cache.db; the loser crashed bootstrap with
+    'UNIQUE constraint failed: schema_migrations.version'. The loser must
+    treat an already-applied version as done, not as a boot failure."""
+    d = Database(tmp_path / "p.db", tmp_path / "c.db")
+    errors: list[Exception] = []
+    barrier = threading.Barrier(4)
+
+    def boot():
+        try:
+            barrier.wait()
+            migrate(d)
+        except Exception as exc:  # noqa: BLE001 - the test asserts on these
+            errors.append(exc)
+
+    threads = [threading.Thread(target=boot) for _ in range(4)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    assert errors == []
+    assert migrate(d) == {"precious": [], "cache": []}  # fully applied exactly once
+
+
 def test_concurrent_enqueue_dedups(db):
     """Many threads enqueueing the same dedup_key produce exactly one active job."""
     jobs = JobRepository(db)

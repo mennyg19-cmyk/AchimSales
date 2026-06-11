@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -82,12 +83,26 @@ class ReportCache:
     def __init__(self, db: Database):
         self.db = db
 
+    def _self_heal(self, exc: Exception) -> bool:
+        """cache.db is disposable: the file can be deleted (or land on a fresh
+        instance) while the app is running, leaving a schema-less DB. If a cache
+        operation hits a missing table, re-apply the cache migrations and tell
+        the caller to retry once instead of failing the whole report run."""
+        if "no such table" not in str(exc):
+            return False
+        from web.data.migrate import migrate_cache_only
+
+        log.warning("report cache schema missing (%s); re-creating it", exc)
+        migrate_cache_only(self.db)
+        return True
+
     def get(self, cache_key: str) -> CachedPayload | None:
-        with self.db.cache() as conn:
-            row = conn.execute(
-                "SELECT payload_json, built_at FROM report_payload_cache WHERE cache_key = ?",
-                (cache_key,),
-            ).fetchone()
+        try:
+            row = self._select(cache_key)
+        except sqlite3.OperationalError as exc:
+            if not self._self_heal(exc):
+                raise
+            row = self._select(cache_key)
         if not row:
             return None
         try:
@@ -99,16 +114,36 @@ class ReportCache:
                 conn.execute("DELETE FROM report_payload_cache WHERE cache_key = ?", (cache_key,))
             return None
 
+    def _select(self, cache_key: str):
+        with self.db.cache() as conn:
+            return conn.execute(
+                "SELECT payload_json, built_at FROM report_payload_cache WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+
     def exists(self, cache_key: str) -> bool:
         """Cheap presence check that does NOT deserialize the (possibly large)
         payload - used to validate an export request before enqueuing the job."""
-        with self.db.cache() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM report_payload_cache WHERE cache_key = ? LIMIT 1", (cache_key,)
-            ).fetchone()
+        try:
+            with self.db.cache() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM report_payload_cache WHERE cache_key = ? LIMIT 1", (cache_key,)
+                ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if not self._self_heal(exc):
+                raise
+            return False  # schema was just re-created, so the row can't exist
         return row is not None
 
     def put(self, cache_key: str, report_key: str, payload: dict) -> None:
+        try:
+            self._insert(cache_key, report_key, payload)
+        except sqlite3.OperationalError as exc:
+            if not self._self_heal(exc):
+                raise
+            self._insert(cache_key, report_key, payload)
+
+    def _insert(self, cache_key: str, report_key: str, payload: dict) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with self.db.cache() as conn:
             conn.execute(

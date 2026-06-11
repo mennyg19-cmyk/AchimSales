@@ -10,18 +10,33 @@ out-of-process. There is NO /tmp->/home snapshot or JSON-sidecar salvage here
 from __future__ import annotations
 
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+
+_WAL_RETRIES = 20
 
 
 def _connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=30.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=30000")
+    # Switching journal mode needs exclusive access and can return "database is
+    # locked" IMMEDIATELY (it skips the busy handler) when connections race --
+    # e.g. parallel gunicorn workers touching a brand-new DB at boot. Retry with
+    # a short backoff instead of failing the caller.
+    for attempt in range(_WAL_RETRIES):
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or attempt == _WAL_RETRIES - 1:
+                conn.close()
+                raise
+            time.sleep(0.05 * (attempt + 1))
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 

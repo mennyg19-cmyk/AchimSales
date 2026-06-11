@@ -391,6 +391,28 @@ You had time and asked me to surface every question across all 5 reports. Here's
   orchestrator keeping the full row list alive while all the tabs build. Peak memory during a
   report run is now roughly one copy of the data instead of two.
 
+**36a. The report cache now heals itself when cache.db disappears (prod incident 2026-06-11).**
+- *What happened:* cache.db was deleted on the server while the app was running (it had bloated
+  to 655 MB and was suspected corrupt). The app recreated the file on the next write -- but the
+  TABLE inside is only created by migrations at boot, so a finished report run died at the save
+  step with "no such table: report_payload_cache". The owner's report fetched 2.5 minutes of data
+  and then failed at the last moment.
+- *Fix:* cache.db is disposable by design, so the cache treats a missing table as "fresh file,
+  rebuild me": put/get/exists re-apply the cache migrations on the spot and retry once. A wiped
+  cache is now a cache miss, never a failed report. Regression test included.
+
+**36b. Parallel workers no longer crash boot by racing migrations (prod incident 2026-06-11).**
+- *What happened:* after a restart with a brand-new cache.db, both gunicorn workers ran the
+  migration step at the same time. One applied the schema; the other crashed its whole v3
+  bootstrap with "UNIQUE constraint failed: schema_migrations.version", leaving that worker
+  degraded. Writing the regression test surfaced a second race underneath: turning on WAL mode
+  for a brand-new database can fail instantly with "database is locked" when connections race
+  (that step skips SQLite's usual wait-and-retry handler).
+- *Fix:* three layers. (1) A migration loser that finds the version already applied skips it
+  instead of crashing. (2) Migrations take the write lock up front (BEGIN IMMEDIATE) so a loser
+  waits instead of deadlocking mid-script. (3) Opening a connection retries the WAL switch with
+  a short backoff. Regression test boots 4 workers against one fresh DB in parallel.
+
 **36. API preview + "Run with this body" are developer-only now (owner request).**
 - *What you reported:* (a) the "Run with this body" button was floating on top of the "Refresh
   data" button, (b) these dev tools shouldn't be visible to regular users, (c) the address bar

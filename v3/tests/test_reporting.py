@@ -214,6 +214,27 @@ def test_cache_prune_removes_old_rows(db):
     assert cache.get(key) is None
 
 
+def test_cache_self_heals_when_cache_db_wiped_mid_flight(db, tmp_path):
+    """Regression (2026-06-11): cache.db was deleted while the app was running;
+    the fresh file had no schema and a finished report run died at the save step
+    with 'no such table: report_payload_cache'. put/get/exists must re-create
+    the schema and carry on instead of failing the run."""
+    cache = ReportCache(db)
+    key = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                          builder_version=1, params={})
+
+    # Simulate the wipe: replace cache.db with a brand-new, schema-less file.
+    db.cache_path.unlink()
+    db.cache_path.touch()
+
+    cache.put(key, "ordered", {"tabs": [{"name": "T", "rows": [{"v": 1}]}]})
+    assert cache.get(key).payload["tabs"][0]["rows"] == [{"v": 1}]
+
+    db.cache_path.unlink()
+    assert cache.get(key) is None       # heals on read too, returns a clean miss
+    assert cache.exists(key) is False
+
+
 def test_cache_quarantines_corrupt_json(db):
     cache = ReportCache(db)
     key = "deadbeef"
