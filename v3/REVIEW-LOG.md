@@ -429,6 +429,48 @@ You had time and asked me to surface every question across all 5 reports. Here's
     Inbound links still work (dashboard cards and presets link in with "?period=mtd" etc. and
     the page still reads those on load) -- it just stops echoing them back.
 
+### Session: Sun Jun 14 - the big report that took the whole site down (OOM crash loop)
+
+Background: a year-to-date Ordered report (~488,000 order lines) ran out of memory on the
+Azure box. When a run uses up the memory, the operating system kills the whole worker process
+instantly - so the job never gets a chance to mark itself "failed." It stays stuck on "running."
+
+**1. Why one bad report knocked the whole site offline (the real bug).**
+- *What was happening:* on every restart, the app's recovery step re-queues any job left stuck
+  on "running" (so work survives a normal restart). But there was no limit. The giant report
+  got re-run, ran out of memory again, got killed again, got re-queued again... forever. That
+  loop kept crashing the container, which took down the live app too.
+- *Options:* (a) never auto-retry a stuck job, (b) retry a fixed number of times then give up,
+  (c) leave it and just make the report smaller.
+- *Chosen (b):* recovery now counts attempts. A stuck job is retried once; if it dies again, it
+  is marked **failed** with a plain-English message ("...most likely ran out of memory. Try a
+  smaller date range or fewer customers, or export instead of viewing on screen.") instead of
+  looping.
+- *Why:* one retry still covers the innocent case (a deploy/restart interrupted a run), but a
+  genuinely too-big report can no longer crash-loop the site. This is the safety net: from now
+  on, *any* report that's too big fails cleanly instead of taking everyone down.
+
+**2. Making the big Ordered report actually fit in memory (no number changes).**
+- *What I found:* the report was holding three full copies of the data at once - the raw rows
+  from the database, the converted "facts," and the final table rows - which is what blew past
+  the memory limit. (A 339k-row report fits fine; ~488k was just over the edge.)
+- *Options:* (a) cap how many detail rows we show on screen, (b) cut the number of copies we
+  hold at the same time, (c) rent a bigger Azure box.
+- *Chosen (b):* as we convert raw rows into facts, and facts into table rows, we now release
+  each item the moment it's converted, so we only ever hold about one copy instead of three.
+  Same data, same order, identical numbers - it just doesn't pile up in memory.
+- *Why I did NOT pick (a):* the Excel export reads the very same on-screen data, and the export
+  format is the live "source of truth" - capping the on-screen detail would silently truncate
+  exports too. So I kept every row and cut the memory a different way.
+- *Why not (c):* you specifically wanted to know if we could avoid paying more; this keeps us
+  on the current box.
+
+**3. Honesty note / what's still true.**
+- A *single* big report now fits comfortably. If two giant reports are run at the exact same
+  moment they could still add up past the limit - but thanks to fix #1 that now just fails the
+  run cleanly instead of crash-looping the site. Running heavy reports one-at-a-time (a real
+  queue) is the separate v3 feature you already flagged; this change is the safety net under it.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

@@ -32,7 +32,9 @@ class _FakeClient:
         self.configured = configured
 
     def run_report(self, report_id, params):
-        return _FakeResult(self.rows_by_report.get(report_id, []))
+        # Fresh list per call, like the real client (which json-parses new rows
+        # each time); the adapters consume the list to save memory on big runs.
+        return _FakeResult(list(self.rows_by_report.get(report_id, [])))
 
 
 class _FakeSalesmen:

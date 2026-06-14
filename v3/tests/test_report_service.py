@@ -22,7 +22,9 @@ class _FakeClient:
         self.params_calls.append((report_id, dict(params)))
         if report_id in self.fail_ids:
             raise ReportingApiError(f"forced failure for {report_id}")
-        rows = self.rows_by_id.get(report_id, [])
+        # Fresh list per call, like the real client (which json-parses new rows
+        # each time); the adapters consume the list to save memory on big runs.
+        rows = list(self.rows_by_id.get(report_id, []))
         return ReportResult(report_id=report_id, columns=[], rows=rows, row_count=len(rows))
 
 

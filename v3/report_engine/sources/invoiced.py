@@ -12,7 +12,7 @@ import re
 from typing import Iterable, Mapping
 
 from report_engine.facts import InvoiceChargeFact
-from report_engine.lib import first_of, iso_date, num, text
+from report_engine.lib import first_of, iso_date, map_release, num, text
 
 # Credit notes carry CRD / CM / FC anywhere in the invoice number (no row-type
 # flag comes back from the SP). This is a SUBSTRING match, case-insensitive,
@@ -53,4 +53,4 @@ def to_fact(raw: Mapping) -> InvoiceChargeFact:
 
 
 def to_facts(rows: Iterable[Mapping]) -> list[InvoiceChargeFact]:
-    return [to_fact(r) for r in rows]
+    return map_release(rows, to_fact)

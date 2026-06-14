@@ -147,8 +147,11 @@ class ReportService:
 def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
     facts = svc._facts("salesline_release", P.translate("ordered", params),
                        src_ordered.to_facts, visible_keys)
+    # build() consumes the facts list to keep peak memory down on big runs, so
+    # capture the count first.
+    row_count = len(facts)
     tabs = rpt_ordered.build(facts)
-    return svc._payload("ordered", tabs, len(facts))
+    return svc._payload("ordered", tabs, row_count)
 
 
 def _selected_accounts(params: dict) -> set[str]:

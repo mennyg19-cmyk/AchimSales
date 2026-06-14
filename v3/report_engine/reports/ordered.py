@@ -263,8 +263,28 @@ def _build_summary(lines: list[dict]) -> dict:
 # Public entry point
 # --------------------------------------------------------------------------- #
 
+def _classify_lines(facts: Iterable[OrderLineFact]) -> list[dict]:
+    """Turn facts into the per-line rows, dropping ERROR ITEM lines.
+
+    A full-year run is ~500k facts. Building `lines` while still holding the full
+    `facts` list keeps two big copies alive at once and OOMs the worker, so when
+    `facts` is a list we release each fact the moment it's classified (order is
+    preserved). The caller's list is consumed; the orchestrator captures its
+    length before calling build, and tests don't reuse it.
+    """
+    if not isinstance(facts, list):
+        return [ln for ln in (classify_line(f) for f in facts) if not _is_error_item(ln)]
+    lines: list[dict] = []
+    for i in range(len(facts)):
+        line = classify_line(facts[i])
+        facts[i] = None
+        if not _is_error_item(line):
+            lines.append(line)
+    return lines
+
+
 def build(facts: Iterable[OrderLineFact]) -> list[dict]:
-    lines = [ln for ln in (classify_line(f) for f in facts) if not _is_error_item(ln)]
+    lines = _classify_lines(facts)
 
     by_customer = _aggregate(
         lines,

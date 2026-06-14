@@ -107,3 +107,18 @@ def test_tab_order_matches_live():
     keys = [t["key"] for t in B.build(S.to_facts(_rows()))]
     assert keys == ["summary", "by_customer", "by_item", "by_order",
                     "by_salesman", "full_data"]
+
+
+def test_full_data_preserves_source_row_order():
+    # The memory optimization consumes facts as it builds lines; the Full Data
+    # tab (and so the export) must still come out in source order.
+    rows = _rows() * 3  # SO1, SO2, SO1, SO2, SO1, SO2
+    full = next(t for t in B.build(S.to_facts(rows)) if t["key"] == "full_data")
+    assert [r["SalesOrderNumber"] for r in full["rows"]] == \
+        ["SO1", "SO2", "SO1", "SO2", "SO1", "SO2"]
+
+
+def test_build_consumes_facts_list_to_save_memory():
+    facts = S.to_facts(_rows())
+    B.build(facts)
+    assert facts == [None, None]  # released slot-by-slot during the build

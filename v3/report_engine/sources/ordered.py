@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 
 from report_engine.facts import OrderLineFact
-from report_engine.lib import as_int, first_of, iso_date, num, text
+from report_engine.lib import as_int, first_of, iso_date, map_release, num, text
 
 # Customer Activity's "last order" needs a true order/created date, so we only
 # accept those here - never a requested ship/receipt date (LIVE uses the header
@@ -49,4 +49,4 @@ def to_fact(raw: Mapping) -> OrderLineFact:
 
 
 def to_facts(rows: Iterable[Mapping]) -> list[OrderLineFact]:
-    return [to_fact(r) for r in rows]
+    return map_release(rows, to_fact)

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 
 from report_engine.facts import InvoiceItemFact
-from report_engine.lib import first_of, iso_date, num, text
+from report_engine.lib import first_of, iso_date, map_release, num, text
 
 
 def to_fact(raw: Mapping) -> InvoiceItemFact:
@@ -31,4 +31,4 @@ def to_fact(raw: Mapping) -> InvoiceItemFact:
 
 
 def to_facts(rows: Iterable[Mapping]) -> list[InvoiceItemFact]:
-    return [to_fact(r) for r in rows]
+    return map_release(rows, to_fact)

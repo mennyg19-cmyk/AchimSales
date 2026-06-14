@@ -17,10 +17,30 @@ with the salesman/invoiced adapters under a dedicated parity test.)
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 # Sentinels the Reporting API / stored procedures hand back for "no value".
 _BLANKS = (None, "", "NULL")
+
+
+def map_release(rows: Iterable[Any], convert: Callable[[Any], Any]) -> list:
+    """Convert each item with `convert`, freeing each source item as we go.
+
+    A full-year report can be ~500k rows. Holding the raw SP-row list AND the
+    converted-fact list in memory at the same time doubles peak usage and pushes
+    the small Azure worker over its limit (the out-of-memory crash). Nulling each
+    source slot right after converting it keeps memory near a single copy. Order
+    is preserved. The input list is consumed (left full of None); callers always
+    pass a fresh per-request list, so that's safe. Non-list inputs (e.g. a
+    generator in a test) fall back to a plain conversion.
+    """
+    if not isinstance(rows, list):
+        return [convert(r) for r in rows]
+    out = []
+    for i, r in enumerate(rows):
+        out.append(convert(r))
+        rows[i] = None
+    return out
 
 
 def num(value: Any) -> float:
