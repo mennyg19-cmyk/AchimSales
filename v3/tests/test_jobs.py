@@ -121,6 +121,35 @@ def test_orphaned_running_job_is_recovered(db):
     assert jobs.get(jid).status == "success"
 
 
+def test_recovery_increments_attempts(db):
+    """Each crash-recovery bumps the attempt counter so the cap can be enforced."""
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+    assert jobs.get(jid).attempts == 0
+    jobs.claim_next()        # -> running (simulate crash)
+    jobs.recover_orphans()   # -> requeued, attempt counted
+    assert jobs.get(jid).attempts == 1
+
+
+def test_repeatedly_crashing_job_is_failed_not_looped(db):
+    """A job that keeps dying mid-run (e.g. OOM) is failed once retries run out,
+    instead of being requeued forever (the crash loop that took the site down)."""
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+
+    # 1st crash: orphaned -> requeued (one retry used).
+    jobs.claim_next()
+    assert jobs.recover_orphans() == 1
+    assert jobs.get(jid).status == "queued"
+
+    # 2nd crash: retries exhausted -> failed, NOT requeued.
+    jobs.claim_next()
+    assert jobs.recover_orphans() == 0
+    failed = jobs.get(jid)
+    assert failed.status == "failure"
+    assert "ran out of memory" in failed.error
+
+
 def test_recover_orphans_unblocks_dedup(db):
     jobs = JobRepository(db)
     a = jobs.enqueue("echo", dedup_key="k")

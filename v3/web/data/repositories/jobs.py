@@ -19,6 +19,19 @@ from web.data.connection import Database
 
 _ACTIVE = ("queued", "running")
 
+# How many times crash-recovery will requeue a job before giving up on it. A job
+# that keeps dying mid-run (an out-of-memory report the OS SIGKILLs never gets to
+# mark itself failed, so it stays 'running' and gets requeued on every restart)
+# would otherwise loop forever and keep crashing the whole app. After this many
+# automatic retries we fail the job instead of requeuing it again. One retry
+# covers a benign restart-mid-run while still stopping a genuine crash loop fast.
+_MAX_RECOVERY_RETRIES = 1
+_RETRY_EXHAUSTED_ERROR = (
+    "Stopped after the run kept crashing its worker - it most likely ran out of "
+    "memory. Try a smaller date range or fewer customers, or export instead of "
+    "viewing on screen."
+)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -32,6 +45,7 @@ class Job:
     owner_user_id: int | None
     dedup_key: str | None
     progress: int
+    attempts: int
     params: dict
     result_ref: str
     error: str
@@ -41,7 +55,8 @@ class Job:
         return cls(
             id=r["id"], type=r["type"], status=r["status"],
             owner_user_id=r["owner_user_id"], dedup_key=r["dedup_key"],
-            progress=r["progress"], params=json.loads(r["params_json"] or "{}"),
+            progress=r["progress"], attempts=r["attempts"],
+            params=json.loads(r["params_json"] or "{}"),
             result_ref=r["result_ref"], error=r["error"],
         )
 
@@ -131,29 +146,41 @@ class JobRepository:
             )
             return updated.rowcount == 1
 
-    def recover_orphans(self, running_older_than_seconds: float | None = None) -> int:
-        """Requeue 'running' jobs (orphaned by a crash) so work survives restarts.
+    def recover_orphans(self, running_older_than_seconds: float | None = None,
+                        max_retries: int = _MAX_RECOVERY_RETRIES) -> int:
+        """Requeue 'running' jobs (orphaned by a crash) so work survives restarts,
+        but only up to `max_retries` times.
 
-        Called at worker startup (single B1 instance => nothing is truly running
-        when we boot) and usable as a periodic stale-job reaper. Returns the count
-        requeued. Clears the dedup block that an orphaned 'running' row would hold.
+        Called at worker startup (single instance => nothing is truly running when
+        we boot) and usable as a periodic stale-job reaper. A job that has already
+        used up its retries is marked 'failure' instead of being requeued again,
+        so a run that keeps killing its process (e.g. an OOM report) can never
+        loop forever and take the site down with it. Returns the count requeued
+        (not the ones failed). Clears the dedup block an orphaned row would hold.
         """
+        where = "status='running'"
+        cutoff_params: tuple = ()
+        if running_older_than_seconds is not None:
+            cutoff = datetime.fromtimestamp(
+                datetime.now(timezone.utc).timestamp() - running_older_than_seconds,
+                tz=timezone.utc,
+            ).isoformat()
+            where += " AND (started_at IS NULL OR started_at < ?)"
+            cutoff_params = (cutoff,)
         with self.db.precious() as conn:
-            if running_older_than_seconds is None:
-                cur = conn.execute(
-                    "UPDATE jobs SET status='queued', started_at=NULL, progress=0"
-                    " WHERE status='running'"
-                )
-            else:
-                cutoff = datetime.fromtimestamp(
-                    datetime.now(timezone.utc).timestamp() - running_older_than_seconds,
-                    tz=timezone.utc,
-                ).isoformat()
-                cur = conn.execute(
-                    "UPDATE jobs SET status='queued', started_at=NULL, progress=0"
-                    " WHERE status='running' AND (started_at IS NULL OR started_at < ?)",
-                    (cutoff,),
-                )
+            # Jobs that already exhausted their retries: fail them so they stop
+            # being requeued (and crashing) on every restart.
+            conn.execute(
+                f"UPDATE jobs SET status='failure', error=?, finished_at=?"
+                f" WHERE {where} AND attempts >= ?",
+                (_RETRY_EXHAUSTED_ERROR, _now(), *cutoff_params, max_retries),
+            )
+            # The rest: requeue and count this attempt.
+            cur = conn.execute(
+                f"UPDATE jobs SET status='queued', started_at=NULL, progress=0,"
+                f" attempts=attempts+1 WHERE {where}",
+                cutoff_params,
+            )
             return cur.rowcount
 
     def list_for_user(self, user_id: int, limit: int = 50) -> list[Job]:
