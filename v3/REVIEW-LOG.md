@@ -471,6 +471,49 @@ instantly - so the job never gets a chance to mark itself "failed." It stays stu
   run cleanly instead of crash-looping the site. Running heavy reports one-at-a-time (a real
   queue) is the separate v3 feature you already flagged; this change is the safety net under it.
 
+### Session: Sun Jun 14 (later) - fetch big reports one month at a time (so they stop timing out)
+
+Background: the YTD Ordered report kept failing because it asks the on-prem Reporting API for a
+whole year of order lines in **one** request. On a busy on-prem SQL box that single query can run
+longer than the 5-minute timeout, and when it does you get **nothing** - it's all-or-nothing. (You
+saw this exactly: "yesterday" returns fine, "last month"/YTD hangs.) Worse, one giant query can
+jam the on-prem server so even small calls stall until it's restarted.
+
+**1. How to make the big report actually go through.**
+- *What I had to decide:* how to stop one huge request from blowing the timeout.
+- *Options:* (a) raise the timeout (just makes you wait longer for the same failure, and ties up
+  the on-prem box even more), (b) split the request by **date** into month-sized pieces, (c) split
+  by **customer** into batches, (d) rent a bigger on-prem SQL box.
+- *Chosen (b):* a big date window is now fetched **one calendar month at a time** and the pieces
+  are stitched back together. Each month is ~40k rows - small enough to come back well inside the
+  timeout. Applies to the three biggest pulls (all use the `salesline_release` procedure): the
+  **Ordered** report (any bounded period - daily/MTD/YTD/last month/custom), **Customer Activity**,
+  and the **dashboard's all-orders** refresh.
+- *Why (b) over (c):* your own evidence ("small date range works, big doesn't") points straight at
+  date/size as the bottleneck. Date chunks also line up cleanly with the boundaries we already use.
+- *Why this changes no numbers:* each month chunk uses the **exact same day boundaries**
+  (00:00:00 -> 23:59:59) that every daily report already uses and the business already trusts. The
+  months are back-to-back with no gap and no overlap, so stitching them together returns the same
+  set of rows as one big call - nothing dropped, nothing counted twice. Verified with tests
+  (`month_chunks` coverage + a parity test that the stitched result equals a single full-window
+  call). All 310 v3 tests pass.
+
+**2. What stays a single call on purpose.**
+- An **all_time / open-ended** Ordered run still does one call, because that path relies on the
+  procedure's own default window; only bounded periods get chunked.
+
+**3. Honesty notes (from the cross-model review).**
+- This fixes the "big query times out" case. If the on-prem API is **fully** wedged (every call,
+  even small ones, hanging - which is the state right now), it still needs a restart; chunking
+  can't get data out of a server that answers nothing. After a restart, chunking should keep the
+  big reports working.
+- All-time pulls (dashboard refresh + Customer Activity) now make ~18 small calls back-to-back
+  (go-live to today) instead of one. That's fine for a background job but means more total calls;
+  worth watching the on-prem load.
+- Row **order** in the raw "Full Data" dump is now grouped month-by-month (chronological). Totals
+  and every calculated number are identical; only the sequence of raw rows can differ from the
+  procedure's single-call order. Flagged for sign-off below (it's display order, not a number).
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
@@ -532,6 +575,19 @@ instantly - so the job never gets a chance to mark itself "failed." It stays stu
   but `customer_activity._str` DID. v3's `text()` does not strip (majority); the
   customer_activity builder will strip explicitly. A parity test will lock this when that
   builder is ported.
+
+- **Month-chunked fetch row order (Sun Jun 14)**: big `salesline_release` pulls are now fetched
+  one month at a time and concatenated, so raw "Full Data" rows come back grouped month-by-month
+  (chronological) instead of in the procedure's single-call order. Every total / calculated number
+  is identical (aggregations are order-independent; verified by parity test). Two display-only
+  notes from the cross-model review, neither a number change: (1) the Ordered report fills a few
+  non-numeric bucket labels (status/date/name) from the first row in a bucket, so those labels
+  could differ if the procedure's per-month order differs from its all-at-once order; (2) Customer
+  Activity's "latest order per customer" breaks ties on date only (first-row-wins), so a customer
+  with two orders on the same latest date could show a different PO/SO depending on row order. The
+  latest date sits within one month chunk, so in practice this matches the prior single-call
+  behavior. Confirm "numbers identical, raw-row display order may vary" is acceptable, or ask me to
+  add a deterministic sort/tie-breaker.
 
 ---
 

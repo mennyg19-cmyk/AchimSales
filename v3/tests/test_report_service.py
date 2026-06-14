@@ -1,9 +1,12 @@
 """ReportService: report_key -> fetch -> adapt -> build -> payload wiring."""
 
+from datetime import date
+
 import pytest
 
 from report_engine.facts import SalesmanFact
 from report_engine.lib import salesman_key
+from report_engine.sources import ordered as src_ordered
 from web.reporting.http_client import ReportResult, ReportingApiError
 from web.reporting.report_service import ReportService
 
@@ -202,6 +205,93 @@ def test_scope_filters_facts_to_visible_keys():
     # Empty scope: sees nothing
     out_empty = svc.builder_for("ordered")({}, set())
     assert out_empty["row_count"] == 0
+
+
+class _DateWindowClient:
+    """Fake SP that returns only rows whose CreatedDateTime falls in the requested
+    window, like the real stored procedure. Records each (from, to) day pair so a
+    test can prove the service split one big window into month-sized requests."""
+
+    def __init__(self, rows: list[dict]):
+        self.rows = rows
+        self.windows: list[tuple[str, str]] = []
+
+    def run_report(self, report_id: str, params: dict) -> ReportResult:
+        frm = (params.get("CreatedDateTimeFrom") or "0000-00-00")[:10]
+        to = (params.get("CreatedDateTimeTo") or "9999-99-99")[:10]
+        self.windows.append((frm, to))
+        sel = [r for r in self.rows if frm <= str(r["CreatedDateTime"])[:10] <= to]
+        return ReportResult(report_id=report_id, columns=[], rows=list(sel), row_count=len(sel))
+
+
+def _order_row(order_no: str, created: str) -> dict:
+    return {"SalesOrderNumber": order_no, "CustomerAccount": "100", "Item": "A",
+            "QuantityOrdered": "1", "Ordered $": "10", "SalesStatus": "Open",
+            "SalesGroup": "REdwards", "CreatedDateTime": created}
+
+
+def test_chunked_fetch_unions_months_into_one_window():
+    """A multi-month window is fetched one month at a time and stitched back into
+    exactly the rows a single full-window call would return - in order, no gaps."""
+    rows = [
+        _order_row("SO-DEC", "2025-12-31T10:00:00"),   # before window -> excluded
+        _order_row("SO-JAN-A", "2026-01-05T10:00:00"),
+        _order_row("SO-JAN-B", "2026-01-31T23:00:00"),
+        _order_row("SO-FEB", "2026-02-14T10:00:00"),
+        _order_row("SO-MAR-A", "2026-03-01T00:30:00"),
+        _order_row("SO-MAR-B", "2026-03-31T12:00:00"),
+        _order_row("SO-APR", "2026-04-01T09:00:00"),    # after window -> excluded
+    ]
+    client = _DateWindowClient(rows)
+    svc = ReportService(client, _FakeSalesmenRepo())
+
+    facts = svc._facts_chunked(
+        "salesline_release", {}, src_ordered.to_facts, None,
+        from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
+        start=date(2026, 1, 1), end=date(2026, 3, 31))
+
+    assert [f.sales_order_number for f in facts] == [
+        "SO-JAN-A", "SO-JAN-B", "SO-FEB", "SO-MAR-A", "SO-MAR-B"]
+    # three month-sized requests with day-aligned boundaries (no overlap, no gap)
+    assert client.windows == [
+        ("2026-01-01", "2026-01-31"),
+        ("2026-02-01", "2026-02-28"),
+        ("2026-03-01", "2026-03-31"),
+    ]
+
+
+def test_ordered_bounded_period_is_fetched_in_chunks_and_matches_single_call():
+    """The ordered report over a bounded period chunks the fetch by month, and the
+    stitched result equals what one big call over the same window would produce."""
+    rows = [
+        _order_row("SO-JAN", "2026-01-10T10:00:00"),
+        _order_row("SO-FEB", "2026-02-10T10:00:00"),
+        _order_row("SO-MAR", "2026-03-10T10:00:00"),
+        _order_row("SO-OUT", "2026-05-10T10:00:00"),   # outside the window
+    ]
+    svc = ReportService(_DateWindowClient(rows), _FakeSalesmenRepo())
+    out = svc.builder_for("ordered")(
+        {"period": "custom", "start_date": "2026-01-01", "end_date": "2026-03-31"}, None)
+
+    assert out["row_count"] == 3                        # SO-OUT excluded
+    assert svc.client.windows == [
+        ("2026-01-01", "2026-01-31"),
+        ("2026-02-01", "2026-02-28"),
+        ("2026-03-01", "2026-03-31"),
+    ]
+    full = next(t for t in out["tabs"] if t["key"] == "full_data")
+    assert {r["SalesOrderNumber"] for r in full["rows"]} == {"SO-JAN", "SO-FEB", "SO-MAR"}
+
+
+def test_ordered_all_time_stays_single_call():
+    """Open-ended (all_time) keeps one call so the SP's own default window is
+    unchanged - chunking only applies to bounded periods."""
+    rows = [_order_row("SO1", "2026-02-01T10:00:00")]
+    svc = ReportService(_DateWindowClient(rows), _FakeSalesmenRepo())
+    svc.builder_for("ordered")({"period": "all_time"}, None)
+    # one request, with no date window pushed down
+    assert len(svc.client.windows) == 1
+    assert svc.client.windows[0] == ("0000-00-00", "9999-99-99")
 
 
 def test_ensure_customers_resyncs_then_finds():

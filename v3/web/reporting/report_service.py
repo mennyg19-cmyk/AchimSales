@@ -21,7 +21,7 @@ import logging
 from datetime import date
 from typing import Any, Callable
 
-from report_engine.dates import sp_datetime, today_eastern
+from report_engine.dates import D365_GO_LIVE, month_chunks, sp_datetime, today_eastern
 from report_engine.reports import customer_activity as rpt_customer_activity
 from report_engine.reports import invoiced as rpt_invoiced
 from report_engine.reports import number_4 as rpt_number_4
@@ -84,6 +84,29 @@ class ReportService:
         rows = self._rows(report_id, sp_params)
         return filter_facts_by_scope(adapter(rows), visible_keys)
 
+    def _facts_chunked(self, report_id: str, base_sp: dict, adapter, visible_keys,
+                       *, from_key: str, to_key: str, start: date, end: date) -> list:
+        """Fetch a big window one month at a time, then concatenate the facts.
+
+        A full-window pull (e.g. a whole year of order lines) can be too big for
+        the on-prem Reporting API to return inside its timeout, so the single
+        request fails and you get nothing. Splitting the date window into
+        month-sized requests keeps each response small enough to come back. The
+        month chunks use the same day boundaries the daily reports use, so the
+        stitched-together result is the same set of rows as one call - none
+        dropped, none double-counted. Each chunk's raw rows are adapted (and
+        released) before the next request, so peak memory stays near one month
+        instead of the whole window. Rows come back grouped month-by-month
+        (chronological), which the builders aggregate order-independently.
+        """
+        facts: list = []
+        for chunk_start, chunk_end in month_chunks(start, end):
+            sp = dict(base_sp)
+            sp[from_key] = sp_datetime(chunk_start, end_of_day=False)
+            sp[to_key] = sp_datetime(chunk_end, end_of_day=True)
+            facts.extend(filter_facts_by_scope(adapter(self._rows(report_id, sp)), visible_keys))
+        return facts
+
     @staticmethod
     def _payload(report_key: str, tabs: list[dict], row_count: int, **extra) -> dict:
         return {"report_key": report_key, "tabs": tabs, "row_count": row_count, **extra}
@@ -106,9 +129,16 @@ class ReportService:
         return self._customer_universe()
 
     def all_orders(self) -> list:
-        """All-time OrderLineFacts (go-live..today) for cadence metrics."""
-        rows = self._rows("salesline_release", P.translate("customer_activity", {}))
-        return src_ordered.to_facts(rows)
+        """All-time OrderLineFacts (go-live..today) for cadence metrics.
+
+        Chunked by month: all-time is the biggest salesline_release pull there is,
+        so a single call would blow the API timeout.
+        """
+        return self._facts_chunked(
+            "salesline_release", P.translate("customer_activity", {}),
+            src_ordered.to_facts, None,
+            from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
+            start=D365_GO_LIVE, end=today_eastern())
 
     def customer_orders(self, account: str) -> list:
         """All-time OrderLineFacts for one customer (dashboard customer detail)."""
@@ -122,8 +152,6 @@ class ReportService:
         so the "last invoiced order" is found over the customer's whole history,
         not just the SP's default window.
         """
-        from report_engine.dates import D365_GO_LIVE
-
         sp = {
             "CreatedDateTimeFrom": sp_datetime(D365_GO_LIVE, end_of_day=False),
             "CreatedDateTimeTo": sp_datetime(today_eastern(), end_of_day=True),
@@ -145,8 +173,18 @@ class ReportService:
 # --------------------------------------------------------------------------- #
 
 def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
-    facts = svc._facts("salesline_release", P.translate("ordered", params),
-                       src_ordered.to_facts, visible_keys)
+    base_sp = P.translate("ordered", params)
+    start, end = P.resolve_window(params)
+    # A bounded period (daily/MTD/YTD/last month/custom) is fetched month-by-month
+    # so a big YTD doesn't blow the API timeout. Open-ended (all_time/blank) keeps
+    # the single call so the SP's own default window is unchanged.
+    if start and end:
+        facts = svc._facts_chunked(
+            "salesline_release", base_sp, src_ordered.to_facts, visible_keys,
+            from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
+            start=start, end=end)
+    else:
+        facts = svc._facts("salesline_release", base_sp, src_ordered.to_facts, visible_keys)
     # build() consumes the facts list to keep peak memory down on big runs, so
     # capture the count first.
     row_count = len(facts)
@@ -209,8 +247,13 @@ def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
 
 
 def _orch_customer_activity(svc: ReportService, params: dict, visible_keys) -> dict:
-    orders = svc._facts("salesline_release", P.translate("customer_activity", params),
-                        src_ordered.to_facts, visible_keys)
+    # All-time order history (go-live..today), chunked by month so the largest
+    # salesline_release pull doesn't blow the API timeout.
+    orders = svc._facts_chunked(
+        "salesline_release", P.translate("customer_activity", params),
+        src_ordered.to_facts, visible_keys,
+        from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
+        start=D365_GO_LIVE, end=today_eastern())
     customers = filter_facts_by_scope(svc._customer_universe(), visible_keys)
     tabs = rpt_customer_activity.build(
         customers, orders, salesmen=svc._salesmen(), scope=params,
