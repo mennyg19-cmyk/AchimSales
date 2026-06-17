@@ -10,11 +10,50 @@ The `session` is injectable so this is unit-testable without a live API.
 
 from __future__ import annotations
 
+import gzip
+import json
 import logging
+import os
+from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
+
+
+def _capture_raw_response(report_id: str, params: dict, body: Any) -> None:
+    """Diagnostic tap: record the untouched endpoint response so we can prove
+    what the API actually returned, before any app-side filtering or adapting.
+
+    Off unless RAW_CAPTURE_REPORTS lists this report_id (comma-separated). When
+    on, it logs a per-month invoice-date histogram (the quick proof) and, if
+    RAW_CAPTURE_DIR is set, writes the full raw body to a gzipped JSON file
+    there. Best-effort: a capture failure must never break a report run.
+    """
+    targets = {t.strip() for t in os.environ.get("RAW_CAPTURE_REPORTS", "").split(",") if t.strip()}
+    if report_id not in targets:
+        return
+    try:
+        rows = body.get("rows") if isinstance(body, dict) else None
+        rows = rows if isinstance(rows, list) else []
+        months: Counter = Counter()
+        for row in rows:
+            raw_date = row.get("InvoiceDate") or row.get("Invoice Date") or ""
+            months[str(raw_date)[:7] or "(blank)"] += 1
+        log.info("RAW CAPTURE %s: row_count=%d params=%s months=%s",
+                 report_id, len(rows), params, dict(sorted(months.items())))
+        cap_dir = os.environ.get("RAW_CAPTURE_DIR", "").strip()
+        if cap_dir:
+            os.makedirs(cap_dir, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%f")
+            out_path = os.path.join(cap_dir, f"{report_id}_{stamp}.json.gz")
+            with gzip.open(out_path, "wt", encoding="utf-8") as handle:
+                json.dump({"report_id": report_id, "params": params, "body": body},
+                          handle, default=str)
+            log.info("RAW CAPTURE %s: wrote %s", report_id, out_path)
+    except Exception:  # noqa: BLE001 - a diagnostic must never break a report run
+        log.exception("RAW CAPTURE failed (non-fatal)")
 
 
 class ReportingApiNotConfigured(RuntimeError):
@@ -77,6 +116,7 @@ class ReportingApiClient:
                     # Transient server error: retry then surface.
                     raise _Transient(f"Reporting API {status} for {report_id}")
                 body = resp.json()
+                _capture_raw_response(report_id, params, body)
                 rows = body.get("rows")
                 if not isinstance(rows, list):
                     rows = []
