@@ -1,17 +1,18 @@
 """Invoiced report builder (pure).
 
 Facts -> the multi-tab payload. Column order/headers match the LIVE Monthly
-Invoiced Report export; the math matches LIVE. Data comes from the Reporting
-API (invoiced_order_charges SP) via the source adapter.
+Invoiced Report export. SQL returns invoice-level rows; Flask only shapes tabs,
+splits credits, and runs commission math (needs Azure commission %).
 
 Tabs, in LIVE order:
-    1. Summary by Customer  - one row per (customer, salesman)
+    1. Summary by Customer  - GROUP BY (customer, salesman) from period rows
     2. Commissions          - per-salesman YTD pivot (admin-only; cards layout)
-    3. Full Details         - one row per invoice number (reversals netted)
-    4. Credits              - raw rows whose invoice number starts CRD/CM/FC
-    5. Invoices             - raw non-credit rows
-    6. Audit - Reversals    - invoice numbers appearing both positive & negative
-    7. Totals by Salesman   - per-salesman aggregate (only when 2+ salesmen)
+    3. Full Details         - one row per invoice (net only if SQL sends dupes)
+    4. Credits              - rows flagged as credit
+    5. Invoices             - non-credit rows
+    6. Audit - Reversals    - only when same invoice has + and - totals
+    7. Totals by Salesman   - per-salesman net aggregate, credits subtracted
+                              (only when 2+ salesmen)
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ from report_engine.facts import InvoiceChargeFact, SalesmanFact
 from report_engine.lib import num, salesman_key
 
 _UNASSIGNED_LABEL = "Unassigned"
-_UNASSIGNED_NUMBER = "?unassigned"
 
 _MONTH_LABELS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -36,12 +36,12 @@ FULL_DETAILS_COLS = [
     {"field": "InvoiceDate", "header": "InvoiceDate", "type": "date"},
     {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
     {"field": "Salesman", "header": "Salesman", "type": "text"},
-    {"field": "SalesmanNumber", "header": "SalesmanNumber", "type": "text"},
     {"field": "SalesmanName", "header": "SalesmanName", "type": "text"},
     {"field": "SubTotal Invoices", "header": "SubTotal Invoices", "type": "money"},
     {"field": "Tariff Charges", "header": "Tariff Charges", "type": "money"},
     {"field": "Freight Charges", "header": "Freight Charges", "type": "money"},
     {"field": "CC Charges", "header": "CC Charges", "type": "money"},
+    {"field": "Misc Charges", "header": "Misc Charges", "type": "money"},
     {"field": "Total Invoice", "header": "Total Invoice", "type": "money"},
 ]
 
@@ -55,22 +55,23 @@ CREDIT_INVOICE_COLS = [
     {"field": "Tariff Charges", "header": "Tariff Charges", "type": "money"},
     {"field": "Freight Charges", "header": "Freight Charges", "type": "money"},
     {"field": "CC Charges", "header": "CC Charges", "type": "money"},
+    {"field": "Misc Charges", "header": "Misc Charges", "type": "money"},
     {"field": "Total Invoice", "header": "Total Invoice", "type": "money"},
     {"field": "Salesman", "header": "Salesman", "type": "text"},
-    {"field": "SalesmanNumber", "header": "SalesmanNumber", "type": "text"},
     {"field": "SalesmanName", "header": "SalesmanName", "type": "text"},
 ]
 
 SUMMARY_COLS = [
     {"field": "CustomerAccount", "header": "CustomerAccount", "type": "text"},
     {"field": "CustomerName", "header": "CustomerName", "type": "text"},
-    {"field": "SalesmanNumber", "header": "SalesmanNumber", "type": "text"},
+    {"field": "Salesman", "header": "Salesman", "type": "text"},
     {"field": "SalesmanName", "header": "SalesmanName", "type": "text"},
     {"field": "InvoiceCount", "header": "InvoiceCount", "type": "int"},
     {"field": "SubTotal Invoices", "header": "SubTotal Invoices", "type": "money"},
     {"field": "Total Tariff Charges", "header": "Total Tariff Charges", "type": "money"},
     {"field": "Total Freight Charges", "header": "Total Freight Charges", "type": "money"},
     {"field": "Total CC Charges", "header": "Total CC Charges", "type": "money"},
+    {"field": "Total Misc Charges", "header": "Total Misc Charges", "type": "money"},
     {"field": "Total Invoices", "header": "Total Invoices", "type": "money"},
 ]
 
@@ -81,36 +82,36 @@ COMMISSION_COLS = SUMMARY_COLS + [
 ]
 
 SALESMAN_TOTALS_COLS = [
-    {"field": "SalesmanNumber", "header": "SalesmanNumber", "type": "text"},
-    {"field": "SalesmanName", "header": "SalesmanName", "type": "text"},
     {"field": "Salesman", "header": "Salesman", "type": "text"},
+    {"field": "SalesmanName", "header": "SalesmanName", "type": "text"},
     {"field": "InvoiceCount", "header": "InvoiceCount", "type": "int"},
     {"field": "SubTotal Invoices", "header": "SubTotal Invoices", "type": "money"},
     {"field": "Tariff Charges", "header": "Tariff Charges", "type": "money"},
     {"field": "Freight Charges", "header": "Freight Charges", "type": "money"},
     {"field": "CC Charges", "header": "CC Charges", "type": "money"},
+    {"field": "Misc Charges", "header": "Misc Charges", "type": "money"},
     {"field": "Total Invoice", "header": "Total Invoice", "type": "money"},
 ]
 
 _INVOICE_MONEY = ("SubTotal Invoices", "Tariff Charges", "Freight Charges",
-                  "CC Charges", "Total Invoice")
+                  "CC Charges", "Misc Charges", "Total Invoice")
 
 
-# --- salesman resolution + enrichment --------------------------------------
+# --- row enrichment (SQL labels + Azure commission lookup) ------------------
 
-def _resolve_salesman(sales_group: str, salesmen: Mapping[str, SalesmanFact]):
-    """Return (label, number, name) for a SalesGroup, matching LIVE precedence."""
-    sm = salesmen.get(salesman_key(sales_group)) if sales_group else None
-    if sm:
-        return (sm.display_name or sm.full_name or sales_group, sm.number, sm.full_name)
-    if sales_group:
-        return (sales_group, "", "")
-    return (_UNASSIGNED_LABEL, _UNASSIGNED_NUMBER, _UNASSIGNED_LABEL)
+def _salesman_columns(fact: InvoiceChargeFact,
+                      salesmen: Mapping[str, SalesmanFact]) -> tuple[str, str]:
+    """Salesman code + name from SQL; Azure fills name gaps only."""
+    sm = salesmen.get(salesman_key(fact.sales_group)) if fact.sales_group else None
+    if not fact.sales_group:
+        return (_UNASSIGNED_LABEL, _UNASSIGNED_LABEL)
+    name = fact.salesman_name or (sm.full_name if sm else "")
+    return (fact.sales_group, name)
 
 
 def _enriched(fact: InvoiceChargeFact, salesmen: Mapping[str, SalesmanFact]) -> dict:
     """One fact -> a row with LIVE column names (+ private keys for grouping)."""
-    label, number, name = _resolve_salesman(fact.sales_group, salesmen)
+    label, name = _salesman_columns(fact, salesmen)
     return {
         "CustomerAccount": fact.customer_account,
         "CustomerName": fact.customer_name,
@@ -121,9 +122,9 @@ def _enriched(fact: InvoiceChargeFact, salesmen: Mapping[str, SalesmanFact]) -> 
         "Tariff Charges": fact.tariff,
         "Freight Charges": fact.freight,
         "CC Charges": fact.cc,
+        "Misc Charges": fact.misc,
         "Total Invoice": fact.total,
         "Salesman": label,
-        "SalesmanNumber": number,
         "SalesmanName": name,
         "_sales_group": fact.sales_group,
         "_is_credit": fact.is_credit,
@@ -156,8 +157,21 @@ def _year_of(row: dict) -> int | None:
 
 # --- per-tab builders -------------------------------------------------------
 
+def _has_duplicate_invoices(rows: Sequence[dict]) -> bool:
+    seen: set[str] = set()
+    for r in rows:
+        inv = r.get("InvoiceNumber") or ""
+        if not inv:
+            continue
+        if inv in seen:
+            return True
+        seen.add(inv)
+    return False
+
+
 def _net_by_invoice(rows: Sequence[dict]) -> list[dict]:
-    """Group rows by InvoiceNumber, summing money. Reversal pairs net out."""
+    """Group rows by InvoiceNumber, summing money. Only needed when SQL still
+    returns multiple rows per invoice (reversal pairs before server-side net)."""
     buckets: dict[str, dict] = {}
     order: list[str] = []
     for r in rows:
@@ -178,22 +192,23 @@ def _summary_by_customer(raw: Sequence[dict]) -> dict:
     """Per-(customer, salesman) aggregation from the full detail (credits incl.).
 
     Matches LIVE `_build_summary(df)`: group by
-    (CustomerAccount, CustomerName, SalesmanNumber, SalesmanName); InvoiceCount
+    (CustomerAccount, CustomerName, Salesman, SalesmanName); InvoiceCount
     is nunique(InvoiceNumber); money columns are summed over all rows.
     """
     buckets: dict[tuple, dict] = {}
     invoices_seen: dict[tuple, set] = {}
     for r in raw:
         key = (r.get("CustomerAccount") or "", r.get("CustomerName") or "",
-               r.get("SalesmanNumber") or "", r.get("SalesmanName") or "")
+               r.get("Salesman") or "", r.get("SalesmanName") or "")
         b = buckets.get(key)
         if b is None:
             b = {
                 "CustomerAccount": key[0], "CustomerName": key[1],
-                "SalesmanNumber": key[2], "SalesmanName": key[3],
+                "Salesman": key[2], "SalesmanName": key[3],
                 "InvoiceCount": 0, "SubTotal Invoices": 0.0,
                 "Total Tariff Charges": 0.0, "Total Freight Charges": 0.0,
-                "Total CC Charges": 0.0, "Total Invoices": 0.0,
+                "Total CC Charges": 0.0, "Total Misc Charges": 0.0,
+                "Total Invoices": 0.0,
                 "_sales_group": r.get("_sales_group") or "",
             }
             buckets[key] = b
@@ -204,12 +219,13 @@ def _summary_by_customer(raw: Sequence[dict]) -> dict:
         b["Total Tariff Charges"] += num(r.get("Tariff Charges"))
         b["Total Freight Charges"] += num(r.get("Freight Charges"))
         b["Total CC Charges"] += num(r.get("CC Charges"))
+        b["Total Misc Charges"] += num(r.get("Misc Charges"))
         b["Total Invoices"] += num(r.get("Total Invoice"))
     rows = list(buckets.values())
     for key, b in buckets.items():
         b["InvoiceCount"] = len(invoices_seen[key])
         for f in ("SubTotal Invoices", "Total Tariff Charges", "Total Freight Charges",
-                  "Total CC Charges", "Total Invoices"):
+                  "Total CC Charges", "Total Misc Charges", "Total Invoices"):
             b[f] = round(b[f], 2)
     rows.sort(key=lambda r: (r.get("CustomerAccount") or "").lower())
     return {"key": "summary_by_customer", "name": "Summary by Customer",
@@ -227,7 +243,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         if not sg:
             continue
         sm = salesmen.get(salesman_key(sg))
-        if not sm or sm.commission_pct <= 0 or not sm.number.strip():
+        if not sm or sm.commission_pct <= 0:
             continue
         # Guard against a caller passing a wider window than Jan 1..period end:
         # only count rows in the report year (LIVE fetches exactly that window).
@@ -236,10 +252,13 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         m = _month_of(r)
         if m is None or not 1 <= m <= end_month:
             continue
-        bucket = by_sm.setdefault(sm.number.strip(), {
-            "name": sm.full_name or sm.display_name or sg,
+        bucket_key = salesman_key(sg)
+        bucket = by_sm.setdefault(bucket_key, {
+            "label": r.get("Salesman") or sg,
+            "name": r.get("SalesmanName") or sm.full_name or sm.display_name or sg,
             "pct": sm.commission_pct,
-            "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, credits=0.0)
+            "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, misc=0.0,
+                             credits=0.0)
                         for _ in range(end_month)],
         })
         slot = bucket["monthly"][m - 1]
@@ -250,13 +269,14 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             slot["tariff"] += num(r.get("Tariff Charges"))
             slot["freight"] += num(r.get("Freight Charges"))
             slot["cc"] += num(r.get("CC Charges"))
+            slot["misc"] += num(r.get("Misc Charges"))
 
     salesmen_out: list[dict] = []
-    for number in sorted(by_sm, key=lambda n: int(n) if n.isdigit() else n):
-        bucket = by_sm[number]
+    for bucket_key in sorted(by_sm, key=lambda k: by_sm[k]["name"].lower()):
+        bucket = by_sm[bucket_key]
         pct = bucket["pct"]
         ytd = dict(subtotal_invoices=0.0, tariff_charges=0.0, freight_charges=0.0,
-                   cc_charges=0.0, total_invoices=0.0, credits=0.0,
+                   cc_charges=0.0, misc_charges=0.0, total_invoices=0.0, credits=0.0,
                    net_commission=0.0, commission=0.0)
         monthly_out: list[dict] = []
         for idx, slot in enumerate(bucket["monthly"]):
@@ -264,20 +284,23 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             tar = round(slot["tariff"], 2)
             fre = round(slot["freight"], 2)
             cc = round(slot["cc"], 2)
+            misc = round(slot["misc"], 2)
             crd = round(slot["credits"], 2)
-            ti = round(sub + tar + fre + cc, 2)
+            ti = round(sub + tar + fre + cc + misc, 2)
             net = round(ti + crd - fre - cc, 2)
             comm = net * pct  # kept UNrounded; YTD sums these (matches LIVE)
             monthly_out.append({
                 "month": idx + 1, "month_label": _MONTH_LABELS[idx],
                 "subtotal_invoices": sub, "tariff_charges": tar,
-                "freight_charges": fre, "cc_charges": cc, "total_invoices": ti,
+                "freight_charges": fre, "cc_charges": cc, "misc_charges": misc,
+                "total_invoices": ti,
                 "credits": crd, "net_commission": net, "commission": round(comm, 2),
             })
             ytd["subtotal_invoices"] += sub
             ytd["tariff_charges"] += tar
             ytd["freight_charges"] += fre
             ytd["cc_charges"] += cc
+            ytd["misc_charges"] += misc
             ytd["total_invoices"] += ti
             ytd["credits"] += crd
             ytd["net_commission"] += net
@@ -286,7 +309,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             ytd[k] = round(ytd[k], 2)
         ytd["total_payable"] = ytd["commission"]
         salesmen_out.append({
-            "salesman_number": number, "salesman_name": bucket["name"],
+            "salesman": bucket["label"], "salesman_name": bucket["name"],
             "commission_pct": pct, "monthly": monthly_out, "ytd": ytd,
         })
 
@@ -294,7 +317,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         return round(sum(s["ytd"][field] for s in salesmen_out), 2)
 
     grand = {f: _g(f) for f in ("subtotal_invoices", "tariff_charges", "freight_charges",
-                                "cc_charges", "total_invoices", "credits",
+                                "cc_charges", "misc_charges", "total_invoices", "credits",
                                 "net_commission", "commission", "total_payable")}
     labels = list(_MONTH_LABELS[:end_month])
     columns, rows = _commissions_flat_table(salesmen_out, grand, labels)
@@ -322,8 +345,7 @@ def _commissions_flat_table(salesmen_out: list[dict], grand: dict,
 
     rows: list[dict] = []
     for s in salesmen_out:
-        name = (f"{s['salesman_number']} - {s['salesman_name']}".strip(" -")
-                or s["salesman_name"] or s["salesman_number"])
+        name = s["salesman_name"] or s.get("salesman") or ""
         row = {"Salesman": name, "Commission %": s["commission_pct"]}
         by_label = {m["month_label"]: m["commission"] for m in s["monthly"]}
         for lbl in labels:
@@ -400,23 +422,23 @@ def _audit_reversals(raw: Sequence[dict]) -> dict | None:
             "columns": CREDIT_INVOICE_COLS, "rows": rows}
 
 
-def _totals_by_salesman(non_credit: Sequence[dict]) -> dict | None:
-    """Per-salesman aggregate from the NON-CREDIT invoices view (matches LIVE
-    `_maybe_write_totals_by_salesman(wb, invoices, ...)`). Only emitted for 2+
-    salesmen; InvoiceCount is nunique(InvoiceNumber)."""
-    distinct = {(r.get("Salesman") or "").strip() for r in non_credit if (r.get("Salesman") or "").strip()}
+def _totals_by_salesman(rows: Sequence[dict]) -> dict | None:
+    """Per-salesman NET aggregate. Credits carry negative amounts and are
+    summed in alongside invoices, so each salesman's totals are net of credits.
+    Only emitted for 2+ salesmen; InvoiceCount is nunique(InvoiceNumber)."""
+    distinct = {(r.get("Salesman") or "").strip() for r in rows if (r.get("Salesman") or "").strip()}
     if len(distinct) < 2:
         return None
     buckets: dict[tuple, dict] = {}
     invoices_seen: dict[tuple, set] = {}
-    for r in non_credit:
-        key = (r.get("SalesmanNumber") or "", r.get("SalesmanName") or "",
-               r.get("Salesman") or "")
+    for r in rows:
+        key = (r.get("Salesman") or "", r.get("SalesmanName") or "")
         b = buckets.get(key)
         if b is None:
-            b = {"SalesmanNumber": key[0], "SalesmanName": key[1], "Salesman": key[2],
+            b = {"Salesman": key[0], "SalesmanName": key[1],
                  "InvoiceCount": 0, "SubTotal Invoices": 0.0, "Tariff Charges": 0.0,
-                 "Freight Charges": 0.0, "CC Charges": 0.0, "Total Invoice": 0.0}
+                 "Freight Charges": 0.0, "CC Charges": 0.0, "Misc Charges": 0.0,
+                 "Total Invoice": 0.0}
             buckets[key] = b
             invoices_seen[key] = set()
         if r.get("InvoiceNumber"):
@@ -425,15 +447,17 @@ def _totals_by_salesman(non_credit: Sequence[dict]) -> dict | None:
         b["Tariff Charges"] += num(r.get("Tariff Charges"))
         b["Freight Charges"] += num(r.get("Freight Charges"))
         b["CC Charges"] += num(r.get("CC Charges"))
+        b["Misc Charges"] += num(r.get("Misc Charges"))
         b["Total Invoice"] += num(r.get("Total Invoice"))
     rows: list[dict] = []
     for key, b in buckets.items():
         b["InvoiceCount"] = len(invoices_seen[key])
-        for f in ("SubTotal Invoices", "Tariff Charges", "Freight Charges",
+        for f in ("SubTotal Invoices", "Tariff Charges", "Freight Charges", "Misc Charges",
                   "CC Charges", "Total Invoice"):
             b[f] = round(b[f], 2)
         rows.append(b)
-    rows.sort(key=lambda r: (r.get("SalesmanNumber") or "", r.get("Salesman") or ""))
+    rows.sort(key=lambda r: ((r.get("Salesman") or "").lower(),
+                             r.get("SalesmanName") or ""))
     return {"key": "totals_by_salesman", "name": "Totals by Salesman",
             "columns": SALESMAN_TOTALS_COLS, "rows": rows}
 
@@ -452,8 +476,7 @@ def build(facts: Iterable[InvoiceChargeFact], *,
     it falls back to the flat per-customer commissions table.
     """
     raw = [_enriched(f, salesmen) for f in facts]
-    netted = _net_by_invoice(raw)
-    non_credit = [r for r in raw if not r.get("_is_credit")]
+    netted = _net_by_invoice(raw) if _has_duplicate_invoices(raw) else list(raw)
     summary = _summary_by_customer(raw)
 
     if ytd_facts is not None and year is not None and end_month is not None:
@@ -467,6 +490,6 @@ def build(facts: Iterable[InvoiceChargeFact], *,
     tabs = [summary, commissions, _full_details(netted), _credits(raw), _invoices(raw)]
     if (audit := _audit_reversals(raw)) is not None:
         tabs.append(audit)
-    if (totals := _totals_by_salesman(non_credit)) is not None:
+    if (totals := _totals_by_salesman(raw)) is not None:
         tabs.append(totals)
     return tabs

@@ -203,16 +203,17 @@ def _selected_accounts(params: dict) -> set[str]:
 
 
 def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
+    report_id = P.report_id_for("invoiced")
     sp = P.translate("invoiced", params)
-    facts = svc._facts("invoiced_order_charges", sp, src_invoiced.to_facts, visible_keys)
+    facts = svc._facts(report_id, sp, src_invoiced.to_facts, visible_keys)
 
     _, period_end = P.resolve_window(params)
     end = period_end or today_eastern()
     year = end.year
     ytd_sp = dict(sp)
-    ytd_sp["InvoiceDateFrom"] = sp_datetime(date(year, 1, 1), end_of_day=False)
-    ytd_sp["InvoiceDateTo"] = sp_datetime(end, end_of_day=True)
-    ytd_facts = svc._facts("invoiced_order_charges", ytd_sp, src_invoiced.to_facts, visible_keys)
+    ytd_sp["InvoiceDateFrom"] = date(year, 1, 1).isoformat()
+    ytd_sp["InvoiceDateTo"] = end.isoformat()
+    ytd_facts = svc._facts(report_id, ytd_sp, src_invoiced.to_facts, visible_keys)
 
     accounts = _selected_accounts(params)
     if len(accounts) > 1:

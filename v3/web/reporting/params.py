@@ -114,13 +114,18 @@ def translate_ordered(p: dict) -> dict[str, Any]:
 
 
 def translate_invoiced(p: dict) -> dict[str, Any]:
-    """invoiced -> invoiced_order_charges.
+    """invoiced -> invoiced_report.
 
-    The SP's InvoiceAccount is a single exact-match value, so only a
+    The new SP's CustomerAccount is a single exact-match value, so only a
     single-customer selection is pushed down; multi-select is post-filtered
     by the caller.
     """
-    out = _date_range(p, "InvoiceDateFrom", "InvoiceDateTo")
+    start, end = _resolve_window(p)
+    out: dict[str, Any] = {}
+    if start:
+        out["InvoiceDateFrom"] = start.isoformat()
+    if end:
+        out["InvoiceDateTo"] = end.isoformat()
     customers = p.get("customers")
     if isinstance(customers, (list, tuple, set)):
         cust = [str(c).strip() for c in customers if str(c).strip()]
@@ -129,9 +134,9 @@ def translate_invoiced(p: dict) -> dict[str, Any]:
     else:
         cust = []
     if len(cust) == 1:
-        out["InvoiceAccount"] = cust[0]
+        out["CustomerAccount"] = cust[0]
     if v := _csv(p.get("salesman")):
-        out["SalesGroup"] = v
+        out["Salesman"] = v
     return out
 
 
@@ -176,7 +181,7 @@ def translate_customer_activity(p: dict) -> dict[str, Any]:
 # (report_id, translator) keyed by in-app report key. Single source of truth.
 REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     "ordered": ("salesline_release", translate_ordered),
-    "invoiced": ("invoiced_order_charges", translate_invoiced),
+    "invoiced": ("invoiced_report", translate_invoiced),
     "salesman": ("invoiced_order_charges", translate_salesman),
     "number_4": ("invoice_lines", translate_number_4),
     "customer_activity": ("salesline_release", translate_customer_activity),

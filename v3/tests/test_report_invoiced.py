@@ -21,50 +21,94 @@ def _tabs_by_key(tabs):
 
 # --- source adapter --------------------------------------------------------
 
-def test_adapter_prefers_line_level_tariff_and_computes_total():
+def test_adapter_uses_sql_totals_when_present():
     fact = S.to_fact({
-        "Invoice": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
-        "InvoiceDate": "2026-04-30T00:00:00", "SalesOrder": "SO1",
-        "Amount": "100", "SL_TariffCharges": "7", "SH_TariffCharges": None,
-        "SH_FreightCharges": "3", "SH_ProcessingFeesCharges": "2",
-        "SalesGroup": "REdwards",
+        "InvoiceNumber": "INV1", "CustomerAccount": "100", "CustomerName": "Acme",
+        "InvoiceDate": "2026-04-30T00:00:00", "salesorder": "SO1",
+        "amount": "100", "Tariff Charges": "7",
+        "Freight Charges": "3", "CC Charges": "2",
+        "Misc Charges": "1",
+        "Total Invoice": "113",
+        "salesman": "REdwards",
     })
-    assert fact.tariff == 7.0          # SL wins over null SH
-    assert fact.freight == 3.0 and fact.cc == 2.0
-    assert fact.total == 112.0
+    assert fact.tariff == 7.0
+    assert fact.freight == 3.0 and fact.cc == 2.0 and fact.misc == 1.0
+    assert fact.total == 113.0          # trusts SQL, does not re-sum
     assert fact.invoice_date == "2026-04-30"
     assert fact.is_credit is False
 
 
+def test_adapter_sums_total_only_when_sql_omits_it():
+    fact = S.to_fact({
+        "InvoiceNumber": "INV1", "amount": "100",
+        "Tariff Charges": "7", "Freight Charges": "3", "CC Charges": "2", "Misc Charges": "1",
+    })
+    assert fact.total == 113.0
+
+
 def test_adapter_parses_rfc1123_date_without_truncation():
-    fact = S.to_fact({"Invoice": "INV2", "InvoiceDate": "Thu, 30 Apr 2026 00:00:00 GMT",
-                      "Amount": "10"})
+    fact = S.to_fact({"InvoiceNumber": "INV2", "InvoiceDate": "Thu, 30 Apr 2026 00:00:00 GMT",
+                      "amount": "10"})
     assert fact.invoice_date == "2026-04-30"
+
+
+def test_adapter_detects_credits_from_is_credit_flag():
+    assert S.to_fact({"InvoiceNumber": "INV9", "IsCredit": True}).is_credit is True
+    assert S.to_fact({"InvoiceNumber": "INV9", "IsCredit": "false"}).is_credit is False
 
 
 def test_adapter_detects_credits_as_substring_case_insensitive():
     # LIVE uses InvoiceNumber.upper().contains("CRD|CM|FC") - substring, not prefix.
     for n in ("CRD100", "CM5", "FC9", "cm-1", "X-CRD-9", "INVCM7"):
-        assert S.to_fact({"Invoice": n, "Amount": "-5"}).is_credit is True
-    assert S.to_fact({"Invoice": "INV9", "Amount": "5"}).is_credit is False
+        assert S.to_fact({"InvoiceNumber": n, "amount": "-5"}).is_credit is True
+    assert S.to_fact({"InvoiceNumber": "INV9", "amount": "5"}).is_credit is False
 
 
-def test_adapter_falls_back_to_sh_tariff_when_sl_missing():
-    fact = S.to_fact({"Invoice": "INV1", "Amount": "100", "SH_TariffCharges": "9"})
-    assert fact.tariff == 9.0
+def test_adapter_passes_through_salesman_name():
+    fact = S.to_fact({
+        "InvoiceNumber": "INV1", "salesman": "REdwards",
+        "SalesmanName": "Robert Edwards", "amount": "10",
+    })
+    assert fact.salesman_name == "Robert Edwards"
+
+
+def test_adapter_accepts_new_invoiced_report_field_names():
+    fact = S.to_fact({
+        "InvoiceNumber": "INV9",
+        "CustomerAccount": "C100",
+        "CustomerName": "Acme",
+        "InvoiceDate": "2026-04-30",
+        "salesorder": "SO-9",
+        "salesman": "REdwards",
+        "amount": "90",
+        "Tariff Charges": "5",
+        "Freight Charges": "3",
+        "CC Charges": "2",
+        "Misc Charges": "1",
+        "Total Invoice": "101",
+    })
+    assert fact.invoice_number == "INV9"
+    assert fact.customer_account == "C100"
+    assert fact.sales_order_number == "SO-9"
+    assert fact.sales_group == "REdwards"
+    assert fact.subtotal == 90.0
+    assert fact.total == 101.0
 
 
 # --- builder ---------------------------------------------------------------
 
 def _basic_facts():
     return S.to_facts([
-        {"Invoice": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
-         "InvoiceDate": "2026-04-10", "Amount": "100", "SL_TariffCharges": "10",
-         "SH_FreightCharges": "5", "SH_ProcessingFeesCharges": "2", "SalesGroup": "REdwards"},
-        {"Invoice": "INV2", "InvoiceAccount": "100", "CustomerName": "Acme",
-         "InvoiceDate": "2026-04-12", "Amount": "50", "SalesGroup": "REdwards"},
-        {"Invoice": "CRD1", "InvoiceAccount": "100", "CustomerName": "Acme",
-         "InvoiceDate": "2026-04-15", "Amount": "-20", "SalesGroup": "REdwards"},
+        {"InvoiceNumber": "INV1", "CustomerAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-04-10", "amount": "100", "Tariff Charges": "10",
+         "Freight Charges": "5", "CC Charges": "2", "salesman": "REdwards",
+         "Total Invoice": "117"},
+        {"InvoiceNumber": "INV2", "CustomerAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-04-12", "amount": "50", "salesman": "REdwards",
+         "Total Invoice": "50"},
+        {"InvoiceNumber": "CRD1", "CustomerAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-04-15", "amount": "-20", "salesman": "REdwards",
+         "Total Invoice": "-20"},
     ])
 
 
@@ -89,13 +133,26 @@ def test_summary_aggregates_per_customer_salesman():
     assert row["SubTotal Invoices"] == 130.0          # 100 + 50 + (-20)
     assert row["Total Tariff Charges"] == 10.0
     assert row["Total Invoices"] == 100 + 10 + 5 + 2 + 50 + (-20)  # 147
-    assert row["SalesmanNumber"] == "10"
+    assert row["Salesman"] == "REdwards"
+    assert row["SalesmanName"] == "Robert Edwards"
+
+
+def test_full_details_skips_netting_when_one_row_per_invoice():
+    facts = S.to_facts([
+        {"InvoiceNumber": "INV5", "CustomerAccount": "1", "amount": "100",
+         "InvoiceDate": "2026-04-01", "Total Invoice": "100"},
+    ])
+    full = _tabs_by_key(B.build(facts, salesmen={}))["full_data"]["rows"]
+    assert len(full) == 1
+    assert full[0]["Total Invoice"] == 100.0
 
 
 def test_full_details_nets_reversal_pairs():
     facts = S.to_facts([
-        {"Invoice": "INV5", "InvoiceAccount": "1", "Amount": "100", "InvoiceDate": "2026-04-01"},
-        {"Invoice": "INV5", "InvoiceAccount": "1", "Amount": "-100", "InvoiceDate": "2026-04-02"},
+        {"InvoiceNumber": "INV5", "CustomerAccount": "1", "amount": "100",
+         "InvoiceDate": "2026-04-01", "Total Invoice": "100"},
+        {"InvoiceNumber": "INV5", "CustomerAccount": "1", "amount": "-100",
+         "InvoiceDate": "2026-04-02", "Total Invoice": "-100"},
     ])
     tabs = _tabs_by_key(B.build(facts, salesmen={}))
     full = tabs["full_data"]["rows"]
@@ -110,10 +167,10 @@ def test_totals_by_salesman_only_when_multiple():
     assert "totals_by_salesman" not in _tabs_by_key(one)
 
     facts = S.to_facts([
-        {"Invoice": "A1", "InvoiceAccount": "1", "Amount": "100", "SalesGroup": "REdwards",
-         "InvoiceDate": "2026-04-01"},
-        {"Invoice": "B1", "InvoiceAccount": "2", "Amount": "200", "SalesGroup": "JDoe",
-         "InvoiceDate": "2026-04-01"},
+        {"InvoiceNumber": "A1", "CustomerAccount": "1", "amount": "100", "salesman": "REdwards",
+         "InvoiceDate": "2026-04-01", "Total Invoice": "100"},
+        {"InvoiceNumber": "B1", "CustomerAccount": "2", "amount": "200", "salesman": "JDoe",
+         "InvoiceDate": "2026-04-01", "Total Invoice": "200"},
     ])
     salesmen = _salesmen()
     salesmen[salesman_key("JDoe")] = _sm("jdoe", "11", "Jane Doe", 0.04)
@@ -122,30 +179,30 @@ def test_totals_by_salesman_only_when_multiple():
     assert len(tabs["totals_by_salesman"]["rows"]) == 2
 
 
-def test_totals_by_salesman_excludes_credits():
-    # LIVE builds Totals by Salesman from the non-credit invoices view.
+def test_totals_by_salesman_nets_credits():
+    # Totals by Salesman are NET: credits subtract from the salesman's total.
     facts = S.to_facts([
-        {"Invoice": "A1", "InvoiceAccount": "1", "Amount": "100", "SalesGroup": "REdwards",
-         "InvoiceDate": "2026-04-01"},
-        {"Invoice": "B1", "InvoiceAccount": "2", "Amount": "200", "SalesGroup": "JDoe",
-         "InvoiceDate": "2026-04-01"},
-        {"Invoice": "CRD9", "InvoiceAccount": "1", "Amount": "-50", "SalesGroup": "REdwards",
-         "InvoiceDate": "2026-04-02"},
+        {"InvoiceNumber": "A1", "CustomerAccount": "1", "amount": "100", "salesman": "REdwards",
+         "InvoiceDate": "2026-04-01", "Total Invoice": "100"},
+        {"InvoiceNumber": "B1", "CustomerAccount": "2", "amount": "200", "salesman": "JDoe",
+         "InvoiceDate": "2026-04-01", "Total Invoice": "200"},
+        {"InvoiceNumber": "CRD9", "CustomerAccount": "1", "amount": "-50", "salesman": "REdwards",
+         "InvoiceDate": "2026-04-02", "Total Invoice": "-50"},
     ])
     salesmen = _salesmen()
     salesmen[salesman_key("JDoe")] = _sm("jdoe", "11", "Jane Doe", 0.04)
     totals = _tabs_by_key(B.build(facts, salesmen=salesmen))["totals_by_salesman"]["rows"]
-    redwards = next(r for r in totals if r["SalesmanNumber"] == "10")
-    assert redwards["Total Invoice"] == 100.0   # credit -50 excluded
-    assert redwards["InvoiceCount"] == 1
+    redwards = next(r for r in totals if r["Salesman"] == "REdwards")
+    assert redwards["Total Invoice"] == 50.0    # 100 invoice - 50 credit
+    assert redwards["InvoiceCount"] == 2
 
 
 def test_commissions_pivot_ignores_prior_year_rows():
     facts = S.to_facts([
-        {"Invoice": "INV1", "InvoiceAccount": "1", "InvoiceDate": "2026-04-10",
-         "Amount": "1000", "SalesGroup": "REdwards"},
-        {"Invoice": "INV0", "InvoiceAccount": "1", "InvoiceDate": "2025-04-10",
-         "Amount": "9999", "SalesGroup": "REdwards"},  # prior year - must be ignored
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000"},
+        {"InvoiceNumber": "INV0", "CustomerAccount": "1", "InvoiceDate": "2025-04-10",
+         "amount": "9999", "salesman": "REdwards", "Total Invoice": "9999"},
     ])
     comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
                                 ytd_facts=facts, year=2026, end_month=4))["commissions"]
@@ -153,22 +210,31 @@ def test_commissions_pivot_ignores_prior_year_rows():
     assert sm["ytd"]["subtotal_invoices"] == 1000.0
 
 
+def test_builder_uses_sql_salesman_name():
+    facts = S.to_facts([{
+        "InvoiceNumber": "X", "CustomerAccount": "1", "amount": "5",
+        "salesman": "REdwards", "SalesmanName": "Robert Edwards",
+    }])
+    row = _tabs_by_key(B.build(facts, salesmen={}))["invoices"]["rows"][0]
+    assert row["Salesman"] == "REdwards"
+    assert row["SalesmanName"] == "Robert Edwards"
+
+
 def test_unresolved_nonempty_salesgroup_keeps_code():
-    facts = S.to_facts([{"Invoice": "X", "InvoiceAccount": "1", "Amount": "5",
-                         "SalesGroup": "ZZTOP"}])
+    facts = S.to_facts([{"InvoiceNumber": "X", "CustomerAccount": "1", "amount": "5",
+                         "salesman": "ZZTOP"}])
     row = _tabs_by_key(B.build(facts, salesmen={}))["invoices"]["rows"][0]
     assert row["Salesman"] == "ZZTOP"        # raw code, not "Unassigned"
-    assert row["SalesmanNumber"] == ""
     assert row["SalesmanName"] == ""
 
 
 def test_commissions_monthly_pivot_math():
     facts = S.to_facts([
-        {"Invoice": "INV1", "InvoiceAccount": "1", "InvoiceDate": "2026-04-10",
-         "Amount": "1000", "SL_TariffCharges": "100", "SH_FreightCharges": "50",
-         "SH_ProcessingFeesCharges": "25", "SalesGroup": "REdwards"},
-        {"Invoice": "CRD1", "InvoiceAccount": "1", "InvoiceDate": "2026-04-20",
-         "Amount": "-200", "SalesGroup": "REdwards"},
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "Tariff Charges": "100", "Freight Charges": "50",
+         "CC Charges": "25", "salesman": "REdwards", "Total Invoice": "1175"},
+        {"InvoiceNumber": "CRD1", "CustomerAccount": "1", "InvoiceDate": "2026-04-20",
+         "amount": "-200", "salesman": "REdwards", "Total Invoice": "-200"},
     ])
     tabs = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
                                 ytd_facts=facts, year=2026, end_month=4))
@@ -191,7 +257,7 @@ def test_commissions_simple_fallback_without_ytd():
 
 
 def test_unresolved_salesman_is_unassigned():
-    facts = S.to_facts([{"Invoice": "X", "InvoiceAccount": "1", "Amount": "5"}])
+    facts = S.to_facts([{"InvoiceNumber": "X", "CustomerAccount": "1", "amount": "5"}])
     rows = _tabs_by_key(B.build(facts, salesmen={}))["invoices"]["rows"]
     assert rows[0]["Salesman"] == "Unassigned"
-    assert rows[0]["SalesmanNumber"] == "?unassigned"
+    assert rows[0]["SalesmanName"] == "Unassigned"

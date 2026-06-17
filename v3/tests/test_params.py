@@ -10,7 +10,7 @@ from web.reporting import params as P
 
 def test_report_id_map_is_complete():
     assert P.report_id_for("ordered") == "salesline_release"
-    assert P.report_id_for("invoiced") == "invoiced_order_charges"
+    assert P.report_id_for("invoiced") == "invoiced_report"
     assert P.report_id_for("salesman") == "invoiced_order_charges"
     assert P.report_id_for("number_4") == "invoice_lines"
     assert P.report_id_for("customer_activity") == "salesline_release"
@@ -60,13 +60,14 @@ def test_custom_with_invalid_dates_omits_rather_than_raises():
 
 def test_invoiced_single_customer_pushes_invoiceaccount():
     out = P.translate("invoiced", {"period": "mtd", "customers": ["100001"]})
-    assert out["InvoiceAccount"] == "100001"
+    assert out["CustomerAccount"] == "100001"
+    assert "InvoiceAccount" not in out
 
 
 def test_invoiced_multi_customer_omits_invoiceaccount():
     # Multi-select can't go to the single-value SP param; caller post-filters.
     out = P.translate("invoiced", {"period": "mtd", "customers": ["100001", "100002"]})
-    assert "InvoiceAccount" not in out
+    assert "CustomerAccount" not in out
 
 
 def test_salesman_spans_prior_and_current_year():

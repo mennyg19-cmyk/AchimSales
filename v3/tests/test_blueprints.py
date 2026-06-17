@@ -1006,7 +1006,7 @@ def test_invoiced_commissions_tab_is_not_blank(tmp_path):
          "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
          "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
     ]
-    app = _make_app(tmp_path, rows_by_report={"invoiced_order_charges": rows})
+    app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
     client = app.test_client()
     _login(client, app)
     job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},

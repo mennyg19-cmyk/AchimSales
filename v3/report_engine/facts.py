@@ -53,12 +53,10 @@ class OrderLineFact:
 
 @dataclass(frozen=True)
 class InvoiceChargeFact:
-    """One invoiced-order-charges row (invoiced + salesman reports).
+    """One invoice row from `rpt.usp_invoiced_report` (invoiced + salesman reports).
 
-    Source-shaped: money split into subtotal + the three charge buckets, with
-    `total` = subtotal + tariff + freight + cc. Salesman LABEL resolution is the
-    builder's job (it owns the live business mapping); the fact carries only the
-    raw `sales_group` so the same fact can feed multiple builders.
+    Source-shaped: SQL returns invoice-level money columns and salesman labels.
+    Azure still supplies commission % for the commissions tab.
     """
     source: Source
     invoice_number: str
@@ -70,9 +68,11 @@ class InvoiceChargeFact:
     tariff: float
     freight: float
     cc: float
+    misc: float
     total: float
     sales_group: str
-    is_credit: bool
+    salesman_name: str = ""
+    is_credit: bool = False
 
 
 @dataclass(frozen=True)

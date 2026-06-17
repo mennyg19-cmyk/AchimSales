@@ -60,11 +60,11 @@ def test_ordered_payload_shape():
 def test_invoiced_does_ytd_fetch_for_commissions():
     rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
              "Amount": "100", "SalesGroup": "REdwards"}]
-    svc = _svc({"invoiced_order_charges": rows})
+    svc = _svc({"invoiced_report": rows})
     out = svc.builder_for("invoiced")({"year": "2026"}, None)
     assert out["report_key"] == "invoiced"
-    # invoiced_order_charges fetched twice: selected period + YTD window
-    assert svc.client.calls.count("invoiced_order_charges") == 2
+    # invoiced_report fetched twice: selected period + YTD window
+    assert svc.client.calls.count("invoiced_report") == 2
 
 
 def test_invoiced_ytd_window_anchors_to_selected_period_end():
@@ -72,13 +72,13 @@ def test_invoiced_ytd_window_anchors_to_selected_period_end():
     derived from the period filter (not a separate year filter)."""
     rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2025-06-01",
              "Amount": "100", "SalesGroup": "REdwards"}]
-    svc = _svc({"invoiced_order_charges": rows})
+    svc = _svc({"invoiced_report": rows})
     svc.builder_for("invoiced")({"period": "custom",
                                  "start_date": "2025-02-01", "end_date": "2025-06-15"}, None)
     # Second invoiced fetch = the YTD window; it must open at Jan 1 of the period
     # end's year and close at the period end (end-of-day), regardless of start.
     ytd_params = [p for (rid, p) in svc.client.params_calls
-                  if rid == "invoiced_order_charges"][1]
+                  if rid == "invoiced_report"][1]
     assert ytd_params["InvoiceDateFrom"].startswith("2025-01-01")
     assert ytd_params["InvoiceDateTo"].startswith("2025-06-15")
 
@@ -94,7 +94,7 @@ def test_invoiced_multi_customer_is_post_filtered():
         {"Invoice": "I3", "InvoiceAccount": "300", "InvoiceDate": "2026-03-03",
          "Amount": "300", "SalesGroup": "REdwards"},
     ]
-    svc = _svc({"invoiced_order_charges": rows})
+    svc = _svc({"invoiced_report": rows})
     out = svc.builder_for("invoiced")({"customers": ["100", "300"]}, None)
     accts = {r["CustomerAccount"]
              for t in out["tabs"] if t["key"] == "invoices" for r in t["rows"]}
