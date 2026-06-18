@@ -4,18 +4,18 @@ This is the single module gunicorn serves:
 
     gunicorn wsgi:application
 
-It wires three apps behind one process via werkzeug's DispatcherMiddleware:
+It wires two apps behind one process via werkzeug's DispatcherMiddleware:
 
-    /            -> live Flask app (webapp/)            [production, unchanged]
-    /test-legacy -> v2 rebuild (test/webapp/)           [the old sandbox, kept]
-    /v2          -> v2 rebuild                           [dev alias]
-    /test        -> v3 rebuild (v3/web/) when enabled,   [the new app]
-                    otherwise the v2 app (current behavior preserved)
+    /     -> live Flask app (webapp/)   [production, unchanged]
+    /test -> v3 rebuild (v3/web/)       [the new app]
+
+The old v2 sandbox app (test/) was retired 2026-06-11 -- it was unused, and its
+background mirror refresh kept overloading the on-prem Reporting API.
 
 Safety: mounting v3 at /test is gated on V3_MOUNT_ENABLED and wrapped in
-try/except. If v3 is disabled OR fails to boot (e.g. its prod config isn't set
-yet), /test transparently falls back to the v2 app and the live app is never
-affected. Flip V3_MOUNT_ENABLED=1 (with v3's env vars set) to cut /test over.
+try/except. If v3 fails to boot (e.g. its prod config isn't set), the boot
+error is dumped to a downloadable log and /test returns 404 -- the live app
+is never affected.
 """
 
 from __future__ import annotations
@@ -45,16 +45,7 @@ def _env_bool(name: str) -> bool:
 log.info("Creating live (/) app...")
 from webapp.app import app as live_app
 
-log.info("Creating v2 app...")
-from test.webapp.app import create_app as _create_v2_app
-
-_v2_app = _create_v2_app()
-
-# v2 is always reachable at its dev alias and the explicit legacy path.
-MOUNTS: dict[str, object] = {
-    "/v2": _v2_app,
-    os.environ.get("LEGACY_URL_PREFIX", "/test-legacy"): _v2_app,
-}
+MOUNTS: dict[str, object] = {}
 
 _TEST_MOUNT = os.environ.get("V3_URL_PREFIX", "/test")
 
@@ -106,8 +97,8 @@ def _build_v3_app():
     """Create the v3 app (fast, pure wiring). Bootstrap runs async, not here."""
     v3_root = str(_REPO_ROOT / "v3")
     # Insert at the FRONT so v3's top-level packages (web, report_engine) win over
-    # any same-named site-package. Live/v2 import webapp / test.webapp, never these
-    # names, so this can't shadow them.
+    # any same-named site-package. The live app imports webapp, never these names,
+    # so this can't shadow it.
     if v3_root in sys.path:
         sys.path.remove(v3_root)
     sys.path.insert(0, v3_root)
@@ -122,16 +113,13 @@ if _env_bool("V3_MOUNT_ENABLED"):
     try:
         MOUNTS[_TEST_MOUNT] = _build_v3_app()
         log.info("v3 mounted at %s", _TEST_MOUNT)
-    except Exception:  # noqa: BLE001 - never let v3 take down live / /test
+    except Exception:  # noqa: BLE001 - never let v3 take down live
         import traceback
 
-        log.exception("v3 failed to boot; %s falls back to the v2 app", _TEST_MOUNT)
+        log.exception("v3 failed to boot; %s will return 404", _TEST_MOUNT)
         _write_boot_error(traceback.format_exc())
-        MOUNTS[_TEST_MOUNT] = _v2_app
 else:
-    # v3 disabled: preserve the current behavior (v2 serves /test).
-    MOUNTS[_TEST_MOUNT] = _v2_app
-    log.info("V3_MOUNT_ENABLED off; %s served by the v2 app", _TEST_MOUNT)
+    log.info("V3_MOUNT_ENABLED off; %s not mounted", _TEST_MOUNT)
 
 application = DispatcherMiddleware(live_app, MOUNTS)
 
