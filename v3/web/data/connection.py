@@ -1,40 +1,23 @@
 """SQLite connection management for the precious + cache databases.
 
-Each call gets a fresh connection with foreign keys on and a journal mode that
-defaults to WAL (the right choice on local disk; Litestream replicates the
-precious file out-of-process). The journal mode is overridable via
-SQLITE_JOURNAL_MODE because WAL is BROKEN on an Azure Files / SMB share -- see
-_journal_mode() for the why. There is NO /tmp->/home snapshot or JSON-sidecar
-salvage here (forbidden by rule 5).
+Each call gets a fresh connection with WAL + foreign keys on (cheap on local
+disk, safe under gunicorn gthread workers - no shared connection across threads).
+This is local-disk SQLite only; Litestream replicates the precious file
+out-of-process. WAL is required here: it's what Litestream ships, and it works
+correctly across processes on local disk (it does NOT on an SMB/Azure Files
+share, which is exactly why precious.db must stay off /home - rule 5). There is
+NO /tmp->/home snapshot or JSON-sidecar salvage here.
 """
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-_JOURNAL_SWITCH_RETRIES = 20
-_VALID_JOURNAL_MODES = {"WAL", "DELETE", "TRUNCATE", "PERSIST", "MEMORY"}
-
-
-def _journal_mode() -> str:
-    """Which SQLite journaling mode to open with (default WAL).
-
-    WAL is fastest and correct on local disk, but it does NOT work on an Azure
-    Files / SMB share: WAL coordinates readers and writers through a shared-memory
-    index (the -shm file) that SMB can't share across processes, so one process
-    can't see another's committed rows. That's how the job queue silently stalls
-    -- a web worker enqueues a job the background worker never sees. A rollback
-    journal (DELETE/TRUNCATE) uses plain file locks that DO work over SMB, so set
-    SQLITE_JOURNAL_MODE=TRUNCATE while the DB lives on /home. The proper fix is to
-    move the DB to local disk per rule 5 and drop this override.
-    """
-    mode = os.environ.get("SQLITE_JOURNAL_MODE", "WAL").strip().upper()
-    return mode if mode in _VALID_JOURNAL_MODES else "WAL"
+_WAL_RETRIES = 20
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -45,15 +28,13 @@ def _connect(path: Path) -> sqlite3.Connection:
     # Switching journal mode needs exclusive access and can return "database is
     # locked" IMMEDIATELY (it skips the busy handler) when connections race --
     # e.g. parallel gunicorn workers touching a brand-new DB at boot. Retry with
-    # a short backoff instead of failing the caller. (The mode value comes from a
-    # fixed allowlist, so it's safe to interpolate into the PRAGMA.)
-    mode = _journal_mode()
-    for attempt in range(_JOURNAL_SWITCH_RETRIES):
+    # a short backoff instead of failing the caller.
+    for attempt in range(_WAL_RETRIES):
         try:
-            conn.execute(f"PRAGMA journal_mode={mode}")
+            conn.execute("PRAGMA journal_mode=WAL")
             break
         except sqlite3.OperationalError as exc:
-            if "locked" not in str(exc) or attempt == _JOURNAL_SWITCH_RETRIES - 1:
+            if "locked" not in str(exc) or attempt == _WAL_RETRIES - 1:
                 conn.close()
                 raise
             time.sleep(0.05 * (attempt + 1))

@@ -36,28 +36,8 @@ def test_foreign_keys_enforced(db):
             )
 
 
-def test_journal_mode_defaults_to_wal(tmp_path, monkeypatch):
-    monkeypatch.delenv("SQLITE_JOURNAL_MODE", raising=False)
-    conn = _connect(tmp_path / "p.db")
-    try:
-        assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
-    finally:
-        conn.close()
-
-
-def test_journal_mode_override_for_smb(tmp_path, monkeypatch):
-    # On an Azure Files/SMB share WAL can't share its index across processes, so
-    # we open in a rollback journal (file-locked, works over SMB) instead.
-    monkeypatch.setenv("SQLITE_JOURNAL_MODE", "TRUNCATE")
-    conn = _connect(tmp_path / "p.db")
-    try:
-        assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "truncate"
-    finally:
-        conn.close()
-
-
-def test_journal_mode_ignores_unknown_value(tmp_path, monkeypatch):
-    monkeypatch.setenv("SQLITE_JOURNAL_MODE", "bogus")
+def test_connection_opens_in_wal(tmp_path):
+    # Local-disk SQLite always opens in WAL (what Litestream ships).
     conn = _connect(tmp_path / "p.db")
     try:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
