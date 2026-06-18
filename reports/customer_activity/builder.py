@@ -1,27 +1,25 @@
 """
 Customer Activity Report -- data processing.
 
-Starts from the *customer* table (all customers in D365), then
-batch-fetches order headers per customer group to find each customer's
-most recent order.  Only the latest order per customer is kept in
-memory, so the report stays well within Azure Automation's sandbox
-limits even as order volume grows.
+Starts from the *customer* table (all customers in D365), then pulls every
+order header since go-live in ONE date-filtered query and reduces it to each
+customer's most recent order. The old version queried headers 50 customers at
+a time, sequentially, dragging every order for every customer across the wire
+just to find the latest -- which made the report take the better part of an
+hour. One scan + an in-memory reduce does the same work in a fraction of the
+time (output is ~1,500 customers, so header volume is modest).
 
 Customers with no orders since D365 go-live get "N/A" for order fields.
 Salesman assignment comes from the customer's SalesGroup, not from orders.
 """
 
-import gc
 import logging
 
 import pandas as pd
 
 from config.salesman_excel import get_salesman_display_name_xl, load_salesman_map
-from core.columns import rename_columns
 from core.dates import D365_GO_LIVE, convert_d365_dates_to_eastern, get_today_eastern
-from core.odata import fetch_odata_entity
-from data.d365_entities import fetch_customers
-from data.field_maps import SALES_ORDER_HEADER_FIELD_MAP
+from data.d365_entities import fetch_customers, fetch_sales_order_headers
 
 log = logging.getLogger(__name__)
 
@@ -33,14 +31,7 @@ OUTPUT_COLUMNS = [
     "Sales Order Number",
 ]
 
-_LAST_ORDER_SELECT = [
-    "SalesOrderNumber",
-    "OrderCreationDateTime",
-    "InvoiceCustomerAccountNumber",
-    "CustomerRequisitionNumber",
-]
-
-BATCH_SIZE = 50
+_LAST_ORDER_COLUMNS = ["CustomerAccount", "Last Order Date", "PO #", "Sales Order Number"]
 
 
 def fetch_all_data(
@@ -48,14 +39,12 @@ def fetch_all_data(
     token: str,
     company_id: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch customers, then batch-fetch only the latest order per customer.
+    """Fetch the customer universe and all order headers since go-live.
 
-    Instead of pulling every order header since go-live (OOM risk), we:
-    1. Fetch the customer list (small).
-    2. Split customer accounts into batches of ~50.
-    3. For each batch, OData-query headers filtered to those accounts.
-    4. Keep only the most recent order per customer.
-    5. Return the merged last-order lookup alongside the customer list.
+    Returns ``(customers_df, headers_df)``. The headers are the raw
+    SalesOrderHeadersV3 rows (one per order); ``build_customer_activity``
+    reduces them to each customer's latest order. A single date-filtered scan
+    replaces the previous 50-customers-at-a-time sequential loop.
     """
     customers_df = fetch_customers(base_url, token, company_id=company_id)
     log.info("Customers fetched: %d rows", len(customers_df))
@@ -63,122 +52,56 @@ def fetch_all_data(
     if customers_df.empty:
         return customers_df, pd.DataFrame()
 
-    all_accounts = (
-        customers_df["CustomerAccount"].astype(str).str.strip()
-        .drop_duplicates().tolist()
+    headers_df = fetch_sales_order_headers(
+        base_url, token, D365_GO_LIVE, get_today_eastern(), company_id=company_id,
     )
-    all_accounts = [a for a in all_accounts if a]
-    log.info("Unique customer accounts to check: %d", len(all_accounts))
+    log.info("Order headers fetched: %d rows", len(headers_df))
 
-    last_orders = _batch_fetch_last_orders(
-        base_url, token, all_accounts, company_id,
-    )
-    log.info("Last-order lookup built: %d customers with orders", len(last_orders))
-
-    return customers_df, last_orders
+    return customers_df, headers_df
 
 
-def _batch_fetch_last_orders(
-    base_url: str,
-    token,
-    accounts: list[str],
-    company_id: str | None,
-) -> pd.DataFrame:
-    """Fetch order headers in batches of customer accounts, keep only the latest per customer."""
-    today = get_today_eastern()
-    start_str = f"{D365_GO_LIVE.isoformat()}T00:00:00Z"
-    end_str = f"{today.isoformat()}T23:59:59Z"
+def _latest_order_per_customer(headers_df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse raw order headers to one row per customer: their most recent order.
 
-    all_last: list[dict] = []
-    num_batches = (len(accounts) + BATCH_SIZE - 1) // BATCH_SIZE
-    date_fields = ["OrderCreationDateTime", "OrderCreationDate", "CreatedDateTime"]
+    Accepts the raw SalesOrderHeadersV3 shape (CustomerAccount, OrderDate,
+    SalesOrderNumber, CustomerRequisition). Customers with no dated order are
+    dropped here and resurface as "N/A" after the left-join in the caller.
+    """
+    if headers_df is None or headers_df.empty or "OrderDate" not in headers_df.columns:
+        return pd.DataFrame(columns=_LAST_ORDER_COLUMNS)
 
-    for batch_idx in range(num_batches):
-        batch = accounts[batch_idx * BATCH_SIZE : (batch_idx + 1) * BATCH_SIZE]
-        cust_parts = [
-            f"InvoiceCustomerAccountNumber eq '{a.replace(chr(39), chr(39)*2)}'"
-            for a in batch
-        ]
-        cust_filter = " or ".join(cust_parts)
-
-        batch_df = None
-        for date_field in date_fields:
-            date_filter = f"{date_field} ge {start_str} and {date_field} le {end_str}"
-            filter_expr = f"({date_filter}) and ({cust_filter})"
-            try:
-                batch_df = fetch_odata_entity(
-                    base_url, "SalesOrderHeadersV3", token,
-                    select=_LAST_ORDER_SELECT,
-                    filter_expr=filter_expr,
-                    company_id=company_id,
-                    log_pages=False,
-                )
-                if batch_df is not None and not batch_df.empty:
-                    break
-            except Exception:
-                log.debug("Date field %s failed for batch %d, trying next",
-                          date_field, batch_idx + 1, exc_info=True)
-
-        if batch_df is None or batch_df.empty:
-            if (batch_idx + 1) % 10 == 0 or batch_idx == num_batches - 1:
-                log.info("Batch %d/%d: no orders for %d customers",
-                         batch_idx + 1, num_batches, len(batch))
-            continue
-
-        batch_df = rename_columns(batch_df, SALES_ORDER_HEADER_FIELD_MAP)
-        _extract_last_per_customer(batch_df, all_last)
-        del batch_df
-        gc.collect()
-
-        if (batch_idx + 1) % 10 == 0 or batch_idx == num_batches - 1:
-            log.info("Batch %d/%d done (%d last-orders so far)",
-                     batch_idx + 1, num_batches, len(all_last))
-
-    if not all_last:
-        return pd.DataFrame(columns=["CustomerAccount", "Last Order Date", "PO #", "Sales Order Number"])
-
-    return pd.DataFrame(all_last)
-
-
-def _extract_last_per_customer(df: pd.DataFrame, out: list[dict]) -> None:
-    """From a batch of headers, find the latest order per customer and append to out."""
-    if "OrderDate" in df.columns:
-        df["OrderDate"] = convert_d365_dates_to_eastern(df["OrderDate"])
+    df = headers_df.copy()
+    df["CustomerAccount"] = df["CustomerAccount"].astype(str).str.strip()
+    df["OrderDate"] = convert_d365_dates_to_eastern(df["OrderDate"])
     if "CustomerRequisition" not in df.columns:
         df["CustomerRequisition"] = ""
+    if "SalesOrderNumber" not in df.columns:
+        df["SalesOrderNumber"] = ""
 
-    df["CustomerAccount"] = df["CustomerAccount"].astype(str).str.strip()
+    dated = df.dropna(subset=["OrderDate"])
+    if dated.empty:
+        return pd.DataFrame(columns=_LAST_ORDER_COLUMNS)
 
-    for cust_acct, grp in df.groupby("CustomerAccount", dropna=False):
-        order_dates = grp["OrderDate"].dropna() if "OrderDate" in grp.columns else pd.Series(dtype="datetime64[ns]")
-        last_date = order_dates.max() if not order_dates.empty else pd.NaT
+    latest = dated.loc[dated.groupby("CustomerAccount", dropna=False)["OrderDate"].idxmax()]
 
-        if pd.notna(last_date):
-            last_rows = grp.loc[grp["OrderDate"] == last_date]
-            last_po = last_rows["CustomerRequisition"].fillna("").astype(str).str.strip().iloc[0]
-            last_so = last_rows["SalesOrderNumber"].astype(str).str.strip().iloc[0]
-        else:
-            last_po = "N/A"
-            last_so = "N/A"
-
-        out.append({
-            "CustomerAccount": str(cust_acct).strip(),
-            "Last Order Date": last_date,
-            "PO #": last_po,
-            "Sales Order Number": last_so,
-        })
+    return pd.DataFrame({
+        "CustomerAccount": latest["CustomerAccount"].values,
+        "Last Order Date": latest["OrderDate"].values,
+        "PO #": latest["CustomerRequisition"].fillna("").astype(str).str.strip().values,
+        "Sales Order Number": latest["SalesOrderNumber"].astype(str).str.strip().values,
+    })
 
 
 def build_customer_activity(
     customers_df: pd.DataFrame,
-    last_orders_df: pd.DataFrame,
+    headers_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """Build the customer activity DataFrame starting from ALL customers.
 
-    Every customer in customers_df appears in the result.  Order info is
-    left-joined from last_orders_df (one row per customer, already
-    reduced by fetch_all_data); customers with no orders get N/A values.
-    Salesman assignment comes from the customer's SalesGroup field.
+    Every customer in customers_df appears in the result. Raw order headers are
+    reduced to each customer's most recent order and left-joined on; customers
+    with no orders get N/A values. Salesman assignment comes from the customer's
+    SalesGroup field.
     """
     if customers_df.empty:
         log.info("No customers -- returning empty activity report")
@@ -194,6 +117,7 @@ def build_customer_activity(
     if "CustomerName" not in cust.columns:
         cust["CustomerName"] = ""
 
+    last_orders_df = _latest_order_per_customer(headers_df)
     merged = cust.merge(last_orders_df, on="CustomerAccount", how="left")
 
     merged["PO #"] = merged["PO #"].fillna("N/A")
