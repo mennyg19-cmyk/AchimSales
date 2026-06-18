@@ -19,14 +19,22 @@ class Principal:
     email: str
     name: str
     role: str
-    is_dev: bool = False   # True when signed in via the dev picker (local only)
+    is_dev: bool = False
+    impersonating: bool = False
+    real_email: str = ""
+    real_name: str = ""
 
     @property
     def is_privileged(self) -> bool:
         return self.role in _PRIVILEGED
 
     def to_dict(self) -> dict:
-        return {"email": self.email, "name": self.name, "role": self.role, "is_dev": self.is_dev}
+        d = {"email": self.email, "name": self.name, "role": self.role, "is_dev": self.is_dev}
+        if self.impersonating:
+            d["impersonating"] = True
+            d["real_email"] = self.real_email
+            d["real_name"] = self.real_name
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Principal | None":
@@ -38,4 +46,7 @@ class Principal:
             name=d.get("name") or d["email"],
             role=role if role in VALID_ROLES else ROLE_SALESMAN,
             is_dev=bool(d.get("is_dev")),
+            impersonating=bool(d.get("impersonating")),
+            real_email=str(d.get("real_email") or ""),
+            real_name=str(d.get("real_name") or ""),
         )
