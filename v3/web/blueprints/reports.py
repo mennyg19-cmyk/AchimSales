@@ -30,7 +30,9 @@ from flask import (
 )
 
 import io
-from urllib.parse import urlencode
+import socket
+import time
+from urllib.parse import urlencode, urlparse
 
 from report_engine import registry
 from report_engine.registry import ReportStatus
@@ -612,6 +614,67 @@ def preview_body(report_key: str):
             "configured": bool(base and cfg.reporting_api_key),
             "warning": str(exc),
         })
+
+
+def _probe_reporting_api(cfg) -> dict:
+    """Hit the on-prem Reporting API straight from this request (no worker, no
+    cache, no dedup) so we can prove whether our calls leave the app and reach
+    the endpoint at all. Two independent checks, both with short timeouts so the
+    request can't hang:
+
+      tcp  - open a raw socket to host:port. Proves the Azure Hybrid Connection
+             tunnel reaches the on-prem listener (no HTTP, no stored procedure).
+      http - a GET to the API root. ANY status code means the API process
+             answered and the DBA should see this request land. A connect/read
+             timeout here (with tcp ok) points at the API, not the tunnel.
+
+    Never returns the API key. host:port is operational info, not a secret.
+    """
+    base = (cfg.reporting_api_base_url or "").rstrip("/")
+    out: dict = {"configured": bool(base and cfg.reporting_api_key),
+                 "host": None, "port": None, "tcp": None, "http": None}
+    if not base:
+        return out
+    parsed = urlparse(base)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    out["host"], out["port"] = host, port
+
+    t0 = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=5):
+            out["tcp"] = {"ok": True, "ms": int((time.monotonic() - t0) * 1000)}
+    except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
+        out["tcp"] = {"ok": False, "ms": int((time.monotonic() - t0) * 1000),
+                      "error": f"{type(exc).__name__}: {exc}"}
+
+    import requests
+    t1 = time.monotonic()
+    try:
+        r = requests.get(f"{base}/", timeout=(5, 10),
+                         headers={"X-API-Key": cfg.reporting_api_key})
+        out["http"] = {"ok": True, "status": r.status_code,
+                       "ms": int((time.monotonic() - t1) * 1000)}
+    except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
+        out["http"] = {"ok": False, "ms": int((time.monotonic() - t1) * 1000),
+                       "error": f"{type(exc).__name__}: {exc}"}
+    return out
+
+
+@reports_bp.get("/api/reports/diagnostics/reporting-api")
+@require_login
+def reporting_api_diagnostics():
+    """Admin/developer check: is the Reporting API reachable from the app right
+    now, and is the job worker backed up? Answers 'why aren't our calls hitting
+    the endpoint' without guessing. Developer-only (exposes the API host)."""
+    p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
+    cfg = current_app.config["APP_CONFIG"]
+    return jsonify({
+        "reporting_api": _probe_reporting_api(cfg),
+        "jobs": _job_repo().status_summary(),
+    })
 
 
 # --- saved reports (presets) ----------------------------------------------- #

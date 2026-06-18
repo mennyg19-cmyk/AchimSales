@@ -196,6 +196,22 @@ def test_cancelled_running_job_not_overwritten_when_call_returns(db):
     assert jobs.get(jid).status == "cancelled"
 
 
+def test_status_summary_counts_and_active(db):
+    jobs = JobRepository(db)
+    done = jobs.enqueue("echo")
+    jobs.cancel(done)                 # -> cancelled
+    jobs.enqueue("echo")              # stays queued
+    jobs.enqueue("echo")
+    jobs.claim_next()                 # one -> running
+    summary = jobs.status_summary()
+    assert summary["by_status"].get("cancelled") == 1
+    assert summary["by_status"].get("running") == 1
+    assert summary["by_status"].get("queued") == 1
+    # Active = queued + running (the cancelled one is terminal, excluded).
+    assert summary["active_count"] == 2
+    assert {a["status"] for a in summary["active"]} == {"queued", "running"}
+
+
 def test_background_concurrency_is_bounded(db):
     jobs = JobRepository(db)
     worker = JobWorker(db, max_workers=2)

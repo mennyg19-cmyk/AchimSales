@@ -332,6 +332,24 @@ def test_cannot_cancel_another_users_job(tmp_path):
     assert app.config["JOB_REPO"].get(job_id).status == "queued"  # untouched
 
 
+def test_reporting_api_diagnostics_developer_only(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)  # admin -- privileged, but not a developer
+    assert client.get("/api/reports/diagnostics/reporting-api").status_code == 403
+
+
+def test_reporting_api_diagnostics_reports_state(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    data = client.get("/api/reports/diagnostics/reporting-api").get_json()
+    # No API URL is configured in the test cfg, so the probe short-circuits
+    # without a network call but still reports structure.
+    assert data["reporting_api"]["configured"] is False
+    assert "by_status" in data["jobs"] and "active" in data["jobs"]
+
+
 def test_report_view_renders_cancel_button(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()

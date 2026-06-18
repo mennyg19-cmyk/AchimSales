@@ -191,6 +191,36 @@ class JobRepository:
             )
             return cur.rowcount
 
+    def status_summary(self, active_limit: int = 20) -> dict:
+        """Counts of jobs by status plus the currently active (queued/running)
+        jobs with their age. Lets the admin diagnostic tell a worker stuck behind
+        a hung run (jobs piling up 'queued') apart from a job that ran and called
+        out. Ages are seconds since the row was created."""
+        # created_at is naive UTC (SQLite CURRENT_TIMESTAMP); compare in naive UTC.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with self.db.precious() as conn:
+            by_status = {r["status"]: r["n"] for r in conn.execute(
+                "SELECT status, COUNT(*) AS n FROM jobs GROUP BY status").fetchall()}
+            rows = conn.execute(
+                "SELECT id, type, status, created_at, started_at FROM jobs"
+                " WHERE status IN (?, ?) ORDER BY created_at LIMIT ?",
+                (*_ACTIVE, active_limit),
+            ).fetchall()
+        active = []
+        for r in rows:
+            age = None
+            if r["created_at"]:
+                try:
+                    created = datetime.fromisoformat(r["created_at"])
+                    if created.tzinfo is not None:
+                        created = created.astimezone(timezone.utc).replace(tzinfo=None)
+                    age = int((now - created).total_seconds())
+                except ValueError:
+                    age = None
+            active.append({"id": r["id"], "type": r["type"], "status": r["status"],
+                           "age_seconds": age})
+        return {"by_status": by_status, "active": active, "active_count": len(active)}
+
     def list_for_user(self, user_id: int, limit: int = 50) -> list[Job]:
         with self.db.precious() as conn:
             rows = conn.execute(
