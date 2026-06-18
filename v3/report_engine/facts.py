@@ -56,7 +56,10 @@ class InvoiceChargeFact:
     """One invoice row from `rpt.usp_invoiced_report` (invoiced + salesman reports).
 
     Source-shaped: SQL returns invoice-level money columns and salesman labels.
-    Azure still supplies commission % for the commissions tab.
+    The SP also sends the salesman's commission rate per row (`commission`); the
+    salesman master is the fallback when a row doesn't carry one.
+
+    commission_pct is a fraction (0.06 = 6%), matching the master + live math.
     """
     source: Source
     invoice_number: str
@@ -73,6 +76,7 @@ class InvoiceChargeFact:
     sales_group: str
     salesman_name: str = ""
     is_credit: bool = False
+    commission_pct: float = 0.0
 
 
 @dataclass(frozen=True)

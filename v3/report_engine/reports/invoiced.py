@@ -128,6 +128,7 @@ def _enriched(fact: InvoiceChargeFact, salesmen: Mapping[str, SalesmanFact]) -> 
         "SalesmanName": name,
         "_sales_group": fact.sales_group,
         "_is_credit": fact.is_credit,
+        "_commission_pct": fact.commission_pct,
     }
 
 
@@ -153,6 +154,33 @@ def _year_of(row: dict) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
+    """Highest commission rate the SP sent per salesman key (rows should agree;
+    max ignores blank/zero rows like credits). Empty when the SP sends none."""
+    rates: dict[str, float] = {}
+    for r in rows:
+        sg = r.get("_sales_group") or ""
+        if not sg:
+            continue
+        rate = num(r.get("_commission_pct"))
+        key = salesman_key(sg)
+        if rate > rates.get(key, 0.0):
+            rates[key] = rate
+    return rates
+
+
+def _commission_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
+                     row_rates: Mapping[str, float]) -> float:
+    """The rate to use for one salesman: the SP's per-row rate when present,
+    otherwise the salesman master. Both are fractions (0.06 = 6%)."""
+    key = salesman_key(sales_group)
+    row_rate = row_rates.get(key, 0.0)
+    if row_rate > 0:
+        return row_rate
+    sm = salesmen.get(key)
+    return sm.commission_pct if sm else 0.0
 
 
 # --- per-tab builders -------------------------------------------------------
@@ -237,13 +265,14 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
     if not 1 <= end_month <= 12:
         end_month = 12
 
+    row_rates = _row_rates_by_salesman(ytd_rows)
     by_sm: dict[str, dict] = {}
     for r in ytd_rows:
         sg = r.get("_sales_group") or ""
         if not sg:
             continue
-        sm = salesmen.get(salesman_key(sg))
-        if not sm or sm.commission_pct <= 0:
+        rate = _commission_rate(sg, salesmen, row_rates)
+        if rate <= 0:
             continue
         # Guard against a caller passing a wider window than Jan 1..period end:
         # only count rows in the report year (LIVE fetches exactly that window).
@@ -253,10 +282,11 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         if m is None or not 1 <= m <= end_month:
             continue
         bucket_key = salesman_key(sg)
+        sm = salesmen.get(bucket_key)
         bucket = by_sm.setdefault(bucket_key, {
             "label": r.get("Salesman") or sg,
-            "name": r.get("SalesmanName") or sm.full_name or sm.display_name or sg,
-            "pct": sm.commission_pct,
+            "name": r.get("SalesmanName") or (sm.full_name or sm.display_name if sm else "") or sg,
+            "pct": rate,
             "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, misc=0.0,
                              credits=0.0)
                         for _ in range(end_month)],
@@ -362,12 +392,12 @@ def _commissions_flat_table(salesmen_out: list[dict], grand: dict,
 
 
 def _commissions_simple(summary_rows: Sequence[dict],
-                        salesmen: Mapping[str, SalesmanFact]) -> dict:
+                        salesmen: Mapping[str, SalesmanFact],
+                        row_rates: Mapping[str, float]) -> dict:
     rows: list[dict] = []
     for r in summary_rows:
         sg = r.get("_sales_group") or ""
-        sm = salesmen.get(salesman_key(sg)) if sg else None
-        pct = sm.commission_pct if sm else 0.0
+        pct = _commission_rate(sg, salesmen, row_rates) if sg else 0.0
         base = round(num(r.get("SubTotal Invoices")) + num(r.get("Total Tariff Charges")), 2)
         out = _public(r)
         out["Percent"] = pct
@@ -483,7 +513,7 @@ def build(facts: Iterable[InvoiceChargeFact], *,
         ytd_rows = [_enriched(f, salesmen) for f in ytd_facts]
         commissions = _commissions_monthly(ytd_rows, salesmen, year=year, end_month=end_month)
     else:
-        commissions = _commissions_simple(summary["rows"], salesmen)
+        commissions = _commissions_simple(summary["rows"], salesmen, _row_rates_by_salesman(raw))
 
     summary["rows"] = [_public(r) for r in summary["rows"]]
 

@@ -249,6 +249,43 @@ def test_commissions_monthly_pivot_math():
     assert sm["ytd"]["total_payable"] == 45.0
 
 
+def test_adapter_reads_commission_rate_as_fraction():
+    # A fraction passes through untouched...
+    assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "0.06"}).commission_pct == 0.06
+    # ...and a whole percent (6) is normalized to 0.06 (guards a 100x mistake).
+    assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "6"}).commission_pct == 0.06
+    # Blank/zero -> no rate (builder will fall back to the master).
+    assert S.to_fact({"InvoiceNumber": "X", "amount": "1"}).commission_pct == 0.0
+
+
+def test_commissions_use_sp_rate_over_master():
+    # SP sends commission=0.10 in the rows; master says 0.05. The SP wins.
+    facts = S.to_facts([
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0.10"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    sm = comm["salesmen"][0]
+    assert sm["commission_pct"] == 0.10
+    assert sm["ytd"]["commission"] == 100.0   # 1000 net * 0.10
+
+
+def test_commissions_use_sp_rate_without_master_entry():
+    # No master at all: the SP's per-row commission still drives the math.
+    facts = S.to_facts([
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-03-10",
+         "amount": "2000", "salesman": "NEWREP", "Total Invoice": "2000",
+         "commission": "0.04"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen={},
+                                ytd_facts=facts, year=2026, end_month=3))["commissions"]
+    sm = comm["salesmen"][0]
+    assert sm["commission_pct"] == 0.04
+    assert sm["ytd"]["commission"] == 80.0    # 2000 net * 0.04
+
+
 def test_commissions_simple_fallback_without_ytd():
     tabs = _tabs_by_key(B.build(_basic_facts(), salesmen=_salesmen()))
     comm = tabs["commissions"]

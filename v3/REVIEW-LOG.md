@@ -514,6 +514,25 @@ jam the on-prem server so even small calls stall until it's restarted.
   and every calculated number are identical; only the sequence of raw rows can differ from the
   procedure's single-call order. Flagged for sign-off below (it's display order, not a number).
 
+### Session: Thu Jun 18 - commission rate from the invoiced SP
+
+**What I had to decide:** The DBA told us the invoiced stored procedure now returns the salesman's
+commission rate in a column called `commission`. Should the report read the rate from that column
+(so we stop depending on the separate salesman master), and in what unit?
+- *The options:* (a) keep using the salesman master only; (b) use the SP column only; (c) use the
+  SP column when it's there and fall back to the master when it isn't.
+- *What I chose:* (c). Each invoice row's `commission` rate wins; if a row doesn't carry one (blank
+  or zero), we fall back to the salesman master we already maintain. For the unit, the master stores
+  rates as a fraction (0.06 = 6%) and the live math is `net * rate`, so I keep that convention and
+  added a safety guard: anything greater than 1 is treated as a whole percent and divided by 100
+  (so a `6` becomes `0.06`). A real commission is never ≥ 100%, so a genuine fraction passes through
+  untouched.
+- *Why:* it does what you asked (no separate lookup needed when the SP supplies the rate) without
+  regressing salesmen the SP doesn't cover, and the guard makes the math safe no matter which unit
+  the SP actually uses. I still flagged it PROVISIONAL under NEEDS HUMAN SIGN-OFF because I couldn't
+  confirm the column's unit on a live call (the endpoint isn't reachable right now) - once we
+  capture one real row, we tick it off.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
@@ -534,6 +553,7 @@ jam the on-prem server so even small calls stall until it's restarted.
 |--------|----------|----------|--------|
 | invoiced | tariff_source | Tariff from sales-LINE (`SL_TariffCharges`) vs header (`SH_TariffCharges`)? | **SIGNED OFF**: live/root (DBA grouping charges at order level; deferred until SP revision) |
 | invoiced | credit_detection | Credits by substring "contains" vs invoice-number prefix? | **SIGNED OFF**: live/root (substring-contains confirmed correct) |
+| invoiced | commission_rate_source | Commission % now read from the SP's per-row `commission` column (DBA-confirmed name), preferred over the salesman master; master is the fallback. **Unit assumed a fraction (0.06=6%) with a >1 guard that divides whole percents by 100.** | **PROVISIONAL**: confirm the SP's `commission` unit against a captured live row once connectivity is back (math is 100x-safe either way, but verify). |
 | ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | **SIGNED OFF: NEW** (Ordered - Released - Shipped - Cancelled; user chose to subtract cancelled) |
 | ordered | status_qty_engine | Status/qty via WHS + packing-slip joins (root) vs flat SP rows (web) | **SIGNED OFF**: live/root (SP now returns authoritative QtyShipped + QtyCancelled) |
 | ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling | **SIGNED OFF**: live/root (SP has correct data; temp rule no longer needed) |

@@ -3,6 +3,7 @@
 #
 # to_fact() -- Maps one API row to a fact; trusts SQL totals and salesman labels.
 # is_credit_number() -- Regex fallback when the SP does not send IsCredit.
+# _commission_fraction() -- Reads the SP `commission` rate as a fraction (0.06).
 # to_facts() -- Maps a list of raw rows.
 
 """Adapter: invoiced report SP rows -> InvoiceChargeFact."""
@@ -29,6 +30,21 @@ def _is_credit(raw: Mapping, invoice_number: str) -> bool:
     if flag is not None and str(flag).strip() != "":
         return str(flag).strip().lower() in ("1", "true", "yes", "y")
     return is_credit_number(invoice_number)
+
+
+def _commission_fraction(raw: Mapping) -> float:
+    """The salesman's commission rate from the SP, normalized to a fraction.
+
+    The master stores rates as fractions (0.06 = 6%) and the live math does
+    net * rate, so we keep that convention. A real rate is well under 100%, so
+    if the SP ever sends a whole percent (6 instead of 0.06) we divide by 100 -
+    that guard only fires above 1.0, so a genuine fraction passes through
+    untouched. (See REVIEW-LOG: unit confirmed once a live call is captured.)
+    """
+    pct = num(first_of(raw, "commission", "Commission", "CommissionPct", "Commission %"))
+    if pct <= 0:
+        return 0.0
+    return pct / 100 if pct > 1 else pct
 
 
 def to_fact(raw: Mapping) -> InvoiceChargeFact:
@@ -62,6 +78,7 @@ def to_fact(raw: Mapping) -> InvoiceChargeFact:
         sales_group=text(first_of(raw, "salesman", "SalesGroup")),
         salesman_name=text(first_of(raw, "SalesmanName")),
         is_credit=_is_credit(raw, invoice_number),
+        commission_pct=_commission_fraction(raw),
     )
 
 
