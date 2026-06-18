@@ -285,6 +285,22 @@ def job_status(job_id: str):
     })
 
 
+@reports_bp.post("/api/jobs/<job_id>/cancel")
+@require_login
+def cancel_job(job_id: str):
+    """Cancel a still-running (or queued) report run the user is watching.
+
+    Owner-checked like the status route. Returns whether the job was active to
+    cancel; if it already finished, we report its current status so the screen
+    can show the result instead of an error.
+    """
+    p = _principal_or_401()
+    job = _owned_job_or_404(job_id, _user_id(p.email))
+    cancelled = _job_repo().cancel(job_id)
+    return jsonify({"cancelled": cancelled,
+                    "status": "cancelled" if cancelled else job.status})
+
+
 @reports_bp.get("/api/reports/result/<job_id>")
 @require_login
 def report_result(job_id: str):

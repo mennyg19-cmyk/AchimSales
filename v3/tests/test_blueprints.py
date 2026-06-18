@@ -306,6 +306,41 @@ def test_run_requires_csrf(tmp_path):
     assert resp.status_code == 400  # missing CSRF header
 
 
+def test_cancel_job_endpoint_cancels_owned_job(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    # A queued job owned by the admin (enqueued directly so it isn't drained).
+    job_id = app.config["JOB_REPO"].enqueue(JOB_TYPE, owner_user_id=uid, params={})
+    resp = client.post(f"/api/jobs/{job_id}/cancel", headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    assert resp.get_json()["cancelled"] is True
+    assert app.config["JOB_REPO"].get(job_id).status == "cancelled"
+
+
+def test_cannot_cancel_another_users_job(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    job_id = app.config["JOB_REPO"].enqueue(JOB_TYPE, owner_user_id=uid, params={})
+    other = app.test_client()
+    _login(other, app, email="other@x.com", role="admin")
+    assert other.post(f"/api/jobs/{job_id}/cancel",
+                      headers={"X-CSRF-Token": _CSRF}).status_code == 404
+    assert app.config["JOB_REPO"].get(job_id).status == "queued"  # untouched
+
+
+def test_report_view_renders_cancel_button(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/reports/ordered").get_data(as_text=True)
+    assert 'id="cancelRunBtn"' in html
+    assert "data-cancel-url" in html
+
+
 def test_cannot_read_another_users_job(tmp_path):
     app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
     client = app.test_client()

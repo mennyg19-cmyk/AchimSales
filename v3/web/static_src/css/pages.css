@@ -192,6 +192,9 @@
 .filter-run-btn { flex: 0 0 auto; align-self: flex-end; white-space: nowrap; }
 
 /* -- Run status -- */
+.report-status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.report-status-row .report-status { flex: 1 1 auto; margin-bottom: 0; }
+.report-status-row #cancelRunBtn { flex: 0 0 auto; }
 .report-status { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }
 .report-status-info { background: var(--primary-light); color: var(--primary); }
 .report-status-error { background: var(--error-light); color: var(--error); }

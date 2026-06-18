@@ -1096,12 +1096,39 @@ function cloneView(v: ViewState): ViewState {
   };
 }
 
+// The in-flight run's job id (so Cancel knows what to stop), and a flag the
+// poll loop checks so a cancel stops the screen waiting right away.
+let activeRunJobId: string | null = null;
+let runAborted = false;
+
+function showCancel(visible: boolean): void {
+  const btn = $("cancelRunBtn") as HTMLButtonElement | null;
+  if (btn) { btn.hidden = !visible; btn.disabled = false; }
+}
+
+async function cancelRun(): Promise<void> {
+  const jobId = activeRunJobId;
+  runAborted = true;        // the poll loop bails on its next tick
+  showCancel(false);
+  if (!jobId) { clearStatus(); return; }
+  setStatus("Cancelling…");
+  try {
+    await fetch(attr("data-cancel-url").replace("__ID__", jobId), {
+      method: "POST", headers: csrfHeaders(),
+    });
+  } catch {
+    // Even if the cancel request fails, we've already stopped watching the job.
+  }
+  setStatus("Run cancelled.");
+}
+
 async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
   const resultUrl = attr("data-result-url").replace("__ID__", jobId);
   const started = Date.now();
 
   for (let i = 0; i < 600; i++) {
+    if (runAborted) return; // user cancelled; cancelRun() owns the status line
     const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error("Lost track of the job (it may have expired) — try running again.");
     const job = await res.json();
@@ -1135,6 +1162,7 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
   if (opts.preserveLayout) captureActive();
   setToolbarEnabled(false);
   setStatus(opts.preserveLayout ? "Refreshing data…" : "Starting…");
+  runAborted = false;
   try {
     const params = opts.overrideParams ?? collectParams();
     const res = await fetch(attr("data-run-url"), {
@@ -1144,10 +1172,14 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
     });
     if (!res.ok) throw new Error(`Could not start the report (HTTP ${res.status}).`);
     const { job_id } = await res.json();
+    activeRunJobId = job_id;
+    showCancel(true);   // let the user stop a run that's taking too long
     await poll(job_id, opts);
   } catch (err) {
-    setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
+    if (!runAborted) setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
   } finally {
+    showCancel(false);
+    activeRunJobId = null;
     const runBtn = $("runBtn") as HTMLButtonElement | null;
     if (runBtn) runBtn.disabled = false;
   }
@@ -1950,6 +1982,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       setStatus("Invalid JSON in the API preview. Fix it and try again.", "error");
     }
   });
+  $("cancelRunBtn")?.addEventListener("click", cancelRun);
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportBtn")?.addEventListener("click", exportExcel);

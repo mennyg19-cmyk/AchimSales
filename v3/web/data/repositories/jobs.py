@@ -137,12 +137,20 @@ class JobRepository:
             )
 
     def cancel(self, job_id: str) -> bool:
-        # v1 policy: cancel is QUEUED-ONLY. A running job can't be interrupted
-        # mid-flight (cooperative cancellation is a documented future addition).
+        """Cancel a queued OR running job. Returns True if it was active to cancel.
+
+        A queued job never starts. A running job can't be yanked out of its
+        upstream call mid-flight (e.g. a slow Reporting API request that hasn't
+        returned yet), so that worker thread keeps going until the call ends -
+        but marking the row 'cancelled' lets the screen stop waiting on it right
+        away, and `mark_success`/`mark_failure` are guarded to 'running' so when
+        the call finally finishes it can't overwrite the cancellation.
+        """
         with self.db.precious() as conn:
             updated = conn.execute(
-                "UPDATE jobs SET status='cancelled', finished_at=? WHERE id=? AND status='queued'",
-                (_now(), job_id),
+                "UPDATE jobs SET status='cancelled', finished_at=?"
+                " WHERE id=? AND status IN (?, ?)",
+                (_now(), job_id, *_ACTIVE),
             )
             return updated.rowcount == 1
 

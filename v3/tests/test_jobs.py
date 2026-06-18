@@ -160,12 +160,20 @@ def test_recover_orphans_unblocks_dedup(db):
     assert b == a
 
 
-def test_cancel_is_queued_only(db):
+def test_cancel_works_for_queued_and_running(db):
+    """A user can cancel a run whether it's still queued or already running
+    (e.g. stuck on a slow Reporting API call). A finished job can't be cancelled."""
     jobs = JobRepository(db)
-    jid = jobs.enqueue("echo")
+    queued = jobs.enqueue("echo")
+    assert jobs.cancel(queued) is True
+    assert jobs.get(queued).status == "cancelled"
+
+    running = jobs.enqueue("echo")
     jobs.claim_next()  # -> running
-    assert jobs.cancel(jid) is False  # running jobs cannot be cancelled in v1
-    assert jobs.get(jid).status == "running"
+    assert jobs.get(running).status == "running"
+    assert jobs.cancel(running) is True
+    assert jobs.get(running).status == "cancelled"
+    assert jobs.cancel(running) is False  # already terminal
 
 
 def test_mark_success_does_not_resurrect_cancelled(db):
@@ -173,6 +181,18 @@ def test_mark_success_does_not_resurrect_cancelled(db):
     jid = jobs.enqueue("echo")
     assert jobs.cancel(jid) is True  # queued -> cancelled
     jobs.mark_success(jid, "x")      # guarded to 'running' -> no-op
+    assert jobs.get(jid).status == "cancelled"
+
+
+def test_cancelled_running_job_not_overwritten_when_call_returns(db):
+    """Cancelling a running job sticks: when the slow upstream call finally
+    finishes, mark_success/mark_failure are guarded to 'running' so they can't
+    flip a cancelled job back to success."""
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+    jobs.claim_next()  # -> running
+    assert jobs.cancel(jid) is True
+    jobs.mark_success(jid, "late-result")
     assert jobs.get(jid).status == "cancelled"
 
 

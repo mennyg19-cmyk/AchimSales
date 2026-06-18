@@ -111,7 +111,10 @@
     </div>
 </div>
 
-<div id="reportStatus" class="report-status" hidden></div>
+<div class="report-status-row">
+    <div id="reportStatus" class="report-status" hidden></div>
+    <button type="button" id="cancelRunBtn" class="btn btn-outline btn-sm" hidden title="Stop this run">Cancel</button>
+</div>
 
 <div id="reportSurface" class="report-surface" hidden>
     <div class="report-tabbar">
@@ -127,6 +130,7 @@
      data-report-key="{{ report.key }}"
      data-run-url="{{ url_for('reports.run_report', report_key=report.key) }}"
      data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
+     data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}"
      data-result-url="{{ url_for('reports.report_result', job_id='__ID__') }}"
      data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"
      data-export-download-url="{{ url_for('reports.download_export', export_id='__ID__') }}"
