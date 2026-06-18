@@ -92,6 +92,12 @@ class Config:
                              ("CACHE_DB_PATH", self.cache_db_path)):
                 if _is_unc(p):
                     problems.append(f"{label} must be local disk, not a UNC/SMB share: {p}")
+                elif _is_app_service_home(p):
+                    problems.append(
+                        f"{label} must be on local disk, not the App Service /home share "
+                        f"(it's Azure Files/SMB; SQLite WAL can't share its index across "
+                        f"processes there, so the job worker stops seeing queued jobs): {p}"
+                    )
 
         if problems:
             raise ConfigError(
@@ -106,6 +112,16 @@ def _is_unc(path: Path) -> bool:
     """True for Windows UNC (\\\\server\\share) or POSIX //share paths (SMB/Azure Files)."""
     s = str(path)
     return s.startswith("\\\\") or s.startswith("//")
+
+
+def _is_app_service_home(path: Path) -> bool:
+    """True for the App Service /home mount. That mount is Azure Files (SMB), and
+    SQLite WAL can't coordinate readers/writers across processes on SMB -- the
+    background job worker silently stops seeing jobs the web workers enqueue.
+    Keep precious.db/cache.db on local disk (e.g. /tmp/v3data); Litestream gives
+    precious.db its durability. (This is the bug _is_unc missed: the share shows
+    up as a plain /home path, not a // UNC.)"""
+    return str(path).replace("\\", "/").startswith("/home/")
 
 
 def load_config() -> Config:
