@@ -726,6 +726,52 @@ def claim_once_diagnostic():
     return jsonify(out)
 
 
+@reports_bp.get("/api/reports/diagnostics/precious-repair")
+@require_login
+def precious_repair_diagnostic():
+    """Developer-only. The jobs 'status' index disagrees with the table by id
+    (a queued row found by status doesn't exist by id) - SQLite corruption from
+    the old /home SMB WAL, carried into the restore. ?action=check reports
+    integrity + index-vs-scan counts. ?action=reindex rebuilds indexes from the
+    real table rows. ?action=delete-ghosts removes the stuck queued rows. All
+    read the same precious.db the worker uses."""
+    p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
+    db = current_app.config["DB"]
+    action = request.args.get("action", "check")
+    out: dict = {"action": action}
+    with db.precious() as conn:
+        if action == "check":
+            out["integrity_check"] = [r[0] for r in conn.execute("PRAGMA integrity_check(30)").fetchall()]
+            out["quick_check"] = [r[0] for r in conn.execute("PRAGMA quick_check(30)").fetchall()]
+            out["jobs_indexes"] = [
+                {"seq": r[0], "name": r[1], "unique": r[2], "origin": r[3], "partial": r[4]}
+                for r in conn.execute("PRAGMA index_list('jobs')").fetchall()
+            ]
+            # status index path vs forced full table scan - if these disagree the
+            # index has ghost entries the table doesn't back.
+            out["queued_via_index"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
+            out["queued_via_table_scan"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs NOT INDEXED WHERE status='queued'").fetchone()[0]
+        elif action == "reindex":
+            conn.execute("REINDEX jobs")
+            out["reindexed"] = True
+            out["queued_via_index"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
+            out["queued_via_table_scan"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs NOT INDEXED WHERE status='queued'").fetchone()[0]
+        elif action == "delete-ghosts":
+            deleted = conn.execute("DELETE FROM jobs WHERE status='queued'").rowcount
+            out["deleted"] = deleted
+            out["queued_remaining"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
+        else:
+            abort(400, description="action must be check, reindex, or delete-ghosts")
+    return jsonify(out)
+
+
 def _worker_wiring(worker, app_db) -> dict:
     """Is the poller running the code we think, against the DB we think? The
     poller's claim_next() returns None while an identical inline query in this
