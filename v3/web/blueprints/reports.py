@@ -732,9 +732,11 @@ def precious_repair_diagnostic():
     """Developer-only. The jobs 'status' index disagrees with the table by id
     (a queued row found by status doesn't exist by id) - SQLite corruption from
     the old /home SMB WAL, carried into the restore. ?action=check reports
-    integrity + index-vs-scan counts. ?action=reindex rebuilds indexes from the
-    real table rows. ?action=delete-ghosts removes the stuck queued rows. All
-    read the same precious.db the worker uses."""
+    integrity + index-vs-scan counts. ?action=backup dumps every table to a JSON
+    file on /home (insurance before a wipe). ?action=reindex rebuilds indexes from
+    the real table rows. ?action=delete-ghosts removes the stuck queued rows.
+    ?action=rebuild-jobs drops + recreates the corrupt jobs table. All read the
+    same precious.db the worker uses."""
     p = _principal_or_401()
     if p.role != ROLE_DEVELOPER:
         abort(403, description="Developer role required")
@@ -767,9 +769,62 @@ def precious_repair_diagnostic():
             out["deleted"] = deleted
             out["queued_remaining"] = conn.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
+        elif action == "backup":
+            # Insurance before any wipe: dump every table's rows to a JSON file on
+            # persistent /home storage. Each table is read independently so the one
+            # corrupt table (jobs) can't abort the backup of the good rows.
+            out["backup"] = _backup_precious(conn)
+        elif action == "rebuild-jobs":
+            # The jobs PK index is malformed (rows missing from it), so per-row
+            # DELETE/REINDEX errors out. The jobs table is pure transient work-queue
+            # history - no business data - so drop the whole table (frees the corrupt
+            # b-trees wholesale, which DROP tolerates) and recreate it empty from its
+            # own captured schema: a fresh PK index plus the status/dedup indexes.
+            schema = [r[0] for r in conn.execute(
+                "SELECT sql FROM sqlite_master WHERE tbl_name='jobs' AND sql IS NOT NULL"
+                " ORDER BY (type='table') DESC").fetchall()]
+            out["captured_schema"] = schema
+            conn.execute("DROP TABLE jobs")
+            for stmt in schema:
+                conn.execute(stmt)
+            out["rebuilt"] = True
+            out["jobs_count"] = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            out["integrity_check"] = [r[0] for r in conn.execute("PRAGMA integrity_check(30)").fetchall()]
         else:
-            abort(400, description="action must be check, reindex, or delete-ghosts")
+            abort(400, description="action must be check, backup, reindex, delete-ghosts, or rebuild-jobs")
     return jsonify(out)
+
+
+def _backup_precious(conn) -> dict:
+    """Dump every table to a timestamped JSON file under /home (persistent across
+    container recycles). Reads each table on its own so a corrupt table records an
+    error instead of killing the whole backup. Returns the path + per-table counts."""
+    import json
+    from datetime import datetime, timezone
+
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+        " AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
+    dump: dict = {"created_at": datetime.now(timezone.utc).isoformat(), "tables": {}}
+    counts: dict = {}
+    errors: dict = {}
+    for table in tables:
+        try:
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            dump["tables"][table] = [dict(r) for r in rows]
+            counts[table] = len(rows)
+        except Exception as exc:  # noqa: BLE001 - one bad table must not lose the rest
+            errors[table] = f"{type(exc).__name__}: {exc}"
+
+    backup_dir = "/home/site/v3data"
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = os.path.join(backup_dir, f"precious-backup-{stamp}.json")
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(dump, fh)
+    os.replace(tmp, path)
+    return {"path": path, "row_counts": counts, "errors": errors}
 
 
 def _worker_wiring(worker, app_db) -> dict:
