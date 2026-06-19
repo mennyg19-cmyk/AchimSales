@@ -617,17 +617,21 @@ def preview_body(report_key: str):
         })
 
 
-def _probe_reporting_api(cfg) -> dict:
+def _probe_reporting_api(cfg, *, run_live: bool = False) -> dict:
     """Hit the on-prem Reporting API straight from this request (no worker, no
     cache, no dedup) so we can prove whether our calls leave the app and reach
-    the endpoint at all. Two independent checks, both with short timeouts so the
-    request can't hang:
+    the endpoint at all. Checks, all with short timeouts so the request can't hang:
 
       tcp  - open a raw socket to host:port. Proves the Azure Hybrid Connection
              tunnel reaches the on-prem listener (no HTTP, no stored procedure).
       http - a GET to the API root. ANY status code means the API process
              answered and the DBA should see this request land. A connect/read
              timeout here (with tcp ok) points at the API, not the tunnel.
+      live_query (only when run_live) - POST a real but tiny reference-data SP
+             (customer_master, no date window) with a short read timeout and no
+             retries. This is the ONLY check that proves the stored-proc layer
+             actually executes and returns - reachability can't. It's also a call
+             the DBA can watch land on the SQL box.
 
     Never returns the API key. host:port is operational info, not a secret.
     """
@@ -659,6 +663,26 @@ def _probe_reporting_api(cfg) -> dict:
     except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
         out["http"] = {"ok": False, "ms": int((time.monotonic() - t1) * 1000),
                        "error": f"{type(exc).__name__}: {exc}"}
+
+    if run_live:
+        t2 = time.monotonic()
+        try:
+            r = requests.post(
+                f"{base}/api/reports/customer_master/run", json={},
+                headers={"X-API-Key": cfg.reporting_api_key,
+                         "Content-Type": "application/json"},
+                timeout=(5, 25))
+            body = r.json() if r.ok else None
+            out["live_query"] = {
+                "ok": r.ok, "status": r.status_code,
+                "ms": int((time.monotonic() - t2) * 1000),
+                "report_id": "customer_master",
+                "row_count": (body or {}).get("row_count"),
+            }
+        except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
+            out["live_query"] = {"ok": False, "ms": int((time.monotonic() - t2) * 1000),
+                                 "report_id": "customer_master",
+                                 "error": f"{type(exc).__name__}: {exc}"}
     return out
 
 
@@ -674,8 +698,9 @@ def reporting_api_diagnostics():
     cfg = current_app.config["APP_CONFIG"]
     from web import is_background_leader_process
     worker = current_app.config["JOB_WORKER"]
+    run_live = request.args.get("live") in ("1", "true", "yes")
     return jsonify({
-        "reporting_api": _probe_reporting_api(cfg),
+        "reporting_api": _probe_reporting_api(cfg, run_live=run_live),
         "jobs": _job_repo().status_summary(),
         "claim_probe": _claim_probe(current_app.config["DB"]),
         "wiring": _worker_wiring(worker, current_app.config["DB"]),
