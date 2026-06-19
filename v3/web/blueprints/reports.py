@@ -704,7 +704,12 @@ def _claim_probe(db) -> dict:
         eq_count = conn.execute(
             "SELECT COUNT(*) AS n FROM jobs WHERE status = 'queued'"
         ).fetchone()["n"]
+        total = conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+        jmode = conn.execute("PRAGMA journal_mode").fetchone()[0]
     return {
+        "db_file": _db_file_identity(db.precious_path),
+        "journal_mode": jmode,
+        "total_jobs": total,
         "claim_next_would_pick": picked["id"] if picked else None,
         "rows_where_status_equals_queued": eq_count,
         "active_rows": [
@@ -713,6 +718,21 @@ def _claim_probe(db) -> dict:
             for r in rows
         ],
     }
+
+
+def _db_file_identity(path) -> dict:
+    """Inode/size/mtime of the precious.db file (and its -wal). If the leader and
+    a follower report different inodes for the same path, they're literally
+    reading different files - that's the whole bug. If same inode but a big -wal,
+    the data may be sitting in a WAL the poller's connection isn't seeing."""
+    out: dict = {"path": str(path)}
+    for label, p in (("main", path), ("wal", path.with_name(path.name + "-wal"))):
+        try:
+            st = os.stat(p)
+            out[label] = {"inode": st.st_ino, "size": st.st_size, "mtime": int(st.st_mtime)}
+        except OSError:
+            out[label] = None
+    return out
 
 
 # --- saved reports (presets) ----------------------------------------------- #
