@@ -703,6 +703,8 @@ def reporting_api_diagnostics():
         "reporting_api": _probe_reporting_api(cfg, run_live=run_live),
         "jobs": _job_repo().status_summary(),
         "claim_probe": _claim_probe(current_app.config["DB"]),
+        "me": {"email": p.email, "user_id": _user_id(p.email), "role": p.role},
+        "recent_jobs": _recent_jobs(current_app.config["DB"]),
         "wiring": _worker_wiring(worker, current_app.config["DB"]),
         "worker": {
             "pid": os.getpid(),
@@ -710,6 +712,22 @@ def reporting_api_diagnostics():
             **worker.health(),
         },
     })
+
+
+def _recent_jobs(db, limit: int = 10) -> list[dict]:
+    """Last few jobs with owner + status, so 'Lost track of the job' can be told
+    apart: a 404 on poll is either the job not existing or its owner_user_id not
+    matching the caller. NULL-owner (system) jobs are unreadable through the user
+    API by design - that mismatch shows up plainly here."""
+    with db.precious() as conn:
+        rows = conn.execute(
+            "SELECT id, type, status, owner_user_id, created_at FROM jobs"
+            " ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    return [
+        {"id": r["id"], "type": r["type"], "status": r["status"],
+         "owner_user_id": r["owner_user_id"], "created_at": r["created_at"]}
+        for r in rows
+    ]
 
 
 @reports_bp.get("/api/reports/diagnostics/claim-once")
