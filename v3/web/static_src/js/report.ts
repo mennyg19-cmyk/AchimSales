@@ -67,6 +67,7 @@ interface ViewState {
   sorters: { column: string; dir: string }[] | null;
   columnFilters: Record<string, ColFilter>;
   group: string[];
+  widths: Record<string, number>; // field -> user-dragged column width (px)
 }
 
 const root = document.getElementById("reportRoot");
@@ -158,7 +159,7 @@ const state: {
 } = { tabs: {}, order: [], active: null, views: {}, table: null, jobId: null };
 
 function freshView(): ViewState {
-  return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [] };
+  return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [], widths: {} };
 }
 
 // --------------------------------------------------------------------------
@@ -220,6 +221,7 @@ function buildColumns(tab: Tab): any[] {
     field: c.field,
     visible: !v.hidden.has(c.field),
     frozen: v.frozen.has(c.field),
+    width: v.widths[c.field],
     titleFormatter: () => columnHeaderEl(tab, c),
     headerMenu: headerMenu(tab),
     bottomCalc: isNumericType(c.type) && c.type !== "percent" ? "sum" : undefined,
@@ -514,6 +516,11 @@ function captureActive(): void {
     const cols = state.table.getColumns();
     v.order = cols.map((c: any) => c.getField()).filter(Boolean);
     v.hidden = new Set(cols.filter((c: any) => !c.isVisible()).map((c: any) => c.getField()));
+    cols.forEach((c: any) => {
+      const field = c.getField();
+      const w = c.getWidth();
+      if (field && w) v.widths[field] = w;
+    });
   } catch {
     /* table not ready */
   }
@@ -559,21 +566,43 @@ function buildTable(tab: Tab): void {
     columns: buildColumns(tab),
     layout: "fitDataTable",
     movableColumns: true,
+    resizableColumns: true, // drag a column border to set its width
     columnCalcs: "both",
-    height: "calc(100vh - 230px)",
+    height: tableHeight(),
     nestedFieldSeparator: false, // fields contain "." (e.g. "Cust. #")
     placeholder: "No data for these filters.",
     initialSort: v.sorters?.map((s) => ({ column: s.column, dir: s.dir })),
     groupBy: v.group.length ? v.group : undefined,
   });
   state.table = table;
+  // Remember a width the moment the user drags it, so it survives a re-run.
+  table.on("columnResized", (column: any) => {
+    const field = column.getField();
+    if (field) view(tab.key).widths[field] = column.getWidth();
+  });
   table.on("tableBuilt", () => {
     // A build from a previous tab can fire late; ignore it if we've moved on.
     if (state.table !== table || state.active !== tab.key) return;
     if (v.group.length) table.setGroupBy(v.group);
     applyColumnFilters(); // replay any saved per-column filters
+    fitTableHeight();
   });
   renderMeta(tab);
+}
+
+// The grid should fill the screen from where it starts down to the bottom,
+// with its own vertical scrollbar -- never push the whole page taller. The
+// start point moves when the filters panel opens/closes, so this recomputes.
+function tableHeight(): number {
+  const host = $("reportTable");
+  const top = host ? host.getBoundingClientRect().top : 230;
+  const bottomGap = 24; // breathing room under the grid
+  return Math.max(220, Math.round(window.innerHeight - top - bottomGap));
+}
+
+function fitTableHeight(): void {
+  if (!state.table) return;
+  try { state.table.setHeight(tableHeight()); } catch { /* table gone */ }
 }
 
 function n(v: unknown): number {
@@ -1093,6 +1122,7 @@ function cloneView(v: ViewState): ViewState {
     sorters: v.sorters ? v.sorters.map((s) => ({ ...s })) : null,
     columnFilters: JSON.parse(JSON.stringify(v.columnFilters || {})),
     group: [...v.group],
+    widths: { ...(v.widths || {}) },
   };
 }
 
@@ -1163,6 +1193,9 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Pro
     }
     if (job.status === "failure") throw new Error(friendlyError(job.error));
     if (job.status === "cancelled") throw new Error("The run was cancelled.");
+    // Only offer Cancel once the job is actually running on the server; a
+    // queued job hasn't started, so there's nothing to stop yet.
+    showCancel(job.status === "running");
     setStatus(`Building report… ${job.progress || 0}% (${fmtElapsed(Date.now() - started)})`);
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -1176,8 +1209,18 @@ function friendlyError(raw: unknown): string {
   return s.split("\n")[0].slice(0, 300);
 }
 
+/** Is a report already on screen (so a new run keeps the user's layout)? */
+function isReportShown(): boolean {
+  return !!state.active && !($("reportSurface")?.hidden ?? true);
+}
+
 async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<string, unknown> } = {}): Promise<void> {
-  if (opts.preserveLayout) captureActive();
+  if (opts.preserveLayout) {
+    captureActive();
+    // Empty the old rows right away so the user isn't staring at stale data
+    // while the new run builds; the columns/format stay put and refill on success.
+    try { state.table?.clearData(); } catch { /* table not ready */ }
+  }
   setToolbarEnabled(false);
   setStatus(opts.preserveLayout ? "Refreshing data…" : "Starting…");
   runAborted = false;
@@ -1191,7 +1234,6 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
     if (!res.ok) throw new Error(`Could not start the report (HTTP ${res.status}).`);
     const { job_id } = await res.json();
     activeRunJobId = job_id;
-    showCancel(true);   // let the user stop a run that's taking too long
     await poll(job_id, opts);
   } catch (err) {
     if (!runAborted) setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
@@ -1228,6 +1270,9 @@ function setControlsCollapsed(collapsed: boolean): void {
   c.classList.toggle("collapsed", collapsed);
   $("controlsToggle")?.setAttribute("aria-expanded", String(!collapsed));
   if (collapsed) updateControlsSummary();
+  // The grid's top edge just moved; regrow/shrink it to the new free space
+  // once the panel has finished folding.
+  setTimeout(fitTableHeight, 60);
 }
 
 function updateControlsSummary(): void {
@@ -1581,6 +1626,7 @@ function serializeView(v: ViewState): unknown {
   return {
     hidden: [...v.hidden], frozen: [...v.frozen], order: v.order,
     sorters: v.sorters, columnFilters: v.columnFilters, group: v.group,
+    widths: v.widths,
   };
 }
 
@@ -1599,7 +1645,7 @@ function deserializeView(o: any): ViewState {
   return {
     hidden: new Set<string>(o?.hidden || []), frozen: new Set<string>(o?.frozen || []),
     order: o?.order || null, sorters: o?.sorters || null,
-    columnFilters, group: o?.group || [],
+    columnFilters, group: o?.group || [], widths: o?.widths || {},
   };
 }
 
@@ -1989,7 +2035,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("controlsToggle")?.addEventListener("click", () => {
     setControlsCollapsed(!$("reportControls")?.classList.contains("collapsed"));
   });
-  $("runBtn")?.addEventListener("click", () => run());
+  $("runBtn")?.addEventListener("click", () => run({ preserveLayout: isReportShown() }));
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(fitTableHeight, 120);
+  });
   $("apiRunBtn")?.addEventListener("click", () => {
     const panel = $("apiPreview") as HTMLTextAreaElement | null;
     if (!panel) return;

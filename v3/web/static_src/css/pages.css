@@ -167,6 +167,14 @@
 /* -- Collapsible "Filters & options" panel -------------------------------- */
 /* While viewing a report this whole panel folds into a one-line summary bar so
    the grid takes most of the screen; the toggle re-opens it to change filters. */
+/* Title + filter panel share a row. While collapsed the panel is a one-line
+   bar that sits to the right of the report title; expanded, it drops to its own
+   full-width row below the title. */
+.report-top { display: flex; align-items: flex-end; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.report-top .page-head { margin-bottom: 0; flex: 0 0 auto; }
+.report-top .report-controls { flex: 1 1 340px; min-width: 260px; margin-bottom: 0; }
+.report-top .report-controls:not(.collapsed) { flex-basis: 100%; }
+
 .report-controls {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
     margin-bottom: 16px; overflow: hidden;
@@ -240,6 +248,19 @@
     background: var(--bg) !important; border-right: 1px solid var(--border);
 }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content { padding: 8px 8px; }
+/* Keep the whole header on ONE row: options-menu button, title, filter funnel,
+   and sort arrow side by side instead of the menu button wrapping above. */
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content {
+    display: flex; align-items: center; gap: 4px; flex-wrap: nowrap;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title-holder {
+    display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-header-popup-button,
+.tabulator .tabulator-header .tabulator-col .tabulator-header-menu-button {
+    flex: 0 0 auto; position: static; margin: 0; align-self: center; padding: 0;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-sorter { flex: 0 0 auto; }
 /* Readable headers: full-strength text, not the muted grey, beating Tabulator's base theme. */
 .tabulator .tabulator-header .tabulator-col .tabulator-col-title {
     color: var(--text) !important; font-weight: 700; font-size: 12.5px;
