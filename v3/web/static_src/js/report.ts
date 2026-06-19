@@ -1127,11 +1127,29 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Pro
   const resultUrl = attr("data-result-url").replace("__ID__", jobId);
   const started = Date.now();
 
+  // One failed check-in (a brief gateway blip while the server is busy) must not
+  // kill a run that's still going on the server. Only give up after several
+  // failures in a row; any good response resets the count.
+  const maxConsecutiveErrors = 5;
+  let consecutiveErrors = 0;
+
   for (let i = 0; i < 600; i++) {
     if (runAborted) return; // user cancelled; cancelRun() owns the status line
-    const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error("Lost track of the job (it may have expired) — try running again.");
-    const job = await res.json();
+    let job: { status?: string; progress?: number; error?: unknown };
+    try {
+      const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      job = await res.json();
+      consecutiveErrors = 0;
+    } catch {
+      consecutiveErrors++;
+      if (consecutiveErrors >= maxConsecutiveErrors) {
+        throw new Error("Lost track of the job (it may have expired) — try running again.");
+      }
+      setStatus(`Building report… reconnecting (${fmtElapsed(Date.now() - started)})`);
+      await new Promise((r) => setTimeout(r, 1000));
+      continue;
+    }
     if (job.status === "success") {
       const r = await fetch(resultUrl, { headers: { Accept: "application/json" } });
       if (!r.ok) throw new Error("The report finished but the result couldn't be loaded — re-run to refresh it.");
