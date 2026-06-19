@@ -66,6 +66,8 @@ def dashboard():
 @require_login
 def refresh():
     _, row = _require_dashboard_user()
+    if not current_app.config["APP_CONFIG"].dashboard_refresh_enabled:
+        abort(503, description="Dashboard refresh is turned off")
     from web.dashboard.jobs import enqueue_refresh
 
     job_id = enqueue_refresh(current_app.config["JOB_REPO"], owner_user_id=row.id if row else None)

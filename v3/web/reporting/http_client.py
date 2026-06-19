@@ -14,6 +14,7 @@ import gzip
 import json
 import logging
 import os
+import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -105,6 +106,7 @@ class ReportingApiClient:
 
         last_exc: Exception | None = None
         for attempt in range(self.retries + 1):
+            t0 = time.monotonic()
             try:
                 resp = session.post(url, json=params, headers=headers,
                                     timeout=(10, self.timeout))
@@ -116,6 +118,11 @@ class ReportingApiClient:
                     # Transient server error: retry then surface.
                     raise _Transient(f"Reporting API {status} for {report_id}")
                 body = resp.json()
+                # Timing of SUCCESSFUL calls: this is the data that decides a safe
+                # timeout. A wedged proc never reaches here (it times out), so the
+                # max value across real runs is the longest a good call ever takes.
+                log.info("Reporting API OK %s in %.1fs (rows=%s)", report_id,
+                         time.monotonic() - t0, (body or {}).get("row_count"))
                 _capture_raw_response(report_id, params, body)
                 rows = body.get("rows")
                 if not isinstance(rows, list):

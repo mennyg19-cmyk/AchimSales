@@ -320,6 +320,8 @@ def bootstrap_background(app: Flask) -> None:
         worker = app.config.get("JOB_WORKER")
         if worker is not None:
             worker.start()
+        if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
+            _cancel_pending_dashboard_refreshes(app, db)
         _start_scheduler(app, db)
     else:
         app.logger.info("v3 background ownership held by another worker; skipping (pid=%s)", os.getpid())
@@ -371,6 +373,25 @@ def _is_background_leader(app: Flask) -> bool:
     return True
 
 
+def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:
+    """With the dashboard off, cancel any queued/running dashboard.refresh jobs so
+    orphan-recovery doesn't resurrect one that's stuck on a slow Reporting API and
+    keep tying up a worker slot."""
+    from web.dashboard.jobs import DASHBOARD_REFRESH_JOB_TYPE
+
+    try:
+        with db.precious() as conn:
+            n = conn.execute(
+                "UPDATE jobs SET status='cancelled', finished_at=datetime('now')"
+                " WHERE type=? AND status IN ('queued','running')",
+                (DASHBOARD_REFRESH_JOB_TYPE,),
+            ).rowcount
+        if n:
+            app.logger.info("dashboard refresh off: cancelled %d pending refresh job(s)", n)
+    except Exception:  # noqa: BLE001 - cleanup is best-effort; never block boot
+        app.logger.exception("dashboard refresh cleanup failed")
+
+
 def _start_scheduler(app: Flask, db) -> None:
     """Start the once-a-minute cron tick that enqueues due schedules.
 
@@ -383,6 +404,7 @@ def _start_scheduler(app: Flask, db) -> None:
     from web.scheduling.tick import make_tick
 
     job_repo = app.config["JOB_REPO"]
+    dashboard_on = app.config["APP_CONFIG"].dashboard_refresh_enabled
 
     def _tick_mirror():
         try:
@@ -393,16 +415,21 @@ def _start_scheduler(app: Flask, db) -> None:
     try:
         scheduler = Scheduler()
         scheduler.add_cron("schedule-tick", make_tick(db, job_repo), minute="*")
-        # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence).
-        scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
+        # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence). Skipped
+        # entirely when the dashboard refresh is turned off.
+        if dashboard_on:
+            scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
         scheduler.start()
         app.config["SCHEDULER"] = scheduler
-        app.logger.info("schedule + mirror cron ticks started")
+        app.logger.info("schedule cron started (dashboard mirror %s)",
+                        "on" if dashboard_on else "OFF")
     except Exception:  # noqa: BLE001 - scheduler is optional; never block boot
         app.logger.exception("scheduler start failed (schedules will only run via Run now)")
 
     # Prime the mirror on boot if it's empty so the dashboard isn't blank on a
     # cold container (LIVE does an immediate refresh when the cache is empty).
+    if not dashboard_on:
+        return
     try:
         if app.config["DASHBOARD_REPO"].count() == 0:
             enqueue_refresh(job_repo)

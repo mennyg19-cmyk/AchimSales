@@ -44,6 +44,10 @@ class Config:
     litestream_blob_url: str
     new_app_marker: bool
     reporting_api_timeout: float = 300.0
+    # The dashboard customer mirror is a side feature. When off, its 4-hour cron
+    # and boot-prime never enqueue dashboard.refresh jobs - so a slow/wedged
+    # Reporting API can't tie up worker slots with a refresh nobody asked for.
+    dashboard_refresh_enabled: bool = True
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
     # Delivery (Phase C) - all optional; absent => email writes .eml to the outbox
@@ -142,6 +146,7 @@ def load_config() -> Config:
         reporting_api_base_url=os.environ.get("REPORTING_API_BASE_URL", "").strip().rstrip("/"),
         reporting_api_key=os.environ.get("REPORTING_API_KEY", "").strip(),
         reporting_api_timeout=float(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "300")),
+        dashboard_refresh_enabled=_env_bool("DASHBOARD_REFRESH_ENABLED", True),
         precious_db_path=_env_path("PRECIOUS_DB_PATH", "./.data/precious.db"),
         cache_db_path=_env_path("CACHE_DB_PATH", "./.data/cache.db"),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
