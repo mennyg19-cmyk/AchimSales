@@ -687,6 +687,28 @@ def reporting_api_diagnostics():
     })
 
 
+@reports_bp.get("/api/reports/diagnostics/claim-once")
+@require_login
+def claim_once_diagnostic():
+    """Developer-only: call the REAL worker.repo.claim_next() from this request
+    thread (the poller calls the same method but always gets None). If this
+    claims a job, the poller's failure is thread-specific; if it returns None,
+    the method itself is the problem. Safe: any claimed job is immediately set
+    back to 'queued' so the actual handler never runs and nothing is lost."""
+    p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
+    worker = current_app.config["JOB_WORKER"]
+    db = current_app.config["DB"]
+    job = worker.repo.claim_next()
+    out = {"claimed_id": job.id if job else None, "claimed_type": job.type if job else None}
+    if job:
+        with db.precious() as conn:
+            conn.execute("UPDATE jobs SET status='queued', started_at=NULL WHERE id=?", (job.id,))
+        out["requeued"] = True
+    return jsonify(out)
+
+
 def _worker_wiring(worker, app_db) -> dict:
     """Is the poller running the code we think, against the DB we think? The
     poller's claim_next() returns None while an identical inline query in this
