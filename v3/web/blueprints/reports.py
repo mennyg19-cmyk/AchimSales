@@ -677,12 +677,42 @@ def reporting_api_diagnostics():
     return jsonify({
         "reporting_api": _probe_reporting_api(cfg),
         "jobs": _job_repo().status_summary(),
+        "claim_probe": _claim_probe(current_app.config["DB"]),
         "worker": {
             "pid": os.getpid(),
             "is_leader_process": is_background_leader_process(),
             **worker.health(),
         },
     })
+
+
+def _claim_probe(db) -> dict:
+    """The poller's claim_next() returns None even though status_summary() sees
+    'queued' jobs in the SAME file/process. Run the EXACT read claim_next uses
+    and dump the RAW status/created_at of every active row, so we can see what's
+    different about these rows (hidden characters in status, a NULL/odd
+    created_at that breaks ORDER BY, a value that only LOOKS like 'queued')."""
+    with db.precious() as conn:
+        picked = conn.execute(
+            "SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        rows = conn.execute(
+            "SELECT id, status, created_at, typeof(status) AS s_type,"
+            " typeof(created_at) AS ca_type FROM jobs"
+            " WHERE status IN ('queued', 'running') ORDER BY created_at LIMIT 20"
+        ).fetchall()
+        eq_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM jobs WHERE status = 'queued'"
+        ).fetchone()["n"]
+    return {
+        "claim_next_would_pick": picked["id"] if picked else None,
+        "rows_where_status_equals_queued": eq_count,
+        "active_rows": [
+            {"id": r["id"], "status_repr": repr(r["status"]), "status_type": r["s_type"],
+             "created_at_repr": repr(r["created_at"]), "created_at_type": r["ca_type"]}
+            for r in rows
+        ],
+    }
 
 
 # --- saved reports (presets) ----------------------------------------------- #
