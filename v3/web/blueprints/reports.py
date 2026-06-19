@@ -698,14 +698,31 @@ def claim_once_diagnostic():
     p = _principal_or_401()
     if p.role != ROLE_DEVELOPER:
         abort(403, description="Developer role required")
-    worker = current_app.config["JOB_WORKER"]
+    from datetime import datetime, timezone
     db = current_app.config["DB"]
-    job = worker.repo.claim_next()
-    out = {"claimed_id": job.id if job else None, "claimed_type": job.type if job else None}
-    if job:
-        with db.precious() as conn:
-            conn.execute("UPDATE jobs SET status='queued', started_at=NULL WHERE id=?", (job.id,))
-        out["requeued"] = True
+    # Replicate claim_next() step by step so we can see WHICH step bails: does the
+    # SELECT find the row, and does the UPDATE (id + status='queued') actually
+    # match it? Then revert so the job is never really claimed.
+    with db.precious() as conn:
+        sel = conn.execute(
+            "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        out: dict = {"select_found_id": sel["id"] if sel else None}
+        if sel:
+            upd = conn.execute(
+                "UPDATE jobs SET status='running', started_at=? WHERE id=? AND status='queued'",
+                (datetime.now(timezone.utc).isoformat(), sel["id"]),
+            )
+            out["update_rowcount"] = upd.rowcount
+            verify = conn.execute(
+                "SELECT status FROM jobs WHERE id=?", (sel["id"],)
+            ).fetchone()
+            out["status_after_update"] = verify["status"] if verify else None
+            # Revert no matter what so this is a pure read-only probe.
+            conn.execute(
+                "UPDATE jobs SET status='queued', started_at=NULL WHERE id=?", (sel["id"],)
+            )
+            out["reverted"] = True
     return jsonify(out)
 
 
