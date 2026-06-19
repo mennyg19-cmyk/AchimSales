@@ -678,12 +678,37 @@ def reporting_api_diagnostics():
         "reporting_api": _probe_reporting_api(cfg),
         "jobs": _job_repo().status_summary(),
         "claim_probe": _claim_probe(current_app.config["DB"]),
+        "wiring": _worker_wiring(worker, current_app.config["DB"]),
         "worker": {
             "pid": os.getpid(),
             "is_leader_process": is_background_leader_process(),
             **worker.health(),
         },
     })
+
+
+def _worker_wiring(worker, app_db) -> dict:
+    """Is the poller running the code we think, against the DB we think? The
+    poller's claim_next() returns None while an identical inline query in this
+    same process finds the job. Dump the ACTUAL deployed source of claim_next
+    (a stale .pyc on the wwwroot share would differ from the repo) and confirm
+    the worker's repo points at the very same Database object/path as requests."""
+    import inspect
+    repo = worker.repo
+    out: dict = {
+        "worker_db_is_app_db": repo.db is app_db,
+        "worker_db_path": str(getattr(repo.db, "precious_path", None)),
+        "app_db_path": str(getattr(app_db, "precious_path", None)),
+    }
+    try:
+        out["claim_next_source"] = inspect.getsource(type(repo).claim_next)
+    except Exception as exc:  # noqa: BLE001 - best-effort introspection
+        out["claim_next_source_error"] = f"{type(exc).__name__}: {exc}"
+    try:
+        out["claim_next_file"] = inspect.getsourcefile(type(repo).claim_next)
+    except Exception:  # noqa: BLE001
+        out["claim_next_file"] = None
+    return out
 
 
 def _claim_probe(db) -> dict:
