@@ -106,6 +106,23 @@ def test_background_worker_drains_queue(db):
     assert sorted(processed) == sorted(ids)
 
 
+def test_health_reports_started_and_free_slots(db):
+    # The admin diagnostic relies on this snapshot to tell a never-started worker
+    # from a wedged one. Before start(): not started, all slots free.
+    worker = JobWorker(db, max_workers=2)
+    worker.register("bg", lambda ctx: "")
+    h = worker.health()
+    assert h["started"] is False and h["poller_alive"] is False
+    assert h["free_slots"] == 2 and h["handler_types"] == ["bg"]
+
+    worker.start(poll_interval=0.05)
+    try:
+        assert worker.health()["started"] is True
+        assert worker.health()["poller_alive"] is True
+    finally:
+        worker.stop()
+
+
 def test_orphaned_running_job_is_recovered(db):
     """A job stuck in 'running' (crash) is requeued and can complete."""
     jobs = JobRepository(db)

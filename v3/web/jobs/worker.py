@@ -51,6 +51,20 @@ class JobWorker:
         """True once the background poller thread is started (see start())."""
         return self._poller is not None
 
+    def health(self) -> dict:
+        """Live snapshot of the poller for the admin diagnostic. Lets us tell a
+        worker that never started from one whose poller thread died from one
+        that's wedged with every capacity slot held by a hung handler. Only the
+        background-leader process actually runs a poller; on a follower this
+        reports started=False (which is correct for that process)."""
+        return {
+            "started": self._poller is not None,
+            "poller_alive": bool(self._poller and self._poller.is_alive()),
+            "max_workers": self.max_workers,
+            "free_slots": self._sem._value,  # how many jobs it could claim right now
+            "handler_types": sorted(self.handlers),
+        }
+
     # --- synchronous driving (used by tests + simple call sites) -----------
 
     def process_next(self) -> str | None:

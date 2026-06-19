@@ -329,6 +329,13 @@ def bootstrap_background(app: Flask) -> None:
 _BG_LOCK_FH = None
 
 
+def is_background_leader_process() -> bool:
+    """True in the one gunicorn worker that won the background lock (and therefore
+    actually runs the job poller + scheduler). Lets the admin diagnostic say
+    whether it's talking to the leader or a follower."""
+    return _BG_LOCK_FH is not None
+
+
 def _is_background_leader(app: Flask) -> bool:
     """Elect exactly ONE process to own v3 background work (job worker + cron).
 

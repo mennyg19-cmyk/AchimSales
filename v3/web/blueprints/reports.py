@@ -30,6 +30,7 @@ from flask import (
 )
 
 import io
+import os
 import socket
 import time
 from urllib.parse import urlencode, urlparse
@@ -671,9 +672,16 @@ def reporting_api_diagnostics():
     if p.role != ROLE_DEVELOPER:
         abort(403, description="Developer role required")
     cfg = current_app.config["APP_CONFIG"]
+    from web import is_background_leader_process
+    worker = current_app.config["JOB_WORKER"]
     return jsonify({
         "reporting_api": _probe_reporting_api(cfg),
         "jobs": _job_repo().status_summary(),
+        "worker": {
+            "pid": os.getpid(),
+            "is_leader_process": is_background_leader_process(),
+            **worker.health(),
+        },
     })
 
 
