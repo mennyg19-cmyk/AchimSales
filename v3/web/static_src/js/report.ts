@@ -1158,10 +1158,12 @@ async function cancelRun(): Promise<void> {
   setStatus("Run cancelled.");
 }
 
-async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Promise<void> {
+async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?: number } = {}): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
   const resultUrl = attr("data-result-url").replace("__ID__", jobId);
-  const started = Date.now();
+  // Count from when the job really started (passed in when reconnecting to a
+  // run from a prior visit) so the timer doesn't reset to zero on return.
+  const started = Date.now() - (opts.elapsedMs || 0);
 
   // One failed check-in (a brief gateway blip while the server is busy) must not
   // kill a run that's still going on the server. Only give up after several
@@ -1254,13 +1256,13 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
 /** Reconnect to a job that's already on the server (started in a prior visit),
  *  reusing the same poll loop -- it shows progress for a running job and loads
  *  the result for one that already finished. */
-async function resumeJob(jobId: string): Promise<void> {
+async function resumeJob(jobId: string, elapsedMs = 0): Promise<void> {
   setToolbarEnabled(false);
   setStatus("Reconnecting to your report…");
   runAborted = false;
   activeRunJobId = jobId;
   try {
-    await poll(jobId);
+    await poll(jobId, { elapsedMs });
   } catch (err) {
     if (!runAborted) setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
   } finally {
@@ -1278,7 +1280,7 @@ async function resumeInFlight(): Promise<boolean> {
   const url = attr("data-active-url");
   const key = attr("data-report-key");
   if (!url || !key) return false;
-  let jobs: { job_id: string; report_key: string | null; status: string }[];
+  let jobs: { job_id: string; report_key: string | null; status: string; age_seconds: number | null }[];
   try {
     const data = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
     jobs = (data && data.jobs) || [];
@@ -1290,7 +1292,7 @@ async function resumeInFlight(): Promise<boolean> {
     (j.status === "running" || j.status === "queued" || j.status === "success"));
   if (!mine) return false;
   state.jobId = mine.job_id;
-  await resumeJob(mine.job_id);
+  await resumeJob(mine.job_id, (mine.age_seconds || 0) * 1000);
   return true;
 }
 

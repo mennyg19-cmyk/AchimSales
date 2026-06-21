@@ -364,6 +364,9 @@ def active_report_runs():
             "job_id": r["id"], "report_key": rkey,
             "title": titles.get(rkey, rkey or "Report"),
             "status": status, "progress": r["progress"] or 0,
+            # Seconds since the run was kicked off, so a resumed screen can show
+            # the true elapsed time instead of restarting its clock at zero.
+            "age_seconds": _age_seconds(r["created_at"], now),
         })
     return jsonify({"jobs": jobs})
 
