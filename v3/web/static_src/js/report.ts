@@ -585,7 +585,7 @@ function buildTable(tab: Tab): void {
     if (state.table !== table || state.active !== tab.key) return;
     if (v.group.length) table.setGroupBy(v.group);
     applyColumnFilters(); // replay any saved per-column filters
-    fitTableHeight();
+    requestAnimationFrame(fitTableHeight); // size once the grid is laid out
   });
   renderMeta(tab);
 }
@@ -1052,12 +1052,15 @@ function loadPayload(payload: Payload, render = true): void {
   setToolbarEnabled(true);
   if (render) {
     renderTabs();
+    // Show + collapse the panels FIRST so the grid is built into its final
+    // on-screen position; otherwise its height is measured while hidden and
+    // comes out way too tall.
+    showReportSurface();
+    setControlsCollapsed(true);
     if (state.active) {
       buildTable(state.tabs[state.active]);
       syncColumnsButton(state.tabs[state.active]);
     }
-    showReportSurface();
-    setControlsCollapsed(true);
   }
 }
 
@@ -1106,12 +1109,12 @@ function loadPayloadPreserving(payload: Payload): void {
 
   state.active = prevActive && state.tabs[prevActive] ? prevActive : state.order[0] || null;
   renderTabs();
+  showReportSurface();
+  setControlsCollapsed(true);
   if (state.active) {
     buildTable(state.tabs[state.active]);
     syncColumnsButton(state.tabs[state.active]);
   }
-  showReportSurface();
-  setControlsCollapsed(true);
 }
 
 function cloneView(v: ViewState): ViewState {

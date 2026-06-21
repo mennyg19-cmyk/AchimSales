@@ -248,19 +248,30 @@
     background: var(--bg) !important; border-right: 1px solid var(--border);
 }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content { padding: 8px 8px; }
-/* Keep the whole header on ONE row: options-menu button, title, filter funnel,
-   and sort arrow side by side instead of the menu button wrapping above. */
+/* Keep the whole header on ONE row: title + filter funnel + sort arrow, with
+   the options-menu dots at the far right -- instead of the dots wrapping onto
+   their own line above. Tabulator's own stylesheet loads after this file, so
+   the layout rules need !important to win. */
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content {
-    display: flex; align-items: center; gap: 4px; flex-wrap: nowrap;
+    display: flex !important; align-items: center; gap: 4px; flex-wrap: nowrap;
 }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title-holder {
-    display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0;
+    display: flex !important; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; order: 0;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {
+    display: flex !important; align-items: center; flex: 1 1 auto; min-width: 0;
 }
 .tabulator .tabulator-header .tabulator-col .tabulator-header-popup-button,
 .tabulator .tabulator-header .tabulator-col .tabulator-header-menu-button {
-    flex: 0 0 auto; position: static; margin: 0; align-self: center; padding: 0;
+    order: 1; flex: 0 0 auto; position: static !important; margin: 0; align-self: center; padding: 0;
 }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-sorter { flex: 0 0 auto; }
+/* The drag-to-resize grip must sit above the custom header cell, or clicks on
+   the column edge land on the header content and the column won't resize. */
+.tabulator .tabulator-header .tabulator-col .tabulator-col-resize-handle {
+    position: absolute; right: 0; top: 0; height: 100%; width: 8px; z-index: 20;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-resize-handle.prev { right: auto; left: 0; }
 /* Readable headers: full-strength text, not the muted grey, beating Tabulator's base theme. */
 .tabulator .tabulator-header .tabulator-col .tabulator-col-title {
     color: var(--text) !important; font-weight: 700; font-size: 12.5px;
