@@ -202,8 +202,15 @@
 /* -- Run status -- */
 .report-status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .report-status-row .report-status { flex: 1 1 auto; margin-bottom: 0; }
-.report-status-row #cancelRunBtn { flex: 0 0 auto; }
-.report-status { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px; }
+/* Status bar holds its message on the left and the Cancel button on the right. */
+.report-status {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; margin-bottom: 12px;
+}
+.report-status-text { flex: 1 1 auto; min-width: 0; }
+.report-status #cancelRunBtn { flex: 0 0 auto; }
+/* display:flex above would otherwise beat the browser's [hidden] rule. */
+.report-status[hidden] { display: none !important; }
 .report-status-info { background: var(--primary-light); color: var(--primary); }
 .report-status-error { background: var(--error-light); color: var(--error); }
 

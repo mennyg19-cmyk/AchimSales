@@ -83,7 +83,10 @@ function $(id: string): HTMLElement | null {
 function setStatus(msg: string, kind: "info" | "error" = "info"): void {
   const el = $("reportStatus");
   if (!el) return;
-  el.textContent = msg;
+  // Write into the text span so the Cancel button living in the same bar isn't
+  // wiped out by setting textContent on the whole status element.
+  const txt = $("reportStatusText");
+  if (txt) txt.textContent = msg; else el.textContent = msg;
   el.className = "report-status report-status-" + kind;
   el.hidden = false;
 }
