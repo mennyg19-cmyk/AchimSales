@@ -258,9 +258,10 @@ interface ActiveReportJob {
 }
 
 /**
- * Always-on bar (every page) showing the user's report runs and how far along
- * they are. Click a chip to jump to that report -- if it's still running the
- * report page reconnects to it; if it just finished it loads the result.
+ * Always-on floating button (bottom-right, every page) showing the user's
+ * report runs. Tap it to open a small panel listing each run and how far along
+ * it is; tap a row to jump to that report -- if it's still running the report
+ * page reconnects to it, if it just finished it loads the result.
  */
 function initReportJobsBar(): void {
   const bar = document.getElementById("reportJobsBar");
@@ -270,6 +271,7 @@ function initReportJobsBar(): void {
   if (!activeUrl) return;
 
   let lastSignature = "";
+  let panelOpen = false;
 
   function statusWord(job: ActiveReportJob): string {
     if (job.status === "running") return `building ${job.progress || 0}%`;
@@ -287,16 +289,19 @@ function initReportJobsBar(): void {
     if (!jobs.length) {
       bar.hidden = true;
       bar.innerHTML = "";
+      panelOpen = false;
       return;
     }
-    const inner = document.createElement("div");
-    inner.className = "report-jobs-inner";
-    const running = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
-    const lead = document.createElement("span");
-    lead.className = "report-jobs-lead";
-    lead.textContent = running ? `${running} report${running > 1 ? "s" : ""} running` : "Your reports";
-    inner.appendChild(lead);
 
+    const running = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
+    const anyFailed = jobs.some((j) => j.status === "failure");
+    bar.classList.toggle("report-jobs-busy", running > 0);
+    bar.classList.toggle("report-jobs-failed", running === 0 && anyFailed);
+    bar.classList.toggle("report-jobs-done", running === 0 && !anyFailed);
+
+    const panel = document.createElement("div");
+    panel.className = "report-jobs-panel";
+    panel.hidden = !panelOpen;
     jobs.forEach((job) => {
       const chip = document.createElement("button");
       chip.type = "button";
@@ -314,13 +319,42 @@ function initReportJobsBar(): void {
         if (!job.report_key) return;
         window.location.href = reportUrlTpl.replace("__KEY__", encodeURIComponent(job.report_key));
       });
-      inner.appendChild(chip);
+      panel.appendChild(chip);
+    });
+
+    const fab = document.createElement("button");
+    fab.type = "button";
+    fab.className = "report-jobs-fab";
+    fab.dataset.noGuard = "1";
+    if (running > 0) {
+      const spin = document.createElement("span");
+      spin.className = "report-jobs-spinner";
+      fab.appendChild(spin);
+    }
+    const fabLabel = document.createElement("span");
+    fabLabel.textContent = running > 0
+      ? `${running} running`
+      : anyFailed ? "Report failed" : "Reports ready";
+    fab.appendChild(fabLabel);
+    fab.addEventListener("click", (e) => {
+      e.stopPropagation();
+      panelOpen = !panelOpen;
+      panel.hidden = !panelOpen;
     });
 
     bar.innerHTML = "";
-    bar.appendChild(inner);
+    bar.appendChild(panel);
+    bar.appendChild(fab);
     bar.hidden = false;
   }
+
+  document.addEventListener("click", (e) => {
+    if (panelOpen && !bar.contains(e.target as Node)) {
+      panelOpen = false;
+      const panel = bar.querySelector<HTMLElement>(".report-jobs-panel");
+      if (panel) panel.hidden = true;
+    }
+  });
 
   async function poll(): Promise<void> {
     try {

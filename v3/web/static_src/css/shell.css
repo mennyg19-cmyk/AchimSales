@@ -50,24 +50,39 @@ body {
     border: 1px solid #ffc107; border-radius: 4px;
 }
 
-/* -- Always-on report status bar (sits just above the bottom nav) -- */
-.report-jobs-bar {
-    position: fixed; left: 0; right: 0; z-index: 150;
-    bottom: calc(var(--bottom-nav-height) + 8px + env(safe-area-inset-bottom, 0px));
-    pointer-events: none;
+/* -- Always-on report jobs button (floating, bottom-right) -- */
+.report-jobs {
+    position: fixed; right: 16px; z-index: 150;
+    bottom: calc(var(--bottom-nav-height) + 14px + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
 }
-.report-jobs-inner {
-    pointer-events: auto; margin: 0 12px; padding: 8px 12px;
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+.report-jobs[hidden] { display: none !important; }
+.report-jobs-fab {
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer; border: none;
+    border-radius: 99px; height: 46px; padding: 0 18px; color: #fff;
+    background: var(--primary); font-size: 13px; font-weight: 600;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+}
+.report-jobs-failed .report-jobs-fab { background: var(--error, #dc2626); }
+.report-jobs-done .report-jobs-fab { background: var(--success, #16a34a); }
+.report-jobs-spinner {
+    width: 15px; height: 15px; border-radius: 50%; flex: 0 0 auto;
+    border: 2px solid rgba(255,255,255,0.45); border-top-color: #fff;
+    animation: report-jobs-spin 0.8s linear infinite;
+}
+@keyframes report-jobs-spin { to { transform: rotate(360deg); } }
+.report-jobs-panel {
+    display: flex; flex-direction: column; gap: 6px; padding: 8px;
+    min-width: 240px; max-width: min(340px, calc(100vw - 32px));
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0,0,0,0.18);
 }
-.report-jobs-lead { font-size: 12px; font-weight: 600; color: var(--text-light); }
+.report-jobs-panel[hidden] { display: none !important; }
 .report-job-chip {
-    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer; width: 100%;
     border: 1px solid var(--border); background: var(--bg); color: var(--text);
-    border-radius: 99px; padding: 4px 12px; font-size: 12px; font-weight: 500;
-    max-width: 100%; transition: border-color 0.15s, background 0.15s;
+    border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 500;
+    text-align: left; transition: border-color 0.15s, background 0.15s;
 }
 .report-job-chip:hover { border-color: var(--primary); }
 .report-job-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

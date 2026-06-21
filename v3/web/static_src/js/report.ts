@@ -599,8 +599,13 @@ function buildTable(tab: Tab): void {
 function tableHeight(): number {
   const host = $("reportTable");
   const top = host ? host.getBoundingClientRect().top : 230;
-  const bottomGap = 24; // breathing room under the grid
-  return Math.max(220, Math.round(window.innerHeight - top - bottomGap));
+  const bottomGap = 16; // breathing room under the grid
+  // The bottom nav is fixed over the viewport, so the grid (and its horizontal
+  // scrollbar) must stop above it -- otherwise the bottom row hides behind the
+  // nav and you'd have to scroll the whole page to reach the side-scrollbar.
+  const nav = document.querySelector(".bottom-nav");
+  const floor = nav ? nav.getBoundingClientRect().top : window.innerHeight;
+  return Math.max(220, Math.round(floor - top - bottomGap));
 }
 
 function fitTableHeight(): void {

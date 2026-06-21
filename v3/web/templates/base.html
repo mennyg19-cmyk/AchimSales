@@ -66,7 +66,7 @@
     </main>
 
     {% if user %}
-    <div id="reportJobsBar" class="report-jobs-bar" hidden
+    <div id="reportJobsBar" class="report-jobs" hidden
          data-active-url="{{ url_for('reports.active_report_runs') }}"
          data-report-url="{{ url_for('reports.report_view', report_key='__KEY__') }}"></div>
     {% endif %}
