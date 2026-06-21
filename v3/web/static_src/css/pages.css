@@ -196,8 +196,27 @@
 .controls-body { padding: 0 14px 14px; }
 /* The filter bar / toolbar no longer carry their own card chrome (the panel does). */
 .controls-body .filter-bar { padding: 4px 0 0; background: none; border: none; border-radius: 0; margin-bottom: 12px; }
-.report-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Equal-width action tiles that reflow into a tidy grid at any width (one or
+   two rows on desktop, a clean 2-up grid on a phone) instead of a ragged
+   wrapped row of differently-sized pills. */
+.report-toolbar {
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+}
+.report-toolbar .btn {
+    width: 100%; justify-content: flex-start; gap: 8px;
+    padding: 9px 12px; font-size: 13px; overflow: hidden;
+}
+.report-toolbar .btn svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.report-toolbar .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filter-run-btn { flex: 0 0 auto; align-self: flex-end; white-space: nowrap; }
+
+@media (max-width: 600px) {
+    /* Stack the filters and let Run report be a full-width primary action. */
+    .filter-bar-row { flex-wrap: wrap; }
+    .filter-fields { width: 100%; }
+    .filter-run-btn { width: 100%; align-self: stretch; }
+}
 
 /* -- Run status -- */
 .report-status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

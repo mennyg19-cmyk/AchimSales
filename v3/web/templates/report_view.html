@@ -84,17 +84,17 @@
 </form>
 
 <div class="report-toolbar">
-    <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout">Refresh data</button>
-    <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
-    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
-    <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Build an Excel file in the background, then download it">Export</button>
-    <button type="button" id="exportsBtn" class="btn btn-outline" title="Your recent background exports">Recent exports</button>
-    <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)">Email</button>
-    <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view">Schedule</button>
-    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
-    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view">Presets</button>
+    <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout"><i data-feather="refresh-cw"></i> <span>Refresh data</span></button>
+    <button type="button" id="columnsBtn" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
+    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout"><i data-feather="rotate-ccw"></i> <span>Reset view</span></button>
+    <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Build an Excel file in the background, then download it"><i data-feather="download"></i> <span>Export</span></button>
+    <button type="button" id="exportsBtn" class="btn btn-outline" title="Your recent background exports"><i data-feather="archive"></i> <span>Recent exports</span></button>
+    <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)"><i data-feather="mail"></i> <span>Email</span></button>
+    <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view"><i data-feather="calendar"></i> <span>Schedule</span></button>
+    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset"><i data-feather="bookmark"></i> <span>Save view</span></button>
+    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view"><i data-feather="folder"></i> <span>Presets</span></button>
     {% if is_developer %}
-    <button type="button" id="previewBtn" class="btn btn-outline" title="Show the body that would be sent to the Reporting API">API preview</button>
+    <button type="button" id="previewBtn" class="btn btn-outline" title="Show the body that would be sent to the Reporting API"><i data-feather="code"></i> <span>API preview</span></button>
     {% endif %}
 </div>
 
