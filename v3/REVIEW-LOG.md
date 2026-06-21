@@ -533,6 +533,34 @@ commission rate in a column called `commission`. Should the report read the rate
   confirm the column's unit on a live call (the endpoint isn't reachable right now) - once we
   capture one real row, we tick it off.
 
+### Session: Sun Jun 21 - "leave the page and come back to my running report" + always-on status
+
+**1. Where do I remember a running report so leaving the page doesn't lose it?**
+- *The options:* (a) remember it only in the browser (localStorage) on the machine that started
+  it; (b) ask the server which of *your* reports are still going.
+- *What I chose:* (b). The job table already knows every run, who owns it, and how far along it is,
+  so I added one read-only endpoint (`/api/reports/active`) that returns *your* report runs that
+  are still going (or finished in the last 10 minutes). It's owner-scoped - you only ever see your
+  own jobs.
+- *Why:* the server is the real source of truth and it works no matter which page or device you're
+  on. localStorage would only work on the one browser that kicked it off and would drift out of
+  sync with the actual job.
+
+**2. How does coming back to the report page show the run again?**
+- *What I chose:* when the report page loads, it asks that endpoint whether you have a run going for
+  *this* report. If yes, it reconnects to the same job and shows its progress (and loads the result
+  the moment it's done) instead of starting a brand-new run. If the run already finished while you
+  were away, it just loads that result.
+- *Why:* matches what you asked - leave, come back, and the report you were running is right there.
+
+**3. The "always-on status bar."**
+- *What I chose:* a small bar that sits just above the bottom menu on every page. It lists your
+  running reports with a live "building 45%" and a colored dot (blue = running, green = ready,
+  red = failed). Click one to jump straight to that report. It hides itself when you have nothing
+  running and nothing recently finished. It refreshes every 5 seconds.
+- *Why:* you wanted to see "where my reports are up to" no matter what page you're on, without
+  babysitting the report screen.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

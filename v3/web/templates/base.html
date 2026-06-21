@@ -66,6 +66,12 @@
     </main>
 
     {% if user %}
+    <div id="reportJobsBar" class="report-jobs-bar" hidden
+         data-active-url="{{ url_for('reports.active_report_runs') }}"
+         data-report-url="{{ url_for('reports.report_view', report_key='__KEY__') }}"></div>
+    {% endif %}
+
+    {% if user %}
     <nav class="bottom-nav" data-notifications-url="{{ url_for('dashboard.notifications') }}">
         <a href="{{ nav.reports }}" class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
             <div class="bottom-nav-icon">

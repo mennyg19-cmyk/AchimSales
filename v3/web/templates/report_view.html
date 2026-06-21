@@ -134,6 +134,7 @@
      data-report-key="{{ report.key }}"
      data-run-url="{{ url_for('reports.run_report', report_key=report.key) }}"
      data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
+     data-active-url="{{ url_for('reports.active_report_runs') }}"
      data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}"
      data-result-url="{{ url_for('reports.report_result', job_id='__ID__') }}"
      data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"

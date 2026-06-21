@@ -50,6 +50,38 @@ body {
     border: 1px solid #ffc107; border-radius: 4px;
 }
 
+/* -- Always-on report status bar (sits just above the bottom nav) -- */
+.report-jobs-bar {
+    position: fixed; left: 0; right: 0; z-index: 150;
+    bottom: calc(var(--bottom-nav-height) + 8px + env(safe-area-inset-bottom, 0px));
+    pointer-events: none;
+}
+.report-jobs-inner {
+    pointer-events: auto; margin: 0 12px; padding: 8px 12px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+}
+.report-jobs-lead { font-size: 12px; font-weight: 600; color: var(--text-light); }
+.report-job-chip {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    border-radius: 99px; padding: 4px 12px; font-size: 12px; font-weight: 500;
+    max-width: 100%; transition: border-color 0.15s, background 0.15s;
+}
+.report-job-chip:hover { border-color: var(--primary); }
+.report-job-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-job-dot {
+    flex: 0 0 auto; width: 9px; height: 9px; border-radius: 99px; background: var(--text-light);
+}
+.report-job-running .report-job-dot {
+    background: var(--primary); animation: report-job-pulse 1.1s ease-in-out infinite;
+}
+.report-job-queued .report-job-dot { background: var(--warning, #f59e0b); }
+.report-job-success .report-job-dot { background: var(--success, #16a34a); }
+.report-job-failure .report-job-dot { background: var(--error, #dc2626); }
+@keyframes report-job-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
 /* -- Bottom navigation -- */
 .bottom-nav {
     position: fixed; bottom: 0; left: 0; right: 0;

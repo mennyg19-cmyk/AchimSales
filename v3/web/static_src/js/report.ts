@@ -1251,6 +1251,49 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
   }
 }
 
+/** Reconnect to a job that's already on the server (started in a prior visit),
+ *  reusing the same poll loop -- it shows progress for a running job and loads
+ *  the result for one that already finished. */
+async function resumeJob(jobId: string): Promise<void> {
+  setToolbarEnabled(false);
+  setStatus("Reconnecting to your report…");
+  runAborted = false;
+  activeRunJobId = jobId;
+  try {
+    await poll(jobId);
+  } catch (err) {
+    if (!runAborted) setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
+  } finally {
+    showCancel(false);
+    activeRunJobId = null;
+    const runBtn = $("runBtn") as HTMLButtonElement | null;
+    if (runBtn) runBtn.disabled = false;
+  }
+}
+
+/** On page load, pick up a report this user was running (or just finished) for
+ *  THIS report and show it, so leaving and coming back doesn't lose the run.
+ *  Returns true if it found and resumed one. */
+async function resumeInFlight(): Promise<boolean> {
+  const url = attr("data-active-url");
+  const key = attr("data-report-key");
+  if (!url || !key) return false;
+  let jobs: { job_id: string; report_key: string | null; status: string }[];
+  try {
+    const data = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
+    jobs = (data && data.jobs) || [];
+  } catch {
+    return false;
+  }
+  // Server returns newest first, so the first match is the most recent run.
+  const mine = jobs.find((j) => j.report_key === key &&
+    (j.status === "running" || j.status === "queued" || j.status === "success"));
+  if (!mine) return false;
+  state.jobId = mine.job_id;
+  await resumeJob(mine.job_id);
+  return true;
+}
+
 function setToolbarEnabled(hasData: boolean): void {
   (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
@@ -2082,8 +2125,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   setToolbarEnabled(false);
   loadExports();  // pick up any in-flight exports started before a navigation/reload
   await initLookups();
-  await autoOpenPresetIfRequested();
-  if (autoRunRequested) { autoRunRequested = false; run(); }
+  // If this user was already running (or just finished) this report, reconnect
+  // to it instead of starting fresh -- leaving the page and coming back keeps it.
+  const resumed = await resumeInFlight();
+  if (!resumed) {
+    await autoOpenPresetIfRequested();
+    if (autoRunRequested) { autoRunRequested = false; run(); }
+  }
 });
 
 export {};

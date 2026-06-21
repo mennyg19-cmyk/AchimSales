@@ -15,7 +15,8 @@ read stale wider-scoped cached data.
 
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime, timezone
 
 from flask import (
     Blueprint,
@@ -317,6 +318,54 @@ def report_result(job_id: str):
     if cached is None:
         abort(404, description="Result expired; please re-run")
     return jsonify(cached.payload)
+
+
+# How long a finished run keeps showing on the status bar / stays resumable.
+_RECENT_DONE_SECONDS = 600
+
+
+def _age_seconds(ts: str | None, now: datetime | None = None) -> int | None:
+    """Seconds since a stored timestamp. Handles both the naive 'YYYY-MM-DD
+    HH:MM:SS' that SQLite writes for created_at and the tz-aware ISO that the
+    job repo writes for finished_at."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    return int((now - dt).total_seconds())
+
+
+@reports_bp.get("/api/reports/active")
+@require_login
+def active_report_runs():
+    """The current user's report runs that are still going (queued/running) or
+    finished in the last few minutes. Drives the always-on status bar and the
+    resume-on-return behaviour. Owner-scoped: only the caller's own jobs."""
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        return jsonify({"jobs": []})
+    titles = {s.key: s.title for s in registry.built_reports()}
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    jobs = []
+    for r in _job_repo().report_runs_for_user(uid, limit=30):
+        status = r["status"]
+        if status not in ("queued", "running"):
+            age = _age_seconds(r["finished_at"] or r["created_at"], now)
+            if age is None or age > _RECENT_DONE_SECONDS:
+                continue
+        rkey = json.loads(r["params_json"] or "{}").get("report_key")
+        jobs.append({
+            "job_id": r["id"], "report_key": rkey,
+            "title": titles.get(rkey, rkey or "Report"),
+            "status": status, "progress": r["progress"] or 0,
+        })
+    return jsonify({"jobs": jobs})
 
 
 @reports_bp.post("/api/reports/<report_key>/export/<job_id>")

@@ -249,6 +249,91 @@ function initNotificationBadges(): void {
   setInterval(poll, 30000);
 }
 
+interface ActiveReportJob {
+  job_id: string;
+  report_key: string | null;
+  title: string;
+  status: string;
+  progress: number;
+}
+
+/**
+ * Always-on bar (every page) showing the user's report runs and how far along
+ * they are. Click a chip to jump to that report -- if it's still running the
+ * report page reconnects to it; if it just finished it loads the result.
+ */
+function initReportJobsBar(): void {
+  const bar = document.getElementById("reportJobsBar");
+  if (!bar) return;
+  const activeUrl = bar.getAttribute("data-active-url") || "";
+  const reportUrlTpl = bar.getAttribute("data-report-url") || "";
+  if (!activeUrl) return;
+
+  let lastSignature = "";
+
+  function statusWord(job: ActiveReportJob): string {
+    if (job.status === "running") return `building ${job.progress || 0}%`;
+    if (job.status === "queued") return "waiting to start";
+    if (job.status === "success") return "ready";
+    if (job.status === "failure") return "failed";
+    return job.status;
+  }
+
+  function render(jobs: ActiveReportJob[]): void {
+    const signature = JSON.stringify(jobs.map((j) => [j.job_id, j.status, j.progress]));
+    if (signature === lastSignature) return; // nothing changed; don't churn the DOM
+    lastSignature = signature;
+
+    if (!jobs.length) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      return;
+    }
+    const inner = document.createElement("div");
+    inner.className = "report-jobs-inner";
+    const running = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
+    const lead = document.createElement("span");
+    lead.className = "report-jobs-lead";
+    lead.textContent = running ? `${running} report${running > 1 ? "s" : ""} running` : "Your reports";
+    inner.appendChild(lead);
+
+    jobs.forEach((job) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "report-job-chip report-job-" + job.status;
+      chip.dataset.noGuard = "1";
+      chip.title = "Open this report";
+      const dot = document.createElement("span");
+      dot.className = "report-job-dot";
+      const label = document.createElement("span");
+      label.className = "report-job-label";
+      label.textContent = `${job.title} — ${statusWord(job)}`;
+      chip.appendChild(dot);
+      chip.appendChild(label);
+      chip.addEventListener("click", () => {
+        if (!job.report_key) return;
+        window.location.href = reportUrlTpl.replace("__KEY__", encodeURIComponent(job.report_key));
+      });
+      inner.appendChild(chip);
+    });
+
+    bar.innerHTML = "";
+    bar.appendChild(inner);
+    bar.hidden = false;
+  }
+
+  async function poll(): Promise<void> {
+    try {
+      const data = await fetch(activeUrl, { headers: { Accept: "application/json" } }).then((r) => r.json());
+      render((data && data.jobs) || []);
+    } catch {
+      /* transient; keep showing the last state and retry next tick */
+    }
+  }
+  poll();
+  setInterval(poll, 5000);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (typeof feather !== "undefined") feather.replace();
   document.addEventListener("click", onClick);
@@ -257,6 +342,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   initThemeToggle();
   initNotificationBadges();
+  initReportJobsBar();
   initPullToRefresh();
 });
 

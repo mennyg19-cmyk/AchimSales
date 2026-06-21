@@ -228,3 +228,16 @@ class JobRepository:
                 (user_id, limit),
             ).fetchall()
             return [Job.from_row(r) for r in rows]
+
+    def report_runs_for_user(self, user_id: int, limit: int = 30) -> list[dict]:
+        """Recent report.run jobs for one user, newest first, with the timestamps
+        the status bar needs. Powers the always-on "where are my reports up to"
+        bar and the resume-on-return behaviour."""
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT id, status, progress, params_json, created_at, finished_at"
+                " FROM jobs WHERE owner_user_id = ? AND type = 'report.run'"
+                " ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]

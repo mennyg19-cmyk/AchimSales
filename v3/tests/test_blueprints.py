@@ -332,6 +332,42 @@ def test_cannot_cancel_another_users_job(tmp_path):
     assert app.config["JOB_REPO"].get(job_id).status == "queued"  # untouched
 
 
+def test_active_report_runs_lists_owners_recent_run(tmp_path):
+    rows = {
+        "salesline_release": [
+            {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+             "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+             "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+        ]
+    }
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+
+    jobs = client.get("/api/reports/active").get_json()["jobs"]
+    mine = [j for j in jobs if j["job_id"] == job_id]
+    assert len(mine) == 1
+    assert mine[0]["report_key"] == "ordered"
+    assert mine[0]["status"] == "success"  # worker drains inline in tests
+    assert mine[0]["title"]
+
+
+def test_active_report_runs_is_owner_scoped(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    job_id = app.config["JOB_REPO"].enqueue(
+        JOB_TYPE, owner_user_id=uid, params={"report_key": "ordered"})
+
+    other = app.test_client()
+    _login(other, app, email="other@x.com", role="admin")
+    jobs = other.get("/api/reports/active").get_json()["jobs"]
+    assert all(j["job_id"] != job_id for j in jobs)
+
+
 def test_reporting_api_diagnostics_developer_only(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
