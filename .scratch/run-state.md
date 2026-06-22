@@ -68,6 +68,27 @@ Tracks progress through the rebuild protocol. Update at every phase gate.
 - OUT OF SCOPE: v3 leaving sys.path[0] is pre-existing v3 behavior; the rebuild
   uses relative imports so it's unaffected, and we don't touch live/v3.
 
+## Phase 4.1 Auth (Entra) — built + deployed GREEN
+- Added Entra callback URI to the app registration (ADDITIVE; all existing URIs
+  kept): https://reports.achimonline.com/test-next/auth/callback
+- New rebuild/auth/: principal, session, msal_flow, authorization (central role
+  resolution), decorators (require_login/require_privileged).
+- auth_routes: /login, /login/start, /auth/callback, /logout, /login/dev
+  (dev-only). Safe-next guard against open redirects. login_next stashed in
+  session across the Microsoft round trip.
+- precious migration 0002 users table + UsersRepository.record_login (directory
+  mirror, upsert on each login). Role from REBUILD_DEVELOPER_EMAILS.
+- Landing page now @require_login; shows signed-in name/role + sign out.
+- App settings: REBUILD_AUTH_MODE=msal (already set), added
+  REBUILD_DEVELOPER_EMAILS (mirrors V3 = mennyg@achimonline.com,...ad...).
+- Verified in prod: index -> 302 /test-next/login; login page shows the
+  Microsoft button (dev form hidden in prod); /login/start -> 302 to
+  login.microsoftonline.com with redirect_uri EXACTLY the registered
+  /test-next/auth/callback; schema_ready true; live / and /test unaffected.
+- REMAINING HUMAN STEP: the actual browser sign-in (typing the Microsoft
+  password) can only be done by a person -- everything up to that point is wired
+  and verified.
+
 ## Live preview URL
 - https://reports.achimonline.com/test-next/  (temporary slot; live /test untouched)
 
