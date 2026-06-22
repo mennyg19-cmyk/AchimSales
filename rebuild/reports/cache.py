@@ -9,7 +9,10 @@
 #
 # build_cache_key() -- a stable id from report + identity + scope + SP params
 # ResultCache.store() -- save (or overwrite) one report's result
-# ResultCache.read() -- load a saved result, or None
+# ResultCache.read() -- load a saved result, or None (no ownership check)
+# ResultCache.read_for_identity() -- load ONLY if this person + scope owns it
+#   (the cache key already folds in identity, but this re-checks the stored
+#   identity/scope so a derived or guessed key can never leak another's rows)
 
 from __future__ import annotations
 
@@ -59,3 +62,14 @@ class ResultCache:
             data = json.loads(row["payload"])
             data["_cached_at"] = row["created_at"]
             return data
+
+    def read_for_identity(self, cache_key: str, identity_email: Optional[str], scope_token: Optional[str]) -> Optional[dict[str, Any]]:
+        data = self.read(cache_key)
+        if data is None:
+            return None
+        owner = (data.get("identity") or "").strip().lower()
+        if owner != (identity_email or "").strip().lower():
+            return None
+        if (data.get("scope") or "") != (scope_token or ""):
+            return None
+        return data

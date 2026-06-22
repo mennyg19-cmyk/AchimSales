@@ -159,17 +159,21 @@ class JobRepository:
             conn.execute("UPDATE jobs SET heartbeat_at = ? WHERE id = ?", (utc_now_iso(), job_id))
 
     def mark_done(self, job_id: str, result_ref: Optional[str] = None) -> None:
+        # Only a still-running job can finish. If it was cancelled (or already
+        # failed by the timeout backstop) while the handler was wrapping up, that
+        # decision stands -- a late handler can't flip it back to done.
         with self._db.precious() as conn:
             conn.execute(
-                "UPDATE jobs SET status = ?, result_ref = ?, error = NULL, finished_at = ? WHERE id = ?",
-                (STATUS_DONE, result_ref, utc_now_iso(), job_id),
+                "UPDATE jobs SET status = ?, result_ref = ?, error = NULL, finished_at = ? "
+                "WHERE id = ? AND status = ?",
+                (STATUS_DONE, result_ref, utc_now_iso(), job_id, STATUS_RUNNING),
             )
 
     def mark_failed(self, job_id: str, error: str) -> None:
         with self._db.precious() as conn:
             conn.execute(
-                "UPDATE jobs SET status = ?, error = ?, finished_at = ? WHERE id = ?",
-                (STATUS_FAILED, error[:2000], utc_now_iso(), job_id),
+                "UPDATE jobs SET status = ?, error = ?, finished_at = ? WHERE id = ? AND status = ?",
+                (STATUS_FAILED, error[:2000], utc_now_iso(), job_id, STATUS_RUNNING),
             )
 
     def cancel(self, job_id: str) -> bool:

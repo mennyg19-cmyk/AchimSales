@@ -2,9 +2,9 @@
 
 # === What's in this file ===
 # One place that wires job-type names to the functions that run them, so both
-# the in-process worker and the separate worker process register the same set.
-# The report-run handler is added in the report-engine milestone; for now this
-# registers the housekeeping job that trims old cached results.
+# the in-process worker and the separate worker process register the same set:
+# the report-run handler (from the reports module) and the housekeeping job that
+# trims old cached results.
 #
 # register_all() -- attach all known handlers to the registry
 # _cache_cleanup() -- delete cached report snapshots older than the retention window

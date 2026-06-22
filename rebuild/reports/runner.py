@@ -16,6 +16,7 @@ import logging
 import time
 
 from ..data.connection import utc_now_iso
+from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.run_log import RunLogRepository
 from ..jobs.types import JOB_REPORT_RUN, HandlerRegistry, JobContext
 from .adapter import normalize
@@ -39,10 +40,14 @@ def run_report_job(ctx: JobContext) -> str | None:
     filters = (job.params or {}).get("filters") or {}
     sp_params = translate(job.report_key, filters)
 
+    # Give the API call a deadline a bit before the worker's hard backstop, so a
+    # wedged endpoint makes the handler raise and return on its own rather than
+    # leaving an orphaned thread behind the timeout.
+    api_timeout = min(config.reporting_api_timeout, max(5, config.max_job_seconds - 15))
     client = ReportingApiClient(
         config.reporting_api_base_url,
         config.reporting_api_key,
-        timeout=config.reporting_api_timeout,
+        timeout=api_timeout,
     )
     result = client.run_report(report_config.sp_name, sp_params)
 
@@ -50,9 +55,12 @@ def run_report_job(ctx: JobContext) -> str | None:
         log.info("job %s cancelled after fetch; not building", job.id)
         return None
 
-    if result.row_count > config.max_result_rows:
+    # Trust the larger of what the API claims and what it actually sent, so an
+    # under-reported row_count can't slip a huge result past the guard.
+    actual_count = max(int(result.row_count or 0), len(result.rows))
+    if actual_count > config.max_result_rows:
         raise ValueError(
-            f"This report returned {result.row_count:,} rows, over the current "
+            f"This report returned {actual_count:,} rows, over the current "
             f"{config.max_result_rows:,}-row limit. Narrow the date range and run it again."
         )
 
@@ -64,10 +72,19 @@ def run_report_job(ctx: JobContext) -> str | None:
         "title": report_config.title,
         "generated_at": utc_now_iso(),
         "params": filters,
-        "row_count": result.row_count,
+        "row_count": actual_count,
         "provisional": True,
+        "identity": (job.requested_by or "").strip().lower(),
+        "scope": job.scope_token or "",
         "tabs": tabs,
     }
+
+    # If the job was cancelled or failed (timeout backstop) while we were
+    # building, drop the result instead of writing a stale snapshot/log entry.
+    current = ctx.jobs.get(job.id)
+    if current is None or current.status != STATUS_RUNNING:
+        log.info("job %s no longer running (%s); discarding result", job.id, current.status if current else "gone")
+        return None
 
     cache_key = job.cache_key or build_cache_key(job.report_key, job.requested_by, job.scope_token, sp_params)
     ResultCache(db).store(cache_key, job.report_key, snapshot)
@@ -79,7 +96,7 @@ def run_report_job(ctx: JobContext) -> str | None:
         job_id=job.id,
         duration_ms=int((time.monotonic() - started) * 1000),
         status="done",
-        message=f"{result.row_count} rows, {len(tabs)} tabs",
+        message=f"{actual_count} rows, {len(tabs)} tabs",
     )
     return cache_key
 

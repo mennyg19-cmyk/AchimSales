@@ -41,6 +41,7 @@ def _clean(value, spec: FieldSpec):
 
 def normalize(report_key: str, raw_rows: Iterable[Mapping]) -> list[dict]:
     specs = manifest_for(report_key)
+    total_aliases = next((s.aliases for s in specs if s.key == "Total Invoice"), ())
     out: list[dict] = []
     for raw in raw_rows:
         row = {spec.key: _clean(first_present(raw, spec.aliases), spec) for spec in specs}
@@ -50,8 +51,11 @@ def normalize(report_key: str, raw_rows: Iterable[Mapping]) -> list[dict]:
         if row.get("IsCredit") is None:
             row["IsCredit"] = is_credit_number(row.get("InvoiceNumber", ""))
 
-        # LIVE fallback 2: if Total Invoice came back blank, sum the parts.
-        if not row.get("Total Invoice"):
+        # LIVE fallback 2: only sum the parts when the SP truly didn't send a
+        # Total Invoice. A real 0.00 (e.g. a fully-offset invoice) is kept as-is;
+        # we check the raw cell for blank/None, not the cleaned number.
+        raw_total = first_present(raw, total_aliases)
+        if raw_total is None or str(raw_total).strip() == "":
             row["Total Invoice"] = round(sum(num(row.get(p)) for p in _MONEY_PARTS), 2)
 
         out.append(row)

@@ -161,6 +161,23 @@ DEFERRED until after sign-off / before cutover (tracked here so not forgotten):
   Credits, Invoices, Audit-Reversals (condition has_reversals), Totals by Salesman
   (condition has_multiple_salesmen).
 
+## M3 review resolutions (review agent gpt-5.5-extra-high)
+- BLOCKER (timeout orphan thread): mitigated for in-process slice -- API client now
+  gives up ~15s BEFORE the worker's hard backstop so the handler raises/returns on
+  its own; mark_done/mark_failed are conditional (WHERE status='running'); runner
+  re-checks the job is still running before writing cache/log so a late handler
+  can't write a stale result. RESIDUAL (logged, deferred to separate-worker T4.04):
+  no hard thread/process kill in-process; a runaway thread can still hold the
+  single executor slot until it ends. Acceptable on the preview slot.
+- SHOULD-FIX cache authz: snapshot now stores identity+scope; ResultCache.read_for_
+  identity() verifies them (defense-in-depth on top of the identity-folded key).
+  M5 result route MUST use read_for_identity, never read().
+- SHOULD-FIX row guard: now rejects on max(reported row_count, len(rows)).
+- SHOULD-FIX Total 0.00: adapter only sums parts when the RAW Total cell is
+  blank/None, so a legitimate 0.00 net is preserved.
+- SHOULD-FIX cancel race: fixed by the conditional mark_done/mark_failed above.
+- NICE: handlers.py banner comment updated.
+
 ## Live preview URL
 - https://reports.achimonline.com/test-next/  (temporary slot; live /test untouched)
 

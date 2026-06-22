@@ -62,6 +62,20 @@ def test_commission_uses_net_of_freight_and_cc_and_includes_credits():
     assert pivot["total"]["YTD Commission"] == 157.30
 
 
+def test_adapter_keeps_real_zero_total_and_only_fills_blank():
+    raw = [
+        # A genuine 0.00 net invoice: must be kept, not recomputed from parts.
+        {"InvoiceNumber": "INV010", "Total Invoice": 0, "amount": 100,
+         "Freight Charges": 0, "salesman": "S1"},
+        # No Total sent at all: summed from parts (100 + 5 = 105).
+        {"InvoiceNumber": "INV011", "amount": 100, "Misc Charges": 5, "salesman": "S1"},
+    ]
+    rows = normalize("invoiced", raw)
+    by_invoice = {r["InvoiceNumber"]: r for r in rows}
+    assert by_invoice["INV010"]["Total Invoice"] == 0.0
+    assert by_invoice["INV011"]["Total Invoice"] == 105.0
+
+
 def test_summary_groups_by_customer_and_salesman_with_distinct_invoice_count():
     rows = normalize("invoiced", _raw_sample())
     tabs = build_tabs(rows, _summary_tab(), transforms=TRANSFORMS)
