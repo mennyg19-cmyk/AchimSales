@@ -12,7 +12,13 @@
     <dd>{% if schema_ready %}<span class="ok">ready</span>{% else %}<span class="pending">starting up</span>{% endif %}</dd>
     {% if principal %}
     <dt>Signed in</dt>
-    <dd>{{ principal.name }} ({{ principal.role }}) <a href="{{ url_for('auth.logout') }}">sign out</a></dd>
+    <dd>
+      {{ principal.name }} ({{ principal.role }})
+      <form method="post" action="{{ url_for('auth.logout') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="linklike">sign out</button>
+      </form>
+    </dd>
     {% endif %}
   </dl>
   <p class="muted">Next: the invoiced report.</p>

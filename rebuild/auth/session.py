@@ -1,13 +1,16 @@
 """Keeping the signed-in person in the browser session."""
 
 # === What's in this file ===
-# After a successful Microsoft sign-in we remember who the person is in Flask's
-# signed session cookie (just their email/name/role -- never a token). These
-# helpers are the only place that reads or writes that session slot.
+# After a successful Microsoft sign-in we remember WHO the person is in Flask's
+# signed session cookie -- only their email and display name, never a token and
+# never their role. The role (and what they're allowed to see) is re-decided on
+# every request from the server's config, so a stale or tampered cookie can't
+# grant privileges.
 #
-# login_user() -- store the principal in the session (fresh session id)
+# login_user() -- start a fresh session holding just the person's identity
 # logout_user() -- forget the signed-in person
-# current_principal() -- the signed-in Principal for this request, or None
+# current_principal() -- the signed-in Principal for this request, role resolved
+#                        server-side, or None if not signed in
 
 from __future__ import annotations
 
@@ -17,12 +20,14 @@ from flask import session
 
 from .principal import Principal
 
-_PRINCIPAL_KEY = "principal"
+_USER_KEY = "user"
 
 
 def login_user(principal: Principal) -> None:
+    # Clearing first rotates the session so a pre-login session id can't be
+    # reused after sign-in (guards against session fixation).
     session.clear()
-    session[_PRINCIPAL_KEY] = principal.to_dict()
+    session[_USER_KEY] = {"email": principal.email, "name": principal.name}
     session.permanent = True
 
 
@@ -31,4 +36,13 @@ def logout_user() -> None:
 
 
 def current_principal() -> Optional[Principal]:
-    return Principal.from_dict(session.get(_PRINCIPAL_KEY))
+    raw = session.get(_USER_KEY)
+    if not isinstance(raw, dict) or not raw.get("email"):
+        return None
+    # Role is never trusted from the cookie; resolve it from server config now.
+    from ..app import get_config
+    from .authorization import resolve_role
+
+    email = str(raw["email"]).strip().lower()
+    name = str(raw.get("name") or email)
+    return Principal(email=email, name=name, role=resolve_role(get_config(), email))

@@ -10,6 +10,7 @@
   {% if dev_mode %}
   <form class="dev-login" method="post" action="{{ url_for('auth.dev_login') }}">
     <p class="muted">Developer mode: sign in as any email.</p>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="next" value="{{ next }}">
     <input type="email" name="email" placeholder="you@achimonline.com" required>
     <input type="text" name="name" placeholder="Display name (optional)">

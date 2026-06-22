@@ -89,6 +89,25 @@ Tracks progress through the rebuild protocol. Update at every phase gate.
   password) can only be done by a person -- everything up to that point is wired
   and verified.
 
+### Phase 4.1 auth review (GPT readonly) — resolved
+- FIXED (blocker): mount-safe `next`. Under the dispatcher mount request paths
+  are app-local, so the old guard could redirect to "/" and escape into the live
+  app after login. _safe_next now re-adds the mount prefix and rejects //, /\,
+  and absolute URLs. Verified: next="/" -> /test-next/.
+- FIXED (blocker): CSRF. Added rebuild/security/csrf.py (token per session,
+  required on POST/PUT/PATCH/DELETE, csrf_token() in templates). Logout is now
+  POST with a token; dev-login form carries a token. Verified tokenless POST=400.
+- FIXED: SESSION_COOKIE_PATH=mount_path so the cookie is scoped to /test-next.
+- FIXED: role is no longer trusted from the cookie -- session stores identity
+  only; current_principal() re-resolves the role server-side every request.
+- FIXED: MSAL errors show a generic message; the real detail is logged only.
+- FIXED: ProxyFix added (x_for/proto/host=1) + case-insensitive forwarded-proto
+  so the https callback URL is correct behind the Azure proxy.
+- DEFERRED (nice-to-have, documented): users.role CHECK constraint (the app only
+  ever writes resolved valid roles); server-side MSAL flow storage (confidential
+  client -- the PKCE verifier in the signed cookie is unusable without the client
+  secret, same pattern as the live app).
+
 ## Live preview URL
 - https://reports.achimonline.com/test-next/  (temporary slot; live /test untouched)
 

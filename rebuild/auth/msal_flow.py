@@ -39,10 +39,12 @@ def _confidential_app(config: Config):
 
 def _redirect_uri(config: Config) -> str:
     root = request.url_root.rstrip("/")
-    # Azure terminates TLS at the proxy, so the request reaches us as http even
-    # though the browser used https. Force https so the redirect URL matches the
-    # one registered in Entra.
-    if request.headers.get("X-Forwarded-Proto") == "https" and root.startswith("http://"):
+    # ProxyFix normally makes this https already. As a belt-and-suspenders, if a
+    # forwarded-proto header still says https while the URL came through as http,
+    # force https so the callback URL matches the one registered in Entra. The
+    # header can be a comma-separated list, so take the first hop, case-insensitive.
+    forwarded = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+    if forwarded == "https" and root.startswith("http://"):
         root = "https://" + root[len("http://"):]
     return root + config.redirect_path
 
@@ -56,22 +58,31 @@ def build_login_url(config: Config) -> str:
     return flow["auth_uri"]
 
 
+_GENERIC_ERROR = "Sign-in failed. Please try again, and contact support if it keeps happening."
+
+
 def complete_login(config: Config) -> dict:
-    """Finish the redirect. Returns {'email','name'} on success or {'error': ...}."""
+    """Finish the redirect. Returns {'email','name'} on success or {'error': ...}.
+
+    The error string is deliberately generic; the real reason (which can include
+    Microsoft's internal detail) is logged server-side, not shown to the user.
+    """
     flow = session.pop(_FLOW_KEY, None)
     if not flow:
-        return {"error": "Sign-in session expired. Please start again."}
+        return {"error": "Your sign-in took too long or was interrupted. Please start again."}
     try:
         result = _confidential_app(config).acquire_token_by_auth_code_flow(
             flow, request.values.to_dict()
         )
-    except Exception as exc:  # noqa: BLE001 - log detail, return a safe message
-        log.exception("MSAL token acquisition failed")
-        return {"error": f"Sign-in failed: {exc}"}
+    except Exception:  # noqa: BLE001 - log detail, show the user a generic message
+        log.exception("MSAL token acquisition raised")
+        return {"error": _GENERIC_ERROR}
     if "error" in result:
-        return {"error": result.get("error_description") or result["error"]}
+        log.warning("MSAL sign-in error: %s / %s", result.get("error"), result.get("error_description"))
+        return {"error": _GENERIC_ERROR}
     claims = result.get("id_token_claims") or {}
     email = (claims.get("preferred_username") or claims.get("email") or claims.get("upn") or "").strip().lower()
     if not email:
-        return {"error": "Microsoft did not return an email address."}
+        log.warning("MSAL returned no email claim; claims keys=%s", list(claims.keys()))
+        return {"error": _GENERIC_ERROR}
     return {"email": email, "name": claims.get("name") or email}

@@ -38,12 +38,23 @@ auth_bp = Blueprint("auth", __name__)
 
 
 def _safe_next(raw: str | None) -> str:
-    """Only allow redirecting to a path on this same site."""
-    if not raw:
-        return url_for("main.index")
+    """Only allow redirecting to a path INSIDE this mounted app.
+
+    Two traps to avoid: an absolute URL to another site (open redirect), and a
+    path that looks local but lands outside our mount. Because the app runs under
+    a path prefix, an app-local path like "/reports" must get the mount prefix
+    re-added ("/test-next/reports"); without that, redirecting to "/" would
+    escape into the live app.
+    """
+    fallback = url_for("main.index")
+    if not raw or not raw.startswith("/") or raw.startswith("//") or raw.startswith("/\\"):
+        return fallback
     parts = urlsplit(raw)
-    if parts.scheme or parts.netloc or not raw.startswith("/"):
-        return url_for("main.index")
+    if parts.scheme or parts.netloc:
+        return fallback
+    root = request.script_root or ""
+    if root and raw != root and not raw.startswith(root + "/"):
+        return root + raw
     return raw
 
 
@@ -84,7 +95,7 @@ def callback():
     return _sign_in(result["email"], result["name"], next_url)
 
 
-@auth_bp.get("/logout")
+@auth_bp.post("/logout")
 def logout():
     logout_user()
     return redirect(url_for("auth.login"))

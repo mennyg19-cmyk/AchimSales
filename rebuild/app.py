@@ -17,9 +17,11 @@ import logging
 from typing import Optional
 
 from flask import Flask, current_app
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import Config, load_config
 from .data.connection import Database
+from .security.csrf import init_csrf
 
 log = logging.getLogger("rebuild")
 
@@ -44,10 +46,20 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.config[_DB_KEY] = Database(config)
     app.config.update(
         SESSION_COOKIE_NAME=config.session_cookie_name,
+        # Scope the cookie to this app's mount so it never collides with the
+        # live / or existing /test app cookies.
+        SESSION_COOKIE_PATH=config.mount_path or "/",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=config.is_prod,
     )
+
+    # Azure terminates TLS at its proxy, so trust the one forwarded hop for
+    # scheme/host. This makes request.url_root https, so the MSAL callback URL
+    # we build matches the https URL registered in Entra.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    init_csrf(app)
 
     from .blueprints.auth_routes import auth_bp
     from .blueprints.health_routes import health_bp
