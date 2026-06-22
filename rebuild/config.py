@@ -101,6 +101,13 @@ class Config:
     developer_emails: frozenset[str] = field(default_factory=frozenset)
     reporting_api_timeout: float = 300.0
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
+    # Jobs / worker
+    worker_mode: str = "in_process"
+    job_worker_threads: int = 1
+    job_queue_max: int = 25
+    job_stale_seconds: int = 180
+    max_job_seconds: int = 300
+    max_result_rows: int = 200_000
 
     @property
     def is_prod(self) -> bool:
@@ -208,6 +215,12 @@ def load_config() -> Config:
             if e.strip()
         ),
         reporting_api_timeout=float(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "300") or "300"),
+        worker_mode=os.environ.get("REBUILD_WORKER_MODE", "in_process").strip() or "in_process",
+        job_worker_threads=int(os.environ.get("REBUILD_JOB_WORKER_THREADS", "1") or "1"),
+        job_queue_max=int(os.environ.get("REBUILD_JOB_QUEUE_MAX", "25") or "25"),
+        job_stale_seconds=int(os.environ.get("REBUILD_JOB_STALE_SECONDS", "180") or "180"),
+        max_job_seconds=int(os.environ.get("REBUILD_MAX_JOB_SECONDS", "300") or "300"),
+        max_result_rows=int(os.environ.get("REBUILD_MAX_RESULT_ROWS", "200000") or "200000"),
     )
     cfg.validate()
     return cfg
