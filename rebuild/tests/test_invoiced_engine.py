@@ -8,10 +8,47 @@ database, no network -- so a cheaper model can run them fast.
 from __future__ import annotations
 
 from rebuild.reports import conditions
+from rebuild.reports import export as export_file
 from rebuild.reports.adapter import normalize
 from rebuild.reports.engine import build_tabs
 from rebuild.reports.lib import iso_date
 from rebuild.reports.transforms import TRANSFORMS, commission_cards, commission_monthly_pivot
+
+
+_SAMPLE_TAB = {
+    "label": "Totals",
+    "columns": [
+        {"field": "Salesman", "label": "Salesman", "type": "text"},
+        {"field": "Total", "label": "Total", "type": "money"},
+    ],
+    "rows": [{"Salesman": "Alice", "Total": 1234.5}, {"Salesman": "Bob", "Total": 0.0}],
+    "total": {"Salesman": "TOTAL", "Total": 1234.5},
+}
+
+
+def test_csv_export_has_header_rows_and_total():
+    text = export_file.to_csv(_SAMPLE_TAB).decode("utf-8-sig")
+    lines = [line for line in text.splitlines() if line]
+    assert lines[0] == "Salesman,Total"
+    assert lines[1] == "Alice,1234.5"
+    assert lines[-1] == "TOTAL,1234.5"
+
+
+def test_xlsx_export_is_a_real_workbook():
+    import io
+    from openpyxl import load_workbook
+
+    data = export_file.to_xlsx(_SAMPLE_TAB)
+    book = load_workbook(io.BytesIO(data))
+    sheet = book.active
+    assert sheet["A1"].value == "Salesman"
+    assert sheet["B2"].value == 1234.5
+    assert sheet["A4"].value == "TOTAL"
+
+
+def test_export_filename_is_sanitized():
+    assert export_file.filename_for("invoiced", "totals_by_salesman", "xlsx") == "invoiced_totals_by_salesman.xlsx"
+    assert export_file.filename_for("a/b", "c d", "csv") == "a_b_c_d.csv"
 
 
 def test_iso_date_parses_rfc_and_common_formats():

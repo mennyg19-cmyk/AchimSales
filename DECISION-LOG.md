@@ -25,6 +25,24 @@ Decisions made during autonomous operation or at ambiguous points during develop
 
 ---
 
+## 2026-06-22 Rebuild M9: exports (CSV + Excel) from the snapshot (autonomous)
+**What I had to decide:** The owner's inventory wanted exports. How to produce CSV and Excel without bolting on weight, and what the file should contain.
+**Options I considered:** (a) Rebuild the export in Excel like the old app does (heavy, and the rebuild explicitly does NOT port the old Excel builders). (b) Export straight from the tab payload the engine already built (columns + rows + total), so the file is exactly what's on screen. For the format: CSV via the standard library; Excel needs a package -- `openpyxl` is already installed for the live app, so no new dependency (`pandas` would be overkill here).
+**What I chose:** Option (b). One small `export.py`: `to_csv` (stdlib `csv`, UTF-8 BOM so Excel opens it cleanly) and `to_xlsx` (openpyxl, with money/percent/int number formats and a bold header + total row). A new GET route `/api/reports/<key>/export/<tab>?fmt=csv|xlsx` reads the snapshot through the same ownership-checked path as viewing, logs a `report.export` audit row, and streams the file. Two toolbar buttons download the active tab. The commission card tab exports its flat columns/rows (built alongside the cards for exactly this).
+**Why:** Exporting the already-built tab guarantees the download matches the screen and reuses the single source of report math -- no second code path that could drift. Stdlib + an already-present dependency keeps it light. It's a GET (no state change) so it needs no CSRF, and the path-scoped session cookie still authorizes it.
+**Status:** DECIDED
+
+---
+
+## 2026-06-22 Rebuild M8: fit the report table to the viewport (autonomous)
+**What I had to decide:** The owner reported the table ran off the bottom of the screen -- you had to scroll the whole page to reach the bottom row and the horizontal scrollbar. How to make it fit.
+**Options I considered:** (a) A fixed `calc(100vh - 120px)` guess (fragile: breaks if the header/filters change height). (b) Measure the table's real position and size it to the space left, recomputing on window resize and when the filters panel collapses.
+**What I chose:** Option (b). The table height is computed from its on-screen top to the bottom of the window, so it always fits and scrolls inside its own box (both scrollbars reachable) instead of pushing the page taller. Added a "Hide/Show filters" toggle; collapsing the filters gives the table more room (recomputed on toggle). Also added the classic `min-height: 0` flex fix so the table box can shrink.
+**Why:** Measuring beats guessing -- it survives header/filter size changes and directly gives the "bigger table when filters are collapsed" behavior the owner asked for earlier.
+**Status:** DECIDED
+
+---
+
 ## 2026-06-22 Rebuild M7: card commissions tab + viewer tab fixes (autonomous)
 **What I had to decide:** The owner asked for a second Commissions tab in the card format (like the old v3 app) to compare against the new flat pivot, plus fixes for two viewer complaints: switching tabs took several seconds and showed the OLD tab until the new one arrived, and the Commissions tab "didn't load at all." Then to continue the build autonomously.
 **Options I considered:** (a) Duplicate the commission math for the card view. (b) Extract the per-salesman/per-month math once and feed both the pivot and the cards from it. For the slowness: (a) cache the parsed snapshot server-side, (b) fetch each tab once and cache it in the browser (like v3, which was fast because it was client-side), prefetching the others quietly.

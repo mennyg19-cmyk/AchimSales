@@ -28,7 +28,9 @@
   var statusText = document.getElementById("run-status-text");
   var cancelBtn = document.getElementById("cancel-btn");
   var tabbar = document.getElementById("tabbar");
+  var toolbar = document.getElementById("toolbar");
   var filtersToggle = document.getElementById("filters-toggle");
+  var exportUrlTpl = root.dataset.exportUrlTpl;
 
   var table = null;
   var pollTimer = null;
@@ -184,9 +186,18 @@
     });
   }
 
+  function exportActiveTab(fmt) {
+    if (!activeTabKey || !currentCacheKey) return;
+    var url = exportUrlTpl.replace("__TAB__", encodeURIComponent(activeTabKey)) +
+      "?cache_key=" + encodeURIComponent(currentCacheKey) + "&fmt=" + fmt;
+    window.location.href = url;
+  }
+  document.getElementById("export-xlsx").addEventListener("click", function () { exportActiveTab("xlsx"); });
+  document.getElementById("export-csv").addEventListener("click", function () { exportActiveTab("csv"); });
+
   function renderTabs(tabs, active) {
     tabbar.innerHTML = "";
-    tabbar.hidden = tabs.length === 0;
+    toolbar.hidden = tabs.length === 0;
     tabs.forEach(function (tab) {
       var btn = document.createElement("button");
       btn.type = "button";

@@ -12,21 +12,26 @@
 # run_report() -- enqueue a run (or hand back an already-cached result)
 # job_status() / cancel_job() -- poll / stop a run
 # result_summary_route() / result_tab_route() -- the finished tabs
+# export_tab() -- download one finished tab as CSV or Excel
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, Response, abort, jsonify, render_template, request
 
 from ..app import get_config, get_db
 from ..auth.decorators import require_login
 from ..auth.session import current_principal
 from ..data.repositories.jobs import JobRepository, QueueFull
+from ..data.repositories.run_log import RunLogRepository
 from ..jobs.types import JOB_REPORT_RUN
 from ..reporting.authz import resolve_access
+from ..reports import export as export_file
 from ..reports.cache import ResultCache, build_cache_key
 from ..reports.config_loader import ConfigLoader, ReportNotFound, ReportNotRunnable
 from ..reports.params import translate
 from ..reports.views import result_summary, result_tab
+
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 reporting_bp = Blueprint("reporting", __name__)
 
@@ -148,6 +153,35 @@ def result_tab_route(report_key: str, tab_key: str):
     if tab is None:
         abort(404)
     return jsonify(tab)
+
+
+@reporting_bp.get("/api/reports/<report_key>/export/<tab_key>")
+@require_login
+def export_tab(report_key: str, tab_key: str):
+    snapshot = _read_result(report_key)
+    tab = result_tab(snapshot, tab_key)
+    if tab is None:
+        abort(404)
+    fmt = (request.args.get("fmt") or "xlsx").lower()
+    if fmt == "csv":
+        data, mime, ext = export_file.to_csv(tab), "text/csv; charset=utf-8", "csv"
+    else:
+        data, mime, ext = export_file.to_xlsx(tab), _XLSX_MIME, "xlsx"
+
+    principal = current_principal()
+    RunLogRepository(get_db()).record(
+        "report.export",
+        user_email=principal.email if principal else None,
+        report_key=report_key,
+        status="done",
+        message=f"{tab_key} as {ext}",
+    )
+    filename = export_file.filename_for(report_key, tab_key, ext)
+    return Response(
+        data,
+        mimetype=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _read_result(report_key: str) -> dict:
