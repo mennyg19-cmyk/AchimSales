@@ -31,6 +31,14 @@
   var currentJobId = null;
   var currentCacheKey = null;
   var activeTabKey = null;
+  var tabData = {};        // tab_key -> already-fetched tab payload (cleared per run)
+  var tabReqToken = 0;     // guards against a slow tab response landing after a newer click
+
+  var tableHost = document.getElementById("report-table");
+  var tableMsg = document.createElement("div");
+  tableMsg.className = "table-msg";
+  tableMsg.hidden = true;
+  tableHost.parentNode.appendChild(tableMsg);
 
   function gatherFilters() {
     var filters = {};
@@ -76,12 +84,7 @@
     fetch(runUrl, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(gatherFilters()) })
       .then(function (resp) { return resp.json().then(function (b) { return { status: resp.status, body: b }; }); })
       .then(function (r) {
-        if (r.status === 200 && r.body.status === "done") {
-          currentCacheKey = r.body.cache_key;
-          setStatus("Loaded from cache.", false);
-          clearStatusSoon();
-          loadResult();
-        } else if (r.status === 202) {
+        if (r.status === 202) {
           currentJobId = r.body.job_id;
           currentCacheKey = r.body.cache_key;
           setStatus("Running\u2026", true);
@@ -126,6 +129,7 @@
   }
 
   function loadResult() {
+    tabData = {};
     fetch(resultUrl + "?cache_key=" + encodeURIComponent(currentCacheKey), { headers: { "X-CSRF-Token": csrfToken } })
       .then(function (resp) { return resp.json(); })
       .then(function (summary) {
@@ -134,7 +138,20 @@
         }
         renderTabs(summary.tabs, summary.active_tab);
         if (summary.active_tab) loadTab(summary.active_tab);
+        prefetchTabs(summary.tabs, summary.active_tab);
       });
+  }
+
+  // Quietly fetch the other tabs once so switching to them is instant.
+  function prefetchTabs(tabs, active) {
+    tabs.forEach(function (tab) {
+      if (tab.key === active || tabData[tab.key]) return;
+      fetch(resultUrl + "/" + encodeURIComponent(tab.key) + "?cache_key=" + encodeURIComponent(currentCacheKey),
+            { headers: { "X-CSRF-Token": csrfToken } })
+        .then(function (resp) { return resp.ok ? resp.json() : null; })
+        .then(function (data) { if (data) tabData[tab.key] = data; })
+        .catch(function () { /* a failed prefetch just means that tab loads on click */ });
+    });
   }
 
   function renderTabs(tabs, active) {
@@ -157,10 +174,34 @@
     for (var i = 0; i < btns.length; i++) {
       btns[i].classList.toggle("tab--active", btns[i].dataset.tabKey === tabKey);
     }
+    if (tabData[tabKey]) { renderTable(tabData[tabKey]); return; }
+
+    var token = ++tabReqToken;
+    showTableMessage("Loading\u2026");
     fetch(resultUrl + "/" + encodeURIComponent(tabKey) + "?cache_key=" + encodeURIComponent(currentCacheKey),
           { headers: { "X-CSRF-Token": csrfToken } })
-      .then(function (resp) { return resp.json(); })
-      .then(function (tab) { renderTable(tab); });
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("This tab couldn't be loaded (" + resp.status + ").");
+        return resp.json();
+      })
+      .then(function (tab) {
+        tabData[tabKey] = tab;
+        if (token === tabReqToken && activeTabKey === tabKey) renderTable(tab);
+      })
+      .catch(function (err) {
+        if (token === tabReqToken && activeTabKey === tabKey) {
+          showTableMessage(err.message || "This tab couldn't be loaded.");
+        }
+      });
+  }
+
+  // Drop the old table at once so a slow fetch never leaves the previous tab on
+  // screen, and show a loading/error note in its place.
+  function showTableMessage(message) {
+    if (table) { table.destroy(); table = null; }
+    tableHost.innerHTML = "";
+    tableMsg.textContent = message;
+    tableMsg.hidden = false;
   }
 
   function columnDef(col) {
@@ -182,6 +223,7 @@
   }
 
   function renderTable(tab) {
+    tableMsg.hidden = true;
     var columns = (tab.columns || []).map(columnDef);
     var data = (tab.rows || []).slice();
     if (tab.total) {

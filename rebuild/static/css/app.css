@@ -154,4 +154,13 @@ a.app-header__brand { color: #fff; text-decoration: none; }
 }
 .tab--active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
-.table-wrap { flex: 1; min-height: 240px; }
+.table-wrap { flex: 1; min-height: 240px; position: relative; }
+.table-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  padding: 2rem;
+  color: var(--muted, #64748b);
+  font-size: 0.95rem;
+}
