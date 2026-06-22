@@ -61,3 +61,41 @@ code { background: var(--bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
 .ok { color: var(--ok); font-weight: 600; }
 .pending { color: var(--pending); font-weight: 600; }
 .muted { color: var(--muted); font-size: 0.9rem; }
+
+.card--narrow { max-width: 380px; }
+
+.btn {
+  display: inline-block;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn--primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.dev-login {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px dashed var(--border);
+  display: grid;
+  gap: 0.5rem;
+}
+.dev-login input {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}

@@ -13,11 +13,14 @@ from __future__ import annotations
 from flask import Blueprint, render_template
 
 from ..app import get_config, get_db
+from ..auth.decorators import require_login
+from ..auth.session import current_principal
 
 main_bp = Blueprint("main", __name__)
 
 
 @main_bp.get("/")
+@require_login
 def index():
     config = get_config()
     db = get_db()
@@ -36,4 +39,5 @@ def index():
         mount_path=config.mount_path,
         env=config.app_env,
         schema_ready=schema_ready,
+        principal=current_principal(),
     )

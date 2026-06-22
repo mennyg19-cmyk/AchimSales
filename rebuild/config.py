@@ -98,6 +98,7 @@ class Config:
     client_secret: str
     reporting_api_base_url: str
     reporting_api_key: str
+    developer_emails: frozenset[str] = field(default_factory=frozenset)
     reporting_api_timeout: float = 300.0
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
 
@@ -111,12 +112,14 @@ class Config:
 
     @property
     def redirect_path(self) -> str:
-        """The Entra login callback, derived from the mount path.
+        """The login callback path WITHIN the app (no mount prefix).
 
-        The callback URL registered in Entra is this app's public URL + this
-        path, e.g. https://report.achimonline.com/test-next/auth/callback.
+        The full URL registered in Entra is the app's public URL (which already
+        includes the mount, e.g. .../test-next) + this path. The login flow
+        builds it from the incoming request's root, so the mount is added once,
+        automatically -- prefixing it here would double it.
         """
-        return f"{self.mount_path}/auth/callback"
+        return "/auth/callback"
 
     @property
     def session_cookie_name(self) -> str:
@@ -199,6 +202,11 @@ def load_config() -> Config:
         client_secret=os.environ.get("GRAPH_CLIENT_SECRET", "").strip(),
         reporting_api_base_url=os.environ.get("REPORTING_API_BASE_URL", "").strip().rstrip("/"),
         reporting_api_key=os.environ.get("REPORTING_API_KEY", "").strip(),
+        developer_emails=frozenset(
+            e.strip().lower()
+            for e in os.environ.get("REBUILD_DEVELOPER_EMAILS", "").split(",")
+            if e.strip()
+        ),
         reporting_api_timeout=float(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "300") or "300"),
     )
     cfg.validate()
