@@ -96,6 +96,27 @@ def apply_precious_migrations(db: Database) -> list[str]:
             return _apply(conn, "precious")
 
 
+# The throwaway database's anchor table. If it's gone, the schema needs rebuilding.
+_CACHE_SENTINEL_TABLE = "report_snapshots"
+
+
+def cache_schema_present(conn: Conn) -> bool:
+    row = conn.fetchone(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (_CACHE_SENTINEL_TABLE,),
+    )
+    return row is not None
+
+
 def ensure_cache_schema(conn: Conn) -> list[str]:
+    """(Re)build the throwaway database's schema.
+
+    If the anchor table is missing the bookkeeping is wiped so every cache
+    migration re-runs. The cache migration files use CREATE TABLE IF NOT EXISTS,
+    so this is safe even if the database was only partly wiped.
+    """
     with conn.transaction():
+        _ensure_version_table(conn)
+        if not cache_schema_present(conn):
+            conn.execute("DELETE FROM schema_migrations")
         return _apply(conn, "cache")

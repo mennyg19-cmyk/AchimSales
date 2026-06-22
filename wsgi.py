@@ -125,14 +125,24 @@ else:
 def _build_rebuild_app():
     """Create the ground-up rebuild app and run its DB setup off the import path.
 
-    Like v3, the app is built fast (pure wiring) and the slow setup (migrations,
-    seed) runs in a daemon thread so it can't block Azure's warmup probe.
+    The mount path is checked BEFORE the app is built or any DB setup starts, so
+    a bad slot can't migrate a database or spawn a bootstrap thread for a mount
+    we're going to reject. Like v3, the app build itself is fast (pure wiring)
+    and the slow setup runs in a daemon thread so it can't block Azure's warmup.
     """
     import threading
 
     import rebuild as rebuild_pkg
 
-    app = rebuild_pkg.create_app()
+    config = rebuild_pkg.load_config()
+    mount = config.mount_path
+    if mount in ("", "/", _TEST_MOUNT):
+        raise ValueError(
+            f"REBUILD_MOUNT_PATH resolved to {mount!r}, which collides with the live "
+            f"app or the existing /test app. Use a distinct slot like /test-next."
+        )
+
+    app = rebuild_pkg.create_app(config)
 
     def _run():
         try:
@@ -142,17 +152,12 @@ def _build_rebuild_app():
             log.exception("rebuild bootstrap_background failed (rebuild stays mounted, may be degraded)")
 
     threading.Thread(target=_run, name="rebuild-bootstrap", daemon=True).start()
-    return app, rebuild_pkg.get_config(app).mount_path
+    return app, mount
 
 
 if _env_bool("REBUILD_MOUNT_ENABLED"):
     try:
         _rebuild_app, _rebuild_mount = _build_rebuild_app()
-        if _rebuild_mount in ("", "/", _TEST_MOUNT):
-            raise ValueError(
-                f"REBUILD_MOUNT_PATH resolved to {_rebuild_mount!r}, which collides with "
-                f"the live app or the existing /test app. Use a distinct slot like /test-next."
-            )
         MOUNTS[_rebuild_mount] = _rebuild_app
         log.info("rebuild mounted at %s", _rebuild_mount)
     except Exception:  # noqa: BLE001 - never let the rebuild take down live or /test

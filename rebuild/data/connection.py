@@ -31,7 +31,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Protocol, Sequence
+from typing import Any, Iterator, Mapping, Optional, Protocol, Sequence
 
 from ..config import Config
 
@@ -58,21 +58,24 @@ class Conn:
 
     Connections run in autocommit mode (each statement lands immediately). When
     several writes must succeed or fail together, wrap them in `transaction()`.
+
+    Return types are deliberately loose (Any / mapping-like rows) so the sqlite
+    specifics stay private to this layer and a Postgres wrapper can be a drop-in.
     """
 
     def __init__(self, raw: sqlite3.Connection) -> None:
         self._raw = raw
 
-    def execute(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Cursor:
+    def execute(self, sql: str, params: Sequence[Any] = ()) -> Any:
         return self._raw.execute(sql, params)
 
-    def executemany(self, sql: str, rows: Sequence[Sequence[Any]]) -> sqlite3.Cursor:
+    def executemany(self, sql: str, rows: Sequence[Sequence[Any]]) -> Any:
         return self._raw.executemany(sql, rows)
 
-    def fetchone(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Row | None:
+    def fetchone(self, sql: str, params: Sequence[Any] = ()) -> Optional[Mapping[str, Any]]:
         return self._raw.execute(sql, params).fetchone()
 
-    def fetchall(self, sql: str, params: Sequence[Any] = ()) -> list[sqlite3.Row]:
+    def fetchall(self, sql: str, params: Sequence[Any] = ()) -> list[Mapping[str, Any]]:
         return self._raw.execute(sql, params).fetchall()
 
     def commit(self) -> None:
@@ -110,7 +113,6 @@ def _open(path: Path) -> sqlite3.Connection:
 class Database:
     def __init__(self, config: Config) -> None:
         self._config = config
-        self._cache_healed = False
 
     @contextmanager
     def precious(self) -> Iterator[Conn]:
@@ -124,17 +126,19 @@ class Database:
     def cache(self) -> Iterator[Conn]:
         """Open the throwaway database, rebuilding its schema if it went missing.
 
-        If cache.db was deleted (or its tables dropped) mid-flight, the next use
-        re-creates the schema instead of crashing with "no such table".
+        Every open cheaply checks the schema is actually there. If cache.db was
+        deleted OR its tables were dropped after an earlier heal, this re-creates
+        the schema instead of crashing with "no such table". Checking each time
+        (rather than remembering "already healed") keeps it correct across
+        threads and across a database that gets wiped underneath us.
         """
-        missing = not self._config.cache_db_path.exists()
         raw = _open(self._config.cache_db_path)
         try:
-            if missing or not self._cache_healed:
-                from .migrate import ensure_cache_schema
+            from .migrate import cache_schema_present, ensure_cache_schema
 
-                ensure_cache_schema(Conn(raw))
-                self._cache_healed = True
-            yield Conn(raw)
+            conn = Conn(raw)
+            if not cache_schema_present(conn):
+                ensure_cache_schema(conn)
+            yield conn
         finally:
             raw.close()

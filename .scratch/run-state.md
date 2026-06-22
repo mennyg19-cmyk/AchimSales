@@ -53,6 +53,21 @@ Tracks progress through the rebuild protocol. Update at every phase gate.
 - Mount is gated on REBUILD_MOUNT_ENABLED + try/except in root wsgi.py, so the
   rebuild can never take down live or /test.
 
+## Phase 4.0 review (GPT readonly) — resolved
+- FIXED: relative DB paths now resolved to absolute before the /home check
+  (a relative path on Azure resolves under the /home SMB share -> now refused).
+- FIXED: basic single-instance guard (REBUILD_INSTANCE_COUNT, default 1; prod
+  refuses >1) per the SQLite one-instance consensus.
+- FIXED: cache self-heal now verifies the anchor table on every open, so a
+  dropped table (not just a deleted file) recovers; removed the racy heal flag.
+- FIXED: wsgi validates the mount path BEFORE building the app / starting the
+  bootstrap thread.
+- CLEANED: Conn annotations no longer leak sqlite types (seam purity).
+- INTENTIONAL (not a bug): Litestream optional in prod is the documented
+  temporary-slot exception, mandatory at cutover (T1.05); comment made explicit.
+- OUT OF SCOPE: v3 leaving sys.path[0] is pre-existing v3 behavior; the rebuild
+  uses relative imports so it's unaffected, and we don't touch live/v3.
+
 ## Live preview URL
 - https://reports.achimonline.com/test-next/  (temporary slot; live /test untouched)
 
