@@ -1,20 +1,23 @@
 """Bespoke per-tab math that the generic group/total engine can't express."""
 
 # === What's in this file ===
-# Most tabs are plain group-and-total, but the Commissions tab is a month-by-
-# month pivot per salesman with its own net formula. This holds those special
-# builders, keyed by name so a tab's config can point at one.
+# Most tabs are plain group-and-total, but Commissions is a month-by-month build
+# per salesman with its own net formula. Two tabs share that math via one helper:
+# a flat pivot (one row per salesman, a column per month) and a card view (one
+# block per salesman with a Month / Net / Commission mini-table).
 #
 # THE COMMISSION MATH (owner-confirmed, mirrors LIVE; numbers are PROVISIONAL
 # until owner sign-off):
 #   The SP sends only the salesman's RATE (column `commission`, a fraction).
 #   Per salesman, per month:
-#     net = TotalInvoice + Credits - Freight - CC      (credits are negative)
+#     net = (subtotal + tariff + freight + cc + misc) + credits - freight - cc
+#         (credits are negative; freight + cc are excluded from the commission base)
 #     commission = net * rate
-#   YTD commission = sum of the months (kept unrounded, rounded only to display).
+#   YTD commission = sum of the months (rounded only to display).
 #
-# commission_monthly_pivot() -- one row per salesman: rate, a commission per
-#   month, and the YTD commission, plus a TOTAL row
+# _salesman_months() -- shared: per salesman, per month net + commission
+# commission_monthly_pivot() -- flat: one row per salesman, a column per month
+# commission_cards() -- one card payload per salesman (month mini-table + YTD)
 # TRANSFORMS -- name -> transform function, passed to the engine
 
 from __future__ import annotations
@@ -41,7 +44,10 @@ def _month_of(row: dict) -> int | None:
     return None
 
 
-def commission_monthly_pivot(rows: Sequence[dict], params: Mapping[str, Any]) -> dict:
+def _salesman_months(rows: Sequence[dict]) -> dict:
+    """Per salesman who earns commission, the net base and commission for each
+    month of the reported year. Returns the month labels, the earners (sorted by
+    name), their rate, and per-salesman lists of {net, commission} by month."""
     rates: dict[str, float] = {}
     names: dict[str, str] = {}
     for r in rows:
@@ -87,6 +93,31 @@ def commission_monthly_pivot(rows: Sequence[dict], params: Mapping[str, Any]) ->
             slot["misc"] += num(r.get("Misc Charges"))
 
     labels = list(_MONTHS[:end_month])
+    ordered = sorted(earners, key=lambda s: names.get(s, s).lower())
+    per_salesman: dict[str, list[dict]] = {}
+    for salesman in ordered:
+        rate = earners[salesman]
+        months_out = []
+        for idx in range(end_month):
+            slot = buckets[salesman][idx]
+            ti = slot["subtotal"] + slot["tariff"] + slot["freight"] + slot["cc"] + slot["misc"]
+            net = ti + slot["credits"] - slot["freight"] - slot["cc"]
+            months_out.append({"net": round(net, 2), "commission": round(net * rate, 2)})
+        per_salesman[salesman] = months_out
+
+    return {
+        "labels": labels,
+        "ordered": ordered,
+        "names": names,
+        "rates": earners,
+        "per_salesman": per_salesman,
+    }
+
+
+def commission_monthly_pivot(rows: Sequence[dict], params: Mapping[str, Any]) -> dict:
+    built = _salesman_months(rows)
+    labels = built["labels"]
+
     columns = [
         {"field": "Salesman", "label": "Salesman", "type": "text"},
         {"field": "Commission %", "label": "Commission %", "type": "percent"},
@@ -97,16 +128,16 @@ def commission_monthly_pivot(rows: Sequence[dict], params: Mapping[str, Any]) ->
     grand_by_label = {lbl: 0.0 for lbl in labels}
     grand_ytd = 0.0
     data_rows: list[dict] = []
-    for salesman in sorted(earners, key=lambda s: names.get(s, s).lower()):
-        rate = earners[salesman]
-        row: dict[str, Any] = {"Salesman": names.get(salesman, salesman), "Commission %": rate}
+    for salesman in built["ordered"]:
+        months = built["per_salesman"][salesman]
+        row: dict[str, Any] = {
+            "Salesman": built["names"].get(salesman, salesman),
+            "Commission %": built["rates"][salesman],
+        }
         ytd = 0.0
         for idx, lbl in enumerate(labels):
-            slot = buckets[salesman][idx]
-            ti = slot["subtotal"] + slot["tariff"] + slot["freight"] + slot["cc"] + slot["misc"]
-            net = ti + slot["credits"] - slot["freight"] - slot["cc"]
-            commission = net * rate
-            row[f"Comm {lbl}"] = round(commission, 2)
+            commission = months[idx]["commission"]
+            row[f"Comm {lbl}"] = commission
             grand_by_label[lbl] += commission
             ytd += commission
         row["YTD Commission"] = round(ytd, 2)
@@ -121,6 +152,61 @@ def commission_monthly_pivot(rows: Sequence[dict], params: Mapping[str, Any]) ->
     return {"columns": columns, "rows": data_rows, "total": total, "layout": "commission"}
 
 
+def commission_cards(rows: Sequence[dict], params: Mapping[str, Any]) -> dict:
+    built = _salesman_months(rows)
+    labels = built["labels"]
+
+    salesmen = []
+    for salesman in built["ordered"]:
+        months = built["per_salesman"][salesman]
+        monthly = [
+            {"month_label": labels[idx], "net": months[idx]["net"], "commission": months[idx]["commission"]}
+            for idx in range(len(labels))
+        ]
+        ytd_net = round(sum(m["net"] for m in monthly), 2)
+        ytd_commission = round(sum(m["commission"] for m in monthly), 2)
+        salesmen.append({
+            "salesman_number": salesman,
+            "salesman_name": built["names"].get(salesman, salesman),
+            "commission_pct": built["rates"][salesman],
+            "monthly": monthly,
+            "ytd": {"net": ytd_net, "commission": ytd_commission},
+        })
+
+    grand = {
+        "net": round(sum(s["ytd"]["net"] for s in salesmen), 2),
+        "commission": round(sum(s["ytd"]["commission"] for s in salesmen), 2),
+    }
+    # Keep a flat columns/rows so non-card consumers (and exports) still work.
+    columns = [
+        {"field": "Salesman", "label": "Salesman", "type": "text"},
+        {"field": "Commission %", "label": "Commission %", "type": "percent"},
+        {"field": "YTD Net", "label": "YTD Net", "type": "money"},
+        {"field": "YTD Commission", "label": "YTD Commission", "type": "money"},
+    ]
+    flat_rows = [
+        {
+            "Salesman": s["salesman_name"],
+            "Commission %": s["commission_pct"],
+            "YTD Net": s["ytd"]["net"],
+            "YTD Commission": s["ytd"]["commission"],
+        }
+        for s in salesmen
+    ]
+    total = {"Salesman": "TOTAL", "Commission %": "", "YTD Net": grand["net"], "YTD Commission": grand["commission"]}
+
+    return {
+        "columns": columns,
+        "rows": flat_rows,
+        "total": total,
+        "layout": "commission_cards",
+        "salesmen": salesmen,
+        "month_labels": labels,
+        "grand": grand,
+    }
+
+
 TRANSFORMS = {
     "commission_monthly_pivot": commission_monthly_pivot,
+    "commission_cards": commission_cards,
 }

@@ -45,14 +45,14 @@ def build_tabs(
             if transform is None:
                 raise KeyError(f"No transform registered named {transform_name!r}")
             built = transform(rows, params)
-            results.append({
-                "key": tab["tab_key"],
-                "label": tab["label"],
-                "layout": tab.get("layout") or built.get("layout"),
-                "columns": built["columns"],
-                "rows": built["rows"],
-                "total": built.get("total"),
-            })
+            # Pass the transform's whole payload through (columns/rows/total plus
+            # any layout-specific extras like the commission cards' per-salesman
+            # blocks), so new layouts don't need engine changes.
+            payload = dict(built)
+            payload["key"] = tab["tab_key"]
+            payload["label"] = tab["label"]
+            payload["layout"] = tab.get("layout") or built.get("layout")
+            results.append(payload)
             continue
 
         columns = tab.get("column_keys") or []

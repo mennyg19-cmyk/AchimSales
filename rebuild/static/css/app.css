@@ -164,3 +164,35 @@ a.app-header__brand { color: #fff; text-decoration: none; }
   color: var(--muted, #64748b);
   font-size: 0.95rem;
 }
+
+.commission-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+  align-content: start;
+  overflow: auto;
+  height: 100%;
+  padding-bottom: 1rem;
+}
+.commission-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0.9rem 1rem;
+}
+.commission-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.commission-card__title { font-weight: 700; }
+.commission-card__payable { text-align: right; display: flex; flex-direction: column; }
+.commission-card__payable small { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.commission-card__payable strong { color: var(--primary); font-size: 1.1rem; }
+.commission-card__sub { color: var(--muted); font-size: 0.85rem; margin: 0.15rem 0 0.6rem; }
+.commission-month-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.commission-month-table th, .commission-month-table td { padding: 0.25rem 0.4rem; text-align: right; }
+.commission-month-table th:first-child, .commission-month-table td:first-child { text-align: left; }
+.commission-month-table thead th { border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 600; }
+.commission-month-table tfoot td { border-top: 1px solid var(--border); font-weight: 700; }

@@ -102,6 +102,10 @@ _TABS = [
         "transform": "commission_monthly_pivot", "layout": "commission",
     },
     {
+        "tab_key": "commissions_cards", "label": "Commissions (Cards)",
+        "transform": "commission_cards", "layout": "commission_cards",
+    },
+    {
         "tab_key": "full_data", "label": "Full Details",
         "column_keys": _FULL_DETAILS_COLS,
         "sorters": [{"field": "CustomerAccount", "dir": "asc"}, {"field": "InvoiceNumber", "dir": "asc"}],

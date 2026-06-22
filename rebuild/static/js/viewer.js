@@ -1,8 +1,11 @@
 // === What's in this file ===
 // The invoiced report viewer. It reads the filter form, asks the server to run
 // the report (which drops a background job), polls until the job finishes, then
-// shows the result one tab at a time in a Tabulator table. A Cancel button is
-// shown only while a run is in flight.
+// shows the result one tab at a time. Tabs are fetched once and cached, the
+// other tabs prefetched quietly, so switching is instant; a click clears the
+// old table and shows a loading note so you never stare at the previous tab.
+// Most tabs render in a Tabulator table; the Commissions (Cards) tab renders as
+// per-salesman cards. A Cancel button shows only while a run is in flight.
 //
 // Plain browser JavaScript on purpose: the preview slot has no build step, so
 // there's nothing to compile. Tabulator is loaded from a CDN in the page.
@@ -224,6 +227,10 @@
 
   function renderTable(tab) {
     tableMsg.hidden = true;
+    if (tab.layout === "commission_cards") {
+      renderCommissionCards(tab);
+      return;
+    }
     var columns = (tab.columns || []).map(columnDef);
     var data = (tab.rows || []).slice();
     if (tab.total) {
@@ -247,5 +254,56 @@
         }
       },
     });
+  }
+
+  function money(value) {
+    var n = Number(value);
+    if (!isFinite(n)) n = 0;
+    return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // The card view: one block per salesman with a Month / Net / Commission
+  // mini-table and a YTD footer. Same numbers as the Commissions pivot tab,
+  // shown the way the old v3 app showed them so the two can be compared.
+  function renderCommissionCards(tab) {
+    if (table) { table.destroy(); table = null; }
+    var host = document.getElementById("report-table");
+    host.innerHTML = "";
+    var salesmen = tab.salesmen || [];
+    if (salesmen.length === 0) {
+      showTableMessage("No commissions for this period.");
+      return;
+    }
+    var wrap = document.createElement("div");
+    wrap.className = "commission-cards";
+    salesmen.forEach(function (s) {
+      var card = document.createElement("div");
+      card.className = "commission-card";
+
+      var head = document.createElement("div");
+      head.className = "commission-card__head";
+      head.innerHTML =
+        '<span class="commission-card__title">' + s.salesman_number + " \u2014 " + s.salesman_name + "</span>" +
+        '<span class="commission-card__payable"><small>YTD commission</small><strong>' + money(s.ytd.commission) + "</strong></span>";
+      card.appendChild(head);
+
+      var sub = document.createElement("div");
+      sub.className = "commission-card__sub";
+      sub.textContent = "Commission " + (Number(s.commission_pct) * 100).toFixed(1) + "%";
+      card.appendChild(sub);
+
+      var rows = (s.monthly || []).map(function (m) {
+        return "<tr><td>" + m.month_label + "</td><td>" + money(m.net) + "</td><td>" + money(m.commission) + "</td></tr>";
+      }).join("");
+      var tbl = document.createElement("table");
+      tbl.className = "commission-month-table";
+      tbl.innerHTML =
+        "<thead><tr><th>Month</th><th>Net</th><th>Commission</th></tr></thead>" +
+        "<tbody>" + rows + "</tbody>" +
+        "<tfoot><tr><td>YTD</td><td>" + money(s.ytd.net) + "</td><td>" + money(s.ytd.commission) + "</td></tr></tfoot>";
+      card.appendChild(tbl);
+      wrap.appendChild(card);
+    });
+    host.appendChild(wrap);
   }
 })();

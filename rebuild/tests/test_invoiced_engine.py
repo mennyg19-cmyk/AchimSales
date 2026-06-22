@@ -11,7 +11,7 @@ from rebuild.reports import conditions
 from rebuild.reports.adapter import normalize
 from rebuild.reports.engine import build_tabs
 from rebuild.reports.lib import iso_date
-from rebuild.reports.transforms import TRANSFORMS, commission_monthly_pivot
+from rebuild.reports.transforms import TRANSFORMS, commission_cards, commission_monthly_pivot
 
 
 def test_iso_date_parses_rfc_and_common_formats():
@@ -68,6 +68,18 @@ def test_commission_uses_net_of_freight_and_cc_and_includes_credits():
     # Bob Feb: net = 2055 - 40 - 15 = 2000; * 0.05 = 100.00. March reversal nets to 0.
     assert by_salesman["Bob"]["YTD Commission"] == 100.00
     assert pivot["total"]["YTD Commission"] == 157.30
+
+
+def test_commission_cards_match_pivot_ytd():
+    rows = normalize("invoiced", _raw_sample())
+    pivot = commission_monthly_pivot(rows, {})
+    cards = commission_cards(rows, {})
+    assert cards["layout"] == "commission_cards"
+    pivot_ytd = {r["Salesman"]: r["YTD Commission"] for r in pivot["rows"]}
+    for salesman in cards["salesmen"]:
+        assert salesman["ytd"]["commission"] == pivot_ytd[salesman["salesman_name"]]
+    # Grand total agrees across both views.
+    assert cards["grand"]["commission"] == pivot["total"]["YTD Commission"]
 
 
 def test_adapter_keeps_real_zero_total_and_only_fills_blank():

@@ -25,6 +25,15 @@ Decisions made during autonomous operation or at ambiguous points during develop
 
 ---
 
+## 2026-06-22 Rebuild M7: card commissions tab + viewer tab fixes (autonomous)
+**What I had to decide:** The owner asked for a second Commissions tab in the card format (like the old v3 app) to compare against the new flat pivot, plus fixes for two viewer complaints: switching tabs took several seconds and showed the OLD tab until the new one arrived, and the Commissions tab "didn't load at all." Then to continue the build autonomously.
+**Options I considered:** (a) Duplicate the commission math for the card view. (b) Extract the per-salesman/per-month math once and feed both the pivot and the cards from it. For the slowness: (a) cache the parsed snapshot server-side, (b) fetch each tab once and cache it in the browser (like v3, which was fast because it was client-side), prefetching the others quietly.
+**What I chose:** Extracted one shared helper (`_salesman_months`) that both commission tabs build from, so the two views can never disagree (a test asserts their YTD totals match). Added a `commission_cards` transform that also keeps a flat columns/rows so exports still work later. The engine now passes a transform's whole payload through (so new layouts need no engine change), and `result_tab` returns the whole tab. Browser side: each tab is fetched once and cached, the rest are prefetched in the background, a click clears the table and shows a "Loading…" note immediately, a request token ignores a stale response, and a failed tab now shows an error instead of silently leaving the old tab up (which is what made Commissions look like it "didn't load").
+**Why:** The owner's own reference (v3) was fast because tabs were client-side; caching + prefetch matches that without abandoning the lazy-first-paint design. The shared helper follows the rule-of-2 (two real call sites now). Surfacing tab errors turns an invisible failure into something we (and the owner) can see. Commission numbers stay PROVISIONAL until owner sign-off.
+**Status:** DECIDED
+
+---
+
 <!-- Entries are added below as work progresses. Each entry follows this format:
 
 ## [Date] [Short description]

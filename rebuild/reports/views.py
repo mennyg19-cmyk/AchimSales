@@ -43,12 +43,8 @@ def result_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
 def result_tab(snapshot: dict[str, Any], tab_key: str) -> Optional[dict[str, Any]]:
     for tab in snapshot.get("tabs", []):
         if tab["key"] == tab_key:
-            return {
-                "key": tab["key"],
-                "label": tab["label"],
-                "layout": tab.get("layout"),
-                "columns": tab.get("columns", []),
-                "rows": tab.get("rows", []),
-                "total": tab.get("total"),
-            }
+            # Return the whole tab payload (incl. any layout-specific extras such
+            # as the commission cards' per-salesman blocks). It's already built
+            # JSON-safe by the engine.
+            return dict(tab)
     return None
