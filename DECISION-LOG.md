@@ -25,6 +25,15 @@ Decisions made during autonomous operation or at ambiguous points during develop
 
 ---
 
+## 2026-06-22 Rebuild M10: in-table filtering, grouping, show/hide columns (autonomous)
+**What I had to decide:** The owner's inventory wanted filtering and grouping by columns, plus show/hide/reorder. How much to build now, and how, given the app is meant to be a thin presentation layer.
+**Options I considered:** (a) Build server-side filtering/grouping endpoints (more code, another path that could drift from the engine). (b) Use Tabulator's built-in, client-side features over the rows we already shipped: per-column filter boxes, a group-by selector, a show/hide-columns checklist, drag-to-move and drag-to-resize. For totals: keep the hand-made total row, or switch to Tabulator's own bottom/group calc rows. (c) Saved layout presets (column order/widths/visibility per user) -- needs a table in precious.db plus endpoints and tests.
+**What I chose:** Option (b) for filtering/grouping/columns -- all client-side, no backend, because the data is already on screen and grouping/filtering is explicitly view-only per the owner's directive. Switched table totals from a fake appended "TOTAL" row to Tabulator's native bottom + per-group calc rows, which also fixed a latent bug where the fake total row would have been swept into groups and filters. Deferred saved presets (option c) to a later milestone since it needs durable per-user storage; logged here so it isn't forgotten.
+**Why:** Keeps the app thin and the report math single-source (the engine still owns the numbers; the browser only re-presents them). Native calc rows behave correctly under grouping/filtering, unlike a data row pretending to be a total. Presets are real work with a storage decision, better done deliberately than rushed.
+**Status:** DECIDED (saved presets: DEFERRED)
+
+---
+
 ## 2026-06-22 Rebuild M9: exports (CSV + Excel) from the snapshot (autonomous)
 **What I had to decide:** The owner's inventory wanted exports. How to produce CSV and Excel without bolting on weight, and what the file should contain.
 **Options I considered:** (a) Rebuild the export in Excel like the old app does (heavy, and the rebuild explicitly does NOT port the old Excel builders). (b) Export straight from the tab payload the engine already built (columns + rows + total), so the file is exactly what's on screen. For the format: CSV via the standard library; Excel needs a package -- `openpyxl` is already installed for the live app, so no new dependency (`pandas` would be overkill here).

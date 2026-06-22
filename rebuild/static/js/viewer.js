@@ -4,8 +4,10 @@
 // shows the result one tab at a time. Tabs are fetched once and cached, the
 // other tabs prefetched quietly, so switching is instant; a click clears the
 // old table and shows a loading note so you never stare at the previous tab.
-// Most tabs render in a Tabulator table; the Commissions (Cards) tab renders as
-// per-salesman cards. A Cancel button shows only while a run is in flight.
+// Most tabs render in a Tabulator table (per-column filter boxes, drag to move
+// or resize columns, group-by, show/hide columns, bottom + per-group totals,
+// and CSV/Excel export); the Commissions (Cards) tab renders as per-salesman
+// cards. A Cancel button shows only while a run is in flight.
 //
 // Plain browser JavaScript on purpose: the preview slot has no build step, so
 // there's nothing to compile. Tabulator is loaded from a CDN in the page.
@@ -31,6 +33,9 @@
   var toolbar = document.getElementById("toolbar");
   var filtersToggle = document.getElementById("filters-toggle");
   var exportUrlTpl = root.dataset.exportUrlTpl;
+  var colControls = document.getElementById("col-controls");
+  var groupBy = document.getElementById("group-by");
+  var colsMenu = document.getElementById("cols-menu");
 
   var table = null;
   var pollTimer = null;
@@ -245,14 +250,20 @@
     tableMsg.hidden = false;
   }
 
+  var moneyFormatParams = { decimal: ".", thousand: ",", symbol: "$", precision: 2 };
+
   function columnDef(col) {
-    var def = { title: col.label || col.field, field: col.field };
+    var def = { title: col.label || col.field, field: col.field, headerFilter: "input" };
     if (col.type === "money") {
       def.formatter = "money";
-      def.formatterParams = { decimal: ".", thousand: ",", symbol: "$", precision: 2 };
+      def.formatterParams = moneyFormatParams;
       def.hozAlign = "right";
+      def.bottomCalc = "sum";
+      def.bottomCalcFormatter = "money";
+      def.bottomCalcFormatterParams = moneyFormatParams;
     } else if (col.type === "int") {
       def.hozAlign = "right";
+      def.bottomCalc = "sum";
     } else if (col.type === "percent") {
       def.formatter = function (cell) {
         var v = cell.getValue();
@@ -270,27 +281,49 @@
       return;
     }
     var columns = (tab.columns || []).map(columnDef);
-    var data = (tab.rows || []).slice();
-    if (tab.total) {
-      var totalRow = Object.assign({}, tab.total);
-      totalRow.__total = true;
-      data.push(totalRow);
-    }
     if (table) { table.destroy(); }
     table = new Tabulator("#report-table", {
-      data: data,
+      data: (tab.rows || []).slice(),
       columns: columns,
       layout: "fitDataStretch",
       height: fitHeight(),
       movableColumns: true,
       resizableColumns: true,
+      columnCalcs: true,
       placeholder: "No rows for this tab.",
-      rowFormatter: function (row) {
-        if (row.getData().__total) {
-          row.getElement().style.fontWeight = "700";
-          row.getElement().style.background = "#f1f5f9";
-        }
-      },
+    });
+    table.on("tableBuilt", function () { setupColumnControls(tab); });
+  }
+
+  // Group-by dropdown + a show/hide checklist, rebuilt for each tab's columns.
+  function setupColumnControls(tab) {
+    colControls.hidden = false;
+    var cols = tab.columns || [];
+
+    groupBy.innerHTML = '<option value="">No grouping</option>';
+    cols.filter(function (c) { return (c.type || "text") === "text"; }).forEach(function (c) {
+      var opt = document.createElement("option");
+      opt.value = c.field;
+      opt.textContent = c.label || c.field;
+      groupBy.appendChild(opt);
+    });
+    groupBy.onchange = function () { table.setGroupBy(groupBy.value || false); };
+
+    colsMenu.innerHTML = "";
+    cols.forEach(function (c) {
+      var row = document.createElement("label");
+      row.className = "cols-menu__item";
+      var box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = true;
+      box.addEventListener("change", function () {
+        if (box.checked) { table.showColumn(c.field); } else { table.hideColumn(c.field); }
+      });
+      var span = document.createElement("span");
+      span.textContent = c.label || c.field;
+      row.appendChild(box);
+      row.appendChild(span);
+      colsMenu.appendChild(row);
     });
   }
 
@@ -305,6 +338,7 @@
   // shown the way the old v3 app showed them so the two can be compared.
   function renderCommissionCards(tab) {
     if (table) { table.destroy(); table = null; }
+    colControls.hidden = true;   // grouping/columns controls don't apply to cards
     var host = document.getElementById("report-table");
     host.innerHTML = "";
     var salesmen = tab.salesmen || [];

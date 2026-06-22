@@ -150,8 +150,22 @@ a.app-header__brand { color: #fff; text-decoration: none; }
 .run-status__cancel { padding: 0.35rem 0.75rem; }
 
 .viewer__toolbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; }
-.toolbar__actions { display: flex; gap: 0.35rem; }
+.toolbar__actions { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; }
 .toolbar__actions .btn { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+.toolbar__controls { display: flex; gap: 0.5rem; align-items: center; }
+.toolbar__group { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }
+.toolbar__group select { padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 8px; font: inherit; }
+.toolbar__cols { position: relative; }
+.toolbar__cols > summary { list-style: none; cursor: pointer; }
+.toolbar__cols > summary::-webkit-details-marker { display: none; }
+.cols-menu {
+  position: absolute; right: 0; z-index: 20; margin-top: 0.3rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12); padding: 0.5rem; min-width: 200px;
+  max-height: 50vh; overflow: auto;
+}
+.cols-menu__item { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.35rem; font-size: 0.85rem; cursor: pointer; }
+.cols-menu__item:hover { background: var(--bg); border-radius: 6px; }
 .tabbar { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
 .tab {
   border: 1px solid var(--border); background: var(--surface); color: var(--ink);

@@ -49,6 +49,15 @@
   <div class="viewer__toolbar" id="toolbar" hidden>
     <div class="tabbar" id="tabbar"></div>
     <div class="toolbar__actions">
+      <span class="toolbar__controls" id="col-controls" hidden>
+        <label class="toolbar__group">Group by
+          <select id="group-by"><option value="">No grouping</option></select>
+        </label>
+        <details class="toolbar__cols">
+          <summary class="btn">Columns</summary>
+          <div class="cols-menu" id="cols-menu"></div>
+        </details>
+      </span>
       <button type="button" class="btn" id="export-xlsx">Export Excel</button>
       <button type="button" class="btn" id="export-csv">Export CSV</button>
     </div>
