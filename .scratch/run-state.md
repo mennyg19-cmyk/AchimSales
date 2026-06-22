@@ -20,8 +20,13 @@ Tracks progress through the rebuild protocol. Update at every phase gate.
 - [x] Phase 0 — Multi-model audit + history mining (7 agents, 7 families; done)
 - [x] Phase 1 — Feature inventory (`rebuild/FEATURE-INVENTORY.md`): 20 pages P1–P20,
       route manifest, to-fix (FA/FB/FC), BH1–50 prevention map, 9 human sign-offs
-- [ ] Phase 2 — Architecture proposals (2 premier families) — IN PROGRESS
-- [ ] Phase 3 — Debate to consensus → REBUILD-PLAN.md (granular todos)
+- [x] Phase 2 — Architecture proposals (Claude Opus + GPT): agree on stack,
+      server-side grouping, SQL-first math, DB report config; split on persistence,
+      big-table, worker.
+- [~] Phase 3 — Debate reached CONSENSUS (1 round): SQLite+Litestream; tiered
+      snapshot (cache.db→Blob over budget, one view builder); separate worker
+      entrypoint (prod process default + in-process fallback flag). Now converging
+      into REBUILD-PLAN.md.
 - [ ] Phase 4 — Build (foundation + smoke deploy, then feature-by-feature)
 - [ ] Phase 5 — Final review (route diff + ID ledger + multi-model, looped)
 

@@ -45,5 +45,43 @@ silently. ~3–4 round cap.
   the web app, flock leader election) — simplest on one B1. GPT: **separate worker
   process / Azure WebJob** sharing the job table; web process serves HTTP only.
 
-## Round 1
-(pending)
+## Round 1 (`rebuild/debate/round1-claude.md`, `round1-gpt.md`)
+
+- **OP1** — GPT **CONCEDED** to SQLite + Litestream; Claude defended the same. Both
+  require the local-disk gates (boot refuses `/home`/UNC, Litestream packaged +
+  verified, empty-disk restore test, integrity diagnostics, one instance) and the
+  Postgres off-ramp seams now (Connection protocol, Python UTC, JSON-at-edge,
+  isolated `claim_next`, `lock_for_migration`). → **RESOLVED.**
+- **OP2** — Both moved to a tiered/budgeted hybrid. Agreed: one canonical flat
+  snapshot + one server `ReportViewBuilder` for screen/export/email/schedule;
+  normal results in `cache.db` returned active-tab-first with lazy per-tab load;
+  results over a configured budget (row count + estimated bytes, numbers from the
+  memory-budget test) switch to lazy/server-paged and may spill the snapshot to
+  Blob (Blob is already in the stack for Litestream + exports); exports always
+  stream; snapshot storage behind an abstraction so cache.db↔Blob is a config flip.
+  → **RESOLVED.**
+- **OP3** — Claude defended in-process daemon thread (no isolation gain on shared
+  B1, lower overhead); GPT defended a separate worker entrypoint (lifecycle
+  separation kills BH5/BH17/BH18 by construction). Both stated overlapping
+  acceptance conditions in writing: GPT — "I can accept ... an emergency feature
+  flag that runs one in-process leader if the platform cannot run the separate
+  worker"; Claude — "I agree with it as an aspiration ... the boundary is in code"
+  and conceded OOM prevention (FC1/FC2/FC4/FC9) is needed either way.
+
+### Consensus resolution on OP3 (orchestrator synthesis of both acceptance conditions)
+The worker is a **separate entrypoint module** (no Flask import; clean lifecycle
+boundary — satisfies Claude's "boundary in code"). Production default: run it as
+its **own process from the container startup** (one container, one deploy, one B1
+— not a second Azure resource), concurrency env-driven (default 1), with worker
+heartbeat + last-claim + queue-depth surfaced in `/healthz` as a deploy signal
+(BH16). **In-process leader-thread fallback behind a feature flag** for dev and
+first-deploy/emergency (Claude's overhead/simplicity safety valve; GPT's stated
+fallback). Same worker code both ways; flock leader election still guards
+single-runner. Rationale: canonical BH history (BH5 cold-start coupling, BH17
+per-gunicorn-worker loops, BH18 hung-job blindness) favors lifecycle separation;
+the fallback flag preserves the cheap/simple path. OOM is not the differentiator
+(both require the memory gates). → **RESOLVED.**
+
+## Outcome: CONSENSUS on all three open points. No stalemate, no owner tie-break
+needed (persistence converged on the low-cost option). Owner-facing items remain
+the 9 sign-offs in FEATURE-INVENTORY §5 (build-time, not architecture).
