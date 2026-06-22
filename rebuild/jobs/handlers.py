@@ -31,4 +31,6 @@ def _cache_cleanup(ctx: JobContext) -> Optional[str]:
 
 def register_all(registry: HandlerRegistry) -> None:
     registry.register(JOB_CACHE_CLEANUP, _cache_cleanup)
-    # report.run and report.export handlers are registered by the reports module.
+    from ..reports.runner import register as register_report_run
+
+    register_report_run(registry)

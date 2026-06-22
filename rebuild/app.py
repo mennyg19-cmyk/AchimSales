@@ -91,6 +91,9 @@ def bootstrap_background(app: Flask) -> None:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
                 (utc_now_iso(), utc_now_iso()),
             )
+        from .reports.seeds import seed_all
+
+        seed_all(db)
         log.info("rebuild bootstrap complete (migrations applied: %s)", applied or "none")
         _maybe_start_in_process_worker(app)
     except Exception:  # noqa: BLE001 - a setup failure must not crash the shared process

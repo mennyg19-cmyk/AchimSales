@@ -27,6 +27,10 @@ def main() -> None:
 
     db = Database(config)
     apply_precious_migrations(db)
+
+    from .reports.seeds import seed_all
+
+    seed_all(db)
     register_all(registry)
 
     Worker(db, config, registry).run_forever()

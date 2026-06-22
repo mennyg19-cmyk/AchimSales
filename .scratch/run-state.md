@@ -108,6 +108,59 @@ Tracks progress through the rebuild protocol. Update at every phase gate.
   client -- the PKCE verifier in the signed cookie is unusable without the client
   secret, same pattern as the live app).
 
+## DECISION: invoiced build sequence (cross-model debate, both agreed)
+What I had to decide: in what order to build the rest of the invoiced report.
+Options: (A) vertical slice first vs (B) strict 12-phase order.
+What I chose: A "disciplined vertical slice" -- build the REAL final-architecture
+  path for invoiced now, defer heavy ops until the owner sees + checks numbers.
+Why: both debaters (GPT + Gemini) independently picked A; owner wants bare-minimum
+  + to verify numbers early; the riskiest unknown is "does invoiced match LIVE?",
+  so reach a rendered report fastest without faking the architecture.
+
+Locked milestones (T-numbers from REBUILD-PLAN.md):
+- M1 Data spine: T3.01(partial), T3.02, T3.03 jobs, T3.06 report_configs,
+  T3.11 run_log. (users already done in auth phase)
+- M2 Worker (in-process mode): T4.01, T4.03, T4.06 backpressure cap, T4.07
+  heartbeat, T4.08 job registry, minimal stale-running cleanup from T4.05.
+- M3 Engine + invoiced contract: T5.01-T5.10 (config_loader, adapter, generic
+  engine, commission pivot, conditions, params, runner, API client, cache, seed).
+- M4 Snapshot + view builder: T6.01, T6.02 (cache.db only), T6.03 + temp row/byte
+  guard.
+- M5 Minimal shell + viewer: T7.01-06, T8.01-08, T8.13, T8.14 (run/status/result
+  APIs, Tabulator, tab bar, basic toolbar/columns).
+- M6 Owner sanity-check gate: PROVISIONAL labels + a §7 checklist; owner verifies.
+
+Honest-durability rule for the slice: run route writes a real jobs row + returns
+  202; the real worker (jobs.worker) claims + runs it under WORKER_MODE=in_process.
+Central authz on every data route. Cache key carries identity+scope; reads re-check.
+
+DEFERRED until after sign-off / before cutover (tracked here so not forgotten):
+  T1.05 Litestream packaging, T1.10/T4.09 startup orchestration + separate worker
+  process, T4.02 flock leader, full T4.04/T4.05, T6.04/T6.05 server-paging/memory
+  budget, Phase 9 export, Phase 10 email/schedule, Phase 11 admin/impersonate, and
+  repos salesmen/preferences/presets/exports/schedules/feature_flags (build when
+  their phase lands). HARD GATE: cannot promote /test-next -> /test until the
+  deferred infra is backfilled.
+
+## M3 invoiced contract decisions (PROVISIONAL until owner sign-off)
+- Endpoint: POST {REPORTING_API_BASE_URL}/api/reports/invoiced_report/run, header
+  X-API-Key, returns {columns, rows, row_count}. (from reference http_client)
+- SP params: InvoiceDateFrom/InvoiceDateTo (ISO), optional CustomerAccount (single
+  exact), optional Salesman (csv). (from reference params.translate_invoiced)
+- Commissions (owner-confirmed): SQL sends the RATE only (column `commission`,
+  fraction; /100 if >1). App computes per salesman per month:
+  net = TotalInvoice + Credits - Freight - CC; commission = net * rate;
+  YTD = sum of monthly (unrounded, display-rounded). Matches LIVE.
+- IsCredit: prefer SQL column; fallback regex CRD|CM|FC on invoice number (LIVE).
+- DRIFT to verify at sign-off: single SP fetch over the SELECTED window; the
+  commission pivot is computed over that window (year/end_month derived from the
+  fetched rows), NOT a separate Jan1..period-end YTD fetch like live. Default
+  invoiced period = YTD so the common case lines up. Flag in M6 checklist.
+- Full Details nets duplicate invoice rows only if duplicates are present (LIVE).
+- 7 tabs (LIVE order): Summary by Customer, Commissions (transform), Full Details,
+  Credits, Invoices, Audit-Reversals (condition has_reversals), Totals by Salesman
+  (condition has_multiple_salesmen).
+
 ## Live preview URL
 - https://reports.achimonline.com/test-next/  (temporary slot; live /test untouched)
 
