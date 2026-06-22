@@ -44,10 +44,18 @@ the debate is done.
   queue-depth surfaced in `/healthz`. In-process leader-thread fallback behind a
   feature flag for dev + first-deploy/emergency. Same worker code both modes;
   flock leader election guards single-runner.
-- **Auth:** Microsoft/Entra company logins (reuse existing `/test` redirect
-  URI). Central authorization on every data route: resolve `(user, report,
-  scope)` in one place. Refuse to boot in prod with `AUTH_MODE=dev` or a default
-  `FLASK_SECRET`. CSRF on all state-changing requests.
+- **Auth:** Microsoft/Entra company logins. Central authorization on every data
+  route: resolve `(user, report, scope)` in one place. Refuse to boot in prod
+  with `AUTH_MODE=dev` or a default `FLASK_SECRET`. CSRF on all state-changing
+  requests.
+- **Mount path (owner directive 2026-06-22):** The rebuild does NOT take the
+  `/test` slot yet. The existing `/test` app stays live and untouched until the
+  owner confirms the rebuild looks good. The mount path is env-driven
+  (`APP_MOUNT_PATH`, default a temporary slot like `/test-next`), and the Entra
+  redirect URI is derived from it (`{APP_MOUNT_PATH}/auth/callback`) — so the
+  rebuild gets its OWN temporary redirect URI now, not the `/test` one. Taking
+  over `/test` (and later `/`) is a one-line config flip + an Entra URI add after
+  sign-off — never hardcoded.
 - **Cross-cutting:** Audit log built-in. Responsive + accessible from day one.
   Live-blue pixel target (`--primary: #2563eb`), workable not pixel-perfect.
   4 themes via design tokens. Tests are the ship gate.
@@ -64,7 +72,7 @@ Shared packages (`data/`, `reports/`, `jobs/`, `delivery/`) are Flask-free so
 rebuild/
 ├── app.py                        # create_app(), CSRF init, fast return
 ├── config.py                     # Config (env-driven, fail-closed, no Flask)
-├── wsgi.py                       # DispatcherMiddleware: /test mount + daemon bootstrap
+├── wsgi.py                       # DispatcherMiddleware: APP_MOUNT_PATH mount + daemon bootstrap
 ├── worker_main.py                # Worker process entry (no Flask import)
 ├── startup.sh                    # Container: gunicorn + worker_main.py
 │
@@ -203,7 +211,7 @@ prove it works before moving on.
 | 9 | **Export** | Export job, streaming writer, layout application, download, recent exports | Export matches on-screen layout; large export streams without OOM; recent exports panel lists and auto-downloads |
 | 10 | **Email / Schedule / Delivery** | Email modal, schedule modal, SharePoint picker, delivery service, schedule runner | Email-now delivers attachment; schedule fires on cadence; SharePoint save works; delivery uses owner scope |
 | 11 | **Admin / Settings / Impersonate** | Settings, admin users, access grids, salesman edit, feature flags, impersonate | Admin CRUD works; salesman scope limits data; impersonate works for admin, can't nest |
-| 12 | **Polish / Ship** | Parity scaffold, security tests, memory budget, restore test, a11y, dark mode, deploy | All test suites green; LIVE parity verified for signed-off items; deploy to `/test` works; a11y basics pass |
+| 12 | **Polish / Ship** | Parity scaffold, security tests, memory budget, restore test, a11y, dark mode, deploy | All test suites green; LIVE parity verified for signed-off items; deploy to the temporary slot (`/test-next`) works with live `/test` untouched; a11y basics pass |
 
 ---
 
@@ -217,7 +225,10 @@ Covers: P17 (partial), P20 (partial).
 
 **T1.01 — Config module with fail-closed validation**
 Files: `rebuild/config.py`
-Accept: `Config` dataclass loads from env vars. `validate()` refuses to start in
+Accept: `Config` dataclass loads from env vars. Includes `APP_MOUNT_PATH`
+(default `/test-next`) which drives both the dispatcher mount and the derived
+Entra redirect URI — so the rebuild lives on a temporary slot and the `/test`
+takeover is a config change, never hardcoded. `validate()` refuses to start in
 prod if `FLASK_SECRET` is default/missing, `AUTH_MODE=dev`, `PRECIOUS_DB_PATH`
 or `CACHE_DB_PATH` resolves under `/home` or any UNC/SMB mount, or Litestream
 is not packaged. Returns fast (no heavy work).
@@ -274,8 +285,11 @@ Covers: P17, BH8 (empty-disk restore), FC8 (Litestream binary in deploy).
 Files: `rebuild/wsgi.py`, `rebuild/app.py`
 Accept: `create_app()` returns fast. Heavy init (migrations, seed, worker start)
 runs in a daemon thread after the dispatcher mounts. DispatcherMiddleware mounts
-rebuild app at `/test`. `SCRIPT_NAME` set correctly. Warmup probe hits a cheap
-route (`/healthz`). Legacy test app moved to `/test-legacy`.
+the rebuild at `APP_MOUNT_PATH` (env-driven, default the temporary slot
+`/test-next` — NOT `/test`). The existing `/test` app stays mounted and
+untouched; nothing is moved to `/test-legacy` yet (that happens at cutover,
+T12.08). `SCRIPT_NAME` is set from `APP_MOUNT_PATH` so the same code works at any
+mount. Warmup probe hits a cheap route (`{APP_MOUNT_PATH}/healthz`).
 Covers: P20, BH5 (fast boot + daemon thread), FC10 (dispatcher mount +
 SCRIPT_NAME).
 
@@ -336,9 +350,12 @@ Covers: P2, P15.
 **T2.01 — MSAL/Entra login flow module**
 Files: `rebuild/auth/msal.py`
 Accept: `build_login_url()` and `complete_login()` handle the full Entra OAuth
-flow. Redirect URI uses the existing `/test/auth/callback` path. Safe `next`
-parameter (validated against allowed hosts — no open redirect). Works under the
-`/test` mount via `SCRIPT_NAME`.
+flow. Redirect URI is derived from the mount path (`{APP_MOUNT_PATH}/auth/callback`),
+so the rebuild uses its OWN temporary redirect URI now (e.g.
+`/test-next/auth/callback`) — not the live `/test` one. Safe `next` parameter
+(validated against allowed hosts — no open redirect). Works under any mount via
+`SCRIPT_NAME`. Deploy prerequisite: register the temporary callback URL in the
+Entra app registration.
 Covers: P2, BH21 (auth flow in session).
 
 ---
@@ -390,7 +407,7 @@ Covers: P15.
 Files: `rebuild/blueprints/auth_routes.py`, `rebuild/templates/login.html`
 Accept: `GET /login` shows Entra login button (centered card). Clicking
 redirects to Microsoft. Successful callback creates session with Principal.
-Page works under `/test` mount.
+Page works under any configured `APP_MOUNT_PATH` mount via `SCRIPT_NAME`.
 Covers: P2 (A2.1–A2.5, C1.1–C1.3).
 
 ---
@@ -1510,14 +1527,19 @@ Covers: BH23 (viewport-fit), A16.1–A16.10.
 
 ---
 
-**T12.08 — Deploy to /test + cutover documentation**
+**T12.08 — Deploy to temporary slot + cutover documentation**
 Files: `rebuild/wsgi.py`, `rebuild/startup.sh`, `deploy.ps1` (update),
 `README.md` (update)
-Accept: v3 rebuild mounts at `/test`. Old test app moved to `/test-legacy`.
-Entra redirect URI works for `/test/auth/callback`. `SCRIPT_NAME` verified.
-Integration test: login → run report → export → download — all under `/test`.
-README documents: branch strategy (which branch deploys where), cutover steps
-(move `/test` → `/`, update Entra URIs, disable scaffolding), rollback path.
+Accept: v3 rebuild deploys to the TEMPORARY slot (`APP_MOUNT_PATH=/test-next` by
+default). The live `/test` app is untouched and still serves. Entra redirect URI
+works for the temporary `{APP_MOUNT_PATH}/auth/callback`. `SCRIPT_NAME` verified.
+Integration test: login → run report → export → download — all under the
+temporary mount. README documents: branch strategy, and the **cutover-to-/test
+checklist** (a config flip the owner triggers AFTER sign-off): set
+`APP_MOUNT_PATH=/test`, add the `/test/auth/callback` Entra URI, move the old
+test app to `/test-legacy`, disable scaffolding; plus the later `/test → /` LIVE
+cutover and the rollback path. Cutover is config + Entra changes only — no code
+edits.
 Covers: P20, FC10 (dispatcher mount), BH5 (SCRIPT_NAME).
 
 ---

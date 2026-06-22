@@ -60,6 +60,12 @@ and work as if it were built correctly from the ground up — and eventually to
   security boot-refusal, CSRF).
 - Cutover-ready by design: flipping `/test` → `/` is routing + config, not a
   rewrite (same Entra login, same URL conventions, a LIVE feature-parity list).
+- **Temporary mount (owner directive 2026-06-22):** the rebuild does NOT take the
+  `/test` slot until the owner confirms it looks good. It deploys to a temporary
+  slot (`APP_MOUNT_PATH`, default `/test-next`) with its own derived Entra
+  redirect URI, leaving the live `/test` app untouched. Taking over `/test` (and
+  later `/`) is a config flip + Entra URI add after sign-off — built for easy
+  change, not hardcoded.
 - **LIVE parity is temporary scaffolding** — a parity check that proves v3 == LIVE
   for the cutover, then retires. After cutover, SQL is the source of truth.
 
