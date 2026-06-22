@@ -121,6 +121,48 @@ if _env_bool("V3_MOUNT_ENABLED"):
 else:
     log.info("V3_MOUNT_ENABLED off; %s not mounted", _TEST_MOUNT)
 
+
+def _build_rebuild_app():
+    """Create the ground-up rebuild app and run its DB setup off the import path.
+
+    Like v3, the app is built fast (pure wiring) and the slow setup (migrations,
+    seed) runs in a daemon thread so it can't block Azure's warmup probe.
+    """
+    import threading
+
+    import rebuild as rebuild_pkg
+
+    app = rebuild_pkg.create_app()
+
+    def _run():
+        try:
+            rebuild_pkg.bootstrap_background(app)
+            log.info("rebuild bootstrap_background complete")
+        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
+            log.exception("rebuild bootstrap_background failed (rebuild stays mounted, may be degraded)")
+
+    threading.Thread(target=_run, name="rebuild-bootstrap", daemon=True).start()
+    return app, rebuild_pkg.get_config(app).mount_path
+
+
+if _env_bool("REBUILD_MOUNT_ENABLED"):
+    try:
+        _rebuild_app, _rebuild_mount = _build_rebuild_app()
+        if _rebuild_mount in ("", "/", _TEST_MOUNT):
+            raise ValueError(
+                f"REBUILD_MOUNT_PATH resolved to {_rebuild_mount!r}, which collides with "
+                f"the live app or the existing /test app. Use a distinct slot like /test-next."
+            )
+        MOUNTS[_rebuild_mount] = _rebuild_app
+        log.info("rebuild mounted at %s", _rebuild_mount)
+    except Exception:  # noqa: BLE001 - never let the rebuild take down live or /test
+        import traceback
+
+        log.exception("rebuild failed to boot; its slot will return 404")
+        _write_boot_error(traceback.format_exc())
+else:
+    log.info("REBUILD_MOUNT_ENABLED off; rebuild not mounted")
+
 application = DispatcherMiddleware(live_app, MOUNTS)
 
 log.info("WSGI dispatcher ready: live -> /, mounts -> %s", sorted(MOUNTS))

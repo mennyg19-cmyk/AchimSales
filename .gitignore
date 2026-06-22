@@ -18,6 +18,9 @@ logs/run_log-*.csv
 .git-commit-msg.tmp
 tests/output/
 
+# CodeGraph local index (rebuildable via `codegraph init`)
+.codegraph/
+
 # Azure log dumps (downloaded for troubleshooting, not source)
 azlogs*/
 v3logs*/
@@ -30,3 +33,7 @@ test/outbox/
 test/data/fixtures/*.xlsx
 test/data/fixtures/*.csv
 !test/data/fixtures/.gitkeep
+
+# Rebuild app local databases (never committed)
+.rebuild-data/
+rebuild/.rebuild-data/

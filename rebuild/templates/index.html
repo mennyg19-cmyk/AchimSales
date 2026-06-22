@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Sales Reports - rebuild preview{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>The rebuild is alive.</h1>
+  <p>This is the ground-up rebuild of the sales reports app, running on a
+     temporary slot so the live <code>/test</code> app stays untouched.</p>
+  <dl class="facts">
+    <dt>Mounted at</dt><dd><code>{{ mount_path }}</code></dd>
+    <dt>Environment</dt><dd>{{ env }}</dd>
+    <dt>Database</dt>
+    <dd>{% if schema_ready %}<span class="ok">ready</span>{% else %}<span class="pending">starting up</span>{% endif %}</dd>
+  </dl>
+  <p class="muted">Next: Microsoft sign-in, then the invoiced report.</p>
+</section>
+{% endblock %}
