@@ -25,6 +25,30 @@ Decisions made during autonomous operation or at ambiguous points during develop
 
 ---
 
+## 2026-06-22 Rebuild M11: email + scheduling -- NOT built, needs your sign-off (autonomous)
+**What I had to decide:** The inventory includes emailing and scheduling reports. Whether to build automated email distribution now, while running unattended.
+**Why I stopped instead of building it:** This is a high-risk action under the autonomous rules (business logic + could send wrong data to people). The invoiced numbers are still PROVISIONAL -- you haven't signed off that they match LIVE (and we know the DBA's source data is currently wrong). Wiring up automatic emails now could blast not-yet-correct numbers to executives on a schedule. It also needs decisions only you can make.
+**What I need from you to build it:**
+  1. Sign-off that invoiced numbers are correct (or an explicit "send anyway, it's a test list").
+  2. Send method: reuse the existing Microsoft Graph mail the live "CEO Daily Reports" uses (same app credentials / Mail.Send), or something else?
+  3. Who sends (which mailbox/identity) and who receives (fixed list, per-user, per-salesman scope)?
+  4. Schedule semantics: which reports, what cadence, what timezone, skip weekends/holidays (the live app has Shabbos-skip logic)?
+  5. What gets attached -- the Excel export we just built, a link to the viewer, or both?
+**Status:** BLOCKED (waiting on owner)
+
+---
+
+## 2026-06-22 Rebuild M12: audit-log viewer built; worker/Litestream/paging deferred (autonomous)
+**What I had to decide:** The ops-hardening inventory had several items: an admin audit-log viewer, a separate worker process, Litestream backup of the rebuild's database, big-result server paging / Blob spill, and an admin UI for report config. What's safe to do unattended.
+**What I chose:** Built only the admin-only audit-log viewer (`/test-next/admin/audit`, gated by `require_privileged`) -- read-only, self-contained, no production-startup change. It lists recent runs/exports/deliveries from the audit table the job handlers already write. Deferred the rest:
+  - **Separate worker process & Litestream for the rebuild DB:** these change the SHARED production container's startup (the same container runs the LIVE app). That's a breaking-change risk I won't take unattended. The in-process worker is healthy on the single B1; Litestream already protects the live DB. To be done deliberately with you.
+  - **Big-result server paging / Blob spill:** only needed for very large reports; invoiced is bounded by the row guard. Not needed yet.
+  - **Admin UI for report config/manifest:** real CRUD with its own review; the manifest is code-defined and stable for now.
+**Why:** Autonomous rules say stop before breaking changes and production-startup risk. The audit viewer is pure upside with no such risk; the rest deserves a deliberate, reviewed session.
+**Status:** DECIDED (audit viewer); DEFERRED (worker/Litestream/paging/admin-CRUD)
+
+---
+
 ## 2026-06-22 Rebuild M10: in-table filtering, grouping, show/hide columns (autonomous)
 **What I had to decide:** The owner's inventory wanted filtering and grouping by columns, plus show/hide/reorder. How much to build now, and how, given the app is meant to be a thin presentation layer.
 **Options I considered:** (a) Build server-side filtering/grouping endpoints (more code, another path that could drift from the engine). (b) Use Tabulator's built-in, client-side features over the rows we already shipped: per-column filter boxes, a group-by selector, a show/hide-columns checklist, drag-to-move and drag-to-resize. For totals: keep the hand-made total row, or switch to Tabulator's own bottom/group calc rows. (c) Saved layout presets (column order/widths/visibility per user) -- needs a table in precious.db plus endpoints and tests.

@@ -126,6 +126,16 @@ a.app-header__brand { color: #fff; text-decoration: none; }
 .report-card__title { font-weight: 600; font-size: 1.05rem; }
 .report-card__go { color: var(--primary); font-size: 0.85rem; }
 
+.page__head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.page__admin-link { color: var(--primary); text-decoration: none; font-size: 0.9rem; }
+.page__admin-link:hover { text-decoration: underline; }
+
+.audit-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.audit { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.audit th, .audit td { padding: 0.45rem 0.7rem; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.audit thead th { background: var(--bg); color: var(--muted); font-weight: 600; position: sticky; top: 0; }
+.audit td:last-child { white-space: normal; }
+
 /* Viewer */
 .viewer { display: flex; flex-direction: column; height: calc(100vh - 120px); }
 .viewer__head { display: flex; align-items: center; gap: 0.75rem; }

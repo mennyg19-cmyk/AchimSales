@@ -9,6 +9,7 @@
 # one person can never pull another person's rows.
 #
 # reports_home() / report_view() -- the two pages
+# admin_audit() -- admin-only: recent report runs/exports from the audit log
 # run_report() -- enqueue a run (or hand back an already-cached result)
 # job_status() / cancel_job() -- poll / stop a run
 # result_summary_route() / result_tab_route() -- the finished tabs
@@ -19,7 +20,7 @@ from __future__ import annotations
 from flask import Blueprint, Response, abort, jsonify, render_template, request
 
 from ..app import get_config, get_db
-from ..auth.decorators import require_login
+from ..auth.decorators import require_login, require_privileged
 from ..auth.session import current_principal
 from ..data.repositories.jobs import JobRepository, QueueFull
 from ..data.repositories.run_log import RunLogRepository
@@ -65,6 +66,13 @@ def report_view(report_key: str):
     except ReportNotFound:
         abort(404)
     return render_template("report_view.html", report=report, principal=current_principal())
+
+
+@reporting_bp.get("/admin/audit")
+@require_privileged
+def admin_audit():
+    entries = RunLogRepository(get_db()).recent(200)
+    return render_template("admin_audit.html", entries=entries, principal=current_principal())
 
 
 @reporting_bp.post("/api/reports/<report_key>/run")
