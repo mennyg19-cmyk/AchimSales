@@ -38,6 +38,18 @@ def healthz():
     except Exception as exc:  # noqa: BLE001 - report the problem, don't crash the probe
         current_app.logger.warning("healthz database check failed: %s", exc)
 
+    heartbeat = None
+    queue_depth = None
+    if schema_ready:
+        try:
+            from ..data.repositories.jobs import JobRepository
+
+            jobs = JobRepository(db, config.job_queue_max, config.job_stale_seconds)
+            heartbeat = jobs.latest_heartbeat()
+            queue_depth = jobs.queue_depth()
+        except Exception as exc:  # noqa: BLE001 - worker stats are best-effort
+            current_app.logger.warning("healthz worker check failed: %s", exc)
+
     payload = {
         "app": "rebuild",
         "status": "ok" if database_ok else "degraded",
@@ -45,9 +57,7 @@ def healthz():
         "env": config.app_env,
         "time": utc_now_iso(),
         "database": {"reachable": database_ok, "schema_ready": schema_ready, "booted_at": booted_at},
-        # Filled in once the worker and Litestream phases land. Reported here now
-        # so the shape is stable and the deploy can watch these fields.
-        "worker": {"heartbeat": None, "last_claimed": None, "queue_depth": None},
+        "worker": {"mode": config.worker_mode, "heartbeat": heartbeat, "queue_depth": queue_depth},
         "litestream": {"configured": bool(config.litestream_blob_url), "required": config.require_litestream},
     }
     return jsonify(payload), (200 if database_ok else 503)

@@ -92,5 +92,31 @@ def bootstrap_background(app: Flask) -> None:
                 (utc_now_iso(), utc_now_iso()),
             )
         log.info("rebuild bootstrap complete (migrations applied: %s)", applied or "none")
+        _maybe_start_in_process_worker(app)
     except Exception:  # noqa: BLE001 - a setup failure must not crash the shared process
         log.exception("rebuild bootstrap_background failed (app stays up, may be degraded)")
+
+
+_WORKER_KEY = "rebuild.worker"
+
+
+def _maybe_start_in_process_worker(app: Flask) -> None:
+    """Start the worker as a daemon thread inside the web app, if configured.
+
+    This is the fallback mode for the temporary preview slot: same worker code
+    as the standalone process, just living in the web process. The atomic job
+    claim keeps it correct even if more than one web process runs one each.
+    """
+    config = get_config(app)
+    if config.worker_mode != "in_process":
+        log.info("worker_mode=%s; not starting an in-process worker", config.worker_mode)
+        return
+    from .jobs.handlers import register_all
+    from .jobs.types import registry
+    from .jobs.worker import Worker
+
+    register_all(registry)
+    worker = Worker(get_db(app), config, registry)
+    worker.start()
+    app.config[_WORKER_KEY] = worker
+    log.warning("in-process worker started (WORKER_MODE=in_process)")
