@@ -28,9 +28,21 @@ def _headers(tab: dict[str, Any]) -> list[dict]:
     return tab.get("columns", []) or []
 
 
-def _value(row: dict[str, Any], field: str) -> Any:
-    value = row.get(field)
-    return "" if value is None else value
+# A leading =, +, -, @ (or tab/CR) makes a spreadsheet treat a text cell as a
+# formula. Prefix such text with a quote so it stays plain text on open.
+_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _cell(value: Any) -> Any:
+    if value is None:
+        return ""
+    # Keep real numbers numeric so Excel can format them; only text needs guarding.
+    if isinstance(value, (int, float, bool)):
+        return value
+    text = value if isinstance(value, str) else str(value)
+    if text and text[0] in _FORMULA_LEADERS:
+        return "'" + text
+    return text
 
 
 def to_csv(tab: dict[str, Any]) -> bytes:
@@ -39,9 +51,9 @@ def to_csv(tab: dict[str, Any]) -> bytes:
     writer = csv.writer(buffer)
     writer.writerow([c.get("label") or c.get("field") for c in columns])
     for row in tab.get("rows", []):
-        writer.writerow([_value(row, c["field"]) for c in columns])
+        writer.writerow([_cell(row.get(c["field"])) for c in columns])
     if tab.get("total"):
-        writer.writerow([_value(tab["total"], c["field"]) for c in columns])
+        writer.writerow([_cell(tab["total"].get(c["field"])) for c in columns])
     # Excel opens UTF-8 CSV cleanly when it sees a BOM.
     return buffer.getvalue().encode("utf-8-sig")
 
@@ -61,7 +73,7 @@ def to_xlsx(tab: dict[str, Any]) -> bytes:
         cell.font = bold
 
     def write_row(row: dict[str, Any], is_total: bool) -> None:
-        sheet.append([_value(row, c["field"]) for c in columns])
+        sheet.append([_cell(row.get(c["field"])) for c in columns])
         written = sheet[sheet.max_row]
         for cell, column in zip(written, columns):
             number_format = _NUMBER_FORMATS.get(column.get("type"))

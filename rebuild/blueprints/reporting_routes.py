@@ -201,4 +201,8 @@ def _read_result(report_key: str) -> dict:
     snapshot = ResultCache(get_db()).read_for_identity(cache_key, principal.email, access.scope_token)
     if snapshot is None:
         abort(404)
+    # Defense in depth: the cache key already folds in the report, but make sure
+    # a snapshot can't be served under a different report's URL.
+    if snapshot.get("report_key") != report_key:
+        abort(404)
     return snapshot

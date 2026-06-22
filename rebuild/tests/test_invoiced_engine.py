@@ -46,6 +46,25 @@ def test_xlsx_export_is_a_real_workbook():
     assert sheet["A4"].value == "TOTAL"
 
 
+def test_export_neutralizes_formula_injection():
+    tab = {
+        "label": "T",
+        "columns": [{"field": "Name", "label": "Name", "type": "text"}, {"field": "Amt", "label": "Amt", "type": "money"}],
+        "rows": [{"Name": "=cmd()", "Amt": -5.0}, {"Name": "Acme", "Amt": 10.0}],
+    }
+    text = export_file.to_csv(tab).decode("utf-8-sig")
+    assert "'=cmd()" in text          # formula-like text is quoted
+    assert ",-5.0" in text or ",-5" in text  # real negative numbers stay numeric, not quoted
+
+    import io
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(export_file.to_xlsx(tab)))
+    sheet = book.active
+    assert sheet["A2"].value == "'=cmd()"
+    assert sheet["B2"].value == -5.0
+
+
 def test_export_filename_is_sanitized():
     assert export_file.filename_for("invoiced", "totals_by_salesman", "xlsx") == "invoiced_totals_by_salesman.xlsx"
     assert export_file.filename_for("a/b", "c d", "csv") == "a_b_c_d.csv"
