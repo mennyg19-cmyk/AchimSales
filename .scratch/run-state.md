@@ -5,18 +5,16 @@ Tracks progress through the rebuild protocol. Update at every phase gate.
 ## Brief
 - `rebuild/REBUILD-BRIEF.md` — locked decisions + open debates + scope.
 
-## Scope of first deliverable
+## Scope of first deliverable (CONFIRMED by owner 2026-06-22)
 - **Reports:** invoiced only (others wait on their flat-table SP endpoints).
-- **Shell features:** PENDING OWNER CONFIRM (see "Open scope question" below).
-
-## Open scope question (blocks the Phase 0 audit fleet)
-Which shell features are in the invoiced-first cut? Proposed default:
-- IN: Entra login + nav, run/status/resume/cancel jobs, on-screen table
-  (group/sort/show-hide/reorder/resize, tabs, subtotals), Excel export + recent
-  exports, email delivery, schedule recurring delivery, presets/save-view,
-  settings/theme, admin report-config (the manifest editor).
-- DEFER: other reports, dashboard (owner said it's unused), customer-last-order,
-  master schedules, SharePoint save (confirm).
+- **Shell features IN:** Entra login + nav, run/status/resume/cancel jobs,
+  on-screen table (group/sort/show-hide/reorder/resize, tabs, subtotals),
+  Excel export + recent exports, email delivery, schedule recurring delivery,
+  presets/save-view, settings/theme.
+- **Admin report-config:** SEED invoiced's column/tab config now (code/DB);
+  the admin manifest editor is a LATER phase, not the first deliverable.
+- **DEFER (keep on inventory, not first cut):** other reports, dashboard,
+  customer-last-order, master schedules. SharePoint save: confirm during Phase 1.
 
 ## Phase status
 - [ ] Phase 0 — Multi-model audit + history mining
