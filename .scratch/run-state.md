@@ -178,6 +178,23 @@ DEFERRED until after sign-off / before cutover (tracked here so not forgotten):
 - SHOULD-FIX cancel race: fixed by the conditional mark_done/mark_failed above.
 - NICE: handlers.py banner comment updated.
 
+## M6 owner sanity-check checklist (numbers are PROVISIONAL until signed off)
+Sign in at https://reports.achimonline.com/test-next/ -> Open reports -> Invoiced.
+Run a period that matches a known live run (default is YTD) and compare to the LIVE
+Monthly Invoiced Report:
+1. [ ] Summary by Customer: per (customer, salesman) totals + invoice counts match.
+2. [ ] Commissions: each salesman's monthly + YTD commission matches LIVE.
+       KNOWN DRIFT to watch: this run computes commissions over the SELECTED
+       window, not a separate Jan1..period-end YTD fetch. With YTD selected it
+       should match; if it doesn't, we add the YTD-window fetch.
+3. [ ] Full Details: row per invoice; charges + Total Invoice match.
+       KNOWN DRIFT: duplicate invoice rows are NOT yet netted into one line.
+4. [ ] Credits vs Invoices split correct (credit detection: IsCredit or CRD/CM/FC).
+5. [ ] Audit - Reversals: appears only when an invoice has both + and - totals.
+6. [ ] Totals by Salesman: appears only with 2+ salesmen; totals are NET of credits.
+7. [ ] Misc Charges column present and correct everywhere charges appear.
+If any number is off, tell me which tab + which figure (live vs preview) and I'll fix.
+
 ## Live preview URL
 - https://reports.achimonline.com/test-next/  (temporary slot; live /test untouched)
 
