@@ -94,6 +94,9 @@ def _salesman_months(rows: Sequence[dict]) -> dict:
 
     labels = list(_MONTHS[:end_month])
     ordered = sorted(earners, key=lambda s: names.get(s, s).lower())
+    # Keep the monthly net/commission UNROUNDED here; callers round only the
+    # numbers they display, and sum the raw values for YTD/grand totals so the
+    # totals can't drift from the months by a penny.
     per_salesman: dict[str, list[dict]] = {}
     for salesman in ordered:
         rate = earners[salesman]
@@ -102,7 +105,7 @@ def _salesman_months(rows: Sequence[dict]) -> dict:
             slot = buckets[salesman][idx]
             ti = slot["subtotal"] + slot["tariff"] + slot["freight"] + slot["cc"] + slot["misc"]
             net = ti + slot["credits"] - slot["freight"] - slot["cc"]
-            months_out.append({"net": round(net, 2), "commission": round(net * rate, 2)})
+            months_out.append({"net": net, "commission": net * rate})
         per_salesman[salesman] = months_out
 
     return {
@@ -137,7 +140,7 @@ def commission_monthly_pivot(rows: Sequence[dict], params: Mapping[str, Any]) ->
         ytd = 0.0
         for idx, lbl in enumerate(labels):
             commission = months[idx]["commission"]
-            row[f"Comm {lbl}"] = commission
+            row[f"Comm {lbl}"] = round(commission, 2)
             grand_by_label[lbl] += commission
             ytd += commission
         row["YTD Commission"] = round(ytd, 2)
@@ -157,26 +160,27 @@ def commission_cards(rows: Sequence[dict], params: Mapping[str, Any]) -> dict:
     labels = built["labels"]
 
     salesmen = []
+    grand_net_raw = 0.0
+    grand_commission_raw = 0.0
     for salesman in built["ordered"]:
         months = built["per_salesman"][salesman]
         monthly = [
-            {"month_label": labels[idx], "net": months[idx]["net"], "commission": months[idx]["commission"]}
+            {"month_label": labels[idx], "net": round(months[idx]["net"], 2), "commission": round(months[idx]["commission"], 2)}
             for idx in range(len(labels))
         ]
-        ytd_net = round(sum(m["net"] for m in monthly), 2)
-        ytd_commission = round(sum(m["commission"] for m in monthly), 2)
+        raw_net = sum(m["net"] for m in months)
+        raw_commission = sum(m["commission"] for m in months)
+        grand_net_raw += raw_net
+        grand_commission_raw += raw_commission
         salesmen.append({
             "salesman_number": salesman,
             "salesman_name": built["names"].get(salesman, salesman),
             "commission_pct": built["rates"][salesman],
             "monthly": monthly,
-            "ytd": {"net": ytd_net, "commission": ytd_commission},
+            "ytd": {"net": round(raw_net, 2), "commission": round(raw_commission, 2)},
         })
 
-    grand = {
-        "net": round(sum(s["ytd"]["net"] for s in salesmen), 2),
-        "commission": round(sum(s["ytd"]["commission"] for s in salesmen), 2),
-    }
+    grand = {"net": round(grand_net_raw, 2), "commission": round(grand_commission_raw, 2)}
     # Keep a flat columns/rows so non-card consumers (and exports) still work.
     columns = [
         {"field": "Salesman", "label": "Salesman", "type": "text"},

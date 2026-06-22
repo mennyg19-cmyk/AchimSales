@@ -44,6 +44,7 @@
   var activeTabKey = null;
   var tabData = {};        // tab_key -> already-fetched tab payload (cleared per run)
   var tabReqToken = 0;     // guards against a slow tab response landing after a newer click
+  var runSeq = 0;          // bumps each run; a fetch from an older run is ignored
 
   var tableHost = document.getElementById("report-table");
   var tableMsg = document.createElement("div");
@@ -166,27 +167,31 @@
   }
 
   function loadResult() {
+    var run = ++runSeq;
     tabData = {};
     fetch(resultUrl + "?cache_key=" + encodeURIComponent(currentCacheKey), { headers: { "X-CSRF-Token": csrfToken } })
       .then(function (resp) { return resp.json(); })
       .then(function (summary) {
+        if (run !== runSeq) return;
         if (summary.stale) {
           setStatus(summary.stale_reason || "Showing the last saved copy.", false);
         }
         renderTabs(summary.tabs, summary.active_tab);
         if (summary.active_tab) loadTab(summary.active_tab);
-        prefetchTabs(summary.tabs, summary.active_tab);
+        prefetchTabs(summary.tabs, summary.active_tab, run);
       });
   }
 
-  // Quietly fetch the other tabs once so switching to them is instant.
-  function prefetchTabs(tabs, active) {
+  // Quietly fetch the other tabs once so switching to them is instant. Tagged
+  // with the run that asked, so a slow prefetch from a previous run can't drop
+  // stale rows into the cache after a newer run has started.
+  function prefetchTabs(tabs, active, run) {
     tabs.forEach(function (tab) {
       if (tab.key === active || tabData[tab.key]) return;
       fetch(resultUrl + "/" + encodeURIComponent(tab.key) + "?cache_key=" + encodeURIComponent(currentCacheKey),
             { headers: { "X-CSRF-Token": csrfToken } })
         .then(function (resp) { return resp.ok ? resp.json() : null; })
-        .then(function (data) { if (data) tabData[tab.key] = data; })
+        .then(function (data) { if (data && run === runSeq) tabData[tab.key] = data; })
         .catch(function () { /* a failed prefetch just means that tab loads on click */ });
     });
   }
@@ -223,6 +228,7 @@
     if (tabData[tabKey]) { renderTable(tabData[tabKey]); return; }
 
     var token = ++tabReqToken;
+    var run = runSeq;
     showTableMessage("Loading\u2026");
     fetch(resultUrl + "/" + encodeURIComponent(tabKey) + "?cache_key=" + encodeURIComponent(currentCacheKey),
           { headers: { "X-CSRF-Token": csrfToken } })
@@ -231,6 +237,7 @@
         return resp.json();
       })
       .then(function (tab) {
+        if (run !== runSeq) return;
         tabData[tabKey] = tab;
         if (token === tabReqToken && activeTabKey === tabKey) renderTable(tab);
       })

@@ -107,6 +107,23 @@ def test_commission_uses_net_of_freight_and_cc_and_includes_credits():
     assert pivot["total"]["YTD Commission"] == 157.30
 
 
+def test_commission_ytd_sums_raw_months_not_rounded_ones():
+    # Two months whose commission is x.xx5 each: rounding each month first and
+    # summing (10.01 + 10.01 = 20.02) drifts from rounding the raw sum (20.01).
+    raw = [
+        {"InvoiceNumber": "INV1", "InvoiceDate": "2026-01-15", "salesman": "S1",
+         "SalesmanName": "Penny", "amount": 100.05, "commission": 0.1},
+        {"InvoiceNumber": "INV2", "InvoiceDate": "2026-02-15", "salesman": "S1",
+         "SalesmanName": "Penny", "amount": 100.05, "commission": 0.1},
+    ]
+    rows = normalize("invoiced", raw)
+    pivot = commission_monthly_pivot(rows, {})
+    cards = commission_cards(rows, {})
+    assert pivot["rows"][0]["YTD Commission"] == 20.01
+    assert cards["salesmen"][0]["ytd"]["commission"] == 20.01
+    assert pivot["total"]["YTD Commission"] == cards["grand"]["commission"] == 20.01
+
+
 def test_commission_cards_match_pivot_ytd():
     rows = normalize("invoiced", _raw_sample())
     pivot = commission_monthly_pivot(rows, {})

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import date, datetime
 from typing import Any, Mapping, Optional, Sequence
@@ -28,11 +29,15 @@ def num(value: Any) -> float:
     if value is None or value == "":
         return 0.0
     if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        return float(str(value).replace(",", "").replace("$", "").strip())
-    except (TypeError, ValueError):
-        return 0.0
+        result = float(value)
+    else:
+        try:
+            result = float(str(value).replace(",", "").replace("$", "").strip())
+        except (TypeError, ValueError):
+            return 0.0
+    # Guard against NaN/Infinity (e.g. a stray "inf"/"nan" cell): those can't be
+    # summed sensibly and would serialize to invalid JSON the browser can't read.
+    return result if math.isfinite(result) else 0.0
 
 
 def money(value: Any) -> float:
