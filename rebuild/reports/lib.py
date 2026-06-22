@@ -68,13 +68,11 @@ def iso_date(value: Any) -> str:
             return parsed.date().isoformat()
     except (TypeError, ValueError):
         pass
-    date_part = s.split(" 00:")[0].strip()  # drop a trailing midnight time if present
-    for candidate in (head, date_part):
-        for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y/%m/%d", "%d %b %Y", "%b %d, %Y", "%d-%b-%Y"):
-            try:
-                return datetime.strptime(candidate, fmt).date().isoformat()
-            except ValueError:
-                continue
+    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(head, fmt).date().isoformat()
+        except ValueError:
+            continue
     return head
 
 
