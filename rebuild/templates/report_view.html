@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ report.title }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@5.6.1/dist/css/tabulator_simple.min.css">
+{% endblock %}
+{% block content %}
+<section class="page viewer"
+         id="report-root"
+         data-report-key="{{ report.report_key }}"
+         data-run-url="{{ url_for('reporting.run_report', report_key=report.report_key) }}"
+         data-result-url="{{ url_for('reporting.result_summary_route', report_key=report.report_key) }}"
+         data-job-url-tpl="{{ url_for('reporting.job_status', job_id='__JOB__') }}"
+         data-cancel-url-tpl="{{ url_for('reporting.cancel_job', job_id='__JOB__') }}">
+
+  <div class="viewer__head">
+    <h1 class="page__title">{{ report.title }}</h1>
+    <span class="badge badge--provisional" title="These numbers haven't been signed off against the live report yet.">Provisional numbers</span>
+  </div>
+
+  <form class="filters" id="filters">
+    {% for filter in report.filters %}
+    <label class="filters__field">
+      <span class="filters__label">{{ filter.label }}</span>
+      {% if filter.kind == 'select' %}
+      <select data-filter-key="{{ filter.filter_key }}">
+        {% for option in filter.options %}
+        <option value="{{ option.value }}" {% if option.value == filter.default_value %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+      {% elif filter.kind == 'date' %}
+      <input type="date" data-filter-key="{{ filter.filter_key }}" value="{{ filter.default_value or '' }}">
+      {% else %}
+      <input type="text" data-filter-key="{{ filter.filter_key }}" value="{{ filter.default_value or '' }}" placeholder="optional">
+      {% endif %}
+    </label>
+    {% endfor %}
+    <div class="filters__actions">
+      <button type="submit" class="btn btn--primary" id="run-btn">Run report</button>
+    </div>
+  </form>
+
+  <div class="run-status" id="run-status" hidden>
+    <span class="run-status__text" id="run-status-text"></span>
+    <button type="button" class="btn run-status__cancel" id="cancel-btn" hidden>Cancel</button>
+  </div>
+
+  <div class="tabbar" id="tabbar" hidden></div>
+  <div class="table-wrap"><div id="report-table"></div></div>
+</section>
+
+<script src="https://unpkg.com/tabulator-tables@5.6.1/dist/js/tabulator.min.js"></script>
+<script src="{{ url_for('static', filename='js/viewer.js') }}"></script>
+{% endblock %}

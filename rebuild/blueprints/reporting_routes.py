@@ -1,0 +1,162 @@
+"""The report pages and the run / status / result API the viewer calls."""
+
+# === What's in this file ===
+# The web side of running a report. Pages: a home list of reports and a viewer
+# page per report. API (called by the viewer's JavaScript): start a run (drops a
+# durable job and returns right away), poll a job's status, cancel a job, and
+# read a finished result one tab at a time. Every data route resolves access in
+# one place and reads cached results only through the ownership-checked path, so
+# one person can never pull another person's rows.
+#
+# reports_home() / report_view() -- the two pages
+# run_report() -- enqueue a run (or hand back an already-cached result)
+# job_status() / cancel_job() -- poll / stop a run
+# result_summary_route() / result_tab_route() -- the finished tabs
+
+from __future__ import annotations
+
+from flask import Blueprint, abort, jsonify, render_template, request
+
+from ..app import get_config, get_db
+from ..auth.decorators import require_login
+from ..auth.session import current_principal
+from ..data.repositories.jobs import JobRepository, QueueFull
+from ..jobs.types import JOB_REPORT_RUN
+from ..reporting.authz import resolve_access
+from ..reports.cache import ResultCache, build_cache_key
+from ..reports.config_loader import ConfigLoader, ReportNotFound, ReportNotRunnable
+from ..reports.params import translate
+from ..reports.views import result_summary, result_tab
+
+reporting_bp = Blueprint("reporting", __name__)
+
+
+def _jobs() -> JobRepository:
+    config = get_config()
+    return JobRepository(get_db(), config.job_queue_max, config.job_stale_seconds)
+
+
+def _owns_job(job) -> bool:
+    principal = current_principal()
+    if principal is None:
+        return False
+    if principal.is_privileged:
+        return True
+    return (job.requested_by or "").strip().lower() == principal.email.strip().lower()
+
+
+@reporting_bp.get("/reports")
+@require_login
+def reports_home():
+    reports = ConfigLoader(get_db()).list_active()
+    return render_template("reports_home.html", reports=reports, principal=current_principal())
+
+
+@reporting_bp.get("/reports/<report_key>")
+@require_login
+def report_view(report_key: str):
+    try:
+        report = ConfigLoader(get_db()).load(report_key)
+    except ReportNotFound:
+        abort(404)
+    return render_template("report_view.html", report=report, principal=current_principal())
+
+
+@reporting_bp.post("/api/reports/<report_key>/run")
+@require_login
+def run_report(report_key: str):
+    principal = current_principal()
+    access = resolve_access(principal, report_key)
+    if not access.allowed:
+        abort(403)
+
+    db = get_db()
+    try:
+        ConfigLoader(db).load_runnable(report_key)
+    except ReportNotFound:
+        abort(404)
+    except ReportNotRunnable:
+        return jsonify({"error": "This report isn't available to run right now."}), 409
+
+    filters = request.get_json(silent=True) or {}
+    try:
+        sp_params = translate(report_key, filters)
+    except KeyError:
+        abort(404)
+
+    cache_key = build_cache_key(report_key, principal.email, access.scope_token, sp_params)
+
+    if ResultCache(db).read_for_identity(cache_key, principal.email, access.scope_token) is not None:
+        return jsonify({"status": "done", "job_id": None, "cache_key": cache_key}), 200
+
+    try:
+        job = _jobs().enqueue(
+            JOB_REPORT_RUN,
+            report_key=report_key,
+            cache_key=cache_key,
+            params={"filters": filters},
+            requested_by=principal.email,
+            scope_token=access.scope_token,
+        )
+    except QueueFull:
+        return jsonify({"error": "The server is busy running reports. Please try again in a moment."}), 503
+
+    return jsonify({"status": job.status, "job_id": job.id, "cache_key": cache_key}), 202
+
+
+@reporting_bp.get("/api/jobs/<job_id>")
+@require_login
+def job_status(job_id: str):
+    job = _jobs().get(job_id)
+    if job is None:
+        abort(404)
+    if not _owns_job(job):
+        abort(403)
+    return jsonify({
+        "job_id": job.id,
+        "status": job.status,
+        "error": job.error,
+        "cache_key": job.cache_key,
+        "result_ref": job.result_ref,
+    })
+
+
+@reporting_bp.post("/api/jobs/<job_id>/cancel")
+@require_login
+def cancel_job(job_id: str):
+    jobs = _jobs()
+    job = jobs.get(job_id)
+    if job is None:
+        abort(404)
+    if not _owns_job(job):
+        abort(403)
+    return jsonify({"cancelled": jobs.cancel(job_id)})
+
+
+@reporting_bp.get("/api/reports/<report_key>/result")
+@require_login
+def result_summary_route(report_key: str):
+    snapshot = _read_result(report_key)
+    return jsonify(result_summary(snapshot))
+
+
+@reporting_bp.get("/api/reports/<report_key>/result/<tab_key>")
+@require_login
+def result_tab_route(report_key: str, tab_key: str):
+    snapshot = _read_result(report_key)
+    tab = result_tab(snapshot, tab_key)
+    if tab is None:
+        abort(404)
+    return jsonify(tab)
+
+
+def _read_result(report_key: str) -> dict:
+    principal = current_principal()
+    access = resolve_access(principal, report_key)
+    if not access.allowed:
+        abort(403)
+    cache_key = request.args.get("cache_key", "")
+    snapshot = ResultCache(get_db()).read_for_identity(cache_key, principal.email, access.scope_token)
+    if snapshot is None:
+        abort(404)
+    return snapshot

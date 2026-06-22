@@ -110,3 +110,48 @@ code { background: var(--bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
   cursor: pointer;
   text-decoration: underline;
 }
+
+a.app-header__brand { color: #fff; text-decoration: none; }
+
+/* Reports home */
+.page__title { color: var(--primary); font-size: 1.4rem; margin: 0 0 1rem; }
+.report-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+.report-card {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.1rem 1.25rem; text-decoration: none; color: var(--ink);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+.report-card:hover { border-color: var(--primary); }
+.report-card__title { font-weight: 600; font-size: 1.05rem; }
+.report-card__go { color: var(--primary); font-size: 0.85rem; }
+
+/* Viewer */
+.viewer { display: flex; flex-direction: column; height: calc(100vh - 120px); }
+.viewer__head { display: flex; align-items: center; gap: 0.75rem; }
+.badge { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.2rem 0.5rem; border-radius: 999px; }
+.badge--provisional { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+
+.filters {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1rem 1.25rem; margin: 0.75rem 0;
+}
+.filters__field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
+.filters__label { color: var(--muted); }
+.filters__field select, .filters__field input {
+  padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; font: inherit;
+}
+.filters__actions { margin-left: auto; }
+
+.run-status { display: flex; align-items: center; gap: 0.75rem; margin: 0.25rem 0 0.5rem; font-size: 0.9rem; color: var(--muted); }
+.run-status__cancel { padding: 0.35rem 0.75rem; }
+
+.tabbar { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
+.tab {
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  padding: 0.4rem 0.8rem; border-radius: 8px 8px 0 0; font: inherit; cursor: pointer;
+}
+.tab--active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.table-wrap { flex: 1; min-height: 240px; }

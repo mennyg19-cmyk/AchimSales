@@ -64,10 +64,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
     from .blueprints.auth_routes import auth_bp
     from .blueprints.health_routes import health_bp
     from .blueprints.main_routes import main_bp
+    from .blueprints.reporting_routes import reporting_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
+    app.register_blueprint(reporting_bp)
 
     return app
 
