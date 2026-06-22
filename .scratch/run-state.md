@@ -17,9 +17,10 @@ Tracks progress through the rebuild protocol. Update at every phase gate.
   customer-last-order, master schedules. SharePoint save: confirm during Phase 1.
 
 ## Phase status
-- [ ] Phase 0 — Multi-model audit + history mining
-- [ ] Phase 1 — Feature inventory (invoiced + in-scope shell), page-by-page, ID'd
-- [ ] Phase 2 — Architecture proposals (2 premier families)
+- [x] Phase 0 — Multi-model audit + history mining (7 agents, 7 families; done)
+- [x] Phase 1 — Feature inventory (`rebuild/FEATURE-INVENTORY.md`): 20 pages P1–P20,
+      route manifest, to-fix (FA/FB/FC), BH1–50 prevention map, 9 human sign-offs
+- [ ] Phase 2 — Architecture proposals (2 premier families) — IN PROGRESS
 - [ ] Phase 3 — Debate to consensus → REBUILD-PLAN.md (granular todos)
 - [ ] Phase 4 — Build (foundation + smoke deploy, then feature-by-feature)
 - [ ] Phase 5 — Final review (route diff + ID ledger + multi-model, looped)
