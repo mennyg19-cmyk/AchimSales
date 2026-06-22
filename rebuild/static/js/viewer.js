@@ -28,6 +28,7 @@
   var statusText = document.getElementById("run-status-text");
   var cancelBtn = document.getElementById("cancel-btn");
   var tabbar = document.getElementById("tabbar");
+  var filtersToggle = document.getElementById("filters-toggle");
 
   var table = null;
   var pollTimer = null;
@@ -69,6 +70,32 @@
   function jsonHeaders() {
     return { "Content-Type": "application/json", "X-CSRF-Token": csrfToken };
   }
+
+  // Size the table to the space left below it so it scrolls inside its own box
+  // (both scrollbars reachable) instead of pushing the page taller. Recomputed
+  // on resize and whenever the filters panel collapses/expands.
+  function fitHeight() {
+    var top = tableHost.getBoundingClientRect().top;
+    return Math.max(240, Math.floor(window.innerHeight - top - 16));
+  }
+
+  function refit() {
+    if (table) {
+      table.setHeight(fitHeight());
+    } else {
+      var cards = tableHost.querySelector(".commission-cards");
+      if (cards) cards.style.height = fitHeight() + "px";
+    }
+  }
+
+  window.addEventListener("resize", refit);
+
+  filtersToggle.addEventListener("click", function () {
+    var collapsed = root.classList.toggle("viewer--filters-collapsed");
+    filtersToggle.setAttribute("aria-expanded", String(!collapsed));
+    filtersToggle.textContent = collapsed ? "Show filters" : "Hide filters";
+    refit();
+  });
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -243,7 +270,7 @@
       data: data,
       columns: columns,
       layout: "fitDataStretch",
-      height: "100%",
+      height: fitHeight(),
       movableColumns: true,
       resizableColumns: true,
       placeholder: "No rows for this tab.",
@@ -276,15 +303,26 @@
     }
     var wrap = document.createElement("div");
     wrap.className = "commission-cards";
+    wrap.style.height = fitHeight() + "px";
     salesmen.forEach(function (s) {
       var card = document.createElement("div");
       card.className = "commission-card";
 
       var head = document.createElement("div");
       head.className = "commission-card__head";
-      head.innerHTML =
-        '<span class="commission-card__title">' + s.salesman_number + " \u2014 " + s.salesman_name + "</span>" +
-        '<span class="commission-card__payable"><small>YTD commission</small><strong>' + money(s.ytd.commission) + "</strong></span>";
+      var title = document.createElement("span");
+      title.className = "commission-card__title";
+      title.textContent = s.salesman_number + " \u2014 " + s.salesman_name;
+      var payable = document.createElement("span");
+      payable.className = "commission-card__payable";
+      var payLabel = document.createElement("small");
+      payLabel.textContent = "YTD commission";
+      var payAmt = document.createElement("strong");
+      payAmt.textContent = money(s.ytd.commission);
+      payable.appendChild(payLabel);
+      payable.appendChild(payAmt);
+      head.appendChild(title);
+      head.appendChild(payable);
       card.appendChild(head);
 
       var sub = document.createElement("div");
@@ -292,6 +330,8 @@
       sub.textContent = "Commission " + (Number(s.commission_pct) * 100).toFixed(1) + "%";
       card.appendChild(sub);
 
+      // Month labels come from our own constant and the amounts are numbers, so
+      // there's no untrusted text in this table markup.
       var rows = (s.monthly || []).map(function (m) {
         return "<tr><td>" + m.month_label + "</td><td>" + money(m.net) + "</td><td>" + money(m.commission) + "</td></tr>";
       }).join("");
