@@ -84,10 +84,10 @@ def run_report(report_key: str):
     except KeyError:
         abort(404)
 
+    # Run always re-fetches fresh data. The cached snapshot is only used as a
+    # fallback inside the worker if the data server is unreachable, never to skip
+    # a run the user explicitly asked for.
     cache_key = build_cache_key(report_key, principal.email, access.scope_token, sp_params)
-
-    if ResultCache(db).read_for_identity(cache_key, principal.email, access.scope_token) is not None:
-        return jsonify({"status": "done", "job_id": None, "cache_key": cache_key}), 200
 
     try:
         job = _jobs().enqueue(

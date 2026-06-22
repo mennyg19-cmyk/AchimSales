@@ -20,7 +20,7 @@ from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.run_log import RunLogRepository
 from ..jobs.types import JOB_REPORT_RUN, HandlerRegistry, JobContext
 from .adapter import normalize
-from .api_client import ReportingApiClient
+from .api_client import ReportingApiClient, ReportingApiError
 from .cache import ResultCache, build_cache_key
 from .config_loader import ConfigLoader
 from .engine import build_tabs
@@ -39,6 +39,7 @@ def run_report_job(ctx: JobContext) -> str | None:
     report_config = ConfigLoader(db).load_runnable(job.report_key)
     filters = (job.params or {}).get("filters") or {}
     sp_params = translate(job.report_key, filters)
+    cache_key = job.cache_key or build_cache_key(job.report_key, job.requested_by, job.scope_token, sp_params)
 
     # Give the API call a deadline a bit before the worker's hard backstop, so a
     # wedged endpoint makes the handler raise and return on its own rather than
@@ -49,7 +50,13 @@ def run_report_job(ctx: JobContext) -> str | None:
         config.reporting_api_key,
         timeout=api_timeout,
     )
-    result = client.run_report(report_config.sp_name, sp_params)
+    try:
+        result = client.run_report(report_config.sp_name, sp_params)
+    except ReportingApiError:
+        served = _serve_stale_fallback(db, job, cache_key)
+        if served is not None:
+            return served
+        raise
 
     if ctx.cancelled():
         log.info("job %s cancelled after fetch; not building", job.id)
@@ -74,6 +81,7 @@ def run_report_job(ctx: JobContext) -> str | None:
         "params": filters,
         "row_count": actual_count,
         "provisional": True,
+        "stale": False,
         "identity": (job.requested_by or "").strip().lower(),
         "scope": job.scope_token or "",
         "tabs": tabs,
@@ -86,7 +94,6 @@ def run_report_job(ctx: JobContext) -> str | None:
         log.info("job %s no longer running (%s); discarding result", job.id, current.status if current else "gone")
         return None
 
-    cache_key = job.cache_key or build_cache_key(job.report_key, job.requested_by, job.scope_token, sp_params)
     ResultCache(db).store(cache_key, job.report_key, snapshot)
 
     RunLogRepository(db).record(
@@ -98,6 +105,29 @@ def run_report_job(ctx: JobContext) -> str | None:
         status="done",
         message=f"{actual_count} rows, {len(tabs)} tabs",
     )
+    return cache_key
+
+
+def _serve_stale_fallback(db, job, cache_key: str) -> str | None:
+    """When the data server is unreachable, fall back to the last saved copy of
+    this exact report (same person + filters) if there is one. Returns the cache
+    key (job done, serving stale) or None when there's nothing to fall back to."""
+    previous = ResultCache(db).read(cache_key)
+    if previous is None:
+        return None
+    previous.pop("_cached_at", None)
+    previous["stale"] = True
+    previous["stale_reason"] = "The data server was unreachable, so this is the last saved copy."
+    ResultCache(db).store(cache_key, job.report_key, previous)
+    RunLogRepository(db).record(
+        "report.run",
+        user_email=job.requested_by,
+        report_key=job.report_key,
+        job_id=job.id,
+        status="stale",
+        message="data server unreachable; served last saved copy",
+    )
+    log.warning("job %s: API unreachable, served stale snapshot", job.id)
     return cache_key
 
 

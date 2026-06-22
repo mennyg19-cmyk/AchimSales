@@ -10,7 +10,15 @@ from __future__ import annotations
 from rebuild.reports import conditions
 from rebuild.reports.adapter import normalize
 from rebuild.reports.engine import build_tabs
+from rebuild.reports.lib import iso_date
 from rebuild.reports.transforms import TRANSFORMS, commission_monthly_pivot
+
+
+def test_iso_date_parses_rfc_and_common_formats():
+    assert iso_date("Fri, 15 Jan 2026 00:00:00 GMT") == "2026-01-15"
+    assert iso_date("2026-01-15T00:00:00") == "2026-01-15"
+    assert iso_date("01/15/2026") == "2026-01-15"
+    assert iso_date("") == ""
 
 
 def _raw_sample():

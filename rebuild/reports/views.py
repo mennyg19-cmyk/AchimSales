@@ -23,6 +23,8 @@ def result_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
         "generated_at": snapshot.get("generated_at"),
         "cached_at": snapshot.get("_cached_at"),
         "provisional": snapshot.get("provisional", True),
+        "stale": snapshot.get("stale", False),
+        "stale_reason": snapshot.get("stale_reason"),
         "row_count": snapshot.get("row_count"),
         "params": snapshot.get("params"),
         "tabs": [

@@ -129,6 +129,9 @@
     fetch(resultUrl + "?cache_key=" + encodeURIComponent(currentCacheKey), { headers: { "X-CSRF-Token": csrfToken } })
       .then(function (resp) { return resp.json(); })
       .then(function (summary) {
+        if (summary.stale) {
+          setStatus(summary.stale_reason || "Showing the last saved copy.", false);
+        }
         renderTabs(summary.tabs, summary.active_tab);
         if (summary.active_tab) loadTab(summary.active_tab);
       });
