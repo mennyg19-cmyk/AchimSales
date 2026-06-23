@@ -11,7 +11,8 @@
          data-result-url="{{ url_for('reporting.result_summary_route', report_key=report.report_key) }}"
          data-job-url-tpl="{{ url_for('reporting.job_status', job_id='__JOB__') }}"
          data-cancel-url-tpl="{{ url_for('reporting.cancel_job', job_id='__JOB__') }}"
-         data-export-url-tpl="{{ url_for('reporting.export_tab', report_key=report.report_key, tab_key='__TAB__') }}">
+         data-export-url-tpl="{{ url_for('reporting.export_tab', report_key=report.report_key, tab_key='__TAB__') }}"
+         data-email-url-tpl="{{ url_for('reporting.email_tab', report_key=report.report_key, tab_key='__TAB__') }}">
 
   <div class="viewer__head">
     <h1 class="page__title">{{ report.title }}</h1>
@@ -60,6 +61,7 @@
       </span>
       <button type="button" class="btn" id="export-xlsx">Export Excel</button>
       <button type="button" class="btn" id="export-csv">Export CSV</button>
+      <button type="button" class="btn" id="email-me">Email to me</button>
     </div>
   </div>
   <div class="table-wrap"><div id="report-table"></div></div>

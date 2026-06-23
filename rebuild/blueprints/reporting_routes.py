@@ -28,6 +28,7 @@ from ..data.repositories.jobs import JobRepository, QueueFull
 from ..data.repositories.run_log import RunLogRepository
 from ..data.repositories.user_scope import UserScopeRepository
 from ..data.repositories.users import UsersRepository
+from ..delivery.report_email import EmailService
 from ..jobs.types import JOB_REPORT_RUN
 from ..reporting.authz import resolve_access
 from ..reports import export as export_file
@@ -227,6 +228,33 @@ def export_tab(report_key: str, tab_key: str):
         mimetype=mime,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@reporting_bp.post("/api/reports/<report_key>/email/<tab_key>")
+@require_login
+def email_tab(report_key: str, tab_key: str):
+    # Emails the finished tab to the signed-in person only (to themselves, with
+    # Reply-To themselves). Scheduled sends to other recipients come later; this
+    # is the safe, self-only path for verifying email works.
+    snapshot = _read_result(report_key)
+    tab = result_tab(snapshot, tab_key)
+    if tab is None:
+        abort(404)
+    principal = current_principal()
+    service = EmailService(get_config(), RunLogRepository(get_db()))
+    result = service.send_report(
+        to=[principal.email],
+        report_key=report_key,
+        report_title=snapshot.get("title") or report_key,
+        subtitle=tab.get("label") or "",
+        xlsx_bytes=export_file.to_xlsx(tab),
+        xlsx_filename=export_file.filename_for(report_key, tab_key, "xlsx"),
+        reply_to=principal.email,
+        requested_by=principal.email,
+    )
+    if not result.ok:
+        return jsonify({"error": result.error or "Couldn't send the email."}), 502
+    return jsonify({"ok": True, "to": principal.email, "attached": result.attached})
 
 
 def _read_result(report_key: str) -> dict:

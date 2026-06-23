@@ -98,6 +98,11 @@ class Config:
     client_secret: str
     reporting_api_base_url: str
     reporting_api_key: str
+    # Email: the mailbox the app sends FROM (e.g. reports@achimonline.com) and
+    # the public base URL used to build "open in the app" links in emails. Both
+    # come from the environment; when either is blank, emailing is simply off.
+    mail_from: str = ""
+    public_base_url: str = ""
     developer_emails: frozenset[str] = field(default_factory=frozenset)
     reporting_api_timeout: float = 300.0
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
@@ -209,6 +214,8 @@ def load_config() -> Config:
         client_secret=os.environ.get("GRAPH_CLIENT_SECRET", "").strip(),
         reporting_api_base_url=os.environ.get("REPORTING_API_BASE_URL", "").strip().rstrip("/"),
         reporting_api_key=os.environ.get("REPORTING_API_KEY", "").strip(),
+        mail_from=os.environ.get("REBUILD_MAIL_FROM", "").strip(),
+        public_base_url=os.environ.get("REBUILD_PUBLIC_BASE_URL", "").strip().rstrip("/"),
         developer_emails=frozenset(
             e.strip().lower()
             for e in os.environ.get("REBUILD_DEVELOPER_EMAILS", "").split(",")

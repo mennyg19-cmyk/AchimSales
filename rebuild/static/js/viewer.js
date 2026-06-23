@@ -6,7 +6,8 @@
 // old table and shows a loading note so you never stare at the previous tab.
 // Most tabs render in a Tabulator table (per-column filter boxes, drag to move
 // or resize columns, group-by, show/hide columns, bottom + per-group totals,
-// and CSV/Excel export); the Commissions (Cards) tab renders as per-salesman
+// CSV/Excel export, and an "Email to me" button that mails the current tab to
+// the signed-in person); the Commissions (Cards) tab renders as per-salesman
 // cards. A Cancel button shows only while a run is in flight.
 //
 // Plain browser JavaScript on purpose: the preview slot has no build step, so
@@ -204,6 +205,32 @@
   }
   document.getElementById("export-xlsx").addEventListener("click", function () { exportActiveTab("xlsx"); });
   document.getElementById("export-csv").addEventListener("click", function () { exportActiveTab("csv"); });
+
+  var emailUrlTpl = root.dataset.emailUrlTpl;
+  var emailBtn = document.getElementById("email-me");
+  function emailActiveTab() {
+    if (!activeTabKey || !currentCacheKey) return;
+    var original = emailBtn.textContent;
+    emailBtn.disabled = true;
+    emailBtn.textContent = "Sending\u2026";
+    var url = emailUrlTpl.replace("__TAB__", encodeURIComponent(activeTabKey)) +
+      "?cache_key=" + encodeURIComponent(currentCacheKey);
+    fetch(url, { method: "POST", headers: jsonHeaders() })
+      .then(function (resp) { return resp.json().then(function (b) { return { status: resp.status, body: b }; }); })
+      .then(function (r) {
+        if (r.status === 200 && r.body.ok) {
+          emailBtn.textContent = r.body.attached ? "Emailed to you" : "Emailed (link only)";
+        } else {
+          emailBtn.textContent = "Email failed";
+          if (r.body && r.body.error) setStatus(r.body.error, false);
+        }
+      })
+      .catch(function () { emailBtn.textContent = "Email failed"; })
+      .then(function () {
+        setTimeout(function () { emailBtn.disabled = false; emailBtn.textContent = original; }, 3000);
+      });
+  }
+  emailBtn.addEventListener("click", emailActiveTab);
 
   function renderTabs(tabs, active) {
     tabbar.innerHTML = "";

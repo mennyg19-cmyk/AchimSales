@@ -25,6 +25,15 @@ Decisions made during autonomous operation or at ambiguous points during develop
 
 ---
 
+## 2026-06-23 Rebuild Phase E: email sending built + reviewed
+**What I built:** The email layer. A Graph mailer (`rebuild/delivery/graph_mail.py`) sends app-only mail through Microsoft Graph the same way the live distribution does -- no mailbox password, built on the standard library + msal. A composition/service layer (`report_email.py`) turns a finished tab into an email: short body with an "open in the app" link, the Excel attached, and a link-only fallback when the workbook is too big (>= 2.5 MB raw, safely under Graph's ~4 MB request limit after base64). Always sends FROM `config.mail_from` (reports@) with Reply-To set to the person. Every attempt (sent, failed, refused) is written to the audit log. The only trigger so far is an "Email to me" button that sends ONLY to the signed-in person (to themselves) -- the safe test path; real recipients/schedules come in the scheduling phase. Settings added: `REBUILD_MAIL_FROM`, `REBUILD_PUBLIC_BASE_URL` (both blank = email simply off). 33 tests pass.
+**Review:** readonly gpt-5.5-extra-high (agent 86ce3f31). Confirmed recipients come only from the signed-in identity, `_read_result` enforces ownership+scope before sending, CSRF is enforced, and the body is HTML-escaped. Fixed its three BLOCKING items: (1) unconfigured/refused sends are now audited too (single failure path); (2) any token/network error becomes a clean "failed" instead of a 500; (3) we refuse to send a link-only email when no app link can be built, rather than sending a useless "use the link above" with no link. Tightened the attach threshold to 2.5 MB and `>=`.
+**One judgment call (NEEDS-HUMAN, decided as):** Graph sends with `saveToSentItems=true`, so a copy lands in the reports@ Sent Items. I kept that on -- it gives a real sent record and matches the "send as reports@" model. Say the word if you'd rather it not retain copies there.
+**Not yet (by design):** no real recipient lists or schedules seeded; live test-send needs the deploy + Mail.Send app permission + REBUILD_MAIL_FROM set.
+**Status:** DECIDED -- email layer done, committing.
+
+---
+
 ## 2026-06-23 Rebuild Phase S: per-salesman scoping built + reviewed
 **What I built:** Real per-salesman data scoping (was stubbed -- everyone saw all). New `user_salesmen` mapping table (admin-managed), `UserScopeRepository`, scope resolved in the single `resolve_access()` (privileged=all, mapped=own numbers, unmapped=denied). The salesman SP param is forced to the person's numbers AND rows are post-filtered as a backstop; scope is folded into the cache key. Admin-only page at `/admin/scope` to manage the map. 23 tests pass.
 **Review:** readonly gpt-5.5-extra-high review (agent 8a00a5a7). Fixed its one BLOCKING item (the run summary used the pre-filter row count, which could leak the full total to a scoped user -> now counts post-filter rows) and its NON-BLOCKING worker item (the worker now refuses a tampered/corrupt scope token instead of falling back to "all"). Added regression tests for both.
