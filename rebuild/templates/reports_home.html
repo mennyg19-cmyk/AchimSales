@@ -5,7 +5,10 @@
   <div class="page__head">
     <h1 class="page__title">Reports</h1>
     {% if principal and principal.is_privileged %}
-    <a class="page__admin-link" href="{{ url_for('reporting.admin_audit') }}">Audit log</a>
+    <span class="page__admin-links">
+      <a class="page__admin-link" href="{{ url_for('reporting.admin_scope') }}">Salesman access</a>
+      <a class="page__admin-link" href="{{ url_for('reporting.admin_audit') }}">Audit log</a>
+    </span>
     {% endif %}
   </div>
   {% if reports %}

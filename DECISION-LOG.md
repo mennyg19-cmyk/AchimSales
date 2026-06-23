@@ -25,6 +25,31 @@ Decisions made during autonomous operation or at ambiguous points during develop
 
 ---
 
+## 2026-06-23 Rebuild Phase S: per-salesman scoping built + reviewed
+**What I built:** Real per-salesman data scoping (was stubbed -- everyone saw all). New `user_salesmen` mapping table (admin-managed), `UserScopeRepository`, scope resolved in the single `resolve_access()` (privileged=all, mapped=own numbers, unmapped=denied). The salesman SP param is forced to the person's numbers AND rows are post-filtered as a backstop; scope is folded into the cache key. Admin-only page at `/admin/scope` to manage the map. 23 tests pass.
+**Review:** readonly gpt-5.5-extra-high review (agent 8a00a5a7). Fixed its one BLOCKING item (the run summary used the pre-filter row count, which could leak the full total to a scoped user -> now counts post-filter rows) and its NON-BLOCKING worker item (the worker now refuses a tampered/corrupt scope token instead of falling back to "all"). Added regression tests for both.
+**Two judgment calls (NEEDS-HUMAN, decided as):**
+  1. **Salesman number format = exact match.** Numbers are matched as exact trimmed strings, so `010` and `10` are different. I chose exact match (no guessing/zero-stripping) and told admins on the page to enter numbers exactly as they appear in the report's Salesman column. Flag if your data uses inconsistent leading zeros.
+  2. **"Privileged" = the developer list for now.** The role resolver only assigns `developer` (from REBUILD_DEVELOPER_EMAILS) or `user`; there's no separate "admin" role source yet. Privileged behavior (see-all + admin pages) currently means being on the developer list. Fine while it's just you; we can add a real admin role source later.
+**Status:** DECIDED -- scoping done, committing/deploying.
+
+---
+
+## 2026-06-23 Rebuild M11 unblocked: email + scheduling decisions (owner answered)
+**What I had to decide:** The owner answered the M11 questions, which set the design for emailing and scheduling reports.
+**What the owner chose (and what I'm building to):**
+  1. **Safety gate:** build the full email/scheduling machinery, but test-send ONLY to the owner. Do NOT seed real master schedules or recipient lists yet.
+  2. **Send method:** reuse the existing Microsoft Graph app mail the live distribution uses (`core/email_report.py` pattern; app-only Mail.Send). No new mailbox or secret.
+  3. **Sender:** ALWAYS send From `reports@achimonline.com`, with **Reply-To set to the person who created the schedule**. (The owner picked this over "send as the user" -- it's safer: the app only ever sends as `reports@`, so we don't need the broad "send as any user" permission, and replies still reach the creator.) I'll also recommend an Exchange application-access-policy limiting the app to `reports@`.
+  4. **Recipients / scoping:** per-salesman + per-user. A user's login maps to their salesman number(s) via an **admin-managed mapping table** (the owner manages it). Master schedules (admin) split a report by salesman and send each their own scoped copy; a user's own schedule is auto-scoped to them. Privileged users see all; a mapped user sees only their salesmen; an unmapped non-privileged user is denied (they'd see nothing anyway -- this app is sales reports).
+  5. **Cadence:** fully customizable like the live/v3 app; skip Saturdays and holidays; built generic so any future report can be scheduled.
+  6. **Attachment:** both the Excel file and a link to open it in the app; fall back to link-only if the Excel is too big for a single Graph send (~3-4 MB).
+**Build order (owner approved):** (S) data scoping -> (E) email send service (test to owner only) -> (Sch) scheduling engine -> (UI) schedule management for users + admin.
+**Why:** Scoping is the foundation for per-salesman delivery and is also a security non-negotiable that was still stubbed; it has to land first. Reply-To-not-send-as keeps the mail permission minimal. Numbers remain PROVISIONAL until owner sign-off, which is exactly why nothing real is scheduled yet.
+**Status:** DECIDED -- building.
+
+---
+
 ## 2026-06-22 Rebuild M11: email + scheduling -- NOT built, needs your sign-off (autonomous)
 **What I had to decide:** The inventory includes emailing and scheduling reports. Whether to build automated email distribution now, while running unattended.
 **Why I stopped instead of building it:** This is a high-risk action under the autonomous rules (business logic + could send wrong data to people). The invoiced numbers are still PROVISIONAL -- you haven't signed off that they match LIVE (and we know the DBA's source data is currently wrong). Wiring up automatic emails now could blast not-yet-correct numbers to executives on a schedule. It also needs decisions only you can make.

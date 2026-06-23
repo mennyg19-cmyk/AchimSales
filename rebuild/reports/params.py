@@ -7,6 +7,7 @@
 #
 # resolve_window() -- a named period (or custom dates) -> (start_date, end_date)
 # translate() -- filter choices -> the SP params for a report (raises if unknown)
+# force_salesman_scope() -- pin the salesman param to a person's allowed numbers
 
 from __future__ import annotations
 
@@ -81,9 +82,35 @@ _TRANSLATORS = {
     "invoiced": _translate_invoiced,
 }
 
+# The SP parameter that filters by salesman, per report. Scoping a report to a
+# person requires its query to take a salesman filter; a report missing here
+# can't be scoped (so a scoped person can't run it -- safe by default).
+_SALESMAN_PARAM = {
+    "invoiced": "Salesman",
+}
+
 
 def translate(report_key: str, filters: Optional[dict]) -> dict[str, Any]:
     translator = _TRANSLATORS.get(report_key)
     if translator is None:
         raise KeyError(f"No parameter translator for report {report_key!r}")
     return translator(filters or {})
+
+
+def force_salesman_scope(
+    report_key: str, sp_params: dict[str, Any], salesmen: Optional[list[str]]
+) -> dict[str, Any]:
+    """Pin the salesman parameter to the numbers a person is allowed to see.
+
+    ``salesmen=None`` means "all" (privileged) and leaves the params untouched.
+    Otherwise the salesman param is overwritten, so a scoped person can never
+    request data outside their numbers regardless of what filters they sent.
+    """
+    if salesmen is None:
+        return sp_params
+    param = _SALESMAN_PARAM.get(report_key)
+    if param is None:
+        raise KeyError(f"Report {report_key!r} can't be scoped by salesman")
+    scoped = dict(sp_params)
+    scoped[param] = ",".join(salesmen)
+    return scoped

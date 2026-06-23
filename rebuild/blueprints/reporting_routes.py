@@ -17,19 +17,23 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, Response, abort, jsonify, render_template, request
+import re
+
+from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, url_for
 
 from ..app import get_config, get_db
 from ..auth.decorators import require_login, require_privileged
 from ..auth.session import current_principal
 from ..data.repositories.jobs import JobRepository, QueueFull
 from ..data.repositories.run_log import RunLogRepository
+from ..data.repositories.user_scope import UserScopeRepository
+from ..data.repositories.users import UsersRepository
 from ..jobs.types import JOB_REPORT_RUN
 from ..reporting.authz import resolve_access
 from ..reports import export as export_file
 from ..reports.cache import ResultCache, build_cache_key
 from ..reports.config_loader import ConfigLoader, ReportNotFound, ReportNotRunnable
-from ..reports.params import translate
+from ..reports.params import force_salesman_scope, translate
 from ..reports.views import result_summary, result_tab
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -75,15 +79,46 @@ def admin_audit():
     return render_template("admin_audit.html", entries=entries, principal=current_principal())
 
 
+@reporting_bp.get("/admin/scope")
+@require_privileged
+def admin_scope():
+    db = get_db()
+    assignments = UserScopeRepository(db).all_assignments()
+    users = UsersRepository(db).list_all()
+    for user in users:
+        user["salesmen"] = assignments.get((user["email"] or "").strip().lower(), [])
+    known = {(user["email"] or "").strip().lower() for user in users}
+    # Someone an admin mapped who hasn't signed in yet still shows up, so the
+    # mapping isn't invisible until their first login.
+    orphans = [
+        {"email": email, "name": "(not signed in yet)", "role": "", "salesmen": numbers}
+        for email, numbers in assignments.items()
+        if email not in known
+    ]
+    return render_template(
+        "admin_scope.html", users=users + orphans, principal=current_principal()
+    )
+
+
+@reporting_bp.post("/admin/scope")
+@require_privileged
+def admin_scope_save():
+    email = (request.form.get("email") or "").strip()
+    numbers = [n for n in re.split(r"[,\s]+", request.form.get("salesmen") or "") if n]
+    if email:
+        UserScopeRepository(get_db()).set_salesmen(email, numbers)
+    return redirect(url_for("reporting.admin_scope"))
+
+
 @reporting_bp.post("/api/reports/<report_key>/run")
 @require_login
 def run_report(report_key: str):
+    db = get_db()
     principal = current_principal()
-    access = resolve_access(principal, report_key)
+    access = resolve_access(principal, report_key, UserScopeRepository(db))
     if not access.allowed:
         abort(403)
 
-    db = get_db()
     try:
         ConfigLoader(db).load_runnable(report_key)
     except ReportNotFound:
@@ -94,6 +129,8 @@ def run_report(report_key: str):
     filters = request.get_json(silent=True) or {}
     try:
         sp_params = translate(report_key, filters)
+        scoped = list(access.salesmen) if access.salesmen is not None else None
+        sp_params = force_salesman_scope(report_key, sp_params, scoped)
     except KeyError:
         abort(404)
 
@@ -194,7 +231,7 @@ def export_tab(report_key: str, tab_key: str):
 
 def _read_result(report_key: str) -> dict:
     principal = current_principal()
-    access = resolve_access(principal, report_key)
+    access = resolve_access(principal, report_key, UserScopeRepository(get_db()))
     if not access.allowed:
         abort(403)
     cache_key = request.args.get("cache_key", "")

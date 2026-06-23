@@ -19,12 +19,13 @@ from ..data.connection import utc_now_iso
 from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.run_log import RunLogRepository
 from ..jobs.types import JOB_REPORT_RUN, HandlerRegistry, JobContext
+from ..reporting.authz import allowed_salesmen
 from .adapter import normalize
 from .api_client import ReportingApiClient, ReportingApiError
 from .cache import ResultCache, build_cache_key
 from .config_loader import ConfigLoader
 from .engine import build_tabs
-from .params import translate
+from .params import force_salesman_scope, translate
 from .transforms import TRANSFORMS
 
 log = logging.getLogger("rebuild.reports.runner")
@@ -38,7 +39,10 @@ def run_report_job(ctx: JobContext) -> str | None:
 
     report_config = ConfigLoader(db).load_runnable(job.report_key)
     filters = (job.params or {}).get("filters") or {}
-    sp_params = translate(job.report_key, filters)
+    # Re-apply the same salesman scope the web route used, so the actual data
+    # call is scoped even though the job only carries the scope token.
+    scoped_salesmen = allowed_salesmen(job.scope_token)
+    sp_params = force_salesman_scope(job.report_key, translate(job.report_key, filters), scoped_salesmen)
     cache_key = job.cache_key or build_cache_key(job.report_key, job.requested_by, job.scope_token, sp_params)
 
     # Give the API call a deadline a bit before the worker's hard backstop, so a
@@ -72,6 +76,14 @@ def run_report_job(ctx: JobContext) -> str | None:
         )
 
     rows = normalize(job.report_key, result.rows)
+    # Backstop: even if the data server ignored the salesman filter, never let a
+    # scoped person's snapshot contain another salesman's rows.
+    if scoped_salesmen is not None:
+        allowed = set(scoped_salesmen)
+        rows = [row for row in rows if str(row.get("Salesman", "")).strip() in allowed]
+    # Count what the person actually sees (after scoping), not what the server
+    # fetched -- otherwise a scoped user's summary could leak the full total.
+    visible_count = len(rows)
     tabs = build_tabs(rows, report_config.tabs, transforms=TRANSFORMS, params={"filters": filters, "sp_params": sp_params})
 
     snapshot = {
@@ -79,7 +91,7 @@ def run_report_job(ctx: JobContext) -> str | None:
         "title": report_config.title,
         "generated_at": utc_now_iso(),
         "params": filters,
-        "row_count": actual_count,
+        "row_count": visible_count,
         "provisional": True,
         "stale": False,
         "identity": (job.requested_by or "").strip().lower(),
@@ -103,7 +115,7 @@ def run_report_job(ctx: JobContext) -> str | None:
         job_id=job.id,
         duration_ms=int((time.monotonic() - started) * 1000),
         status="done",
-        message=f"{actual_count} rows, {len(tabs)} tabs",
+        message=f"{visible_count} rows, {len(tabs)} tabs",
     )
     return cache_key
 

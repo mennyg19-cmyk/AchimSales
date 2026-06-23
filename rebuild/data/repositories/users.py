@@ -7,6 +7,7 @@
 #
 # UsersRepository.record_login() -- upsert a user on sign-in
 # UsersRepository.get() -- fetch one user by email
+# UsersRepository.list_all() -- everyone who has signed in (for admin screens)
 
 from __future__ import annotations
 
@@ -38,3 +39,10 @@ class UsersRepository:
                 (email.strip().lower(),),
             )
             return dict(row) if row else None
+
+    def list_all(self) -> list[dict]:
+        with self._db.precious() as conn:
+            rows = conn.fetchall(
+                "SELECT email, name, role, first_seen, last_seen FROM users ORDER BY name"
+            )
+            return [dict(row) for row in rows]

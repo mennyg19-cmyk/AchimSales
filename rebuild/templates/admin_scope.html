@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Salesman access{% endblock %}
+{% block content %}
+<section class="page">
+  <div class="page__head">
+    <h1 class="page__title">Salesman access</h1>
+    <a class="page__admin-link" href="{{ url_for('reporting.reports_home') }}">&larr; Reports</a>
+  </div>
+  <p class="muted">
+    Map each person's login to the salesman number(s) they're allowed to see.
+    A person with no numbers here can't run reports (admins and developers always
+    see everything). Separate multiple numbers with commas or spaces. To remove
+    someone's access, save with the box empty. Enter each number exactly as it
+    appears in the report's Salesman column (e.g. <code>010</code> is not the
+    same as <code>10</code>).
+  </p>
+
+  <form class="scope-add" method="post" action="{{ url_for('reporting.admin_scope_save') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Login email
+      <input type="email" name="email" placeholder="person@achimonline.com" required>
+    </label>
+    <label>Salesman number(s)
+      <input type="text" name="salesmen" placeholder="e.g. 10, 20">
+    </label>
+    <button type="submit" class="btn btn--primary">Save mapping</button>
+  </form>
+
+  {% if users %}
+  <div class="audit-wrap">
+    <table class="audit">
+      <thead>
+        <tr><th>Name</th><th>Email</th><th>Role</th><th>Salesman number(s)</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td>{{ user.name }}</td>
+          <td>{{ user.email }}</td>
+          <td>{{ user.role }}</td>
+          <td>
+            <form class="scope-row" method="post" action="{{ url_for('reporting.admin_scope_save') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="email" value="{{ user.email }}">
+              <input type="text" name="salesmen" value="{{ user.salesmen | join(', ') }}">
+              <button type="submit" class="btn">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No one has signed in yet. Add a mapping above to pre-assign access.</p>
+  {% endif %}
+</section>
+{% endblock %}
