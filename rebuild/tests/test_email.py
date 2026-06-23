@@ -155,3 +155,42 @@ def test_compose_escapes_subtitle_and_filename():
     )
     assert "<b>" not in composed.html_body
     assert "<i>" not in composed.html_body
+
+
+def test_failure_notice_emails_the_owner_and_is_audited():
+    log = _FakeLog()
+    mailer = _FakeMailer()
+    service = EmailService(_config(), log, mailer=mailer)
+    result = service.send_failure_notice(
+        to="rep@achimonline.com", report_key="invoiced",
+        schedule_title="My invoiced", reason="the report could not be built",
+    )
+    assert result.ok
+    assert mailer.sent["to"] == ["rep@achimonline.com"]
+    assert "didn't run" in mailer.sent["subject"]
+    assert "could not be built" in mailer.sent["html_body"]
+    assert log.entries[0][0] == "schedule.fail_notice"
+    assert log.entries[0][1]["status"] == "sent"
+
+
+def test_failure_notice_escapes_the_reason():
+    mailer = _FakeMailer()
+    service = EmailService(_config(), _FakeLog(), mailer=mailer)
+    service.send_failure_notice(
+        to="rep@x.com", report_key="invoiced", schedule_title="<b>t</b>", reason="<script>",
+    )
+    assert "<script>" not in mailer.sent["html_body"]
+    assert "<b>" not in mailer.sent["html_body"]
+
+
+def test_failure_notice_when_email_is_off_is_audited_not_sent():
+    log = _FakeLog()
+    mailer = _FakeMailer()
+    service = EmailService(_config(mail_from=""), log, mailer=mailer)
+    result = service.send_failure_notice(
+        to="rep@x.com", report_key="invoiced", schedule_title="t", reason="x",
+    )
+    assert not result.ok
+    assert mailer.sent is None
+    assert log.entries[0][0] == "schedule.fail_notice"
+    assert log.entries[0][1]["status"] == "failed"

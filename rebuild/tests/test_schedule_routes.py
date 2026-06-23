@@ -155,3 +155,125 @@ def test_bad_weekly_cadence_is_rejected_not_crashed(app):
         "freq": "weekly", "time": "08:00",  # no weekday picked
     })
     assert resp.status_code == 302  # redirected back with a flashed error, not a 500
+
+
+def _make_schedule(app, **overrides):
+    from rebuild.app import get_db
+    from rebuild.data.repositories.schedules import KIND_SELF, SchedulesRepository
+    from rebuild.data.repositories.user_scope import UserScopeRepository
+
+    db = get_db(app)
+    UserScopeRepository(db).set_salesmen("rep@x.com", ["10"])
+    fields = dict(
+        owner_email="rep@x.com", report_key="invoiced", title="S", kind=KIND_SELF,
+        filters={}, cadence={"freq": "daily", "time": "08:00"}, recipients=[], salesmen=[],
+        tab_key=None, skip_sabbath=True,
+    )
+    fields.update(overrides)
+    return SchedulesRepository(db).create(**fields)
+
+
+def test_sabbath_skip_flags_a_catch_up_then_the_poller_queues_it_after(app, monkeypatch):
+    from datetime import datetime, timezone
+
+    from rebuild.app import get_config, get_db
+    from rebuild.data.repositories.jobs import JobRepository
+    from rebuild.data.repositories.schedules import SchedulesRepository
+    from rebuild.scheduling import poller as poller_mod
+    from rebuild.scheduling import run as run_mod
+    from rebuild.scheduling.poller import enqueue_due
+
+    db = get_db(app)
+    schedule = _make_schedule(app)
+    now = datetime(2026, 6, 20, 16, 0, tzinfo=timezone.utc)  # a Saturday afternoon
+
+    # During Shabbos the run is skipped and a catch-up is flagged, not lost.
+    monkeypatch.setattr(run_mod, "melacha_assur", lambda _now=None: (True, "Shabbos"))
+    run_mod.run_schedule(db, get_config(app), schedule.id, now=now)
+    after_skip = SchedulesRepository(db).get(schedule.id)
+    assert after_skip.catch_up_pending is True
+    assert after_skip.last_run_at is not None
+
+    # Once Shabbos is over, the poller queues the catch-up even though the cadence
+    # already "ran" (was skipped) today.
+    monkeypatch.setattr(poller_mod, "melacha_assur", lambda _now=None: (False, ""))
+    jobs = JobRepository(db, get_config(app).job_queue_max, get_config(app).job_stale_seconds)
+    later = datetime(2026, 6, 20, 23, 30, tzinfo=timezone.utc)  # Saturday night
+    assert enqueue_due(db, jobs, later) == 1
+
+
+def test_a_whole_failed_run_notifies_a_private_schedule_owner(app, monkeypatch):
+    from rebuild.app import get_config, get_db
+    from rebuild.data.repositories.notifications import NotificationsRepository
+    from rebuild.scheduling import run as run_mod
+
+    db = get_db(app)
+    schedule = _make_schedule(app, skip_sabbath=False)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("reporting API down")
+
+    monkeypatch.setattr(run_mod, "build_report_snapshot", _boom)
+    run_mod.run_schedule(db, get_config(app), schedule.id)
+
+    unread = NotificationsRepository(db).list_unread("rep@x.com")
+    assert len(unread) == 1
+    assert unread[0]["schedule_id"] == schedule.id
+
+
+def test_manual_run_now_queues_a_job_and_clears_the_notification(app):
+    from rebuild.app import get_db
+    from rebuild.data.repositories.notifications import KIND_SCHEDULE_FAILED, NotificationsRepository
+    from rebuild.jobs.types import JOB_SCHEDULE_RUN
+
+    db = get_db(app)
+    schedule = _make_schedule(app, skip_sabbath=False)
+    NotificationsRepository(db).create(
+        user_email="rep@x.com", kind=KIND_SCHEDULE_FAILED, title="failed", schedule_id=schedule.id,
+    )
+
+    client = app.test_client()
+    _login(client, "rep@x.com")
+    token = _csrf(client, "/schedules")
+    resp = client.post(f"/schedules/{schedule.id}/run-now", data={"csrf_token": token})
+    assert resp.status_code == 302
+
+    with db.precious() as conn:
+        row = conn.fetchone(
+            "SELECT params FROM jobs WHERE job_type = ? ORDER BY created_at DESC LIMIT 1",
+            (JOB_SCHEDULE_RUN,),
+        )
+    assert row is not None and '"manual": true' in row["params"]
+    assert NotificationsRepository(db).list_unread("rep@x.com") == []
+
+
+def test_manual_run_ignores_the_sabbath_skip(app, monkeypatch):
+    from rebuild.app import get_config, get_db
+    from rebuild.data.repositories.schedules import SchedulesRepository
+    from rebuild.scheduling import run as run_mod
+
+    db = get_db(app)
+    schedule = _make_schedule(app, skip_sabbath=True)
+    monkeypatch.setattr(run_mod, "melacha_assur", lambda _now=None: (True, "Shabbos"))
+    # Building returns None (treated as "stopped"), so no real send is attempted --
+    # we only care that the Shabbos gate did NOT short-circuit a manual run.
+    monkeypatch.setattr(run_mod, "build_report_snapshot", lambda *a, **k: None)
+
+    run_mod.run_schedule(db, get_config(app), schedule.id, ignore_sabbath=True)
+
+    after = SchedulesRepository(db).get(schedule.id)
+    assert after.catch_up_pending is False  # it didn't take the Shabbos-skip path
+
+
+def test_a_person_cannot_dismiss_someone_elses_notification(app):
+    from rebuild.app import get_db
+    from rebuild.data.repositories.notifications import KIND_SCHEDULE_FAILED, NotificationsRepository
+
+    db = get_db(app)
+    note_id = NotificationsRepository(db).create(
+        user_email="owner@x.com", kind=KIND_SCHEDULE_FAILED, title="failed",
+    )
+    other = app.test_client()
+    _login(other, "intruder@x.com")
+    token = _csrf(other, "/schedules")
+    assert other.post(f"/notifications/{note_id}/dismiss", data={"csrf_token": token}).status_code == 403

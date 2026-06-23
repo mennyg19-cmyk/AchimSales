@@ -11,20 +11,26 @@
 # create_schedule() -- save a new self-schedule
 # admin_schedules() / create_master_schedule() -- the admin master schedules page
 # toggle_schedule() / delete_schedule() -- pause/resume or remove one (owner or admin)
+# run_now() -- queue a one-off run of a schedule right now (ignores the Shabbos skip)
+# dismiss_notification() -- hide an in-app message
 # schedule_history() -- recent scheduled sends (own, or everyone for an admin)
 
 from __future__ import annotations
 
 import re
+import uuid
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
 from ..app import get_config, get_db
 from ..auth.decorators import require_login, require_privileged
 from ..auth.session import current_principal
+from ..data.repositories.jobs import JobRepository, QueueFull
+from ..data.repositories.notifications import NotificationsRepository
 from ..data.repositories.run_log import RunLogRepository
 from ..data.repositories.schedules import KIND_MASTER, KIND_SELF, SchedulesRepository
 from ..data.repositories.user_scope import UserScopeRepository
+from ..jobs.types import JOB_SCHEDULE_RUN
 from ..reporting.authz import resolve_access
 from ..reports.config_loader import ConfigLoader, ReportNotFound, ReportNotRunnable
 from ..scheduling import cadence as C
@@ -214,6 +220,51 @@ def delete_schedule(schedule_id: str):
     repo.delete(schedule_id)
     flash("Schedule deleted.", "success")
     return redirect(_back_to(schedule))
+
+
+@schedules_bp.post("/schedules/<schedule_id>/run-now")
+@require_login
+def run_now(schedule_id: str):
+    repo = _schedules()
+    schedule = repo.get(schedule_id)
+    if schedule is None:
+        abort(404)
+    if not _can_manage(schedule):
+        abort(403)
+
+    config = get_config()
+    jobs = JobRepository(get_db(), config.job_queue_max, config.job_stale_seconds)
+    try:
+        jobs.enqueue(
+            JOB_SCHEDULE_RUN,
+            report_key=schedule.report_key,
+            # A unique key per press so a manual run is never deduped against the
+            # scheduled slot or an earlier press -- the person asked for it now.
+            cache_key=f"schedule:{schedule_id}:manual:{uuid.uuid4().hex}",
+            params={"schedule_id": schedule_id, "manual": True},
+            requested_by=schedule.owner_email,
+        )
+    except QueueFull:
+        flash("The system is busy right now. Try again in a minute.", "error")
+        return redirect(_back_to(schedule))
+
+    # If this came from a "your schedule failed" message, clear that message.
+    NotificationsRepository(get_db()).dismiss_for_schedule(current_principal().email, schedule_id)
+    flash("Running now. The email goes out as soon as it's built.", "success")
+    return redirect(_back_to(schedule))
+
+
+@schedules_bp.post("/notifications/<note_id>/dismiss")
+@require_login
+def dismiss_notification(note_id: str):
+    repo = NotificationsRepository(get_db())
+    note = repo.get(note_id)
+    if note is None:
+        abort(404)
+    if note["user_email"] != current_principal().email.strip().lower():
+        abort(403)
+    repo.dismiss(note_id)
+    return redirect(url_for("reporting.reports_home"))
 
 
 @schedules_bp.get("/schedules/history")

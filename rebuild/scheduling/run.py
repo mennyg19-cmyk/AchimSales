@@ -6,13 +6,16 @@
 # gets what slice of the data), then for each delivery it builds the report
 # scoped to that slice, makes the Excel file, and emails it. Every send is
 # audited. If it's Shabbos/Yom Tov and the schedule opted to skip, nothing goes
-# out. A schedule fires at most once per day either way (the cadence's
-# once-per-day guard plus stamping last_run_at after the attempt).
+# out NOW -- instead it's flagged to run as a catch-up the moment the day ends.
+# A schedule fires at most once per day (the cadence's once-per-day guard plus
+# stamping last_run_at after the attempt). If every delivery fails, the owner
+# gets an immediate heads-up email, and for a private schedule an in-app message.
 #
 # Delivery -- one (scope, recipients, reply-to) target built from a schedule
 # expand_deliveries() -- turn a schedule into its list of deliveries
 # run_schedule() -- build + email every delivery for one schedule, then stamp it
 # schedule_run_handler() -- the worker job entry point (reads schedule_id, runs it)
+# _notify_failure() -- email the owner (+ in-app note) when a whole run failed
 
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ from typing import Optional
 
 from ..auth.authorization import build_principal
 from ..data.repositories.jobs import STATUS_RUNNING
+from ..data.repositories.notifications import KIND_SCHEDULE_FAILED, NotificationsRepository
 from ..data.repositories.run_log import RunLogRepository
 from ..data.repositories.schedules import KIND_MASTER, KIND_SELF, Schedule, SchedulesRepository
 from ..data.repositories.user_scope import UserScopeRepository
@@ -80,13 +84,16 @@ def expand_deliveries(schedule: Schedule, user_scope: UserScopeRepository, confi
     return []
 
 
-def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None) -> None:
+def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None, ignore_sabbath: bool = False) -> None:
     """Build and email a schedule's deliveries.
 
     ``should_continue`` is an optional check (the worker's "is this job still
     running?"). It's checked before each delivery and again right before each
     send, so if the job is cancelled or timed out the handler stops emailing
     instead of running on in a thread the worker can no longer kill.
+
+    ``ignore_sabbath`` is set for a manual "run it now" press: the person asked
+    for it on purpose, so we don't apply the Shabbos/Yom Tov skip.
     """
     keep_going = should_continue or (lambda: True)
     schedules = SchedulesRepository(db)
@@ -95,15 +102,19 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
         return
 
     run_log = RunLogRepository(db)
-    if schedule.skip_sabbath:
+    if schedule.skip_sabbath and not ignore_sabbath:
         assur, reason = melacha_assur(now)
         if assur:
             run_log.record(
                 "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
-                status="skipped", message=f"{schedule.title}: skipped ({reason})",
+                status="skipped", message=f"{schedule.title}: skipped ({reason}); will run after Shabbos",
             )
-            schedules.mark_ran(schedule_id)
+            schedules.mark_skipped_for_sabbath(schedule_id)
             return
+
+    # We're past the Shabbos gate, so this run is what any owed catch-up was
+    # waiting for. Clear the flag now (the poller fired it; this run handles it).
+    schedules.clear_catch_up(schedule_id)
 
     deliveries = expand_deliveries(schedule, UserScopeRepository(db), config)
     if not deliveries:
@@ -115,19 +126,35 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
         return
 
     email = EmailService(config, run_log)
+    attempted = 0
+    errors: list[str] = []
+    stopped = False
     for delivery in deliveries:
         if not keep_going():
             log.warning("schedule %s: job no longer running, stopping before remaining sends", schedule.id)
+            stopped = True
             break
-        _deliver_one(db, config, schedule, delivery, email, run_log, keep_going)
+        error = _deliver_one(db, config, schedule, delivery, email, run_log, keep_going)
+        if error is None:  # the job was cancelled mid-delivery, not a failure
+            stopped = True
+            break
+        attempted += 1
+        if error:
+            errors.append(error)
 
     # Stamp it whether sends succeeded or not so a schedule fires at most once a
     # day. A failed send shows in the audit log; the owner can re-run by hand.
     schedules.mark_ran(schedule_id)
 
+    # "Failed entirely" = we tried at least one delivery and every one failed
+    # (and we weren't cancelled). Tell the owner right away.
+    if not stopped and attempted and len(errors) == attempted:
+        _notify_failure(db, schedule, email, errors[0])
+
 
 def schedule_run_handler(ctx) -> Optional[str]:
-    schedule_id = (ctx.job.params or {}).get("schedule_id")
+    params = ctx.job.params or {}
+    schedule_id = params.get("schedule_id")
     if not schedule_id:
         return None
 
@@ -135,11 +162,34 @@ def schedule_run_handler(ctx) -> Optional[str]:
         job = ctx.jobs.get(ctx.job.id)
         return job is not None and job.status == STATUS_RUNNING
 
-    run_schedule(ctx.db, ctx.config, schedule_id, should_continue=still_running)
+    run_schedule(
+        ctx.db, ctx.config, schedule_id,
+        should_continue=still_running, ignore_sabbath=bool(params.get("manual")),
+    )
     return None
 
 
-def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: EmailService, run_log: RunLogRepository, keep_going) -> None:
+def _notify_failure(db, schedule: Schedule, email: EmailService, reason: str) -> None:
+    """A whole scheduled run failed: email the owner now, and for a private
+    schedule leave an in-app message offering to run it by hand."""
+    email.send_failure_notice(
+        to=schedule.owner_email, report_key=schedule.report_key,
+        schedule_title=schedule.title, reason=reason,
+    )
+    if schedule.kind == KIND_SELF:
+        NotificationsRepository(db).create(
+            user_email=schedule.owner_email, kind=KIND_SCHEDULE_FAILED,
+            title=f"Scheduled report didn't run: {schedule.title}",
+            body="We couldn't send it on schedule. You can run it now or dismiss this.",
+            schedule_id=schedule.id,
+        )
+
+
+def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: EmailService, run_log: RunLogRepository, keep_going) -> Optional[str]:
+    """Build and send one delivery. Returns "" on success, an error reason on
+    failure, or None if the job was cancelled mid-way (so the caller can tell a
+    real failure apart from a deliberate stop)."""
+    who = delivery.label or "self"
     try:
         snapshot = build_report_snapshot(
             db, config, schedule.report_key, schedule.filters, delivery.scope_token,
@@ -147,14 +197,15 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
         )
     except Exception as exc:  # noqa: BLE001 - one delivery failing shouldn't stop the rest
         log.exception("schedule %s: building report failed", schedule.id)
+        message = f"{schedule.title} ({who}): {exc}"
         run_log.record(
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
-            status="failed", message=f"{schedule.title} ({delivery.label or 'self'}): {exc}",
+            status="failed", message=message,
         )
-        return
+        return str(exc)
 
-    if snapshot is None:
-        return
+    if snapshot is None:  # build_report_snapshot bailed because the job was cancelled
+        return None
 
     tab = _pick_tab(snapshot, schedule.tab_key)
     if tab is None:
@@ -162,7 +213,7 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
             status="failed", message=f"{schedule.title}: report has no tab to send",
         )
-        return
+        return "the report had no tab to send"
 
     # Build the workbook first, THEN take the last gate right before the
     # irreversible part (the actual email). Building can take a while on a big
@@ -170,7 +221,7 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
     # after the build (not before) is what stops a send the worker has given up on.
     xlsx_bytes = export_file.to_xlsx(tab)
     if not keep_going():
-        return
+        return None
 
     subtitle = " - ".join(part for part in (tab.get("label") or "", delivery.label) if part)
     result = email.send_report(
@@ -186,17 +237,17 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
     # The email layer logs its own "report.email" entry; this "schedule.run" entry
     # is the schedule's own history line (so the page shows successes too, not just
     # skips and build failures).
-    who = delivery.label or "self"
     if result.ok:
         run_log.record(
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
             status="sent", message=f"{schedule.title} ({who}): to {len(delivery.recipients)} recipient(s)",
         )
-    else:
-        run_log.record(
-            "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
-            status="failed", message=f"{schedule.title} ({who}): {result.error}",
-        )
+        return ""
+    run_log.record(
+        "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
+        status="failed", message=f"{schedule.title} ({who}): {result.error}",
+    )
+    return result.error or "the email could not be sent"
 
 
 def _pick_tab(snapshot: dict, tab_key: Optional[str]) -> Optional[dict]:

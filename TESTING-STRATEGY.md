@@ -52,6 +52,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Shabbos/Yom Tov: inside a candle->havdalah window is restricted (Shabbos, or the named Yom Tov); outside is not. The check fails OPEN on any error, including a malformed-but-successful Hebcal response (a calendar hiccup must never block every send).
 - Deliveries: a `self` schedule scopes to the owner's allowed salesmen and addresses owner + extras; an unmapped owner produces no delivery; a privileged owner scopes to "all". A `master` schedule produces one send per salesman number, each scoped to ONLY that salesman, addressed to the people mapped to that salesman plus extras; a salesman with no recipients at all is skipped.
 - Poller: a due schedule is queued at most once per day (it's stamped as run the moment the durable job is queued, so a timed-out/failed job can't re-fire it that day).
+- Catch-up after Shabbos: a run skipped for Shabbos flags `catch_up_pending` (and stamps the day so the cadence doesn't also fire it); once Hebcal says it's no longer restricted, the poller queues the catch-up under a separate dedup key; the run handler clears the flag when it actually runs.
+- Failure alerts: a run where every attempted delivery failed (and wasn't cancelled) emails the owner a heads-up and, for a private schedule, creates one in-app notification tied to that schedule. A manual "Run now" queues a job with `manual:true` and ignores the Shabbos skip; running it dismisses the matching notification. A person can't dismiss someone else's notification (403).
 - Authorization: only admins reach `/admin/schedules`; a regular owner can manage their own self-schedule but NOT a master schedule and NOT someone else's; every state-changing POST carries CSRF.
 
 **Expected behavior:**
@@ -63,4 +65,4 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - A wide master schedule runs its salesmen sequentially inside one worker job capped at `max_job_seconds`; very large ones may need splitting (noted in DECISION-LOG).
 - A failed or refused (unconfigured mailer) send is still audited and still consumes the day's run.
 
-**Test files:** `rebuild/tests/test_scheduling.py` (cadence, sabbath, deliveries), `rebuild/tests/test_schedule_routes.py` (authz, CSRF, once-a-day, bad input).
+**Test files:** `rebuild/tests/test_scheduling.py` (cadence, sabbath, deliveries), `rebuild/tests/test_schedule_routes.py` (authz, CSRF, once-a-day, catch-up after Shabbos, whole-run failure notify, manual run-now + ignore-Shabbos, notification ownership), `rebuild/tests/test_email.py` (failure-notice composition, escaping, audited-when-off).

@@ -2,11 +2,16 @@
 
 # === What's in this file ===
 # A small daemon thread that wakes about once a minute, looks at every enabled
-# schedule, and for each one whose cadence says it's due (and that hasn't already
-# run today) drops a durable schedule.run job. It never sends mail itself -- the
-# worker drains the jobs. The job's dedup key is the schedule id plus today's
-# Eastern date, so even if the tick fires many times before the job runs, a
-# schedule is queued at most once per day.
+# schedule, and queues a durable schedule.run job for any that are due. It never
+# sends mail itself -- the worker drains the jobs. The job's dedup key is the
+# schedule id plus today's Eastern date, so even if the tick fires many times
+# before the job runs, a schedule is queued at most once per day.
+#
+# Two reasons a schedule gets queued:
+#  1. its cadence says it's due now and it hasn't run today, OR
+#  2. it was skipped earlier for Shabbos/Yom Tov and that's now over -- this is
+#     the catch-up, so a Saturday-morning send goes out Saturday night instead
+#     of waiting a whole week.
 #
 # enqueue_due() -- scan schedules once and queue the due ones (returns the count)
 # SchedulePoller.start() / request_stop() -- run/stop the background tick
@@ -21,6 +26,7 @@ from ..data.repositories.jobs import JobRepository
 from ..data.repositories.schedules import SchedulesRepository
 from ..jobs.types import JOB_SCHEDULE_RUN
 from . import cadence as C
+from .sabbath import melacha_assur
 
 log = logging.getLogger("rebuild.scheduling.poller")
 
@@ -33,21 +39,33 @@ def enqueue_due(db, jobs: JobRepository, now: datetime | None = None) -> int:
     schedules = SchedulesRepository(db)
     queued = 0
     for schedule in schedules.list_active():
-        if not C.due_now(schedule.cadence, schedule.last_run_at, now):
-            continue
-        jobs.enqueue(
-            JOB_SCHEDULE_RUN,
-            report_key=schedule.report_key,
-            cache_key=f"schedule:{schedule.id}:{today}",
-            params={"schedule_id": schedule.id},
-            requested_by=schedule.owner_email,
-        )
-        # Stamp it as having fired today the moment it's safely queued. The job is
-        # durable (a crash/restart still drains it), so claiming the day here -- not
-        # after the send finishes -- is what stops a timed-out or failed run from
-        # being re-queued every minute for the rest of the day.
-        schedules.mark_ran(schedule.id, now.isoformat())
-        queued += 1
+        if C.due_now(schedule.cadence, schedule.last_run_at, now):
+            jobs.enqueue(
+                JOB_SCHEDULE_RUN,
+                report_key=schedule.report_key,
+                cache_key=f"schedule:{schedule.id}:{today}",
+                params={"schedule_id": schedule.id},
+                requested_by=schedule.owner_email,
+            )
+            # Stamp it as having fired today the moment it's safely queued. The job
+            # is durable (a crash/restart still drains it), so claiming the day
+            # here -- not after the send finishes -- is what stops a timed-out or
+            # failed run from being re-queued every minute for the rest of the day.
+            schedules.mark_ran(schedule.id, now.isoformat())
+            queued += 1
+        elif schedule.catch_up_pending and not melacha_assur(now)[0]:
+            # Skipped earlier for Shabbos/Yom Tov and the day is now over: send the
+            # catch-up. A separate dedup key from the normal slot lets it queue even
+            # though the schedule already "ran" (was skipped) today. The run handler
+            # clears the catch-up flag when it actually runs.
+            jobs.enqueue(
+                JOB_SCHEDULE_RUN,
+                report_key=schedule.report_key,
+                cache_key=f"schedule:{schedule.id}:{today}:catchup",
+                params={"schedule_id": schedule.id},
+                requested_by=schedule.owner_email,
+            )
+            queued += 1
     return queued
 
 

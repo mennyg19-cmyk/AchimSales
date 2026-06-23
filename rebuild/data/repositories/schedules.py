@@ -14,6 +14,8 @@
 # SchedulesRepository.list_all() -- every schedule (admin view)
 # SchedulesRepository.list_active() -- enabled schedules the poller scans
 # SchedulesRepository.mark_ran() -- stamp last_run_at after a fire
+# SchedulesRepository.mark_skipped_for_sabbath() -- stamp + flag a catch-up is owed
+# SchedulesRepository.clear_catch_up() -- the owed catch-up has now been handled
 
 from __future__ import annotations
 
@@ -46,6 +48,10 @@ class Schedule:
     last_run_at: Optional[str]
     created_at: str
     updated_at: str
+    # True when a send was skipped for Shabbos/Yom Tov and is waiting to run as a
+    # catch-up once the day is over. Defaulted so older callers/tests that build a
+    # Schedule by hand don't have to pass it.
+    catch_up_pending: bool = False
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "Schedule":
@@ -65,6 +71,7 @@ class Schedule:
             last_run_at=row["last_run_at"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            catch_up_pending=bool(row["catch_up_pending"]),
         )
 
 
@@ -180,6 +187,22 @@ class SchedulesRepository:
             conn.execute(
                 "UPDATE schedules SET last_run_at = ? WHERE id = ?",
                 (ran_at or utc_now_iso(), schedule_id),
+            )
+
+    def mark_skipped_for_sabbath(self, schedule_id: str, ran_at: Optional[str] = None) -> None:
+        """Record that today's slot was skipped for Shabbos/Yom Tov: stamp it as
+        handled today (so the cadence doesn't also fire it) AND flag that a
+        catch-up run is owed once the day is over."""
+        with self._db.precious() as conn:
+            conn.execute(
+                "UPDATE schedules SET last_run_at = ?, catch_up_pending = 1 WHERE id = ?",
+                (ran_at or utc_now_iso(), schedule_id),
+            )
+
+    def clear_catch_up(self, schedule_id: str) -> None:
+        with self._db.precious() as conn:
+            conn.execute(
+                "UPDATE schedules SET catch_up_pending = 0 WHERE id = ?", (schedule_id,)
             )
 
 

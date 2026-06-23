@@ -266,3 +266,18 @@ a.app-header__brand { color: #fff; text-decoration: none; }
 .cadence-block legend { font-size: 0.8rem; color: var(--muted); padding: 0 0.3rem; }
 .cadence-block .inline { font-size: 0.85rem; color: var(--ink); }
 .sched-form .btn--primary { align-self: flex-start; }
+
+/* In-app notifications (the little inbox shown on every page) */
+.btn--small { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+.btn--ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn--ghost:hover { color: var(--ink); }
+.notices { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.notice {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.7rem 0.95rem; border-radius: 8px;
+  background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+}
+.notice__text { display: flex; flex-direction: column; gap: 0.15rem; }
+.notice__body { font-size: 0.85rem; }
+.notice__actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.notice__actions form { margin: 0; }

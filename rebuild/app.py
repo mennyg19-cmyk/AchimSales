@@ -11,6 +11,7 @@
 # create_app() -- build and wire the Flask app (fast, no DB work)
 # bootstrap_background() -- the slow setup, safe to run after the app is serving
 # _is_background_leader() -- elect ONE process to run the worker + schedule poller
+# _unread_notifications() -- the signed-in person's in-app messages, for every page
 
 from __future__ import annotations
 
@@ -74,7 +75,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.register_blueprint(reporting_bp)
     app.register_blueprint(schedules_bp)
 
+    @app.context_processor
+    def _inject_notifications():
+        # Every page can show the signed-in person their unread in-app messages.
+        # Kept defensive: a hiccup here must never break rendering a page.
+        return {"user_notifications": _unread_notifications(app)}
+
     return app
+
+
+def _unread_notifications(app: Flask) -> list:
+    from .auth.session import current_principal
+
+    try:
+        principal = current_principal()
+        if principal is None:
+            return []
+        from .data.repositories.notifications import NotificationsRepository
+
+        return NotificationsRepository(get_db(app)).list_unread(principal.email)
+    except Exception:  # noqa: BLE001 - notifications are a nicety, never a page-breaker
+        return []
 
 
 def bootstrap_background(app: Flask) -> None:

@@ -14,6 +14,7 @@
 # compose_report_email() -- build the message pieces (no network, easy to test)
 # SendResult -- did it send, was the file attached, any error
 # EmailService.send_report() -- compose, send via Graph, write an audit entry
+# EmailService.send_failure_notice() -- tell the owner a scheduled run failed
 
 from __future__ import annotations
 
@@ -148,11 +149,53 @@ class EmailService:
         )
         return SendResult(True, attached=composed.attached)
 
-    def _fail(self, report_key: str, requested_by: Optional[str], error: str) -> SendResult:
+    def send_failure_notice(
+        self,
+        *,
+        to: str,
+        report_key: str,
+        schedule_title: str,
+        reason: str,
+    ) -> SendResult:
+        """Email the schedule's owner that a scheduled run failed entirely.
+
+        Short and plain: what failed, why, and a link to run it by hand. No
+        attachment (there's no report to attach -- it failed). Audited like any
+        other send so the history shows the heads-up went out.
+        """
+        if not self.configured:
+            return self._fail(report_key, to, "Email isn't set up on this server yet.", action="schedule.fail_notice")
+
+        safe_title = html.escape(schedule_title)
+        safe_reason = html.escape(reason)
+        parts = [
+            f"<p>Your scheduled report <strong>{safe_title}</strong> didn't go out.</p>",
+            f"<p>What went wrong: {safe_reason}</p>",
+        ]
+        view_url = report_view_url(self._config, report_key)
+        if view_url:
+            parts.append(f'<p><a href="{html.escape(view_url, quote=True)}">Open the report in the app to run it now</a></p>')
+        try:
+            self._mailer.send(
+                sender=self._config.mail_from,
+                to=[to],
+                subject=f"Scheduled report didn't run: {schedule_title}",
+                html_body="\n".join(parts),
+            )
+        except GraphMailError as exc:
+            return self._fail(report_key, to, str(exc), action="schedule.fail_notice")
+
+        self._run_log.record(
+            "schedule.fail_notice", user_email=to, report_key=report_key, status="sent",
+            message=f"failure heads-up for '{schedule_title}'",
+        )
+        return SendResult(True)
+
+    def _fail(self, report_key: str, requested_by: Optional[str], error: str, action: str = "report.email") -> SendResult:
         # Every email attempt is auditable, including the ones we refuse before
         # ever calling Graph (not configured, or too big with no link).
         self._run_log.record(
-            "report.email", user_email=requested_by, report_key=report_key,
+            action, user_email=requested_by, report_key=report_key,
             status="failed", message=error,
         )
         return SendResult(False, error=error)
