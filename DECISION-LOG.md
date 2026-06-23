@@ -23,7 +23,9 @@
 - **Pass 2** (same agent): verified both fixes correct and complete -> CLEAN.
 - **Pass 3** (fresh agent 70bdf1fd, no prior context): found 1 blocker -> the workbook was being built inside the email call's arguments, AFTER the "still running" gate, so a timeout during the (possibly slow) Excel build could still send. Fixed by building the workbook first, then gating, then sending. Also acted on its non-blocking note that multiple gunicorn workers would each start a poller: now exactly ONE process runs the worker + schedule poller, elected with an exclusive OS file lock (mirrors the live app's and v3's existing background-leader pattern; fails open to leader on Windows/dev).
 **Why the leader lock matters (plain English):** on the server, the web app can run as several copies of the same process at once. Without the lock, each copy would start its own schedule checker, and a schedule could get sent more than once. The lock means only the first copy to grab it does the background work; the rest skip it.
-**Status:** DECIDED -- a fourth pass should confirm CLEAN; committing the fixes first.
+- **Pass 4** (agent 70bdf1fd, re-verify): both pass-3 fixes confirmed correct, full re-sweep found no remaining blocking issues -> CLEAN.
+**Outcome:** Two independent review lineages both end CLEAN (no blocking security/correctness/data-loss issues). 58 tests pass. Remaining items are all accepted/non-blocking (Litestream gating until cutover, viewer.js could later be split, the documented once-a-day master tradeoff).
+**Status:** DECIDED -- full app reviewed clean on the branch. Deploy to /test-next is owner-timed (per the cutover rule), not done here.
 
 ---
 
