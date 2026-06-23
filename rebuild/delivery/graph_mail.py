@@ -93,11 +93,11 @@ class GraphMailer:
             message["attachments"] = [
                 {
                     "@odata.type": "#microsoft.graph.fileAttachment",
-                    "name": item.filename,
-                    "contentType": item.content_type,
-                    "contentBytes": base64.b64encode(item.content).decode("ascii"),
+                    "name": attachment.filename,
+                    "contentType": attachment.content_type,
+                    "contentBytes": base64.b64encode(attachment.content).decode("ascii"),
                 }
-                for item in attachments
+                for attachment in attachments
             ]
 
         payload = json.dumps({"message": message, "saveToSentItems": True}).encode("utf-8")

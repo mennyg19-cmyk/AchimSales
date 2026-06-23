@@ -65,15 +65,15 @@ def _assur_from_items(items: list[dict], now: datetime) -> tuple[bool, str]:
     candles: list[tuple[datetime, str]] = []
     havdalahs: list[datetime] = []
     yomtov_titles: dict[str, str] = {}
-    for item in items:
-        category = item.get("category", "")
-        when = _parse_dt(item.get("date", ""))
+    for entry in items:
+        category = entry.get("category", "")
+        when = _parse_dt(entry.get("date", ""))
         if category == "candles" and when is not None:
-            candles.append((when, item.get("memo", "")))
+            candles.append((when, entry.get("memo", "")))
         elif category == "havdalah" and when is not None:
             havdalahs.append(when)
-        elif item.get("yomtov"):
-            yomtov_titles[item.get("date", "")] = item.get("title", "Yom Tov")
+        elif entry.get("yomtov"):
+            yomtov_titles[entry.get("date", "")] = entry.get("title", "Yom Tov")
 
     candles.sort(key=lambda pair: pair[0])
     havdalahs.sort()

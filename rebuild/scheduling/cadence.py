@@ -75,14 +75,14 @@ def describe(cadence: dict | None) -> str:
 
 def due_now(cadence: dict | None, last_run_iso: str | None, now_utc: datetime | None = None) -> bool:
     """True if a schedule with this cadence should fire now and hasn't today."""
-    raw = cadence or {}
-    if raw.get("freq") not in VALID_FREQ:
+    spec = cadence or {}
+    if spec.get("freq") not in VALID_FREQ:
         return False
     now = _eastern(now_utc)
-    hh, mm = _parse_time(raw.get("time", "08:00"))
+    hh, mm = _parse_time(spec.get("time", "08:00"))
     if now.time() < time(hh, mm):
         return False  # the scheduled minute hasn't arrived yet today
-    if not _day_matches(raw, now):
+    if not _day_matches(spec, now):
         return False
     return not _ran_today(last_run_iso, now)
 
