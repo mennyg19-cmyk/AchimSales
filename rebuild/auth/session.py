@@ -18,6 +18,7 @@ from typing import Optional
 
 from flask import session
 
+from ..data.connection import normalize_email
 from .principal import Principal
 
 _USER_KEY = "user"
@@ -43,6 +44,6 @@ def current_principal() -> Optional[Principal]:
     from ..app import get_config
     from .authorization import resolve_role
 
-    email = str(session_user["email"]).strip().lower()
+    email = normalize_email(str(session_user["email"]))
     name = str(session_user.get("name") or email)
     return Principal(email=email, name=name, role=resolve_role(get_config(), email))

@@ -46,6 +46,18 @@ def normalize_email(email: str | None) -> str:
     return (email or "").strip().lower()
 
 
+def dedupe_emails(emails: list[str] | None) -> list[str]:
+    """Normalized, de-duplicated email list with the original order kept and
+    blanks dropped. One spelling of "tidy this recipient list" for both the
+    stored schedule and the per-send delivery."""
+    seen: list[str] = []
+    for raw in emails or []:
+        email = normalize_email(raw)
+        if email and email not in seen:
+            seen.append(email)
+    return seen
+
+
 class Connection(Protocol):
     """What services are allowed to assume about a database connection.
 

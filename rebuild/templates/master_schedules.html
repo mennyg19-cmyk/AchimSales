@@ -22,13 +22,13 @@
         <tr><th>Name</th><th>Report</th><th>When</th><th>Salesmen</th><th>Status</th><th></th></tr>
       </thead>
       <tbody>
-        {% for s in schedules %}
+        {% for schedule in schedules %}
         <tr>
-          <td>{{ s.title }}</td>
-          <td>{{ s.report_key }}{% if s.tab_key %} &middot; {{ s.tab_key }}{% endif %}</td>
-          <td>{{ describe(s.cadence) }}</td>
-          <td>{{ s.salesmen | join(', ') }}</td>
-          <td>{{ "On" if s.enabled else "Paused" }}</td>
+          <td>{{ schedule.title }}</td>
+          <td>{{ schedule.report_key }}{% if schedule.tab_key %} &middot; {{ schedule.tab_key }}{% endif %}</td>
+          <td>{{ describe(schedule.cadence) }}</td>
+          <td>{{ schedule.salesmen | join(', ') }}</td>
+          <td>{{ "On" if schedule.enabled else "Paused" }}</td>
           {% with confirm_text = "Delete this master schedule?" %}{% include "_schedule_actions.html" %}{% endwith %}
         </tr>
         {% endfor %}

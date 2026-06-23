@@ -21,6 +21,7 @@ import logging
 from flask import request, session
 
 from ..config import Config
+from ..data.connection import normalize_email
 
 log = logging.getLogger("rebuild.auth")
 
@@ -81,7 +82,7 @@ def complete_login(config: Config) -> dict:
         log.warning("MSAL sign-in error: %s / %s", result.get("error"), result.get("error_description"))
         return {"error": _GENERIC_ERROR}
     claims = result.get("id_token_claims") or {}
-    email = (claims.get("preferred_username") or claims.get("email") or claims.get("upn") or "").strip().lower()
+    email = normalize_email(claims.get("preferred_username") or claims.get("email") or claims.get("upn"))
     if not email:
         log.warning("MSAL returned no email claim; claims keys=%s", list(claims.keys()))
         return {"error": _GENERIC_ERROR}

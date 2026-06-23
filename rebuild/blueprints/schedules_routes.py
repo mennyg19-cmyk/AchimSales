@@ -25,6 +25,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 from ..app import get_config, get_db
 from ..auth.decorators import require_login, require_privileged
 from ..auth.session import current_principal
+from ..data.connection import normalize_email
 from ..data.repositories.jobs import JobRepository, QueueFull
 from ..data.repositories.notifications import NotificationsRepository
 from ..data.repositories.run_log import RunLogRepository
@@ -92,18 +93,18 @@ def _save_schedule(report_key: str, kind: str, salesmen: list[str], redirect_end
     return redirect(url_for(redirect_endpoint))
 
 
-def _parse_recipients(raw: str) -> list[str]:
-    return [r for r in re.split(r"[,\s]+", raw or "") if r]
+def _parse_recipients(recipient_text: str) -> list[str]:
+    return [r for r in re.split(r"[,\s]+", recipient_text or "") if r]
 
 
 def _parse_cadence(form) -> dict:
-    raw = {
+    cadence_values = {
         "freq": form.get("freq", ""),
         "time": form.get("time", "08:00"),
         "weekdays": [int(d) for d in form.getlist("weekdays") if d.isdigit()],
         "monthday": form.get("monthday", "1"),
     }
-    return C.normalize(raw)  # raises ValueError on bad input
+    return C.normalize(cadence_values)  # raises ValueError on bad input
 
 
 def _can_manage(schedule) -> bool:
@@ -116,7 +117,7 @@ def _can_manage(schedule) -> bool:
     # never the stored owner alone (they might no longer be privileged).
     if schedule.kind == KIND_MASTER:
         return False
-    return schedule.owner_email == principal.email.strip().lower()
+    return schedule.owner_email == normalize_email(principal.email)
 
 
 @schedules_bp.get("/schedules")
@@ -242,7 +243,7 @@ def dismiss_notification(note_id: str):
     note = repo.get(note_id)
     if note is None:
         abort(404)
-    if note["user_email"] != current_principal().email.strip().lower():
+    if note["user_email"] != normalize_email(current_principal().email):
         abort(403)
     repo.dismiss(note_id)
     return redirect(url_for("reporting.reports_home"))

@@ -39,7 +39,9 @@ class ReportAccess:
     reason: str = ""
 
 
-def _scope_token(salesmen: list[str]) -> str:
+def salesman_scope_token(salesmen: list[str]) -> str:
+    """The one place a "sm:<numbers>" scope token is spelled, so the producer and
+    the reader below can never drift apart."""
     return _SCOPE_PREFIX + ",".join(sorted(salesmen))
 
 
@@ -47,17 +49,18 @@ def allowed_salesmen(scope_token: Optional[str]) -> Optional[list[str]]:
     """The salesman numbers a scope token permits, or None for "all".
 
     Only two shapes are accepted, both of which the access decision actually
-    produces: exactly "all" (privileged), and "sm:<numbers>" with at least one
-    number. Anything else -- blank, missing, or "sm:" with no numbers -- is a
-    corrupt or tampered token, so we REFUSE (raise) rather than fall back to
-    "all". Failing closed is the safe default for a worker reading a stored job:
-    "see everything" must be stated explicitly, never inferred from emptiness.
+    produces: the exact token "all" (privileged), and "sm:<numbers>" with at
+    least one number. Anything else -- blank, missing, whitespace-padded, or
+    "sm:" with no numbers -- is a corrupt or tampered token, so we REFUSE
+    (raise) rather than fall back to "all". We match "all" exactly (no strip):
+    "see everything" must be stated precisely, never inferred from a token that
+    merely looks close. Failing closed is the safe default for a worker reading
+    a stored job.
     """
-    token = (scope_token or "").strip()
-    if token == SCOPE_ALL:
+    if scope_token == SCOPE_ALL:
         return None
-    if token.startswith(_SCOPE_PREFIX):
-        numbers = [n for n in token[len(_SCOPE_PREFIX):].split(",") if n]
+    if scope_token and scope_token.startswith(_SCOPE_PREFIX):
+        numbers = [n for n in scope_token[len(_SCOPE_PREFIX):].split(",") if n]
         if not numbers:
             raise ValueError("Scope token 'sm:' has no salesman numbers")
         return numbers
@@ -75,7 +78,7 @@ def resolve_access(
         return ReportAccess(True, SCOPE_ALL)
     salesmen = sorted(user_scope.salesmen_for(principal.email))
     if salesmen:
-        return ReportAccess(True, _scope_token(salesmen), salesmen=tuple(salesmen))
+        return ReportAccess(True, salesman_scope_token(salesmen), salesmen=tuple(salesmen))
     return ReportAccess(
         False,
         "",

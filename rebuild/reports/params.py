@@ -74,7 +74,7 @@ def _translate_invoiced(filters: dict) -> dict[str, Any]:
         sp_params["CustomerAccount"] = accounts[0]
     salesman = filters.get("salesman")
     if salesman:
-        sp_params["Salesman"] = ",".join(text(s) for s in salesman) if isinstance(salesman, (list, tuple, set)) else text(salesman)
+        sp_params["Salesman"] = ",".join(text(number) for number in salesman) if isinstance(salesman, (list, tuple, set)) else text(salesman)
     return sp_params
 
 

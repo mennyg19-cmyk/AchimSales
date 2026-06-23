@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from ..connection import Database, normalize_email, utc_now_iso
+from ..connection import Database, dedupe_emails, normalize_email, utc_now_iso
 
 KIND_SELF = "self"
 KIND_MASTER = "master"
@@ -109,7 +109,7 @@ class SchedulesRepository:
                     kind,
                     json.dumps(filters or {}),
                     json.dumps(cadence or {}),
-                    json.dumps(_clean_emails(recipients)),
+                    json.dumps(dedupe_emails(recipients)),
                     json.dumps(_clean_numbers(salesmen)),
                     tab_key or None,
                     1 if skip_sabbath else 0,
@@ -141,7 +141,7 @@ class SchedulesRepository:
                     title,
                     json.dumps(filters or {}),
                     json.dumps(cadence or {}),
-                    json.dumps(_clean_emails(recipients)),
+                    json.dumps(dedupe_emails(recipients)),
                     json.dumps(_clean_numbers(salesmen)),
                     tab_key or None,
                     1 if skip_sabbath else 0,
@@ -200,15 +200,6 @@ class SchedulesRepository:
             conn.execute(
                 "UPDATE schedules SET catch_up_pending = 0 WHERE id = ?", (schedule_id,)
             )
-
-
-def _clean_emails(emails: list[str]) -> list[str]:
-    seen: list[str] = []
-    for raw in emails or []:
-        email = normalize_email(raw)
-        if email and email not in seen:
-            seen.append(email)
-    return seen
 
 
 def _clean_numbers(numbers: list[str]) -> list[str]:

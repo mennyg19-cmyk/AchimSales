@@ -54,8 +54,8 @@ def _fetch_items(now: datetime) -> list[dict]:
         f"&geonameid={_BROOKLYN_GEONAMEID}&start={start}&end={end}"
     )
     with urllib.request.urlopen(url, timeout=_HTTP_TIMEOUT_SECONDS) as resp:  # noqa: S310 - fixed hebcal URL
-        data = json.loads(resp.read().decode("utf-8"))
-    items = data.get("items", []) or []
+        hebcal_payload = json.loads(resp.read().decode("utf-8"))
+    items = hebcal_payload.get("items", []) or []
     _cache[cache_key] = items
     return items
 

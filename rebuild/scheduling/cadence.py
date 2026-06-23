@@ -40,19 +40,19 @@ _WEEKDAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 def normalize(cadence: dict | None) -> dict:
     """Coerce a raw cadence into a clean, stored form. Raises ValueError if it
     can't be made valid (e.g. a weekly schedule with no weekday picked)."""
-    raw = cadence or {}
-    freq = str(raw.get("freq", "")).strip().lower()
+    raw_cadence = cadence or {}
+    freq = str(raw_cadence.get("freq", "")).strip().lower()
     if freq not in VALID_FREQ:
         raise ValueError(f"Pick how often to send: {', '.join(VALID_FREQ)}.")
-    hh, mm = _parse_time(raw.get("time", "08:00"))
+    hh, mm = _parse_time(raw_cadence.get("time", "08:00"))
     clean: dict = {"freq": freq, "time": f"{hh:02d}:{mm:02d}"}
     if freq == "weekly":
-        days = sorted({int(d) for d in (raw.get("weekdays") or []) if 0 <= int(d) <= 6})
+        days = sorted({int(d) for d in (raw_cadence.get("weekdays") or []) if 0 <= int(d) <= 6})
         if not days:
             raise ValueError("Pick at least one day of the week for a weekly schedule.")
         clean["weekdays"] = days
     elif freq == "monthly":
-        day = int(raw.get("monthday", 1))
+        day = int(raw_cadence.get("monthday", 1))
         clean["monthday"] = -1 if day == -1 else max(1, min(28, day))
     return clean
 

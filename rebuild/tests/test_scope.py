@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from rebuild.auth.principal import ROLE_ADMIN, ROLE_DEVELOPER, ROLE_USER, Principal
+from rebuild.auth.principal import ROLE_DEVELOPER, ROLE_USER, Principal
 from rebuild.reporting.authz import SCOPE_ALL, allowed_salesmen, resolve_access
 from rebuild.reports.params import force_salesman_scope
 
@@ -26,11 +26,10 @@ class _FakeScope:
 
 
 def test_privileged_user_sees_all_salesmen():
-    for role in (ROLE_ADMIN, ROLE_DEVELOPER):
-        access = resolve_access(Principal("boss@x.com", "Boss", role), "invoiced", _FakeScope({}))
-        assert access.allowed
-        assert access.scope_token == SCOPE_ALL
-        assert access.salesmen is None
+    access = resolve_access(Principal("boss@x.com", "Boss", ROLE_DEVELOPER), "invoiced", _FakeScope({}))
+    assert access.allowed
+    assert access.scope_token == SCOPE_ALL
+    assert access.salesmen is None
 
 
 def test_mapped_user_is_scoped_to_their_sorted_salesmen():
@@ -58,9 +57,10 @@ def test_allowed_salesmen_round_trips_the_scope_token():
 
 
 def test_allowed_salesmen_fails_closed_on_a_blank_or_tampered_token():
-    # "see everything" must be stated as "all" -- blank/missing/empty-sm: refuse,
-    # so a corrupt stored token can never silently widen to all salesmen.
-    for bad in ("", None, "everything", "sm", "sm:"):
+    # "see everything" must be stated as the exact token "all" -- blank/missing,
+    # empty-sm:, or even a whitespace-padded "all" all refuse, so a corrupt or
+    # tampered stored token can never silently widen to all salesmen.
+    for bad in ("", None, "everything", "sm", "sm:", " all ", "all ", "ALL"):
         with pytest.raises(ValueError):
             allowed_salesmen(bad)
 

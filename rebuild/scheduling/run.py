@@ -24,22 +24,20 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..auth.authorization import build_principal
-from ..data.connection import normalize_email
+from ..data.connection import dedupe_emails
 from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.notifications import KIND_SCHEDULE_FAILED, NotificationsRepository
 from ..data.repositories.run_log import RunLogRepository
 from ..data.repositories.schedules import KIND_MASTER, KIND_SELF, Schedule, SchedulesRepository
 from ..data.repositories.user_scope import UserScopeRepository
 from ..delivery.report_email import EmailService
-from ..reporting.authz import resolve_access
+from ..reporting.authz import resolve_access, salesman_scope_token
 from ..reports import export as export_file
 from ..reports.runner import build_report_snapshot
 from ..reports.views import result_tab
 from .sabbath import melacha_assur
 
 log = logging.getLogger("rebuild.scheduling.run")
-
-_SCOPE_PREFIX = "sm:"
 
 
 @dataclass(frozen=True)
@@ -63,7 +61,7 @@ def expand_deliveries(schedule: Schedule, user_scope: UserScopeRepository, confi
         access = resolve_access(owner, schedule.report_key, user_scope)
         if not access.allowed:
             return []
-        recipients = _dedupe([schedule.owner_email, *extra])
+        recipients = dedupe_emails([schedule.owner_email, *extra])
         return [Delivery(access.scope_token, recipients, schedule.owner_email, "")]
 
     if schedule.kind == KIND_MASTER:
@@ -74,11 +72,11 @@ def expand_deliveries(schedule: Schedule, user_scope: UserScopeRepository, confi
             return []
         deliveries: list[Delivery] = []
         for number in schedule.salesmen:
-            recipients = _dedupe([*user_scope.emails_for_salesman(number), *extra])
+            recipients = dedupe_emails([*user_scope.emails_for_salesman(number), *extra])
             if not recipients:
                 continue  # nobody to send this salesman's slice to
             deliveries.append(
-                Delivery(_SCOPE_PREFIX + number, recipients, schedule.owner_email, f"salesman {number}")
+                Delivery(salesman_scope_token([number]), recipients, schedule.owner_email, f"salesman {number}")
             )
         return deliveries
 
@@ -113,13 +111,12 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
             schedules.mark_skipped_for_sabbath(schedule_id)
             return
 
-    # We're past the Shabbos gate, so this run is what any owed catch-up was
-    # waiting for. Clear the flag now (the poller fired it; this run handles it).
     # The once-a-day "ran today" stamp is owned by the poller (it stamps the moment
     # the job is queued) and by the Shabbos-skip path above -- NOT here. Stamping
     # here would let a manual "run now" eat today's scheduled slot, and a run that
-    # finishes after Eastern midnight would wrongly stamp tomorrow.
-    schedules.clear_catch_up(schedule_id)
+    # finishes after Eastern midnight would wrongly stamp tomorrow. Any owed
+    # Shabbos catch-up is cleared only once we reach a terminal outcome below that
+    # wasn't a cancellation -- so a cancelled/timed-out catch-up isn't lost.
 
     deliveries = expand_deliveries(schedule, UserScopeRepository(db), config)
     if not deliveries:
@@ -127,6 +124,7 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
             status="skipped", message=f"{schedule.title}: nobody to send to / no access",
         )
+        schedules.clear_catch_up(schedule_id)  # nobody to send to is a real, settled outcome
         return
 
     email = EmailService(config, run_log)
@@ -146,9 +144,18 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
         if error:
             errors.append(error)
 
-    # "Failed entirely" = we tried at least one delivery and every one failed
-    # (and we weren't cancelled). Tell the owner right away.
-    if not stopped and attempted and len(errors) == attempted:
+    if stopped:
+        # Cancelled/timed out before finishing. Leave any owed catch-up flag set so
+        # the poller retries it next tick instead of silently dropping the send.
+        return
+
+    # We reached a settled outcome (sent, partly sent, or fully failed), so this run
+    # is what any owed catch-up was waiting for -- clear it now.
+    schedules.clear_catch_up(schedule_id)
+
+    # "Failed entirely" = we tried at least one delivery and every one failed.
+    # Tell the owner right away.
+    if attempted and len(errors) == attempted:
         _notify_failure(db, schedule, email, errors[0])
 
 
@@ -218,10 +225,14 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
         )
         return "the report had no tab to send"
 
-    # Build the workbook first, THEN take the last gate right before the
-    # irreversible part (the actual email). Building can take a while on a big
-    # report, and the job may be cancelled or time out during it -- checking
-    # after the build (not before) is what stops a send the worker has given up on.
+    # Don't bother building a (possibly large) workbook for a job that's already
+    # been cancelled or timed out.
+    if not keep_going():
+        return None
+    # Build the workbook, THEN take the last gate right before the irreversible
+    # part (the actual email). Building can take a while on a big report and the
+    # job may be cancelled during it -- the post-build check is what stops a send
+    # the worker has already given up on.
     xlsx_bytes = export_file.to_xlsx(tab)
     if not keep_going():
         return None
@@ -264,12 +275,3 @@ def _pick_tab(snapshot: dict, tab_key: Optional[str]) -> Optional[dict]:
             return tab
     tabs = snapshot.get("tabs", [])
     return dict(tabs[0]) if tabs else None
-
-
-def _dedupe(emails: list[str]) -> list[str]:
-    seen: list[str] = []
-    for raw in emails:
-        email = normalize_email(raw)
-        if email and email not in seen:
-            seen.append(email)
-    return seen

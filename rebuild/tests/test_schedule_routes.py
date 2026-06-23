@@ -202,6 +202,26 @@ def test_sabbath_skip_flags_a_catch_up_then_the_poller_queues_it_after(app, monk
     assert enqueue_due(db, jobs, later) == 1
 
 
+def test_cancelled_catch_up_run_keeps_the_flag_set_so_the_poller_retries(app, monkeypatch):
+    # A catch-up that gets cancelled/timed out before it sends must NOT clear the
+    # catch_up_pending flag -- otherwise the owed Shabbos send is silently dropped.
+    from rebuild.app import get_config, get_db
+    from rebuild.data.repositories.schedules import SchedulesRepository
+    from rebuild.scheduling import run as run_mod
+
+    db = get_db(app)
+    schedule = _make_schedule(app)
+    repo = SchedulesRepository(db)
+    repo.mark_skipped_for_sabbath(schedule.id, "2026-06-20T20:00:00+00:00")
+    assert repo.get(schedule.id).catch_up_pending is True
+
+    # It's no longer Shabbos, but the worker says the job is already cancelled, so
+    # run_schedule stops before any delivery (stopped=True) and must leave the flag.
+    monkeypatch.setattr(run_mod, "melacha_assur", lambda _now=None: (False, ""))
+    run_mod.run_schedule(db, get_config(app), schedule.id, should_continue=lambda: False)
+    assert repo.get(schedule.id).catch_up_pending is True
+
+
 def test_a_whole_failed_run_notifies_a_private_schedule_owner(app, monkeypatch):
     from rebuild.app import get_config, get_db
     from rebuild.data.repositories.notifications import NotificationsRepository

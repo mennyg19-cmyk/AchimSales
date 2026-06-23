@@ -96,9 +96,9 @@ def to_xlsx(tab: dict[str, Any]) -> bytes:
     if tab.get("total"):
         write_row(tab["total"], True)
 
-    out = io.BytesIO()
-    workbook.save(out)
-    return out.getvalue()
+    xlsx_buffer = io.BytesIO()
+    workbook.save(xlsx_buffer)
+    return xlsx_buffer.getvalue()
 
 
 def filename_for(report_key: str, tab_key: str, ext: str) -> str:

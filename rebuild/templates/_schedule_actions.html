@@ -1,9 +1,9 @@
 <td class="row-actions">
-  <form method="post" action="{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}">
+  <form method="post" action="{{ url_for('schedules.toggle_schedule', schedule_id=schedule.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn">{{ "Pause" if s.enabled else "Resume" }}</button>
+    <button type="submit" class="btn">{{ "Pause" if schedule.enabled else "Resume" }}</button>
   </form>
-  <form method="post" action="{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}"
+  <form method="post" action="{{ url_for('schedules.delete_schedule', schedule_id=schedule.id) }}"
         onsubmit="return confirm('{{ confirm_text }}');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn--danger">Delete</button>

@@ -13,15 +13,16 @@
 from __future__ import annotations
 
 from ..config import Config
+from ..data.connection import normalize_email
 from .principal import ROLE_DEVELOPER, ROLE_USER, Principal
 
 
 def resolve_role(config: Config, email: str) -> str:
-    if email.strip().lower() in config.developer_emails:
+    if normalize_email(email) in config.developer_emails:
         return ROLE_DEVELOPER
     return ROLE_USER
 
 
 def build_principal(config: Config, email: str, name: str) -> Principal:
-    email = email.strip().lower()
+    email = normalize_email(email)
     return Principal(email=email, name=name or email, role=resolve_role(config, email))
