@@ -25,6 +25,7 @@ from flask import Blueprint, Response, abort, jsonify, redirect, render_template
 from ..app import get_config, get_db
 from ..auth.decorators import require_login, require_privileged
 from ..auth.session import current_principal
+from ..data.connection import normalize_email
 from ..data.repositories.jobs import JobRepository, QueueFull
 from ..data.repositories.run_log import RunLogRepository
 from ..data.repositories.user_scope import UserScopeRepository
@@ -54,7 +55,7 @@ def _owns_job(job) -> bool:
         return False
     if principal.is_privileged:
         return True
-    return (job.requested_by or "").strip().lower() == principal.email.strip().lower()
+    return normalize_email(job.requested_by) == normalize_email(principal.email)
 
 
 @reporting_bp.get("/reports")
@@ -88,8 +89,8 @@ def admin_scope():
     assignments = UserScopeRepository(db).all_assignments()
     users = UsersRepository(db).list_all()
     for user in users:
-        user["salesmen"] = assignments.get((user["email"] or "").strip().lower(), [])
-    known = {(user["email"] or "").strip().lower() for user in users}
+        user["salesmen"] = assignments.get(normalize_email(user["email"]), [])
+    known = {normalize_email(user["email"]) for user in users}
     # Someone an admin mapped who hasn't signed in yet still shows up, so the
     # mapping isn't invisible until their first login.
     orphans = [

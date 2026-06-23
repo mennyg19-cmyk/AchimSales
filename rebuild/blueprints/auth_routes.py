@@ -32,6 +32,7 @@ from ..app import get_config, get_db
 from ..auth.authorization import build_principal
 from ..auth.msal_flow import build_login_url, complete_login
 from ..auth.session import current_principal, login_user, logout_user
+from ..data.connection import normalize_email
 from ..data.repositories.users import UsersRepository
 
 auth_bp = Blueprint("auth", __name__)
@@ -105,7 +106,7 @@ def logout():
 def dev_login():
     if get_config().auth_mode != "dev":
         abort(404)
-    email = (request.form.get("email") or "").strip().lower()
+    email = normalize_email(request.form.get("email"))
     if not email:
         return redirect(url_for("auth.login", error="Enter an email to sign in as."))
     return _sign_in(email, request.form.get("name") or email, request.form.get("next"))

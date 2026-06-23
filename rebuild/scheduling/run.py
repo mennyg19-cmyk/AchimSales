@@ -99,6 +99,7 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
     schedule = schedules.get(schedule_id)
     if schedule is None or not schedule.enabled:
         return
+    was_catch_up = schedule.catch_up_pending
 
     run_log = RunLogRepository(db)
     if schedule.skip_sabbath and not ignore_sabbath:
@@ -145,8 +146,11 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
             errors.append(error)
 
     if stopped:
-        # Cancelled/timed out before finishing. Leave any owed catch-up flag set so
-        # the poller retries it next tick instead of silently dropping the send.
+        # Cancelled/timed out before finishing. If this job was satisfying an owed
+        # catch-up (the poller cleared the flag when it queued us), re-set it now
+        # so the poller retries next tick instead of silently dropping the send.
+        if was_catch_up:
+            schedules.set_catch_up(schedule_id)
         return
 
     # We reached a settled outcome (sent, partly sent, or fully failed), so this run
@@ -225,14 +229,25 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
         )
         return "the report had no tab to send"
 
-    # Don't bother building a (possibly large) workbook for a job that's already
-    # been cancelled or timed out.
+    try:
+        return _export_and_send(snapshot, tab, schedule, delivery, email, run_log, keep_going)
+    except Exception as exc:  # noqa: BLE001 - export/send failure is per-delivery, not fatal
+        if not keep_going():
+            return None
+        log.exception("schedule %s: export/send failed for %s", schedule.id, who)
+        run_log.record(
+            "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
+            status="failed", message=f"{schedule.title} ({who}): {exc}",
+        )
+        return str(exc)
+
+
+def _export_and_send(snapshot: dict, tab: dict, schedule: Schedule, delivery: Delivery, email: EmailService, run_log: RunLogRepository, keep_going) -> Optional[str]:
+    """Build the workbook, gate on cancellation, then send. Returns "" on success,
+    None if cancelled, or raises on unexpected error (caller catches)."""
+    who = delivery.label or "self"
     if not keep_going():
         return None
-    # Build the workbook, THEN take the last gate right before the irreversible
-    # part (the actual email). Building can take a while on a big report and the
-    # job may be cancelled during it -- the post-build check is what stops a send
-    # the worker has already given up on.
     xlsx_bytes = export_file.to_xlsx(tab)
     if not keep_going():
         return None
@@ -248,17 +263,12 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
         reply_to=delivery.reply_to,
         requested_by=schedule.owner_email,
     )
-    # The email layer logs its own "report.email" entry; this "schedule.run" entry
-    # is the schedule's own history line (so the page shows successes too, not just
-    # skips and build failures).
     if send_result.ok:
         run_log.record(
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
             status="sent", message=f"{schedule.title} ({who}): to {len(delivery.recipients)} recipient(s)",
         )
         return ""
-    # If the send failed only because the job was cancelled/timed out mid-send,
-    # treat it as a stop, not a failure to alert on.
     if not keep_going():
         return None
     run_log.record(

@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import time
 
-from ..data.connection import utc_now_iso
+from ..data.connection import normalize_email, utc_now_iso
 from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.run_log import RunLogRepository
 from ..jobs.types import JOB_REPORT_RUN, HandlerRegistry, JobContext
@@ -98,7 +98,7 @@ def build_report_snapshot(
         "row_count": visible_count,
         "provisional": True,
         "stale": False,
-        "identity": (requested_by or "").strip().lower(),
+        "identity": normalize_email(requested_by),
         "scope": scope_token or "",
         "tabs": tabs,
     }

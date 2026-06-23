@@ -195,6 +195,13 @@ class SchedulesRepository:
                 (ran_at or utc_now_iso(), schedule_id),
             )
 
+    def set_catch_up(self, schedule_id: str) -> None:
+        """Flag that this schedule has an owed run waiting to be retried."""
+        with self._db.precious() as conn:
+            conn.execute(
+                "UPDATE schedules SET catch_up_pending = 1 WHERE id = ?", (schedule_id,)
+            )
+
     def clear_catch_up(self, schedule_id: str) -> None:
         with self._db.precious() as conn:
             conn.execute(
@@ -204,8 +211,8 @@ class SchedulesRepository:
 
 def _clean_numbers(numbers: list[str]) -> list[str]:
     seen: list[str] = []
-    for raw in numbers or []:
-        number = (raw or "").strip()
+    for raw_number in numbers or []:
+        number = (raw_number or "").strip()
         if number and number not in seen:
             seen.append(number)
     return seen

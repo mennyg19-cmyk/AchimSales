@@ -20,14 +20,14 @@ import hashlib
 import json
 from typing import Any, Optional
 
-from ..data.connection import Database, utc_now_iso
+from ..data.connection import Database, normalize_email, utc_now_iso
 
 
 def build_cache_key(report_key: str, identity_email: Optional[str], scope_token: Optional[str], sp_params: dict) -> str:
     basis = json.dumps(
         {
             "report": report_key,
-            "identity": (identity_email or "").strip().lower(),
+            "identity": normalize_email(identity_email),
             "scope": scope_token or "",
             "params": sp_params,
         },
@@ -69,8 +69,8 @@ class ResultCache:
         snapshot = self.read(cache_key)
         if snapshot is None:
             return None
-        owner = (snapshot.get("identity") or "").strip().lower()
-        if owner != (identity_email or "").strip().lower():
+        owner = normalize_email(snapshot.get("identity"))
+        if owner != normalize_email(identity_email):
             return None
         if (snapshot.get("scope") or "") != (scope_token or ""):
             return None

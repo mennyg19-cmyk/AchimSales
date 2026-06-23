@@ -58,9 +58,11 @@ def test_allowed_salesmen_round_trips_the_scope_token():
 
 def test_allowed_salesmen_fails_closed_on_a_blank_or_tampered_token():
     # "see everything" must be stated as the exact token "all" -- blank/missing,
-    # empty-sm:, or even a whitespace-padded "all" all refuse, so a corrupt or
-    # tampered stored token can never silently widen to all salesmen.
-    for bad in ("", None, "everything", "sm", "sm:", " all ", "all ", "ALL"):
+    # empty-sm:, whitespace-padded "all", whitespace-containing parts, double
+    # commas, trailing commas — anything other than a clean "sm:N,N" format —
+    # must refuse, so a corrupt or tampered stored token can never silently widen.
+    for bad in ("", None, "everything", "sm", "sm:", " all ", "all ", "ALL",
+                "sm: ", "sm:10,", "sm:,10", "sm:10,,20", "sm: 10"):
         with pytest.raises(ValueError):
             allowed_salesmen(bad)
 

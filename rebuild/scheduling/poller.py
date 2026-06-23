@@ -52,9 +52,10 @@ def enqueue_due(db, jobs: JobRepository, now: datetime | None = None) -> int:
             # here -- not after the send finishes -- is what stops a timed-out or
             # failed run from being re-queued every minute for the rest of the day.
             schedules.mark_ran(schedule.id, now.isoformat())
-            # A fresh normal run supersedes any owed catch-up, so clear that flag
-            # now -- otherwise a later tick (after this stamp) could ALSO queue a
-            # catch-up and send the same report twice.
+            # A fresh normal run supersedes any owed catch-up. Clear the flag now
+            # so the catch-up elif branch doesn't also queue while this job runs.
+            # If the job is later cancelled before settling, run_schedule RE-SETS
+            # catch_up_pending so the poller retries on the next tick.
             if schedule.catch_up_pending:
                 schedules.clear_catch_up(schedule.id)
             queued += 1

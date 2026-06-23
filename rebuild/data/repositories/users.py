@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ...auth.principal import Principal
-from ..connection import Database, utc_now_iso
+from ..connection import Database, normalize_email, utc_now_iso
 
 
 class UsersRepository:
@@ -36,7 +36,7 @@ class UsersRepository:
         with self._db.precious() as conn:
             row = conn.fetchone(
                 "SELECT email, name, role, first_seen, last_seen FROM users WHERE email = ?",
-                (email.strip().lower(),),
+                (normalize_email(email),),
             )
             return dict(row) if row else None
 

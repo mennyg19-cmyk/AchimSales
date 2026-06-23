@@ -58,16 +58,16 @@ def normalize(cadence: dict | None) -> dict:
 
 
 def describe(cadence: dict | None) -> str:
-    raw = cadence or {}
-    freq = raw.get("freq")
-    at = raw.get("time", "")
+    stored = cadence or {}
+    freq = stored.get("freq")
+    at = stored.get("time", "")
     if freq == "daily":
         return f"Daily at {at}"
     if freq == "weekly":
-        days = ", ".join(_WEEKDAY_NAMES[d] for d in raw.get("weekdays", []) if 0 <= d <= 6)
+        days = ", ".join(_WEEKDAY_NAMES[d] for d in stored.get("weekdays", []) if 0 <= d <= 6)
         return f"Weekly ({days}) at {at}"
     if freq == "monthly":
-        monthday = raw.get("monthday", 1)
+        monthday = stored.get("monthday", 1)
         which = "last day" if monthday == -1 else f"day {monthday}"
         return f"Monthly on {which} at {at}"
     return "Not scheduled"

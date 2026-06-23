@@ -41,7 +41,10 @@ class ReportAccess:
 
 def salesman_scope_token(salesmen: list[str]) -> str:
     """The one place a "sm:<numbers>" scope token is spelled, so the producer and
-    the reader below can never drift apart."""
+    the reader below can never drift apart. Caller must pass a non-empty list of
+    already-cleaned salesman numbers (from the repository or resolve_access)."""
+    if not salesmen:
+        raise ValueError("Cannot build a scope token with no salesman numbers")
     return _SCOPE_PREFIX + ",".join(sorted(salesmen))
 
 
@@ -50,17 +53,22 @@ def allowed_salesmen(scope_token: Optional[str]) -> Optional[list[str]]:
 
     Only two shapes are accepted, both of which the access decision actually
     produces: the exact token "all" (privileged), and "sm:<numbers>" with at
-    least one number. Anything else -- blank, missing, whitespace-padded, or
-    "sm:" with no numbers -- is a corrupt or tampered token, so we REFUSE
-    (raise) rather than fall back to "all". We match "all" exactly (no strip):
-    "see everything" must be stated precisely, never inferred from a token that
-    merely looks close. Failing closed is the safe default for a worker reading
-    a stored job.
+    least one clean, non-empty number per slot. Anything else -- blank, missing,
+    whitespace-padded, double-commas, whitespace-containing parts, or "sm:" with
+    no numbers -- is a corrupt or tampered token, so we REFUSE (raise) rather
+    than fall back to "all". We match "all" exactly (no strip): "see everything"
+    must be stated precisely, never inferred from a token that merely looks close.
+    Failing closed is the safe default for a worker reading a stored job.
     """
     if scope_token == SCOPE_ALL:
         return None
     if scope_token and scope_token.startswith(_SCOPE_PREFIX):
-        numbers = [n for n in scope_token[len(_SCOPE_PREFIX):].split(",") if n]
+        raw_parts = scope_token[len(_SCOPE_PREFIX):].split(",")
+        numbers = []
+        for part in raw_parts:
+            if not part or part != part.strip():
+                raise ValueError(f"Malformed scope token (empty or whitespace-padded part): {scope_token!r}")
+            numbers.append(part)
         if not numbers:
             raise ValueError("Scope token 'sm:' has no salesman numbers")
         return numbers

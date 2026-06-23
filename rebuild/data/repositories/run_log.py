@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..connection import Database, utc_now_iso
+from ..connection import Database, normalize_email, utc_now_iso
 
 
 class RunLogRepository:
@@ -52,7 +52,7 @@ class RunLogRepository:
         args: list = [action]
         if user_email:
             sql += " AND user_email = ?"
-            args.append(user_email.strip().lower())
+            args.append(normalize_email(user_email))
         sql += " ORDER BY ts DESC LIMIT ?"
         args.append(int(limit))
         with self._db.precious() as conn:

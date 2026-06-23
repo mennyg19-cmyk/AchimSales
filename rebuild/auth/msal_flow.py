@@ -72,16 +72,16 @@ def complete_login(config: Config) -> dict:
     if not flow:
         return {"error": "Your sign-in took too long or was interrupted. Please start again."}
     try:
-        result = _confidential_app(config).acquire_token_by_auth_code_flow(
+        msal_response = _confidential_app(config).acquire_token_by_auth_code_flow(
             flow, request.values.to_dict()
         )
     except Exception:  # noqa: BLE001 - log detail, show the user a generic message
         log.exception("MSAL token acquisition raised")
         return {"error": _GENERIC_ERROR}
-    if "error" in result:
-        log.warning("MSAL sign-in error: %s / %s", result.get("error"), result.get("error_description"))
+    if "error" in msal_response:
+        log.warning("MSAL sign-in error: %s / %s", msal_response.get("error"), msal_response.get("error_description"))
         return {"error": _GENERIC_ERROR}
-    claims = result.get("id_token_claims") or {}
+    claims = msal_response.get("id_token_claims") or {}
     email = normalize_email(claims.get("preferred_username") or claims.get("email") or claims.get("upn"))
     if not email:
         log.warning("MSAL returned no email claim; claims keys=%s", list(claims.keys()))
