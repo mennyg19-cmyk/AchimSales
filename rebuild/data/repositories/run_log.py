@@ -31,11 +31,12 @@ class RunLogRepository:
         status: Optional[str] = None,
         message: Optional[str] = None,
     ) -> None:
+        stored_email = normalize_email(user_email) if user_email else None
         with self._db.precious() as conn:
             conn.execute(
                 "INSERT INTO audit_run_log (ts, user_email, report_key, job_id, action, duration_ms, status, message) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (utc_now_iso(), user_email, report_key, job_id, action, duration_ms, status, message),
+                (utc_now_iso(), stored_email, report_key, job_id, action, duration_ms, status, message),
             )
 
     def recent(self, limit: int = 100) -> list[dict]:

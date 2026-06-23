@@ -205,9 +205,10 @@ def test_sabbath_skip_flags_a_catch_up_then_the_poller_queues_it_after(app, monk
 def test_cancelled_catch_up_run_keeps_the_flag_set_so_the_poller_retries(app, monkeypatch):
     # A catch-up that gets cancelled/timed out before it sends must NOT clear the
     # catch_up_pending flag -- otherwise the owed Shabbos send is silently dropped.
-    # This simulates what actually happens: (1) mark_skipped sets the flag,
-    # (2) the poller clears it when queuing the catch-up job, (3) the job is
-    # cancelled before settling, (4) run_schedule must RE-SET the flag.
+    # The real flow: (1) mark_skipped sets the flag, (2) the poller clears it AND
+    # passes was_catch_up=True in the job params, (3) the job is cancelled before
+    # settling, (4) run_schedule must RE-SET the flag from the param (it can't read
+    # it from the DB because the poller already cleared it).
     from rebuild.app import get_config, get_db
     from rebuild.data.repositories.schedules import SchedulesRepository
     from rebuild.scheduling import run as run_mod
@@ -218,18 +219,17 @@ def test_cancelled_catch_up_run_keeps_the_flag_set_so_the_poller_retries(app, mo
     repo.mark_skipped_for_sabbath(schedule.id, "2026-06-20T20:00:00+00:00")
     assert repo.get(schedule.id).catch_up_pending is True
 
-    # It's no longer Shabbos, but the worker says the job is already cancelled, so
-    # run_schedule stops before any delivery (stopped=True) and must re-set the flag.
-    monkeypatch.setattr(run_mod, "melacha_assur", lambda _now=None: (False, ""))
-    run_mod.run_schedule(db, get_config(app), schedule.id, should_continue=lambda: False)
-    assert repo.get(schedule.id).catch_up_pending is True
-
-    # Also test the "poller cleared it before we ran" path: even if the DB flag was
-    # cleared (simulating what the poller does), run_schedule still knows it was a
-    # catch-up run (from the snapshot at read time) and re-sets it.
+    # Simulate what the poller does: clear the flag, then run with was_catch_up.
     repo.clear_catch_up(schedule.id)
-    repo.set_catch_up(schedule.id)  # re-arm for a fresh run
-    run_mod.run_schedule(db, get_config(app), schedule.id, should_continue=lambda: False)
+    assert repo.get(schedule.id).catch_up_pending is False  # DB is cleared
+
+    # Worker runs with was_catch_up=True (from job params) but is cancelled.
+    monkeypatch.setattr(run_mod, "melacha_assur", lambda _now=None: (False, ""))
+    run_mod.run_schedule(
+        db, get_config(app), schedule.id,
+        should_continue=lambda: False, was_catch_up=True,
+    )
+    # The flag was restored even though the DB had it cleared.
     assert repo.get(schedule.id).catch_up_pending is True
 
 

@@ -89,11 +89,11 @@ def start():
 
 @auth_bp.get("/auth/callback")
 def callback():
-    result = complete_login(get_config())
+    login_outcome = complete_login(get_config())
     next_url = session.pop("login_next", None)
-    if "error" in result:
-        return redirect(url_for("auth.login", error=result["error"]))
-    return _sign_in(result["email"], result["name"], next_url)
+    if "error" in login_outcome:
+        return redirect(url_for("auth.login", error=login_outcome["error"]))
+    return _sign_in(login_outcome["email"], login_outcome["name"], next_url)
 
 
 @auth_bp.post("/logout")

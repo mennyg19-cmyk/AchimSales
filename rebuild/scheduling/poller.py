@@ -40,11 +40,12 @@ def enqueue_due(db, jobs: JobRepository, now: datetime | None = None) -> int:
     queued = 0
     for schedule in schedules.list_active():
         if C.due_now(schedule.cadence, schedule.last_run_at, now):
+            absorbing_catch_up = schedule.catch_up_pending
             jobs.enqueue(
                 JOB_SCHEDULE_RUN,
                 report_key=schedule.report_key,
                 cache_key=f"schedule:{schedule.id}:{today}",
-                params={"schedule_id": schedule.id},
+                params={"schedule_id": schedule.id, "was_catch_up": absorbing_catch_up},
                 requested_by=schedule.owner_email,
             )
             # Stamp it as having fired today the moment it's safely queued. The job
@@ -54,21 +55,21 @@ def enqueue_due(db, jobs: JobRepository, now: datetime | None = None) -> int:
             schedules.mark_ran(schedule.id, now.isoformat())
             # A fresh normal run supersedes any owed catch-up. Clear the flag now
             # so the catch-up elif branch doesn't also queue while this job runs.
-            # If the job is later cancelled before settling, run_schedule RE-SETS
-            # catch_up_pending so the poller retries on the next tick.
-            if schedule.catch_up_pending:
+            # The catch-up status travels in the job params so the handler knows to
+            # restore it if the job is cancelled before settling (the DB flag is
+            # already gone by the time the worker reads it).
+            if absorbing_catch_up:
                 schedules.clear_catch_up(schedule.id)
             queued += 1
         elif schedule.catch_up_pending and not melacha_assur(now)[0]:
             # Skipped earlier for Shabbos/Yom Tov and the day is now over: send the
-            # catch-up. A separate dedup key from the normal slot lets it queue even
-            # though the schedule already "ran" (was skipped) today. The run handler
-            # clears the catch-up flag when it actually runs.
+            # catch-up. The catch-up status travels in job params so run_schedule
+            # can restore the flag if the job is cancelled before settling.
             jobs.enqueue(
                 JOB_SCHEDULE_RUN,
                 report_key=schedule.report_key,
                 cache_key=f"schedule:{schedule.id}:{today}:catchup",
-                params={"schedule_id": schedule.id},
+                params={"schedule_id": schedule.id, "was_catch_up": True},
                 requested_by=schedule.owner_email,
             )
             queued += 1

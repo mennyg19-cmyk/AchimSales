@@ -83,7 +83,7 @@ def expand_deliveries(schedule: Schedule, user_scope: UserScopeRepository, confi
     return []
 
 
-def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None, ignore_sabbath: bool = False) -> None:
+def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None, ignore_sabbath: bool = False, was_catch_up: bool = False) -> None:
     """Build and email a schedule's deliveries.
 
     ``should_continue`` is an optional check (the worker's "is this job still
@@ -93,13 +93,18 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
 
     ``ignore_sabbath`` is set for a manual "run it now" press: the person asked
     for it on purpose, so we don't apply the Shabbos/Yom Tov skip.
+
+    ``was_catch_up`` is True when this run is satisfying an owed Shabbos catch-up
+    (passed from the poller via job params). If the run is cancelled before
+    settling, the flag is restored so the poller retries. We cannot rely on
+    reading catch_up_pending from the DB because the poller clears it at queue
+    time (to prevent the elif branch from double-queuing).
     """
     keep_going = should_continue or (lambda: True)
     schedules = SchedulesRepository(db)
     schedule = schedules.get(schedule_id)
     if schedule is None or not schedule.enabled:
         return
-    was_catch_up = schedule.catch_up_pending
 
     run_log = RunLogRepository(db)
     if schedule.skip_sabbath and not ignore_sabbath:
@@ -175,7 +180,9 @@ def schedule_run_handler(ctx) -> Optional[str]:
 
     run_schedule(
         ctx.db, ctx.config, schedule_id,
-        should_continue=still_running, ignore_sabbath=bool(params.get("manual")),
+        should_continue=still_running,
+        ignore_sabbath=bool(params.get("manual")),
+        was_catch_up=bool(params.get("was_catch_up")),
     )
     return None
 

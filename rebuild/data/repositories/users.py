@@ -23,13 +23,14 @@ class UsersRepository:
 
     def record_login(self, principal: Principal) -> None:
         now = utc_now_iso()
+        stored_email = normalize_email(principal.email)
         with self._db.precious() as conn:
             conn.execute(
                 "INSERT INTO users (email, name, role, first_seen, last_seen) "
                 "VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(email) DO UPDATE SET "
                 "  name=excluded.name, role=excluded.role, last_seen=excluded.last_seen",
-                (principal.email, principal.name, principal.role, now, now),
+                (stored_email, principal.name, principal.role, now, now),
             )
 
     def get(self, email: str) -> Optional[dict]:
