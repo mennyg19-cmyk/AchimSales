@@ -22,6 +22,7 @@ from ..data.repositories.jobs import Job, JobRepository
 JOB_REPORT_RUN = "report.run"
 JOB_REPORT_EXPORT = "report.export"
 JOB_CACHE_CLEANUP = "maintenance.cache_cleanup"
+JOB_SCHEDULE_RUN = "schedule.run"
 
 
 @dataclass

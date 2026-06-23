@@ -232,3 +232,37 @@ a.app-header__brand { color: #fff; text-decoration: none; }
 .commission-month-table th:first-child, .commission-month-table td:first-child { text-align: left; }
 .commission-month-table thead th { border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 600; }
 .commission-month-table tfoot td { border-top: 1px solid var(--border); font-weight: 700; }
+
+/* Flash messages */
+.flashes { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.flash { padding: 0.6rem 0.9rem; border-radius: 8px; font-size: 0.9rem; border: 1px solid var(--border); }
+.flash--success { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+.flash--error { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+
+/* Schedules */
+.page__subtitle { color: var(--ink); font-size: 1.05rem; margin: 1.5rem 0 0.75rem; }
+.btn--danger { color: #b91c1c; border-color: #fecaca; }
+.btn--danger:hover { background: #fef2f2; }
+.row-actions { display: flex; gap: 0.4rem; }
+.row-actions form { margin: 0; }
+
+.sched-form {
+  display: flex; flex-direction: column; gap: 0.85rem; max-width: 32rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem;
+}
+.sched-form > label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: var(--muted); }
+.sched-form label.inline { flex-direction: row; align-items: center; gap: 0.45rem; color: var(--ink); }
+.sched-form select,
+.sched-form input[type="text"],
+.sched-form input[type="time"],
+.sched-form input[type="number"],
+.sched-form textarea {
+  padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 8px; font: inherit; color: var(--ink);
+}
+.cadence-block {
+  display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0;
+}
+.cadence-block legend { font-size: 0.8rem; color: var(--muted); padding: 0 0.3rem; }
+.cadence-block .inline { font-size: 0.85rem; color: var(--ink); }
+.sched-form .btn--primary { align-self: flex-start; }

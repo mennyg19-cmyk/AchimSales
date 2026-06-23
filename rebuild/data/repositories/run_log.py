@@ -7,6 +7,7 @@
 #
 # RunLogRepository.record() -- write one audit entry
 # RunLogRepository.recent() -- read the latest entries (admin/debug view)
+# RunLogRepository.recent_action() -- latest entries for one action, optionally one user
 
 from __future__ import annotations
 
@@ -43,3 +44,16 @@ class RunLogRepository:
                 "SELECT * FROM audit_run_log ORDER BY ts DESC LIMIT ?", (int(limit),)
             )
             return [dict(r) for r in rows]
+
+    def recent_action(self, action: str, limit: int = 100, user_email: Optional[str] = None) -> list[dict]:
+        """Latest entries for one action. When user_email is given, only that
+        person's entries (used for a non-admin's own schedule history)."""
+        sql = "SELECT * FROM audit_run_log WHERE action = ?"
+        args: list = [action]
+        if user_email:
+            sql += " AND user_email = ?"
+            args.append(user_email.strip().lower())
+        sql += " ORDER BY ts DESC LIMIT ?"
+        args.append(int(limit))
+        with self._db.precious() as conn:
+            return [dict(r) for r in conn.fetchall(sql, tuple(args))]

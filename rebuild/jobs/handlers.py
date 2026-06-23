@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .types import JOB_CACHE_CLEANUP, HandlerRegistry, JobContext
+from .types import JOB_CACHE_CLEANUP, JOB_SCHEDULE_RUN, HandlerRegistry, JobContext
 
 log = logging.getLogger("rebuild.worker")
 
@@ -32,5 +32,7 @@ def _cache_cleanup(ctx: JobContext) -> Optional[str]:
 def register_all(registry: HandlerRegistry) -> None:
     registry.register(JOB_CACHE_CLEANUP, _cache_cleanup)
     from ..reports.runner import register as register_report_run
+    from ..scheduling.run import schedule_run_handler
 
     register_report_run(registry)
+    registry.register(JOB_SCHEDULE_RUN, schedule_run_handler)

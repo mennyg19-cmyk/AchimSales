@@ -33,6 +33,11 @@ def main() -> None:
     seed_all(db)
     register_all(registry)
 
+    # One process owns the schedule tick. In this standalone-worker shape that's
+    # this process; the in-process mode starts the same poller next to the worker.
+    from .scheduling.poller import SchedulePoller
+
+    SchedulePoller(db, config).start()
     Worker(db, config, registry).run_forever()
 
 

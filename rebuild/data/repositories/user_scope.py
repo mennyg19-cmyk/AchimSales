@@ -6,6 +6,7 @@
 # Emails are kept lower-cased so a login always matches its mapping.
 #
 # UserScopeRepository.salesmen_for() -- the salesman numbers assigned to one email
+# UserScopeRepository.emails_for_salesman() -- the logins mapped to one salesman number
 # UserScopeRepository.set_salesmen() -- replace a person's whole assignment
 # UserScopeRepository.all_assignments() -- {email: [numbers]} for the admin screen
 
@@ -34,6 +35,15 @@ class UserScopeRepository:
                 (_norm_email(email),),
             )
             return [row["salesman_number"] for row in rows]
+
+    def emails_for_salesman(self, number: str) -> list[str]:
+        with self._db.precious() as conn:
+            rows = conn.fetchall(
+                "SELECT user_email FROM user_salesmen WHERE salesman_number = ? "
+                "ORDER BY user_email",
+                (_norm_number(number),),
+            )
+            return [row["user_email"] for row in rows]
 
     def set_salesmen(self, email: str, numbers: list[str]) -> None:
         email = _norm_email(email)

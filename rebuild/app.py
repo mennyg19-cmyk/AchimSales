@@ -65,11 +65,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
     from .blueprints.health_routes import health_bp
     from .blueprints.main_routes import main_bp
     from .blueprints.reporting_routes import reporting_bp
+    from .blueprints.schedules_routes import schedules_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(reporting_bp)
+    app.register_blueprint(schedules_bp)
 
     return app
 
@@ -103,6 +105,7 @@ def bootstrap_background(app: Flask) -> None:
 
 
 _WORKER_KEY = "rebuild.worker"
+_POLLER_KEY = "rebuild.poller"
 
 
 def _maybe_start_in_process_worker(app: Flask) -> None:
@@ -124,4 +127,10 @@ def _maybe_start_in_process_worker(app: Flask) -> None:
     worker = Worker(get_db(app), config, registry)
     worker.start()
     app.config[_WORKER_KEY] = worker
-    log.warning("in-process worker started (WORKER_MODE=in_process)")
+
+    from .scheduling.poller import SchedulePoller
+
+    poller = SchedulePoller(get_db(app), config)
+    poller.start()
+    app.config[_POLLER_KEY] = poller
+    log.warning("in-process worker + schedule poller started (WORKER_MODE=in_process)")
