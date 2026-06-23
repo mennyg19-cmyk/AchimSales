@@ -123,6 +123,29 @@ def test_master_schedule_cannot_be_managed_by_a_non_admin_owner(app):
     assert client.post(f"/schedules/{schedule.id}/delete", data={"csrf_token": token}).status_code == 403
 
 
+def test_cancelled_schedule_job_stops_before_building_or_sending(app, monkeypatch):
+    from rebuild.app import get_config, get_db
+    from rebuild.data.repositories.schedules import KIND_SELF, SchedulesRepository
+    from rebuild.data.repositories.user_scope import UserScopeRepository
+    from rebuild.scheduling import run as run_mod
+
+    db = get_db(app)
+    UserScopeRepository(db).set_salesmen("rep@x.com", ["10"])
+    schedule = SchedulesRepository(db).create(
+        owner_email="rep@x.com", report_key="invoiced", title="S", kind=KIND_SELF,
+        filters={}, cadence={"freq": "daily", "time": "08:00"}, recipients=[], salesmen=[],
+        tab_key=None, skip_sabbath=False,
+    )
+
+    calls = {"build": 0}
+    monkeypatch.setattr(run_mod, "build_report_snapshot",
+                        lambda *a, **k: calls.__setitem__("build", calls["build"] + 1) or None)
+
+    # should_continue() False from the start: no delivery should even be built.
+    run_mod.run_schedule(db, get_config(app), schedule.id, should_continue=lambda: False)
+    assert calls["build"] == 0
+
+
 def test_bad_weekly_cadence_is_rejected_not_crashed(app):
     client = app.test_client()
     _login(client, "rep@x.com")

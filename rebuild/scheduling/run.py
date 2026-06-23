@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..auth.authorization import build_principal
+from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.run_log import RunLogRepository
 from ..data.repositories.schedules import KIND_MASTER, KIND_SELF, Schedule, SchedulesRepository
 from ..data.repositories.user_scope import UserScopeRepository
@@ -61,6 +62,11 @@ def expand_deliveries(schedule: Schedule, user_scope: UserScopeRepository, confi
         return [Delivery(access.scope_token, recipients, schedule.owner_email, "")]
 
     if schedule.kind == KIND_MASTER:
+        # A master schedule mails other people their salesman's data, so it may
+        # only run while its owner is STILL privileged. If they've lost admin
+        # rights since it was created, it sends nothing.
+        if not build_principal(config, schedule.owner_email, "").is_privileged:
+            return []
         deliveries: list[Delivery] = []
         for number in schedule.salesmen:
             recipients = _dedupe([*user_scope.emails_for_salesman(number), *extra])
@@ -74,7 +80,15 @@ def expand_deliveries(schedule: Schedule, user_scope: UserScopeRepository, confi
     return []
 
 
-def run_schedule(db, config, schedule_id: str, *, now=None) -> None:
+def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None) -> None:
+    """Build and email a schedule's deliveries.
+
+    ``should_continue`` is an optional check (the worker's "is this job still
+    running?"). It's checked before each delivery and again right before each
+    send, so if the job is cancelled or timed out the handler stops emailing
+    instead of running on in a thread the worker can no longer kill.
+    """
+    keep_going = should_continue or (lambda: True)
     schedules = SchedulesRepository(db)
     schedule = schedules.get(schedule_id)
     if schedule is None or not schedule.enabled:
@@ -102,7 +116,10 @@ def run_schedule(db, config, schedule_id: str, *, now=None) -> None:
 
     email = EmailService(config, run_log)
     for delivery in deliveries:
-        _deliver_one(db, config, schedule, delivery, email, run_log)
+        if not keep_going():
+            log.warning("schedule %s: job no longer running, stopping before remaining sends", schedule.id)
+            break
+        _deliver_one(db, config, schedule, delivery, email, run_log, keep_going)
 
     # Stamp it whether sends succeeded or not so a schedule fires at most once a
     # day. A failed send shows in the audit log; the owner can re-run by hand.
@@ -113,11 +130,16 @@ def schedule_run_handler(ctx) -> Optional[str]:
     schedule_id = (ctx.job.params or {}).get("schedule_id")
     if not schedule_id:
         return None
-    run_schedule(ctx.db, ctx.config, schedule_id)
+
+    def still_running() -> bool:
+        job = ctx.jobs.get(ctx.job.id)
+        return job is not None and job.status == STATUS_RUNNING
+
+    run_schedule(ctx.db, ctx.config, schedule_id, should_continue=still_running)
     return None
 
 
-def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: EmailService, run_log: RunLogRepository) -> None:
+def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: EmailService, run_log: RunLogRepository, keep_going) -> None:
     try:
         snapshot = build_report_snapshot(
             db, config, schedule.report_key, schedule.filters, delivery.scope_token,
@@ -140,6 +162,11 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
             status="failed", message=f"{schedule.title}: report has no tab to send",
         )
+        return
+
+    # Last gate before the irreversible part (the actual email): if the job was
+    # cancelled or timed out while we were building, don't send.
+    if not keep_going():
         return
 
     subtitle = " - ".join(part for part in (tab.get("label") or "", delivery.label) if part)

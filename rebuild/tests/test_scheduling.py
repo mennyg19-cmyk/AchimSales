@@ -177,6 +177,14 @@ def test_master_schedule_skips_salesman_with_no_recipients_at_all():
     assert expand_deliveries(sched, scope, _FakeConfig()) == []
 
 
+def test_master_schedule_stops_if_owner_lost_privilege():
+    # boss@x.com is the only developer; a master owned by a non-developer must
+    # produce no deliveries even though salesmen/recipients exist.
+    scope = _FakeScope(by_salesman={"10": ["a@x.com"]})
+    sched = _schedule(kind=KIND_MASTER, owner_email="ex-admin@x.com", salesmen=["10"])
+    assert expand_deliveries(sched, scope, _FakeConfig()) == []
+
+
 def test_sabbath_check_fails_open_on_a_malformed_response(monkeypatch):
     # A successful fetch that returns junk must not raise (which would fail the
     # whole scheduled job) -- it falls open to "not restricted".
