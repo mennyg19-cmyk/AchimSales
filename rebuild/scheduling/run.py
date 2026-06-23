@@ -164,8 +164,11 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
         )
         return
 
-    # Last gate before the irreversible part (the actual email): if the job was
-    # cancelled or timed out while we were building, don't send.
+    # Build the workbook first, THEN take the last gate right before the
+    # irreversible part (the actual email). Building can take a while on a big
+    # report, and the job may be cancelled or time out during it -- checking
+    # after the build (not before) is what stops a send the worker has given up on.
+    xlsx_bytes = export_file.to_xlsx(tab)
     if not keep_going():
         return
 
@@ -175,7 +178,7 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
         report_key=schedule.report_key,
         report_title=snapshot.get("title") or schedule.report_key,
         subtitle=subtitle,
-        xlsx_bytes=export_file.to_xlsx(tab),
+        xlsx_bytes=xlsx_bytes,
         xlsx_filename=export_file.filename_for(schedule.report_key, tab["key"], "xlsx"),
         reply_to=delivery.reply_to,
         requested_by=schedule.owner_email,

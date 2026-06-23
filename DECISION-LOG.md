@@ -17,6 +17,14 @@
 - (smaller) master schedules can only be managed by a *current* admin, not the stored owner; the Shabbos check now fails open even on a malformed-but-successful Hebcal response; and each delivery writes its own `schedule.run` history line so successes show up, not just skips/failures. Added regression tests for the once-a-day guard, the master-manage rule, and the fail-open path.
 **Status:** DECIDED -- scheduling phase (engine + UI) done, committing.
 
+## 2026-06-23 Rebuild full-app multi-pass review (until clean)
+**What I did:** Ran repeated readonly full-app reviews (gpt-5.5-extra-high) until one came back with no blocking issues, per the owner's instruction. Three passes:
+- **Pass 1** (agent 75b68436): found 2 blockers -> (a) a master schedule kept running even if its owner lost admin rights; (b) a timed-out/cancelled schedule job could keep emailing from a thread the worker had abandoned. Fixed both (re-check owner privilege at send time; cooperative "is the job still running?" gate before each delivery and before each send). Added regression tests.
+- **Pass 2** (same agent): verified both fixes correct and complete -> CLEAN.
+- **Pass 3** (fresh agent 70bdf1fd, no prior context): found 1 blocker -> the workbook was being built inside the email call's arguments, AFTER the "still running" gate, so a timeout during the (possibly slow) Excel build could still send. Fixed by building the workbook first, then gating, then sending. Also acted on its non-blocking note that multiple gunicorn workers would each start a poller: now exactly ONE process runs the worker + schedule poller, elected with an exclusive OS file lock (mirrors the live app's and v3's existing background-leader pattern; fails open to leader on Windows/dev).
+**Why the leader lock matters (plain English):** on the server, the web app can run as several copies of the same process at once. Without the lock, each copy would start its own schedule checker, and a schedule could get sent more than once. The lock means only the first copy to grab it does the background work; the rest skip it.
+**Status:** DECIDED -- a fourth pass should confirm CLEAN; committing the fixes first.
+
 ---
 
 ## 2026-06-18 Move v3's precious.db off the /home SMB share onto local disk (fix the stalled job queue)

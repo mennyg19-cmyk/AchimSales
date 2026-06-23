@@ -10,6 +10,7 @@
 # get_db() / get_config() -- pull the shared Database / Config off the app
 # create_app() -- build and wire the Flask app (fast, no DB work)
 # bootstrap_background() -- the slow setup, safe to run after the app is serving
+# _is_background_leader() -- elect ONE process to run the worker + schedule poller
 
 from __future__ import annotations
 
@@ -106,6 +107,37 @@ def bootstrap_background(app: Flask) -> None:
 
 _WORKER_KEY = "rebuild.worker"
 _POLLER_KEY = "rebuild.poller"
+# Held open for the process lifetime so the background-leader lock stays held.
+_bg_lock_handle = None
+
+
+def _is_background_leader(app: Flask) -> bool:
+    """Elect exactly ONE process to run the worker + schedule poller.
+
+    Under gunicorn there can be several worker processes, but the job worker and
+    the schedule poller must run in only one of them -- otherwise every process
+    would poll and could fire a schedule more than once. The one process that
+    grabs an exclusive OS file lock wins and holds it until it dies. Fails OPEN
+    (leader=True) on Windows/local dev where the lock isn't available, so a single
+    process still runs background work.
+    """
+    global _bg_lock_handle
+    try:
+        import fcntl
+    except Exception:  # noqa: BLE001 - non-POSIX (local dev): this single process owns it
+        return True
+    lock_path = get_config(app).precious_db_path.parent / ".rebuild-background.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "w")  # noqa: SIM115 - kept open on purpose to hold the lock
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False  # another process already holds it
+    except Exception:  # noqa: BLE001 - never block boot on an unexpected lock error
+        log.exception("background lock errored; assuming leader")
+        return True
+    _bg_lock_handle = handle
+    return True
 
 
 def _maybe_start_in_process_worker(app: Flask) -> None:
@@ -118,6 +150,10 @@ def _maybe_start_in_process_worker(app: Flask) -> None:
     config = get_config(app)
     if config.worker_mode != "in_process":
         log.info("worker_mode=%s; not starting an in-process worker", config.worker_mode)
+        return
+    # Only the elected leader process runs the worker + poller (see the lock).
+    if not _is_background_leader(app):
+        log.info("not the background leader; this process won't run the worker/poller")
         return
     from .jobs.handlers import register_all
     from .jobs.types import registry
