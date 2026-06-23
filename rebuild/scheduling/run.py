@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..auth.authorization import build_principal
+from ..data.connection import normalize_email
 from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.notifications import KIND_SCHEDULE_FAILED, NotificationsRepository
 from ..data.repositories.run_log import RunLogRepository
@@ -114,6 +115,10 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
 
     # We're past the Shabbos gate, so this run is what any owed catch-up was
     # waiting for. Clear the flag now (the poller fired it; this run handles it).
+    # The once-a-day "ran today" stamp is owned by the poller (it stamps the moment
+    # the job is queued) and by the Shabbos-skip path above -- NOT here. Stamping
+    # here would let a manual "run now" eat today's scheduled slot, and a run that
+    # finishes after Eastern midnight would wrongly stamp tomorrow.
     schedules.clear_catch_up(schedule_id)
 
     deliveries = expand_deliveries(schedule, UserScopeRepository(db), config)
@@ -122,7 +127,6 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
             status="skipped", message=f"{schedule.title}: nobody to send to / no access",
         )
-        schedules.mark_ran(schedule_id)
         return
 
     email = EmailService(config, run_log)
@@ -141,10 +145,6 @@ def run_schedule(db, config, schedule_id: str, *, now=None, should_continue=None
         attempted += 1
         if error:
             errors.append(error)
-
-    # Stamp it whether sends succeeded or not so a schedule fires at most once a
-    # day. A failed send shows in the audit log; the owner can re-run by hand.
-    schedules.mark_ran(schedule_id)
 
     # "Failed entirely" = we tried at least one delivery and every one failed
     # (and we weren't cancelled). Tell the owner right away.
@@ -193,14 +193,17 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
     try:
         snapshot = build_report_snapshot(
             db, config, schedule.report_key, schedule.filters, delivery.scope_token,
-            requested_by=schedule.owner_email,
+            requested_by=schedule.owner_email, cancelled=lambda: not keep_going(),
         )
     except Exception as exc:  # noqa: BLE001 - one delivery failing shouldn't stop the rest
+        # A build that blew up because the job was already cancelled/timed out is a
+        # stop, not a failure -- don't cry wolf with a failure alert.
+        if not keep_going():
+            return None
         log.exception("schedule %s: building report failed", schedule.id)
-        message = f"{schedule.title} ({who}): {exc}"
         run_log.record(
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
-            status="failed", message=message,
+            status="failed", message=f"{schedule.title} ({who}): {exc}",
         )
         return str(exc)
 
@@ -224,7 +227,7 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
         return None
 
     subtitle = " - ".join(part for part in (tab.get("label") or "", delivery.label) if part)
-    result = email.send_report(
+    send_result = email.send_report(
         to=delivery.recipients,
         report_key=schedule.report_key,
         report_title=snapshot.get("title") or schedule.report_key,
@@ -237,17 +240,21 @@ def _deliver_one(db, config, schedule: Schedule, delivery: Delivery, email: Emai
     # The email layer logs its own "report.email" entry; this "schedule.run" entry
     # is the schedule's own history line (so the page shows successes too, not just
     # skips and build failures).
-    if result.ok:
+    if send_result.ok:
         run_log.record(
             "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
             status="sent", message=f"{schedule.title} ({who}): to {len(delivery.recipients)} recipient(s)",
         )
         return ""
+    # If the send failed only because the job was cancelled/timed out mid-send,
+    # treat it as a stop, not a failure to alert on.
+    if not keep_going():
+        return None
     run_log.record(
         "schedule.run", user_email=schedule.owner_email, report_key=schedule.report_key,
-        status="failed", message=f"{schedule.title} ({who}): {result.error}",
+        status="failed", message=f"{schedule.title} ({who}): {send_result.error}",
     )
-    return result.error or "the email could not be sent"
+    return send_result.error or "the email could not be sent"
 
 
 def _pick_tab(snapshot: dict, tab_key: Optional[str]) -> Optional[dict]:
@@ -262,7 +269,7 @@ def _pick_tab(snapshot: dict, tab_key: Optional[str]) -> Optional[dict]:
 def _dedupe(emails: list[str]) -> list[str]:
     seen: list[str] = []
     for raw in emails:
-        email = (raw or "").strip().lower()
+        email = normalize_email(raw)
         if email and email not in seen:
             seen.append(email)
     return seen

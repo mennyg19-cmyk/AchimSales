@@ -46,16 +46,21 @@ def _scope_token(salesmen: list[str]) -> str:
 def allowed_salesmen(scope_token: Optional[str]) -> Optional[list[str]]:
     """The salesman numbers a scope token permits, or None for "all".
 
-    Only the two shapes the access decision can produce are accepted: "all" (or
-    empty, the privileged/unset case) and "sm:<numbers>". Anything else is a
-    tampered or corrupt token, so we refuse rather than fall back to "all" --
-    failing closed is the safe default for a worker reading a stored job.
+    Only two shapes are accepted, both of which the access decision actually
+    produces: exactly "all" (privileged), and "sm:<numbers>" with at least one
+    number. Anything else -- blank, missing, or "sm:" with no numbers -- is a
+    corrupt or tampered token, so we REFUSE (raise) rather than fall back to
+    "all". Failing closed is the safe default for a worker reading a stored job:
+    "see everything" must be stated explicitly, never inferred from emptiness.
     """
     token = (scope_token or "").strip()
-    if not token or token == SCOPE_ALL:
+    if token == SCOPE_ALL:
         return None
     if token.startswith(_SCOPE_PREFIX):
-        return [n for n in token[len(_SCOPE_PREFIX):].split(",") if n]
+        numbers = [n for n in token[len(_SCOPE_PREFIX):].split(",") if n]
+        if not numbers:
+            raise ValueError("Scope token 'sm:' has no salesman numbers")
+        return numbers
     raise ValueError(f"Unrecognized scope token: {scope_token!r}")
 
 

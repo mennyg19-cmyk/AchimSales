@@ -29,17 +29,7 @@
           <td>{{ describe(s.cadence) }}</td>
           <td>you{% if s.recipients %} + {{ s.recipients | join(', ') }}{% endif %}</td>
           <td>{{ "On" if s.enabled else "Paused" }}</td>
-          <td class="row-actions">
-            <form method="post" action="{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn">{{ "Pause" if s.enabled else "Resume" }}</button>
-            </form>
-            <form method="post" action="{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}"
-                  onsubmit="return confirm('Delete this schedule?');">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn--danger">Delete</button>
-            </form>
-          </td>
+          {% with confirm_text = "Delete this schedule?" %}{% include "_schedule_actions.html" %}{% endwith %}
         </tr>
         {% endfor %}
       </tbody>

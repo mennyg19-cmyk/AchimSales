@@ -265,6 +265,55 @@ def test_manual_run_ignores_the_sabbath_skip(app, monkeypatch):
     assert after.catch_up_pending is False  # it didn't take the Shabbos-skip path
 
 
+def test_manual_run_does_not_consume_todays_scheduled_slot(app, monkeypatch):
+    from datetime import datetime, timezone
+
+    from rebuild.app import get_config, get_db
+    from rebuild.data.repositories.jobs import JobRepository
+    from rebuild.data.repositories.schedules import SchedulesRepository
+    from rebuild.scheduling import run as run_mod
+    from rebuild.scheduling.poller import enqueue_due
+
+    db = get_db(app)
+    schedule = _make_schedule(app, skip_sabbath=False, cadence={"freq": "daily", "time": "00:00"})
+    monkeypatch.setattr(run_mod, "build_report_snapshot", lambda *a, **k: None)
+
+    # A manual run earlier in the day must NOT stamp last_run_at...
+    run_mod.run_schedule(db, get_config(app), schedule.id, ignore_sabbath=True)
+    assert SchedulesRepository(db).get(schedule.id).last_run_at is None
+
+    # ...so the real scheduled run is still queued when its time comes.
+    jobs = JobRepository(db, get_config(app).job_queue_max, get_config(app).job_stale_seconds)
+    now = datetime(2026, 6, 17, 20, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, jobs, now) == 1
+
+
+def test_owed_catch_up_is_absorbed_by_the_next_normal_run(app, monkeypatch):
+    from datetime import datetime, timezone
+
+    from rebuild.app import get_config, get_db
+    from rebuild.data.repositories.jobs import JobRepository
+    from rebuild.data.repositories.schedules import SchedulesRepository
+    from rebuild.scheduling import poller as poller_mod
+    from rebuild.scheduling.poller import enqueue_due
+
+    db = get_db(app)
+    repo = SchedulesRepository(db)
+    schedule = _make_schedule(app, skip_sabbath=True, cadence={"freq": "daily", "time": "00:00"})
+    # Simulate "skipped yesterday for Shabbos, catch-up never fired."
+    repo.mark_skipped_for_sabbath(schedule.id, "2026-06-16T20:00:00+00:00")
+
+    monkeypatch.setattr(poller_mod, "melacha_assur", lambda _now=None: (False, ""))
+    jobs = JobRepository(db, get_config(app).job_queue_max, get_config(app).job_stale_seconds)
+    now = datetime(2026, 6, 17, 20, 0, tzinfo=timezone.utc)  # the next day, normal run due
+
+    # The normal run queues ONCE and clears the owed catch-up, so a later tick the
+    # same day can't also queue a catch-up (which would double-send).
+    assert enqueue_due(db, jobs, now) == 1
+    assert repo.get(schedule.id).catch_up_pending is False
+    assert enqueue_due(db, jobs, now) == 0
+
+
 def test_a_person_cannot_dismiss_someone_elses_notification(app):
     from rebuild.app import get_db
     from rebuild.data.repositories.notifications import KIND_SCHEDULE_FAILED, NotificationsRepository

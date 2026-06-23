@@ -36,13 +36,13 @@ def logout_user() -> None:
 
 
 def current_principal() -> Optional[Principal]:
-    raw = session.get(_USER_KEY)
-    if not isinstance(raw, dict) or not raw.get("email"):
+    session_user = session.get(_USER_KEY)
+    if not isinstance(session_user, dict) or not session_user.get("email"):
         return None
     # Role is never trusted from the cookie; resolve it from server config now.
     from ..app import get_config
     from .authorization import resolve_role
 
-    email = str(raw["email"]).strip().lower()
-    name = str(raw.get("name") or email)
+    email = str(session_user["email"]).strip().lower()
+    name = str(session_user.get("name") or email)
     return Principal(email=email, name=name, role=resolve_role(get_config(), email))

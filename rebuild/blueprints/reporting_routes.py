@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, url_for
@@ -127,7 +128,16 @@ def run_report(report_key: str):
     except ReportNotRunnable:
         return jsonify({"error": "This report isn't available to run right now."}), 409
 
-    filters = request.get_json(silent=True) or {}
+    # Filters are arbitrary client JSON. Python's JSON reader accepts NaN/Infinity,
+    # which aren't valid JSON and would later poison the cached snapshot and the
+    # API response. Re-serialize strictly to reject them up front, and ignore a
+    # non-object body.
+    raw_filters = request.get_json(silent=True)
+    try:
+        json.dumps(raw_filters, allow_nan=False)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Those filter values can't be read. Please try again."}), 400
+    filters = raw_filters if isinstance(raw_filters, dict) else {}
     try:
         sp_params = translate(report_key, filters)
         scoped = list(access.salesmen) if access.salesmen is not None else None
@@ -210,9 +220,9 @@ def export_tab(report_key: str, tab_key: str):
         abort(404)
     fmt = (request.args.get("fmt") or "xlsx").lower()
     if fmt == "csv":
-        data, mime, ext = export_file.to_csv(tab), "text/csv; charset=utf-8", "csv"
+        download_bytes, mime, ext = export_file.to_csv(tab), "text/csv; charset=utf-8", "csv"
     else:
-        data, mime, ext = export_file.to_xlsx(tab), _XLSX_MIME, "xlsx"
+        download_bytes, mime, ext = export_file.to_xlsx(tab), _XLSX_MIME, "xlsx"
 
     principal = current_principal()
     RunLogRepository(get_db()).record(
@@ -224,7 +234,7 @@ def export_tab(report_key: str, tab_key: str):
     )
     filename = export_file.filename_for(report_key, tab_key, ext)
     return Response(
-        data,
+        download_bytes,
         mimetype=mime,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -242,7 +252,7 @@ def email_tab(report_key: str, tab_key: str):
         abort(404)
     principal = current_principal()
     service = EmailService(get_config(), RunLogRepository(get_db()))
-    result = service.send_report(
+    send_result = service.send_report(
         to=[principal.email],
         report_key=report_key,
         report_title=snapshot.get("title") or report_key,
@@ -252,9 +262,9 @@ def email_tab(report_key: str, tab_key: str):
         reply_to=principal.email,
         requested_by=principal.email,
     )
-    if not result.ok:
-        return jsonify({"error": result.error or "Couldn't send the email."}), 502
-    return jsonify({"ok": True, "to": principal.email, "attached": result.attached})
+    if not send_result.ok:
+        return jsonify({"error": send_result.error or "Couldn't send the email."}), 502
+    return jsonify({"ok": True, "to": principal.email, "attached": send_result.attached})
 
 
 def _read_result(report_key: str) -> dict:

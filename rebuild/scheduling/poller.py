@@ -52,6 +52,11 @@ def enqueue_due(db, jobs: JobRepository, now: datetime | None = None) -> int:
             # here -- not after the send finishes -- is what stops a timed-out or
             # failed run from being re-queued every minute for the rest of the day.
             schedules.mark_ran(schedule.id, now.isoformat())
+            # A fresh normal run supersedes any owed catch-up, so clear that flag
+            # now -- otherwise a later tick (after this stamp) could ALSO queue a
+            # catch-up and send the same report twice.
+            if schedule.catch_up_pending:
+                schedules.clear_catch_up(schedule.id)
             queued += 1
         elif schedule.catch_up_pending and not melacha_assur(now)[0]:
             # Skipped earlier for Shabbos/Yom Tov and the day is now over: send the

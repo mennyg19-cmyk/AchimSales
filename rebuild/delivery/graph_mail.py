@@ -56,15 +56,15 @@ class GraphMailer:
                 authority=f"https://login.microsoftonline.com/{self._tenant_id}",
                 client_credential=self._client_secret,
             )
-            result = app.acquire_token_for_client(scopes=[_GRAPH_SCOPE])
+            token_response = app.acquire_token_for_client(scopes=[_GRAPH_SCOPE])
         except Exception as exc:  # noqa: BLE001 - any token failure becomes a clean error
             log.warning("Graph token acquisition raised: %s", exc)
             raise GraphMailError("Could not get a Microsoft Graph token to send mail.") from exc
-        token = result.get("access_token")
+        token = token_response.get("access_token")
         if not token:
             log.warning(
                 "Graph token request failed: %s / %s",
-                result.get("error"), result.get("error_description"),
+                token_response.get("error"), token_response.get("error_description"),
             )
             raise GraphMailError("Could not get a Microsoft Graph token to send mail.")
         return token

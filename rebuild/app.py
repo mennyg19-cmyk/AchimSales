@@ -95,6 +95,7 @@ def _unread_notifications(app: Flask) -> list:
 
         return NotificationsRepository(get_db(app)).list_unread(principal.email)
     except Exception:  # noqa: BLE001 - notifications are a nicety, never a page-breaker
+        log.debug("could not load notifications for the banner", exc_info=True)
         return []
 
 
@@ -151,12 +152,16 @@ def _is_background_leader(app: Flask) -> bool:
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(lock_path, "w")  # noqa: SIM115 - kept open on purpose to hold the lock
+    except OSError:
+        # Can't even create the lock file. That's not "someone else holds it" --
+        # treat it as no lock available and fall open to leader so background work
+        # still runs (single-process degrade), rather than nobody being leader.
+        log.exception("could not create the background lock file; assuming leader")
+        return True
+    try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        return False  # another process already holds it
-    except Exception:  # noqa: BLE001 - never block boot on an unexpected lock error
-        log.exception("background lock errored; assuming leader")
-        return True
+        return False  # another process already holds it -- we're a follower
     _bg_lock_handle = handle
     return True
 

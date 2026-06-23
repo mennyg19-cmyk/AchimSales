@@ -37,6 +37,10 @@ def _to_absolute(path: Path) -> Path:
 
 _TRUE = {"1", "true", "yes", "on"}
 _DEFAULT_SECRET = "CHANGE_ME"
+# A real Flask secret signs the session cookie (which holds who's logged in); a
+# short/guessable one could be brute-forced to forge a login, so prod demands a
+# proper random value.
+_MIN_PROD_SECRET_LEN = 16
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -153,8 +157,11 @@ class Config:
         if self.is_prod:
             if self.auth_mode == "dev":
                 problems.append("REBUILD_AUTH_MODE=dev is forbidden when REBUILD_APP_ENV=prod")
-            if not self.flask_secret or self.flask_secret == _DEFAULT_SECRET:
-                problems.append("FLASK_SECRET must be a strong value when REBUILD_APP_ENV=prod")
+            if not self.flask_secret or self.flask_secret == _DEFAULT_SECRET or len(self.flask_secret) < _MIN_PROD_SECRET_LEN:
+                problems.append(
+                    f"FLASK_SECRET must be a strong value (at least {_MIN_PROD_SECRET_LEN} chars) "
+                    f"when REBUILD_APP_ENV=prod"
+                )
             if self.auth_mode == "msal" and not (self.tenant_id and self.client_id and self.client_secret):
                 problems.append("GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET required for msal auth")
             for label, db_path in (

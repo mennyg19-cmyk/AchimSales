@@ -40,6 +40,12 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def normalize_email(email: str | None) -> str:
+    """One spelling of an email for storage and lookups: trimmed, lowercased.
+    Used everywhere an email is a key so the same person always matches."""
+    return (email or "").strip().lower()
+
+
 class Connection(Protocol):
     """What services are allowed to assume about a database connection.
 

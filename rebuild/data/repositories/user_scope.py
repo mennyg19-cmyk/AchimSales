@@ -12,11 +12,7 @@
 
 from __future__ import annotations
 
-from ..connection import Database, utc_now_iso
-
-
-def _norm_email(email: str) -> str:
-    return (email or "").strip().lower()
+from ..connection import Database, normalize_email, utc_now_iso
 
 
 def _norm_number(number: str) -> str:
@@ -32,7 +28,7 @@ class UserScopeRepository:
             rows = conn.fetchall(
                 "SELECT salesman_number FROM user_salesmen WHERE user_email = ? "
                 "ORDER BY salesman_number",
-                (_norm_email(email),),
+                (normalize_email(email),),
             )
             return [row["salesman_number"] for row in rows]
 
@@ -46,8 +42,8 @@ class UserScopeRepository:
             return [row["user_email"] for row in rows]
 
     def set_salesmen(self, email: str, numbers: list[str]) -> None:
-        email = _norm_email(email)
-        cleaned = sorted({_norm_number(n) for n in numbers if _norm_number(n)})
+        email = normalize_email(email)
+        cleaned = sorted({n for n in (_norm_number(raw) for raw in numbers) if n})
         now = utc_now_iso()
         with self._db.precious() as conn:
             with conn.transaction():
@@ -65,7 +61,7 @@ class UserScopeRepository:
                 "SELECT user_email, salesman_number FROM user_salesmen "
                 "ORDER BY user_email, salesman_number"
             )
-        out: dict[str, list[str]] = {}
+        assignments_by_email: dict[str, list[str]] = {}
         for row in rows:
-            out.setdefault(row["user_email"], []).append(row["salesman_number"])
-        return out
+            assignments_by_email.setdefault(row["user_email"], []).append(row["salesman_number"])
+        return assignments_by_email

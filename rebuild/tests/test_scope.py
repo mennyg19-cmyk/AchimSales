@@ -54,16 +54,15 @@ def test_not_signed_in_is_denied():
 
 def test_allowed_salesmen_round_trips_the_scope_token():
     assert allowed_salesmen("all") is None
-    assert allowed_salesmen("") is None
-    assert allowed_salesmen(None) is None
     assert allowed_salesmen("sm:10,20") == ["10", "20"]
 
 
-def test_allowed_salesmen_fails_closed_on_a_tampered_token():
-    with pytest.raises(ValueError):
-        allowed_salesmen("everything")
-    with pytest.raises(ValueError):
-        allowed_salesmen("sm")
+def test_allowed_salesmen_fails_closed_on_a_blank_or_tampered_token():
+    # "see everything" must be stated as "all" -- blank/missing/empty-sm: refuse,
+    # so a corrupt stored token can never silently widen to all salesmen.
+    for bad in ("", None, "everything", "sm", "sm:"):
+        with pytest.raises(ValueError):
+            allowed_salesmen(bad)
 
 
 def test_scope_forces_salesman_param_over_user_filter():

@@ -42,7 +42,9 @@ class ResultCache:
         self._db = db
 
     def store(self, cache_key: str, report_key: str, snapshot: dict[str, Any]) -> None:
-        payload = json.dumps(snapshot, default=str)
+        # allow_nan=False so a stray NaN/Infinity can never be written as invalid
+        # JSON that later breaks the reader or the browser parse.
+        payload = json.dumps(snapshot, default=str, allow_nan=False)
         with self._db.cache() as conn:
             conn.execute(
                 "INSERT INTO report_snapshots (cache_key, report_key, created_at, payload) "
@@ -59,17 +61,17 @@ class ResultCache:
             )
             if not row:
                 return None
-            data = json.loads(row["payload"])
-            data["_cached_at"] = row["created_at"]
-            return data
+            snapshot = json.loads(row["payload"])
+            snapshot["_cached_at"] = row["created_at"]
+            return snapshot
 
     def read_for_identity(self, cache_key: str, identity_email: Optional[str], scope_token: Optional[str]) -> Optional[dict[str, Any]]:
-        data = self.read(cache_key)
-        if data is None:
+        snapshot = self.read(cache_key)
+        if snapshot is None:
             return None
-        owner = (data.get("identity") or "").strip().lower()
+        owner = (snapshot.get("identity") or "").strip().lower()
         if owner != (identity_email or "").strip().lower():
             return None
-        if (data.get("scope") or "") != (scope_token or ""):
+        if (snapshot.get("scope") or "") != (scope_token or ""):
             return None
-        return data
+        return snapshot

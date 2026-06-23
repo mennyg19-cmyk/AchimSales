@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from ..connection import Database, utc_now_iso
+from ..connection import Database, normalize_email, utc_now_iso
 
 KIND_SELF = "self"
 KIND_MASTER = "master"
@@ -75,10 +75,6 @@ class Schedule:
         )
 
 
-def _norm_email(email: str) -> str:
-    return (email or "").strip().lower()
-
-
 class SchedulesRepository:
     def __init__(self, db: Database) -> None:
         self._db = db
@@ -107,7 +103,7 @@ class SchedulesRepository:
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     schedule_id,
-                    _norm_email(owner_email),
+                    normalize_email(owner_email),
                     report_key,
                     title,
                     kind,
@@ -168,7 +164,7 @@ class SchedulesRepository:
         with self._db.precious() as conn:
             rows = conn.fetchall(
                 "SELECT * FROM schedules WHERE owner_email = ? ORDER BY created_at DESC",
-                (_norm_email(owner_email),),
+                (normalize_email(owner_email),),
             )
             return [Schedule.from_row(r) for r in rows]
 
@@ -209,7 +205,7 @@ class SchedulesRepository:
 def _clean_emails(emails: list[str]) -> list[str]:
     seen: list[str] = []
     for raw in emails or []:
-        email = _norm_email(raw)
+        email = normalize_email(raw)
         if email and email not in seen:
             seen.append(email)
     return seen

@@ -17,16 +17,12 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from ..connection import Database, utc_now_iso
+from ..connection import Database, normalize_email, utc_now_iso
 
 KIND_SCHEDULE_FAILED = "schedule_failed"
 
 _STATUS_UNREAD = "unread"
 _STATUS_DISMISSED = "dismissed"
-
-
-def _norm_email(email: str) -> str:
-    return (email or "").strip().lower()
 
 
 class NotificationsRepository:
@@ -47,7 +43,7 @@ class NotificationsRepository:
             conn.execute(
                 "INSERT INTO notifications (id, user_email, kind, title, body, schedule_id, status, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (note_id, _norm_email(user_email), kind, title, body, schedule_id, _STATUS_UNREAD, utc_now_iso()),
+                (note_id, normalize_email(user_email), kind, title, body, schedule_id, _STATUS_UNREAD, utc_now_iso()),
             )
         return note_id
 
@@ -55,7 +51,7 @@ class NotificationsRepository:
         with self._db.precious() as conn:
             rows = conn.fetchall(
                 "SELECT * FROM notifications WHERE user_email = ? AND status = ? ORDER BY created_at DESC",
-                (_norm_email(user_email), _STATUS_UNREAD),
+                (normalize_email(user_email), _STATUS_UNREAD),
             )
             return [dict(r) for r in rows]
 
@@ -74,5 +70,5 @@ class NotificationsRepository:
         with self._db.precious() as conn:
             conn.execute(
                 "UPDATE notifications SET status = ? WHERE user_email = ? AND schedule_id = ? AND status = ?",
-                (_STATUS_DISMISSED, _norm_email(user_email), schedule_id, _STATUS_UNREAD),
+                (_STATUS_DISMISSED, normalize_email(user_email), schedule_id, _STATUS_UNREAD),
             )

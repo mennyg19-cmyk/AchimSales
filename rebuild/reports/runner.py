@@ -31,6 +31,13 @@ from .transforms import TRANSFORMS
 
 log = logging.getLogger("rebuild.reports.runner")
 
+# The API call gets a deadline a little under the worker's hard job cap, so a
+# wedged endpoint makes the handler return on its own instead of leaving an
+# orphaned thread behind the timeout. Never let that deadline drop below a few
+# seconds even if the job cap is tiny.
+_MIN_API_TIMEOUT_SECONDS = 5
+_JOB_TIMEOUT_BUFFER_SECONDS = 15
+
 
 def build_report_snapshot(
     db,
@@ -58,21 +65,21 @@ def build_report_snapshot(
 
     timeout = api_timeout if api_timeout is not None else config.reporting_api_timeout
     client = ReportingApiClient(config.reporting_api_base_url, config.reporting_api_key, timeout=timeout)
-    result = client.run_report(report_config.sp_name, sp_params)
+    api_result = client.run_report(report_config.sp_name, sp_params)
 
     if cancelled is not None and cancelled():
         return None
 
     # Trust the larger of what the API claims and what it actually sent, so an
     # under-reported row_count can't slip a huge result past the guard.
-    actual_count = max(int(result.row_count or 0), len(result.rows))
+    actual_count = max(int(api_result.row_count or 0), len(api_result.rows))
     if actual_count > config.max_result_rows:
         raise ValueError(
             f"This report returned {actual_count:,} rows, over the current "
             f"{config.max_result_rows:,}-row limit. Narrow the date range and run it again."
         )
 
-    rows = normalize(report_key, result.rows)
+    rows = normalize(report_key, api_result.rows)
     # Backstop: even if the data server ignored the salesman filter, never let a
     # scoped person's snapshot contain another salesman's rows.
     if scoped_salesmen is not None:
@@ -107,10 +114,10 @@ def run_report_job(ctx: JobContext) -> str | None:
     sp_params = force_salesman_scope(job.report_key, translate(job.report_key, filters), allowed_salesmen(job.scope_token))
     cache_key = job.cache_key or build_cache_key(job.report_key, job.requested_by, job.scope_token, sp_params)
 
-    # Give the API call a deadline a bit before the worker's hard backstop, so a
-    # wedged endpoint makes the handler raise and return on its own rather than
-    # leaving an orphaned thread behind the timeout.
-    api_timeout = min(config.reporting_api_timeout, max(5, config.max_job_seconds - 15))
+    api_timeout = min(
+        config.reporting_api_timeout,
+        max(_MIN_API_TIMEOUT_SECONDS, config.max_job_seconds - _JOB_TIMEOUT_BUFFER_SECONDS),
+    )
     try:
         snapshot = build_report_snapshot(
             db, config, job.report_key, filters, job.scope_token,

@@ -47,10 +47,10 @@ def resolve_window(filters: dict) -> tuple[Optional[date], Optional[date]]:
 
 
 def _parse_date(value: Any) -> Optional[date]:
-    s = text(value)
-    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+    date_text = text(value)
+    if len(date_text) >= 10 and date_text[4] == "-" and date_text[7] == "-":
         try:
-            return date.fromisoformat(s[:10])
+            return date.fromisoformat(date_text[:10])
         except ValueError:
             return None
     return None
@@ -58,11 +58,11 @@ def _parse_date(value: Any) -> Optional[date]:
 
 def _translate_invoiced(filters: dict) -> dict[str, Any]:
     start, end = resolve_window(filters)
-    out: dict[str, Any] = {}
+    sp_params: dict[str, Any] = {}
     if start:
-        out["InvoiceDateFrom"] = start.isoformat()
+        sp_params["InvoiceDateFrom"] = start.isoformat()
     if end:
-        out["InvoiceDateTo"] = end.isoformat()
+        sp_params["InvoiceDateTo"] = end.isoformat()
     customers = filters.get("customers")
     if isinstance(customers, (list, tuple, set)):
         accounts = [text(c) for c in customers if text(c)]
@@ -71,11 +71,11 @@ def _translate_invoiced(filters: dict) -> dict[str, Any]:
     else:
         accounts = []
     if len(accounts) == 1:
-        out["CustomerAccount"] = accounts[0]
+        sp_params["CustomerAccount"] = accounts[0]
     salesman = filters.get("salesman")
     if salesman:
-        out["Salesman"] = ",".join(text(s) for s in salesman) if isinstance(salesman, (list, tuple, set)) else text(salesman)
-    return out
+        sp_params["Salesman"] = ",".join(text(s) for s in salesman) if isinstance(salesman, (list, tuple, set)) else text(salesman)
+    return sp_params
 
 
 _TRANSLATORS = {

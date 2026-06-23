@@ -23,14 +23,23 @@ _NUMBER_FORMATS = {
     "percent": "0.00%",
 }
 
+# Excel caps a worksheet title (tab name) at 31 characters.
+_SHEET_TITLE_LIMIT = 31
+
 
 def _headers(tab: dict[str, Any]) -> list[dict]:
     return tab.get("columns", []) or []
 
 
-# A leading =, +, -, @ (or tab/CR) makes a spreadsheet treat a text cell as a
+def _header_label(column: dict) -> Any:
+    # Guarded like any other cell: a column label is config, but it could still
+    # start with a formula character, and we never want that live in a download.
+    return _cell(column.get("label") or column.get("field"))
+
+
+# A leading =, +, -, @ (or tab/CR/LF) makes a spreadsheet treat a text cell as a
 # formula. Prefix such text with a quote so it stays plain text on open.
-_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r")
+_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r", "\n")
 
 
 def _cell(value: Any) -> Any:
@@ -49,7 +58,7 @@ def to_csv(tab: dict[str, Any]) -> bytes:
     columns = _headers(tab)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow([c.get("label") or c.get("field") for c in columns])
+    writer.writerow([_header_label(c) for c in columns])
     for row in tab.get("rows", []):
         writer.writerow([_cell(row.get(c["field"])) for c in columns])
     if tab.get("total"):
@@ -65,10 +74,10 @@ def to_xlsx(tab: dict[str, Any]) -> bytes:
     columns = _headers(tab)
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = (tab.get("label") or "Report")[:31]
+    sheet.title = (tab.get("label") or "Report")[:_SHEET_TITLE_LIMIT]
 
     bold = Font(bold=True)
-    sheet.append([c.get("label") or c.get("field") for c in columns])
+    sheet.append([_header_label(c) for c in columns])
     for cell in sheet[1]:
         cell.font = bold
 

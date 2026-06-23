@@ -45,18 +45,51 @@ def _schedules() -> SchedulesRepository:
 def _reports_with_tabs() -> list[dict]:
     """Active reports plus their tab list, so the form can offer a tab to send."""
     loader = ConfigLoader(get_db())
-    out = []
+    reports = []
     for report in loader.list_active():
         try:
             tabs = loader.load(report["report_key"]).tabs
         except ReportNotFound:
             tabs = []
-        out.append({
+        reports.append({
             "report_key": report["report_key"],
             "title": report["title"],
             "tabs": [{"key": t["tab_key"], "label": t["label"]} for t in tabs],
         })
-    return out
+    return reports
+
+
+def _save_schedule(report_key: str, kind: str, salesmen: list[str], redirect_endpoint: str, success_msg: str):
+    """Shared tail of both create routes: validate the report + cadence, store the
+    schedule, and redirect with a flash. The routes do their own kind-specific
+    pre-checks (a self schedule checks the person's access; a master checks the
+    salesman list) before calling this."""
+    db = get_db()
+    try:
+        ConfigLoader(db).load_runnable(report_key)
+    except (ReportNotFound, ReportNotRunnable):
+        flash("That report isn't available to schedule.", "error")
+        return redirect(url_for(redirect_endpoint))
+    try:
+        cadence = _parse_cadence(request.form)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for(redirect_endpoint))
+
+    _schedules().create(
+        owner_email=current_principal().email,
+        report_key=report_key,
+        title=(request.form.get("title") or report_key).strip(),
+        kind=kind,
+        filters={"period": (request.form.get("period") or "ytd").strip()},
+        cadence=cadence,
+        recipients=_parse_recipients(request.form.get("recipients", "")),
+        salesmen=salesmen,
+        tab_key=(request.form.get("tab_key") or "").strip() or None,
+        skip_sabbath=request.form.get("skip_sabbath") == "on",
+    )
+    flash(success_msg, "success")
+    return redirect(url_for(redirect_endpoint))
 
 
 def _parse_recipients(raw: str) -> list[str]:
@@ -111,32 +144,7 @@ def create_schedule():
     if not access.allowed:
         flash("You don't have access to that report.", "error")
         return redirect(url_for("schedules.my_schedules"))
-    try:
-        ConfigLoader(db).load_runnable(report_key)
-    except (ReportNotFound, ReportNotRunnable):
-        flash("That report isn't available to schedule.", "error")
-        return redirect(url_for("schedules.my_schedules"))
-
-    try:
-        cadence = _parse_cadence(request.form)
-    except ValueError as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("schedules.my_schedules"))
-
-    _schedules().create(
-        owner_email=principal.email,
-        report_key=report_key,
-        title=(request.form.get("title") or report_key).strip(),
-        kind=KIND_SELF,
-        filters={"period": (request.form.get("period") or "ytd").strip()},
-        cadence=cadence,
-        recipients=_parse_recipients(request.form.get("recipients", "")),
-        salesmen=[],
-        tab_key=(request.form.get("tab_key") or "").strip() or None,
-        skip_sabbath=request.form.get("skip_sabbath") == "on",
-    )
-    flash("Schedule saved.", "success")
-    return redirect(url_for("schedules.my_schedules"))
+    return _save_schedule(report_key, KIND_SELF, [], "schedules.my_schedules", "Schedule saved.")
 
 
 @schedules_bp.get("/admin/schedules")
@@ -155,39 +163,12 @@ def admin_schedules():
 @schedules_bp.post("/admin/schedules")
 @require_privileged
 def create_master_schedule():
-    principal = current_principal()
-    db = get_db()
     report_key = (request.form.get("report_key") or "").strip()
-    try:
-        ConfigLoader(db).load_runnable(report_key)
-    except (ReportNotFound, ReportNotRunnable):
-        flash("That report isn't available to schedule.", "error")
-        return redirect(url_for("schedules.admin_schedules"))
-
     salesmen = [n for n in re.split(r"[,\s]+", request.form.get("salesmen", "")) if n]
     if not salesmen:
         flash("List at least one salesman number for a master schedule.", "error")
         return redirect(url_for("schedules.admin_schedules"))
-    try:
-        cadence = _parse_cadence(request.form)
-    except ValueError as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("schedules.admin_schedules"))
-
-    _schedules().create(
-        owner_email=principal.email,
-        report_key=report_key,
-        title=(request.form.get("title") or report_key).strip(),
-        kind=KIND_MASTER,
-        filters={"period": (request.form.get("period") or "ytd").strip()},
-        cadence=cadence,
-        recipients=_parse_recipients(request.form.get("recipients", "")),
-        salesmen=salesmen,
-        tab_key=(request.form.get("tab_key") or "").strip() or None,
-        skip_sabbath=request.form.get("skip_sabbath") == "on",
-    )
-    flash("Master schedule saved.", "success")
-    return redirect(url_for("schedules.admin_schedules"))
+    return _save_schedule(report_key, KIND_MASTER, salesmen, "schedules.admin_schedules", "Master schedule saved.")
 
 
 @schedules_bp.post("/schedules/<schedule_id>/toggle")
