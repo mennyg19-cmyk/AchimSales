@@ -1,12 +1,13 @@
-"""Seeds the report definitions into the database (currently just invoiced)."""
+"""Seeds the report definitions into the database."""
 
 # === What's in this file ===
-# A report is defined by config rows, not code. This writes the invoiced
-# report's definition: its stored procedure, its filters, its canonical columns,
-# and its seven tabs (column layout + grouping match the LIVE export). Re-running
-# it is safe -- it replaces the rows each time. Numbers are PROVISIONAL until the
-# owner signs off (see run-state notes).
+# A report is defined by config rows, not code. This writes each report's
+# definition: its stored procedure, its filters, its canonical columns, and its
+# tabs (column layout + grouping). Re-running is safe -- it replaces the rows
+# each time. Numbers are PROVISIONAL until the owner signs off.
 #
+# _seed_invoiced() -- the invoiced report definition
+# _seed_ordered() -- the ordered report definition
 # seed_all() -- write every report's definition
 
 from __future__ import annotations
@@ -154,9 +155,143 @@ _FILTERS = [
 ]
 
 
-def seed_all(db: Database) -> None:
-    repo = ReportConfigRepository(db)
+_ORD_COLUMNS = [
+    {"column_key": "SalesOrderNumber", "label": "Sales Order", "data_type": _TEXT},
+    {"column_key": "CustomerAccount", "label": "Customer Account", "data_type": _TEXT},
+    {"column_key": "CustomerName", "label": "Customer Name", "data_type": _TEXT},
+    {"column_key": "CreatedDateTime", "label": "Created Date", "data_type": _DATE},
+    {"column_key": "LineNumber", "label": "Line #", "data_type": _INT},
+    {"column_key": "Item", "label": "Item", "data_type": _TEXT},
+    {"column_key": "ItemDescription", "label": "Description", "data_type": _TEXT},
+    {"column_key": "SalesPrice", "label": "Sales Price", "data_type": _MONEY},
+    {"column_key": "SalesStatus", "label": "Status", "data_type": _TEXT},
+    {"column_key": "QuantityOrdered", "label": "Qty Ordered", "data_type": _INT},
+    {"column_key": "QuantityReserved", "label": "Qty Reserved", "data_type": _INT},
+    {"column_key": "ReleasedQuantity", "label": "Qty Released", "data_type": _INT},
+    {"column_key": "DeliveryRemainder", "label": "Delivery Remainder", "data_type": _INT},
+    {"column_key": "CancelledQTY", "label": "Cancelled Qty", "data_type": _INT},
+    {"column_key": "Ordered $", "label": "Ordered $", "data_type": _MONEY},
+    {"column_key": "Shipped $", "label": "Shipped $", "data_type": _MONEY},
+    {"column_key": "Cancelled $", "label": "Cancelled $", "data_type": _MONEY},
+    {"column_key": "SalesGroup", "label": "Sales Group", "data_type": _TEXT},
+    {"column_key": "SalesmanName", "label": "Salesman", "data_type": _TEXT},
+    {"column_key": "Commission", "label": "Commission %", "data_type": _MONEY},
+]
+
+_ORD_FULL_COLS = [
+    _col("SalesOrderNumber"), _col("CustomerAccount"), _col("CustomerName"),
+    _col("CreatedDateTime", _DATE), _col("LineNumber", _INT),
+    _col("Item"), _col("ItemDescription"), _col("SalesPrice", _MONEY),
+    _col("SalesStatus"),
+    _col("QuantityOrdered", _INT), _col("QuantityReserved", _INT),
+    _col("ReleasedQuantity", _INT), _col("DeliveryRemainder", _INT), _col("CancelledQTY", _INT),
+    _col("Ordered $", _MONEY), _col("Shipped $", _MONEY), _col("Cancelled $", _MONEY),
+    _col("SalesGroup"), _col("SalesmanName"), _col("Commission", _MONEY, "Commission %"),
+]
+
+_ORD_OPEN_COLS = [
+    _col("SalesOrderNumber"), _col("CustomerAccount"), _col("CustomerName"),
+    _col("CreatedDateTime", _DATE), _col("Item"), _col("ItemDescription"),
+    _col("QuantityOrdered", _INT), _col("DeliveryRemainder", _INT),
+    _col("Ordered $", _MONEY), _col("Shipped $", _MONEY),
+    _col("SalesGroup"), _col("SalesmanName"),
+]
+
+_ORD_CUST_SUMMARY_COLS = [
+    _col("CustomerAccount"), _col("CustomerName"),
+    _col("OrderCount", _INT, "Orders"),
+    _col("TotalOrdered", _MONEY, "Total Ordered $"),
+    _col("TotalShipped", _MONEY, "Total Shipped $"),
+    _col("TotalCancelled", _MONEY, "Total Cancelled $"),
+]
+
+_ORD_SALESMAN_COLS = [
+    _col("SalesGroup"), _col("SalesmanName"),
+    _col("OrderCount", _INT, "Orders"),
+    _col("TotalOrdered", _MONEY, "Total Ordered $"),
+    _col("TotalShipped", _MONEY, "Total Shipped $"),
+    _col("TotalCancelled", _MONEY, "Total Cancelled $"),
+]
+
+_ORD_CUST_AGG = {
+    "OrderCount": "count_distinct:SalesOrderNumber",
+    "TotalOrdered": "sum:Ordered $",
+    "TotalShipped": "sum:Shipped $",
+    "TotalCancelled": "sum:Cancelled $",
+}
+
+_ORD_SALESMAN_AGG = {
+    "OrderCount": "count_distinct:SalesOrderNumber",
+    "TotalOrdered": "sum:Ordered $",
+    "TotalShipped": "sum:Shipped $",
+    "TotalCancelled": "sum:Cancelled $",
+}
+
+_ORD_TABS = [
+    {
+        "tab_key": "full_data", "label": "Full Details",
+        "column_keys": _ORD_FULL_COLS,
+        "sorters": [{"field": "CreatedDateTime", "dir": "desc"}, {"field": "SalesOrderNumber", "dir": "asc"}, {"field": "LineNumber", "dir": "asc"}],
+    },
+    {
+        "tab_key": "summary_by_customer", "label": "Summary by Customer",
+        "group_by": ["CustomerAccount", "CustomerName"],
+        "aggregations": _ORD_CUST_AGG, "column_keys": _ORD_CUST_SUMMARY_COLS,
+        "sorters": [{"field": "CustomerAccount", "dir": "asc"}],
+    },
+    {
+        "tab_key": "open_orders", "label": "Open Orders",
+        "filter_expr": '{"op":"eq","field":"SalesStatus","value":"Open order"}',
+        "column_keys": _ORD_OPEN_COLS,
+        "sorters": [{"field": "CreatedDateTime", "dir": "desc"}, {"field": "SalesOrderNumber", "dir": "asc"}],
+    },
+    {
+        "tab_key": "totals_by_salesman", "label": "Totals by Salesman",
+        "condition": "has_multiple_sales_groups",
+        "group_by": ["SalesGroup", "SalesmanName"],
+        "aggregations": _ORD_SALESMAN_AGG, "column_keys": _ORD_SALESMAN_COLS,
+        "sorters": [{"field": "SalesGroup", "dir": "asc"}],
+    },
+]
+
+_ORD_FILTERS = [
+    {
+        "filter_key": "period", "label": "Period", "kind": "select", "default_value": "ytd",
+        "options": [
+            {"value": "ytd", "label": "Year to date"},
+            {"value": "this_month", "label": "This month"},
+            {"value": "last_month", "label": "Last month"},
+            {"value": "this_year", "label": "This year"},
+            {"value": "last_year", "label": "Last year"},
+            {"value": "custom", "label": "Custom range"},
+            {"value": "all_time", "label": "All time"},
+        ],
+    },
+    {"filter_key": "start_date", "label": "Start date", "kind": "date"},
+    {"filter_key": "end_date", "label": "End date", "kind": "date"},
+    {"filter_key": "SalesOrderNumber", "label": "Sales order number", "kind": "text"},
+    {"filter_key": "CustomerAccount", "label": "Customer account", "kind": "text"},
+    {"filter_key": "Item", "label": "Item", "kind": "text"},
+    {"filter_key": "SalesStatus", "label": "Sales status", "kind": "text"},
+    {"filter_key": "salesman", "label": "Sales group", "kind": "text"},
+]
+
+
+def _seed_invoiced(repo: ReportConfigRepository) -> None:
     repo.upsert_config("invoiced", title="Invoiced", sp_name="invoiced_report", default_params={"period": "ytd"})
     repo.set_filters("invoiced", _FILTERS)
     repo.set_columns("invoiced", _COLUMNS)
     repo.set_tabs("invoiced", _TABS)
+
+
+def _seed_ordered(repo: ReportConfigRepository) -> None:
+    repo.upsert_config("ordered", title="Ordered", sp_name="ordered_report", default_params={"period": "ytd"})
+    repo.set_filters("ordered", _ORD_FILTERS)
+    repo.set_columns("ordered", _ORD_COLUMNS)
+    repo.set_tabs("ordered", _ORD_TABS)
+
+
+def seed_all(db: Database) -> None:
+    repo = ReportConfigRepository(db)
+    _seed_invoiced(repo)
+    _seed_ordered(repo)

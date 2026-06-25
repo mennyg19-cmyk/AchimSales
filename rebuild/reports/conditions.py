@@ -6,7 +6,8 @@
 # both a positive and a negative total. A tab's config names one of these rules;
 # the engine asks here whether to build the tab.
 #
-# has_multiple_salesmen() -- 2+ distinct salesmen present
+# has_multiple_salesmen() -- 2+ distinct salesmen present (checks "Salesman" field)
+# has_multiple_sales_groups() -- 2+ distinct sales groups present (checks "SalesGroup" field)
 # has_reversals() -- some invoice number carries both a + and a - total
 # evaluate() -- look up a named condition and run it (unknown name -> show tab)
 
@@ -21,6 +22,11 @@ Condition = Callable[[Sequence[dict]], bool]
 
 def has_multiple_salesmen(rows: Sequence[dict]) -> bool:
     distinct = {(r.get("Salesman") or "").strip() for r in rows if (r.get("Salesman") or "").strip()}
+    return len(distinct) >= 2
+
+
+def has_multiple_sales_groups(rows: Sequence[dict]) -> bool:
+    distinct = {(r.get("SalesGroup") or "").strip() for r in rows if (r.get("SalesGroup") or "").strip()}
     return len(distinct) >= 2
 
 
@@ -43,6 +49,7 @@ def has_reversals(rows: Sequence[dict]) -> bool:
 
 _CONDITIONS: dict[str, Condition] = {
     "has_multiple_salesmen": has_multiple_salesmen,
+    "has_multiple_sales_groups": has_multiple_sales_groups,
     "has_reversals": has_reversals,
 }
 

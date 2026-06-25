@@ -78,8 +78,43 @@ def _translate_invoiced(filters: dict) -> dict[str, Any]:
     return sp_params
 
 
+def _translate_ordered(filters: dict) -> dict[str, Any]:
+    sp_params: dict[str, Any] = {}
+    start, end = resolve_window(filters)
+    if start:
+        sp_params["CreatedDateTimeFrom"] = start.isoformat()
+    if end:
+        sp_params["CreatedDateTimeTo"] = end.isoformat()
+
+    _pass_if_present = (
+        "SalesOrderNumber", "CustomerAccount", "Item", "SalesStatus", "LineNumber",
+        "CustomerNameContains", "ItemDescriptionContains", "SalesmanNameContains",
+        "SalesPriceMin", "SalesPriceMax",
+        "QuantityOrderedMin", "QuantityOrderedMax",
+        "QuantityReservedMin", "QuantityReservedMax",
+        "ReleasedQuantityMin", "ReleasedQuantityMax",
+        "DeliveryRemainderMin", "DeliveryRemainderMax",
+        "CancelledQTYMin", "CancelledQTYMax",
+        "OrderedDollarsMin", "OrderedDollarsMax",
+        "ShippedDollarsMin", "ShippedDollarsMax",
+        "CancelledDollarsMin", "CancelledDollarsMax",
+        "CommissionMin", "CommissionMax",
+    )
+    for key in _pass_if_present:
+        value = filters.get(key)
+        if value is not None and value != "":
+            sp_params[key] = value
+
+    salesman = filters.get("salesman")
+    if salesman:
+        sp_params["SalesGroup"] = ",".join(text(number) for number in salesman) if isinstance(salesman, (list, tuple, set)) else text(salesman)
+
+    return sp_params
+
+
 _TRANSLATORS = {
     "invoiced": _translate_invoiced,
+    "ordered": _translate_ordered,
 }
 
 # The SP parameter that filters by salesman, per report. Scoping a report to a
@@ -87,6 +122,7 @@ _TRANSLATORS = {
 # can't be scoped (so a scoped person can't run it -- safe by default).
 _SALESMAN_PARAM = {
     "invoiced": "Salesman",
+    "ordered": "SalesGroup",
 }
 
 

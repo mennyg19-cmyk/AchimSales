@@ -42,8 +42,32 @@ _INVOICED = [
     FieldSpec("commission", ("commission", "Commission", "CommissionPct", "Commission %"), "rate"),
 ]
 
+_ORDERED = [
+    FieldSpec("SalesOrderNumber", ("SalesOrderNumber",), "text"),
+    FieldSpec("CustomerAccount", ("CustomerAccount",), "text"),
+    FieldSpec("CustomerName", ("customername", "CustomerName"), "text"),
+    FieldSpec("CreatedDateTime", ("CreatedDateTime",), "date"),
+    FieldSpec("LineNumber", ("LineNumber",), "int"),
+    FieldSpec("Item", ("Item",), "text"),
+    FieldSpec("ItemDescription", ("ItemDescription",), "text"),
+    FieldSpec("SalesPrice", ("SalesPrice",), "money"),
+    FieldSpec("SalesStatus", ("SalesStatus",), "text"),
+    FieldSpec("QuantityOrdered", ("QuantityOrdered",), "int"),
+    FieldSpec("QuantityReserved", ("QuantityReserved",), "int"),
+    FieldSpec("ReleasedQuantity", ("ReleasedQuantity",), "int"),
+    FieldSpec("DeliveryRemainder", ("DeliveryRemainder",), "int"),
+    FieldSpec("CancelledQTY", ("CancelledQTY",), "int"),
+    FieldSpec("Ordered $", ("Ordered $", "OrderedDollars"), "money"),
+    FieldSpec("Shipped $", ("Shipped $", "ShippedDollars"), "money"),
+    FieldSpec("Cancelled $", ("Cancelled $", "CancelledDollars"), "money"),
+    FieldSpec("SalesGroup", ("SalesGroup",), "text"),
+    FieldSpec("SalesmanName", ("SalesmanName",), "text"),
+    FieldSpec("Commission", ("Commission",), "rate"),
+]
+
 MANIFESTS: dict[str, list[FieldSpec]] = {
     "invoiced": _INVOICED,
+    "ordered": _ORDERED,
 }
 
 
