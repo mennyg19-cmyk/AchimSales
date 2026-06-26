@@ -26,7 +26,7 @@ from .api_client import ReportingApiClient, ReportingApiError
 from .cache import ResultCache, build_cache_key
 from .config_loader import ConfigLoader
 from .engine import build_tabs
-from .params import force_salesman_scope, translate
+from .params import force_salesman_scope, scope_row_field, translate
 from .transforms import TRANSFORMS
 
 log = logging.getLogger("rebuild.reports.runner")
@@ -81,10 +81,13 @@ def build_report_snapshot(
 
     rows = normalize(report_key, api_result.rows)
     # Backstop: even if the data server ignored the salesman filter, never let a
-    # scoped person's snapshot contain another salesman's rows.
+    # scoped person's snapshot contain another salesman's rows. The column that
+    # holds the salesman number differs per report (invoiced: "Salesman",
+    # ordered: "SalesGroup"), so ask params which one to filter on.
     if scoped_salesmen is not None:
         allowed = set(scoped_salesmen)
-        rows = [row for row in rows if str(row.get("Salesman", "")).strip() in allowed]
+        scope_field = scope_row_field(report_key)
+        rows = [row for row in rows if str(row.get(scope_field, "")).strip() in allowed]
     # Count what the person actually sees (after scoping), not what the server
     # fetched -- otherwise a scoped user's summary could leak the full total.
     visible_count = len(rows)

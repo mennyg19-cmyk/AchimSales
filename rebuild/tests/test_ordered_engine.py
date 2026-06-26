@@ -11,7 +11,7 @@ from rebuild.reports import conditions
 from rebuild.reports.adapter import normalize
 from rebuild.reports.engine import build_tabs
 from rebuild.reports.manifests import manifest_for
-from rebuild.reports.params import force_salesman_scope, translate
+from rebuild.reports.params import force_salesman_scope, scope_row_field, translate
 from rebuild.reports.transforms import TRANSFORMS
 
 
@@ -107,6 +107,14 @@ def test_params_salesman_scope_none_leaves_untouched():
     sp_params = translate("ordered", {"period": "ytd"})
     scoped = force_salesman_scope("ordered", sp_params, None)
     assert "SalesGroup" not in scoped
+
+
+def test_scope_row_field_is_sales_group_for_ordered():
+    # The runner filters returned rows on this column to enforce salesman scope.
+    # For ordered it must be SalesGroup, not Salesman -- otherwise a scoped
+    # salesman would see zero rows.
+    assert scope_row_field("ordered") == "SalesGroup"
+    assert scope_row_field("invoiced") == "Salesman"
 
 
 def test_has_multiple_sales_groups_condition():

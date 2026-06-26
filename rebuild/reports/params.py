@@ -125,12 +125,30 @@ _SALESMAN_PARAM = {
     "ordered": "SalesGroup",
 }
 
+# The column in the CLEANED snapshot rows that holds the salesman number, per
+# report. This is the backstop the runner filters on after the SP returns, so a
+# scoped person never sees another salesman's rows even if the SP ignored the
+# filter. It's separate from _SALESMAN_PARAM (what we SEND the SP) because the
+# returned column name is a different thing from the input parameter name.
+_SCOPE_ROW_FIELD = {
+    "invoiced": "Salesman",
+    "ordered": "SalesGroup",
+}
+
 
 def translate(report_key: str, filters: Optional[dict]) -> dict[str, Any]:
     translator = _TRANSLATORS.get(report_key)
     if translator is None:
         raise KeyError(f"No parameter translator for report {report_key!r}")
     return translator(filters or {})
+
+
+def scope_row_field(report_key: str) -> str:
+    """The cleaned-row column the runner filters on to enforce salesman scope."""
+    field = _SCOPE_ROW_FIELD.get(report_key)
+    if field is None:
+        raise KeyError(f"Report {report_key!r} has no salesman column to scope by")
+    return field
 
 
 def force_salesman_scope(
