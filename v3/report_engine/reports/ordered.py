@@ -1,18 +1,19 @@
-"""Ordered report builder (salesline_release).
+"""Ordered report builder (rpt.usp_ordered_report).
 
 Format/columns/math follow LIVE (reports/ordered/writer.py); on-screen
 multi-tab architecture follows the test app. Six tabs:
 Summary, By Customer, By Item, By Order, By Salesman, Full Data.
 
-Authoritative fields
---------------------
+Source fields
+-------------
 The SP returns server-side dollar columns (Ordered/Shipped/Cancelled $) that
-already apply the WHS + packing-slip math, plus authoritative QtyShipped and
-QtyCancelled. Only QtyOpen and Fulfillment % are derived::
+already apply the WHS + packing-slip math, plus authoritative QtyOrdered and
+QtyCancelled. The newer SP returns no shipped quantity, so QtyShipped is
+derived; QtyOpen and Fulfillment % follow from it::
 
-    QtyShipped   = from SP (authoritative)
     QtyCancelled = from SP (authoritative)
-    QtyOpen      = QtyOrdered - QtyShipped - QtyCancelled
+    QtyShipped   = QtyOrdered - QtyCancelled - DeliveryRemainder   (derived)
+    QtyOpen      = QtyOrdered - QtyShipped - QtyCancelled  (= DeliveryRemainder)
     Released $   = QtyReleased * UnitPrice
     Open $       = Ordered $ - Shipped $ - Cancelled $   (from authoritative $)
 
@@ -26,12 +27,19 @@ from typing import Callable, Iterable, Sequence
 
 from report_engine.facts import OrderLineFact
 
-# QtyOpen is derived (QtyOrdered - QtyShipped - QtyCancelled); Fulfillment %
-# depends on it. Everything else is authoritative from the SP.
-STUB_FIELDS: tuple[str, ...] = ("QtyOpen", "Fulfillment %")
-STUB_NOTE = ("QtyOpen and Fulfillment % are derived from the authoritative "
-             "QtyShipped + QtyCancelled. All other qty and dollar columns come "
-             "directly from the SP.")
+# Columns the new ordered_report SP can't supply directly, flagged for the user:
+#   QtyShipped   - derived (QtyOrdered - QtyCancelled - DeliveryRemainder), since
+#                  the SP returns no shipped quantity, only Shipped $.
+#   QtyOpen      - follows from the derived QtyShipped (= DeliveryRemainder).
+#   Fulfillment %- derived from QtyOrdered + QtyCancelled.
+#   PO #         - not in the SP yet; blank until the DBA adds it.
+#   OrderStatus  - not in the SP yet; blank until the DBA adds it.
+# All dollar columns come straight from the SP (authoritative).
+STUB_FIELDS: tuple[str, ...] = ("QtyShipped", "QtyOpen", "Fulfillment %", "PO #", "OrderStatus")
+STUB_NOTE = ("QtyShipped is derived (QtyOrdered - QtyCancelled - "
+             "DeliveryRemainder); QtyOpen and Fulfillment % follow from it. PO # "
+             "and Order Status are blank until the ordered_report SP provides "
+             "them. Dollar columns come straight from the SP.")
 
 _ERROR_ITEM_RE = re.compile(r"ERROR\s*ITEM", re.IGNORECASE)
 

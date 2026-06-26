@@ -561,6 +561,41 @@ commission rate in a column called `commission`. Should the report read the rate
 - *Why:* you wanted to see "where my reports are up to" no matter what page you're on, without
   babysitting the report screen.
 
+### Session: Fri Jun 26 - point the Ordered report at the new `rpt.usp_ordered_report` SP
+
+You asked for the new Ordered report (built first in the /test-next app) to also be in the /test
+(v3) app, and to switch v3's Ordered report onto the new stored procedure `rpt.usp_ordered_report`.
+The catch: the new SP returns fewer columns than the old `salesline_release` one, so I had to fill
+a few gaps. You signed off on each of these:
+
+**1. The new SP gives no shipped *quantity* - only Shipped dollars. How do we get QtyShipped?**
+- *Options:* (a) derive it from the order math `QtyShipped = QtyOrdered - Cancelled -
+  DeliveryRemainder`; (b) back it out of the dollars `Shipped $ / UnitPrice`.
+- *What you chose:* (a), the order-math identity.
+- *Why:* it uses only fields the SP actually returns and doesn't blow up on $0 prices or price
+  overrides. A nice side effect: QtyOpen comes out equal to DeliveryRemainder.
+
+**2. The new SP has no "Sales Order Name" column.**
+- *What you chose:* show the **customer name** in that column.
+- *Why:* it's the most useful stand-in and what you wanted on screen.
+
+**3. The new SP has no PO # and no header Order Status (only the line-level status).**
+- *What you chose:* leave those two columns **blank for now** and flag them; you'll have the DBA
+  add them to the SP later.
+- *Why:* you'd rather see the report now with two known-empty columns than wait on the SP change.
+  They're badged as "not available yet" so nobody trusts a blank as real.
+
+**4. Two old filters dropped: Company and the shipped-quantity range.**
+- *What I did:* the new SP has no Company parameter and filters shipped by **dollars**, not
+  quantity, so those two old filters no longer translate. I removed them rather than send the SP a
+  parameter it doesn't understand. Multi-customer selection is now post-filtered in the app (the
+  new SP's CustomerAccount is a single exact match), exactly like the Invoiced report already does.
+
+Net result: v3's Ordered report shows the same tabs and columns as before, now fed by the new SP,
+with QtyShipped/QtyOpen/Fulfillment % flagged as derived and PO #/Order Status flagged as blank
+until the SP provides them. The old `salesline_release` SP still powers Customer Activity and
+Customer's Last Order - those were left untouched.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

@@ -92,10 +92,26 @@ def _resolved_year(params: dict) -> int:
 # --- per-report translators ------------------------------------------------
 
 def translate_ordered(p: dict) -> dict[str, Any]:
-    """ordered -> salesline_release."""
+    """ordered -> rpt.usp_ordered_report.
+
+    Maps the viewer's filters to the new SP's parameter names. The SP ignores any
+    param passed as null/omitted. Two old salesline_release filters are dropped
+    because the new SP doesn't have them: Company (no such param) and the
+    shipped-quantity range (the new SP filters shipped by DOLLARS, not quantity -
+    see ShippedDollarsMin/Max). The new SP's CustomerAccount is a single
+    exact-match value, so only a single-customer selection is pushed down;
+    multi-select is post-filtered by the orchestrator (same as invoiced).
+    """
     out = _date_range(p, "CreatedDateTimeFrom", "CreatedDateTimeTo")
-    if v := _csv(p.get("customers")):
-        out["CustomerAccount"] = v
+    customers = p.get("customers")
+    if isinstance(customers, (list, tuple, set)):
+        cust = [str(c).strip() for c in customers if str(c).strip()]
+    elif customers:
+        cust = [str(customers).strip()]
+    else:
+        cust = []
+    if len(cust) == 1:
+        out["CustomerAccount"] = cust[0]
     if v := _csv(p.get("salesman")):
         out["SalesGroup"] = v
     if v := _csv(p.get("status")):
@@ -104,12 +120,6 @@ def translate_ordered(p: dict) -> dict[str, Any]:
         out["SalesOrderNumber"] = v
     if v := _csv(p.get("item")):
         out["Item"] = v
-    if v := _csv(p.get("company")):
-        out["Company"] = v
-    if v := _csv(p.get("shipped_qty_min")):
-        out["shippedquantitymin"] = v
-    if v := _csv(p.get("shipped_qty_max")):
-        out["shippedquantitymax"] = v
     return out
 
 
@@ -180,7 +190,7 @@ def translate_customer_activity(p: dict) -> dict[str, Any]:
 
 # (report_id, translator) keyed by in-app report key. Single source of truth.
 REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
-    "ordered": ("salesline_release", translate_ordered),
+    "ordered": ("ordered_report", translate_ordered),
     "invoiced": ("invoiced_report", translate_invoiced),
     "salesman": ("invoiced_order_charges", translate_salesman),
     "number_4": ("invoice_lines", translate_number_4),

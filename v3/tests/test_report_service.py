@@ -51,7 +51,7 @@ def test_unknown_report_raises():
 def test_ordered_payload_shape():
     rows = [{"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "A",
              "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open"}]
-    out = _svc({"salesline_release": rows}).builder_for("ordered")({}, None)
+    out = _svc({"ordered_report": rows}).builder_for("ordered")({}, None)
     assert out["report_key"] == "ordered"
     assert out["row_count"] == 1
     assert [t["key"] for t in out["tabs"]][0] == "summary"
@@ -193,7 +193,7 @@ def test_scope_filters_facts_to_visible_keys():
          "QuantityOrdered": "3", "Ordered $": "30", "SalesStatus": "Open",
          "SalesGroup": "JSmith"},
     ]
-    svc = _svc({"salesline_release": rows})
+    svc = _svc({"ordered_report": rows})
     # Unrestricted: sees both
     out_all = svc.builder_for("ordered")({}, None)
     assert out_all["row_count"] == 2

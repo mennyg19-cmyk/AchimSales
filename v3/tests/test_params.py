@@ -9,7 +9,7 @@ from web.reporting import params as P
 
 
 def test_report_id_map_is_complete():
-    assert P.report_id_for("ordered") == "salesline_release"
+    assert P.report_id_for("ordered") == "ordered_report"
     assert P.report_id_for("invoiced") == "invoiced_report"
     assert P.report_id_for("salesman") == "invoiced_order_charges"
     assert P.report_id_for("number_4") == "invoice_lines"
@@ -21,20 +21,37 @@ def test_unknown_report_raises():
         P.translate("nope", {})
 
 
-def test_ordered_custom_range_and_filters():
+def test_ordered_single_customer_and_filters():
     out = P.translate("ordered", {
         "period": "custom", "start_date": "2026-04-01", "end_date": "2026-04-30",
-        "customers": ["100001", "100002"], "salesman": "REdwards",
-        "status": "Open", "item": "ABC", "order_no": "SO-1", "company": "ACHM",
+        "customers": ["100001"], "salesman": "REdwards",
+        "status": "Open", "item": "ABC", "order_no": "SO-1",
     })
     assert out["CreatedDateTimeFrom"] == "2026-04-01 00:00:00"
     assert out["CreatedDateTimeTo"] == "2026-04-30 23:59:59"
-    assert out["CustomerAccount"] == "100001,100002"
+    assert out["CustomerAccount"] == "100001"
     assert out["SalesGroup"] == "REdwards"
     assert out["SalesStatus"] == "Open"
     assert out["Item"] == "ABC"
     assert out["SalesOrderNumber"] == "SO-1"
-    assert out["Company"] == "ACHM"
+
+
+def test_ordered_multi_customer_is_not_pushed_down():
+    # The new SP's CustomerAccount is exact-match, so a multi-select isn't pushed
+    # to the SP (the orchestrator post-filters it instead).
+    out = P.translate("ordered", {"period": "all_time", "customers": ["100001", "100002"]})
+    assert "CustomerAccount" not in out
+
+
+def test_ordered_drops_unsupported_company_and_shipped_qty():
+    # The new SP has no Company param and no shipped-quantity filter.
+    out = P.translate("ordered", {
+        "period": "all_time", "company": "ACHM",
+        "shipped_qty_min": "1", "shipped_qty_max": "9",
+    })
+    assert "Company" not in out
+    assert "shippedquantitymin" not in out
+    assert "shippedquantitymax" not in out
 
 
 def test_ordered_all_time_omits_dates():

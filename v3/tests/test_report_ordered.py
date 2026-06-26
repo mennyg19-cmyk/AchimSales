@@ -1,61 +1,80 @@
-"""Ordered report: SP adapter + LIVE-format builder (authoritative $, qty)."""
+"""Ordered report: new ordered_report SP adapter + LIVE-format builder.
+
+The new rpt.usp_ordered_report SP returns no shipped quantity, no PO#, and no
+header order status. These rows use the new SP's field names; the adapter
+derives QtyShipped (QtyOrdered - Cancelled - DeliveryRemainder), maps
+SalesOrderName to the customer name, and leaves PO#/OrderStatus blank.
+"""
 
 from report_engine.reports import ordered as B
 from report_engine.sources import ordered as S
 
 
 def _rows():
+    # New SP shape: CancelledQTY (not CancelledQuantity), no shipped quantity,
+    # no PO#, no header status. DeliveryRemainder drives the derived QtyShipped.
     return [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-01T08:30:00",
-         "CustomerRequisition": "PO-1", "LineNumber": "1", "Item": "ITM-A",
-         "ItemDescription": "Widget", "SalesPrice": "2.29", "SalesStatus": "Open",
-         "QuantityOrdered": "30", "ShippedQuantity": "10", "CancelledQuantity": "0",
-         "ReleasedQuantity": "10", "DeliveryRemainder": "20", "QuantityLefttoLoad": "0",
-         "Ordered $": "68.70", "Shipped $": "22.90", "Cancelled $": "0"},
+         "LineNumber": "1", "Item": "ITM-A", "ItemDescription": "Widget",
+         "SalesPrice": "2.29", "SalesStatus": "Open", "QuantityOrdered": "30",
+         "CancelledQTY": "0", "ReleasedQuantity": "10", "DeliveryRemainder": "20",
+         "Ordered $": "68.70", "Shipped $": "22.90", "Cancelled $": "0",
+         "Commission": "0.06", "SalesmanName": "Ron Edwards"},
         {"SalesOrderNumber": "SO2", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-02T08:30:00",
          "LineNumber": "1", "Item": "ITM-B", "ItemDescription": "Gadget",
          "SalesPrice": "5.00", "SalesStatus": "Cancelled", "QuantityOrdered": "4",
-         "ShippedQuantity": "0", "CancelledQuantity": "4", "ReleasedQuantity": "0",
-         "DeliveryRemainder": "0", "QuantityLefttoLoad": "0",
-         "Ordered $": "20.00", "Shipped $": "0", "Cancelled $": "20.00"},
+         "CancelledQTY": "4", "ReleasedQuantity": "0", "DeliveryRemainder": "0",
+         "Ordered $": "20.00", "Shipped $": "0", "Cancelled $": "20.00",
+         "Commission": "0.05", "SalesmanName": "Ron Edwards"},
     ]
 
 
-def test_adapter_maps_authoritative_dollars_and_qty():
-    f = S.to_fact(_rows()[0])
+def test_adapter_derives_shipped_and_maps_order_name_to_customer():
+    f = S.to_fact_ordered_report(_rows()[0])
     assert f.sales_order_number == "SO1"
     assert f.customer_name == "Acme"
+    assert f.sales_order_name == "Acme"   # owner decision: order name = customer name
     assert f.order_date == "2026-03-01"
-    assert f.qty_ordered == 30 and f.qty_shipped == 10 and f.qty_cancelled == 0
+    assert f.qty_ordered == 30 and f.qty_cancelled == 0
+    # QtyShipped derived: 30 - 0 - 20 (DeliveryRemainder) = 10
+    assert f.qty_shipped == 10
     assert f.qty_released == 10
     assert f.ordered_dollars == 68.70 and f.shipped_dollars == 22.90
     assert f.unit_price == 2.29
+    assert f.po_number == "" and f.order_status == ""   # stubbed until SP provides
+
+
+def test_derived_shipped_floors_at_zero():
+    # If DeliveryRemainder + Cancelled exceed Ordered, QtyShipped can't go negative.
+    row = dict(_rows()[0], QuantityOrdered="5", CancelledQTY="0", DeliveryRemainder="20")
+    f = S.to_fact_ordered_report(row)
+    assert f.qty_shipped == 0
 
 
 def test_full_data_qty_and_open_dollars():
-    tabs = B.build(S.to_facts(_rows()))
+    tabs = B.build(S.to_facts_ordered_report(_rows()))
     full = next(t for t in tabs if t["key"] == "full_data")
     so1 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO1")
-    # shipped and cancelled come directly from SP
-    assert so1["QtyShipped"] == 10
+    assert so1["QtyShipped"] == 10           # derived
     assert so1["QtyCancelled"] == 0
-    assert so1["QtyOpen"] == 20
+    assert so1["QtyOpen"] == 20              # = DeliveryRemainder
     # Open $ derived from authoritative dollars: 68.70 - 22.90 - 0 = 45.80
     assert so1["Open $"] == 45.80
     assert so1["Released $"] == 22.90  # 10 * 2.29
 
     so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
-    assert so2["QtyCancelled"] == 4          # from SP CancelledQuantity
+    assert so2["QtyCancelled"] == 4          # from SP CancelledQTY
     assert so2["Fulfillment %"] == 0.0       # (4-4)/4
 
 
-def test_stub_fields_flagged_on_every_tab():
-    tabs = B.build(S.to_facts(_rows()))
+def test_stub_fields_flag_derived_and_missing_columns():
+    tabs = B.build(S.to_facts_ordered_report(_rows()))
     for t in tabs:
         assert "stub_fields" in t and t["stub_fields"]
     full = next(t for t in tabs if t["key"] == "full_data")
+    assert "QtyShipped" in full["stub_fields"]   # now derived, not authoritative
     assert "QtyOpen" in full["stub_fields"]
     assert "QtyCancelled" not in full["stub_fields"]
 
@@ -70,14 +89,14 @@ def test_error_item_lines_dropped_by_item_number_only():
         {"SalesOrderNumber": "SO8", "CustomerAccount": "100", "Item": "REAL-1",
          "ItemDescription": "ERROR ITEM in name", "QuantityOrdered": "5",
          "Ordered $": "10", "SalesStatus": "Open"}]
-    full = next(t for t in B.build(S.to_facts(rows)) if t["key"] == "full_data")
+    full = next(t for t in B.build(S.to_facts_ordered_report(rows)) if t["key"] == "full_data")
     sos = {r["SalesOrderNumber"] for r in full["rows"]}
     assert "SO9" not in sos
     assert "SO8" in sos
 
 
 def test_by_customer_aggregates_dollars():
-    by_cust = next(t for t in B.build(S.to_facts(_rows())) if t["key"] == "by_customer")
+    by_cust = next(t for t in B.build(S.to_facts_ordered_report(_rows())) if t["key"] == "by_customer")
     assert len(by_cust["rows"]) == 1
     r = by_cust["rows"][0]
     assert r["Ordered $"] == 88.70          # 68.70 + 20.00
@@ -86,12 +105,12 @@ def test_by_customer_aggregates_dollars():
 
 
 def test_summary_net_price_and_remainder():
-    summary = next(t for t in B.build(S.to_facts(_rows())) if t["key"] == "summary")
+    summary = next(t for t in B.build(S.to_facts_ordered_report(_rows())) if t["key"] == "summary")
     assert summary["default_layout"]["group_levels"] == ["Customer Name"]
     a = next(r for r in summary["rows"] if r["Item Number"] == "ITM-A")
     assert a["Net Price"] == 2.29           # 68.70 / 30
     # Remainder = Ordered - Released - Shipped - Cancelled
-    # Qty: 30 - 10 - 10 - 0 = 10
+    # Qty: 30 - 10 - 10 (derived shipped) - 0 = 10
     assert a["QtyRemainder"] == 10
     # $: 68.70 - 22.90 - 22.90 - 0 = 22.90
     assert a["Extended Price Remainder"] == 22.90
@@ -104,7 +123,7 @@ def test_summary_net_price_and_remainder():
 
 
 def test_tab_order_matches_live():
-    keys = [t["key"] for t in B.build(S.to_facts(_rows()))]
+    keys = [t["key"] for t in B.build(S.to_facts_ordered_report(_rows()))]
     assert keys == ["summary", "by_customer", "by_item", "by_order",
                     "by_salesman", "full_data"]
 
@@ -113,12 +132,19 @@ def test_full_data_preserves_source_row_order():
     # The memory optimization consumes facts as it builds lines; the Full Data
     # tab (and so the export) must still come out in source order.
     rows = _rows() * 3  # SO1, SO2, SO1, SO2, SO1, SO2
-    full = next(t for t in B.build(S.to_facts(rows)) if t["key"] == "full_data")
+    full = next(t for t in B.build(S.to_facts_ordered_report(rows)) if t["key"] == "full_data")
     assert [r["SalesOrderNumber"] for r in full["rows"]] == \
         ["SO1", "SO2", "SO1", "SO2", "SO1", "SO2"]
 
 
 def test_build_consumes_facts_list_to_save_memory():
-    facts = S.to_facts(_rows())
+    facts = S.to_facts_ordered_report(_rows())
     B.build(facts)
     assert facts == [None, None]  # released slot-by-slot during the build
+
+
+def test_po_and_order_status_are_blank_stubs_in_by_order():
+    by_order = next(t for t in B.build(S.to_facts_ordered_report(_rows())) if t["key"] == "by_order")
+    row = by_order["rows"][0]
+    assert row["PO #"] == ""
+    assert row["OrderStatus"] == ""

@@ -173,6 +173,7 @@ class ReportService:
 # --------------------------------------------------------------------------- #
 
 def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
+    report_id = P.report_id_for("ordered")  # rpt.usp_ordered_report
     base_sp = P.translate("ordered", params)
     start, end = P.resolve_window(params)
     # A bounded period (daily/MTD/YTD/last month/custom) is fetched month-by-month
@@ -180,11 +181,16 @@ def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
     # the single call so the SP's own default window is unchanged.
     if start and end:
         facts = svc._facts_chunked(
-            "salesline_release", base_sp, src_ordered.to_facts, visible_keys,
+            report_id, base_sp, src_ordered.to_facts_ordered_report, visible_keys,
             from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
             start=start, end=end)
     else:
-        facts = svc._facts("salesline_release", base_sp, src_ordered.to_facts, visible_keys)
+        facts = svc._facts(report_id, base_sp, src_ordered.to_facts_ordered_report, visible_keys)
+    # The new SP's CustomerAccount is a single exact match, so a multi-customer
+    # selection isn't pushed down -- post-filter it here (same as invoiced).
+    accounts = _selected_accounts(params)
+    if len(accounts) > 1:
+        facts = [f for f in facts if f.customer_account in accounts]
     # build() consumes the facts list to keep peak memory down on big runs, so
     # capture the count first.
     row_count = len(facts)

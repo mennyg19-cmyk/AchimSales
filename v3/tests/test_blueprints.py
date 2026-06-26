@@ -137,10 +137,10 @@ def test_report_view_renders_filters(tmp_path):
 
 def test_run_poll_result_export_flow(tmp_path):
     rows = {
-        "salesline_release": [
+        "ordered_report": [
             {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
              "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-             "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
         ]
     }
     app = _make_app(tmp_path, rows_by_report=rows)
@@ -184,10 +184,10 @@ def test_run_poll_result_export_flow(tmp_path):
 
 
 def test_run_log_records_and_renders(tmp_path):
-    rows = {"salesline_release": [
+    rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
          "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-         "SalesStatus": "Open", "OrderDate": "2026-03-01"}]}
+         "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"}]}
     app = _make_app(tmp_path, rows_by_report=rows)
     client = app.test_client()
     _login(client, app)
@@ -334,10 +334,10 @@ def test_cannot_cancel_another_users_job(tmp_path):
 
 def test_active_report_runs_lists_owners_recent_run(tmp_path):
     rows = {
-        "salesline_release": [
+        "ordered_report": [
             {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
              "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-             "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
         ]
     }
     app = _make_app(tmp_path, rows_by_report=rows)
@@ -635,7 +635,7 @@ def test_preview_body_shows_sp_params_for_developer(tmp_path):
                        json={"period": "ytd", "salesman": "REdwards"},
                        headers={"X-CSRF-Token": _CSRF})
     body = resp.get_json()
-    assert body["report_id"] == "salesline_release"
+    assert body["report_id"] == "ordered_report"
     assert body["body"]["SalesGroup"] == "REdwards"
     assert "CreatedDateTimeFrom" in body["body"]
 
@@ -707,10 +707,10 @@ def test_preset_requires_name(tmp_path):
 
 
 def test_email_now_enqueues_and_delivers(tmp_path):
-    rows = {"salesline_release": [
+    rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
          "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-         "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+         "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
     ]}
     app = _make_app(tmp_path, rows_by_report=rows)
     client = app.test_client()
@@ -792,10 +792,10 @@ def test_sharepoint_folders_forbidden_for_salesman(tmp_path):
 
 
 def _ordered_rows():
-    return {"salesline_release": [
+    return {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
          "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-         "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+         "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
     ]}
 
 
