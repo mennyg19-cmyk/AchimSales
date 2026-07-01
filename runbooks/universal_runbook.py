@@ -709,7 +709,7 @@ def _get_last_success_date(log_path, display_name, merged_args=""):
 _CATCHUP_THEN_NORMAL = "__catchup_then_normal__"
 
 
-def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
+def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name, is_all_time=False):
     """If days were missed since last success, widen the date range to cover the gap.
 
     Period-specific behaviour:
@@ -742,6 +742,12 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
         No change (user specified exact range).
     """
     from datetime import date as _date, timedelta
+
+    if is_all_time:
+        log.info("[Catch-up] '%s' is an all-time report -- it always covers "
+                 "everything, so no date range is injected; it just re-runs in full.",
+                 display_name)
+        return argv
 
     tokens = merged_args.split()
 
@@ -968,6 +974,17 @@ def _execute_runner(entry, argv, display):
         if exit_code != 0:
             error_msg = f"Runner returned exit code {exit_code}"
 
+    except SystemExit as se:
+        # argparse calls sys.exit() on a bad argument, which raises SystemExit
+        # (a BaseException, NOT an Exception). Without this it would sail past
+        # the handler below and kill the whole runbook before the FAILED line
+        # is ever written -- exactly how the Customer Activity crash stayed
+        # invisible for months. Treat a non-zero SystemExit as a failed run.
+        code = se.code if isinstance(se.code, int) else (0 if se.code is None else 1)
+        exit_code = 0 if code == 0 else 1
+        if exit_code:
+            error_msg = f"Runner exited via SystemExit({se.code!r}) -- usually a bad argument.\n{traceback.format_exc()}"
+            log.error("%s exited via SystemExit(%r)", display, se.code)
     except Exception:
         exit_code = 1
         error_msg = traceback.format_exc()
@@ -1006,6 +1023,7 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     returned runner_instance (if any), or logs them for the heartbeat.
     """
     display = entry["display_name"]
+    is_all_time = report_key in _ALL_TIME_REPORTS
     _inc_uploaded_urls: list[str] = []
 
     default_args = entry.get("default_args", "") or ""
@@ -1025,7 +1043,7 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     _log_append(log_path, {"timestamp": _now_stamp(), "report_name": display, "status": "STARTED", "args": merged_args})
     _log_upload(drive_id, token, log_path)
 
-    catchup_result = _maybe_inject_catchup_args(argv, merged_args, log_path, display)
+    catchup_result = _maybe_inject_catchup_args(argv, merged_args, log_path, display, is_all_time)
 
     # Two-pass catch-up: for no-period runs with a gap, run the catch-up
     # daily pass first (missed days), then each period individually to keep
@@ -1038,7 +1056,10 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     # run each period as a separate invocation so memory is reclaimed between them.
     # This avoids fetching the entire YTD dataset and holding it in RAM while writing
     # all periods (which exceeds the 400 MB sandbox limit for growing datasets).
-    is_no_period_run = (not do_two_pass and "--period" not in merged_args
+    # All-time reports take no --period and must run in a single plain pass;
+    # the per-period split would inject --period and crash their arg parser.
+    is_no_period_run = (not do_two_pass and not is_all_time
+                        and "--period" not in merged_args
                         and "--from" not in merged_args and "--to" not in merged_args
                         and "--date" not in merged_args)
 
@@ -1340,12 +1361,15 @@ def _upload_webapp_pickup_from_url(drive_id, token_mgr, uploaded_urls, record_id
         log.exception("Failed to upload webapp pickup from URL")
 
 
-def _classify_guard_action(extra_args):
+def _classify_guard_action(extra_args, is_all_time=False):
     """Decide whether to SKIP or RESCHEDULE when melacha is assur.
 
     Returns ``"skip"`` or ``"reschedule"`` based on the period in *extra_args*.
 
     Rules:
+      - all-time report        -> reschedule (runs once a cycle; skipping it
+                                  would push it a whole cycle, so run it right
+                                  after havdalah instead)
       - daily / yesterday      -> skip  (catch-up on next regular run)
       - no period (nightly)    -> skip  (catch-up on next regular run)
       - mtd (same month)       -> skip  (MTD self-heals within the month)
@@ -1355,6 +1379,9 @@ def _classify_guard_action(extra_args):
       - anything else          -> skip  (safe fallback)
     """
     from datetime import timedelta
+
+    if is_all_time:
+        return "reschedule"
 
     tokens = (extra_args or "").split()
     period_val = None
@@ -1391,6 +1418,13 @@ _KNOWN_REPORT_KEYS = {
     "ordered", "invoiced", "salesman", "number_4", "amazon_weekly",
     "customer_activity", "customer_aging", "all",
 }
+
+# Reports that always cover everything (no date window / period concept).
+# Their runners take no --from/--to/--period, so the catch-up and multi-period
+# machinery must not inject those flags. A missed run just re-runs in full, and
+# if a scheduled day is Shabbos/Yom Tov they reschedule after havdalah rather
+# than waiting a whole cycle for the next regular run.
+_ALL_TIME_REPORTS = {"customer_activity"}
 
 
 def _parse_runbook_args():
@@ -1543,7 +1577,7 @@ def main():
         log.info("Checking Shabbos/Yom Tov date bypass...")
         is_assur, reason, havdalah_dt = _is_melacha_time()
         if is_assur:
-            guard_action = _classify_guard_action(extra_args)
+            guard_action = _classify_guard_action(extra_args, is_all_time=report_name in _ALL_TIME_REPORTS)
             log.info("Today IS assur b'melacha (%s). Guard action: %s", reason, guard_action)
 
             _tid = _get_config("GRAPH_TENANT_ID", ["GRAPH_TENANT_ID", "AZURE_TENANT_ID"])
