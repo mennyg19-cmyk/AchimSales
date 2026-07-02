@@ -1420,11 +1420,16 @@ _KNOWN_REPORT_KEYS = {
 }
 
 # Reports that always cover everything (no date window / period concept).
-# Their runners take no --from/--to/--period, so the catch-up and multi-period
-# machinery must not inject those flags. A missed run just re-runs in full, and
-# if a scheduled day is Shabbos/Yom Tov they reschedule after havdalah rather
-# than waiting a whole cycle for the next regular run.
-_ALL_TIME_REPORTS = {"customer_activity"}
+# The catch-up and multi-period machinery must not touch these: a --from/--to
+# either crashes the runner (customer_activity) or silently builds a broken
+# partial workbook (salesman fetches only the injected window instead of the
+# full year), and the daily/last_7_days/mtd split just rebuilds the same
+# full-year output 3-4 times -- wasting hours and, because each period pass
+# uploads then deletes the local files before the deferred emails flush,
+# sending the salesman emails with no attachment. A missed run re-runs in full,
+# and a Shabbos/Yom Tov run reschedules after havdalah rather than waiting a
+# whole cycle for the next regular run.
+_ALL_TIME_REPORTS = {"customer_activity", "salesman"}
 
 
 def _parse_runbook_args():

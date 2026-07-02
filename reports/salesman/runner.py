@@ -9,7 +9,7 @@ Emails individual salesman workbooks to subscribed salesmen.
 import logging
 import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 from config.paths import get_output_path
 from core.dates import FetchPlan, clamp_start, get_today_eastern, resolve_fetch_plan
@@ -260,11 +260,16 @@ class SalesmanReportRunner(BaseReportRunner):
                      REPORT_NAME, year, total_rows)
             return
 
-        today = get_today_eastern()
-        month_folder = f"{today.strftime('%B')} {today.year}"
+        # The monthly report runs at the start of the month FOR the month that
+        # just closed, so label it with the prior month -- a July 1 run is the
+        # June report, not July. (Last day of the prior month, via day-1 of this
+        # month minus a day, also carries the right year across a Jan rollover.)
+        report_month = get_today_eastern().replace(day=1) - timedelta(days=1)
+        month_folder = f"{report_month.strftime('%B')} {report_month.year}"
+        report_tag = f"{report_month.strftime('%b')} {report_month.year}"
         test_tag = "_TEST" if self.test_mode else ""
 
-        master_filename = f"Monthly Salesmen Report {today.strftime('%b')} {year}{test_tag}.xlsx"
+        master_filename = f"Monthly Salesmen Report {report_tag}{test_tag}.xlsx"
         master_path = get_output_path(
             REPORT_NAME, month_folder, master_filename,
             sub_report="Monthly Salesmen Report",
@@ -288,7 +293,7 @@ class SalesmanReportRunner(BaseReportRunner):
             if sm_name not in subscribed_displays:
                 log.debug("Skipping individual report for %s (not subscribed)", sm_name)
                 continue
-            sm_filename = f"{sm_name} {today.strftime('%b')} {year}{test_tag}.xlsx"
+            sm_filename = f"{sm_name} {report_tag}{test_tag}.xlsx"
             sm_path = get_output_path(
                 REPORT_NAME, month_folder, sm_filename,
                 sub_report="Monthly Salesmen Report",
