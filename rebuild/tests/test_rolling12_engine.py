@@ -164,6 +164,17 @@ def test_total_row_sums_month_and_dollar_columns(monkeypatch):
     assert total["Jul-25 $"] == 30.0
 
 
+def test_total_row_keeps_fractional_quantities(monkeypatch):
+    # Quantities can be fractional (cases vs eaches); the total must not be
+    # truncated to a whole number like the generic engine total does.
+    results = {"customer_item_sales_rolling_12": _fake_result(
+        [{"Customer #": "C1", "Jul-25 Qty": 1.5, "Salesman": "MGrego"},
+         {"Customer #": "C2", "Jul-25 Qty": 0.75, "Salesman": "JDoe"}],
+        ["Customer #", "Jul-25 Qty", "Salesman"])}
+    snapshot, _ = _snapshot(monkeypatch, {"mode": "by_customer"}, results)
+    assert snapshot["tabs"][0]["total"]["Jul-25 Qty"] == 2.25
+
+
 def test_row_limit_guard_still_applies(monkeypatch):
     with pytest.raises(ValueError):
         _snapshot(monkeypatch, {"mode": "by_customer"}, _RESULTS, max_rows=1)

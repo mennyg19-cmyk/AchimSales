@@ -13,6 +13,7 @@
 # fetch_plan() -- the mode choice -> which SPs to call, one tab per SP
 # _column_type() -- name a column's type from its header (Qty=int, $=money)
 # _clean_rows() -- coerce the SP's qty/$ cells to real numbers
+# _totals() -- the footer TOTAL row (keeps fractional quantities exact)
 # build_snapshot() -- run the plan, scope the rows, return the tabs + meta
 
 from __future__ import annotations
@@ -23,7 +24,6 @@ from ..data.connection import normalize_email, utc_now_iso
 from ..reporting.authz import allowed_salesmen
 from .api_client import ReportingApiClient
 from .config_loader import ConfigLoader
-from .engine import _total_row
 from .lib import money, num, text
 from .params import force_salesman_scope, scope_row_field, translate
 
@@ -78,6 +78,23 @@ def _clean_rows(rows: Sequence[dict], columns: Sequence[dict]) -> list[dict]:
     return out
 
 
+def _totals(rows: Sequence[dict], columns: Sequence[dict]) -> Optional[dict]:
+    """Footer TOTAL row. Not the engine's _total_row: that one truncates "int"
+    totals to whole numbers, but quantities here can be fractional (cases vs
+    eaches) and the truncated sum would be wrong in exports."""
+    if not columns:
+        return None
+    total: dict = {}
+    for column in columns:
+        field = column["field"]
+        if column["type"] == "text":
+            total[field] = ""
+        else:
+            total[field] = round(sum(num(r.get(field)) for r in rows), 2)
+    total[columns[0]["field"]] = "TOTAL"
+    return total
+
+
 def build_snapshot(
     db,
     config,
@@ -127,7 +144,7 @@ def build_snapshot(
             "layout": None,
             "columns": columns,
             "rows": rows,
-            "total": _total_row(rows, columns),
+            "total": _totals(rows, columns),
         })
 
     return {
