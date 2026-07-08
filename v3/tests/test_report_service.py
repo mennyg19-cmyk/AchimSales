@@ -102,25 +102,49 @@ def test_invoiced_multi_customer_is_post_filtered():
     assert out["row_count"] == 2
 
 
-def test_number_4_blank_book_price_when_released_products_down():
-    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
-             "Item": "ITM-A", "ItemName": "W", "InventQTY": "1", "Amount": "9",
-             "SalesGroup": "REdwards", "SalesOrder": "SO1"}]
-    svc = _svc({"invoice_lines": rows}, fail_ids={"released_products"})
-    out = svc.builder_for("number_4")({}, None)
-    by_item = next(t for t in out["tabs"] if t["key"] == "by_item_12mo")
-    assert all(r["BookPrice"] is None for r in by_item["rows"])
+_N4_CUSTOMER_ROW = {"Customer #": "100", "Customer Name": "Acme", "Item #": "ITM-A",
+                    "Item Name": "W", "Jun-26 Qty": "3", "Jun-26 $": "30",
+                    "Total Qty": "3", "Total $": "30", "Avg Price": "10",
+                    "Salesman": "REdwards", "Book Price": "12.5"}
+_N4_ITEM_ROW = {"Item #": "ITM-A", "Item Name": "W", "Customer #": "100",
+                "Customer Name": "Acme", "Jun-26 Qty": "3", "Jun-26 $": "30",
+                "Total Qty": "3", "Total $": "30", "Avg Price": "10",
+                "Salesman": "REdwards", "Book Price": "12.5"}
+_N4_ROWS = {"customer_item_sales_rolling_12": [_N4_CUSTOMER_ROW],
+            "item_customer_sales_rolling_12": [_N4_ITEM_ROW]}
 
 
-def test_number_4_book_price_joined_when_available():
-    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
-             "Item": "ITM-A", "ItemName": "W", "InventQTY": "1", "Amount": "9",
-             "SalesGroup": "REdwards", "SalesOrder": "SO1"}]
-    released = [{"ItemNumber": "ITM-A", "SalesPrice": "2.50"}]
-    svc = _svc({"invoice_lines": rows, "released_products": released})
-    out = svc.builder_for("number_4")({}, None)
-    by_item = next(t for t in out["tabs"] if t["key"] == "by_item_12mo")
-    assert by_item["rows"][0]["BookPrice"] == 2.50
+def test_number_4_both_mode_calls_both_sps_and_builds_two_tabs():
+    svc = _svc(_N4_ROWS)
+    out = svc.builder_for("number_4")({"mode": "both"}, None)
+    assert [t["key"] for t in out["tabs"]] == ["by_customer", "by_item"]
+    assert svc.client.calls == [
+        "customer_item_sales_rolling_12", "item_customer_sales_rolling_12"]
+    assert out["row_count"] == 2  # one row in each view
+
+
+def test_number_4_single_mode_calls_only_its_sp():
+    svc = _svc(_N4_ROWS)
+    out = svc.builder_for("number_4")({"mode": "by_item"}, None)
+    assert [t["key"] for t in out["tabs"]] == ["by_item"]
+    assert svc.client.calls == ["item_customer_sales_rolling_12"]
+
+
+def test_number_4_sends_as_of_date_and_include_current_month():
+    svc = _svc(_N4_ROWS)
+    svc.builder_for("number_4")({"mode": "by_customer"}, None)
+    _, sp = svc.client.params_calls[0]
+    assert sp["IncludeCurrentMonth"] is True
+    assert len(sp["AsOfDate"]) == 10  # yyyy-mm-dd
+
+
+def test_number_4_scoped_user_only_sees_their_salesman_rows():
+    other = dict(_N4_CUSTOMER_ROW, **{"Customer #": "200", "Salesman": "JSmith"})
+    svc = _svc({"customer_item_sales_rolling_12": [_N4_CUSTOMER_ROW, other]})
+    out = svc.builder_for("number_4")({"mode": "by_customer"}, {"redwards"})
+    rows = out["tabs"][0]["rows"]
+    assert [r["Customer #"] for r in rows] == ["100"]
+    assert out["row_count"] == 1
 
 
 def test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key():

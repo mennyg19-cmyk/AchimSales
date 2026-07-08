@@ -59,7 +59,7 @@ REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "ordered": ("period", "status", "customers", "salesman"),
     "invoiced": ("period", "customers", "salesman"),
     "salesman": ("year",),
-    "number_4": (),
+    "number_4": ("n4_mode",),
     "customer_activity": ("salesman",),
 }
 
@@ -72,6 +72,14 @@ PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
     ("last_7_days", "Last 7 Days"),
     ("daily", "Yesterday"),
     ("custom", "Custom Range"),
+)
+
+# Number 4's one question: which rolling-12 view(s) to build. "Both" fetches
+# each view from its own stored procedure and shows two tabs.
+N4_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("both", "Both"),
+    ("by_customer", "By Customer"),
+    ("by_item", "By Item"),
 )
 
 # Sales order status filter (Ordered report). Empty value = all statuses.
@@ -227,6 +235,7 @@ def report_view(report_key: str):
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
+        n4_mode_options=N4_MODE_OPTIONS,
         is_developer=(p.role == ROLE_DEVELOPER),
     )
 

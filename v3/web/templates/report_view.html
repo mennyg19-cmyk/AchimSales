@@ -44,6 +44,16 @@
         <input type="date" name="end_date">
     </label>
     {% endif %}
+    {% if 'n4_mode' in filters %}
+    <label class="filter-field">
+        <span>View <button type="button" class="help-btn" data-help="param-n4-mode" data-no-guard aria-label="Help">?</button></span>
+        <select name="mode" id="n4ModeSelect">
+            {% for value, label in n4_mode_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
     {% if 'status' in filters %}
     <label class="filter-field">
         <span>Status <button type="button" class="help-btn" data-help="param-status" data-no-guard aria-label="Help">?</button></span>

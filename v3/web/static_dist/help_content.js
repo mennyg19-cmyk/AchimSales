@@ -26,9 +26,17 @@ var HELP = {
 
     "report-number_4": {
         title: "Number 4 Report",
-        body: "Shows a rolling 12-month and year-to-date breakdown of everything sold, organized two ways: by item and by customer.<br><br>" +
-              "There are no options to set — it always runs for the last 12 months and the current year to date.<br><br>" +
-              "Just tap Run and it will generate automatically."
+        body: "Shows a rolling 12-month breakdown of everything sold, with a quantity and dollar column for each month, plus totals, average price, salesman, and book price.<br><br>" +
+              "The only choice is the View: By Customer, By Item, or Both (Both shows two tabs, one organized each way).<br><br>" +
+              "It always covers the last 12 months including the current month."
+    },
+
+    "param-n4-mode": {
+        title: "View",
+        body: "How to organize the rows.<br><br>" +
+              "<b>By Customer</b> — one row per customer + item, customers first.<br>" +
+              "<b>By Item</b> — the same data with items first.<br>" +
+              "<b>Both</b> — two tabs, one of each."
     },
 
     "report-amazon_weekly": {

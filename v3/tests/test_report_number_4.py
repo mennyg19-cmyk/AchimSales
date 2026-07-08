@@ -1,101 +1,78 @@
-"""Number 4 report: invoice_lines adapter + 4-tab builder + Book Price join."""
+"""Number 4 builder: dynamic-column typing, row cleaning, scope, tab shape.
 
-from datetime import date
+The rolling-12 SPs return the finished pivot (a Qty and $ column per month),
+so the builder is a passthrough: it types the columns from their headers and
+keeps the SP's column order. Month names must never be hard-coded (handoff
+rule) -- these tests use made-up month labels on purpose.
+"""
 
-from report_engine.facts import SalesmanFact
-from report_engine.lib import salesman_key
 from report_engine.reports import number_4 as B
-from report_engine.sources import invoice_lines as S
-from report_engine.sources import released_products as RP
-
-TODAY = date(2026, 3, 15)
 
 
-def _salesmen():
-    return {salesman_key("REdwards"): SalesmanFact(
-        source="reporting_api", key="redwards", number="10",
-        full_name="Robert Edwards", display_name="Bob", commission_pct=0.0)}
+def _row(**overrides):
+    row = {"Customer #": "100", "Customer Name": "Acme",
+           "Item #": "ITM-A", "Item Name": "Widget",
+           "Jul-25 Qty": "2", "Jul-25 $": "20", "Jun-26 Qty": "1", "Jun-26 $": "10.5",
+           "Total Qty": "3", "Total $": "30.5", "Avg Price": "10.1667",
+           "Salesman": "REdwards", "Book Price": "12.50"}
+    row.update(overrides)
+    return row
 
 
-def _rows():
-    return [
-        {"Invoice": "I1", "InvoiceAccount": "100", "CustomerName": "Acme",
-         "InvoiceDate": "2026-03-01", "Item": "ITM-A", "ItemName": "Widget",
-         "InventQTY": "10", "Amount": "100", "SalesGroup": "REdwards", "SalesOrder": "SO1"},
-        {"Invoice": "I2", "InvoiceAccount": "100", "CustomerName": "Acme",
-         "InvoiceDate": "2026-02-01", "Item": "ITM-A", "ItemName": "Widget",
-         "InventQTY": "5", "Amount": "60", "SalesGroup": "REdwards", "SalesOrder": "SO2"},
-        # outside the 12-month / ytd windows (Mar 2024)
-        {"Invoice": "I3", "InvoiceAccount": "100", "CustomerName": "Acme",
-         "InvoiceDate": "2024-03-01", "Item": "ITM-A", "ItemName": "Widget",
-         "InventQTY": "99", "Amount": "999", "SalesGroup": "REdwards", "SalesOrder": "SO3"},
-    ]
+def test_month_columns_typed_by_suffix_not_by_name():
+    columns = B.columns_for(["Customer #", "Zzz-99 Qty", "Zzz-99 $", "Total Qty",
+                             "Total $", "Avg Price", "Salesman", "Book Price"])
+    types = {c["field"]: c["type"] for c in columns}
+    assert types["Zzz-99 Qty"] == "int"
+    assert types["Zzz-99 $"] == "money"
+    assert types["Total Qty"] == "int"
+    assert types["Total $"] == "money"
+    assert types["Avg Price"] == "money"
+    assert types["Book Price"] == "money"
+    assert types["Customer #"] == "text"
+    assert types["Salesman"] == "text"
 
 
-def test_free_text_lines_without_sales_order_are_excluded():
-    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
-             "Item": "ITM-A", "ItemName": "W", "InventQTY": "1", "Amount": "9",
-             "SalesGroup": "REdwards"}]  # no SalesOrder -> free text
-    tabs = B.build(S.to_facts(rows), today=TODAY, salesmen=_salesmen())
-    assert all(t["rows"] == [] for t in tabs)
+def test_columns_keep_the_sps_own_order():
+    headers = ["Item #", "Item Name", "Customer #", "Customer Name",
+               "Jul-25 Qty", "Jul-25 $", "Total Qty", "Total $",
+               "Avg Price", "Salesman", "Book Price"]
+    tab = B.build(by_item_rows=B.clean_rows([{h: "" for h in headers}]))[0]
+    assert [c["field"] for c in tab["columns"]] == headers
 
 
-def test_adapter_maps_line_fields():
-    f = S.to_fact(_rows()[0])
-    assert f.invoice_number == "I1"
-    assert f.invoice_date == "2026-03-01"
-    assert f.item_number == "ITM-A"
-    assert f.qty == 10.0 and f.amount == 100.0
+def test_clean_rows_coerces_string_numbers_and_keeps_text():
+    cleaned = B.clean_rows([_row()])
+    row = cleaned[0]
+    assert row["Jul-25 Qty"] == 2.0
+    assert row["Jun-26 $"] == 10.50
+    assert row["Total $"] == 30.5
+    assert row["Avg Price"] == 10.17  # money rounds to cents
+    assert row["Customer #"] == "100"
+    assert row["Salesman"] == "REdwards"
 
 
-def test_four_tabs_in_live_order():
-    tabs = B.build(S.to_facts(_rows()), today=TODAY, salesmen=_salesmen())
-    assert [t["key"] for t in tabs] == [
-        "by_item_12mo", "by_item_ytd", "by_customer_12mo", "by_customer_ytd"]
+def test_both_views_build_two_tabs_in_order():
+    tabs = B.build(by_customer_rows=[_row()], by_item_rows=[_row()])
+    assert [(t["key"], t["name"]) for t in tabs] == [
+        ("by_customer", "By Customer"), ("by_item", "By Item")]
 
 
-def test_book_price_is_last_column_and_blank_without_map():
-    tabs = B.build(S.to_facts(_rows()), today=TODAY, salesmen=_salesmen())
-    for t in tabs:
-        assert t["columns"][-1]["header"] == "Book Price"
-        assert all(r["BookPrice"] is None for r in t["rows"])
+def test_missing_view_means_no_tab():
+    assert [t["key"] for t in B.build(by_customer_rows=[_row()])] == ["by_customer"]
+    assert [t["key"] for t in B.build(by_item_rows=[_row()])] == ["by_item"]
+    assert B.build() == []
 
 
-def test_book_price_joins_case_insensitive():
-    # invoice item is lowercase; released-products map is uppercase -> still joins
-    rows = [{"Invoice": "I9", "InvoiceAccount": "100", "CustomerName": "Acme",
-             "InvoiceDate": "2026-03-01", "Item": "itm-a", "ItemName": "Widget",
-             "InventQTY": "1", "Amount": "9", "SalesGroup": "REdwards", "SalesOrder": "SO9"}]
-    book = RP.to_book_price_map([{"ItemNumber": "ITM-A", "SalesPrice": "2.50"}])
-    tabs = B.build(S.to_facts(rows), today=TODAY, salesmen=_salesmen(), book_prices=book)
-    by_item = next(t for t in tabs if t["key"] == "by_item_12mo")
-    assert len(by_item["rows"]) == 1
-    assert by_item["rows"][0]["BookPrice"] == 2.50
+def test_empty_view_still_shows_its_tab():
+    tabs = B.build(by_customer_rows=[])
+    assert tabs[0]["rows"] == []
+    assert tabs[0]["columns"] == []  # no rows -> no headers to read
 
 
-def test_ytd_excludes_prior_year_and_totals_qty():
-    tabs = B.build(S.to_facts(_rows()), today=TODAY, salesmen=_salesmen())
-    by_item_ytd = next(t for t in tabs if t["key"] == "by_item_ytd")
-    r = by_item_ytd["rows"][0]
-    # YTD 2026 = Jan-Mar -> Feb(5) + Mar(10) = 15 ; 2024 row excluded
-    assert r["Total_Qty"] == 15.0
-    assert r["Total_$"] == 160.0
-    assert r["Salesman"] == "Bob"
-
-
-def test_twelve_month_window_includes_trailing_year():
-    tabs = B.build(S.to_facts(_rows()), today=TODAY, salesmen=_salesmen())
-    by_item_12 = next(t for t in tabs if t["key"] == "by_item_12mo")
-    r = by_item_12["rows"][0]
-    # rolling 12 mo ending Mar 2026 includes Feb+Mar 2026 but not Mar 2024
-    assert r["Total_Qty"] == 15.0
-    assert r["Avg_Price"] == round(160.0 / 15.0, 4)
-
-
-def test_lines_without_date_or_item_dropped():
-    rows = [{"Invoice": "X", "InvoiceAccount": "1", "Amount": "5", "InventQTY": "1",
-             "Item": "A"},  # no date
-            {"Invoice": "Y", "InvoiceAccount": "1", "InvoiceDate": "2026-03-01",
-             "Amount": "5", "InventQTY": "1"}]  # no item
-    tabs = B.build(S.to_facts(rows), today=TODAY)
-    assert all(t["rows"] == [] for t in tabs)
+def test_scope_filter_matches_salesman_case_insensitively():
+    rows = [_row(), _row(**{"Customer #": "200", "Salesman": "JSmith"})]
+    mine = B.filter_rows_by_salesman(rows, {"REDWARDS"})
+    assert [r["Customer #"] for r in mine] == ["100"]
+    assert B.filter_rows_by_salesman(rows, None) == rows       # unrestricted
+    assert B.filter_rows_by_salesman(rows, set()) == []        # no access

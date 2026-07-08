@@ -596,6 +596,45 @@ with QtyShipped/QtyOpen/Fulfillment % flagged as derived and PO #/Order Status f
 until the SP provides them. The old `salesline_release` SP still powers Customer Activity and
 Customer's Last Order - those were left untouched.
 
+### Session: Wed Jul 8 - Number 4 rebuilt on the new rolling-12 SPs (both apps)
+
+You asked for the Number 4 report to be added to both apps using the DBA's two new handoffs:
+`rpt.usp_customer_item_sales_rolling_12` and `rpt.usp_item_customer_sales_rolling_12`. The two SPs
+return the same finished pivot (a Qty and a $ column for each of the last 12 months, plus totals,
+average price, salesman, and book price) - one ordered customer-first, one item-first.
+
+**1. Two SPs, how many reports?**
+- *Options:* (a) one report, one SP call, reorder columns for the second view; (b) one report, two
+  SP calls; (c) two separate reports in the menu.
+- *What you chose:* ONE "Number 4" in the menu, and instead of the usual filter page it asks one
+  question - By Customer, By Item, or Both. Both = two SP calls, two tabs (your words: option C in
+  the menu sense, with option B's fetching when Both is picked).
+
+**2. The old Number 4 also had two YTD tabs. The new SPs only do rolling-12.**
+- *What you chose:* drop the YTD tabs for now and ask the DBA for a YTD variant of the SP later.
+- *Follow-up for you:* ask the DBA for that YTD variant when convenient.
+
+**3. Decisions I made and logged (small, reversible):**
+- *IncludeCurrentMonth is always sent as true.* The old Number 4's rolling window ended at today,
+  so including the current month keeps the familiar numbers. The SP's own default is false (last
+  12 completed months); if you'd rather have that, it's a one-line change.
+- *Month columns are read from the SP, never hard-coded* (the handoff's own rule). Any column
+  ending in "Qty" is treated as a quantity and any ending in "$" as dollars, for formatting and
+  totals.
+- *Salesman scoping* filters on the SP's "Salesman" column (it carries the sales group code). In
+  the /test-next app the SP is also asked to filter server-side via its SalesGroup parameter; a
+  row-level backstop still applies in both apps.
+
+**4. What the switch made obsolete (removed, not orphaned):**
+- The old in-app pivot builder (rolling-12 + YTD, grouped two ways) - the SPs do the math now.
+- The `invoice_lines` fetch + adapter and the `released_products` Book Price join (Book Price now
+  comes back on the SP row itself), and the customer-master salesman fallback for this report.
+- The old signed-off Number 4 drift decisions (book_price, free_text_exclusion, salesman_source)
+  now describe the SP's job, not the app's: the exclusions (FINV-/FCRD-, blank SalesOrder) are
+  enforced inside the SPs per the handoff.
+
+Numbers are PROVISIONAL until you compare a run against the live Number 4 export.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

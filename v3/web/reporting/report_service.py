@@ -10,7 +10,7 @@
 
 Multi-source reports own their extra fetches here (not in the builder):
     * invoiced     -> a second YTD fetch feeds the monthly commissions pivot,
-    * number_4     -> released_products supplies Book Price (optional),
+    * number_4     -> one or two rolling-12 SPs, picked by the mode filter,
     * customer_activity -> customer_master is the universe (mirror fallback).
 The builders stay pure and source-agnostic; this is where I/O lives.
 """
@@ -28,11 +28,9 @@ from report_engine.reports import number_4 as rpt_number_4
 from report_engine.reports import ordered as rpt_ordered
 from report_engine.reports import salesman as rpt_salesman
 from report_engine.sources import customer_master as src_customers
-from report_engine.sources import invoice_lines as src_lines
 from report_engine.sources import invoiced as src_invoiced
 from report_engine.sources import ordered as src_ordered
 from report_engine.lib import filter_facts_by_scope
-from report_engine.sources import released_products as src_released
 from web.reporting import params as P
 from web.reporting.http_client import ReportingApiError
 from web.reporting.runner import Builder
@@ -159,14 +157,6 @@ class ReportService:
         }
         return src_ordered.to_facts(self._rows("salesline_release", sp))
 
-    def _book_prices(self) -> dict | None:
-        """released_products SalesPrice map for Book Price; None if unavailable."""
-        try:
-            return src_released.to_book_price_map(self._rows("released_products", {}))
-        except ReportingApiError:
-            log.warning("released_products unreachable; Book Price will be blank")
-            return None
-
 
 # --------------------------------------------------------------------------- #
 # Per-report orchestration (module-level so the closure stays thin)
@@ -241,16 +231,25 @@ def _orch_salesman(svc: ReportService, params: dict, visible_keys) -> dict:
 
 
 def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
-    facts = svc._facts("invoice_lines", P.translate("number_4", params),
-                       src_lines.to_facts, visible_keys)
-    # Fallback salesman: if the invoice line has no SalesGroup, use the
-    # customer master's current assigned rep.
-    customers = svc._customer_universe()
-    cust_sm = {c.customer_account: c.sales_group for c in customers if c.sales_group}
-    tabs = rpt_number_4.build(facts, today=today_eastern(),
-                              salesmen=svc._salesmen(), book_prices=svc._book_prices(),
-                              customer_salesmen=cust_sm)
-    return svc._payload("number_4", tabs, len(facts))
+    """Number 4 = the finished rolling-12 pivots straight from the SPs.
+
+    The mode filter decides which view(s) to fetch: By Customer, By Item, or
+    Both (two SP calls, two tabs). The SPs do all the math (monthly pivots,
+    totals, Book Price join), so there's no fact adapter -- rows are cleaned,
+    scope-filtered on the Salesman column, and passed through.
+    """
+    sp = P.translate("number_4", params)
+    mode = P.number_4_mode(params)
+
+    def fetch(report_id: str) -> list[dict]:
+        rows = rpt_number_4.clean_rows(svc._rows(report_id, sp))
+        return rpt_number_4.filter_rows_by_salesman(rows, visible_keys)
+
+    by_customer = fetch(P.NUMBER_4_BY_CUSTOMER_SP) if mode in ("both", "by_customer") else None
+    by_item = fetch(P.NUMBER_4_BY_ITEM_SP) if mode in ("both", "by_item") else None
+    tabs = rpt_number_4.build(by_customer_rows=by_customer, by_item_rows=by_item)
+    row_count = sum(len(rows) for rows in (by_customer, by_item) if rows is not None)
+    return svc._payload("number_4", tabs, row_count)
 
 
 def _orch_customer_activity(svc: ReportService, params: dict, visible_keys) -> dict:

@@ -163,16 +163,30 @@ def translate_salesman(p: dict) -> dict[str, Any]:
     }
 
 
-def translate_number_4(p: dict) -> dict[str, Any]:
-    """number_4 -> invoice_lines over a rolling 13-month window.
+# Number 4's two rolling-12 SPs: same rows, one ordered customer-first and one
+# item-first. The mode filter (By Customer / By Item / Both) decides which get
+# called; "both" calls each and shows two tabs (owner directive, 2026-07-08).
+NUMBER_4_BY_CUSTOMER_SP = "customer_item_sales_rolling_12"
+NUMBER_4_BY_ITEM_SP = "item_customer_sales_rolling_12"
+_NUMBER_4_MODES = ("both", "by_customer", "by_item")
 
-    One fetch powers both the rolling-12 and YTD pivots.
+
+def number_4_mode(p: dict | None) -> str:
+    mode = str((p or {}).get("mode") or "").strip().lower()
+    return mode if mode in _NUMBER_4_MODES else "both"
+
+
+def translate_number_4(p: dict) -> dict[str, Any]:
+    """number_4 -> the rolling-12 SPs (customer_item / item_customer).
+
+    The SPs pivot server-side (a Qty and $ column per month) and take AsOfDate +
+    IncludeCurrentMonth instead of a date range. IncludeCurrentMonth is always
+    true: the old Number 4's rolling window ended at today, so keeping the
+    current month keeps the familiar numbers.
     """
-    today = today_eastern()
-    start = date(today.year - 1, today.month, 1)
     return {
-        "InvoiceDateFrom": sp_datetime(start, end_of_day=False),
-        "InvoiceDateTo": sp_datetime(today, end_of_day=True),
+        "AsOfDate": today_eastern().isoformat(),
+        "IncludeCurrentMonth": True,
     }
 
 
@@ -193,7 +207,10 @@ REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     "ordered": ("ordered_report", translate_ordered),
     "invoiced": ("invoiced_report", translate_invoiced),
     "salesman": ("invoiced_order_charges", translate_salesman),
-    "number_4": ("invoice_lines", translate_number_4),
+    # number_4 runs one or two SPs depending on the mode filter; the primary
+    # (By Customer) is listed here for the dev API preview. The orchestrator
+    # picks the actual SP(s) via NUMBER_4_BY_CUSTOMER_SP / NUMBER_4_BY_ITEM_SP.
+    "number_4": (NUMBER_4_BY_CUSTOMER_SP, translate_number_4),
     "customer_activity": ("salesline_release", translate_customer_activity),
 }
 

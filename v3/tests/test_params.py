@@ -1,7 +1,5 @@
 """web.reporting.params: report-id map + SP param translation."""
 
-from datetime import date
-
 import pytest
 
 from report_engine.dates import today_eastern
@@ -12,7 +10,7 @@ def test_report_id_map_is_complete():
     assert P.report_id_for("ordered") == "ordered_report"
     assert P.report_id_for("invoiced") == "invoiced_report"
     assert P.report_id_for("salesman") == "invoiced_order_charges"
-    assert P.report_id_for("number_4") == "invoice_lines"
+    assert P.report_id_for("number_4") == "customer_item_sales_rolling_12"
     assert P.report_id_for("customer_activity") == "salesline_release"
 
 
@@ -100,12 +98,17 @@ def test_salesman_defaults_to_current_year():
     assert out["InvoiceDateTo"].startswith(f"{y}-12-31")
 
 
-def test_number_4_is_rolling_13_months():
+def test_number_4_sends_as_of_today_including_current_month():
     out = P.translate("number_4", {})
-    today = today_eastern()
-    expected_start = date(today.year - 1, today.month, 1)
-    assert out["InvoiceDateFrom"].startswith(expected_start.isoformat())
-    assert out["InvoiceDateTo"].startswith(today.isoformat())
+    assert out["AsOfDate"] == today_eastern().isoformat()
+    assert out["IncludeCurrentMonth"] is True
+
+
+def test_number_4_mode_defaults_to_both_and_rejects_junk():
+    assert P.number_4_mode({}) == "both"
+    assert P.number_4_mode({"mode": "by_item"}) == "by_item"
+    assert P.number_4_mode({"mode": "By_Customer"}) == "by_customer"
+    assert P.number_4_mode({"mode": "banana"}) == "both"
 
 
 def test_customer_activity_is_all_time():
