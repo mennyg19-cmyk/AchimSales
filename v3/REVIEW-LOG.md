@@ -635,6 +635,21 @@ average price, salesman, and book price) - one ordered customer-first, one item-
 
 Numbers are PROVISIONAL until you compare a run against the live Number 4 export.
 
+**5. Review pass fixes (GPT-5.5 readonly review of the Number 4 build):**
+- *Fractional quantity totals (/test-next):* the generic footer-total helper truncates quantity
+  sums to whole numbers, but Number 4 quantities can be fractional (cases vs eaches). The Number 4
+  builder now sums with two decimal places instead.
+- *Presets didn't restore the View choice (v3):* saved presets and deep links now put the
+  By Customer / By Item / Both selection back when reapplied.
+- *Empty tabs lost their headers (v3):* column headers used to be read off the first data row, so
+  a run with zero rows (or one fully filtered by salesman scope) showed a blank tab. Headers now
+  come from the API's own column list, so an empty tab still shows its columns.
+- *Dev API preview showed the wrong SP for By Item (v3, admin-only tool):* the preview panel now
+  shows the item-first SP when By Item is selected; Both previews the first of its two calls.
+- *Left as-is (consistent with the rest of v3):* v3 doesn't push the SalesGroup filter to the SP
+  server-side for scoped users - it fetches and filters rows in the app, like every other v3
+  report. The /test-next app does push it server-side.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

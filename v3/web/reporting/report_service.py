@@ -241,14 +241,19 @@ def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
     sp = P.translate("number_4", params)
     mode = P.number_4_mode(params)
 
-    def fetch(report_id: str) -> list[dict]:
-        rows = rpt_number_4.clean_rows(svc._rows(report_id, sp))
-        return rpt_number_4.filter_rows_by_salesman(rows, visible_keys)
+    def fetch(report_id: str) -> rpt_number_4.View:
+        # Keep the API's column list (not just the rows): a run with zero rows
+        # (or one fully scope-filtered) still needs its headers on screen.
+        fetched = svc.client.run_report(report_id, sp)
+        headers = fetched.columns or (list(fetched.rows[0].keys()) if fetched.rows else [])
+        rows = rpt_number_4.filter_rows_by_salesman(
+            rpt_number_4.clean_rows(fetched.rows), visible_keys)
+        return headers, rows
 
     by_customer = fetch(P.NUMBER_4_BY_CUSTOMER_SP) if mode in ("both", "by_customer") else None
     by_item = fetch(P.NUMBER_4_BY_ITEM_SP) if mode in ("both", "by_item") else None
-    tabs = rpt_number_4.build(by_customer_rows=by_customer, by_item_rows=by_item)
-    row_count = sum(len(rows) for rows in (by_customer, by_item) if rows is not None)
+    tabs = rpt_number_4.build(by_customer=by_customer, by_item=by_item)
+    row_count = sum(len(view[1]) for view in (by_customer, by_item) if view is not None)
     return svc._payload("number_4", tabs, row_count)
 
 

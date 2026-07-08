@@ -1611,7 +1611,7 @@ async function initLookups(): Promise<void> {
 function applyDeepLink(): void {
   const q = new URLSearchParams(window.location.search);
   if (![...q.keys()].length) return;
-  (["period", "status", "year"] as const).forEach((name) => {
+  (["period", "status", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
     if (el && q.has(name)) el.value = q.get(name) || "";
   });
@@ -1750,7 +1750,7 @@ async function saveView(): Promise<void> {
 }
 
 function applyParamsObject(params: Record<string, unknown>): void {
-  (["period", "status", "year"] as const).forEach((name) => {
+  (["period", "status", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
     if (el && params[name] != null) el.value = String(params[name]);
   });

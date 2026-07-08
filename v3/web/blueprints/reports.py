@@ -664,6 +664,10 @@ def preview_body(report_key: str):
     base = (cfg.reporting_api_base_url or "").rstrip("/")
     try:
         report_id = P.report_id_for(report_key)
+        # Number 4's SP depends on the View filter; "both" previews the first
+        # of its two calls (the By Customer SP).
+        if report_key == "number_4" and P.number_4_mode(filters) == "by_item":
+            report_id = P.NUMBER_4_BY_ITEM_SP
         body = P.translate(report_key, filters)
         url = f"{base}/api/reports/{report_id}/run" if base else None
         return jsonify({

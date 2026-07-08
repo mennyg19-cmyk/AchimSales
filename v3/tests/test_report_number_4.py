@@ -37,7 +37,7 @@ def test_columns_keep_the_sps_own_order():
     headers = ["Item #", "Item Name", "Customer #", "Customer Name",
                "Jul-25 Qty", "Jul-25 $", "Total Qty", "Total $",
                "Avg Price", "Salesman", "Book Price"]
-    tab = B.build(by_item_rows=B.clean_rows([{h: "" for h in headers}]))[0]
+    tab = B.build(by_item=(headers, B.clean_rows([{h: "" for h in headers}])))[0]
     assert [c["field"] for c in tab["columns"]] == headers
 
 
@@ -52,22 +52,29 @@ def test_clean_rows_coerces_string_numbers_and_keeps_text():
     assert row["Salesman"] == "REdwards"
 
 
+def _view(rows):
+    headers = list(rows[0].keys()) if rows else list(_row().keys())
+    return (headers, rows)
+
+
 def test_both_views_build_two_tabs_in_order():
-    tabs = B.build(by_customer_rows=[_row()], by_item_rows=[_row()])
+    tabs = B.build(by_customer=_view([_row()]), by_item=_view([_row()]))
     assert [(t["key"], t["name"]) for t in tabs] == [
         ("by_customer", "By Customer"), ("by_item", "By Item")]
 
 
 def test_missing_view_means_no_tab():
-    assert [t["key"] for t in B.build(by_customer_rows=[_row()])] == ["by_customer"]
-    assert [t["key"] for t in B.build(by_item_rows=[_row()])] == ["by_item"]
+    assert [t["key"] for t in B.build(by_customer=_view([_row()]))] == ["by_customer"]
+    assert [t["key"] for t in B.build(by_item=_view([_row()]))] == ["by_item"]
     assert B.build() == []
 
 
-def test_empty_view_still_shows_its_tab():
-    tabs = B.build(by_customer_rows=[])
+def test_empty_view_keeps_its_headers():
+    # Zero rows (or a fully scope-filtered run) still shows the column headers,
+    # because they come from the API's column list, not from the rows.
+    tabs = B.build(by_customer=_view([]))
     assert tabs[0]["rows"] == []
-    assert tabs[0]["columns"] == []  # no rows -> no headers to read
+    assert [c["field"] for c in tabs[0]["columns"]] == list(_row().keys())
 
 
 def test_scope_filter_matches_salesman_case_insensitively():

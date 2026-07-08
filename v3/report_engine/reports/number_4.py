@@ -8,7 +8,7 @@ of the last 12 months, plus Total Qty / Total $ / Avg Price / Salesman /
 Book Price. So there are no facts and no aggregation here -- this builder just
 names each column's type (so the viewer and Excel format Qty and $ right) and
 passes the rows through in the SP's own column order. The handoff says not to
-hard-code month names, so column names are read from the rows.
+hard-code month names, so column names come from the API result's column list.
 
 The old 4-tab layout (12-months + YTD, each grouped two ways) is gone: the new
 SPs only do rolling-12, and the owner chose to drop YTD for now and ask the
@@ -74,20 +74,26 @@ def filter_rows_by_salesman(rows: list[dict], visible_keys) -> list[dict]:
     return [r for r in rows if salesman_key(str(r.get(SALESMAN_COLUMN, ""))) in normalized]
 
 
-def _tab(key: str, name: str, rows: list[dict]) -> dict:
-    headers = list(rows[0].keys()) if rows else []
+# One fetched view: the SP's column headers (in its order) + the cleaned rows.
+# Headers come from the API's column list, not the rows, so a run with zero
+# rows (or one fully scope-filtered) still shows its column headers.
+View = tuple[Sequence[str], list[dict]]
+
+
+def _tab(key: str, name: str, view: View) -> dict:
+    headers, rows = view
     return {"key": key, "name": name, "columns": columns_for(headers), "rows": rows}
 
 
 def build(
     *,
-    by_customer_rows: list[dict] | None = None,
-    by_item_rows: list[dict] | None = None,
+    by_customer: View | None = None,
+    by_item: View | None = None,
 ) -> list[dict]:
     """One tab per fetched view; None means that view wasn't requested."""
     tabs = []
-    if by_customer_rows is not None:
-        tabs.append(_tab("by_customer", "By Customer", by_customer_rows))
-    if by_item_rows is not None:
-        tabs.append(_tab("by_item", "By Item", by_item_rows))
+    if by_customer is not None:
+        tabs.append(_tab("by_customer", "By Customer", by_customer))
+    if by_item is not None:
+        tabs.append(_tab("by_item", "By Item", by_item))
     return tabs
