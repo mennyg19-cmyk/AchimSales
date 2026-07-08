@@ -21,6 +21,7 @@ from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.run_log import RunLogRepository
 from ..jobs.types import JOB_REPORT_RUN, HandlerRegistry, JobContext
 from ..reporting.authz import allowed_salesmen
+from . import rolling12
 from .adapter import normalize
 from .api_client import ReportingApiClient, ReportingApiError
 from .cache import ResultCache, build_cache_key
@@ -59,6 +60,15 @@ def build_report_snapshot(
     the fetch (before the heavier normalize/build step); if it returns True the
     snapshot is abandoned and None is returned.
     """
+    # Number 4 doesn't fit the one-SP + fixed-manifest path (mode picker, two
+    # SPs, month columns that change with the date), so it has its own builder
+    # with the same contract. Everything below stays untouched for the rest.
+    if report_key == rolling12.REPORT_KEY:
+        return rolling12.build_snapshot(
+            db, config, report_key, filters, scope_token,
+            requested_by=requested_by, api_timeout=api_timeout, cancelled=cancelled,
+        )
+
     report_config = ConfigLoader(db).load_runnable(report_key)
     scoped_salesmen = allowed_salesmen(scope_token)
     sp_params = force_salesman_scope(report_key, translate(report_key, filters), scoped_salesmen)

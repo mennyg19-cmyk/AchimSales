@@ -8,6 +8,7 @@
 #
 # _seed_invoiced() -- the invoiced report definition
 # _seed_ordered() -- the ordered report definition
+# _seed_number_4() -- the Number 4 rolling-12 report definition
 # seed_all() -- write every report's definition
 
 from __future__ import annotations
@@ -277,6 +278,36 @@ _ORD_FILTERS = [
 ]
 
 
+# Number 4: one report, one question -- By Customer, By Item, or Both. Each
+# view is its own stored procedure; "Both" runs both and shows two tabs. Month
+# columns are dynamic (they move with today's date), so no fixed column list or
+# tab recipes here: reports/rolling12.py builds the snapshot, and the columns
+# below are only the fixed leading/trailing ones, kept as documentation for the
+# admin screens.
+_N4_FILTERS = [
+    {
+        "filter_key": "mode", "label": "View", "kind": "select", "default_value": "both",
+        "options": [
+            {"value": "both", "label": "Both"},
+            {"value": "by_customer", "label": "By Customer"},
+            {"value": "by_item", "label": "By Item"},
+        ],
+    },
+]
+
+_N4_COLUMNS = [
+    {"column_key": "Customer #", "label": "Customer #", "data_type": _TEXT},
+    {"column_key": "Customer Name", "label": "Customer Name", "data_type": _TEXT},
+    {"column_key": "Item #", "label": "Item #", "data_type": _TEXT},
+    {"column_key": "Item Name", "label": "Item Name", "data_type": _TEXT},
+    {"column_key": "Total Qty", "label": "Total Qty", "data_type": _INT},
+    {"column_key": "Total $", "label": "Total $", "data_type": _MONEY},
+    {"column_key": "Avg Price", "label": "Avg Price", "data_type": _MONEY},
+    {"column_key": "Salesman", "label": "Salesman", "data_type": _TEXT},
+    {"column_key": "Book Price", "label": "Book Price", "data_type": _MONEY},
+]
+
+
 def _seed_invoiced(repo: ReportConfigRepository) -> None:
     repo.upsert_config("invoiced", title="Invoiced", sp_name="invoiced_report", default_params={"period": "ytd"})
     repo.set_filters("invoiced", _FILTERS)
@@ -291,7 +322,20 @@ def _seed_ordered(repo: ReportConfigRepository) -> None:
     repo.set_tabs("ordered", _ORD_TABS)
 
 
+def _seed_number_4(repo: ReportConfigRepository) -> None:
+    # sp_name is the By Customer SP for reference; reports/rolling12.py picks
+    # the actual SP(s) from the mode filter.
+    repo.upsert_config(
+        "number_4", title="Number 4 (Rolling 12 Months)",
+        sp_name="customer_item_sales_rolling_12", default_params={"mode": "both"},
+    )
+    repo.set_filters("number_4", _N4_FILTERS)
+    repo.set_columns("number_4", _N4_COLUMNS)
+    repo.set_tabs("number_4", [])
+
+
 def seed_all(db: Database) -> None:
     repo = ReportConfigRepository(db)
     _seed_invoiced(repo)
     _seed_ordered(repo)
+    _seed_number_4(repo)

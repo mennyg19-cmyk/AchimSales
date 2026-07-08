@@ -112,9 +112,25 @@ def _translate_ordered(filters: dict) -> dict[str, Any]:
     return sp_params
 
 
+def _translate_number_4(filters: dict) -> dict[str, Any]:
+    """Number 4 runs the two rolling-12 SPs. Window comes from AsOfDate (today)
+    + IncludeCurrentMonth (always true: the old Number 4's rolling window ended
+    at today, so including the current month keeps the familiar numbers).
+    "_mode" is NOT an SP parameter -- it rides along so the cache key tells a
+    By Item run apart from a By Customer run; the rolling12 builder pops it
+    before calling the API.
+    """
+    return {
+        "AsOfDate": _today().isoformat(),
+        "IncludeCurrentMonth": True,
+        "_mode": text(filters.get("mode")) or "both",
+    }
+
+
 _TRANSLATORS = {
     "invoiced": _translate_invoiced,
     "ordered": _translate_ordered,
+    "number_4": _translate_number_4,
 }
 
 # The SP parameter that filters by salesman, per report. Scoping a report to a
@@ -123,6 +139,7 @@ _TRANSLATORS = {
 _SALESMAN_PARAM = {
     "invoiced": "Salesman",
     "ordered": "SalesGroup",
+    "number_4": "SalesGroup",
 }
 
 # The column in the CLEANED snapshot rows that holds the salesman number, per
@@ -133,6 +150,8 @@ _SALESMAN_PARAM = {
 _SCOPE_ROW_FIELD = {
     "invoiced": "Salesman",
     "ordered": "SalesGroup",
+    # The rolling-12 SPs return the sales group under the header "Salesman".
+    "number_4": "Salesman",
 }
 
 
