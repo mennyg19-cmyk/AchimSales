@@ -1,5 +1,30 @@
 # Decision Log
 
+## 2026-07-10 Amazon weekly email: --email flag on the Ordered runner
+**Problem:** The Amazon Weekly job (Thursday schedule, report_name=amazon_weekly) had
+failed on argument parsing since March: the registry maps it to the Ordered runner
+with `--email` in default_args, but the Ordered runner never had an `--email` flag.
+The failure was silent until June (STARTED with no result row) because argparse's
+SystemExit killed the whole runbook before the FAILED line was written.
+**What the owner asked for:** the Friday "Weekly 5pm Friday Amazon Ordered" schedule
+(ordered + `--customer 9300 9301 --period last_7_days`) should email the file out.
+**What I built:** `--email` flag on OrderedReportRunner (same pattern as the salesman
+and customer-aging runners). On customer-filtered runs it emails the written file
+(or a "no orders" notice) after saving. `--test` reroutes to TEST_EMAIL (split on ';').
+Updated the Friday job schedule in Azure to pass `--email`.
+**Business-logic call (flag if wrong):** recipients for these customer-filtered
+emails are the `Recv_AmazonWeekly` spreadsheet subscribers, falling back to the
+`AMAZON_EMAIL_RECIPIENTS` Automation variable. The spreadsheet currently has NO
+Recv_AmazonWeekly column, so today the effective recipient is the variable's value:
+bgrossman@achimonline.com. Add a Recv_AmazonWeekly column (TRUE per person) or edit
+the variable to change who gets it.
+**Verified:** live Azure test job (`--email --test --force`) SUCCESS in 32s; report
+built (2103 rows), uploaded to SharePoint, email sent via Graph to both TEST_EMAIL
+addresses. The Thursday amazon_weekly schedule also parses now (`--email --email`
+duplicate is harmless for a store_true flag) -- so BOTH Thursday and Friday will
+email; owner may want to drop one.
+**Status:** DECIDED -- shipped; Friday schedule updated in Azure.
+
 ## 2026-06-23 Rebuild: granular per-phase review round (owner request)
 **What I did:** Per the owner's "review each build phase again, more granular, until everything is clean," I split the app into four areas and had a fresh readonly reviewer go through each one (foundation+security, auth+scoping, reporting engine, scheduling+delivery+notifications). Every one came back NOT CLEAN with real findings. Fixed all blockers and the worthwhile clean-code ("ponytail") items:
 - **(blocking, security)** prod would boot with a weak/known `FLASK_SECRET` -> now requires a real secret of at least 16 chars in prod, refuses to boot otherwise.

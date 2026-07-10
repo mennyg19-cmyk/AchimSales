@@ -54,6 +54,22 @@ def _resolve_salesman_email(
         return None, [], []
 
 
+def _get_filtered_report_recipients() -> list[str] | None:
+    """Recipients for --email on customer-filtered runs (the Amazon weekly schedules).
+
+    Spreadsheet subscribers (Recv_AmazonWeekly) first; None falls back to the
+    AMAZON_EMAIL_RECIPIENTS env var inside send_report_email.
+    """
+    try:
+        from config.salesman_excel import get_report_subscribers
+        subscribers = get_report_subscribers("amazon_weekly")
+        if subscribers:
+            return [email for _, email, _, _ in subscribers]
+    except Exception:
+        log.debug("Could not load spreadsheet subscribers, falling back to AMAZON_EMAIL_RECIPIENTS")
+    return None
+
+
 def _get_subscribed_salesmen() -> list[tuple[str, str, str]]:
     """Return [(salesman_key, display_name, email)] for salesmen subscribed to ordered report.
 
@@ -135,6 +151,21 @@ class OrderedReportRunner(BaseReportRunner):
         super().__init__()
         self.pending_salesman_emails: list[dict] = []
         self.defer_salesman_emails: bool = False
+
+    def build_arg_parser(self):
+        parser = super().build_arg_parser()
+        parser.add_argument("--email", action="store_true", default=False,
+                            help="Email the generated file(s) to Recv_AmazonWeekly subscribers "
+                                 "(fallback: AMAZON_EMAIL_RECIPIENTS). Customer-filtered runs only.")
+        return parser
+
+    @property
+    def _send_emails(self) -> bool:
+        """True when ``--email`` was passed (and not overridden by ``--no-email``)."""
+        if self.no_email:
+            return False
+        cli = getattr(self, "_cli_args", None)
+        return bool(getattr(cli, "email", False))
 
     @property
     def _test_email_override(self) -> str | None:
@@ -232,6 +263,12 @@ class OrderedReportRunner(BaseReportRunner):
                 reason = f"No orders found for customer(s) '{customer_label}' in the requested date range"
             log.info("%s. Exiting.", reason)
             if customer_filter and not salesman_list:
+                if self._send_emails:
+                    self._email_filtered_report(
+                        file_path=None,
+                        subject=f"{report_label} \u2013 No orders ({customer_label})",
+                        body=f"{reason}.\n\nPeriod: {plan.fetch_start} to {plan.fetch_end}.",
+                    )
                 return
             for sm in salesman_list:
                 for period in plan.periods:
@@ -278,6 +315,31 @@ class OrderedReportRunner(BaseReportRunner):
             log.info("Writing %s (%d rows)", out_path, len(df))
             write_report(df, out_path, report_variant="salesman" if salesman_list else "filtered")
             log.info("Saved: %s", out_path)
+
+            if self._send_emails and customer_filter and not salesman_list:
+                self._email_filtered_report(
+                    file_path=out_path,
+                    subject=f"{report_label} \u2013 {period.label} "
+                            f"({period.start_date} to {period.end_date})",
+                    body=f"Attached is the {report_label} for customer(s) {customer_label}.\n\n"
+                         f"Period: {period.start_date} to {period.end_date}.",
+                )
+
+    def _email_filtered_report(self, file_path: str | None, subject: str, body: str) -> None:
+        """Email a customer-filtered report file (or a no-data notice) to the
+        Amazon-weekly recipient list. --test reroutes to TEST_EMAIL."""
+        test_override = self._test_email_override
+        if test_override:
+            # TEST_EMAIL may hold several addresses joined with ';'
+            recipients = [a.strip() for a in test_override.split(";") if a.strip()]
+        else:
+            recipients = _get_filtered_report_recipients()
+        try:
+            send_report_email(file_path=file_path, subject=subject, body=body,
+                              recipients=recipients)
+            log.info("Emailed filtered report to %s", recipients or "AMAZON_EMAIL_RECIPIENTS (default)")
+        except Exception:
+            log.exception("Failed to email filtered report")
 
     def _run_for_all_salesmen(
         self, customer_filter: list[str] | None,
