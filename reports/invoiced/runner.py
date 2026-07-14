@@ -284,8 +284,12 @@ class InvoicedReportRunner(BaseReportRunner):
 
         base_url, token, company = self.connect(company_id)
 
-        ytd_start = clamp_start(date(plan.fetch_end.year, 1, 1))
-        effective_start = min(plan.fetch_start, ytd_start)
+        # Shipped (salesman-scoped) reports omit the commissions tab, so they
+        # need only the selected period rather than every invoice since January.
+        effective_start = plan.fetch_start
+        if not is_shipped:
+            ytd_start = clamp_start(date(plan.fetch_end.year, 1, 1))
+            effective_start = min(plan.fetch_start, ytd_start)
         if effective_start < plan.fetch_start:
             log.info("Fetching invoice data: %s to %s (widened from %s for commissions YTD)",
                      effective_start, plan.fetch_end, plan.fetch_start)

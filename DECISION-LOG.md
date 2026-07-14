@@ -1,5 +1,24 @@
 # Decision Log
 
+## 2026-07-14 Hotfix: salesman-scoped invoiced reports no longer fetch YTD
+**Problem:** Avig's custom invoiced run for `MKolko` and 2026-07-13 through
+2026-07-14 began fetching invoice headers from 2026-01-01. The live log showed
+the first page alone contained 10,000 company-wide rows and the process was at
+993 MB RSS. This happened because the runner expanded every Invoiced Report to
+the year start for commission calculations, even though a salesman-scoped
+report is written as a Shipped Report and deliberately omits the commissions
+tab.
+**Hotfix deviation:** restarted the app to stop the already-stalled background
+thread, then used the hotfix path instead of a full review loop.
+**Fix:** salesman-scoped runs now fetch only their selected period; unscoped
+Invoiced Reports retain the year-to-date fetch required by their commissions
+tab. Added a regression test for the one-day scoped case.
+**Verified:** 23 targeted invoiced tests passed; Azure deployment
+`14f6cba6-319d-42f3-9e2f-67dfcc79a5bd` reported `RuntimeSuccessful` with one
+successful instance and zero failed instances.
+**Status:** DEPLOYED. Avig can rerun the report; it should now fetch only the
+requested day and finish normally.
+
 ## 2026-07-10 Amazon weekly email: --email flag on the Ordered runner
 **Problem:** The Amazon Weekly job (Thursday schedule, report_name=amazon_weekly) had
 failed on argument parsing since March: the registry maps it to the Ordered runner

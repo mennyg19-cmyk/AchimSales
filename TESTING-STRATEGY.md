@@ -23,6 +23,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Salesman-scoped invoiced fetch
+
+**What to test:**
+- A one-day salesman-scoped invoiced report requests only its selected date range.
+
+**Expected behavior:**
+- Salesman-scoped reports do not fetch year-to-date data because their output omits the commissions tab.
+
+**Edge cases:**
+- An unscoped report keeps the existing year-to-date query for its commissions tab.
+
+**Test file:** `tests/test_invoiced_loader.py`
+
+---
+
 ## Cancel a running report job
 
 **What to test:**
