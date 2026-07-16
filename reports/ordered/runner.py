@@ -54,20 +54,14 @@ def _resolve_salesman_email(
         return None, [], []
 
 
-def _get_filtered_report_recipients() -> list[str] | None:
+def _get_filtered_report_recipients() -> list[str]:
     """Recipients for --email on customer-filtered runs (the Amazon weekly schedules).
 
-    Spreadsheet subscribers (Recv_AmazonWeekly) first; None falls back to the
-    AMAZON_EMAIL_RECIPIENTS env var inside send_report_email.
+    Recv_AmazonWeekly is authoritative when the column exists. If it is
+    missing, use AMAZON_EMAIL_RECIPIENTS.
     """
-    try:
-        from config.salesman_excel import get_report_subscribers
-        subscribers = get_report_subscribers("amazon_weekly")
-        if subscribers:
-            return [email for _, email, _, _ in subscribers]
-    except Exception:
-        log.debug("Could not load spreadsheet subscribers, falling back to AMAZON_EMAIL_RECIPIENTS")
-    return None
+    from config.salesman_excel import get_amazon_weekly_recipients
+    return get_amazon_weekly_recipients()
 
 
 def _get_subscribed_salesmen() -> list[tuple[str, str, str]]:
@@ -161,8 +155,8 @@ class OrderedReportRunner(BaseReportRunner):
 
     @property
     def _send_emails(self) -> bool:
-        """True when ``--email`` was passed (and not overridden by ``--no-email``)."""
-        if self.no_email:
+        """True when email was requested and this is not a no-send mode."""
+        if self.no_email or self.dry_run:
             return False
         cli = getattr(self, "_cli_args", None)
         return bool(getattr(cli, "email", False))
@@ -337,7 +331,7 @@ class OrderedReportRunner(BaseReportRunner):
         try:
             send_report_email(file_path=file_path, subject=subject, body=body,
                               recipients=recipients)
-            log.info("Emailed filtered report to %s", recipients or "AMAZON_EMAIL_RECIPIENTS (default)")
+            log.info("Emailed filtered report to %s", recipients or "(none)")
         except Exception:
             log.exception("Failed to email filtered report")
 

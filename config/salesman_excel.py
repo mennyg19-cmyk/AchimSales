@@ -208,17 +208,75 @@ def pad_salesman_number(num: str) -> str:
     return s
 
 
-def get_report_subscribers(report_key: str) -> list[tuple[str, str, list[str], list[str]]]:
+def has_report_subscription_column(report_key: str, path: str | None = None) -> bool:
+    """Return whether the salesman spreadsheet explicitly defines this report."""
+    column_name = next(
+        (name for name, key in _SUBSCRIPTION_COLUMNS.items() if key == report_key),
+        None,
+    )
+    if column_name is None:
+        return False
+
+    xlsx = path or _XLSX_PATH
+    if not os.path.isfile(xlsx):
+        return False
+
+    wb = load_workbook(xlsx, read_only=True, data_only=True)
+    try:
+        header_row = next(
+            wb.active.iter_rows(min_row=1, max_row=1, values_only=True),
+            (),
+        )
+        headers = {str(value).strip() for value in header_row if value}
+        return column_name in headers
+    finally:
+        wb.close()
+
+
+def get_report_subscribers(
+    report_key: str, path: str | None = None,
+) -> list[tuple[str, str, list[str], list[str]]]:
     """Return [(display_name, email, cc, bcc)] for everyone subscribed to a report.
 
     Useful for master report distribution where the recipient is not
     necessarily a salesman in the data -- just someone who wants the file.
     """
     result = []
-    for key, rec in load_salesman_map().items():
+    for key, rec in load_salesman_map(path).items():
         if rec.email and rec.subscriptions.get(report_key, False):
             result.append((rec.display_name or key, rec.email, list(rec.cc), list(rec.bcc)))
     return result
+
+
+def get_amazon_weekly_recipients(map_path: str | None = None) -> list[str]:
+    """Resolve Amazon Weekly recipients without treating a missing column as opt-in.
+
+    When ``Recv_AmazonWeekly`` is absent, use ``AMAZON_EMAIL_RECIPIENTS`` so
+    recipients do not need salesman-map rows. When the column exists, it is
+    authoritative, including when every value is false.
+    """
+    try:
+        if has_report_subscription_column("amazon_weekly", path=map_path):
+            subscribers = get_report_subscribers("amazon_weekly", path=map_path)
+            emails = [email for _, email, _, _ in subscribers]
+            log.info(
+                "Amazon Weekly recipients from Recv_AmazonWeekly: %d address(es)",
+                len(emails),
+            )
+            return emails
+    except Exception:
+        log.exception(
+            "Could not read Recv_AmazonWeekly; falling back to "
+            "AMAZON_EMAIL_RECIPIENTS"
+        )
+
+    from config.settings import get_email_recipients
+    recipients = get_email_recipients()
+    log.info(
+        "Amazon Weekly recipients from AMAZON_EMAIL_RECIPIENTS: %d address(es)",
+        len(recipients),
+    )
+    return recipients
 
 
 def get_commission_pct_map() -> dict[str, float]:

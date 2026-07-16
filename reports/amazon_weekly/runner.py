@@ -31,16 +31,10 @@ REPORT_NAME = "Amazon Weekly"
 AMAZON_CUSTOMER_ACCOUNTS = ["9300", "9301"]
 
 
-def _get_email_recipients() -> list[str] | None:
-    """Spreadsheet subscribers first, then AMAZON_EMAIL_RECIPIENTS env var fallback."""
-    try:
-        from config.salesman_excel import get_report_subscribers
-        subscribers = get_report_subscribers("amazon_weekly")
-        if subscribers:
-            return [email for _, email, _, _ in subscribers]
-    except Exception:
-        log.debug("Could not load spreadsheet subscribers, falling back to env var")
-    return None
+def _get_email_recipients() -> list[str]:
+    """Use Recv_AmazonWeekly when present; otherwise the environment list."""
+    from config.salesman_excel import get_amazon_weekly_recipients
+    return get_amazon_weekly_recipients()
 
 
 def run(send_email: bool = False, test_mode: bool = False) -> None:
