@@ -256,19 +256,39 @@ def get_amazon_weekly_recipients(map_path: str | None = None) -> list[str]:
     authoritative, including when every value is false.
     """
     try:
-        if has_report_subscription_column("amazon_weekly", path=map_path):
+        has_amazon_column = has_report_subscription_column(
+            "amazon_weekly", path=map_path
+        )
+    except Exception:
+        log.exception(
+            "Could not inspect Recv_AmazonWeekly; refusing to email"
+        )
+        return []
+
+    if has_amazon_column:
+        try:
+            # Subscription edits must take effect on the next resolution rather
+            # than waiting for the process-level salesman-map cache to expire.
+            load_salesman_map.cache_clear()
             subscribers = get_report_subscribers("amazon_weekly", path=map_path)
+            if not has_report_subscription_column(
+                "amazon_weekly", path=map_path
+            ):
+                log.error(
+                    "Recv_AmazonWeekly disappeared while reading; refusing to email"
+                )
+                return []
             emails = [email for _, email, _, _ in subscribers]
             log.info(
                 "Amazon Weekly recipients from Recv_AmazonWeekly: %d address(es)",
                 len(emails),
             )
             return emails
-    except Exception:
-        log.exception(
-            "Could not read Recv_AmazonWeekly; falling back to "
-            "AMAZON_EMAIL_RECIPIENTS"
-        )
+        except Exception:
+            log.exception(
+                "Could not read authoritative Recv_AmazonWeekly; refusing to email"
+            )
+            return []
 
     from config.settings import get_email_recipients
     recipients = get_email_recipients()

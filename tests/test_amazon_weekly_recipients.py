@@ -84,6 +84,43 @@ def test_existing_all_false_amazon_column_sends_to_nobody(tmp_path, env_recipien
     assert recipients == []
 
 
+def test_existing_amazon_column_refreshes_after_edit(tmp_path, env_recipients):
+    map_path = tmp_path / "salesman_map.xlsx"
+    _write_map(map_path, {"Alice": True})
+    assert salesman_excel.get_amazon_weekly_recipients(str(map_path)) == [
+        "alice@example.com"
+    ]
+
+    _write_map(map_path, {})
+
+    assert salesman_excel.get_amazon_weekly_recipients(str(map_path)) == []
+
+
+def test_existing_amazon_column_read_failure_refuses_to_email(
+    tmp_path, env_recipients,
+):
+    map_path = tmp_path / "salesman_map.xlsx"
+    _write_map(map_path, {"Alice": True})
+
+    with patch(
+        "config.salesman_excel.get_report_subscribers",
+        side_effect=OSError("workbook unavailable"),
+    ):
+        recipients = salesman_excel.get_amazon_weekly_recipients(str(map_path))
+
+    assert recipients == []
+
+
+def test_column_inspection_failure_refuses_to_email(env_recipients):
+    with patch(
+        "config.salesman_excel.has_report_subscription_column",
+        side_effect=OSError("workbook unavailable"),
+    ):
+        recipients = salesman_excel.get_amazon_weekly_recipients()
+
+    assert recipients == []
+
+
 def test_unrelated_missing_columns_keep_existing_behavior(tmp_path):
     map_path = tmp_path / "salesman_map.xlsx"
     _write_map(map_path)
