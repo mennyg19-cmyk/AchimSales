@@ -21,7 +21,7 @@ from ..data.repositories.jobs import STATUS_RUNNING
 from ..data.repositories.run_log import RunLogRepository
 from ..jobs.types import JOB_REPORT_RUN, HandlerRegistry, JobContext
 from ..reporting.authz import allowed_salesmen
-from . import rolling12
+from . import item_averages, rolling12
 from .adapter import normalize
 from .api_client import ReportingApiClient, ReportingApiError
 from .cache import ResultCache, build_cache_key
@@ -65,6 +65,11 @@ def build_report_snapshot(
     # with the same contract. Everything below stays untouched for the rest.
     if report_key == rolling12.REPORT_KEY:
         return rolling12.build_snapshot(
+            db, config, report_key, filters, scope_token,
+            requested_by=requested_by, api_timeout=api_timeout, cancelled=cancelled,
+        )
+    if report_key == item_averages.REPORT_KEY:
+        return item_averages.build_snapshot(
             db, config, report_key, filters, scope_token,
             requested_by=requested_by, api_timeout=api_timeout, cancelled=cancelled,
         )

@@ -84,6 +84,10 @@ class Authorization:
             return False
         if self._is_privileged(u):
             return True
+        # Company-wide admin reports: salesmen and managers never get them, even
+        # with an explicit allow row.
+        if getattr(spec, "privileged_only", False):
+            return False
         # Non-privileged: an explicit per-user override (allow/deny) wins. With no
         # row the access is "inherit" -> fall back to the legacy role default
         # (test/webapp report_access.list_accessible_reports): managers see all

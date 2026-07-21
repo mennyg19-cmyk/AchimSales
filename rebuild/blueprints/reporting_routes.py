@@ -32,7 +32,7 @@ from ..data.repositories.user_scope import UserScopeRepository
 from ..data.repositories.users import UsersRepository
 from ..delivery.report_email import EmailService
 from ..jobs.types import JOB_REPORT_RUN
-from ..reporting.authz import resolve_access
+from ..reporting.authz import PRIVILEGED_ONLY_REPORTS, resolve_access
 from ..reports import export as export_file
 from ..reports.cache import ResultCache, build_cache_key
 from ..reports.config_loader import ConfigLoader, ReportNotFound, ReportNotRunnable
@@ -61,18 +61,26 @@ def _owns_job(job) -> bool:
 @reporting_bp.get("/reports")
 @require_login
 def reports_home():
+    principal = current_principal()
     reports = ConfigLoader(get_db()).list_active()
-    return render_template("reports_home.html", reports=reports, principal=current_principal())
+    # Hide admin-only reports from the list for non-privileged users.
+    if principal is None or not principal.is_privileged:
+        reports = [r for r in reports if r.get("report_key") not in PRIVILEGED_ONLY_REPORTS]
+    return render_template("reports_home.html", reports=reports, principal=principal)
 
 
 @reporting_bp.get("/reports/<report_key>")
 @require_login
 def report_view(report_key: str):
+    principal = current_principal()
+    access = resolve_access(principal, report_key, UserScopeRepository(get_db()))
+    if not access.allowed:
+        abort(403)
     try:
         report = ConfigLoader(get_db()).load(report_key)
     except ReportNotFound:
         abort(404)
-    return render_template("report_view.html", report=report, principal=current_principal())
+    return render_template("report_view.html", report=report, principal=principal)
 
 
 @reporting_bp.get("/admin/audit")

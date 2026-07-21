@@ -44,10 +44,15 @@ def _schedules() -> SchedulesRepository:
 
 
 def _reports_with_tabs() -> list[dict]:
-    """Active reports plus their tab list, so the form can offer a tab to send."""
+    """Active reports the current person may schedule, plus their tab list."""
     loader = ConfigLoader(get_db())
+    principal = current_principal()
+    scope = UserScopeRepository(get_db())
     reports = []
     for report in loader.list_active():
+        access = resolve_access(principal, report["report_key"], scope)
+        if not access.allowed:
+            continue
         try:
             tabs = loader.load(report["report_key"]).tabs
         except ReportNotFound:

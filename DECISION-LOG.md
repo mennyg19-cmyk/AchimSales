@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-07-21 New report: Item Averages (admin-only, both apps)
+**What you asked for:** a new report on `/test` and `/test-next` using the
+Number 4 By Item endpoint, listing every item with past-12-month qty sales,
+avg/month, and avg/week. Admins only; company-wide; sales reps must not see it.
+**What I built:** report key `item_averages`. Calls
+`item_customer_sales_rolling_12` (same AsOfDate + IncludeCurrentMonth=true as
+Number 4), rolls item×customer rows up to one row per Item #, then:
+Avg/Month = Total Qty ÷ 12, Avg/Week = Total Qty ÷ 52. Columns: Item #, Item
+Name, 12-Month Qty, Avg/Month, Avg/Week. No filters in v1.
+**Access:** privileged only (admin/developer). Managers and salesmen are denied
+even with an explicit allow row. Rebuild hides it from the report list and
+schedule picker for non-privileged users; the builder also refuses a scoped
+token.
+**Status:** DECIDED — code + tests on `rebuild-reports` (D: checkout). Not
+deployed until you say so.
+
 ## 2026-07-14 Hotfix: salesman-scoped invoiced reports no longer fetch YTD
 **Problem:** Avig's custom invoiced run for `MKolko` and 2026-07-13 through
 2026-07-14 began fetching invoice headers from 2026-01-01. The live log showed

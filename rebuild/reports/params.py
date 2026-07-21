@@ -127,10 +127,19 @@ def _translate_number_4(filters: dict) -> dict[str, Any]:
     }
 
 
+def _translate_item_averages(filters: dict) -> dict[str, Any]:
+    """Same rolling-12 window as Number 4 By Item; no mode marker."""
+    return {
+        "AsOfDate": _today().isoformat(),
+        "IncludeCurrentMonth": True,
+    }
+
+
 _TRANSLATORS = {
     "invoiced": _translate_invoiced,
     "ordered": _translate_ordered,
     "number_4": _translate_number_4,
+    "item_averages": _translate_item_averages,
 }
 
 # The SP parameter that filters by salesman, per report. Scoping a report to a

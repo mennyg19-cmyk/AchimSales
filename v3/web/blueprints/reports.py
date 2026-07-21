@@ -60,6 +60,7 @@ REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "invoiced": ("period", "customers", "salesman"),
     "salesman": ("year",),
     "number_4": ("n4_mode",),
+    "item_averages": (),
     "customer_activity": ("salesman",),
 }
 

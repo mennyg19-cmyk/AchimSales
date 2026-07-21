@@ -190,6 +190,11 @@ def translate_number_4(p: dict) -> dict[str, Any]:
     }
 
 
+def translate_item_averages(p: dict) -> dict[str, Any]:
+    """item_averages -> same window as Number 4 By Item (rolling 12)."""
+    return translate_number_4(p)
+
+
 def translate_customer_activity(p: dict) -> dict[str, Any]:
     """customer_activity -> salesline_release over all-time (go-live..today).
 
@@ -211,6 +216,7 @@ REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     # (By Customer) is listed here for the dev API preview. The orchestrator
     # picks the actual SP(s) via NUMBER_4_BY_CUSTOMER_SP / NUMBER_4_BY_ITEM_SP.
     "number_4": (NUMBER_4_BY_CUSTOMER_SP, translate_number_4),
+    "item_averages": (NUMBER_4_BY_ITEM_SP, translate_item_averages),
     "customer_activity": ("salesline_release", translate_customer_activity),
 }
 

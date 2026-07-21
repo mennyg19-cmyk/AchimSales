@@ -32,6 +32,9 @@ class ReportSpec:
     # salesmen until an explicit allow. Managers/admins/developers see everything
     # by default regardless of this flag.
     salesman_default: bool = False
+    # Admin/developer only. Salesmen and managers never see or run it, even with
+    # an explicit allow row (company-wide data that isn't for the sales floor).
+    privileged_only: bool = False
 
 
 # Matches the live app's report keys. Status reflects v3 build reality, updated
@@ -47,6 +50,10 @@ REGISTRY: tuple[ReportSpec, ...] = (
     ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=2),
     ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT, in_app=True),
+    ReportSpec(
+        "item_averages", "Item Averages", ReportStatus.BUILT,
+        privileged_only=True,
+    ),
     ReportSpec("amazon_weekly", "Amazon Weekly", ReportStatus.BACKLOG),
     ReportSpec("customer_aging", "Customer Aging", ReportStatus.BACKLOG, salesman_default=True),
 )

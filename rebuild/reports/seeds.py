@@ -334,8 +334,33 @@ def _seed_number_4(repo: ReportConfigRepository) -> None:
     repo.set_tabs("number_4", [])
 
 
+_ITEM_AVERAGES_COLUMNS = [
+    {"column_key": "Item #", "label": "Item #", "data_type": _TEXT},
+    {"column_key": "Item Name", "label": "Item Name", "data_type": _TEXT},
+    {"column_key": "12-Month Qty", "label": "12-Month Qty", "data_type": _INT},
+    {"column_key": "Avg/Month", "label": "Avg/Month", "data_type": _INT},
+    {"column_key": "Avg/Week", "label": "Avg/Week", "data_type": _INT},
+]
+
+
+def _seed_item_averages(repo: ReportConfigRepository) -> None:
+    # Admin-only company-wide rollup; builder lives in reports/item_averages.py.
+    repo.upsert_config(
+        "item_averages", title="Item Averages",
+        sp_name="item_customer_sales_rolling_12", default_params={},
+    )
+    repo.set_filters("item_averages", [])
+    repo.set_columns("item_averages", _ITEM_AVERAGES_COLUMNS)
+    repo.set_tabs("item_averages", [{
+        "tab_key": "item_averages", "label": "Item Averages",
+        "column_keys": [c["column_key"] for c in _ITEM_AVERAGES_COLUMNS],
+        "sorters": [{"field": "Item #", "dir": "asc"}],
+    }])
+
+
 def seed_all(db: Database) -> None:
     repo = ReportConfigRepository(db)
     _seed_invoiced(repo)
     _seed_ordered(repo)
     _seed_number_4(repo)
+    _seed_item_averages(repo)

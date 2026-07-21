@@ -30,6 +30,11 @@ from ..data.repositories.user_scope import UserScopeRepository
 SCOPE_ALL = "all"
 _SCOPE_PREFIX = "sm:"
 
+# Company-wide reports that only admins/developers may see or run. Sales reps
+# (and anyone else without privilege) are denied even if they have a salesman
+# scope mapping.
+PRIVILEGED_ONLY_REPORTS = frozenset({"item_averages"})
+
 
 @dataclass(frozen=True)
 class ReportAccess:
@@ -82,6 +87,11 @@ def resolve_access(
 ) -> ReportAccess:
     if principal is None:
         return ReportAccess(False, "", reason="not signed in")
+    if report_key in PRIVILEGED_ONLY_REPORTS and not principal.is_privileged:
+        return ReportAccess(
+            False, "",
+            reason="this report is only available to admins",
+        )
     if principal.is_privileged:
         return ReportAccess(True, SCOPE_ALL)
     salesmen = sorted(user_scope.salesmen_for(principal.email))

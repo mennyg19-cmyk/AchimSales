@@ -24,6 +24,7 @@ from typing import Any, Callable
 from report_engine.dates import D365_GO_LIVE, month_chunks, sp_datetime, today_eastern
 from report_engine.reports import customer_activity as rpt_customer_activity
 from report_engine.reports import invoiced as rpt_invoiced
+from report_engine.reports import item_averages as rpt_item_averages
 from report_engine.reports import number_4 as rpt_number_4
 from report_engine.reports import ordered as rpt_ordered
 from report_engine.reports import salesman as rpt_salesman
@@ -257,6 +258,18 @@ def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
     return svc._payload("number_4", tabs, row_count)
 
 
+def _orch_item_averages(svc: ReportService, params: dict, visible_keys) -> dict:
+    """Company-wide item qty averages from the Number 4 By Item SP.
+
+    Privileged-only at the auth layer; this path ignores salesman scope and
+    always rolls up the full company result.
+    """
+    fetched = svc.client.run_report(
+        rpt_item_averages.SP_NAME, P.translate("item_averages", params))
+    tabs = rpt_item_averages.build(fetched.rows)
+    return svc._payload("item_averages", tabs, len(tabs[0]["rows"]) if tabs else 0)
+
+
 def _orch_customer_activity(svc: ReportService, params: dict, visible_keys) -> dict:
     # All-time order history (go-live..today), chunked by month so the largest
     # salesline_release pull doesn't blow the API timeout.
@@ -277,5 +290,6 @@ _ORCHESTRATORS: dict[str, Callable[[ReportService, dict, set | None], dict]] = {
     "invoiced": _orch_invoiced,
     "salesman": _orch_salesman,
     "number_4": _orch_number_4,
+    "item_averages": _orch_item_averages,
     "customer_activity": _orch_customer_activity,
 }

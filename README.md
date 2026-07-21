@@ -59,6 +59,20 @@ cp .env.example .env      # fill in credentials
 python run.py ordered
 ```
 
+### OneDrive deployment mirror
+
+Develop only in this D: checkout. The company OneDrive folder is a one-way
+SharePoint deployment/reference mirror; do not edit its source files directly.
+
+```powershell
+.\tools\sync-to-onedrive.ps1 -WhatIf  # preview changes
+.\tools\sync-to-onedrive.ps1          # copy new and changed source files
+.\tools\sync-to-onedrive.ps1 -Prune   # also remove stale mirrored source files
+```
+
+The sync excludes Git metadata, local environment files, dependencies, caches,
+logs, archives, and report output.
+
 ## Environment Variables
 
 See `.env.example` for all required variables. Key groups:
