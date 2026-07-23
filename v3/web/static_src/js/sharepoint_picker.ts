@@ -1,5 +1,7 @@
 // SharePoint folder picker for the master-schedules page.
 
+import { esc } from "./http";
+
 // --------------------------------------------------------------------------
 // SharePoint folder picker
 // --------------------------------------------------------------------------
@@ -72,10 +74,14 @@ function spRenderFolders(folders: { name: string; path: string }[]): void {
   folders.forEach((f) => {
     const li = document.createElement("li");
     li.className = "sp-picker-item";
-    li.innerHTML = `<span class="sp-picker-icon"><i data-feather="folder"></i></span>`
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sp-picker-item-btn";
+    btn.innerHTML = `<span class="sp-picker-icon"><i data-feather="folder"></i></span>`
       + `<span class="sp-picker-name">${esc(f.name)}</span>`
       + `<span class="sp-picker-chevron"><i data-feather="chevron-right"></i></span>`;
-    li.addEventListener("click", () => spLoadPath(f.path));
+    btn.addEventListener("click", () => spLoadPath(f.path));
+    li.appendChild(btn);
     ul.appendChild(li);
   });
   body.appendChild(ul);

@@ -1,19 +1,14 @@
 // Schedules management pages (personal + master).
 // Master create/edit is a 5-step wizard aimed at non-technical admins.
 
-function csrf(): string {
-  const el = document.querySelector<HTMLElement>("[data-csrf]");
-  return el?.getAttribute("data-csrf") || "";
-}
-
-function headers(): Record<string, string> {
-  return { "Content-Type": "application/json", "X-CSRF-Token": csrf() };
-}
+import { jsonHeaders } from "./http";
+import { bindMasterWizard } from "./master_wizard";
+import { bindSharePointPicker } from "./sharepoint_picker";
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
   try {
     const res = await fetch(url, {
-      method, headers: headers(),
+      method, headers: jsonHeaders(),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return res.ok;
@@ -45,9 +40,6 @@ function bindRowActions(): void {
     });
   });
 }
-
-import { bindMasterWizard } from "./master_wizard";
-import { bindSharePointPicker } from "./sharepoint_picker";
 
 document.addEventListener("DOMContentLoaded", () => {
   bindRowActions();

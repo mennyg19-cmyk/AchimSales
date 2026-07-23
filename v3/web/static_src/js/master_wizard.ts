@@ -1,4 +1,6 @@
-// Master schedule wizard + SharePoint folder picker (admin page).
+// Master schedule wizard (admin page).
+
+import { esc, jsonHeaders } from "./http";
 
 // --------------------------------------------------------------------------
 // Master schedule wizard
@@ -21,6 +23,7 @@ function masterMsg(text: string, isError: boolean): void {
   el.textContent = text;
   el.hidden = !text;
   el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
+  el.setAttribute("role", isError ? "alert" : "status");
 }
 
 function reportFilters(): Record<string, string[]> {
@@ -166,7 +169,11 @@ function showStep(step: number): void {
     const n = Number(el.getAttribute("data-step"));
     el.classList.toggle("is-active", n === step);
     el.classList.toggle("is-done", n < step);
+    if (n === step) el.setAttribute("aria-current", "step");
+    else el.removeAttribute("aria-current");
   });
+  const pane = document.querySelector<HTMLElement>(`.ms-pane[data-pane="${step}"]`);
+  pane?.querySelector<HTMLElement>(".ms-pane-title")?.focus({ preventScroll: true });
   const back = document.getElementById("msBackBtn");
   const next = document.getElementById("msNextBtn");
   const save = document.getElementById("formSubmitBtn");
@@ -343,10 +350,10 @@ export function bindMasterWizard(): void {
       if (editId) {
         const tpl = wiz.getAttribute("data-update-url-tpl")!;
         const url = tpl.replace("/0", "/" + editId);
-        res = await fetch(url, { method: "PUT", headers: headers(), body: JSON.stringify(body) });
+        res = await fetch(url, { method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body) });
       } else {
         res = await fetch(wiz.getAttribute("data-create-url")!, {
-          method: "POST", headers: headers(), body: JSON.stringify(body),
+          method: "POST", headers: jsonHeaders(), body: JSON.stringify(body),
         });
       }
       if (res.ok || res.status === 201) {
@@ -363,9 +370,4 @@ export function bindMasterWizard(): void {
   });
 
   showStep(1);
-}
-
-function esc(s: string): string {
-  return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

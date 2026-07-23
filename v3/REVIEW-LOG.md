@@ -1650,3 +1650,10 @@ cache, isn't scheduled yet. Tests: enqueue → build → list → download happy
 - *Why:* there is no sensible “run for everyone” parameter set for that screen.
 
 Logged under Phase C follow-up. Tests: master create stores params (customers split to a list), in-app report rejected, Settings card renders, full suite green.
+
+### GPT-5.5 review (master schedule wizard) — blockers fixed
+
+- **BLOCKER: wizard Save called undefined `headers()` after the TS split.** Moved CSRF/JSON headers into shared `http.ts`; wizard imports `jsonHeaders()`.
+- **BLOCKER: SharePoint picker called undefined `esc()`.** Same shared `http.ts` helper; folder rows are now real buttons (keyboard reachable).
+- **SHOULD FIX (partial):** wizard steps get `aria-current`, pane titles are focus targets, save errors use `role=alert` + `aria-live`.
+- **Deferred (non-blocking):** searchable customer/salesman pickers instead of code text boxes; shared filter-constants module with reports.py; full `tsc`/Playwright smoke. Logged for a later pass.

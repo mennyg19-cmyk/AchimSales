@@ -362,7 +362,7 @@ def update_master(schedule_id: int):
     name = (body.get("name") or "").strip()
     if not name:
         abort(400, description="A master schedule needs a name.")
-    # report_key is immutable on edit in the wizard UI; if sent, re-validate.
+    # report_key may be changed on edit (wizard allows picking a different report).
     report_key = (body.get("report_key") or "").strip()
     if report_key:
         _validate_report(p, report_key, allow_in_app=False)

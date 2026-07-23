@@ -46,7 +46,7 @@
     <form id="masterCreateForm" class="ms-wizard-body" novalidate>
         {# Step 1: which report + name #}
         <section class="ms-pane" data-pane="1">
-            <h3 class="ms-pane-title">Which report should go out automatically?</h3>
+            <h3 class="ms-pane-title" tabindex="-1">Which report should go out automatically?</h3>
             <p class="ms-pane-help">Pick one report. Each schedule sends one report.</p>
             <div class="ms-report-grid" role="radiogroup" aria-label="Report">
                 {% for r in built_reports %}
@@ -66,7 +66,7 @@
 
         {# Step 2: when #}
         <section class="ms-pane" data-pane="2" hidden>
-            <h3 class="ms-pane-title">How often should it run?</h3>
+            <h3 class="ms-pane-title" tabindex="-1">How often should it run?</h3>
             <div class="ms-choice-row" role="radiogroup" aria-label="How often">
                 <label class="ms-choice"><input type="radio" name="freq" value="daily" checked> Every day</label>
                 <label class="ms-choice"><input type="radio" name="freq" value="weekly"> Every week</label>
@@ -99,7 +99,7 @@
 
         {# Step 3: report parameters #}
         <section class="ms-pane" data-pane="3" hidden>
-            <h3 class="ms-pane-title">Any report options?</h3>
+            <h3 class="ms-pane-title" tabindex="-1">Any report options?</h3>
             <p class="ms-pane-help" id="msParamsIntro">
                 Leave things blank when you want “everything” (all customers, all salesmen).
             </p>
@@ -148,7 +148,7 @@
 
         {# Step 4: delivery #}
         <section class="ms-pane" data-pane="4" hidden>
-            <h3 class="ms-pane-title">Where should it go?</h3>
+            <h3 class="ms-pane-title" tabindex="-1">Where should it go?</h3>
             <p class="ms-pane-help">Pick email, a SharePoint folder, or both. You need at least one.</p>
             <label class="ms-field ms-field-block">
                 <span>Email addresses</span>
@@ -169,7 +169,7 @@
 
         {# Step 5: review #}
         <section class="ms-pane" data-pane="5" hidden>
-            <h3 class="ms-pane-title">Does this look right?</h3>
+            <h3 class="ms-pane-title" tabindex="-1">Does this look right?</h3>
             <p class="ms-pane-help">Check the summary, then save. You can edit it later from the list.</p>
             <dl class="ms-review" id="msReview"></dl>
         </section>
@@ -181,7 +181,7 @@
                 <button type="button" class="btn btn-primary" id="msNextBtn">Next</button>
                 <button type="submit" class="btn btn-primary" id="formSubmitBtn" hidden>Save schedule</button>
             </div>
-            <span id="masterMsg" class="ms-msg" hidden></span>
+            <span id="masterMsg" class="ms-msg" role="status" aria-live="polite" hidden></span>
         </div>
     </form>
 </div>
