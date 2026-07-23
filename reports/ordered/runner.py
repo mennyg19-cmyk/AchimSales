@@ -55,10 +55,10 @@ def _resolve_salesman_email(
 
 
 def _get_filtered_report_recipients() -> list[str]:
-    """Recipients for --email on customer-filtered runs (the Amazon weekly schedules).
+    """Recipients for --email on customer-filtered runs (Amazon weekly schedules).
 
-    Recv_AmazonWeekly is authoritative when the column exists. If it is
-    missing, use AMAZON_EMAIL_RECIPIENTS.
+    Always AMAZON_EMAIL_RECIPIENTS — never the salesman-map subscription
+    columns, which previously fanned Amazon Weekly out to every rep.
     """
     from config.salesman_excel import get_amazon_weekly_recipients
     return get_amazon_weekly_recipients()
@@ -149,8 +149,8 @@ class OrderedReportRunner(BaseReportRunner):
     def build_arg_parser(self):
         parser = super().build_arg_parser()
         parser.add_argument("--email", action="store_true", default=False,
-                            help="Email the generated file(s) to Recv_AmazonWeekly subscribers "
-                                 "(fallback: AMAZON_EMAIL_RECIPIENTS). Customer-filtered runs only.")
+                            help="Email customer-filtered files to AMAZON_EMAIL_RECIPIENTS "
+                                 "(Amazon Weekly schedules).")
         return parser
 
     @property
@@ -320,18 +320,26 @@ class OrderedReportRunner(BaseReportRunner):
                 )
 
     def _email_filtered_report(self, file_path: str | None, subject: str, body: str) -> None:
-        """Email a customer-filtered report file (or a no-data notice) to the
-        Amazon-weekly recipient list. --test reroutes to TEST_EMAIL."""
+        """Email a customer-filtered report (or no-data notice) via AMAZON_EMAIL_RECIPIENTS.
+
+        ``--test`` reroutes to TEST_EMAIL. Never uses salesman-map subscriptions.
+        """
+        if self.dry_run or self.no_email:
+            log.info("[NO SEND] Skipping filtered-report email (dry-run/no-email)")
+            return
         test_override = self._test_email_override
         if test_override:
             # TEST_EMAIL may hold several addresses joined with ';'
             recipients = [a.strip() for a in test_override.split(";") if a.strip()]
         else:
             recipients = _get_filtered_report_recipients()
+        if not recipients:
+            log.warning("Filtered-report email skipped: no AMAZON_EMAIL_RECIPIENTS configured")
+            return
         try:
             send_report_email(file_path=file_path, subject=subject, body=body,
                               recipients=recipients)
-            log.info("Emailed filtered report to %s", recipients or "(none)")
+            log.info("Emailed filtered report to %s", recipients)
         except Exception:
             log.exception("Failed to email filtered report")
 

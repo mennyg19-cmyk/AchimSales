@@ -6,8 +6,7 @@ Same dataset and layout as the Ordered Report, but:
 - Period: last 7 days.
 - Output: one Excel file with ordered / shipped / cancelled / remaining.
 - Optional: send report by email (e.g. every Friday 5pm).
-- Recipients: spreadsheet subscribers (Recv_AmazonWeekly column in salesman_map.xlsx),
-  falling back to AMAZON_EMAIL_RECIPIENTS env var.
+- Recipients: AMAZON_EMAIL_RECIPIENTS only (never salesman-map subscriptions).
 
 Usage:
   python -m reports.amazon_weekly.runner              # write Excel only
@@ -32,7 +31,7 @@ AMAZON_CUSTOMER_ACCOUNTS = ["9300", "9301"]
 
 
 def _get_email_recipients() -> list[str]:
-    """Use Recv_AmazonWeekly when present; otherwise the environment list."""
+    """AMAZON_EMAIL_RECIPIENTS only — never salesman-map subscriptions."""
     from config.salesman_excel import get_amazon_weekly_recipients
     return get_amazon_weekly_recipients()
 

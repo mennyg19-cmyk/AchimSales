@@ -128,6 +128,11 @@ def load_salesman_map(path: str | None = None) -> dict[str, SalesmanRecord]:
             col_idx = header_map.get(col_name)
             if col_idx is not None and col_idx < len(vals):
                 subs[report_key] = _to_bool(vals[col_idx])
+            elif report_key == "amazon_weekly":
+                # Amazon Weekly must NEVER opt everyone in just because a row
+                # has an email. Missing Recv_AmazonWeekly means not subscribed;
+                # recipients come from AMAZON_EMAIL_RECIPIENTS instead.
+                subs[report_key] = False
             else:
                 subs[report_key] = bool(email)
 
@@ -249,49 +254,23 @@ def get_report_subscribers(
 
 
 def get_amazon_weekly_recipients(map_path: str | None = None) -> list[str]:
-    """Resolve Amazon Weekly recipients without treating a missing column as opt-in.
+    """Resolve Amazon Weekly recipients from AMAZON_EMAIL_RECIPIENTS only.
 
-    When ``Recv_AmazonWeekly`` is absent, use ``AMAZON_EMAIL_RECIPIENTS`` so
-    recipients do not need salesman-map rows. When the column exists, it is
-    authoritative, including when every value is false.
+    The salesman spreadsheet is intentionally ignored for this report. A missing
+    or all-TRUE ``Recv_AmazonWeekly`` column previously blasted every rep with
+    an email address. Extras who are not on the salesman map belong in the
+    Automation variable / env var (comma or semicolon separated).
+
+    ``map_path`` is accepted for call-site compatibility but unused.
     """
-    try:
-        has_amazon_column = has_report_subscription_column(
-            "amazon_weekly", path=map_path
-        )
-    except Exception:
-        log.exception(
-            "Could not inspect Recv_AmazonWeekly; refusing to email"
-        )
-        return []
-
-    if has_amazon_column:
-        try:
-            # Subscription edits must take effect on the next resolution rather
-            # than waiting for the process-level salesman-map cache to expire.
-            load_salesman_map.cache_clear()
-            subscribers = get_report_subscribers("amazon_weekly", path=map_path)
-            if not has_report_subscription_column(
-                "amazon_weekly", path=map_path
-            ):
-                log.error(
-                    "Recv_AmazonWeekly disappeared while reading; refusing to email"
-                )
-                return []
-            emails = [email for _, email, _, _ in subscribers]
-            log.info(
-                "Amazon Weekly recipients from Recv_AmazonWeekly: %d address(es)",
-                len(emails),
-            )
-            return emails
-        except Exception:
-            log.exception(
-                "Could not read authoritative Recv_AmazonWeekly; refusing to email"
-            )
-            return []
-
+    del map_path  # spreadsheet is not consulted for Amazon Weekly delivery
     from config.settings import get_email_recipients
     recipients = get_email_recipients()
+    if not recipients:
+        log.warning(
+            "Amazon Weekly email skipped: AMAZON_EMAIL_RECIPIENTS is empty"
+        )
+        return []
     log.info(
         "Amazon Weekly recipients from AMAZON_EMAIL_RECIPIENTS: %d address(es)",
         len(recipients),

@@ -1,4 +1,8 @@
-"""Recipient safety tests for the OData Amazon Weekly email."""
+"""Recipient safety tests for the OData Amazon Weekly email.
+
+Amazon Weekly must email ONLY AMAZON_EMAIL_RECIPIENTS. The salesman map
+must never fan this report out to every rep with an email address.
+"""
 
 from datetime import date
 from types import SimpleNamespace
@@ -65,60 +69,33 @@ def test_missing_amazon_column_uses_only_environment(tmp_path, env_recipients):
     assert set(recipients).isdisjoint({email for _, email in SALESMEN})
 
 
-def test_existing_amazon_column_is_authoritative(tmp_path, env_recipients):
+def test_all_true_amazon_column_still_uses_only_environment(tmp_path, env_recipients):
+    """Spreadsheet TRUE values must not expand or replace the env list."""
     map_path = tmp_path / "salesman_map.xlsx"
-    _write_map(map_path, {"Alice": True, "Bob": False})
+    _write_map(map_path, {"Alice": True, "Bob": True})
 
     recipients = salesman_excel.get_amazon_weekly_recipients(str(map_path))
 
-    assert recipients == ["alice@example.com"]
-    assert env_recipients[-1] not in recipients
+    assert recipients == env_recipients
+    assert "alice@example.com" not in recipients
+    assert "bob@example.com" not in recipients
 
 
-def test_existing_all_false_amazon_column_sends_to_nobody(tmp_path, env_recipients):
+def test_missing_amazon_column_subscribers_empty(tmp_path, env_recipients):
     map_path = tmp_path / "salesman_map.xlsx"
-    _write_map(map_path, {})
+    _write_map(map_path)
 
-    recipients = salesman_excel.get_amazon_weekly_recipients(str(map_path))
+    assert salesman_excel.get_report_subscribers(
+        "amazon_weekly", path=str(map_path)
+    ) == []
 
-    assert recipients == []
 
-
-def test_existing_amazon_column_refreshes_after_edit(tmp_path, env_recipients):
+def test_empty_environment_sends_to_nobody(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMAZON_EMAIL_RECIPIENTS", "")
     map_path = tmp_path / "salesman_map.xlsx"
-    _write_map(map_path, {"Alice": True})
-    assert salesman_excel.get_amazon_weekly_recipients(str(map_path)) == [
-        "alice@example.com"
-    ]
-
-    _write_map(map_path, {})
+    _write_map(map_path, {"Alice": True, "Bob": True})
 
     assert salesman_excel.get_amazon_weekly_recipients(str(map_path)) == []
-
-
-def test_existing_amazon_column_read_failure_refuses_to_email(
-    tmp_path, env_recipients,
-):
-    map_path = tmp_path / "salesman_map.xlsx"
-    _write_map(map_path, {"Alice": True})
-
-    with patch(
-        "config.salesman_excel.get_report_subscribers",
-        side_effect=OSError("workbook unavailable"),
-    ):
-        recipients = salesman_excel.get_amazon_weekly_recipients(str(map_path))
-
-    assert recipients == []
-
-
-def test_column_inspection_failure_refuses_to_email(env_recipients):
-    with patch(
-        "config.salesman_excel.has_report_subscription_column",
-        side_effect=OSError("workbook unavailable"),
-    ):
-        recipients = salesman_excel.get_amazon_weekly_recipients()
-
-    assert recipients == []
 
 
 def test_unrelated_missing_columns_keep_existing_behavior(tmp_path):
@@ -135,11 +112,9 @@ def test_unrelated_missing_columns_keep_existing_behavior(tmp_path):
     ]
 
 
-def test_ordered_email_uses_environment_when_amazon_column_missing(
-    tmp_path, env_recipients,
-):
+def test_ordered_email_uses_environment_only(tmp_path, env_recipients):
     map_path = tmp_path / "salesman_map.xlsx"
-    _write_map(map_path)
+    _write_map(map_path, {"Alice": True, "Bob": True})
     runner = OrderedReportRunner()
     runner._cli_args = SimpleNamespace(
         dry_run=False, no_email=False, test=False, email=True
@@ -183,6 +158,18 @@ def test_ordered_dry_run_never_emails_on_no_data():
         runner._run_for_salesman_list([], ["9300", "9301"], plan, None)
 
     email_filtered.assert_not_called()
+    send_email.assert_not_called()
+
+
+def test_ordered_email_helper_respects_dry_run(env_recipients):
+    runner = OrderedReportRunner()
+    runner._cli_args = SimpleNamespace(
+        dry_run=True, no_email=False, test=False, email=True
+    )
+
+    with patch("reports.ordered.runner.send_report_email") as send_email:
+        runner._email_filtered_report(None, "Amazon Weekly", "body")
+
     send_email.assert_not_called()
 
 
