@@ -1,5 +1,29 @@
 # Decision Log
 
+## 2026-07-23 Green test app already gone; v3 vs rebuild; prod branch
+**What you asked:** delete the green test app, compare v3 vs rebuild, and say
+which branch production runs on.
+**Green test (`test/`):** Already deleted on `rebuild-reports` (2026-06-11). No
+`/test-legacy` or `/v2` mounts remain. This pass only cleaned leftover Docker
+refs that still pointed at the deleted tree (`COPY test/requirements.txt`,
+`/v2/healthz` healthcheck, `.dockerignore` test paths) plus stale comments.
+**Prod branch:** `rebuild-reports` (tip `b0e8034` as of this check). Not
+`webapp-cache` (stale tip from early June; still had green `test/` in that
+history). Deploy is zip-from-working-tree via `deploy.ps1`, so whatever branch
+was checked out when someone last ran deploy is what Azure has — recent hotfixes
+and Item Averages land on `rebuild-reports`.
+**v3 (`/test`) vs rebuild (`/test-next`):**
+- **v3 wins for day-to-day use today** — more reports (ordered, invoiced,
+  salesman, number_4, customer activity, last order, item averages), admin/
+  roles, SharePoint, dashboard, master schedules, denser test suite.
+- **rebuild wins for long-term architecture** — SQL owns report math; app is
+  mostly present/group/export; cleaner modules; smaller surface. Not feature-
+  complete yet (many reports deferred pending flat-table SPs).
+**What I chose:** Keep both mounts. Do not delete v3. Promote rebuild only after
+report parity + human number sign-off. Clean Docker leftovers so the deleted
+green app can't break image builds.
+**Status:** DECIDED on branch cleanup; cutover still needs human sign-off.
+
 ## 2026-07-21 New report: Item Averages (admin-only, both apps)
 **What you asked for:** a new report on `/test` and `/test-next` using the
 Number 4 By Item endpoint, listing every item with past-12-month qty sales,

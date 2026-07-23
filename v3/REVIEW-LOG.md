@@ -650,6 +650,22 @@ Numbers are PROVISIONAL until you compare a run against the live Number 4 export
   server-side for scoped users - it fetches and filters rows in the app, like every other v3
   report. The /test-next app does push it server-side.
 
+### Session: Thu Jul 23 - green test gone; v3 vs rebuild; which branch is prod
+
+**What I had to decide:** you asked to delete the green test app, compare v3 vs
+rebuild, and say which git branch production is on.
+**The options:** (a) hunt for and re-delete `test/` on this tree, (b) only clean
+leftover refs because green is already gone on prod, (c) also pick one of v3 or
+rebuild as "the winner" and delete the other.
+**What I chose:** (b) + keep both apps. Confirmed `test/` is already absent on
+`rebuild-reports`. Cleaned Dockerfile / `.dockerignore` / stale comments that
+still mentioned `/v2` and `test/requirements.txt`. Verdict: **v3 is better for
+use today**; **rebuild is better architecture for later**. Prod code lives on
+**`rebuild-reports`**, not `webapp-cache`.
+**Why:** Deleting v3 now would drop working reports/admin. Deleting rebuild would
+throw away the cleaner SQL-owns-math path. Green was already retired 2026-06-11
+because its mirror jobs hammered the Reporting API.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF

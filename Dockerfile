@@ -1,8 +1,8 @@
-# Sales Reports -- unified container for the live app and /v2 rebuild.
-# One image serves both by running wsgi:application under gunicorn.
+# Sales Reports -- unified container for live (/), v3 (/test), and rebuild (/test-next).
+# One image serves them by running wsgi:application under gunicorn.
 #
 # Installs on top of python:3.12-slim:
-#   - msodbcsql18          -> required by pyodbc for on-prem SQL Server (Phase 2)
+#   - msodbcsql18          -> required by pyodbc for on-prem SQL Server
 #   - unixodbc-dev         -> build-time ODBC headers for pyodbc
 #   - WeasyPrint runtime   -> Cairo, Pango, GDK-PixBuf for PDF exports
 #   - fonts-dejavu         -> WeasyPrint fallback font so PDFs never render blank
@@ -34,14 +34,14 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# webapp/requirements.txt already covers live + v3 (+ rebuild shares the same stack).
 COPY webapp/requirements.txt /tmp/live-requirements.txt
-COPY test/requirements.txt   /tmp/v2-requirements.txt
 RUN pip install --upgrade pip \
- && pip install -r /tmp/live-requirements.txt -r /tmp/v2-requirements.txt
+ && pip install -r /tmp/live-requirements.txt
 
 COPY . /app
 
-RUN mkdir -p /app/test/outbox /app/logs /app/_report_output
+RUN mkdir -p /app/logs /app/_report_output
 
 ENV PORT=8000 \
     WEB_CONCURRENCY=2 \
@@ -52,8 +52,11 @@ ENV PORT=8000 \
 
 EXPOSE 8000
 
+# Prefer v3's cheap /test/healthz when mounted; otherwise accept live / (login redirect).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:${PORT}/v2/healthz || exit 1
+    CMD curl -fsS http://127.0.0.1:${PORT}/test/healthz \
+     || curl -fsS -o /dev/null http://127.0.0.1:${PORT}/ \
+     || exit 1
 
 # gthread worker class so a single slow request (a 25-second dashboard
 # data fetch, a long polling refresh-status call) doesn't block every

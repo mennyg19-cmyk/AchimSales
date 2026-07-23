@@ -4,18 +4,19 @@ This is the single module gunicorn serves:
 
     gunicorn wsgi:application
 
-It wires two apps behind one process via werkzeug's DispatcherMiddleware:
+It wires apps behind one process via werkzeug's DispatcherMiddleware:
 
-    /     -> live Flask app (webapp/)   [production, unchanged]
-    /test -> v3 rebuild (v3/web/)       [the new app]
+    /          -> live Flask app (webapp/)     [production, unchanged]
+    /test      -> v3 app (v3/web/)             [current interactive reports]
+    /test-next -> ground-up rebuild (rebuild/) [preview; SQL-owns-math path]
 
-The old v2 sandbox app (test/) was retired 2026-06-11 -- it was unused, and its
+The old green v2 sandbox (test/) was retired 2026-06-11 -- unused, and its
 background mirror refresh kept overloading the on-prem Reporting API.
 
 Safety: mounting v3 at /test is gated on V3_MOUNT_ENABLED and wrapped in
 try/except. If v3 fails to boot (e.g. its prod config isn't set), the boot
 error is dumped to a downloadable log and /test returns 404 -- the live app
-is never affected.
+is never affected. Rebuild mounts the same way behind REBUILD_MOUNT_ENABLED.
 """
 
 from __future__ import annotations
