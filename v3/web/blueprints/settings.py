@@ -55,14 +55,18 @@ def _require_admin():
 def settings_page():
     p = current_principal()
     flags = []
+    master_schedule_count = 0
     if current_app.config["AUTHZ"].is_privileged(p):  # live DB check, not session role
         current = _flags().all()
         flags = [
             {"key": key, "enabled": current.get(key, default), "description": desc}
             for key, (default, desc) in FLAG_DEFAULTS.items()
         ]
+        from web.data.repositories.schedules import MasterScheduleRepository
+        master_schedule_count = len(MasterScheduleRepository(current_app.config["DB"]).list_all())
     return render_template(
         "settings.html", active_tab="settings", profile=p, flags=flags,
+        master_schedule_count=master_schedule_count,
     )
 
 

@@ -69,10 +69,12 @@ def _runs() -> ScheduleRunRepository:
     return ScheduleRunRepository(_db())
 
 
-def _validate_report(p, report_key: str):
+def _validate_report(p, report_key: str, *, allow_in_app: bool = True):
     spec = registry.get(report_key)
     if spec is None or spec.status is not registry.ReportStatus.BUILT:
         abort(404, description="Unknown report")
+    if not allow_in_app and spec.in_app:
+        abort(400, description="That report can't be set up as a master schedule.")
     _authz().assert_report_runnable(p, report_key)
     return spec
 
@@ -217,6 +219,81 @@ def schedule_history(schedule_id: int):
 
 # --- master schedules (admin) ----------------------------------------------
 
+# Same filter keys the report viewer uses. Kept here (not imported from the
+# reports blueprint) so schedules stay import-light and the mapping is obvious.
+_MASTER_REPORT_FILTERS: dict[str, tuple[str, ...]] = {
+    "ordered": ("period", "status", "customers", "salesman"),
+    "invoiced": ("period", "customers", "salesman"),
+    "salesman": ("year",),
+    "number_4": (),
+    "customer_activity": ("salesman",),
+}
+
+_PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("yesterday", "Yesterday"),
+    ("mtd", "Month to Date"),
+    ("last_month", "Last Month"),
+    ("ytd", "Year to Date"),
+    ("this_week", "This Week"),
+    ("last_7_days", "Last 7 Days"),
+    ("all_time", "All Time"),
+)
+
+_STATUS_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("", "All statuses"),
+    ("Open order", "Open"),
+    ("Delivered", "Delivered"),
+    ("Invoiced", "Invoiced"),
+    ("Cancelled", "Cancelled"),
+)
+
+
+def _params_label(params: dict | None) -> str:
+    """Plain-English one-liner for the schedules table Options column."""
+    p = params or {}
+    bits: list[str] = []
+    if period := (p.get("period") or "").strip():
+        bits.append(period.replace("_", " "))
+    if status := (p.get("status") or "").strip():
+        bits.append(f"status {status}")
+    if salesman := (p.get("salesman") or "").strip():
+        bits.append(f"salesman {salesman}")
+    customers = p.get("customers")
+    if isinstance(customers, (list, tuple)):
+        cust = " ".join(str(c).strip() for c in customers if str(c).strip())
+    else:
+        cust = str(customers or "").strip()
+    if cust:
+        bits.append(f"customers {cust}")
+    if year := p.get("year"):
+        bits.append(f"year {year}")
+    return ", ".join(bits) if bits else "defaults"
+
+
+def _normalize_master_params(raw: dict | None) -> dict:
+    """Keep only known filter keys; turn a customers string into a list."""
+    src = raw if isinstance(raw, dict) else {}
+    out: dict = {}
+    for key in ("period", "status", "salesman", "year", "start_date", "end_date"):
+        val = src.get(key)
+        if val is None:
+            continue
+        s = str(val).strip()
+        if s:
+            out[key] = s
+    customers = src.get("customers")
+    if isinstance(customers, (list, tuple, set)):
+        cleaned = [str(c).strip() for c in customers if str(c).strip()]
+        if cleaned:
+            out["customers"] = cleaned
+    elif customers is not None:
+        # Accept "9300 9301" or "9300,9301" from the dumb text box.
+        parts = [p for p in str(customers).replace(",", " ").split() if p]
+        if parts:
+            out["customers"] = parts
+    return out
+
+
 @schedules_bp.get("/master-schedules")
 @require_login
 def master_page():
@@ -229,13 +306,29 @@ def master_page():
             "id": s.id, "name": s.name, "report_key": s.report_key,
             "report_title": spec.title if spec else s.report_key,
             "cadence": C.describe(s.cadence), "cadence_raw": s.cadence or {},
+            "params": s.params or {}, "params_label": _params_label(s.params),
             "recipients": s.recipients,
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, MASTER),
         })
-    built = [{"key": s.key, "title": s.title} for s in registry.built_reports()]
-    return render_template("master_schedules.html", active_tab="settings",
-                           schedules=items, built_reports=built)
+    # in_app reports (Customer's Last Order) have their own picker page — not
+    # scheduleable as a master delivery.
+    built = [
+        {"key": s.key, "title": s.title}
+        for s in registry.built_reports()
+        if not s.in_app
+    ]
+    from report_engine.dates import today_eastern
+    year_now = today_eastern().year
+    year_options = list(range(year_now, year_now - 5, -1))
+    return render_template(
+        "master_schedules.html", active_tab="settings",
+        schedules=items, built_reports=built,
+        report_filters=_MASTER_REPORT_FILTERS,
+        period_options=_PERIOD_OPTIONS,
+        status_options=_STATUS_OPTIONS,
+        year_options=year_options,
+    )
 
 
 @schedules_bp.post("/api/master-schedules")
@@ -245,15 +338,16 @@ def create_master():
     _require_admin(p)
     body = request.get_json(silent=True) or {}
     report_key = (body.get("report_key") or "").strip()
-    _validate_report(p, report_key)
+    _validate_report(p, report_key, allow_in_app=False)
     name = (body.get("name") or "").strip()
     if not name:
         abort(400, description="A master schedule needs a name.")
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
     recipients = _clean_recipients(body, sharepoint_path=sp)
+    params = _normalize_master_params(body.get("params") or {})
     mid = _master().create(
-        report_key, name, params=body.get("params") or {}, layout=body.get("layout") or {},
+        report_key, name, params=params, layout=body.get("layout") or {},
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
     )
     return jsonify({"id": mid}), 201
@@ -268,12 +362,21 @@ def update_master(schedule_id: int):
     name = (body.get("name") or "").strip()
     if not name:
         abort(400, description="A master schedule needs a name.")
+    # report_key is immutable on edit in the wizard UI; if sent, re-validate.
+    report_key = (body.get("report_key") or "").strip()
+    if report_key:
+        _validate_report(p, report_key, allow_in_app=False)
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
     recipients = _clean_recipients(body, sharepoint_path=sp)
-    if not _master().update(schedule_id, name=name, params=body.get("params") or {},
-                            layout=body.get("layout") or {}, cadence=cadence,
-                            recipients=recipients, sharepoint_path=sp):
+    params = _normalize_master_params(body.get("params") or {})
+    kwargs = dict(
+        name=name, params=params, layout=body.get("layout") or {},
+        cadence=cadence, recipients=recipients, sharepoint_path=sp,
+    )
+    if report_key:
+        kwargs["report_key"] = report_key
+    if not _master().update(schedule_id, **kwargs):
         abort(404, description="Unknown master schedule")
     return jsonify({"updated": True})
 

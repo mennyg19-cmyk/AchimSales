@@ -38,9 +38,29 @@
 {% if is_admin %}
 <section class="settings-card" id="adminSettings" data-flag-url="{{ url_for('settings.set_feature_flag') }}" data-csrf="{{ csrf_token() }}">
     <h2 class="section-title">Admin</h2>
+
+    <div class="admin-sched-card">
+        <h3 class="admin-sched-title">
+            <i data-feather="calendar" style="width:18px;height:18px;"></i>
+            Master schedules
+        </h3>
+        <p class="admin-sched-desc">
+            Set up company-wide automatic reports in a few easy steps:
+            which report, when it runs, options, and where it goes.
+        </p>
+        <div class="admin-sched-actions">
+            <a class="btn btn-primary btn-sm" href="{{ nav.master_schedules }}">
+                Set up / manage schedules
+            </a>
+            <span class="admin-sched-count">
+                {% if master_schedule_count == 1 %}1 schedule set up
+                {% else %}{{ master_schedule_count }} schedules set up{% endif %}
+            </span>
+        </div>
+    </div>
+
     <div class="admin-links">
         <a class="btn btn-outline btn-sm" href="{{ url_for('admin.users_page') }}">Users &amp; access</a>
-        <a class="btn btn-outline btn-sm" href="{{ nav.master_schedules }}">Manage master schedules</a>
         <a class="btn btn-outline btn-sm" href="{{ url_for('settings.run_log_page') }}">Report run log</a>
     </div>
 

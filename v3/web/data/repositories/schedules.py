@@ -205,15 +205,25 @@ class MasterScheduleRepository:
             return cur.lastrowid
 
     def update(self, schedule_id: int, *, name: str, params: dict, layout: dict,
-               cadence: dict, recipients: str = "", sharepoint_path: str = "") -> bool:
+               cadence: dict, recipients: str = "", sharepoint_path: str = "",
+               report_key: str | None = None) -> bool:
         with self.db.precious() as conn:
-            cur = conn.execute(
-                "UPDATE master_schedules SET name=?, params_json=?, layout_json=?,"
-                " cadence=?, recipients=?, sharepoint_path=? WHERE id=?",
-                (name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
-                 json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                 schedule_id),
-            )
+            if report_key:
+                cur = conn.execute(
+                    "UPDATE master_schedules SET name=?, report_key=?, params_json=?, layout_json=?,"
+                    " cadence=?, recipients=?, sharepoint_path=? WHERE id=?",
+                    (name.strip(), report_key.strip(), json.dumps(params or {}),
+                     json.dumps(layout or {}), json.dumps(cadence or {}),
+                     recipients or "", sharepoint_path or "", schedule_id),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE master_schedules SET name=?, params_json=?, layout_json=?,"
+                    " cadence=?, recipients=?, sharepoint_path=? WHERE id=?",
+                    (name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
+                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
+                     schedule_id),
+                )
             return cur.rowcount == 1
 
     def set_active(self, schedule_id: int, active: bool) -> bool:

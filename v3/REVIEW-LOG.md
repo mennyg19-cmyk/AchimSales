@@ -1625,3 +1625,28 @@ cache, isn't scheduled yet. Tests: enqueue → build → list → download happy
 - **`prune()` format mismatch (LOW).** Compares against SQLite `datetime('now', ?)`
   on both sides (built_at defaults to `datetime('now')`) instead of a Python ISO
   cutoff, so the TTL reaper deletes the right rows.
+
+### Session: Thu Jul 23 - dumb multi-step master schedule wizard
+
+**1. Master schedule create/edit UX was too dense for a non-technical admin.**
+- *What I had to decide:* keep the one-screen form, or redo it as a guided multi-step flow.
+- *Options:* (a) keep the packed form and add tooltips, (b) modal with tabs, (c) step-by-step wizard on the page.
+- *Chosen (c):* a 5-step wizard on `/master-schedules`: Report → When → Options → Where → Review.
+- *Why:* you asked for an easy multi-step form that is “as dumb as possible.” Big report cards and plain-English labels beat a wall of fields.
+
+**2. Where do report parameters live for master schedules?**
+- *Problem:* the old form always saved `params: {}`, so period/customer/salesman never stuck.
+- *Options:* (a) force admins to open the report viewer first and “schedule from there,” (b) collect the same filters inside the wizard.
+- *Chosen (b):* step 3 shows only the filters that report needs (period, status, salesman, customers, year). Blank = “everything.”
+- *Why:* master schedules are admin-owned and set up once; the wizard has to capture the options itself. Custom date ranges are hidden (a fixed From/To doesn’t make sense on a recurring schedule).
+
+**3. How to make this easier to find on the admin side.**
+- *Options:* (a) leave the tiny Settings link, (b) put a big card on Settings Admin, (c) also put it on the Customer Dashboard.
+- *Chosen (b):* a highlighted “Master schedules” card at the top of Settings → Admin with a primary “Set up / manage schedules” button and a live count.
+- *Why:* “admin dashboard” here means the Settings admin home (same place the old test app put master schedules). The Customer Dashboard is for customer status, not admin tools.
+
+**4. Can Customer's Last Order be a master schedule?**
+- *Chosen:* no. It is an in-app picker report, not a filter→Excel delivery. The API rejects it and the wizard list hides it.
+- *Why:* there is no sensible “run for everyone” parameter set for that screen.
+
+Logged under Phase C follow-up. Tests: master create stores params (customers split to a list), in-app report rejected, Settings card renders, full suite green.

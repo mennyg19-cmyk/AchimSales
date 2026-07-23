@@ -2,71 +2,191 @@
 {% block title %}Master schedules{% endblock %}
 
 {% block content %}
-<div class="page-head">
-    <a class="back-link" href="{{ url_for('settings.settings_page') }}">
-        <i data-feather="arrow-left"></i> Settings
-    </a>
-    <h1 class="page-title">Master schedules</h1>
-    <p class="page-subtitle">Shared, admin-owned recurring deliveries. These run unrestricted (full data).</p>
+<div class="page-head page-head-row">
+    <div>
+        <a class="back-link" href="{{ url_for('settings.settings_page') }}">
+            <i data-feather="arrow-left"></i> Settings
+        </a>
+        <h1 class="page-title">Master schedules</h1>
+        <p class="page-subtitle">
+            Shared automatic reports for the whole company. They run with full data
+            (not limited to one salesman).
+        </p>
+    </div>
+    <div class="page-head-actions">
+        <button type="button" class="btn btn-primary" id="msStartBtn">
+            <i data-feather="plus" style="width:14px;height:14px;"></i>
+            Set up a schedule
+        </button>
+    </div>
 </div>
 
-<div class="ms-panel">
-    <div class="ms-panel-head">
-        <h2 id="formTitle" class="ms-panel-title">New master schedule</h2>
+{# ── Wizard (hidden until "Set up" / Edit) ── #}
+<div id="msWizard" class="ms-wizard" hidden
+     data-create-url="{{ url_for('schedules.create_master') }}"
+     data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
+     data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
+     data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
+     data-report-filters='{{ report_filters|tojson }}'
+     data-csrf="{{ csrf_token() }}">
+    <input type="hidden" id="editingId" value="">
+
+    <div class="ms-wizard-head">
+        <h2 id="formTitle" class="ms-wizard-title">Set up a schedule</h2>
+        <p class="ms-wizard-hint">Answer a few simple questions. You can go back anytime.</p>
+        <ol class="ms-steps" aria-label="Steps">
+            <li class="ms-step is-active" data-step="1"><span class="ms-step-num">1</span> Report</li>
+            <li class="ms-step" data-step="2"><span class="ms-step-num">2</span> When</li>
+            <li class="ms-step" data-step="3"><span class="ms-step-num">3</span> Options</li>
+            <li class="ms-step" data-step="4"><span class="ms-step-num">4</span> Where</li>
+            <li class="ms-step" data-step="5"><span class="ms-step-num">5</span> Review</li>
+        </ol>
     </div>
-    <form id="masterCreateForm" class="ms-form"
-          data-create-url="{{ url_for('schedules.create_master') }}"
-          data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
-          data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
-          data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
-          data-csrf="{{ csrf_token() }}">
-        <input type="hidden" name="editing_id" id="editingId" value="">
-        <div class="ms-fields">
-            <label class="ms-field"><span>Name</span><input type="text" name="name" required></label>
-            <label class="ms-field"><span>Report</span>
-                <select name="report_key">
-                    {% for r in built_reports %}<option value="{{ r.key }}">{{ r.title }}</option>{% endfor %}
-                </select>
+
+    <form id="masterCreateForm" class="ms-wizard-body" novalidate>
+        {# Step 1: which report + name #}
+        <section class="ms-pane" data-pane="1">
+            <h3 class="ms-pane-title">Which report should go out automatically?</h3>
+            <p class="ms-pane-help">Pick one report. Each schedule sends one report.</p>
+            <div class="ms-report-grid" role="radiogroup" aria-label="Report">
+                {% for r in built_reports %}
+                <label class="ms-report-card">
+                    <input type="radio" name="report_key" value="{{ r.key }}" required>
+                    <span class="ms-report-name">{{ r.title }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            <label class="ms-field ms-field-block">
+                <span>Give this schedule a name</span>
+                <input type="text" name="name" id="msName" maxlength="120"
+                       placeholder="e.g. Daily Ordered Report" required>
             </label>
-            <label class="ms-field"><span>Frequency</span>
-                <select name="freq" id="mFreq">
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                </select>
-            </label>
-            <label class="ms-field"><span>Time</span><input type="time" name="time" value="08:00"></label>
-            <div class="ms-field" id="mWeekdays" hidden><span>Days</span>
+            <p class="ms-pane-help">A short name so you can find it later in the list below.</p>
+        </section>
+
+        {# Step 2: when #}
+        <section class="ms-pane" data-pane="2" hidden>
+            <h3 class="ms-pane-title">How often should it run?</h3>
+            <div class="ms-choice-row" role="radiogroup" aria-label="How often">
+                <label class="ms-choice"><input type="radio" name="freq" value="daily" checked> Every day</label>
+                <label class="ms-choice"><input type="radio" name="freq" value="weekly"> Every week</label>
+                <label class="ms-choice"><input type="radio" name="freq" value="monthly"> Every month</label>
+            </div>
+
+            <div class="ms-field ms-field-block" id="mWeekdays" hidden>
+                <span>Which days?</span>
                 <div class="sched-weekdays">
                     {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
                     <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
                     {% endfor %}
                 </div>
             </div>
-            <label class="ms-field" id="mMonthday" hidden><span>Day of month</span>
+
+            <label class="ms-field ms-field-block" id="mMonthday" hidden>
+                <span>Which day of the month?</span>
                 <select name="monthday">
                     {% for d in range(1, 29) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-                    <option value="-1">Last day</option>
+                    <option value="-1">Last day of the month</option>
                 </select>
             </label>
-            <label class="ms-field"><span>Recipients</span>
-                <input type="email" name="recipients" placeholder="team@achimonline.com" multiple></label>
-            <label class="ms-field ms-field-sp"><span>SharePoint folder</span>
+
+            <label class="ms-field ms-field-block">
+                <span>What time? (Eastern time)</span>
+                <input type="time" name="time" value="08:00" required>
+            </label>
+            <p class="ms-pane-help">Eastern time is New York time — the same clock the office uses.</p>
+        </section>
+
+        {# Step 3: report parameters #}
+        <section class="ms-pane" data-pane="3" hidden>
+            <h3 class="ms-pane-title">Any report options?</h3>
+            <p class="ms-pane-help" id="msParamsIntro">
+                Leave things blank when you want “everything” (all customers, all salesmen).
+            </p>
+            <div id="msParamsNone" class="ms-params-none" hidden>
+                <p>This report does not need any extra choices. Tap Next.</p>
+            </div>
+            <div id="msParamsFields" class="ms-params-fields">
+                <label class="ms-field ms-field-block" data-param="period" hidden>
+                    <span>Time period for the report</span>
+                    <select name="period" id="msPeriod">
+                        <option value="">— pick one —</option>
+                        {% for value, label in period_options %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="ms-field ms-field-block" data-param="status" hidden>
+                    <span>Order status (Ordered report)</span>
+                    <select name="status" id="msStatus">
+                        {% for value, label in status_options %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="ms-field ms-field-block" data-param="salesman" hidden>
+                    <span>Salesman code (optional)</span>
+                    <input type="text" name="salesman" id="msSalesman"
+                           placeholder="Leave blank for all salesmen">
+                </label>
+                <label class="ms-field ms-field-block" data-param="customers" hidden>
+                    <span>Customer account numbers (optional)</span>
+                    <input type="text" name="customers" id="msCustomers"
+                           placeholder="e.g. 9300 9301 — leave blank for all">
+                </label>
+                <label class="ms-field ms-field-block" data-param="year" hidden>
+                    <span>Year (optional)</span>
+                    <select name="year" id="msYear">
+                        <option value="">Current year (recommended)</option>
+                        {% for y in year_options %}
+                        <option value="{{ y }}">{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        {# Step 4: delivery #}
+        <section class="ms-pane" data-pane="4" hidden>
+            <h3 class="ms-pane-title">Where should it go?</h3>
+            <p class="ms-pane-help">Pick email, a SharePoint folder, or both. You need at least one.</p>
+            <label class="ms-field ms-field-block">
+                <span>Email addresses</span>
+                <input type="text" name="recipients" id="msRecipients"
+                       placeholder="team@achimonline.com, boss@achimonline.com">
+            </label>
+            <p class="ms-pane-help">Separate multiple addresses with commas.</p>
+            <label class="ms-field ms-field-block ms-field-sp">
+                <span>SharePoint folder</span>
                 <div class="sp-input-row">
                     <input type="text" name="sharepoint_path" id="spPathInput" placeholder="(none)" readonly>
                     <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
                     <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear">&times;</button>
                 </div>
             </label>
-        </div>
-        <div class="ms-actions">
-            <button type="submit" class="btn btn-primary" id="formSubmitBtn">Create</button>
-            <button type="button" class="btn btn-outline" id="formCancelBtn" hidden>Cancel</button>
+            <p class="ms-pane-help">Optional. The Excel file is saved in this folder each time the schedule runs.</p>
+        </section>
+
+        {# Step 5: review #}
+        <section class="ms-pane" data-pane="5" hidden>
+            <h3 class="ms-pane-title">Does this look right?</h3>
+            <p class="ms-pane-help">Check the summary, then save. You can edit it later from the list.</p>
+            <dl class="ms-review" id="msReview"></dl>
+        </section>
+
+        <div class="ms-wizard-foot">
+            <button type="button" class="btn btn-outline" id="msCancelBtn">Cancel</button>
+            <div class="ms-wizard-nav">
+                <button type="button" class="btn btn-outline" id="msBackBtn" hidden>Back</button>
+                <button type="button" class="btn btn-primary" id="msNextBtn">Next</button>
+                <button type="submit" class="btn btn-primary" id="formSubmitBtn" hidden>Save schedule</button>
+            </div>
             <span id="masterMsg" class="ms-msg" hidden></span>
         </div>
     </form>
 </div>
 
+{# ── Existing schedules list ── #}
 {% if schedules %}
 <div class="ms-table-wrap" data-csrf="{{ csrf_token() }}">
     <table class="data-table">
@@ -74,7 +194,8 @@
             <tr>
                 <th>Name</th>
                 <th>Report</th>
-                <th>Cadence</th>
+                <th>When</th>
+                <th>Options</th>
                 <th>Recipients</th>
                 <th>SharePoint</th>
                 <th>Last run</th>
@@ -88,11 +209,13 @@
                 data-name="{{ s.name }}"
                 data-report-key="{{ s.report_key }}"
                 data-cadence='{{ s.cadence_raw|tojson }}'
+                data-params='{{ s.params|tojson }}'
                 data-recipients="{{ s.recipients }}"
                 data-sharepoint-path="{{ s.sharepoint_path }}">
                 <td>{{ s.name }}</td>
                 <td>{{ s.report_title }}</td>
                 <td>{{ s.cadence }}</td>
+                <td class="td-truncate">{{ s.params_label }}</td>
                 <td class="td-truncate">{{ s.recipients or '—' }}</td>
                 <td class="td-truncate">{{ s.sharepoint_path or '—' }}</td>
                 <td>{{ s.last_run or 'never' }}</td>
@@ -117,7 +240,10 @@
     </table>
 </div>
 {% else %}
-<div class="empty-state"><i data-feather="clock"></i><p>No master schedules yet.</p></div>
+<div class="empty-state" id="msEmpty">
+    <i data-feather="clock"></i>
+    <p>No master schedules yet. Tap <strong>Set up a schedule</strong> to create one.</p>
+</div>
 {% endif %}
 
 <div id="spPickerOverlay" class="sp-picker-overlay" style="display:none">
