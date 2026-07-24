@@ -79,7 +79,6 @@ _REPORT_PRIMARY_MONEY_COL = {
     "invoiced": ["Total Invoice"],
     "ordered": ["SubTotal"],
     "salesman": ["Total Invoice", "SubTotal Invoices"],
-    "amazon_weekly": ["Total Invoice", "SubTotal"],
     "customer_activity": ["Total Invoice", "SubTotal"],
     "customer_aging": ["Balance", "Amount", "Total"],
     "number_4": ["Total Invoice", "SubTotal"],
@@ -199,42 +198,6 @@ def run_number4_report(params: dict) -> dict:
     """Run the Number 4 Report and return results."""
     from reports.number_4.runner import Number4ReportRunner
     return _run_class_report(Number4ReportRunner, [], "number_4")
-
-
-def run_amazon_weekly(params: dict) -> dict:
-    """Run the Amazon Weekly Report and return results."""
-    from reports.amazon_weekly.runner import run as amazon_run
-
-    from config.paths import get_direct_reports_root
-    import time
-
-    output_root = get_direct_reports_root()
-    before = time.time()
-
-    try:
-        amazon_run(send_email=False, test_mode=False)
-        all_files = _find_all_new_xlsx(os.path.join(output_root, "Amazon Weekly"), before)
-        if not all_files:
-            return {"success": False, "error": "Report generated but output file not found."}
-
-        filepath = all_files[0]
-        sheets = _read_excel_sheets(filepath)
-        summary = _compute_summary(sheets, "amazon_weekly")
-        result = {
-            "success": True,
-            "filepath": filepath,
-            "filename": os.path.basename(filepath),
-            "sheets": sheets,
-            "summary": summary,
-        }
-        if len(all_files) > 1:
-            result["extra_files"] = [
-                {"filepath": p, "filename": os.path.basename(p)} for p in all_files[1:]
-            ]
-        return result
-    except Exception as e:
-        log.exception("Amazon Weekly failed")
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
 
 
 def run_customer_activity(params: dict) -> dict:
@@ -386,7 +349,6 @@ REPORT_RUNNERS = {
     "invoiced": run_invoiced_report,
     "salesman": run_salesman_report,
     "number_4": run_number4_report,
-    "amazon_weekly": run_amazon_weekly,
     "customer_activity": run_customer_activity,
     "customer_aging": run_customer_aging,
 }

@@ -55,13 +55,17 @@ def _resolve_salesman_email(
 
 
 def _get_filtered_report_recipients() -> list[str]:
-    """Recipients for --email on customer-filtered runs (Amazon weekly schedules).
+    """Recipients for --email on customer-filtered Ordered runs.
 
-    Always AMAZON_EMAIL_RECIPIENTS — never the salesman-map subscription
-    columns, which previously fanned Amazon Weekly out to every rep.
+    Always AMAZON_EMAIL_RECIPIENTS — never salesman-map subscription columns.
     """
-    from config.salesman_excel import get_amazon_weekly_recipients
-    return get_amazon_weekly_recipients()
+    from config.settings import get_email_recipients
+    recipients = get_email_recipients()
+    if not recipients:
+        log.warning("Filtered-report email skipped: AMAZON_EMAIL_RECIPIENTS is empty")
+    else:
+        log.info("Filtered-report recipients from AMAZON_EMAIL_RECIPIENTS: %d", len(recipients))
+    return recipients
 
 
 def _get_subscribed_salesmen() -> list[tuple[str, str, str]]:
@@ -149,8 +153,7 @@ class OrderedReportRunner(BaseReportRunner):
     def build_arg_parser(self):
         parser = super().build_arg_parser()
         parser.add_argument("--email", action="store_true", default=False,
-                            help="Email customer-filtered files to AMAZON_EMAIL_RECIPIENTS "
-                                 "(Amazon Weekly schedules).")
+                            help="Email customer-filtered files to AMAZON_EMAIL_RECIPIENTS.")
         return parser
 
     @property

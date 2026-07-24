@@ -1,5 +1,5 @@
 """
-Send report by email (e.g. Amazon Weekly).
+Send report by email (Graph or SMTP).
 
 Supports two methods (checked in order):
 

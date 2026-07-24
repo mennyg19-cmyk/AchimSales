@@ -27,7 +27,7 @@ Flow:
 
 Azure Automation Parameters:
   report_name (str, required): Key from report_registry.json, e.g. "ordered",
-                               "invoiced", "amazon_weekly", or "all" to run every report.
+                               "invoiced", or "all" to run every report.
   extra_args  (str, optional): Additional CLI args, e.g. "--period daily".
                                Merged with default_args from the registry.
                                Use "--force" to bypass the Shabbos/Yom Tov guard.
@@ -1415,7 +1415,7 @@ def _classify_guard_action(extra_args, is_all_time=False):
 
 
 _KNOWN_REPORT_KEYS = {
-    "ordered", "invoiced", "salesman", "number_4", "amazon_weekly",
+    "ordered", "invoiced", "salesman", "number_4",
     "customer_activity", "customer_aging", "all",
 }
 
@@ -1541,7 +1541,7 @@ def main():
 
     if not report_name:
         log.error("No report_name parameter provided. Set the 'report_name' Azure Automation parameter or pass as first CLI arg.")
-        log.error("Available: ordered, invoiced, salesman, number_4, amazon_weekly, customer_activity, all")
+        log.error("Available: ordered, invoiced, salesman, number_4, customer_activity, customer_aging, all")
         return 1
 
     report_name = report_name.strip().lower().replace("-", "_")

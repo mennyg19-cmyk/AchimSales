@@ -40,9 +40,7 @@ log = logging.getLogger(__name__)
 def write_report(df: pd.DataFrame, out_path: str, report_variant: str | None = None) -> None:
     """Write the ordered report to an Excel file.
 
-    report_variant: If "amazon_weekly", produces Amazon-specific layout: no legacy Summary
-    sheet, Summary = By Customer (with CustomerRequisition; no SalesOrderName/ItemName),
-    By Item, By Order only; no By Salesman, no Full Data; no sheet-to-sheet links.
+    report_variant: None (full), "filtered" (customer-scoped), or "salesman".
     """
     if "_StatusCategory" not in df.columns:
         df["_StatusCategory"] = "Other"
@@ -245,11 +243,10 @@ def _build_agg_sheet(df: pd.DataFrame, group_cols: list[str], agg_cols: list[str
 def _write_streaming(df, out_path, out_cols, agg_cols, currency_cols, report_variant=None):
     """Write using streaming (write_only) mode for large reports."""
     wb = Workbook(write_only=True)
-    amazon = report_variant == "amazon_weekly"
 
     sheet_specs = _build_sheet_specs(df, out_cols, agg_cols, report_variant=report_variant)
 
-    if not amazon and report_variant != "filtered":
+    if report_variant != "filtered":
         summary_df = _build_summary_data(df)
         ws_summary = wb.create_sheet(title="Summary", index=0)
         _write_summary_sheet(ws_summary, summary_df, is_write_only=True)
@@ -262,7 +259,7 @@ def _write_streaming(df, out_path, out_cols, agg_cols, currency_cols, report_var
 
     for sheet_idx, (sheet_name, subset, write_cols, use_score, skip_totals_row) in enumerate(sheet_specs):
         log.info("  Writing sheet: %s (%d rows)", sheet_name, len(subset))
-        if (amazon or report_variant == "filtered") and sheet_idx == 0:
+        if report_variant == "filtered" and sheet_idx == 0:
             ws = wb.create_sheet(title=sheet_name, index=0)
         else:
             ws = wb.create_sheet(title=sheet_name)
@@ -277,7 +274,7 @@ def _write_streaming(df, out_path, out_cols, agg_cols, currency_cols, report_var
         ws.append(header_cells)
 
         ff_idx = write_cols.index("Fulfillment %") if "Fulfillment %" in write_cols else None
-        use_hyperlink = use_score and not amazon
+        use_hyperlink = use_score
 
         for row_idx, (_, row) in enumerate(subset.iterrows()):
             cells = []
@@ -334,11 +331,10 @@ def _write_streaming(df, out_path, out_cols, agg_cols, currency_cols, report_var
 def _write_normal(df, out_path, out_cols, agg_cols, currency_cols, report_variant=None):
     """Write using normal (non-streaming) mode."""
     wb = Workbook()
-    amazon = report_variant == "amazon_weekly"
 
     sheet_specs = _build_sheet_specs(df, out_cols, agg_cols, report_variant=report_variant)
 
-    if not amazon and report_variant != "filtered":
+    if report_variant != "filtered":
         summary_df = _build_summary_data(df)
         ws_summary = wb.active
         ws_summary.title = "Summary"
@@ -349,7 +345,7 @@ def _write_normal(df, out_path, out_cols, agg_cols, currency_cols, report_varian
 
     for sheet_idx, (sheet_name, subset, write_cols, use_score, skip_totals_row) in enumerate(sheet_specs):
         log.info("  Writing sheet: %s (%d rows)", sheet_name, len(subset))
-        if (amazon or report_variant == "filtered") and sheet_idx == 0:
+        if report_variant == "filtered" and sheet_idx == 0:
             ws = wb.active
             ws.title = sheet_name
         else:
@@ -400,7 +396,7 @@ def _write_normal(df, out_path, out_cols, agg_cols, currency_cols, report_varian
                 elif not is_full_data and data_idx % 2 == 1:
                     cell.fill = FILL_LIGHT_GREY
 
-                use_hyperlink = use_score and report_variant != "amazon_weekly"
+                use_hyperlink = use_score
                 if use_hyperlink and c_idx == 1 and value not in (None, "", "Total"):
                     cell.hyperlink = "#'Full Data'!A1"
                     cell.font = FONT_LINK
@@ -433,45 +429,19 @@ def _write_normal(df, out_path, out_cols, agg_cols, currency_cols, report_varian
     wb.save(out_path)
 
 
-def _build_summary_one_row(df: pd.DataFrame, agg_cols: list[str]) -> pd.DataFrame:
-    """Build a single-row Summary tab: one line of totals (for amazon_weekly)."""
-    sum_cols = [c for c in agg_cols if c in df.columns]
-    if not sum_cols:
-        return pd.DataFrame()
-    row = {c: to_number(df[c]).sum() for c in sum_cols}
-    row["Total"] = "Total"
-    # Fulfillment % for the whole report
-    qo = row.get("QtyOrdered", 0) or 0
-    qc = row.get("QtyCancelled", 0) or 0
-    score = ((qo - qc) / qo * 100) if qo and qo > 1e-6 else None
-    if score is not None:
-        row["Fulfillment %"] = f"{score:.0f}%"
-    else:
-        row["Fulfillment %"] = ""
-    # Column order: Total, Fulfillment %, then agg cols
-    cols = ["Total", "Fulfillment %"] + [c for c in agg_cols if c in row]
-    return pd.DataFrame([{c: row.get(c, "") for c in cols}])
-
-
 def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
     """Build list of (sheet_name, subset_df, write_cols, use_score_fill, skip_totals_row) for all tabs.
 
     Variants:
       None (default)     -- all tabs: Summary, By Customer, By Item, By Order, By Salesman, Full Data
-      "amazon_weekly"    -- Summary (one-row totals), By Item, By Order (with PO #)
       "filtered"         -- Summary (aggregated by customer), By Item, By Order
       "salesman"         -- Summary, By Customer, By Item, By Order, Full Data (no By Salesman)
     """
-    amazon = report_variant == "amazon_weekly"
     filtered = report_variant == "filtered"
     salesman_variant = report_variant == "salesman"
     specs = []
 
-    if amazon:
-        one_row = _build_summary_one_row(df, agg_cols)
-        write_cols = list(one_row.columns) if not one_row.empty else ["Total"]
-        specs.append(("Summary", one_row, write_cols, False, True))
-    elif filtered:
+    if filtered:
         cust_cols = [c for c in ["CustomerAccount", "CustomerName"] if c in df.columns]
         if cust_cols:
             grp = _build_agg_sheet(df, cust_cols, agg_cols)
@@ -498,16 +468,15 @@ def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
         else:
             specs.append(("By Customer", pd.DataFrame(), out_cols, False, False))
 
-    if not amazon:
-        item_cols = ["Item#"] if "Item#" in df.columns else []
-        if item_cols:
-            grp = _build_agg_sheet(df, item_cols, agg_cols)
-            lead = [c for c in ["Item#", "ItemName"] if c in grp.columns]
-            exclude = {"_StatusCategory", "_FulfillmentScore", "CustomerName", "SalesOrderName"}
-            rest = [c for c in grp.columns if c not in exclude and c not in lead]
-            specs.append(("By Item", grp, lead + rest, not amazon, False))
-        else:
-            specs.append(("By Item", pd.DataFrame(), out_cols, False, False))
+    item_cols = ["Item#"] if "Item#" in df.columns else []
+    if item_cols:
+        grp = _build_agg_sheet(df, item_cols, agg_cols)
+        lead = [c for c in ["Item#", "ItemName"] if c in grp.columns]
+        exclude = {"_StatusCategory", "_FulfillmentScore", "CustomerName", "SalesOrderName"}
+        rest = [c for c in grp.columns if c not in exclude and c not in lead]
+        specs.append(("By Item", grp, lead + rest, True, False))
+    else:
+        specs.append(("By Item", pd.DataFrame(), out_cols, False, False))
 
     order_col = pick_col(df, ["SalesOrderNumber"])
     if order_col:
@@ -517,11 +486,11 @@ def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
         if "CustomerRequisition" in grp.columns:
             grp = grp.rename(columns={"CustomerRequisition": "PO #"})
             write_cols = ["PO #" if c == "CustomerRequisition" else c for c in write_cols]
-        specs.append(("By Order", grp, write_cols, not amazon and not filtered, False))
+        specs.append(("By Order", grp, write_cols, not filtered, False))
     else:
         specs.append(("By Order", pd.DataFrame(), out_cols, False, False))
 
-    if not amazon and not filtered and not salesman_variant:
+    if not filtered and not salesman_variant:
         if "Salesman" in df.columns:
             grp = _build_agg_sheet(df, ["Salesman"], agg_cols)
             write_cols = [c for c in grp.columns if c not in ("_StatusCategory", "_FulfillmentScore", "SalesOrderName", "ItemName")]
@@ -529,7 +498,7 @@ def _build_sheet_specs(df, out_cols, agg_cols, report_variant=None):
         else:
             specs.append(("By Salesman", pd.DataFrame(), out_cols, False, False))
 
-    if not amazon and not filtered:
+    if not filtered:
         full_data = df[out_cols + ["_StatusCategory", "_LastLineOfOrder", "_FulfillmentScore"]].copy()
         write_cols = [c for c in FULL_DATA_ORDER if c in full_data.columns]
         if not write_cols:

@@ -60,21 +60,6 @@
         ],
         "default_args": ""
     },
-    "amazon_weekly": {
-        "display_name": "Amazon Weekly",
-        "runner_module": "reports.ordered.runner",
-        "runner_class": "OrderedReportRunner",
-        "runner_type": "class",
-        "required_paths": [
-            "config",
-            "core",
-            "data",
-            "reports/__init__.py",
-            "reports/base.py",
-            "reports/ordered"
-        ],
-        "default_args": "--customer 9300 9301 --period last_7_days --email"
-    },
     "customer_activity": {
         "display_name": "Customer Activity Report",
         "runner_module": "reports.customer_activity.runner",

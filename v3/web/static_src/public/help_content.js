@@ -39,13 +39,6 @@ var HELP = {
               "<b>Both</b> — two tabs, one of each."
     },
 
-    "report-amazon_weekly": {
-        title: "Amazon Weekly Report",
-        body: "Shows all Amazon orders from the past 7 days for accounts 9300 and 9301.<br><br>" +
-              "There are no options to change — it always covers the last week for those two accounts.<br><br>" +
-              "Just tap Run."
-    },
-
     "report-customer_activity": {
         title: "Customer Activity Report",
         body: "Shows when each customer last placed an order, organized by salesman.<br><br>" +

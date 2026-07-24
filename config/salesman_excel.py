@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 _XLSX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "salesman_map.xlsx")
 
 REPORT_KEYS = ("ordered", "invoiced", "salesman", "number_4", "customer_activity",
-                "master_salesman", "master_customer_activity", "amazon_weekly",
+                "master_salesman", "master_customer_activity",
                 "customer_aging_report")
 
 _SUBSCRIPTION_COLUMNS = {
@@ -36,7 +36,6 @@ _SUBSCRIPTION_COLUMNS = {
     "Recv_CustomerActivity": "customer_activity",
     "Recv_MasterSalesman": "master_salesman",
     "Recv_MasterCustomerActivity": "master_customer_activity",
-    "Recv_AmazonWeekly": "amazon_weekly",
     "Recv_CustomerAging": "customer_aging_report",
 }
 
@@ -128,11 +127,6 @@ def load_salesman_map(path: str | None = None) -> dict[str, SalesmanRecord]:
             col_idx = header_map.get(col_name)
             if col_idx is not None and col_idx < len(vals):
                 subs[report_key] = _to_bool(vals[col_idx])
-            elif report_key == "amazon_weekly":
-                # Amazon Weekly must NEVER opt everyone in just because a row
-                # has an email. Missing Recv_AmazonWeekly means not subscribed;
-                # recipients come from AMAZON_EMAIL_RECIPIENTS instead.
-                subs[report_key] = False
             else:
                 subs[report_key] = bool(email)
 
@@ -251,31 +245,6 @@ def get_report_subscribers(
         if rec.email and rec.subscriptions.get(report_key, False):
             result.append((rec.display_name or key, rec.email, list(rec.cc), list(rec.bcc)))
     return result
-
-
-def get_amazon_weekly_recipients(map_path: str | None = None) -> list[str]:
-    """Resolve Amazon Weekly recipients from AMAZON_EMAIL_RECIPIENTS only.
-
-    The salesman spreadsheet is intentionally ignored for this report. A missing
-    or all-TRUE ``Recv_AmazonWeekly`` column previously blasted every rep with
-    an email address. Extras who are not on the salesman map belong in the
-    Automation variable / env var (comma or semicolon separated).
-
-    ``map_path`` is accepted for call-site compatibility but unused.
-    """
-    del map_path  # spreadsheet is not consulted for Amazon Weekly delivery
-    from config.settings import get_email_recipients
-    recipients = get_email_recipients()
-    if not recipients:
-        log.warning(
-            "Amazon Weekly email skipped: AMAZON_EMAIL_RECIPIENTS is empty"
-        )
-        return []
-    log.info(
-        "Amazon Weekly recipients from AMAZON_EMAIL_RECIPIENTS: %d address(es)",
-        len(recipients),
-    )
-    return recipients
 
 
 def get_commission_pct_map() -> dict[str, float]:

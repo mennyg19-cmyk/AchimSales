@@ -24,7 +24,6 @@ REPORT_KEY_TO_DISPLAY = {
     "invoiced": "Invoiced Report",
     "salesman": "Salesman Report",
     "number_4": "Number 4 Report",
-    "amazon_weekly": "Amazon Weekly",
     "customer_activity": "Customer Activity Report",
     "customer_aging": "Customer Aging Report",
 }
@@ -36,7 +35,6 @@ DEFAULT_PATH_TEMPLATES = {
     "number_4": "Direct Reports/Number 4 Report/Daily/Number_4_Report_{yesterday}.xlsx",
     "customer_activity": "Direct Reports/Salesman Report/Customer Activity/Customer_Activity_{yesterday}.xlsx",
     "customer_aging": "Direct Reports/Customer Aging Report/Daily/Customer_Aging_{yesterday}.xlsx",
-    "amazon_weekly": "Direct Reports/Amazon Weekly/Amazon_Weekly_{yesterday}.xlsx",
 }
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -185,7 +183,6 @@ REPORT_FILE_PREFIXES = {
     "number_4": "Number_4_Report_",
     "customer_activity": "Customer_Activity_",
     "customer_aging": "Customer_Aging_",
-    "amazon_weekly": "Amazon_Weekly_",
 }
 
 

@@ -18,7 +18,6 @@ REPORTS = {
     "invoiced": "reports.invoiced.runner",
     "salesman": "reports.salesman.runner",
     "number_4": "reports.number_4.runner",
-    "amazon_weekly": "reports.amazon_weekly.runner",
     "customer_activity": "reports.customer_activity.runner",
 }
 
@@ -29,7 +28,7 @@ def main():
         print(f"Reports: {', '.join(REPORTS.keys())}, all")
         print("Options: --period <daily|mtd|ytd|this_week>  --date YYYY-MM-DD")
         print("         --from YYYY-MM-DD --to YYYY-MM-DD   --company <id>")
-        print("         amazon_weekly: use --email to send report by email")
+        print("         ordered --email: email customer-filtered runs (AMAZON_EMAIL_RECIPIENTS)")
         print("         customer_activity: use --email to send individual reports")
         sys.exit(0)
 

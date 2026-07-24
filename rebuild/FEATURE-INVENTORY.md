@@ -53,7 +53,7 @@ Customer's Last Order (`/report/customer-last-order*` page + sub-API).
 Schedules list page (`/schedules`), Master schedules (`/master-schedules`),
 Report run-log page (`/admin/run-log`). Other reports: ordered, salesman,
 number_4, customer_activity (BUILT today, but wait on their flat-table SPs).
-Backlog: amazon_weekly, customer_aging.
+Backlog: customer_aging.
 
 ---
 

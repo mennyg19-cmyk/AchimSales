@@ -13,7 +13,6 @@ from the CLI.
 | Shipped Report | `python run.py invoiced --salesman <name>` | Direct Reports/Salesman Report/Shipped Report/{period}/ |
 | Salesman Report | `python run.py salesman` | Direct Reports/Salesman Report/{period}/ |
 | Number 4 Report | `python run.py number_4` | Direct Reports/Number 4 Report/{sub}/{period}/ |
-| Amazon Weekly | `python run.py amazon_weekly --email` | Direct Reports/Amazon Weekly/{period}/ |
 | Customer Activity | `python run.py customer_activity` | Direct Reports/Customer Activity/ |
 
 ## CLI Usage
@@ -38,7 +37,8 @@ heartbeat email.
 
 ```
 universal_runbook.py ordered --period daily
-universal_runbook.py amazon_weekly          # alias for: ordered --customer 9300 9301 --period last_7_days --email
+# Amazon ordered schedule (customers 9300/9301):
+#   ordered --customer 9300 9301 --period last_7_days --email
 ```
 
 ### Web App (on-demand)
@@ -79,7 +79,7 @@ See `.env.example` for all required variables. Key groups:
 
 - **D365**: `D365_ENV_URL`, `D365_TENANT_ID`, `D365_CLIENT_ID`, `D365_CLIENT_SECRET`, `D365_COMPANY_ID`
 - **Graph/SharePoint**: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `SP_SITE_URL`
-- **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (or use `Recv_AmazonWeekly` column in `salesman_map.xlsx`)
+- **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)
 - **Web App**: `FLASK_SECRET_KEY`, `DEV_BYPASS_AUTH`
 
 ## Directory Structure
@@ -119,7 +119,12 @@ scripts/
 
   reports/
     base.py                 # Abstract base runner with CLI arg parsing
-    amazon_weekly/          # Amazon Weekly report (custom email logic)
+    ordered/                # Ordered Report
+    invoiced/               # Invoiced Report
+    salesman/               # Salesman Report
+    number_4/               # Number 4 Report
+    customer_activity/      # Customer Activity Report
+    customer_aging/         # Customer Aging Report
     ordered/                # Ordered Report
     invoiced/               # Invoiced / Shipped Report
     salesman/               # Salesman Report

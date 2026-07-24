@@ -1,5 +1,16 @@
 # Decision Log
 
+## 2026-07-23 Removed Amazon Weekly as a named report
+**What you asked for:** wipe Amazon Weekly everywhere — it was only Ordered with
+customers 9300/9301, last_7_days, and email.
+**What I did:** backed up to `_history_backup/amazon_weekly-removed-2026-07-23/`
+(gitignored), then removed the report module, registry entry, live UI card,
+v3 backlog entry, help text, email-distribution templates, and dedicated tests.
+Ordered still supports `--customer 9300 9301 --period last_7_days --email`
+(recipients from `AMAZON_EMAIL_RECIPIENTS`). Azure schedules that still call
+`amazon_weekly` must be changed to that Ordered command.
+**Status:** DECIDED — code removed on `rebuild-reports`. Not deployed until you say.
+
 ## 2026-07-23 Green test app already gone; v3 vs rebuild; prod branch
 **What you asked:** delete the green test app, compare v3 vs rebuild, and say
 which branch production runs on.

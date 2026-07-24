@@ -103,11 +103,11 @@ def validate_d365_config() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Email (Amazon Weekly report)
+# Email (customer-filtered Ordered --email; env var names kept for Azure)
 # ---------------------------------------------------------------------------
 
 def get_email_recipients() -> list[str]:
-    """Comma- or semicolon-separated list of email addresses for Amazon Weekly report. Empty = no email."""
+    """Addresses from AMAZON_EMAIL_RECIPIENTS. Empty = no filtered-run email."""
     raw = get_config("AMAZON_EMAIL_RECIPIENTS", ["AMAZON_EMAIL_RECIPIENTS"], default="")
     if not raw or not str(raw).strip():
         return []

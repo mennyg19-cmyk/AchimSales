@@ -38,8 +38,8 @@ class ReportSpec:
 
 
 # Matches the live app's report keys. Status reflects v3 build reality, updated
-# as builders land. customer_aging / amazon_weekly are BACKLOG until built - they
-# must never appear as working reports (this is the "no fake stub" guarantee).
+# as builders land. customer_aging stays BACKLOG until built - it must never
+# appear as a working report (this is the "no fake stub" guarantee).
 REGISTRY: tuple[ReportSpec, ...] = (
     ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=2, salesman_default=True),
     ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
@@ -54,7 +54,6 @@ REGISTRY: tuple[ReportSpec, ...] = (
         "item_averages", "Item Averages", ReportStatus.BUILT,
         privileged_only=True,
     ),
-    ReportSpec("amazon_weekly", "Amazon Weekly", ReportStatus.BACKLOG),
     ReportSpec("customer_aging", "Customer Aging", ReportStatus.BACKLOG, salesman_default=True),
 )
 

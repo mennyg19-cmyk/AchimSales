@@ -262,23 +262,6 @@ class TestWriteReport:
             min_rows={"Full Data": 2},
         )
 
-    def test_amazon_weekly_variant(self, output_dir):
-        """Amazon variant: Summary, By Item, By Order only."""
-        headers = make_order_headers(n=3, order_date="2026-02-20", customers=["9300"])
-        lines = make_order_lines(headers, raw_status="invoiced")
-        whs = make_whs_lines(lines, released_pct=1.0)
-        ps = make_packing_slips(lines, shipped_pct=1.0)
-
-        df, _ = build_report(headers, lines, whs, ps, _period())
-        out_path = str(output_dir / "ordered_amazon.xlsx")
-        write_report(df, out_path, report_variant="amazon_weekly")
-
-        assert os.path.isfile(out_path)
-        assert_workbook_structure(
-            out_path,
-            expected_sheets=["Summary", "By Order"],
-        )
-
     def test_filtered_variant(self, output_dir):
         """Filtered variant for per-customer runs."""
         headers = make_order_headers(n=3, order_date="2026-02-20")
