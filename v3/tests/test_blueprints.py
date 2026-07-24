@@ -872,10 +872,44 @@ def test_master_schedule_admin_only(tmp_path):
     _login(admin, app)
     created = admin.post("/api/master-schedules", json={
         "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
-        "cadence": {"freq": "daily", "time": "06:00"}},
+        "cadence": {"freq": "daily", "time": "06:00"},
+        "params": {"period": "yesterday", "customers": "9300 9301"}},
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
-    assert "Nightly" in admin.get("/master-schedules").get_data(as_text=True)
+    page = admin.get("/master-schedules").get_data(as_text=True)
+    assert "Nightly" in page
+    assert "msWizard" in page
+    assert "Set up a schedule" in page
+    assert "data-pane=\"1\"" in page
+
+    from web.data.repositories.schedules import MasterScheduleRepository
+    mid = created.get_json()["id"]
+    saved = MasterScheduleRepository(app.config["DB"]).get(mid)
+    assert saved.params["period"] == "yesterday"
+    assert saved.params["customers"] == ["9300", "9301"]
+
+
+def test_master_schedule_rejects_in_app_report(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    resp = admin.post("/api/master-schedules", json={
+        "name": "CLO", "report_key": "customer_last_order", "recipients": "t@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
+def test_settings_shows_master_schedule_card(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    html = admin.get("/settings").get_data(as_text=True)
+    assert "Master schedules" in html
+    assert "Set up / manage schedules" in html
+    assert "admin-sched-card" in html
+    assert "0 schedules set up" in html
+
 
 
 def test_preferences_api_persists_theme(tmp_path):
