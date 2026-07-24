@@ -43,6 +43,8 @@ var HELP = {
         title: "Customer Activity Report",
         body: "Shows when each customer last placed an order, organized by salesman.<br><br>" +
               "Helps you spot customers who haven't ordered in a while.<br><br>" +
+              "Tabs: <strong>All</strong> (every customer with a Salesman column), " +
+              "one tab per salesman, then Unassigned.<br><br>" +
               "There are no options to set — just tap Run."
     },
 

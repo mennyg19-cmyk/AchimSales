@@ -1,69 +1,123 @@
 # Session Handoff
 
-Last updated: 2026-06-18 ~18:20 UTC, by the autonomous session you left running.
+Last updated: 2026-07-24 ~14:02 local (UTC+3)
 
-## What you asked for
+**Status:** ordered last_month DIFF (data-matched). Missing on /test mostly 2026-06-01; extras mostly 2026-06-30. Value gaps dominated by PO blank on /test + qty_released live=0 vs /test filled. Other three reports not run; tool still uncommitted.
 
-"Run autonomously, I'm going home. Use review agents." The job: do the proper fix
-for the stalled v3 job queue -- move `precious.db` off the `/home` SMB share onto
-local disk, back up first, cut over, and verify the worker drains the queue.
+## Working tree
 
-## What got done (all verified in the running app, not just code)
+- **Branch:** `rebuild-reports` (tracks `origin/rebuild-reports`, tip **`ef04067`**)
+- **Repo:** `D:\Projects\Achim\AchimSales`
+- **Prod URL:** https://reports.achimonline.com  
+  - Live `/` = OData (freeze — phase out later)  
+  - `/test` = v3 Reporting API / SQL-math  
+  - `/test-next` = rebuild preview (out of parity scope for now)
 
-1. **Root cause (recap):** `precious.db` (v3's users/roles/schedules/jobs) lived on
-   `/home`, which is an Azure Files SMB share. SQLite's WAL mode can't share its
-   index across processes over SMB, so the background job worker couldn't even
-   open the DB -- it failed on every poll with "unable to open database file", so
-   no report job ever ran and no call ever reached the Reporting API.
+## What's done (committed + pushed)
 
-2. **The fix (shipped + live):** the DB now lives on local disk at
-   `/tmp/v3data/precious.db` (and `cache.db` likewise). On the first boot after the
-   move, `startup.sh` seeded the local DB once from the old `/home` copy using
-   SQLite's online-backup, guarded by a one-time marker on `/home`. After that,
-   normal cold starts restore the current data from the Litestream Blob replica.
+- **`ef04067`** — Remove Amazon Weekly as a named report (backup in `_history_backup/amazon_weekly-removed-2026-07-23/`, gitignored). Recreate schedule as:  
+  `ordered --customer 9300 9301 --period last_7_days --email`
+- **`529cb6b`** — Phone/Cursor cleanup: green-test Docker leftovers; DECISION-LOG on v3 vs rebuild keep-both
 
-3. **Proof it worked (from the container logs):**
-   - `startup: seeded precious.db users=12 jobs=232` -> data came across intact.
-   - Litestream snapshotted `/tmp/v3data/precious.db` and is replicating to Blob.
-   - The worker poller went from erroring every second to **zero** errors.
-   - A later restart (with `/tmp` wiped) correctly **skipped** the seed and
-     **restored** the DB from Blob -- the cold-start durability path works, and the
-     restored snapshot was the same size, so nothing was lost.
-   - Live app (`/`) and v3 (`/test`) both serving; scheduler ticking every minute.
+## What's done (NOT committed — next agent must commit if continuing)
 
-4. **Hardening:** `config.validate()` now refuses to boot in prod if precious/cache
-   is ever set back to a `/home` path (the exact gap that let this happen). Tests
-   added. Reverted the dead `SQLITE_JOURNAL_MODE` knob (failed interim attempt) and
-   removed its app setting.
+Parity tool + docs (working tree dirty):
 
-5. **Commits on branch `cleanup-codebase-sweep` (pushed):**
-   - `8dd44ca` Move v3 precious.db off /home SMB to local disk
-   - `da69e7c` Refuse to boot v3 in prod with precious/cache on the /home share
-   - All 328 v3 tests pass. A `gpt-5.5-extra-high` review of the migration found 3
-     issues (partial-seed file, marker durability, an unbound-var fail-open gap) --
-     all fixed before deploy.
+| Path | Role |
+|------|------|
+| `tools/parity/` | CLI: `python -m tools.parity` — includes `data_compare.py` key-matched comparer |
+| `tools/__init__.py` | package marker |
+| `tests/test_parity_report.py` | offline unit tests (6 passed) |
+| `README.md`, `.env.example`, `DECISION-LOG.md` | PARITY_* docs + decision entry |
+| `.scratch/grill-notes.md` | locked product decisions |
+| `.scratch/run-state.md` | run checkpoint |
+| `.scratch/parity/` | run outputs (gitignored via `.scratch/`) |
 
-## Rollback (if anything looks wrong)
+Also untracked: `.scratch/probe_cookies.py`, `.scratch/agent-run.ps1` (scratch only — may hold cookies; never commit).
 
-The old DB is untouched. To revert: set `PRECIOUS_DB_PATH=/home/site/v3data/precious.db`
-and `CACHE_DB_PATH=/home/site/v3data/cache.db` (the app restarts and uses the frozen
-`/home` copy). There's also a dated `precious.premigrate.*.db` on `/home`.
+## Locked product decisions (parity + rebuild)
 
-## What's next / for you to confirm
+From `.scratch/grill-notes.md` — do not reopen casually:
 
-- **Run a report through the UI** to watch a job go queued -> running -> done end to
-  end. The worker can now open the DB and poll cleanly; this is the final
-  human-eyes confirmation that a real job drains. (I can't log in to do this.)
-- The Feb/Mar missing data is the DBA's upstream stored procedure, not this app --
-  confirmed by you on the phone. Nothing to fix on our side.
+1. **Auth:** HTTP cookies (prod) or `--auth dev` (local). Not Playwright.
+2. **Compare:** live `/` vs `/test` only. Five reports: ordered, invoiced, salesman, customer_activity, number_4.
+3. **Defaults:** ordered `period=last_month`; invoiced `period=ytd`; number_4 `mode=both`; salesman/customer_activity `{}`.
+4. **Comparer:** key-matched rows. Ignore formatting, column order, /test-only extra columns. Soft name-format (`Meir Grego` vs `Grego, Meir`) does not fail. Pattern summaries for missing rows / numeric gaps.
+5. **Live:** no product changes (frozen baseline).
+6. **Rebuild gate (strict order):**  
+   a. Live↔/test math correct (intentional diffs accepted by Menny)  
+   b. Then rebuild `/test` cleanly (mine git history for UX/design fixes)  
+   c. Then re-check rebuilt Test vs **current** `/test` (math + features unchanged)  
+   d. Only then replace current `/test`  
+   e. Live cutover later
 
-## Gotchas for the next session
+## Parity runs so far
 
-- On Azure App Service Linux, `/home` is SMB (Azure Files) and `/tmp` is local
-  container disk. SQLite must stay on `/tmp` (local); Litestream gives it durability.
-- `litestream.yml` reads `${PRECIOUS_DB_PATH}`, so the DB path and its Blob replica
-  move together via that one app setting.
-- From this machine, direct calls to `*.azurewebsites.net` (Kudu/SCM, the site URL)
-  fail DNS, but the `az` CLI works fine (deploy, settings, logs, restart). Use `az`.
-- `deploy.ps1` zips the working directory; keep scratch files (tail*.txt, app.zip,
-  applogs*) out of the folder or they get bundled (and can lock the zip step).
+### Invoiced YTD — SUCCESS (with DIFF)
+
+- Folder: `.scratch/parity/20260724-043826/`
+- Old cell-diff: **2603** / 4214 (noisy — layout/sort)
+- Re-check with data matcher: still real gaps (~1219 hard), missing sheet `Audit - Reversals`, number diffs concentrated in totals/tariff/etc.
+
+### Ordered last_month — SUCCESS (with DIFF)
+
+- Folder: `.scratch/parity/20260724-070725/` (`ordered.md` + both xlsx)
+- Hard diffs ~165k (mostly systematic column gaps, not random layout noise)
+- **Row coverage patterns:**
+  - Missing on /test: almost all dated **2026-06-01** (152/152 By Order; 198/257 Full Data)
+  - Extra on /test: mostly dated **2026-06-30**
+- **Value patterns:**
+  - `po_number`: live has values, **/test always blank** (known SP stub)
+  - `qty_released` / `released_dollars`: **live mostly 0**, /test filled
+  - Also: order_date mismatches on thousands of matched orders; Summary remainder qty/price gaps
+
+### Salesman / customer_activity / number_4
+
+- Not run yet.
+
+## How to run parity
+
+```powershell
+cd D:\Projects\Achim\AchimSales
+# Fresh cookies if probe shows login redirect (503 = wait for Azure, not new cookies)
+
+$env:PARITY_LIVE_COOKIE = "<session value>"
+$env:PARITY_TEST_COOKIE = "<v3_session value>"
+$env:PARITY_BASE_URL = "https://reports.achimonline.com"
+
+python -m tools.parity --report ordered --param period=last_month -v --timeout 3600
+python -m tools.parity --report salesman --report customer_activity --report number_4 -v --timeout 3600
+```
+
+Code: `tools/parity/clients.py`, `scenarios.py`, `data_compare.py`, `report.py`, `__main__.py`.  
+`--param KEY=VALUE` overrides defaults for the selected reports.
+
+**PowerShell:** put env + command in `.scratch/agent-run.ps1` and run with `-File`. **Never commit cookies.**
+
+## What's next (ordered)
+
+1. Wait until prod is not 503; probe cookies (login redirect = refresh; 503 = wait).
+2. Run **ordered last_month**; read pattern section of `ordered.md`.
+3. Run salesman / customer_activity / number_4.
+4. Commit + push uncommitted `tools/parity` when Menny asks.
+5. After math sign-off: git-history inventory of `/test` design fixes → clean Test rebuild → re-parity vs current test → replace `/test`.
+
+## Open decisions
+
+- When to commit `tools/parity`?
+- Port `cursor/master-schedule-wizard-ca14` (old `webapp-cache` lineage) into `rebuild-reports`? Not done.
+- Azure Automation jobs still named `amazon_weekly` must be switched manually to Ordered command (not done in Azure).
+
+## Gotchas
+
+- Live and `/test` use **different** cookies (`session` vs `v3_session`).
+- `/test` POSTs need **CSRF** (`X-CSRF-Token`).
+- HTTP 503 = Azure/app down — do not burn cookies or assume auth failure.
+- Do **not** change live product code (freeze).
+- Do **not** start Test rebuild until live↔test math is signed off.
+- `codegraph status` before structural search; healthy index → no Grep-for-symbols.
+- Deploy is `deploy.ps1` zip, not auto on push.
+
+## Proof-of-read for next agent
+
+Orient: this file → `.scratch/run-state.md` → `.scratch/grill-notes.md` → README parity section → `tools/parity/`.

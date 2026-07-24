@@ -196,15 +196,22 @@ def translate_item_averages(p: dict) -> dict[str, Any]:
 
 
 def translate_customer_activity(p: dict) -> dict[str, Any]:
-    """customer_activity -> salesline_release over all-time (go-live..today).
-
-    The builder finds each customer's most recent order, so it needs the
-    full history; salesman fan-out happens in the builder, not the SP.
-    """
-    return {
-        "CreatedDateTimeFrom": sp_datetime(D365_GO_LIVE, end_of_day=False),
-        "CreatedDateTimeTo": sp_datetime(today_eastern(), end_of_day=True),
-    }
+    """customer_activity -> rpt.usp_customer_activity."""
+    try:
+        order_count = int(p.get("order_count") or 1)
+    except (TypeError, ValueError):
+        order_count = 1
+    out: dict[str, Any] = {"OrderCount": min(100, max(1, order_count))}
+    if as_of_date := _csv(p.get("as_of_date")):
+        out["AsOfDate"] = as_of_date
+    for form_key, parameter in (
+        ("salesman", "Salesman"),
+        ("customer_account", "CustomerAccount"),
+        ("customer_name", "CustomerName"),
+    ):
+        if value := _csv(p.get(form_key)):
+            out[parameter] = value
+    return out
 
 
 # (report_id, translator) keyed by in-app report key. Single source of truth.
@@ -217,7 +224,7 @@ REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     # picks the actual SP(s) via NUMBER_4_BY_CUSTOMER_SP / NUMBER_4_BY_ITEM_SP.
     "number_4": (NUMBER_4_BY_CUSTOMER_SP, translate_number_4),
     "item_averages": (NUMBER_4_BY_ITEM_SP, translate_item_averages),
-    "customer_activity": ("salesline_release", translate_customer_activity),
+    "customer_activity": ("customer_activity", translate_customer_activity),
 }
 
 

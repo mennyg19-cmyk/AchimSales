@@ -11,7 +11,7 @@
 Multi-source reports own their extra fetches here (not in the builder):
     * invoiced     -> a second YTD fetch feeds the monthly commissions pivot,
     * number_4     -> one or two rolling-12 SPs, picked by the mode filter,
-    * customer_activity -> customer_master is the universe (mirror fallback).
+    * customer_activity -> dedicated customer_activity SP (All + salesman tabs).
 The builders stay pure and source-agnostic; this is where I/O lives.
 """
 
@@ -134,7 +134,7 @@ class ReportService:
         so a single call would blow the API timeout.
         """
         return self._facts_chunked(
-            "salesline_release", P.translate("customer_activity", {}),
+            "salesline_release", {},
             src_ordered.to_facts, None,
             from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
             start=D365_GO_LIVE, end=today_eastern())
@@ -147,7 +147,7 @@ class ReportService:
     def last_order_facts(self, account: str) -> list:
         """Full-history OrderLineFacts for one customer (Customer's Last Order).
 
-        Anchors the window to go-live..today explicitly (like customer_activity)
+        Anchors the window to go-live..today explicitly
         so the "last invoiced order" is found over the customer's whole history,
         not just the SP's default window.
         """
@@ -271,18 +271,13 @@ def _orch_item_averages(svc: ReportService, params: dict, visible_keys) -> dict:
 
 
 def _orch_customer_activity(svc: ReportService, params: dict, visible_keys) -> dict:
-    # All-time order history (go-live..today), chunked by month so the largest
-    # salesline_release pull doesn't blow the API timeout.
-    orders = svc._facts_chunked(
-        "salesline_release", P.translate("customer_activity", params),
-        src_ordered.to_facts, visible_keys,
-        from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
-        start=D365_GO_LIVE, end=today_eastern())
-    customers = filter_facts_by_scope(svc._customer_universe(), visible_keys)
-    tabs = rpt_customer_activity.build(
-        customers, orders, salesmen=svc._salesmen(), scope=params,
-    )
-    return svc._payload("customer_activity", tabs, len(orders))
+    # Dedicated SP returns one row per customer (Salesman + last-order fields).
+    # Builder fans out into All + per-salesman + Unassigned tabs.
+    fetched = svc.client.run_report(
+        P.report_id_for("customer_activity"), P.translate("customer_activity", params))
+    rows = rpt_customer_activity.filter_rows_by_salesman(
+        rpt_customer_activity.clean_rows(fetched.rows), visible_keys)
+    return svc._payload("customer_activity", rpt_customer_activity.build(rows), len(rows))
 
 
 _ORCHESTRATORS: dict[str, Callable[[ReportService, dict, set | None], dict]] = {

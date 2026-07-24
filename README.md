@@ -59,6 +59,21 @@ cp .env.example .env      # fill in credentials
 python run.py ordered
 ```
 
+### Live vs /test parity
+
+Compares Excel from live (`/`, OData) and `/test` (Reporting API) with the same
+params. Writes a per-report diff under `.scratch/parity/<stamp>/`.
+
+```powershell
+# After signing in in the browser, copy cookie values:
+#   session     -> PARITY_LIVE_COOKIE
+#   v3_session  -> PARITY_TEST_COOKIE
+$env:PARITY_LIVE_COOKIE = "..."
+$env:PARITY_TEST_COOKIE = "..."
+python -m tools.parity
+python -m tools.parity --report invoiced
+```
+
 ### OneDrive deployment mirror
 
 Develop only in this D: checkout. The company OneDrive folder is a one-way

@@ -195,16 +195,17 @@ def test_lookup_dropdowns_populate_from_mirror_before_universe_warms():
     assert rec == {"key": "100", "name": "Acme", "salesman": "REdwards"}
 
 
-def test_customer_activity_uses_mirror_when_master_down():
-    orders = [{"CustomerAccount": "100", "SalesOrderNumber": "SO1",
-               "CreatedDateTime": "2026-03-01T00:00:00", "QuantityOrdered": "1", "Item": "A"}]
-    mirror_rows = [{"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"}]
-    svc = _svc({"salesline_release": orders}, fail_ids={"customer_master"},
-               mirror=lambda: mirror_rows)
+def test_customer_activity_uses_sp_rows():
+    rows = [{
+        "Salesman": "REdwards", "Customer Account": "100", "Customer Name": "Acme",
+        "Last Order Date": "2026-03-01", "PO #": "P1", "Sales Order Number": "SO1",
+    }]
+    svc = _svc({"customer_activity": rows})
     out = svc.builder_for("customer_activity")({}, None)
     all_tab = next(t for t in out["tabs"] if t["key"] == "all")
     assert len(all_tab["rows"]) == 1
     assert all_tab["rows"][0]["Customer Account"] == "100"
+    assert all_tab["name"] == "All"
 
 
 def test_scope_filters_facts_to_visible_keys():

@@ -11,7 +11,7 @@ def test_report_id_map_is_complete():
     assert P.report_id_for("invoiced") == "invoiced_report"
     assert P.report_id_for("salesman") == "invoiced_order_charges"
     assert P.report_id_for("number_4") == "customer_item_sales_rolling_12"
-    assert P.report_id_for("customer_activity") == "salesline_release"
+    assert P.report_id_for("customer_activity") == "customer_activity"
 
 
 def test_unknown_report_raises():
@@ -111,6 +111,10 @@ def test_number_4_mode_defaults_to_both_and_rejects_junk():
     assert P.number_4_mode({"mode": "banana"}) == "both"
 
 
-def test_customer_activity_is_all_time():
+def test_customer_activity_maps_to_dedicated_sp():
+    assert P.report_id_for("customer_activity") == "customer_activity"
     out = P.translate("customer_activity", {})
-    assert out["CreatedDateTimeFrom"].startswith("2025-01-03")
+    assert out == {"OrderCount": 1}
+    out2 = P.translate("customer_activity", {"order_count": 5, "salesman": "MKolko"})
+    assert out2["OrderCount"] == 5
+    assert out2["Salesman"] == "MKolko"

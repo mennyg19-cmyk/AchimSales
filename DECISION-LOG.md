@@ -1,5 +1,29 @@
 # Decision Log
 
+## 2026-07-24 Customer Activity All tab on /test
+**What you asked for:** an All tab that joins every salesman, like live.
+**What I found:** Azure `/test` was running an SP passthrough builder
+(`rpt.usp_customer_activity`) that only emitted per-salesman sheets (Salesman
+column on every sheet, no All). Local repo still had the older universe+orders
+builder with All — never what prod was serving.
+**What I did:** keep the SP path (matches current /test math), add All first
+(Salesman column), per-salesman tabs without Salesman, Unassigned last. Synced
+orch/params to the dedicated SP. Deployed; RuntimeSuccessful.
+**Status:** DECIDED — live on https://reports.achimonline.com/test. Re-run
+parity customer_activity to confirm the missing-sheet gap is gone.
+
+## 2026-07-24 Live vs /test parity runner (tools.parity)
+**What you asked for:** autonomous compare of live vs `/test` with the same
+params and a full difference breakdown; auth via HTTP (cookie / service), not
+a browser. Rebuild Test only after math is signed off.
+**What I built:** `python -m tools.parity` runs ordered, invoiced, salesman,
+customer_activity, number_4 with shared defaults (YTD / both for Number 4),
+downloads Excel from each side, writes `.scratch/parity/<stamp>/INDEX.md` plus
+per-report diffs (reuses `tests.compare_reports`). Prod auth: paste
+`session` + `v3_session` cookies; local: `--auth dev`.
+**Status:** DECIDED — tool on `rebuild-reports`. Not a production deploy; run
+from your machine against the live site when ready.
+
 ## 2026-07-23 Removed Amazon Weekly as a named report
 **What you asked for:** wipe Amazon Weekly everywhere — it was only Ordered with
 customers 9300/9301, last_7_days, and email.
