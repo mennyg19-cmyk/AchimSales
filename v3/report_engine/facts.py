@@ -17,11 +17,11 @@ Source = Literal["reporting_api", "odata"]
 
 @dataclass(frozen=True)
 class OrderLineFact:
-    """One sales-order line from salesline_release (ordered report, dashboard).
+    """One sales-order line (ordered report / customer last order / dashboard).
 
-    Source-shaped. The SP returns authoritative dollar columns
-    (ordered/shipped/cancelled) computed server-side from WHS + packing-slip
-    data, plus authoritative qty_shipped and qty_cancelled.
+    Dollar columns are authoritative from the SP when present. Qty fields depend
+    on which SP fed the row: ``usp_ordered_report`` has reserved + delivery
+    remainder (no shipped qty); ``salesline_release`` has shipped qty.
     """
     source: Source
     company: str
@@ -44,7 +44,8 @@ class OrderLineFact:
     qty_shipped: float
     qty_cancelled: float
     qty_released: float
-    delivery_remainder: float
+    qty_reserved: float
+    delivery_remainder: float   # "qty left to ship" on usp_ordered_report
     qty_left_to_load: float
     ordered_dollars: float     # authoritative (server-side)
     shipped_dollars: float     # authoritative (server-side)

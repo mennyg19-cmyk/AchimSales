@@ -1,5 +1,15 @@
 # Decision Log
 
+## 2026-07-25 Ordered report: SP qty columns (no invented shipped/open)
+**What you asked for:** stop inventing QtyShipped / QtyOpen; report SP qty columns
+instead — ordered, reserved, released, cancelled, left to ship (DeliveryRemainder).
+**What I did:** Ordered builder maps those five from `usp_ordered_report`; dropped
+Fulfillment %, QtyShipped, QtyOpen from Ordered tabs. Dollar columns unchanged
+(Released $ / Open $ still derived). Customer's Last Order keeps the old
+QtyShipped/QtyOpen shape via `salesline_release`. Rollback tag:
+`pre-ordered-qty-columns` @ `7db4b92`.
+**Status:** DECIDED — deploy to `/test` with this commit.
+
 ## 2026-07-25 Master schedule split + salesman email fan-out
 **What you asked for:** Both-mode delivery (full workbook to typed emails/SharePoint;
 split files to selected salesmen), emails from Salesmen admin table, company

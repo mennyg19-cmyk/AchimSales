@@ -1,21 +1,17 @@
 """Ordered report builder (rpt.usp_ordered_report).
 
-Format/columns/math follow LIVE (reports/ordered/writer.py); on-screen
-multi-tab architecture follows the test app. Six tabs:
-Summary, By Customer, By Item, By Order, By Salesman, Full Data.
+Six tabs: Summary, By Customer, By Item, By Order, By Salesman, Full Data.
 
-Source fields
--------------
-The SP returns server-side dollar columns (Ordered/Shipped/Cancelled $) that
-already apply the WHS + packing-slip math, plus authoritative QtyOrdered and
-QtyCancelled. The newer SP returns no shipped quantity, so QtyShipped is
-derived; QtyOpen and Fulfillment % follow from it::
+Qty columns are the SP's own fields (no invented QtyShipped / QtyOpen)::
 
-    QtyCancelled = from SP (authoritative)
-    QtyShipped   = QtyOrdered - QtyCancelled - DeliveryRemainder   (derived)
-    QtyOpen      = QtyOrdered - QtyShipped - QtyCancelled  (= DeliveryRemainder)
-    Released $   = QtyReleased * UnitPrice
-    Open $       = Ordered $ - Shipped $ - Cancelled $   (from authoritative $)
+    QtyOrdered      = QuantityOrdered
+    QtyReserved     = QuantityReserved
+    QtyReleased     = ReleasedQuantity
+    QtyCancelled    = CancelledQTY
+    QtyLeftToShip   = DeliveryRemainder   ("qty left to ship")
+
+Dollar columns Ordered/Shipped/Cancelled $ come from the SP. Released $ and
+Open $ are still derived from those dollars / released qty × price.
 
 LIVE also drops "ERROR ITEM" lines; we mirror that.
 """
@@ -27,33 +23,24 @@ from typing import Callable, Iterable, Sequence
 
 from report_engine.facts import OrderLineFact
 
-# Columns the new ordered_report SP can't supply directly, flagged for the user:
-#   QtyShipped   - derived (QtyOrdered - QtyCancelled - DeliveryRemainder), since
-#                  the SP returns no shipped quantity, only Shipped $.
-#   QtyOpen      - follows from the derived QtyShipped (= DeliveryRemainder).
-#   Fulfillment %- derived from QtyOrdered + QtyCancelled.
-#   PO #         - not in the SP yet; blank until the DBA adds it.
-#   OrderStatus  - not in the SP yet; blank until the DBA adds it.
-# All dollar columns come straight from the SP (authoritative).
-STUB_FIELDS: tuple[str, ...] = ("QtyShipped", "QtyOpen", "Fulfillment %", "PO #", "OrderStatus")
-STUB_NOTE = ("QtyShipped is derived (QtyOrdered - QtyCancelled - "
-             "DeliveryRemainder); QtyOpen and Fulfillment % follow from it. PO # "
-             "and Order Status are blank until the ordered_report SP provides "
-             "them. Dollar columns come straight from the SP.")
+# Only columns the SP still doesn't supply.
+STUB_FIELDS: tuple[str, ...] = ("PO #", "OrderStatus")
+STUB_NOTE = ("PO # and Order Status are blank until the ordered_report SP "
+             "provides them. Qty columns and Ordered/Shipped/Cancelled $ come "
+             "straight from the SP.")
 
 _ERROR_ITEM_RE = re.compile(r"ERROR\s*ITEM", re.IGNORECASE)
 
-_QTY: tuple[str, ...] = ("QtyOrdered", "QtyShipped", "QtyCancelled", "QtyReleased", "QtyOpen")
+_QTY: tuple[str, ...] = (
+    "QtyOrdered", "QtyReserved", "QtyReleased", "QtyCancelled", "QtyLeftToShip",
+)
 _DOL: tuple[str, ...] = ("Ordered $", "Shipped $", "Cancelled $", "Released $", "Open $")
 
 
 # --------------------------------------------------------------------------- #
-# Column definitions (LIVE names, LIVE order)
+# Column definitions
 # --------------------------------------------------------------------------- #
 
-# LIVE order (reports/ordered/builder.py FULL_DATA_ORDER). LIVE's DataQualityFlag
-# is a product of its WHS/packing-slip merge pipeline and can't be reproduced
-# from the flat SP - omitted and logged as a known drift in REVIEW-LOG.
 FULL_DATA_COLS = [
     {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
     {"field": "CustomerAccount",  "header": "CustomerAccount",  "type": "text"},
@@ -64,12 +51,11 @@ FULL_DATA_COLS = [
     {"field": "ItemName",         "header": "ItemName",          "type": "text"},
     {"field": "UnitPrice",        "header": "UnitPrice",         "type": "money"},
     {"field": "Status",           "header": "Status",            "type": "text"},
-    {"field": "Fulfillment %",    "header": "Fulfillment %",     "type": "percent"},
     {"field": "QtyOrdered",       "header": "QtyOrdered",        "type": "int"},
-    {"field": "QtyShipped",       "header": "QtyShipped",        "type": "int"},
-    {"field": "QtyCancelled",     "header": "QtyCancelled",      "type": "int"},
+    {"field": "QtyReserved",      "header": "QtyReserved",       "type": "int"},
     {"field": "QtyReleased",      "header": "QtyReleased",       "type": "int"},
-    {"field": "QtyOpen",          "header": "QtyOpen",           "type": "int"},
+    {"field": "QtyCancelled",     "header": "QtyCancelled",      "type": "int"},
+    {"field": "QtyLeftToShip",    "header": "Qty left to ship",  "type": "int"},
     {"field": "Ordered $",        "header": "Ordered $",         "type": "money"},
     {"field": "Shipped $",        "header": "Shipped $",         "type": "money"},
     {"field": "Cancelled $",      "header": "Cancelled $",       "type": "money"},
@@ -77,20 +63,25 @@ FULL_DATA_COLS = [
     {"field": "Open $",           "header": "Open $",            "type": "money"},
 ]
 
-_AGG_QTY_COLS = [{"field": f, "header": f, "type": "int"} for f in _QTY]
+_AGG_QTY_COLS = [
+    {"field": "QtyOrdered", "header": "QtyOrdered", "type": "int"},
+    {"field": "QtyReserved", "header": "QtyReserved", "type": "int"},
+    {"field": "QtyReleased", "header": "QtyReleased", "type": "int"},
+    {"field": "QtyCancelled", "header": "QtyCancelled", "type": "int"},
+    {"field": "QtyLeftToShip", "header": "Qty left to ship", "type": "int"},
+]
 _AGG_DOL_COLS = [{"field": f, "header": f, "type": "money"} for f in _DOL]
-_FF_COL = {"field": "Fulfillment %", "header": "Fulfillment %", "type": "percent"}
 
 BY_CUSTOMER_COLS = [
     {"field": "CustomerAccount", "header": "CustomerAccount", "type": "text"},
     {"field": "CustomerName",    "header": "CustomerName",    "type": "text"},
     {"field": "Salesman",        "header": "Salesman",        "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ITEM_COLS = [
     {"field": "Item#",    "header": "Item#",    "type": "text"},
     {"field": "ItemName", "header": "ItemName", "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ORDER_COLS = [
     {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
@@ -101,11 +92,11 @@ BY_ORDER_COLS = [
     {"field": "PO #",             "header": "PO #",             "type": "text"},
     {"field": "OrderStatus",      "header": "Order Status",     "type": "text"},
     {"field": "Status",           "header": "Status",           "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_SALESMAN_COLS = [
     {"field": "Salesman", "header": "Salesman", "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 SUMMARY_COLS = [
     {"field": "Customer Name",            "header": "Customer Name",            "type": "text"},
@@ -113,8 +104,10 @@ SUMMARY_COLS = [
     {"field": "Item Number",              "header": "Item Number",              "type": "text"},
     {"field": "Line Description",         "header": "Line Description",         "type": "text"},
     {"field": "QtyOrdered",               "header": "QtyOrdered",               "type": "int"},
+    {"field": "QtyReserved",              "header": "QtyReserved",              "type": "int"},
+    {"field": "QtyReleased",              "header": "QtyReleased",              "type": "int"},
     {"field": "QtyCancelled",             "header": "QtyCancelled",             "type": "int"},
-    {"field": "QtyRemainder",             "header": "QtyRemainder",             "type": "int"},
+    {"field": "QtyLeftToShip",            "header": "Qty left to ship",         "type": "int"},
     {"field": "Net Price",                "header": "Net Price",                "type": "money"},
     {"field": "Extended Price - Ordered", "header": "Extended Price - Ordered", "type": "money"},
     {"field": "Extended Price Remainder", "header": "Extended Price Remainder", "type": "money"},
@@ -127,11 +120,10 @@ SUMMARY_COLS = [
 
 
 def classify_line(f: OrderLineFact) -> dict:
-    """One OrderLineFact -> the canonical per-line row (LIVE columns + math).
+    """Legacy line shape for Customer's Last Order (salesline_release).
 
-    Public because the Customer's Last Order report reuses the exact same
-    Qty Shipped / Qty Cancelled classification so its line breakdown matches the
-    Ordered report cell-for-cell (single source of truth for the qty buckets).
+    Kept separate from the Ordered report's SP qty columns so CLO still shows
+    QtyShipped / QtyOpen from the older SP that actually has shipped qty.
     """
     qty_ord = f.qty_ordered
     qty_shipped = f.qty_shipped
@@ -161,14 +153,41 @@ def classify_line(f: OrderLineFact) -> dict:
         "Shipped $":        f.shipped_dollars,
         "Cancelled $":      f.cancelled_dollars,
         "Released $":       round(f.qty_released * f.unit_price, 2),
-        # Owner rule: Open $ = Ordered - Shipped - Cancelled (authoritative $),
-        # not clamped (a credit/over-ship can legitimately make it negative).
+        "Open $":           round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2),
+    }
+
+
+def _classify_ordered_line(f: OrderLineFact) -> dict:
+    """Ordered report line: SP qty columns + SP dollars."""
+    return {
+        "SalesOrderNumber": f.sales_order_number,
+        "SalesOrderName":   f.sales_order_name,
+        "CustomerAccount":  f.customer_account,
+        "CustomerName":     f.customer_name,
+        "Salesman":         f.sales_group,
+        "OrderDate":        f.order_date,
+        "PO #":             f.po_number,
+        "LineNumber":       f.line_number,
+        "Item#":            f.item_number,
+        "ItemName":         f.item_name,
+        "UnitPrice":        f.unit_price,
+        "OrderStatus":      f.order_status,
+        "Status":           f.status,
+        "QtyOrdered":       f.qty_ordered,
+        "QtyReserved":      f.qty_reserved,
+        "QtyReleased":      f.qty_released,
+        "QtyCancelled":     f.qty_cancelled,
+        "QtyLeftToShip":    f.delivery_remainder,
+        "Ordered $":        f.ordered_dollars,
+        "Shipped $":        f.shipped_dollars,
+        "Cancelled $":      f.cancelled_dollars,
+        "Released $":       round(f.qty_released * f.unit_price, 2),
         "Open $":           round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2),
     }
 
 
 def _ff_pct(qty_ordered: float, qty_cancelled: float) -> float | None:
-    """Fulfillment ratio, clamped to [0, 1] (matches LIVE _fulfillment_score)."""
+    """Fulfillment ratio for CLO only; Ordered report no longer shows this."""
     if qty_ordered <= 1e-6:
         return None
     return round(min(1.0, max(0.0, (qty_ordered - qty_cancelled) / qty_ordered)), 4)
@@ -206,7 +225,6 @@ def _aggregate(
     rows: list[dict] = []
     for k, b in buckets.items():
         row = dict(leads[k])
-        row["Fulfillment %"] = _ff_pct(b["QtyOrdered"], b["QtyCancelled"])
         row.update({f: b[f] for f in _QTY})
         row.update({f: round(b[f], 2) for f in _DOL})
         rows.append(row)
@@ -239,16 +257,18 @@ def _build_summary(lines: list[dict]) -> dict:
             g = grouped[k] = {
                 "Customer Name": cust, "Salesman": ln["Salesman"],
                 "Item Number": item, "Line Description": ln["ItemName"],
-                "QtyOrdered": 0, "QtyCancelled": 0, "QtyRemainder": 0,
+                "QtyOrdered": 0, "QtyReserved": 0, "QtyReleased": 0,
+                "QtyCancelled": 0, "QtyLeftToShip": 0,
                 "Extended Price - Ordered": 0.0, "Extended Price Remainder": 0.0,
             }
         g["QtyOrdered"] += ln["QtyOrdered"]
+        g["QtyReserved"] += ln["QtyReserved"]
+        g["QtyReleased"] += ln["QtyReleased"]
         g["QtyCancelled"] += ln["QtyCancelled"]
-        g["QtyRemainder"] += (ln["QtyOrdered"] - ln["QtyReleased"]
-                              - ln["QtyShipped"] - ln["QtyCancelled"])
+        g["QtyLeftToShip"] += ln["QtyLeftToShip"]
         g["Extended Price - Ordered"] += ln["Ordered $"]
-        g["Extended Price Remainder"] += (ln["Ordered $"] - ln["Released $"]
-                                          - ln["Shipped $"] - ln["Cancelled $"])
+        # Dollar "still open" from SP dollars (not inventing a qty×price remainder).
+        g["Extended Price Remainder"] += (ln["Ordered $"] - ln["Shipped $"] - ln["Cancelled $"])
 
     for g in grouped.values():
         qo = g["QtyOrdered"]
@@ -258,7 +278,7 @@ def _build_summary(lines: list[dict]) -> dict:
 
     return _tab(
         "summary", "Summary", SUMMARY_COLS, list(grouped.values()),
-        stub=("QtyCancelled", "QtyRemainder"),
+        stub=(),
         default_layout={
             "group_levels": ["Customer Name"],
             "sort_levels": [{"field": "Customer Name", "dir": "asc"},
@@ -272,19 +292,12 @@ def _build_summary(lines: list[dict]) -> dict:
 # --------------------------------------------------------------------------- #
 
 def _classify_lines(facts: Iterable[OrderLineFact]) -> list[dict]:
-    """Turn facts into the per-line rows, dropping ERROR ITEM lines.
-
-    A full-year run is ~500k facts. Building `lines` while still holding the full
-    `facts` list keeps two big copies alive at once and OOMs the worker, so when
-    `facts` is a list we release each fact the moment it's classified (order is
-    preserved). The caller's list is consumed; the orchestrator captures its
-    length before calling build, and tests don't reuse it.
-    """
+    """Turn facts into Ordered report rows, dropping ERROR ITEM lines."""
     if not isinstance(facts, list):
-        return [ln for ln in (classify_line(f) for f in facts) if not _is_error_item(ln)]
+        return [ln for ln in (_classify_ordered_line(f) for f in facts) if not _is_error_item(ln)]
     lines: list[dict] = []
     for i in range(len(facts)):
-        line = classify_line(facts[i])
+        line = _classify_ordered_line(facts[i])
         facts[i] = None
         if not _is_error_item(line):
             lines.append(line)
