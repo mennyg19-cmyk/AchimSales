@@ -124,6 +124,7 @@ def _drain_if_dev():
 def schedules_page():
     p = _principal()
     uid = _uid(p.email)
+    is_admin = _authz().is_privileged(p)
     items = []
     for s in _repo().list_for_user(uid):
         spec = registry.get(s.report_key)
@@ -135,10 +136,62 @@ def schedules_page():
             "last_run": _runs().last_run_at(s.id, PERSONAL),
         })
     context = {"active_tab": "schedules", "schedules": items,
-               "is_admin": _authz().is_privileged(p)}
-    if context["is_admin"]:
+               "is_admin": is_admin}
+    if is_admin:
         context.update(_master_page_context())
+    context["recent_runs"] = _recent_run_log(
+        personal_ids={s["id"] for s in items},
+        include_master=is_admin,
+    )
     return render_template("schedules.html", **context)
+
+
+def _recent_run_log(*, personal_ids: set[int], include_master: bool,
+                    limit: int = 30) -> list[dict]:
+    """Collapsible Schedules-page log: runs the viewer is allowed to see."""
+    personal_titles = {}
+    for sid in personal_ids:
+        sched = _repo().get_any(sid)
+        if sched is None:
+            continue
+        spec = registry.get(sched.report_key)
+        personal_titles[sid] = spec.title if spec else sched.report_key
+    master_titles = {}
+    if include_master:
+        for s in _master().list_all():
+            master_titles[s.id] = s.name or s.report_key
+
+    out: list[dict] = []
+    for r in _runs().list_recent(limit=80):
+        if r.schedule_type == PERSONAL:
+            if r.schedule_id not in personal_ids:
+                continue
+            title = personal_titles.get(r.schedule_id, f"Schedule #{r.schedule_id}")
+            history_url = url_for("schedules.schedule_history", schedule_id=r.schedule_id)
+            kind = "Personal"
+        elif r.schedule_type == MASTER and include_master:
+            title = master_titles.get(r.schedule_id, f"Company #{r.schedule_id}")
+            history_url = url_for("schedules.master_history", schedule_id=r.schedule_id)
+            kind = "Company"
+        else:
+            continue
+        meta = r.output_meta or {}
+        out.append({
+            "id": r.id,
+            "schedule_id": r.schedule_id,
+            "kind": kind,
+            "title": title,
+            "status": r.status,
+            "started_at": r.started_at,
+            "finished_at": r.finished_at,
+            "rows": r.rows,
+            "message": r.debug_log or meta.get("summary") or "",
+            "send_channel": meta.get("send_channel") or "",
+            "history_url": history_url,
+        })
+        if len(out) >= limit:
+            break
+    return out
 
 
 @schedules_bp.post("/api/schedules")
@@ -222,9 +275,30 @@ def schedule_history(schedule_id: int):
         abort(404, description="Unknown schedule")
     spec = registry.get(sched.report_key)
     runs = _runs().list_for_schedule(schedule_id, PERSONAL)
-    return render_template("schedule_history.html", active_tab="schedules",
-                           report_title=spec.title if spec else sched.report_key,
-                           cadence=C.describe(sched.cadence), runs=runs)
+    return render_template(
+        "schedule_history.html", active_tab="schedules",
+        report_title=spec.title if spec else sched.report_key,
+        cadence=C.describe(sched.cadence), schedule_type=PERSONAL,
+        schedule_id=schedule_id, runs=runs,
+    )
+
+
+@schedules_bp.get("/master-schedules/<int:schedule_id>/history")
+@require_login
+def master_history(schedule_id: int):
+    p = _principal()
+    _require_admin(p)
+    sched = _master().get(schedule_id)
+    if sched is None:
+        abort(404, description="Unknown master schedule")
+    spec = registry.get(sched.report_key)
+    title = sched.name or (spec.title if spec else sched.report_key)
+    runs = _runs().list_for_schedule(schedule_id, MASTER)
+    return render_template(
+        "schedule_history.html", active_tab="schedules",
+        report_title=title, cadence=C.describe(sched.cadence),
+        schedule_type=MASTER, schedule_id=schedule_id, runs=runs,
+    )
 
 
 # --- master schedules (admin) ----------------------------------------------

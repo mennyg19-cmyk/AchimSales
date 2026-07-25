@@ -258,6 +258,8 @@
                     <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
                     <button type="button" class="btn btn-sm btn-outline js-run"
                             data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Run now</button>
+                    <a class="btn btn-sm btn-outline"
+                       href="{{ url_for('schedules.master_history', schedule_id=s.id) }}">History</a>
                     <button type="button" class="btn btn-sm btn-outline js-delete"
                             data-url="{{ url_for('schedules.delete_master', schedule_id=s.id) }}"
                             data-confirm="Delete this master schedule?">Delete</button>

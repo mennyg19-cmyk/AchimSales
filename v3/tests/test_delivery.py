@@ -157,6 +157,7 @@ def test_email_sends_via_graph_when_configured(tmp_path):
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
                       report_name="Ordered", filename="ordered.xlsx", xlsx_bytes=b"PK\x03\x04")
     assert res.ok and res.sent_via_smtp is True
+    assert res.send_channel == "graph"
     assert len(graph.calls) == 1
     assert graph.calls[0]["to"] == ["a@x.com"]
     assert OutboxRepository(db).get(res.outbox_id).status == "sent"

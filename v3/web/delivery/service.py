@@ -23,6 +23,8 @@ from web.reporting.runner import ReportRunner
 class DeliveryOutcome:
     result: DeliveryResult
     row_count: int
+    # Optional per-leg details for fan-out runs (kind, recipients, salesman, …).
+    deliveries: list[dict] | None = None
 
 
 class DeliveryService:

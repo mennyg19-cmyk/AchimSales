@@ -8,6 +8,47 @@
     <p class="page-subtitle">Recurring deliveries you've set up. Create personal schedules from a report using the “Schedule” button.</p>
 </div>
 
+<details class="run-log-panel" {% if recent_runs %}open{% endif %}>
+    <summary class="run-log-summary">
+        Recent run log
+        {% if recent_runs %}
+        <span class="run-log-count">{{ recent_runs|length }}</span>
+        {% endif %}
+    </summary>
+    {% if recent_runs %}
+    <div class="table-wrap run-log-table-wrap">
+        <table class="data-table run-log-table">
+            <thead>
+                <tr>
+                    <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in recent_runs %}
+                <tr>
+                    <td class="run-log-when">{{ r.finished_at or r.started_at or '—' }}</td>
+                    <td>
+                        <span class="mini-flag">{{ r.kind }}</span>
+                        {{ r.title }}
+                    </td>
+                    <td>
+                        <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
+                            {{ r.status|title }}
+                        </span>
+                    </td>
+                    <td>{{ r.rows if r.rows is not none else '—' }}</td>
+                    <td class="run-log-msg">{{ r.message or '—' }}</td>
+                    <td><a class="btn btn-sm btn-outline" href="{{ r.history_url }}">History</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>
+    {% endif %}
+</details>
+
 <section id="personal">
 <h2 class="section-title">My schedules</h2>
 {% if schedules %}

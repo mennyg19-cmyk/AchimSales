@@ -443,6 +443,51 @@
 .run-debug { color: var(--error); font-size: 12px; white-space: normal; max-width: 360px; }
 .run-sp, .run-rcpt { color: var(--text-muted); font-size: 12px; }
 
+/* Schedules page — collapsible recent run log */
+.run-log-panel {
+    margin: 0 0 24px; padding: 0 14px 14px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.run-log-summary {
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px;
+    padding: 14px 0; font-weight: 700; color: var(--text); font-size: 14px;
+}
+.run-log-summary::-webkit-details-marker { display: none; }
+.run-log-summary::before {
+    content: "▸"; color: var(--text-muted); font-size: 12px; transition: transform 0.12s;
+}
+.run-log-panel[open] > .run-log-summary::before { transform: rotate(90deg); }
+.run-log-count {
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    background: var(--primary-light); color: var(--primary);
+}
+.run-log-table-wrap { border: none; }
+.run-log-msg { white-space: normal; max-width: 420px; font-size: 12px; color: var(--text-muted); }
+.run-log-when { font-size: 12px; color: var(--text-muted); }
+.run-log-empty { color: var(--text-muted); font-size: 13px; margin: 0; }
+
+/* Per-schedule history cards */
+.run-history-list { display: flex; flex-direction: column; gap: 12px; }
+.run-history-card {
+    padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); border-left: 3px solid var(--border);
+}
+.run-history-card.is-success { border-left-color: var(--success, #16a34a); }
+.run-history-card.is-failure { border-left-color: var(--error); }
+.run-history-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+.run-history-when, .run-history-rows { font-size: 12px; color: var(--text-muted); }
+.run-history-summary { font-size: 14px; color: var(--text); margin: 0 0 10px; white-space: pre-wrap; }
+.run-history-meta { display: grid; gap: 6px; margin: 0; }
+.run-history-meta > div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; font-size: 12px; }
+.run-history-meta dt { color: var(--text-muted); font-weight: 600; margin: 0; }
+.run-history-meta dd { margin: 0; color: var(--text); word-break: break-word; }
+.run-history-subhead { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin: 12px 0 6px; }
+.run-delivery-legs { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text); }
+.run-delivery-legs li { margin: 4px 0; }
+.leg-ok { color: var(--text); }
+.leg-skip { color: var(--text-muted); }
+.leg-fail { color: var(--error); }
+
 /* -- Commission cards -- */
 .commission-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; padding: 14px; }
 .commission-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; background: var(--bg-card); }

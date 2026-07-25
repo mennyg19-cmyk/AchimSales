@@ -4,7 +4,7 @@ A schedule run is owner-scoped: a personal schedule delivers exactly the data it
 owner is allowed to see (so a salesman's nightly email can't leak other reps'
 rows). Master schedules are admin-owned and run unrestricted. Every run is
 bracketed by a ``schedule_runs`` row so the history UI shows success/failure,
-row count, and a debug line.
+row count, and a full message (errors, skips, and success details).
 """
 
 from __future__ import annotations
@@ -76,19 +76,20 @@ class ScheduleRunner:
                     recipients=sched.recipients, subject=subject, report_name=report_name,
                     sharepoint_path=sched.sharepoint_path,
                 )
-            r = outcome.result
+            meta = _output_meta(outcome)
+            summary = _summary_message(outcome, ok=outcome.result.ok)
             self.run_repo.finish(
-                run_id, status="success" if r.ok else "failure", rows=outcome.row_count,
-                output_meta={"outbox_id": r.outbox_id, "eml": r.eml_name,
-                             "sent_smtp": r.sent_via_smtp, "sharepoint_saved": r.sharepoint_saved,
-                             "sharepoint_url": r.sharepoint_url, "recipients": r.recipients},
-                debug_log=(r.error or r.sharepoint_error or ""),
+                run_id, status="success" if outcome.result.ok else "failure",
+                rows=outcome.row_count, output_meta=meta, debug_log=summary,
             )
-            if not r.ok:
-                raise RuntimeError(r.error or "delivery failed")
+            if not outcome.result.ok:
+                raise RuntimeError(outcome.result.error or "delivery failed")
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
             log.exception("schedule run failed (%s:%s)", schedule_type, schedule_id)
-            self.run_repo.finish(run_id, status="failure", debug_log=str(exc))
+            existing = self.run_repo.get(run_id)
+            # Don't wipe a detailed finish() already written for a delivery failure.
+            if existing is None or existing.status == "running":
+                self.run_repo.finish(run_id, status="failure", debug_log=str(exc))
             raise
         return run_id
 
@@ -127,23 +128,32 @@ class ScheduleRunner:
                            scope: set[str] | None, builder_version: int,
                            subject: str, report_name: str) -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
-        debug_lines: list[str] = []
+        deliveries: list[dict] = []
+        skip_notes: list[str] = []
         params = sched.params or {}
 
         if sched.recipients or sched.sharepoint_path:
-            outcomes.append(self.delivery.run_and_deliver(
+            full = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                 builder_version=builder_version, params=_report_params(params),
                 layout=sched.layout, recipients=sched.recipients, subject=subject,
                 report_name=report_name, sharepoint_path=sched.sharepoint_path,
-            ))
+            )
+            outcomes.append(full)
+            deliveries.append(_delivery_leg(full, kind="full"))
 
         salesmen = SalesmanRepository(self.user_repo.db)
         for key in self._salesman_targets(params):
             email = salesmen.get_email(key)
             if not email:
                 # Skip — don't fail the whole run after management copy already sent.
-                debug_lines.append(f"{key}: skipped - no salesman email")
+                note = f"{key}: skipped - no salesman email"
+                skip_notes.append(note)
+                deliveries.append({
+                    "kind": "split", "salesman": key, "recipients": [], "ok": False,
+                    "skipped": True, "error": "no salesman email", "rows": 0,
+                    "send_channel": "", "sent": False,
+                })
                 continue
             split_params = _report_params(params)
             split_params["salesman"] = [key]
@@ -153,35 +163,38 @@ class ScheduleRunner:
                 recipients=email, subject=f"{subject} - {key}",
                 report_name=f"{report_name} - {key}", sharepoint_path="",
             )
-            if not outcome.result.ok:
-                debug_lines.append(f"{key}: {outcome.result.error or 'delivery failed'}")
             outcomes.append(outcome)
+            deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))
 
         if not outcomes:
             return DeliveryOutcome(
                 result=DeliveryResult(
                     ok=False,
-                    error="; ".join(debug_lines) or "No delivery targets.",
+                    error="; ".join(skip_notes) or "No delivery targets.",
                 ),
                 row_count=0,
+                deliveries=deliveries,
             )
         ok = all(o.result.ok for o in outcomes)
-        notes = [o.result.error for o in outcomes if o.result.error] + debug_lines
+        notes = [o.result.error for o in outcomes if o.result.error] + skip_notes
         recipients = [email for o in outcomes for email in o.result.recipients]
         eml_names = [o.result.eml_name for o in outcomes if o.result.eml_name]
+        channels = [o.result.send_channel for o in outcomes if o.result.send_channel]
         result = DeliveryResult(
             ok=ok,
-            # Notes land in schedule_runs.debug_log (skips on success; failures on fail).
             error="; ".join(notes),
             recipients=recipients,
             eml_name=", ".join(eml_names),
             sent_via_smtp=any(o.result.sent_via_smtp for o in outcomes),
+            send_channel=channels[0] if len(set(channels)) == 1 else ("mixed" if channels else ""),
             sharepoint_saved=any(o.result.sharepoint_saved for o in outcomes),
             sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
             sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
             outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
         )
-        return DeliveryOutcome(result=result, row_count=sum(o.row_count for o in outcomes))
+        return DeliveryOutcome(
+            result=result, row_count=sum(o.row_count for o in outcomes), deliveries=deliveries,
+        )
 
     def _salesman_targets(self, params: dict | None) -> list[str]:
         p = params or {}
@@ -210,3 +223,80 @@ def _as_str_list(raw) -> list[str]:
     if "," in s:
         return [p.strip() for p in s.split(",") if p.strip()]
     return [p for p in s.split() if p]
+
+
+def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") -> dict:
+    r = outcome.result
+    return {
+        "kind": kind,
+        "salesman": salesman,
+        "recipients": list(r.recipients),
+        "ok": r.ok,
+        "skipped": False,
+        "error": r.error or r.sharepoint_error or "",
+        "rows": outcome.row_count,
+        "send_channel": r.send_channel,
+        "sent": r.sent_via_smtp,
+        "sharepoint_saved": r.sharepoint_saved,
+        "sharepoint_url": r.sharepoint_url or "",
+        "eml": r.eml_name,
+        "outbox_id": r.outbox_id,
+    }
+
+
+def _output_meta(outcome: DeliveryOutcome) -> dict:
+    r = outcome.result
+    meta = {
+        "summary": _summary_message(outcome, ok=r.ok),
+        "outbox_id": r.outbox_id,
+        "eml": r.eml_name,
+        "sent_smtp": r.sent_via_smtp,
+        "send_channel": r.send_channel,
+        "sharepoint_saved": r.sharepoint_saved,
+        "sharepoint_url": r.sharepoint_url,
+        "sharepoint_error": r.sharepoint_error,
+        "recipients": r.recipients,
+        "error": r.error or "",
+    }
+    if outcome.deliveries:
+        meta["deliveries"] = outcome.deliveries
+    return meta
+
+
+def _summary_message(outcome: DeliveryOutcome, *, ok: bool) -> str:
+    """Plain-English line for History: success details and/or failures/skips."""
+    r = outcome.result
+    bits: list[str] = []
+    if outcome.deliveries:
+        for d in outcome.deliveries:
+            if d.get("skipped"):
+                bits.append(f"{d.get('salesman')}: skipped — no salesman email")
+                continue
+            who = ", ".join(d.get("recipients") or []) or "(no email)"
+            channel = d.get("send_channel") or ("sent" if d.get("sent") else "outbox")
+            label = "Full workbook" if d.get("kind") == "full" else f"Split {d.get('salesman')}"
+            if d.get("ok"):
+                part = f"{label} → {who} via {channel}"
+                if d.get("sharepoint_saved"):
+                    part += " (+ SharePoint)"
+                bits.append(part)
+            else:
+                bits.append(f"{label} failed: {d.get('error') or 'delivery failed'}")
+    else:
+        if r.recipients:
+            channel = r.send_channel or ("sent" if r.sent_via_smtp else "outbox")
+            bits.append(f"Email → {', '.join(r.recipients)} via {channel}")
+        if r.sharepoint_saved:
+            bits.append("SharePoint saved" + (f" ({r.sharepoint_url})" if r.sharepoint_url else ""))
+        elif r.sharepoint_error:
+            bits.append(f"SharePoint failed: {r.sharepoint_error}")
+        if r.error and not ok:
+            bits.append(r.error)
+    if not bits:
+        return "OK" if ok else (r.error or "delivery failed")
+    prefix = "OK: " if ok else "Failed: "
+    # On success, skip notes may still live in r.error — append if not already covered.
+    body = "; ".join(bits)
+    if ok and r.error and r.error not in body:
+        body = f"{body}; {r.error}"
+    return prefix + body

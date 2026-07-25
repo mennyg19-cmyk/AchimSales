@@ -296,6 +296,14 @@ class ScheduleRunRepository:
             ).fetchall()
             return [ScheduleRun.from_row(r) for r in rows]
 
+    def list_recent(self, *, limit: int = 40) -> list[ScheduleRun]:
+        """Newest schedule runs first (personal + master), for the Schedules page log."""
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM schedule_runs ORDER BY id DESC LIMIT ?", (limit,),
+            ).fetchall()
+            return [ScheduleRun.from_row(r) for r in rows]
+
     def last_run_at(self, schedule_id: int, schedule_type: str = PERSONAL) -> str | None:
         """Most recent started_at for due-time calculation by the cron tick."""
         with self.db.precious() as conn:

@@ -45,6 +45,8 @@ class DeliveryResult:
     eml_name: str = ""
     # True when Graph or SMTP actually transmitted (legacy name kept for meta JSON).
     sent_via_smtp: bool = False
+    # "graph" | "smtp" | "outbox" | "" (no email target)
+    send_channel: str = ""
     sharepoint_saved: bool = False
     sharepoint_url: str | None = None
     sharepoint_error: str | None = None
@@ -79,6 +81,7 @@ class EmailService:
         body = body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n"
 
         sent = False
+        channel = ""
         if recipients:
             graph = self._graph_mailer()
             if graph is not None:
@@ -89,24 +92,30 @@ class EmailService:
                         filename=filename, xlsx_bytes=xlsx_bytes,
                     )
                     sent = True
+                    channel = "graph"
                 except GraphMailError as exc:
                     log.exception("Graph send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        sp_path=sharepoint_path, error=f"Graph failed: {exc}")
+                                        channel="", sp_path=sharepoint_path,
+                                        error=f"Graph failed: {exc}")
             elif self.cfg.smtp_host:
                 try:
                     self._smtp_send(msg, recipients)
                     sent = True
+                    channel = "smtp"
                 except Exception as exc:  # noqa: BLE001 - record, never crash the run
                     log.exception("SMTP send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        sp_path=sharepoint_path, error=f"SMTP failed: {exc}")
+                                        channel="", sp_path=sharepoint_path,
+                                        error=f"SMTP failed: {exc}")
+            else:
+                channel = "outbox"
 
         sp_saved, sp_url, sp_err = self._maybe_sharepoint(sharepoint_path, filename, xlsx_bytes)
 
         result = self._record(subject, recipients, filename, eml_name, sent=sent,
-                              sp_path=sharepoint_path, sp_saved=sp_saved, sp_url=sp_url,
-                              sp_error=sp_err)
+                              channel=channel, sp_path=sharepoint_path, sp_saved=sp_saved,
+                              sp_url=sp_url, sp_error=sp_err)
         return result
 
     # -- internals ----------------------------------------------------------
@@ -150,7 +159,7 @@ class EmailService:
             log.exception("SharePoint upload failed")
             return False, None, str(exc)
 
-    def _record(self, subject, recipients, filename, eml_name, *, sent,
+    def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
                 sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
         # "Success" means every REQUESTED target was actually delivered. An email
         # target is delivered when recipients exist and the send didn't hard-fail
@@ -164,6 +173,8 @@ class EmailService:
         email_delivered = bool(recipients) and not error
         ok = (email_delivered or sp_saved) and not error
         status = "sent" if (ok and sent) else ("outbox" if ok else "failed")
+        if not channel and recipients and ok and not sent:
+            channel = "outbox"
         outbox_id = self.outbox.enqueue(
             subject=subject, recipients=", ".join(recipients),
             attachment_meta={"filename": filename, "eml": eml_name},
@@ -172,6 +183,6 @@ class EmailService:
         )
         return DeliveryResult(
             ok=ok, error=error, recipients=recipients, eml_name=eml_name,
-            sent_via_smtp=sent, sharepoint_saved=sp_saved, sharepoint_url=sp_url,
-            sharepoint_error=sp_error, outbox_id=outbox_id,
+            sent_via_smtp=sent, send_channel=channel, sharepoint_saved=sp_saved,
+            sharepoint_url=sp_url, sharepoint_error=sp_error, outbox_id=outbox_id,
         )

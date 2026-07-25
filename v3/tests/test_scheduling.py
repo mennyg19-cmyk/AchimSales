@@ -155,6 +155,10 @@ def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_pa
     assert [c["params"]["salesman"] for c in split_calls] == [["MKolko"], ["AGrossman"]]
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert hist[0].status == "success" and hist[0].rows == 3
+    assert hist[0].debug_log.startswith("OK:")
+    assert "manager@x.com" in hist[0].debug_log
+    deliveries = (hist[0].output_meta or {}).get("deliveries") or []
+    assert len(deliveries) == 3
 
 
 def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path):
@@ -195,7 +199,10 @@ def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path
     assert delivery.calls[1]["recipients"] == "m@x.com"
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert hist[0].status == "success"
-    assert "NoMail: skipped" in (hist[0].debug_log or "")
+    assert "NoMail" in (hist[0].debug_log or "")
+    assert "skipped" in (hist[0].debug_log or "").lower()
+    meta = hist[0].output_meta or {}
+    assert any(d.get("salesman") == "NoMail" and d.get("skipped") for d in meta.get("deliveries") or [])
 
 
 # --- cron tick -------------------------------------------------------------

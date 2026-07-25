@@ -918,6 +918,7 @@ def test_master_schedule_admin_only(tmp_path):
     page = admin.get("/schedules").get_data(as_text=True)
     assert "Nightly" in page
     assert "Company schedules" in page
+    assert "Recent run log" in page
     assert "msWizard" in page
     assert "Set up a schedule" in page
     assert "data-pane=\"1\"" in page
@@ -928,6 +929,7 @@ def test_master_schedule_admin_only(tmp_path):
     assert "master-schedules/lookups/salesmen-emails" in page
     assert "master-schedules/lookups/customers" in page
     assert "master-schedules/lookups/status" in page
+    assert f"/master-schedules/{created.get_json()['id']}/history" in page
 
     from web.data.repositories.schedules import MasterScheduleRepository
     mid = created.get_json()["id"]
@@ -938,6 +940,11 @@ def test_master_schedule_admin_only(tmp_path):
     assert saved.params["status"] == ["Open order", "Delivered"]
     assert saved.params["email_to_salesmen"] is True
     assert saved.params["split_by_salesman"] is False
+
+    hist = admin.get(f"/master-schedules/{mid}/history")
+    assert hist.status_code == 200
+    assert "run history" in hist.get_data(as_text=True).lower()
+    assert rep.get(f"/master-schedules/{mid}/history").status_code == 403
 
 
 def test_master_schedule_lookups_admin_only(tmp_path):
