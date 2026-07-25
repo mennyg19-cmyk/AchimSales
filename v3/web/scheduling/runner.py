@@ -22,8 +22,10 @@ from web.data.repositories.schedules import (
     ScheduleRepository,
     ScheduleRunRepository,
 )
+from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
-from web.delivery.service import DeliveryService
+from web.delivery.email import DeliveryResult
+from web.delivery.service import DeliveryOutcome, DeliveryService
 
 log = logging.getLogger(__name__)
 
@@ -60,12 +62,20 @@ class ScheduleRunner:
                 identity = principal.email
             report_name = spec.title if spec else sched.report_key
             subject = self._subject(sched, schedule_type, report_name)
-            outcome = self.delivery.run_and_deliver(
-                report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                builder_version=spec.builder_version if spec else 1,
-                params=sched.params, layout=sched.layout, recipients=sched.recipients,
-                subject=subject, report_name=report_name, sharepoint_path=sched.sharepoint_path,
-            )
+            if schedule_type == MASTER and self._salesman_targets(sched.params):
+                outcome = self._run_master_fanout(
+                    sched=sched, identity=identity, scope=scope,
+                    builder_version=spec.builder_version if spec else 1,
+                    subject=subject, report_name=report_name,
+                )
+            else:
+                outcome = self.delivery.run_and_deliver(
+                    report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
+                    builder_version=spec.builder_version if spec else 1,
+                    params=_report_params(sched.params), layout=sched.layout,
+                    recipients=sched.recipients, subject=subject, report_name=report_name,
+                    sharepoint_path=sched.sharepoint_path,
+                )
             r = outcome.result
             self.run_repo.finish(
                 run_id, status="success" if r.ok else "failure", rows=outcome.row_count,
@@ -112,3 +122,91 @@ class ScheduleRunner:
         label = "Master" if schedule_type == MASTER else "Scheduled"
         name = getattr(sched, "name", "") or report_name
         return f"{label}: {name} ({stamp})"
+
+    def _run_master_fanout(self, *, sched, identity: str,
+                           scope: set[str] | None, builder_version: int,
+                           subject: str, report_name: str) -> DeliveryOutcome:
+        outcomes: list[DeliveryOutcome] = []
+        debug_lines: list[str] = []
+        params = sched.params or {}
+
+        if sched.recipients or sched.sharepoint_path:
+            outcomes.append(self.delivery.run_and_deliver(
+                report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
+                builder_version=builder_version, params=_report_params(params),
+                layout=sched.layout, recipients=sched.recipients, subject=subject,
+                report_name=report_name, sharepoint_path=sched.sharepoint_path,
+            ))
+
+        salesmen = SalesmanRepository(self.user_repo.db)
+        for key in self._salesman_targets(params):
+            email = salesmen.get_email(key)
+            if not email:
+                # Skip — don't fail the whole run after management copy already sent.
+                debug_lines.append(f"{key}: skipped - no salesman email")
+                continue
+            split_params = _report_params(params)
+            split_params["salesman"] = [key]
+            outcome = self.delivery.run_and_deliver(
+                report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
+                builder_version=builder_version, params=split_params, layout=sched.layout,
+                recipients=email, subject=f"{subject} - {key}",
+                report_name=f"{report_name} - {key}", sharepoint_path="",
+            )
+            if not outcome.result.ok:
+                debug_lines.append(f"{key}: {outcome.result.error or 'delivery failed'}")
+            outcomes.append(outcome)
+
+        if not outcomes:
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=False,
+                    error="; ".join(debug_lines) or "No delivery targets.",
+                ),
+                row_count=0,
+            )
+        ok = all(o.result.ok for o in outcomes)
+        notes = [o.result.error for o in outcomes if o.result.error] + debug_lines
+        recipients = [email for o in outcomes for email in o.result.recipients]
+        eml_names = [o.result.eml_name for o in outcomes if o.result.eml_name]
+        result = DeliveryResult(
+            ok=ok,
+            # Notes land in schedule_runs.debug_log (skips on success; failures on fail).
+            error="; ".join(notes),
+            recipients=recipients,
+            eml_name=", ".join(eml_names),
+            sent_via_smtp=any(o.result.sent_via_smtp for o in outcomes),
+            sharepoint_saved=any(o.result.sharepoint_saved for o in outcomes),
+            sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
+            sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
+            outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
+        )
+        return DeliveryOutcome(result=result, row_count=sum(o.row_count for o in outcomes))
+
+    def _salesman_targets(self, params: dict | None) -> list[str]:
+        p = params or {}
+        selected = _as_str_list(p.get("salesman"))
+        if selected and p.get("email_to_salesmen"):
+            return selected
+        email_keys = _as_str_list(p.get("email_salesman_keys"))
+        return email_keys
+
+
+_DELIVERY_PARAM_KEYS = {"split_by_salesman", "email_to_salesmen", "email_salesman_keys"}
+
+
+def _report_params(params: dict | None) -> dict:
+    return {k: v for k, v in (params or {}).items() if k not in _DELIVERY_PARAM_KEYS}
+
+
+def _as_str_list(raw) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    s = str(raw).strip()
+    if not s:
+        return []
+    if "," in s:
+        return [p.strip() for p in s.split(",") if p.strip()]
+    return [p for p in s.split() if p]

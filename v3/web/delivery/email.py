@@ -1,9 +1,11 @@
 """Email delivery: compose an RFC-822 message with the xlsx attached, persist a
-``.eml`` artifact to the outbox dir, optionally relay via SMTP, optionally push
-the workbook to SharePoint, and log the attempt to the ``outbox`` table.
+``.eml`` artifact to the outbox dir, send via Microsoft Graph (preferred) or
+SMTP when configured, optionally push the workbook to SharePoint, and log the
+attempt to the ``outbox`` table.
 
-When SMTP isn't configured the ``.eml`` file + outbox row are the delivery
-record (mirrors the live app's outbox behavior) - nothing is silently dropped.
+When neither Graph nor SMTP is configured the ``.eml`` + outbox row are the
+delivery record — nothing is silently dropped, but nothing reaches an inbox
+either (that was the Friday “success with no email” failure mode).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from uuid import uuid4
 
 from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
+from web.delivery.graph_mail import GraphMailError, GraphMailer
 from web.delivery.sharepoint import SharePointService
 
 log = logging.getLogger(__name__)
@@ -40,6 +43,7 @@ class DeliveryResult:
     error: str = ""
     recipients: list[str] = field(default_factory=list)
     eml_name: str = ""
+    # True when Graph or SMTP actually transmitted (legacy name kept for meta JSON).
     sent_via_smtp: bool = False
     sharepoint_saved: bool = False
     sharepoint_url: str | None = None
@@ -48,10 +52,20 @@ class DeliveryResult:
 
 
 class EmailService:
-    def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService):
+    def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService,
+                 graph: GraphMailer | None = None):
         self.cfg = cfg
         self.outbox = outbox
         self.sharepoint = sharepoint
+        self._graph = graph
+
+    def _graph_mailer(self) -> GraphMailer | None:
+        if self._graph is not None:
+            return self._graph
+        if not (self.cfg.tenant_id and self.cfg.client_id and self.cfg.client_secret
+                and self.cfg.email_from):
+            return None
+        return GraphMailer(self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret)
 
     def deliver(self, *, subject: str, recipients_raw: str, body_text: str,
                 report_name: str, filename: str, xlsx_bytes: bytes,
@@ -62,16 +76,31 @@ class EmailService:
 
         msg = self._compose(subject, recipients, body_text, report_name, filename, xlsx_bytes)
         eml_name = self._write_eml(msg, report_name)
+        body = body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n"
 
         sent = False
-        if recipients and self.cfg.smtp_host:
-            try:
-                self._smtp_send(msg, recipients)
-                sent = True
-            except Exception as exc:  # noqa: BLE001 - record, never crash the run
-                log.exception("SMTP send failed")
-                return self._record(subject, recipients, filename, eml_name, sent=False,
-                                    sp_path=sharepoint_path, error=f"SMTP failed: {exc}")
+        if recipients:
+            graph = self._graph_mailer()
+            if graph is not None:
+                try:
+                    graph.send(
+                        sender=self.cfg.email_from, to=recipients,
+                        subject=subject or report_name, body_text=body,
+                        filename=filename, xlsx_bytes=xlsx_bytes,
+                    )
+                    sent = True
+                except GraphMailError as exc:
+                    log.exception("Graph send failed")
+                    return self._record(subject, recipients, filename, eml_name, sent=False,
+                                        sp_path=sharepoint_path, error=f"Graph failed: {exc}")
+            elif self.cfg.smtp_host:
+                try:
+                    self._smtp_send(msg, recipients)
+                    sent = True
+                except Exception as exc:  # noqa: BLE001 - record, never crash the run
+                    log.exception("SMTP send failed")
+                    return self._record(subject, recipients, filename, eml_name, sent=False,
+                                        sp_path=sharepoint_path, error=f"SMTP failed: {exc}")
 
         sp_saved, sp_url, sp_err = self._maybe_sharepoint(sharepoint_path, filename, xlsx_bytes)
 
@@ -124,11 +153,11 @@ class EmailService:
     def _record(self, subject, recipients, filename, eml_name, *, sent,
                 sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
         # "Success" means every REQUESTED target was actually delivered. An email
-        # target is delivered when recipients exist and SMTP didn't hard-fail (the
-        # .eml + outbox row is the delivery record when SMTP is unconfigured). A
-        # requested SharePoint upload that failed makes the whole delivery fail -
-        # otherwise a SharePoint-only send could be reported as success while
-        # nothing was actually delivered.
+        # target is delivered when recipients exist and the send didn't hard-fail
+        # (the .eml + outbox row is the delivery record when Graph/SMTP are
+        # unconfigured). A requested SharePoint upload that failed makes the whole
+        # delivery fail — otherwise a SharePoint-only send could look successful
+        # while nothing was actually delivered.
         sp_requested = bool(sp_path)
         if not error and sp_requested and not sp_saved:
             error = sp_error or "SharePoint upload failed"

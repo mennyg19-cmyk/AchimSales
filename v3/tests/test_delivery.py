@@ -133,9 +133,33 @@ def test_email_writes_eml_and_logs_outbox(email):
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
                       report_name="Ordered", filename="ordered.xlsx", xlsx_bytes=b"PK\x03\x04")
     assert res.ok and res.recipients == ["a@x.com"]
+    assert res.sent_via_smtp is False
     assert (cfg.outbox_dir / res.eml_name).exists()
     row = OutboxRepository(db).get(res.outbox_id)
     assert row and row.status == "outbox" and row.attachment_meta["filename"] == "ordered.xlsx"
+
+
+def test_email_sends_via_graph_when_configured(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s",
+               email_from="reports@x.com")
+
+    class FakeGraph:
+        def __init__(self):
+            self.calls = []
+
+        def send(self, **kwargs):
+            self.calls.append(kwargs)
+
+    graph = FakeGraph()
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg), graph=graph)  # type: ignore[arg-type]
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
+                      report_name="Ordered", filename="ordered.xlsx", xlsx_bytes=b"PK\x03\x04")
+    assert res.ok and res.sent_via_smtp is True
+    assert len(graph.calls) == 1
+    assert graph.calls[0]["to"] == ["a@x.com"]
+    assert OutboxRepository(db).get(res.outbox_id).status == "sent"
 
 
 def test_email_requires_a_target(email):

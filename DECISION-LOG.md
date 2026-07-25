@@ -1,5 +1,20 @@
 # Decision Log
 
+## 2026-07-25 Master schedule split + salesman email fan-out
+**What you asked for:** Both-mode delivery (full workbook to typed emails/SharePoint;
+split files to selected salesmen), emails from Salesmen admin table, company
+schedules on the Schedules page, dig the Friday “success” with no inbox mail.
+**What I did:** expose/edit `salesmen.email`; move company wizard onto
+`/schedules#company`; wizard delivery opts (`email_to_salesmen` /
+`split_by_salesman` / `email_salesman_keys` in params JSON); `ScheduleRunner`
+fan-out. Missing salesman email skips that split without failing the run.
+**Friday dig:** `/test` used SMTP only; Azure App Settings have Graph
+(`GRAPH_*`, `EMAIL_FROM_ADDRESS`) but **no** `SMTP_HOST`. Empty SMTP → `.eml` +
+outbox `ok=True`, `sent_via_smtp=False` — UI looked successful with no inbox
+mail. **Fix:** v3 now prefers Graph (same mailbox path as live), falls back to
+SMTP, then outbox; `EMAIL_FROM` falls back to `EMAIL_FROM_ADDRESS`.
+**Status:** DECIDED — code on `rebuild-reports`; deploy with `deploy.ps1`.
+
 ## 2026-07-24 Customer Activity All tab on /test
 **What you asked for:** an All tab that joins every salesman, like live.
 **What I found:** Azure `/test` was running an SP passthrough builder

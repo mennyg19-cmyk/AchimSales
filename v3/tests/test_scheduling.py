@@ -11,6 +11,7 @@ from web.config import Config
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.outbox import OutboxRepository
+from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -19,8 +20,8 @@ from web.data.repositories.schedules import (
     ScheduleRunRepository,
 )
 from web.data.repositories.users import UserRepository
-from web.delivery.email import EmailService
-from web.delivery.service import DeliveryService
+from web.delivery.email import DeliveryResult, EmailService
+from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.delivery.sharepoint import SharePointService
 from web.scheduling import cadence as C
 from web.scheduling.runner import ScheduleRunner
@@ -108,6 +109,93 @@ def test_runner_master_runs_unrestricted(stack):
     runner.run(mid, MASTER)
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert len(hist) == 1 and hist[0].status == "success"
+
+
+def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+        SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
+                     display_name="A Grossman", email="a@x.com"),
+    ])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={
+            "period": "yesterday",
+            "email_salesman_keys": ["MKolko", "AGrossman"],
+            "split_by_salesman": True,
+            "email_to_salesmen": False,
+        }, layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="manager@x.com")
+    runner.run(mid, MASTER)
+
+    assert len(delivery.calls) == 3
+    assert delivery.calls[0]["recipients"] == "manager@x.com"
+    assert delivery.calls[0]["params"] == {"period": "yesterday"}
+    split_calls = delivery.calls[1:]
+    assert [c["recipients"] for c in split_calls] == ["m@x.com", "a@x.com"]
+    assert [c["params"]["salesman"] for c in split_calls] == [["MKolko"], ["AGrossman"]]
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "success" and hist[0].rows == 3
+
+
+def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+        SalesmanSeed(raw_key="NoMail", number="2", full_name="No Mail",
+                     display_name="No Mail", email=""),
+    ])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={
+            "salesman": ["MKolko", "NoMail"],
+            "email_to_salesmen": True,
+        }, layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="manager@x.com")
+    runner.run(mid, MASTER)
+
+    assert len(delivery.calls) == 2  # management + MKolko only
+    assert delivery.calls[1]["recipients"] == "m@x.com"
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "success"
+    assert "NoMail: skipped" in (hist[0].debug_log or "")
 
 
 # --- cron tick -------------------------------------------------------------

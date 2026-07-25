@@ -32,6 +32,8 @@ def test_upsert_and_facts_roundtrip(db):
     assert key in facts
     assert facts[key].number == "080"
     assert facts[key].commission_pct == 0.05
+    assert repo.list_all()[0].email == "r@x.com"
+    assert repo.get_email("REdwards") == "r@x.com"
 
 
 def test_upsert_is_idempotent_and_updates(db):

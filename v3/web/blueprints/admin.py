@@ -206,7 +206,7 @@ def update_salesman(key: str):
         return blocked
     body = request.get_json(silent=True) or {}
     fields: dict = {}
-    for name in ("number", "full_name", "display_name"):
+    for name in ("number", "full_name", "display_name", "email"):
         if name in body:
             fields[name] = str(body[name]).strip()
     if "is_active" in body:

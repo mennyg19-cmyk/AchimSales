@@ -152,7 +152,12 @@ def load_config() -> Config:
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
         new_app_marker=_env_bool("NEW_APP_MARKER", True),
         outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),
-        email_from=os.environ.get("EMAIL_FROM", "reports@achimonline.com").strip(),
+        # Prefer EMAIL_FROM; fall back to live's EMAIL_FROM_ADDRESS (Azure has that).
+        email_from=(
+            os.environ.get("EMAIL_FROM", "").strip()
+            or os.environ.get("EMAIL_FROM_ADDRESS", "").strip()
+            or "reports@achimonline.com"
+        ),
         smtp_host=os.environ.get("SMTP_HOST", "").strip(),
         smtp_port=int(os.environ.get("SMTP_PORT", "587") or "587"),
         smtp_user=os.environ.get("SMTP_USER", "").strip(),

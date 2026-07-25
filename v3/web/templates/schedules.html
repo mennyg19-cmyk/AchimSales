@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Schedules{% endblock %}
-{% block container_class %}container-narrow{% endblock %}
+{% block container_class %}{% if not is_admin %}container-narrow{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-head">
     <h1 class="page-title">Schedules</h1>
-    <p class="page-subtitle">Recurring deliveries you've set up. Create one from a report using the “Schedule” button.</p>
+    <p class="page-subtitle">Recurring deliveries you've set up. Create personal schedules from a report using the “Schedule” button.</p>
 </div>
 
+<section id="personal">
+<h2 class="section-title">My schedules</h2>
 {% if schedules %}
 <div class="table-wrap" id="schedulesRoot" data-csrf="{{ csrf_token() }}">
     <table class="data-table">
@@ -50,6 +52,11 @@
     <i data-feather="clock"></i>
     <p>No schedules yet. Open a report, set your filters, and use the “Schedule” button to create one.</p>
 </div>
+{% endif %}
+</section>
+
+{% if is_admin %}
+{% include "master_schedules.html" %}
 {% endif %}
 {% endblock %}
 

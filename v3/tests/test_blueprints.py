@@ -298,6 +298,19 @@ def test_admin_salesman_active_toggle(tmp_path):
     assert rows["redwards"].is_active is False
 
 
+def test_admin_can_update_salesman_email(tmp_path):
+    app = _make_app(tmp_path)
+    _seed_salesman(app)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.put("/api/admin/salesmen/redwards", json={"email": "rep@x.com"},
+                      headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    from web.data.repositories.salesmen import SalesmanRepository
+    rows = {s.key: s for s in SalesmanRepository(app.config["DB"]).list_all()}
+    assert rows["redwards"].email == "rep@x.com"
+
+
 def test_run_requires_csrf(tmp_path):
     app = _make_app(tmp_path, rows_by_report={})
     client = app.test_client()
@@ -858,6 +871,23 @@ def test_schedule_is_owner_scoped(tmp_path):
     assert other.delete(f"/api/schedules/{sid}", headers={"X-CSRF-Token": _CSRF}).status_code == 404
 
 
+def test_schedules_page_company_section_admin_only(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    admin_html = admin.get("/schedules").get_data(as_text=True)
+    assert "My schedules" in admin_html
+    assert "Company schedules" in admin_html
+    assert "msWizard" in admin_html
+
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    rep_html = rep.get("/schedules").get_data(as_text=True)
+    assert "My schedules" in rep_html
+    assert "Company schedules" not in rep_html
+    assert "msWizard" not in rep_html
+
+
 def test_master_schedule_admin_only(tmp_path):
     app = _make_app(tmp_path)
     rep = app.test_client()
@@ -870,23 +900,121 @@ def test_master_schedule_admin_only(tmp_path):
 
     admin = app.test_client()
     _login(admin, app)
+    redirected = admin.get("/master-schedules")
+    assert redirected.status_code == 302
+    assert redirected.headers["Location"].endswith("/schedules#company")
     created = admin.post("/api/master-schedules", json={
         "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
         "cadence": {"freq": "daily", "time": "06:00"},
-        "params": {"period": "yesterday", "customers": "9300 9301"}},
+        "params": {
+            "period": "yesterday",
+            "customers": ["9300", "9301"],
+            "salesman": ["MKolko", "AGrossman"],
+            "status": ["Open order", "Delivered"],
+            "email_to_salesmen": True,
+        }},
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
-    page = admin.get("/master-schedules").get_data(as_text=True)
+    page = admin.get("/schedules").get_data(as_text=True)
     assert "Nightly" in page
+    assert "Company schedules" in page
     assert "msWizard" in page
     assert "Set up a schedule" in page
     assert "data-pane=\"1\"" in page
+    assert 'id="msStatus"' in page and "multiple" in page
+    assert 'id="msSalesman"' in page
+    assert 'id="msCustomerPicker"' in page
+    assert "master-schedules/lookups/salesmen" in page
+    assert "master-schedules/lookups/salesmen-emails" in page
+    assert "master-schedules/lookups/customers" in page
+    assert "master-schedules/lookups/status" in page
 
     from web.data.repositories.schedules import MasterScheduleRepository
     mid = created.get_json()["id"]
     saved = MasterScheduleRepository(app.config["DB"]).get(mid)
     assert saved.params["period"] == "yesterday"
     assert saved.params["customers"] == ["9300", "9301"]
+    assert saved.params["salesman"] == ["MKolko", "AGrossman"]
+    assert saved.params["status"] == ["Open order", "Delivered"]
+    assert saved.params["email_to_salesmen"] is True
+    assert saved.params["split_by_salesman"] is False
+
+
+def test_master_schedule_lookups_admin_only(tmp_path):
+    rows = [
+        {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "MKolko"},
+        {"CustomerAccount": "200", "CustomerName": "Beta", "SalesGroup": "AGrossman"},
+    ]
+    app = _make_app(tmp_path)
+    _with_lookups(app, rows)
+
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    assert rep.get("/api/master-schedules/lookups/salesmen").status_code == 403
+    assert rep.get("/api/master-schedules/lookups/salesmen-emails").status_code == 403
+    assert rep.get("/api/master-schedules/lookups/customers").status_code == 403
+
+    admin = app.test_client()
+    _login(admin, app)
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+    SalesmanRepository(app.config["DB"]).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+        SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
+                     display_name="A Grossman", email=""),
+    ])
+    sm = admin.get("/api/master-schedules/lookups/salesmen").get_json()["salesmen"]
+    assert {r["key"] for r in sm} >= {"MKolko", "AGrossman"}
+    sm_emails = admin.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
+    assert sm_emails == [{"email": "m@x.com", "key": "MKolko", "name": "MKolko"}]
+    cust = admin.get("/api/master-schedules/lookups/customers").get_json()["customers"]
+    assert {c["key"] for c in cust} == {"100", "200"}
+    st = admin.get("/api/master-schedules/lookups/status").get_json()
+    assert st["cached_row_count"] == 2
+
+
+def test_master_schedule_normalizes_csv_multi_params(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "CSV multi", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"},
+        "params": {
+            "period": "yesterday",
+            "customers": "9300 9301",
+            "salesman": "MKolko,AGrossman",
+            "status": "Open order,Delivered",
+        }},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    saved = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert saved.params["customers"] == ["9300", "9301"]
+    assert saved.params["salesman"] == ["MKolko", "AGrossman"]
+    assert saved.params["status"] == ["Open order", "Delivered"]
+
+
+def test_master_schedule_persists_unfiltered_salesman_delivery_options(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Split email", "report_key": "ordered",
+        "cadence": {"freq": "daily", "time": "06:00"},
+        "params": {
+            "period": "yesterday",
+            "split_by_salesman": True,
+            "email_salesman_keys": ["MKolko", "AGrossman"],
+        }},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    saved = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert saved.recipients == ""
+    assert saved.params["split_by_salesman"] is True
+    assert saved.params["email_to_salesmen"] is False
+    assert saved.params["email_salesman_keys"] == ["MKolko", "AGrossman"]
 
 
 def test_master_schedule_rejects_in_app_report(tmp_path):
@@ -900,15 +1028,14 @@ def test_master_schedule_rejects_in_app_report(tmp_path):
     assert resp.status_code == 400
 
 
-def test_settings_shows_master_schedule_card(tmp_path):
+def test_settings_links_company_schedules_without_master_card(tmp_path):
     app = _make_app(tmp_path)
     admin = app.test_client()
     _login(admin, app)
     html = admin.get("/settings").get_data(as_text=True)
-    assert "Master schedules" in html
-    assert "Set up / manage schedules" in html
-    assert "admin-sched-card" in html
-    assert "0 schedules set up" in html
+    assert "Company schedules" in html
+    assert "admin-sched-card" not in html
+    assert "Set up / manage schedules" not in html
 
 
 

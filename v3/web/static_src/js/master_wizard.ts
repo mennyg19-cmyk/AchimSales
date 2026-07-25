@@ -2,12 +2,22 @@
 
 import { esc, jsonHeaders } from "./http";
 
-// --------------------------------------------------------------------------
-// Master schedule wizard
-// --------------------------------------------------------------------------
-
 const TOTAL_STEPS = 5;
 let wizardStep = 1;
+
+interface LookupRow { key: string; name: string; }
+interface SalesmanEmailRow extends LookupRow { email: string; }
+
+const selectedCustomers = new Map<string, string>(); // account -> display name
+let customerOptions: LookupRow[] = [];
+let salesmanEmailOptions: SalesmanEmailRow[] = [];
+let customerPickerOpen = false;
+let customerHandlersBound = false;
+let lookupsStarted = false;
+let lookupPollTimer: number | null = null;
+let pendingSalesmen: string[] = [];
+let pendingEmailSalesmen: string[] = [];
+let pendingCustomers: string[] = [];
 
 function wizardRoot(): HTMLElement | null {
   return document.getElementById("msWizard");
@@ -67,6 +77,27 @@ function syncParamsVisibility(form: HTMLFormElement): void {
   if (none) none.hidden = !empty;
   if (fields) fields.hidden = empty;
   if (intro) intro.hidden = empty;
+  void ensureLookups();
+}
+
+function syncDeliveryOptionsVisibility(form: HTMLFormElement): void {
+  const key = selectedReportKey(form);
+  const hasSalesmanFilter = (reportFilters()[key] || []).includes("salesman");
+  const wrapper = document.getElementById("msSalesmanDelivery");
+  const filtered = document.getElementById("msFilteredSalesmanEmail");
+  const unfiltered = document.getElementById("msUnfilteredSalesmanSplit");
+  const selectedSalesmen = multiValues(document.getElementById("msSalesman") as HTMLSelectElement | null);
+  if (wrapper) wrapper.hidden = !hasSalesmanFilter;
+  if (filtered) filtered.hidden = !hasSalesmanFilter || selectedSalesmen.length === 0;
+  if (unfiltered) unfiltered.hidden = !hasSalesmanFilter || selectedSalesmen.length > 0;
+  if (!hasSalesmanFilter) {
+    const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
+    const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
+    if (emailToSalesmen) emailToSalesmen.checked = false;
+    if (splitBySalesman) splitBySalesman.checked = false;
+    setMultiSelected(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null, []);
+  }
+  void ensureLookups();
 }
 
 function suggestName(form: HTMLFormElement): void {
@@ -91,6 +122,26 @@ function masterCadence(form: HTMLFormElement): { ok: boolean; cadence?: any; err
   return { ok: true, cadence };
 }
 
+function multiValues(sel: HTMLSelectElement | null): string[] {
+  if (!sel) return [];
+  return [...sel.selectedOptions].map((o) => o.value.trim()).filter(Boolean);
+}
+
+function asStringList(raw: unknown): string[] {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+  const s = String(raw).trim();
+  if (!s) return [];
+  if (s.includes(",")) return s.split(",").map((p) => p.trim()).filter(Boolean);
+  return s.split(/\s+/).map((p) => p.trim()).filter(Boolean);
+}
+
+function setMultiSelected(sel: HTMLSelectElement | null, values: string[]): void {
+  if (!sel) return;
+  const want = new Set(values);
+  [...sel.options].forEach((o) => { o.selected = want.has(o.value); });
+}
+
 function collectParams(form: HTMLFormElement): Record<string, unknown> {
   const key = selectedReportKey(form);
   const needed = reportFilters()[key] || [];
@@ -100,16 +151,22 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
     if (v) out.period = v;
   }
   if (needed.includes("status")) {
-    const v = (form.elements.namedItem("status") as HTMLSelectElement).value.trim();
-    if (v) out.status = v;
+    const vals = multiValues(document.getElementById("msStatus") as HTMLSelectElement | null);
+    if (vals.length) out.status = vals;
   }
   if (needed.includes("salesman")) {
-    const v = (form.elements.namedItem("salesman") as HTMLInputElement).value.trim();
-    if (v) out.salesman = v;
+    const vals = multiValues(document.getElementById("msSalesman") as HTMLSelectElement | null);
+    if (vals.length) out.salesman = vals;
+    const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
+    const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
+    const emailKeys = multiValues(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null);
+    out.email_to_salesmen = vals.length > 0 && !!emailToSalesmen?.checked;
+    out.split_by_salesman = vals.length === 0 && (!!splitBySalesman?.checked || emailKeys.length > 0);
+    out.email_salesman_keys = vals.length === 0 ? emailKeys : [];
   }
   if (needed.includes("customers")) {
-    const v = (form.elements.namedItem("customers") as HTMLInputElement).value.trim();
-    if (v) out.customers = v;
+    const vals = [...selectedCustomers.keys()];
+    if (vals.length) out.customers = vals;
   }
   if (needed.includes("year")) {
     const v = (form.elements.namedItem("year") as HTMLSelectElement).value.trim();
@@ -121,6 +178,11 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
 function weekdayLabels(days: number[]): string {
   const names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   return days.map((d) => names[d] || String(d)).join(", ");
+}
+
+function listLabel(raw: unknown): string {
+  const vals = asStringList(raw);
+  return vals.join(", ");
 }
 
 function fillReview(form: HTMLFormElement): void {
@@ -139,9 +201,15 @@ function fillReview(form: HTMLFormElement): void {
   const params = collectParams(form);
   const paramBits: string[] = [];
   if (params.period) paramBits.push(String(params.period).replace(/_/g, " "));
-  if (params.status) paramBits.push("status " + params.status);
-  if (params.salesman) paramBits.push("salesman " + params.salesman);
-  if (params.customers) paramBits.push("customers " + params.customers);
+  if (params.status) paramBits.push("status " + listLabel(params.status));
+  if (params.salesman) paramBits.push("salesman " + listLabel(params.salesman));
+  if (params.email_to_salesmen) paramBits.push("email selected salesmen their files");
+  if (params.email_salesman_keys && asStringList(params.email_salesman_keys).length) {
+    paramBits.push("email salesmen " + listLabel(params.email_salesman_keys));
+  } else if (params.split_by_salesman) {
+    paramBits.push("split by salesman");
+  }
+  if (params.customers) paramBits.push("customers " + listLabel(params.customers));
   if (params.year) paramBits.push("year " + params.year);
 
   const recipients = (form.elements.namedItem("recipients") as HTMLInputElement).value.trim();
@@ -157,6 +225,282 @@ function fillReview(form: HTMLFormElement): void {
   ];
   review.innerHTML = rows.map(([k, v]) =>
     `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+}
+
+async function getJSON<T>(url: string): Promise<T | null> {
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSalesmen(): Promise<void> {
+  const sel = document.getElementById("msSalesman") as HTMLSelectElement | null;
+  const hint = document.getElementById("msSalesmanHint");
+  const url = wizardRoot()?.getAttribute("data-salesmen-url") || "";
+  if (!sel || !url) return;
+  const data = await getJSON<{ salesmen: LookupRow[] }>(url);
+  const rows = data?.salesmen || [];
+  const keep = pendingSalesmen.length ? pendingSalesmen : multiValues(sel);
+  sel.innerHTML = "";
+  rows.forEach((r) => {
+    const o = document.createElement("option");
+    o.value = r.key;
+    o.textContent = r.name;
+    sel.appendChild(o);
+  });
+  setMultiSelected(sel, keep);
+  if (rows.length) pendingSalesmen = [];
+  if (hint) {
+    hint.textContent = rows.length
+      ? "Hold Ctrl (Windows) or ⌘ (Mac) to pick several. Leave empty for all salesmen."
+      : "Loading salesmen from customer master…";
+  }
+}
+
+async function loadSalesmenWithEmails(): Promise<void> {
+  const sel = document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null;
+  const hint = document.getElementById("msEmailSalesmanHint");
+  const url = wizardRoot()?.getAttribute("data-salesmen-emails-url") || "";
+  if (!sel || !url) return;
+  const data = await getJSON<{ salesmen: SalesmanEmailRow[] }>(url);
+  salesmanEmailOptions = data?.salesmen || [];
+  const keep = pendingEmailSalesmen.length ? pendingEmailSalesmen : multiValues(sel);
+  sel.innerHTML = "";
+  salesmanEmailOptions.forEach((r) => {
+    const o = document.createElement("option");
+    o.value = r.key;
+    o.textContent = `${r.name} <${r.email}>`;
+    sel.appendChild(o);
+  });
+  setMultiSelected(sel, keep);
+  if (salesmanEmailOptions.length) pendingEmailSalesmen = [];
+  if (hint) {
+    hint.textContent = salesmanEmailOptions.length
+      ? "Pick who should receive a split workbook. Only salesmen with saved emails appear."
+      : "No salesmen with emails found yet.";
+  }
+}
+
+function positionCustomerOptions(): void {
+  const host = document.getElementById("msCustomerPicker");
+  const search = host?.querySelector<HTMLElement>(".customer-search");
+  const list = host?.querySelector<HTMLElement>(".customer-options");
+  if (!search || !list || list.hidden) return;
+  const r = search.getBoundingClientRect();
+  list.style.position = "fixed";
+  list.style.top = `${Math.round(r.bottom + 2)}px`;
+  list.style.left = `${Math.round(r.left)}px`;
+  list.style.width = `${Math.round(r.width)}px`;
+}
+
+function ensureCustomerHandlers(): void {
+  if (customerHandlersBound) return;
+  customerHandlersBound = true;
+  const inside = (t: Node) => {
+    const p = document.getElementById("msCustomerPicker");
+    const pills = document.getElementById("msCustomerPills");
+    return !!((p && p.contains(t)) || (pills && pills.contains(t)));
+  };
+  document.addEventListener("click", (e) => {
+    if (customerPickerOpen && !inside(e.target as Node)) closeCustomerOptions();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && customerPickerOpen) closeCustomerOptions();
+  });
+  window.addEventListener("scroll", positionCustomerOptions, true);
+  window.addEventListener("resize", positionCustomerOptions);
+}
+
+function ensureCustomerInput(): HTMLInputElement | null {
+  const host = document.getElementById("msCustomerPicker");
+  if (!host) return null;
+  let search = host.querySelector<HTMLInputElement>(".customer-search");
+  if (search) return search;
+  host.innerHTML = "";
+  search = document.createElement("input");
+  search.type = "text";
+  search.className = "customer-search";
+  search.placeholder = host.dataset.placeholder || "Search customers…";
+  search.setAttribute("role", "combobox");
+  search.addEventListener("focus", () => { customerPickerOpen = true; renderCustomerOptions(); });
+  search.addEventListener("input", () => { customerPickerOpen = true; renderCustomerOptions(); });
+  host.appendChild(search);
+  const list = document.createElement("div");
+  list.className = "customer-options";
+  list.hidden = true;
+  host.appendChild(list);
+  return search;
+}
+
+function closeCustomerOptions(): void {
+  customerPickerOpen = false;
+  const list = document.getElementById("msCustomerPicker")?.querySelector<HTMLElement>(".customer-options");
+  if (list) list.hidden = true;
+}
+
+function renderCustomerOptions(): void {
+  const host = document.getElementById("msCustomerPicker");
+  const search = ensureCustomerInput();
+  const list = host?.querySelector<HTMLElement>(".customer-options");
+  if (!host || !search || !list) return;
+  if (!customerPickerOpen) { list.hidden = true; return; }
+
+  const q = search.value.trim().toLowerCase();
+  const matches = q
+    ? customerOptions.filter(
+        (c) => c.name.toLowerCase().includes(q) || c.key.toLowerCase().includes(q),
+      )
+    : customerOptions;
+
+  list.innerHTML = "";
+  matches.slice(0, 200).forEach((c) => {
+    const row = document.createElement("label");
+    row.className = "customer-option";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = selectedCustomers.has(c.key);
+    cb.addEventListener("change", () => {
+      if (cb.checked) selectedCustomers.set(c.key, c.name);
+      else selectedCustomers.delete(c.key);
+      renderCustomerPills();
+    });
+    row.appendChild(cb);
+    const text = document.createElement("span");
+    text.textContent = `${c.key} — ${c.name}`;
+    row.appendChild(text);
+    list.appendChild(row);
+  });
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "customer-empty";
+    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
+    list.appendChild(empty);
+  }
+  list.hidden = false;
+  positionCustomerOptions();
+}
+
+function renderCustomerPills(): void {
+  const host = document.getElementById("msCustomerPills");
+  if (!host) return;
+  host.innerHTML = "";
+  selectedCustomers.forEach((name, key) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "customer-chip";
+    chip.textContent = `${name} ✕`;
+    chip.title = `Remove ${key}`;
+    chip.addEventListener("click", () => {
+      selectedCustomers.delete(key);
+      renderCustomerPills();
+      if (customerPickerOpen) renderCustomerOptions();
+    });
+    host.appendChild(chip);
+  });
+}
+
+function applyPendingCustomers(): void {
+  if (!pendingCustomers.length) return;
+  if (!customerOptions.length) return;
+  pendingCustomers.forEach((key) => {
+    const row = customerOptions.find((c) => c.key === key);
+    selectedCustomers.set(key, row?.name || key);
+  });
+  pendingCustomers = [];
+  renderCustomerPills();
+}
+
+async function loadCustomers(): Promise<void> {
+  const hint = document.getElementById("msCustomerHint");
+  const url = wizardRoot()?.getAttribute("data-customers-url") || "";
+  if (!url) return;
+  const data = await getJSON<{ customers: LookupRow[] }>(url);
+  customerOptions = data?.customers || [];
+  ensureCustomerHandlers();
+  ensureCustomerInput();
+  applyPendingCustomers();
+  renderCustomerPills();
+  if (customerPickerOpen) renderCustomerOptions();
+  if (hint) {
+    if (customerOptions.length) {
+      hint.textContent = "Search and check customers. Leave empty for all.";
+    } else {
+      hint.textContent = "Loading customers from customer master…";
+    }
+  }
+}
+
+function stopLookupPoll(): void {
+  if (lookupPollTimer != null) {
+    window.clearInterval(lookupPollTimer);
+    lookupPollTimer = null;
+  }
+}
+
+function pollLookupStatus(): void {
+  const url = wizardRoot()?.getAttribute("data-lookup-status-url") || "";
+  if (!url) return;
+  const tick = async () => {
+    const s = await getJSON<{
+      status?: string;
+      cached_row_count?: number;
+      mirror_row_count?: number;
+      configured?: boolean;
+    }>(url);
+    if (!s) return;
+    const ready = s.status === "ready"
+      || (s.cached_row_count || 0) > 0
+      || (s.mirror_row_count || 0) > 0;
+    if (ready) {
+      stopLookupPoll();
+      await loadSalesmen();
+      await loadSalesmenWithEmails();
+      await loadCustomers();
+      return;
+    }
+    const smHint = document.getElementById("msSalesmanHint");
+    const cuHint = document.getElementById("msCustomerHint");
+    const msg = s.status === "loading"
+      ? "Loading from customer master…"
+      : s.status === "error"
+        ? "Customer master still warming — retrying…"
+        : (!s.configured ? "Customer master is not configured." : "Waiting for customer master…");
+    if (smHint && !(document.getElementById("msSalesman") as HTMLSelectElement | null)?.options.length) {
+      smHint.textContent = msg;
+    }
+    const emHint = document.getElementById("msEmailSalesmanHint");
+    if (emHint && !salesmanEmailOptions.length) emHint.textContent = msg;
+    if (cuHint && !customerOptions.length) cuHint.textContent = msg;
+  };
+  void tick();
+  stopLookupPoll();
+  lookupPollTimer = window.setInterval(() => { void tick(); }, 2500);
+}
+
+async function ensureLookups(): Promise<void> {
+  if (lookupsStarted) return;
+  lookupsStarted = true;
+  await Promise.all([loadSalesmen(), loadSalesmenWithEmails(), loadCustomers()]);
+  pollLookupStatus();
+}
+
+function clearMultiFilters(): void {
+  selectedCustomers.clear();
+  renderCustomerPills();
+  setMultiSelected(document.getElementById("msStatus") as HTMLSelectElement | null, []);
+  setMultiSelected(document.getElementById("msSalesman") as HTMLSelectElement | null, []);
+  setMultiSelected(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null, []);
+  const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
+  const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
+  if (emailToSalesmen) emailToSalesmen.checked = false;
+  if (splitBySalesman) splitBySalesman.checked = false;
+  const search = document.getElementById("msCustomerPicker")?.querySelector<HTMLInputElement>(".customer-search");
+  if (search) search.value = "";
+  closeCustomerOptions();
 }
 
 function showStep(step: number): void {
@@ -186,6 +530,7 @@ function showStep(step: number): void {
   if (!form) return;
   if (step === 2) syncCadenceVisibility(form);
   if (step === 3) syncParamsVisibility(form);
+  if (step === 4) syncDeliveryOptionsVisibility(form);
   if (step === 5) fillReview(form);
 }
 
@@ -203,8 +548,16 @@ function validateStep(step: number, form: HTMLFormElement): string | null {
   if (step === 4) {
     const recipients = (form.elements.namedItem("recipients") as HTMLInputElement).value.trim();
     const sp = (document.getElementById("spPathInput") as HTMLInputElement)?.value.trim() || "";
-    if (!recipients && !sp) {
-      return "Add at least one email address or pick a SharePoint folder.";
+    const params = collectParams(form);
+    const selectedSalesmen = asStringList(params.salesman);
+    const salesmanDelivery = (selectedSalesmen.length > 0 && !!params.email_to_salesmen)
+      || asStringList(params.email_salesman_keys).length > 0;
+    if (!recipients && !sp && !salesmanDelivery) {
+      return "Add an email address, pick a SharePoint folder, or choose salesmen to email.";
+    }
+    if (!selectedSalesmen.length && params.split_by_salesman
+        && !asStringList(params.email_salesman_keys).length) {
+      return "Pick at least one salesman to email.";
     }
   }
   return null;
@@ -223,6 +576,13 @@ function closeWizard(): void {
   const form = masterForm();
   if (!wiz || !form) return;
   form.reset();
+  clearMultiFilters();
+  pendingSalesmen = [];
+  pendingEmailSalesmen = [];
+  pendingCustomers = [];
+  salesmanEmailOptions = [];
+  stopLookupPoll();
+  lookupsStarted = false;
   (document.getElementById("editingId") as HTMLInputElement).value = "";
   (document.getElementById("spPathInput") as HTMLInputElement).value = "";
   document.getElementById("formTitle")!.textContent = "Set up a schedule";
@@ -235,7 +595,7 @@ function closeWizard(): void {
   }
 }
 
-function enterEditMode(row: HTMLTableRowElement): void {
+async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   const form = masterForm();
   if (!form) return;
   const id = row.dataset.id!;
@@ -263,12 +623,19 @@ function enterEditMode(row: HTMLTableRowElement): void {
   }
 
   (form.elements.namedItem("period") as HTMLSelectElement).value = params.period || "";
-  (form.elements.namedItem("status") as HTMLSelectElement).value = params.status || "";
-  (form.elements.namedItem("salesman") as HTMLInputElement).value = params.salesman || "";
-  const custs = Array.isArray(params.customers)
-    ? params.customers.join(" ")
-    : (params.customers || "");
-  (form.elements.namedItem("customers") as HTMLInputElement).value = custs;
+  setMultiSelected(
+    document.getElementById("msStatus") as HTMLSelectElement | null,
+    asStringList(params.status),
+  );
+  pendingSalesmen = asStringList(params.salesman);
+  pendingEmailSalesmen = asStringList(params.email_salesman_keys);
+  const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
+  const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
+  if (emailToSalesmen) emailToSalesmen.checked = !!params.email_to_salesmen;
+  if (splitBySalesman) splitBySalesman.checked = !!params.split_by_salesman;
+  pendingCustomers = asStringList(params.customers);
+  selectedCustomers.clear();
+  renderCustomerPills();
   (form.elements.namedItem("year") as HTMLSelectElement).value =
     params.year != null ? String(params.year) : "";
 
@@ -278,9 +645,12 @@ function enterEditMode(row: HTMLTableRowElement): void {
   document.getElementById("formTitle")!.textContent = "Edit schedule";
   document.getElementById("formSubmitBtn")!.textContent = "Save changes";
   syncCadenceVisibility(form);
-  syncParamsVisibility(form);
+  lookupsStarted = false;
+  stopLookupPoll();
   openWizard();
   showStep(1);
+  syncParamsVisibility(form);
+  await ensureLookups();
 }
 
 export function bindMasterWizard(): void {
@@ -310,14 +680,21 @@ export function bindMasterWizard(): void {
   form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {
     r.addEventListener("change", () => {
       syncParamsVisibility(form);
+      syncDeliveryOptionsVisibility(form);
       suggestName(form);
     });
+  });
+  document.getElementById("msSalesman")?.addEventListener("change", () => {
+    syncDeliveryOptionsVisibility(form);
+  });
+  document.getElementById("msSplitBySalesman")?.addEventListener("change", () => {
+    syncDeliveryOptionsVisibility(form);
   });
 
   document.querySelectorAll<HTMLButtonElement>(".js-edit").forEach((b) => {
     b.addEventListener("click", () => {
       const row = b.closest("tr") as HTMLTableRowElement;
-      if (row) enterEditMode(row);
+      if (row) void enterEditMode(row);
     });
   });
 

@@ -1,16 +1,10 @@
-{% extends "base.html" %}
-{% block title %}Master schedules{% endblock %}
-
-{% block content %}
+<section id="company" class="company-schedules-section">
 <div class="page-head page-head-row">
     <div>
-        <a class="back-link" href="{{ url_for('settings.settings_page') }}">
-            <i data-feather="arrow-left"></i> Settings
-        </a>
-        <h1 class="page-title">Master schedules</h1>
+        <h2 class="page-title">Company schedules</h2>
         <p class="page-subtitle">
             Shared automatic reports for the whole company. They run with full data
-            (not limited to one salesman).
+            for typed recipients and SharePoint, with optional split emails to salesmen.
         </p>
     </div>
     <div class="page-head-actions">
@@ -27,6 +21,10 @@
      data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
      data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
+     data-salesmen-url="{{ url_for('schedules.master_lookup_salesmen') }}"
+     data-salesmen-emails-url="{{ url_for('schedules.master_lookup_salesmen_emails') }}"
+     data-customers-url="{{ url_for('schedules.master_lookup_customers') }}"
+     data-lookup-status-url="{{ url_for('schedules.master_lookup_status') }}"
      data-report-filters='{{ report_filters|tojson }}'
      data-csrf="{{ csrf_token() }}">
     <input type="hidden" id="editingId" value="">
@@ -117,23 +115,30 @@
                     </select>
                 </label>
                 <label class="ms-field ms-field-block" data-param="status" hidden>
-                    <span>Order status (Ordered report)</span>
-                    <select name="status" id="msStatus">
+                    <span>Order status (optional — pick one or more)</span>
+                    <select name="status" id="msStatus" class="ms-multi" multiple size="5"
+                            aria-label="Order statuses">
                         {% for value, label in status_options %}
+                        {% if value %}
                         <option value="{{ value }}">{{ label }}</option>
+                        {% endif %}
                         {% endfor %}
                     </select>
+                    <span class="ms-field-hint">Hold Ctrl (Windows) or ⌘ (Mac) to pick several. Leave empty for all statuses.</span>
                 </label>
                 <label class="ms-field ms-field-block" data-param="salesman" hidden>
-                    <span>Salesman code (optional)</span>
-                    <input type="text" name="salesman" id="msSalesman"
-                           placeholder="Leave blank for all salesmen">
+                    <span>Salesmen (optional — pick one or more)</span>
+                    <select name="salesman" id="msSalesman" class="ms-multi" multiple size="8"
+                            aria-label="Salesmen">
+                    </select>
+                    <span class="ms-field-hint" id="msSalesmanHint">Loading salesmen…</span>
                 </label>
-                <label class="ms-field ms-field-block" data-param="customers" hidden>
-                    <span>Customer account numbers (optional)</span>
-                    <input type="text" name="customers" id="msCustomers"
-                           placeholder="e.g. 9300 9301 — leave blank for all">
-                </label>
+                <div class="ms-field ms-field-block" data-param="customers" hidden>
+                    <span>Customers (optional — pick one or more)</span>
+                    <div id="msCustomerPicker" class="customer-picker" data-placeholder="Search customers…"></div>
+                    <div id="msCustomerPills" class="customer-pills" aria-live="polite"></div>
+                    <span class="ms-field-hint" id="msCustomerHint">Leave empty for all customers.</span>
+                </div>
                 <label class="ms-field ms-field-block" data-param="year" hidden>
                     <span>Year (optional)</span>
                     <select name="year" id="msYear">
@@ -149,7 +154,7 @@
         {# Step 4: delivery #}
         <section class="ms-pane" data-pane="4" hidden>
             <h3 class="ms-pane-title" tabindex="-1">Where should it go?</h3>
-            <p class="ms-pane-help">Pick email, a SharePoint folder, or both. You need at least one.</p>
+            <p class="ms-pane-help">Pick email, a SharePoint folder, salesman split emails, or any mix. You need at least one target.</p>
             <label class="ms-field ms-field-block">
                 <span>Email addresses</span>
                 <input type="text" name="recipients" id="msRecipients"
@@ -165,6 +170,29 @@
                 </div>
             </label>
             <p class="ms-pane-help">Optional. The Excel file is saved in this folder each time the schedule runs.</p>
+            <div id="msSalesmanDelivery" class="ms-field ms-field-block" hidden>
+                <span>Salesman split emails</span>
+                <div id="msFilteredSalesmanEmail" hidden>
+                    <label class="flag-row">
+                        <input type="checkbox" id="msEmailToSalesmen" name="email_to_salesmen">
+                        <span>Email the selected salesmen their own files</span>
+                    </label>
+                    <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
+                </div>
+                <div id="msUnfilteredSalesmanSplit" hidden>
+                    <label class="flag-row">
+                        <input type="checkbox" id="msSplitBySalesman" name="split_by_salesman">
+                        <span>Split by salesman and email selected salesmen</span>
+                    </label>
+                    <select name="email_salesman_keys" id="msEmailSalesmanKeys" class="ms-multi" multiple size="8"
+                            aria-label="Salesmen to email">
+                    </select>
+                    <span class="ms-field-hint" id="msEmailSalesmanHint">
+                        Only salesmen with emails in Users &amp; access appear here.
+                    </span>
+                    <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
+                </div>
+            </div>
         </section>
 
         {# Step 5: review #}
@@ -187,7 +215,7 @@
 </div>
 
 {# ── Existing schedules list ── #}
-{% if schedules %}
+{% if master_schedules %}
 <div class="ms-table-wrap" data-csrf="{{ csrf_token() }}">
     <table class="data-table">
         <thead>
@@ -204,7 +232,7 @@
             </tr>
         </thead>
         <tbody>
-            {% for s in schedules %}
+            {% for s in master_schedules %}
             <tr data-id="{{ s.id }}"
                 data-name="{{ s.name }}"
                 data-report-key="{{ s.report_key }}"
@@ -242,7 +270,7 @@
 {% else %}
 <div class="empty-state" id="msEmpty">
     <i data-feather="clock"></i>
-    <p>No master schedules yet. Tap <strong>Set up a schedule</strong> to create one.</p>
+    <p>No company schedules yet. Tap <strong>Set up a schedule</strong> to create one.</p>
 </div>
 {% endif %}
 
@@ -266,8 +294,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/schedules.js') }}?v={{ asset_v }}"></script>
-{% endblock %}
+</section>

@@ -634,6 +634,16 @@
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: right 8px center;
 }
+.ms-field select.ms-multi {
+    appearance: auto; background-image: none; padding-right: 12px;
+    min-height: 120px; cursor: default;
+}
+.ms-field-hint {
+    font-size: 12px; font-weight: 400; color: var(--text-muted);
+    text-transform: none; letter-spacing: 0; margin-top: 2px;
+}
+.ms-field .customer-picker { margin-top: 4px; }
+.ms-field .customer-pills { padding-bottom: 0; margin-top: 6px; }
 .ms-field-sp { max-width: 560px; }
 .ms-params-none {
     padding: 16px; background: var(--bg); border: 1px dashed var(--border);

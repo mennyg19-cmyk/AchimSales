@@ -38,6 +38,26 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## v3 master schedule split-email MVP
+
+**What to test:**
+- Admin can edit `salesmen.email` from Users & access.
+- Admins see company schedules on `/schedules`; salesmen see only personal schedules.
+- Master schedule params persist salesman delivery flags (`split_by_salesman`, `email_to_salesmen`, `email_salesman_keys`).
+- Master schedule delivery sends the full workbook to typed recipients/SharePoint and split salesman-filtered files to `salesmen.email`.
+
+**Expected behavior:**
+- `/master-schedules` redirects admins to `/schedules#company`; API routes under `/api/master-schedules*` still work.
+- Salesman split emails use raw SalesGroup values for report params and normalized keys only for email lookup.
+
+**Edge cases:**
+- A master schedule with only salesman email targets can be saved.
+- Missing salesman email is recorded as a failed requested delivery.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_salesmen_seed.py`.
+
+---
+
 ## Cancel a running report job
 
 **What to test:**

@@ -8,7 +8,7 @@ and the cron tick both enqueue a durable ``schedule.run`` job.
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, jsonify, render_template, request
+from flask import Blueprint, abort, current_app, jsonify, redirect, render_template, request, url_for
 
 from report_engine import registry
 from web.auth.decorators import require_login
@@ -21,6 +21,7 @@ from web.data.repositories.schedules import (
     ScheduleRepository,
     ScheduleRunRepository,
 )
+from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.scheduling import cadence as C
 from web.scheduling.jobs import enqueue_schedule_run
@@ -69,6 +70,10 @@ def _runs() -> ScheduleRunRepository:
     return ScheduleRunRepository(_db())
 
 
+def _lookups():
+    return current_app.config["LOOKUP_SERVICE"]
+
+
 def _validate_report(p, report_key: str, *, allow_in_app: bool = True):
     spec = registry.get(report_key)
     if spec is None or spec.status is not registry.ReportStatus.BUILT:
@@ -93,14 +98,15 @@ def _check_sharepoint(p, body: dict) -> str:
     return path
 
 
-def _clean_recipients(body: dict, *, sharepoint_path: str) -> str:
+def _clean_recipients(body: dict, *, sharepoint_path: str,
+                      has_salesman_delivery: bool = False) -> str:
     """Validate recipients up front (same parser as delivery), so a schedule can't
     be saved with addresses that would silently drop at send time."""
     raw = (body.get("recipients") or "").strip()
     valid = split_recipients(raw)
     if raw and not valid:
         abort(400, description="No valid email recipients (use name@domain.com).")
-    if not valid and not sharepoint_path:
+    if not valid and not sharepoint_path and not has_salesman_delivery:
         abort(400, description="A schedule needs recipients or a SharePoint folder.")
     return ", ".join(valid)
 
@@ -128,7 +134,11 @@ def schedules_page():
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, PERSONAL),
         })
-    return render_template("schedules.html", active_tab="schedules", schedules=items)
+    context = {"active_tab": "schedules", "schedules": items,
+               "is_admin": _authz().is_privileged(p)}
+    if context["is_admin"]:
+        context.update(_master_page_context())
+    return render_template("schedules.html", **context)
 
 
 @schedules_bp.post("/api/schedules")
@@ -254,51 +264,86 @@ def _params_label(params: dict | None) -> str:
     bits: list[str] = []
     if period := (p.get("period") or "").strip():
         bits.append(period.replace("_", " "))
-    if status := (p.get("status") or "").strip():
-        bits.append(f"status {status}")
-    if salesman := (p.get("salesman") or "").strip():
-        bits.append(f"salesman {salesman}")
-    customers = p.get("customers")
-    if isinstance(customers, (list, tuple)):
-        cust = " ".join(str(c).strip() for c in customers if str(c).strip())
-    else:
-        cust = str(customers or "").strip()
-    if cust:
-        bits.append(f"customers {cust}")
+    status = _as_str_list(p.get("status"))
+    if status:
+        bits.append("status " + ", ".join(status))
+    salesman = _as_str_list(p.get("salesman"))
+    if salesman:
+        bits.append("salesman " + ", ".join(salesman))
+    if p.get("email_to_salesmen"):
+        bits.append("email selected salesmen")
+    email_salesmen = _as_str_list(p.get("email_salesman_keys"))
+    if email_salesmen:
+        bits.append("email salesmen " + ", ".join(email_salesmen))
+    elif p.get("split_by_salesman"):
+        bits.append("split by salesman")
+    customers = _as_str_list(p.get("customers"))
+    if customers:
+        bits.append("customers " + " ".join(customers))
     if year := p.get("year"):
         bits.append(f"year {year}")
     return ", ".join(bits) if bits else "defaults"
 
 
-def _normalize_master_params(raw: dict | None) -> dict:
-    """Keep only known filter keys; turn a customers string into a list."""
+def _as_str_list(raw) -> list[str]:
+    """Accept a list, CSV string, or space-separated ids -> cleaned string list.
+
+    Comma-separated wins when commas are present so values with spaces
+    (e.g. status \"Open order\") stay intact.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    s = str(raw).strip()
+    if not s:
+        return []
+    if "," in s:
+        return [p.strip() for p in s.split(",") if p.strip()]
+    return [p for p in s.split() if p]
+
+
+def _as_bool(raw) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return False
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _normalize_master_params(raw: dict | None, *, allow_salesman_delivery: bool = False) -> dict:
+    """Keep only known filter keys; multi filters store as lists."""
     src = raw if isinstance(raw, dict) else {}
     out: dict = {}
-    for key in ("period", "status", "salesman", "year", "start_date", "end_date"):
+    for key in ("period", "year", "start_date", "end_date"):
         val = src.get(key)
         if val is None:
             continue
         s = str(val).strip()
         if s:
             out[key] = s
-    customers = src.get("customers")
-    if isinstance(customers, (list, tuple, set)):
-        cleaned = [str(c).strip() for c in customers if str(c).strip()]
+    for key in ("status", "salesman", "customers"):
+        cleaned = _as_str_list(src.get(key))
         if cleaned:
-            out["customers"] = cleaned
-    elif customers is not None:
-        # Accept "9300 9301" or "9300,9301" from the dumb text box.
-        parts = [p for p in str(customers).replace(",", " ").split() if p]
-        if parts:
-            out["customers"] = parts
+            out[key] = cleaned
+    if allow_salesman_delivery:
+        selected_salesmen = _as_str_list(out.get("salesman"))
+        email_keys = _as_str_list(src.get("email_salesman_keys"))
+        email_to_selected = bool(selected_salesmen) and _as_bool(src.get("email_to_salesmen"))
+        split_unfiltered = not selected_salesmen and (_as_bool(src.get("split_by_salesman")) or bool(email_keys))
+        out["email_to_salesmen"] = email_to_selected
+        out["split_by_salesman"] = split_unfiltered
+        out["email_salesman_keys"] = email_keys if split_unfiltered else []
     return out
 
 
-@schedules_bp.get("/master-schedules")
-@require_login
-def master_page():
-    p = _principal()
-    _require_admin(p)
+def _has_salesman_delivery(params: dict) -> bool:
+    if params.get("email_to_salesmen") and _as_str_list(params.get("salesman")):
+        return True
+    return bool(_as_str_list(params.get("email_salesman_keys")))
+
+
+def _master_page_context() -> dict:
     items = []
     for s in _master().list_all():
         spec = registry.get(s.report_key)
@@ -311,8 +356,6 @@ def master_page():
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, MASTER),
         })
-    # in_app reports (Customer's Last Order) have their own picker page — not
-    # scheduleable as a master delivery.
     built = [
         {"key": s.key, "title": s.title}
         for s in registry.built_reports()
@@ -320,15 +363,61 @@ def master_page():
     ]
     from report_engine.dates import today_eastern
     year_now = today_eastern().year
-    year_options = list(range(year_now, year_now - 5, -1))
-    return render_template(
-        "master_schedules.html", active_tab="settings",
-        schedules=items, built_reports=built,
-        report_filters=_MASTER_REPORT_FILTERS,
-        period_options=_PERIOD_OPTIONS,
-        status_options=_STATUS_OPTIONS,
-        year_options=year_options,
-    )
+    return {
+        "master_schedules": items,
+        "built_reports": built,
+        "report_filters": _MASTER_REPORT_FILTERS,
+        "period_options": _PERIOD_OPTIONS,
+        "status_options": _STATUS_OPTIONS,
+        "year_options": list(range(year_now, year_now - 5, -1)),
+    }
+
+
+@schedules_bp.get("/master-schedules")
+@require_login
+def master_page():
+    p = _principal()
+    _require_admin(p)
+    return redirect(url_for("schedules.schedules_page") + "#company")
+
+
+@schedules_bp.get("/api/master-schedules/lookups/status")
+@require_login
+def master_lookup_status():
+    """Warm-up progress for the customer_master-backed dropdowns."""
+    _require_admin(_principal())
+    return jsonify(_lookups().status())
+
+
+@schedules_bp.get("/api/master-schedules/lookups/salesmen")
+@require_login
+def master_lookup_salesmen():
+    """Salesmen from customer_master (same source as report filter dropdowns)."""
+    _require_admin(_principal())
+    return jsonify({"salesmen": _lookups().salesmen()})
+
+
+@schedules_bp.get("/api/master-schedules/lookups/salesmen-emails")
+@require_login
+def master_lookup_salesmen_emails():
+    """Raw SalesGroup values that also have an email in the salesmen table."""
+    _require_admin(_principal())
+    salesmen = _lookups().salesmen()
+    emails = SalesmanRepository(_db()).emails_by_keys([r["key"] for r in salesmen])
+    return jsonify({"salesmen": [
+        {"key": r["key"], "name": r["name"], "email": emails.get(r["key"], "")}
+        for r in salesmen
+        if emails.get(r["key"], "")
+    ]})
+
+
+@schedules_bp.get("/api/master-schedules/lookups/customers")
+@require_login
+def master_lookup_customers():
+    """Customers from customer_master (optional ?salesman= filter)."""
+    _require_admin(_principal())
+    salesman = (request.args.get("salesman") or "").strip() or None
+    return jsonify({"customers": _lookups().customers(salesman)})
 
 
 @schedules_bp.post("/api/master-schedules")
@@ -344,8 +433,13 @@ def create_master():
         abort(400, description="A master schedule needs a name.")
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
-    recipients = _clean_recipients(body, sharepoint_path=sp)
-    params = _normalize_master_params(body.get("params") or {})
+    params = _normalize_master_params(
+        body.get("params") or {},
+        allow_salesman_delivery="salesman" in _MASTER_REPORT_FILTERS.get(report_key, ()),
+    )
+    recipients = _clean_recipients(
+        body, sharepoint_path=sp, has_salesman_delivery=_has_salesman_delivery(params),
+    )
     mid = _master().create(
         report_key, name, params=params, layout=body.get("layout") or {},
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
@@ -366,10 +460,19 @@ def update_master(schedule_id: int):
     report_key = (body.get("report_key") or "").strip()
     if report_key:
         _validate_report(p, report_key, allow_in_app=False)
+    existing = _master().get(schedule_id)
+    if existing is None:
+        abort(404, description="Unknown master schedule")
     cadence = _parse_cadence(body)
     sp = _check_sharepoint(p, body)
-    recipients = _clean_recipients(body, sharepoint_path=sp)
-    params = _normalize_master_params(body.get("params") or {})
+    effective_report_key = report_key or existing.report_key
+    params = _normalize_master_params(
+        body.get("params") or {},
+        allow_salesman_delivery="salesman" in _MASTER_REPORT_FILTERS.get(effective_report_key, ()),
+    )
+    recipients = _clean_recipients(
+        body, sharepoint_path=sp, has_salesman_delivery=_has_salesman_delivery(params),
+    )
     kwargs = dict(
         name=name, params=params, layout=body.get("layout") or {},
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
