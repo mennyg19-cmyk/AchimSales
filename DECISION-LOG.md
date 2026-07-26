@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-07-26 Customer Activity sort + fresh parity
+**What you asked for:** fresh CA live↔/test compare; fix sorting.
+**What I found:** live sorts by Customer Name (pandas, case-sensitive) and builds
+All by concatenating salesman groups A–Z. /test was leaving SP row order.
+**What I did:** v3 `customer_activity.build` now name-sorts each tab and rebuilds
+All the same way. Parity comparer keys CA sheets by `customer_account` (not SO#)
+and treats same calendar day as equal across datetime vs `MM/DD/YYYY`.
+**Fresh run:** `.scratch/parity/20260726-113809-customer_activity/` — All present,
+781/781 accounts matched; sort verified both sides. Remaining hard diffs are
+last-order fields (date / PO / SO#), not layout.
+**Status:** DECIDED — sort fix deployed to `/test`; comparer/docs local.
+
 ## 2026-07-25 Ordered report: SP qty columns (no invented shipped/open)
 **What you asked for:** stop inventing QtyShipped / QtyOpen; report SP qty columns
 instead — ordered, reserved, released, cancelled, left to ship (DeliveryRemainder).

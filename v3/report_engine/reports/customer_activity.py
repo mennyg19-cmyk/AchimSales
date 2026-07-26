@@ -8,7 +8,9 @@ N/A placeholders) and fans them out into workbook-style tabs like live:
   2. <Salesman>   — one tab per assigned salesman (no Salesman column)
   3. Unassigned   — blank Salesman (same base columns)
 
-Row order inside each tab follows the SP's order (no re-sort).
+Sort matches live (pandas): Customer Name ascending, case-sensitive. The All
+tab is salesman groups in alphabetical order (Unassigned last), each group
+already name-sorted — same as live's management workbook concat.
 """
 
 from __future__ import annotations
@@ -45,27 +47,30 @@ def _without_salesman(rows: Sequence[dict]) -> list[dict]:
     return [{c["field"]: row.get(c["field"], "") for c in _BASE_COLS} for row in rows]
 
 
+def _sort_by_customer_name(rows: list[dict]) -> list[dict]:
+    """Same key as live ``DataFrame.sort_values('Customer Name')`` (case-sensitive)."""
+    return sorted(rows, key=lambda r: str(r.get("Customer Name") or ""))
+
+
 def build(rows: Sequence[dict]) -> list[dict]:
-    """All tab first, then one tab per salesman (Unassigned last among blanks)."""
+    """All tab first, then one tab per salesman (Unassigned last)."""
     by_salesman: dict[str, list[dict]] = {}
     for row in rows:
         salesman = str(row["Salesman"]).strip()
         by_salesman.setdefault(salesman, []).append(row)
 
-    tabs: list[dict] = [{
-        "key": "all", "name": "All", "columns": _ALL_COLS,
-        "rows": list(rows),
-    }]
-    if not by_salesman:
-        return tabs
-
-    used_keys: set[str] = set()
-    # Blank Salesman ("Unassigned") last, like live's management workbook.
+    # Blank Salesman ("Unassigned") last; other tabs A–Z like live sorted(keys).
     ordered = sorted(
         by_salesman.items(),
-        key=lambda item: (item[0] == "", item[0].lower()),
+        key=lambda item: (item[0] == "", item[0]),
     )
+
+    all_rows: list[dict] = []
+    salesman_tabs: list[dict] = []
+    used_keys: set[str] = set()
     for salesman, salesman_rows in ordered:
+        sorted_rows = _sort_by_customer_name(list(salesman_rows))
+        all_rows.extend(sorted_rows)
         base_key = re.sub(r"[^a-z0-9]+", "_", salesman.lower()).strip("_") or "unassigned"
         tab_key = base_key
         suffix = 2
@@ -73,10 +78,14 @@ def build(rows: Sequence[dict]) -> list[dict]:
             tab_key = f"{base_key}_{suffix}"
             suffix += 1
         used_keys.add(tab_key)
-        tabs.append({
+        salesman_tabs.append({
             "key": "unassigned" if not salesman else f"sm_{tab_key}",
             "name": salesman or "Unassigned",
             "columns": _BASE_COLS,
-            "rows": _without_salesman(salesman_rows),
+            "rows": _without_salesman(sorted_rows),
         })
-    return tabs
+
+    return [{
+        "key": "all", "name": "All", "columns": _ALL_COLS,
+        "rows": all_rows,
+    }, *salesman_tabs]

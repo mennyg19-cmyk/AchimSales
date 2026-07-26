@@ -57,3 +57,28 @@ def test_na_placeholders_survive_clean():
     ])
     assert rows[0]["Last Order Date"] == "N/A"
     assert rows[0]["PO #"] == "N/A"
+
+
+def test_rows_sorted_by_customer_name_case_sensitive():
+    """Match live pandas sort_values('Customer Name') — case-sensitive ASCII."""
+    rows = B.clean_rows([
+        {"Salesman": "AGrossman", "Customer Account": "2", "Customer Name": "al low",
+         "Last Order Date": "N/A", "PO #": "N/A", "Sales Order Number": "N/A"},
+        {"Salesman": "AGrossman", "Customer Account": "1", "Customer Name": "AVI HIGH",
+         "Last Order Date": "N/A", "PO #": "N/A", "Sales Order Number": "N/A"},
+        {"Salesman": "AGrossman", "Customer Account": "3", "Customer Name": "123 FIRST",
+         "Last Order Date": "N/A", "PO #": "N/A", "Sales Order Number": "N/A"},
+        {"Salesman": "BLevin", "Customer Account": "9", "Customer Name": "zeta",
+         "Last Order Date": "N/A", "PO #": "N/A", "Sales Order Number": "N/A"},
+    ])
+    tabs = B.build(rows)
+    ag = next(t for t in tabs if t["name"] == "AGrossman")
+    assert [r["Customer Name"] for r in ag["rows"]] == ["123 FIRST", "AVI HIGH", "al low"]
+    all_tab = next(t for t in tabs if t["key"] == "all")
+    # All = salesman groups A–Z, each name-sorted (BLevin after AGrossman)
+    assert [r["Customer Name"] for r in all_tab["rows"]] == [
+        "123 FIRST", "AVI HIGH", "al low", "zeta",
+    ]
+    assert [r["Salesman"] for r in all_tab["rows"]] == [
+        "AGrossman", "AGrossman", "AGrossman", "BLevin",
+    ]
