@@ -840,6 +840,24 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name, is_all
                      "Running regular scheduled YTD.")
             return argv
 
+    elif period_val == "last_month":
+        # Monthly run on the 1st covers the previous calendar month. If that
+        # fire was skipped (and somehow not rescheduled), the next regular run
+        # is a month later when last_month already points elsewhere. Recover
+        # every calendar month from the month of last_success through the
+        # month that "last_month" means today.
+        first_of_this_month = today.replace(day=1)
+        last_month_end = first_of_this_month - timedelta(days=1)
+        if last_success >= first_of_this_month:
+            log.info("[Catch-up] last_month already succeeded this month -- "
+                     "no catch-up. Running regular scheduled last_month.")
+            return argv
+        catch_from = last_success.replace(day=1).isoformat()
+        catch_to = last_month_end.isoformat()
+        subfolder = "Last Month"
+        log.info("[Catch-up] last_month catch-up: covering missed month(s) "
+                 "--from %s --to %s.", catch_from, catch_to)
+
     else:
         log.info("[Catch-up] Unknown period '%s' -- no catch-up. "
                  "Running regular scheduled run.", period_val)
@@ -1376,6 +1394,9 @@ def _classify_guard_action(extra_args, is_all_time=False):
       - mtd (last day of month)-> reschedule (month-end run would be lost)
       - ytd (same year)        -> skip  (YTD self-heals within the year)
       - last_7_days / weekly   -> reschedule (window shifts, data would be lost)
+      - last_month             -> reschedule (next regular run is next month,
+                                  and by then last_month points at a different
+                                  month — July would be gone)
       - anything else          -> skip  (safe fallback)
     """
     from datetime import timedelta
@@ -1394,7 +1415,7 @@ def _classify_guard_action(extra_args, is_all_time=False):
     if period_val in (None, "daily", "yesterday"):
         return "skip"
 
-    if period_val in ("last_7_days", "this_week"):
+    if period_val in ("last_7_days", "this_week", "last_month"):
         return "reschedule"
 
     if period_val == "mtd":

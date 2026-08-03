@@ -1,5 +1,20 @@
 # Decision Log
 
+## 2026-08-03 Monthly last_month Shabbos skip never rescheduled
+**What you asked for:** dig why Monthly Invoiced on Aug 1 (Shabbos) skipped but
+Azure showed Completed and no motzei Shabbos catch-up ran (job
+`SCH_3dc4d915-…639211716000000000`).
+**What I found:** streams say `Guard action: skip` for `--period last_month`,
+logged SKIPPED to run_log, returned 0 → Azure Completed. `_classify_guard_action`
+had no `last_month` rule so it fell through to skip. Catch-up injection also
+ignored `last_month`, and the next regular fire is next month when the window
+has already shifted.
+**What I did:** treat `last_month` like `last_7_days` (reschedule after
+havdalah); add last_month catch-up injection as a safety net; unit tests;
+published runbook; started manual `invoiced --period last_month --force`
+(job `d053cda2-183d-43ef-81f9-5ae1b0efbbd1`) which Completed.
+**Status:** DECIDED — live runbook published; July monthly catch-up job green.
+
 ## 2026-07-26 Customer Activity sort + fresh parity
 **What you asked for:** fresh CA live↔/test compare; fix sorting.
 **What I found:** live sorts by Customer Name (pandas, case-sensitive) and builds
