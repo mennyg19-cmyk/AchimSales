@@ -34,6 +34,9 @@ def create_app(config: Config | None = None) -> Flask:
     # real secret, so this never falls back insecurely.
     app.secret_key = cfg.flask_secret or _ephemeral_dev_secret(cfg)
 
+    from report_engine.lib import iso_date as _iso_date
+    app.jinja_env.filters["iso_date"] = _iso_date
+
     # v3 shares its host with the live app (/) and optionally rebuild (/test-next).
     # Multiple Flask apps on one host; the live app uses the default cookie name
     # "session" and v3 did too, so they stomp on each other's session cookie and wipe

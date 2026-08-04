@@ -23,6 +23,19 @@ def test_all_tab_has_every_customer_with_salesman_column():
     assert [t["name"] for t in tabs][0] == "All"
 
 
+def test_clean_rows_normalizes_last_order_date_to_yyyy_mm_dd():
+    rows = B.clean_rows([
+        {"Salesman": "REdwards", "Customer Account": "100", "Customer Name": "Acme",
+         "Last Order Date": "Mon, 27 Jul 2026 00:00:00 GMT",
+         "PO #": "PO-1", "Sales Order Number": "SO-1"},
+        {"Salesman": "", "Customer Account": "300", "Customer Name": "Cold",
+         "Last Order Date": "N/A", "PO #": "N/A", "Sales Order Number": "N/A"},
+    ])
+    assert rows[0]["Last Order Date"] == "2026-07-27"
+    assert rows[1]["Last Order Date"] == "N/A"
+    assert B._BASE_COLS[2]["type"] == "date"
+
+
 def test_per_salesman_tabs_omit_salesman_column():
     tabs = B.build(_rows())
     keys = [t["key"] for t in tabs]

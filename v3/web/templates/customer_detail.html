@@ -45,7 +45,7 @@
     <tbody>
         {% for o in orders %}
         <tr>
-            <td>{{ o.order_date or '\u2014' }}</td>
+            <td>{{ o.order_date|iso_date or '\u2014' }}</td>
             <td>{{ o.sales_order_number }}</td>
             <td>{{ o.po_number or '\u2014' }}</td>
             <td>{{ o.item_number }}</td>

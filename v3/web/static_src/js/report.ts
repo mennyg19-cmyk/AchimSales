@@ -110,6 +110,32 @@ function money(precision: number) {
   };
 }
 
+/** Normalize any date-ish cell to YYYY-MM-DD (matches report_engine.lib.iso_date). */
+function isoDate(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(value.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  const s = String(value).trim();
+  if (!s) return "";
+  const upper = s.toUpperCase();
+  if (upper === "N/A" || upper === "NA" || upper === "NONE" || s === "-") return s;
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const parsed = Date.parse(s);
+  if (!isNaN(parsed)) {
+    const d = new Date(parsed);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return s;
+}
+
 function formatterFor(col: Column): Record<string, unknown> {
   switch (col.type) {
     case "money":
@@ -133,11 +159,7 @@ function formatterFor(col: Column): Record<string, unknown> {
     case "date":
       return {
         sorter: "string",
-        formatter: (cell: any) => {
-          const v = String(cell.getValue() || "");
-          const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          return m ? `${Number(m[2])}/${Number(m[3])}/${m[1]}` : v;
-        },
+        formatter: (cell: any) => isoDate(cell.getValue()),
       };
     default:
       return { sorter: "string" };

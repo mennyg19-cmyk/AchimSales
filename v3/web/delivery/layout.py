@@ -21,6 +21,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from report_engine.lib import iso_date
+
 _NUMERIC_TYPES = {"money", "int", "percent"}
 
 
@@ -162,9 +164,9 @@ def _match(raw: Any, op: str, v: Any, v2: Any, col_type: Any) -> bool:
         }.get(op, True)
 
     if col_type == "date":
-        d = str(raw or "")[:10]
-        a = str(v or "")[:10]
-        b = str(v2 or "")[:10]
+        d = iso_date(raw)
+        a = iso_date(v)
+        b = iso_date(v2)
         if op == "on":
             return d == a
         if op == "before":

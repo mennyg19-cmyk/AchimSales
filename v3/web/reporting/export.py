@@ -36,6 +36,8 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from report_engine.lib import iso_date
+
 # Excel sheet-title constraints: <=31 chars, none of : \ / ? * [ ]
 _INVALID_SHEET = re.compile(r"[:\\/?*\[\]]")
 # CSV/Excel formula-injection: a cell whose text starts with one of these can be
@@ -56,7 +58,7 @@ _FMT = {
     "money": '"$"#,##0.00',
     "int": "#,##0",
     "percent": "0.0%",
-    "date": "M/D/YYYY",
+    "date": "YYYY-MM-DD",
 }
 
 # --- Styling (live palette: grey header, light zebra, darker totals) ---
@@ -91,10 +93,13 @@ def _coerce(value: Any, col_type: str | None) -> tuple[Any, str | None]:
     if col_type == "date":
         if isinstance(value, (date, datetime)):
             return value, _FMT["date"]
-        try:
-            return datetime.strptime(str(value)[:10], "%Y-%m-%d").date(), _FMT["date"]
-        except (TypeError, ValueError):
-            return _safe_text(value), None
+        s = iso_date(value)
+        if s and len(s) == 10 and s[4] == "-" and s[7] == "-":
+            try:
+                return date.fromisoformat(s), _FMT["date"]
+            except ValueError:
+                pass
+        return _safe_text(value), None
     if col_type in _NUMERIC_TYPES:
         try:
             f = float(value)

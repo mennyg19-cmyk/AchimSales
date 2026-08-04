@@ -18,21 +18,28 @@ from __future__ import annotations
 import re
 from typing import Iterable, Sequence
 
-from report_engine.lib import salesman_key
+from report_engine.lib import iso_date, salesman_key
 
 _BASE_COLS = [
     {"field": "Customer Account", "header": "Customer Account", "type": "text"},
     {"field": "Customer Name", "header": "Customer Name", "type": "text"},
-    {"field": "Last Order Date", "header": "Last Order Date", "type": "text"},
+    {"field": "Last Order Date", "header": "Last Order Date", "type": "date"},
     {"field": "PO #", "header": "PO #", "type": "text"},
     {"field": "Sales Order Number", "header": "Sales Order Number", "type": "text"},
 ]
 _ALL_COLS = [{"field": "Salesman", "header": "Salesman", "type": "text"}] + _BASE_COLS
 
 
+def _cell(column: dict, row: dict):
+    raw = row.get(column["field"], "")
+    if column["type"] == "date":
+        return iso_date(raw)
+    return raw
+
+
 def clean_rows(rows: Iterable[dict]) -> list[dict]:
-    """Keep the stored procedure's rows, including its N/A placeholders."""
-    return [{column["field"]: row.get(column["field"], "") for column in _ALL_COLS}
+    """Keep the stored procedure's rows; normalize date columns to YYYY-MM-DD."""
+    return [{column["field"]: _cell(column, row) for column in _ALL_COLS}
             for row in rows]
 
 

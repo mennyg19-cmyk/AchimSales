@@ -46,7 +46,7 @@
                 {% if c.customer_account in excluded %}<span class="mini-flag">excluded</span>{% endif %}</td>
             <td>{{ c.sales_group or '\u2014' }}</td>
             <td><span class="status-pill status-{{ c.status }}">{{ c.status }}</span></td>
-            <td>{{ c.last_order_date or '\u2014' }}</td>
+            <td>{{ c.last_order_date|iso_date or '\u2014' }}</td>
             <td>{{ c.days_since_last if c.days_since_last is not none else '\u2014' }}</td>
             <td>{{ c.avg_gap_days if c.avg_gap_days is not none else '\u2014' }}</td>
             <td>{{ c.overdue_threshold if c.overdue_threshold is not none else '\u2014' }}</td>

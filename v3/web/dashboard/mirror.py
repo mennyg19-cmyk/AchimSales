@@ -10,19 +10,21 @@ from the Reporting API (like the test app) rather than direct D365 OData.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date
 
 from web.dashboard.metrics import compute_metrics
 from web.data.repositories.dashboard import DashboardCustomer, DashboardRepository
+from report_engine.lib import iso_date
 
 log = logging.getLogger(__name__)
 
 
 def _parse_date(s: str) -> date | None:
-    if not s:
+    iso = iso_date(s)
+    if not iso or len(iso) != 10 or iso[4] != "-":
         return None
     try:
-        return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        return date.fromisoformat(iso)
     except ValueError:
         return None
 

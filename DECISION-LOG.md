@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-08-04 Site-wide dates via iso_date (YYYY-MM-DD)
+**What you asked for:** one helper for every date on the test site; display
+yyyy-mm-dd (CLO was showing truncated RFC like "Mon, 27 Ju").
+**What I did:** `report_engine.lib.iso_date` is the single helper; `date_only`
+aliases it. Wired adapters/builders already using it; CA Last Order Date;
+Jinja `|iso_date`; report grid formatter; Excel date format; export/layout/
+dashboard mirror no longer `[:10]`-slice. Frontend rebuilt.
+**Status:** DECIDED — deploy with this commit.
+
 ## 2026-08-04 Customer Last Order → customer_last_orders SP
 **What you asked for:** use the new Reporting API endpoint for CLO data; keep
 live UX (last order + optional Add previous order merge); v3 look.

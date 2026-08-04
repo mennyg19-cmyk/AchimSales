@@ -48,7 +48,7 @@
         </div>
         <div>
             <span class="cust-metric-label">Order Date</span>
-            <span class="cust-metric-value">{{ view.primary.order_date or '—' }}</span>
+            <span class="cust-metric-value">{{ view.primary.order_date|iso_date or '—' }}</span>
         </div>
         {% if view.display_po %}
         <div>
@@ -70,7 +70,7 @@
         <ul>
             {% for h in view.headers %}
             <li>{{ h.order_number }}
-                {% if h.order_date %}<span class="muted"> &middot; {{ h.order_date }}</span>{% endif %}
+                {% if h.order_date %}<span class="muted"> &middot; {{ h.order_date|iso_date }}</span>{% endif %}
                 {% if h.customer_req %}<span class="muted"> &middot; PO {{ h.customer_req }}</span>{% endif %}
             </li>
             {% endfor %}
