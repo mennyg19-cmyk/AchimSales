@@ -42,6 +42,13 @@ def test_logical_orders_one_per_rank_newest_first():
     assert [o.order_number for o in orders] == ["ORD00821525", "SO2"]
     assert orders[0].customer_req == "CL42726"
     assert orders[0].rank == 1
+    assert orders[0].order_date == "2026-04-28"
+
+
+def test_rfc1123_order_date_becomes_yyyy_mm_dd():
+    rows = [_row(1, "SO1", "PO1", "Mon, 27 Jul 2026 00:00:00 GMT",
+                 "ITM-A", "W", 1, 1, 0, 1, 1)]
+    assert B.logical_orders(rows)[0].order_date == "2026-07-27"
 
 
 def test_addon_lines_stay_under_main_rank():

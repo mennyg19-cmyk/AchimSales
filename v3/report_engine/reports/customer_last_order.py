@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from report_engine.lib import first_of, num, text
+from report_engine.lib import first_of, iso_date, num, text
 
 
 @dataclass(frozen=True)
@@ -102,7 +102,7 @@ def logical_orders(rows: list[Mapping[str, Any]]) -> list[OrderSummary]:
         by_rank[rank] = OrderSummary(
             order_number=text(_col(
                 row, "Sales Order Number", "SalesOrderNumber", "sales_order_number")),
-            order_date=text(_col(row, "Order Date", "OrderDate", "order_date"))[:10],
+            order_date=iso_date(_col(row, "Order Date", "OrderDate", "order_date")),
             status="",
             customer_req=text(_col(row, "PO #", "PO#", "CustomerRequisition", "po_number")),
             order_name="",
