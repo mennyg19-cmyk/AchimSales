@@ -12,6 +12,7 @@ def test_report_id_map_is_complete():
     assert P.report_id_for("salesman") == "invoiced_order_charges"
     assert P.report_id_for("number_4") == "customer_item_sales_rolling_12"
     assert P.report_id_for("customer_activity") == "customer_activity"
+    assert P.report_id_for("customer_last_order") == "customer_last_orders"
 
 
 def test_unknown_report_raises():
@@ -118,3 +119,13 @@ def test_customer_activity_maps_to_dedicated_sp():
     out2 = P.translate("customer_activity", {"order_count": 5, "salesman": "MKolko"})
     assert out2["OrderCount"] == 5
     assert out2["Salesman"] == "MKolko"
+
+
+def test_customer_last_orders_maps_account_and_default_count():
+    out = P.translate("customer_last_order", {"customer_account": "9017"})
+    assert out == {"CustomerAccount": "9017", "OrderCount": 10}
+    out2 = P.translate("customer_last_order", {
+        "customer_account": "9017", "order_count": 3, "as_of_date": "2026-04-01",
+    })
+    assert out2["OrderCount"] == 3
+    assert out2["AsOfDate"] == "2026-04-01"

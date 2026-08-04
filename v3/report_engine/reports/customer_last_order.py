@@ -1,54 +1,34 @@
 """Customer's Last Order builder (in-app, customer-picker driven).
 
-Pick a customer, see their most recent *invoiced* order with the option to merge
-earlier invoiced orders (the "addon" pattern). Format + math follow LIVE
-(webapp/blueprints/reports.py `_rollup_lines` / `_common_po_prefix` and
-webapp/services/d365.py): rows rolled up by (item, sales_price); ``Total`` =
-sales_price * qty_shipped (what actually invoiced).
+Source: ``customer_last_orders`` (rpt.usp_customer_last_orders). That SP returns
+line detail for the latest logical customer orders (open + uninvoiced included).
+A PO beginning with ADDON is already rolled into the matching main PO under one
+Order Rank, with main-order metadata on every line.
 
-The per-line Qty Shipped / Qty Cancelled breakdown reuses the Ordered report's
-classifier (`report_engine.reports.ordered.classify_line`) so the numbers match
-the Ordered Excel cell-for-cell. Like Ordered, those qty buckets stay provisional
-until salesline_release returns an explicit cancelled quantity.
-
-Pure + source-agnostic: it consumes OrderLineFacts (the same facts the Ordered
-report consumes) and returns plain dicts/dataclasses the route renders. All I/O
-(the SP fetch) lives in web.reporting.report_service.
+UX matches live: show the newest logical order by default; "Add previous order"
+merges earlier ranks from the same SP result (OrderCount=10). Rows are rolled up
+by (item, sales_price) across selected ranks so merging two visits looks like
+live's merge of two sales orders.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, Mapping
 
-from report_engine.facts import OrderLineFact
-from report_engine.reports.ordered import classify_line
-
-# "Invoiced" detection. LIVE reads the header OrderStatus (from a SEPARATE header
-# entity). The v3 on-prem `salesline_release` SP is LINE-level and does NOT return
-# a header OrderStatus - it carries the per-line `SalesStatus` ("Invoiced" /
-# "Partially invoiced"). So v3 treats an order as invoiced when ANY of its lines is
-# invoiced (which also covers the partial case). Header status is still honored
-# when a future SP revision provides it.
-_INVOICED = "invoiced"
-
-# Qty Shipped / Qty Cancelled are DERIVED by the shared Ordered classifier (the SP
-# has no explicit cancelled qty yet), so Total (= price x qty_shipped) is provisional
-# too. The view surfaces this note, exactly like the Ordered report's stub marker.
-PROVISIONAL_NOTE = (
-    "Qty Shipped / Qty Cancelled - and the Total derived from Qty Shipped - are "
-    "provisional until the salesline_release endpoint returns an explicit cancelled "
-    "quantity. Dollar inputs from the SP are authoritative."
-)
+from report_engine.lib import first_of, num, text
 
 
 @dataclass(frozen=True)
 class OrderSummary:
-    """One invoiced order header for the picker (newest first)."""
+    """One logical order header for the picker (newest / rank 1 first)."""
     order_number: str
     order_date: str
     status: str
     customer_req: str
     order_name: str
+    rank: int = 0
+    salesman: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,49 +57,63 @@ class LastOrder:
         return self.headers[0] if self.headers else None
 
 
-def _line_is_invoiced(f: OrderLineFact) -> bool:
-    """True when the line (or its header, if present) is invoiced.
-
-    Primary signal is the line `SalesStatus`, because the line-level SP is the only
-    source v3 has; the header `OrderStatus` is accepted too for forward-compat."""
-    return (_INVOICED in (f.status or "").lower()
-            or _INVOICED in (f.order_status or "").lower())
+def _col(row: Mapping[str, Any], *names: str) -> Any:
+    return first_of(row, *names)
 
 
-def invoiced_orders(facts: list[OrderLineFact]) -> list[OrderSummary]:
-    """Distinct invoiced orders for the customer, newest first.
+def _rank(row: Mapping[str, Any]) -> int:
+    raw = _col(row, "Order Rank", "OrderRank", "order_rank")
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return 0
 
-    An order qualifies if any of its lines is invoiced. Header fields are taken
-    from the best (non-blank, newest-date) line for that order so an out-of-order
-    or partially-blank first line can't pick weaker data. Sorted by order_date
-    descending (blank dates last).
+
+def _line_dict(row: Mapping[str, Any]) -> dict:
+    """Normalize one SP line for rollup / display."""
+    price = round(num(_col(row, "Sales Price", "SalesPrice", "sales_price")), 4)
+    qty_shipped = num(_col(row, "Qty Shipped", "QtyShipped", "qty_shipped"))
+    total_raw = _col(row, "Total", "total")
+    total = num(total_raw) if total_raw not in (None, "") else round(price * qty_shipped, 2)
+    return {
+        "Item#": text(_col(row, "Item #", "Item#", "Item", "item")),
+        "ItemName": text(_col(row, "Description", "ItemDescription", "Item Name", "description")),
+        "QtyOrdered": num(_col(row, "Qty Ordered", "QtyOrdered", "qty_ordered")),
+        "QtyShipped": qty_shipped,
+        "QtyCancelled": num(_col(row, "Qty Cancelled", "QtyCancelled", "qty_cancelled")),
+        "UnitPrice": price,
+        "Total": total,
+        "SalesOrderNumber": text(_col(
+            row, "Sales Order Number", "SalesOrderNumber", "sales_order_number")),
+    }
+
+
+def logical_orders(rows: list[Mapping[str, Any]]) -> list[OrderSummary]:
+    """Distinct logical orders (one per Order Rank), rank ascending (newest first).
+
+    Header fields come from the SP's main-order metadata already stamped on each
+    line after ADDON rollup — never invent a second card for an ADDON PO.
     """
-    agg: dict[str, dict] = {}
-    for f in facts:
-        if not _line_is_invoiced(f):
+    by_rank: dict[int, OrderSummary] = {}
+    for row in rows:
+        rank = _rank(row)
+        if rank < 1 or rank in by_rank:
             continue
-        num = (f.sales_order_number or "").strip()
-        if not num:
-            continue
-        a = agg.get(num)
-        if a is None:
-            a = agg[num] = {"order_number": num, "order_date": "", "status": "",
-                            "customer_req": "", "order_name": ""}
-        date = f.order_date or ""
-        if date > a["order_date"]:
-            a["order_date"] = date
-        a["status"] = a["status"] or f.order_status or f.status or ""
-        a["customer_req"] = a["customer_req"] or (f.po_number or "")
-        a["order_name"] = a["order_name"] or (f.sales_order_name or "")
-    summaries = [OrderSummary(**a) for a in agg.values()]
-    return sorted(summaries, key=lambda o: o.order_date or "", reverse=True)
+        by_rank[rank] = OrderSummary(
+            order_number=text(_col(
+                row, "Sales Order Number", "SalesOrderNumber", "sales_order_number")),
+            order_date=text(_col(row, "Order Date", "OrderDate", "order_date"))[:10],
+            status="",
+            customer_req=text(_col(row, "PO #", "PO#", "CustomerRequisition", "po_number")),
+            order_name="",
+            rank=rank,
+            salesman=text(_col(row, "Salesman", "SalesGroup", "salesman")),
+        )
+    return [by_rank[r] for r in sorted(by_rank)]
 
 
 def _common_po_prefix(pos: list[str]) -> str:
-    """Longest shared PO prefix (trailing separators stripped), else the first.
-
-    Renders a clean header when merged orders look like 'PO123' + 'PO123-addon'.
-    """
+    """Longest shared PO prefix (trailing separators stripped), else the first."""
     pos = [p.strip() for p in pos if p and p.strip()]
     if not pos:
         return ""
@@ -135,11 +129,7 @@ def _common_po_prefix(pos: list[str]) -> str:
 
 
 def _rollup(lines: list[dict]) -> list[LineRow]:
-    """Combine identical (item, sales_price) rows across orders.
-
-    Different items, or the same item at a different price, stay separate so the
-    rep can see a price discrepancy. ``total`` = sales_price * qty_shipped.
-    """
+    """Combine identical (item, sales_price) rows across selected ranks."""
     grouped: dict[tuple[str, float], dict] = {}
     orders_for: dict[tuple[str, float], list[str]] = {}
     for ln in lines:
@@ -157,9 +147,7 @@ def _rollup(lines: list[dict]) -> list[LineRow]:
         g["qty_ordered"] += float(ln.get("QtyOrdered") or 0)
         g["qty_shipped"] += float(ln.get("QtyShipped") or 0)
         g["qty_cancelled"] += float(ln.get("QtyCancelled") or 0)
-        # Round the line total first, THEN sum (matches LIVE _rollup_lines, which
-        # sums each line's already-rounded total - avoids a rounding-timing drift).
-        g["total"] += round(price * float(ln.get("QtyShipped") or 0), 2)
+        g["total"] += round(float(ln.get("Total") or 0), 2)
         onum = ln.get("SalesOrderNumber")
         if onum and onum not in orders_for[key]:
             orders_for[key].append(onum)
@@ -179,14 +167,15 @@ def _rollup(lines: list[dict]) -> list[LineRow]:
     return rows
 
 
-def build(facts: list[OrderLineFact], requested_orders: list[str] | None = None) -> LastOrder:
-    """Assemble the last-order view.
+def build(rows: list[Mapping[str, Any]], requested_orders: list[str] | None = None) -> LastOrder:
+    """Assemble the last-order view from SP rows.
 
-    ``requested_orders`` is an explicit set of orders to show together; when
-    omitted (or none match) it defaults to the single most recent invoiced order.
+    ``requested_orders`` is main Sales Order Numbers to show together; when
+    omitted (or none match) it defaults to the single newest logical order
+    (lowest Order Rank).
     """
-    summaries = invoiced_orders(facts)
-    by_number = {s.order_number: s for s in summaries}
+    summaries = logical_orders(rows)
+    by_number = {s.order_number: s for s in summaries if s.order_number}
 
     wanted = [o.strip() for o in (requested_orders or []) if o.strip()]
     selected = [o for o in wanted if o in by_number]
@@ -195,11 +184,12 @@ def build(facts: list[OrderLineFact], requested_orders: list[str] | None = None)
 
     selected_set = set(selected)
     headers = [by_number[o] for o in sorted(
-        selected, key=lambda o: by_number[o].order_date or "", reverse=True)]
+        selected, key=lambda o: by_number[o].rank or 10**9)]
 
+    selected_ranks = {h.rank for h in headers}
     chosen_lines = [
-        classify_line(f) for f in facts
-        if (f.sales_order_number or "").strip() in selected_set
+        _line_dict(r) for r in rows
+        if _rank(r) in selected_ranks
     ]
     rolled = _rollup(chosen_lines)
 

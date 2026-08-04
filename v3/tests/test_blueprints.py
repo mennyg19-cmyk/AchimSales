@@ -1130,12 +1130,11 @@ def test_feature_flag_forbidden_for_salesman(tmp_path):
 
 def _clo_rows():
     return [
-        {"SalesOrderNumber": "SO3", "CustomerAccount": "100", "customername": "Acme",
-         "SalesGroup": "REdwards", "OrderStatus": "Invoiced", "OrderDate": "2026-03-10",
-         "CustomerRequisition": "PO-9", "LineNumber": "1", "Item": "ITM-A",
-         "ItemDescription": "Widget", "SalesPrice": "2.00", "SalesStatus": "Delivered",
-         "QuantityOrdered": "10", "ReleasedQuantity": "10", "DeliveryRemainder": "0",
-         "QuantityLefttoLoad": "0", "Ordered $": "20.00", "Shipped $": "20.00", "Cancelled $": "0"},
+        {"Order Rank": 1, "Customer Account": "100", "Customer Name": "Acme",
+         "Sales Order Number": "SO3", "PO #": "PO-9", "Order Date": "2026-03-10",
+         "Salesman": "REdwards", "Item #": "ITM-A", "Description": "Widget",
+         "Qty Ordered": 10, "Qty Shipped": 10, "Qty Cancelled": 0,
+         "Sales Price": 2.00, "Total": 20.00},
     ]
 
 
@@ -1159,17 +1158,17 @@ def test_customer_last_order_listed_as_built(tmp_path):
 
 
 def test_customer_last_order_view_shows_latest_invoiced(tmp_path):
-    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    app = _make_app(tmp_path, rows_by_report={"customer_last_orders": _clo_rows()})
     client = app.test_client()
     _login(client, app)
     html = client.get("/report/customer-last-order/100").get_data(as_text=True)
-    assert "Last Invoiced Order" in html
+    assert "Last Order" in html
     assert "SO3" in html and "ITM-A" in html
     assert "Acme" in html
 
 
 def test_customer_last_order_recent_invoiced_api(tmp_path):
-    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    app = _make_app(tmp_path, rows_by_report={"customer_last_orders": _clo_rows()})
     client = app.test_client()
     _login(client, app)
     data = client.get("/api/report/customer-last-order/100/recent-invoiced").get_json()
@@ -1186,14 +1185,12 @@ def test_customer_last_order_view_redirects_from_standard_viewer(tmp_path):
 
 
 def _clo_real_rows(sales_group):
-    # Real salesline_release shape: per-line SalesStatus, no header OrderStatus.
-    return {"salesline_release": [
-        {"SalesOrderNumber": "SO3", "CustomerAccount": "100", "customername": "Acme",
-         "SalesGroup": sales_group, "SalesStatus": "Invoiced", "OrderDate": "2026-03-10",
-         "CustomerRequisition": "PO-9", "LineNumber": "1", "Item": "ITM-A",
-         "ItemDescription": "Widget", "SalesPrice": "2.00",
-         "QuantityOrdered": "10", "ReleasedQuantity": "10", "DeliveryRemainder": "0",
-         "QuantityLefttoLoad": "0", "Ordered $": "20.00", "Shipped $": "20.00", "Cancelled $": "0"},
+    return {"customer_last_orders": [
+        {"Order Rank": 1, "Customer Account": "100", "Customer Name": "Acme",
+         "Sales Order Number": "SO3", "PO #": "PO-9", "Order Date": "2026-03-10",
+         "Salesman": sales_group, "Item #": "ITM-A", "Description": "Widget",
+         "Qty Ordered": 10, "Qty Shipped": 10, "Qty Cancelled": 0,
+         "Sales Price": 2.00, "Total": 20.00},
     ]}
 
 
@@ -1250,7 +1247,7 @@ def test_customer_last_order_salesmen_endpoint_scoped(tmp_path):
 
 
 def test_customer_last_order_forbidden_for_ungranted_salesman(tmp_path):
-    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    app = _make_app(tmp_path, rows_by_report={"customer_last_orders": _clo_rows()})
     client = app.test_client()
     _login(client, app, email="rep@x.com", role="salesman")
     # No per-report grant -> page access denied (fail closed).

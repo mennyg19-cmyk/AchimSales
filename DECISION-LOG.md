@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-08-04 Customer Last Order → customer_last_orders SP
+**What you asked for:** use the new Reporting API endpoint for CLO data; keep
+live UX (last order + optional Add previous order merge); v3 look.
+**What I did:** v3 CLO now calls catalog `customer_last_orders` (OrderCount=10)
+instead of full-history `salesline_release`. Builder groups by Order Rank so
+ADDON lines stay under the main PO card; picker modal lists logical orders from
+that same result. Labels say "Last Order" (SP includes open/uninvoiced).
+**Status:** DECIDED — local on `rebuild-reports`; deploy with `deploy.ps1` when ready.
+
 ## 2026-08-03 Monthly last_month Shabbos skip never rescheduled
 **What you asked for:** dig why Monthly Invoiced on Aug 1 (Shabbos) skipped but
 Azure showed Completed and no motzei Shabbos catch-up ran (job

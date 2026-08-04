@@ -22,8 +22,8 @@
 <div class="settings-card">
     <div class="empty-state" style="padding:24px;">
         <i data-feather="package" width="40" height="40"></i>
-        <h3>No invoiced orders found</h3>
-        <p>This customer has no invoiced orders on record.</p>
+        <h3>No orders found</h3>
+        <p>This customer has no recent orders on record.</p>
     </div>
 </div>
 {% else %}
@@ -34,8 +34,8 @@
      data-recent-url="{{ url_for('reports.customer_last_order_recent_invoiced', account=customer.account) }}">
     <div class="clo-head" style="margin-top:0;">
         <h3>
-            {% if view.headers|length > 1 %}Invoiced Orders ({{ view.headers|length }} merged)
-            {% else %}Last Invoiced Order{% endif %}
+            {% if view.headers|length > 1 %}Orders ({{ view.headers|length }} merged)
+            {% else %}Last Order{% endif %}
         </h3>
         <button type="button" id="addPrevOrderBtn" class="btn btn-sm btn-outline">
             <i data-feather="plus" style="width:14px;height:14px;"></i> Add previous order
@@ -54,6 +54,12 @@
         <div>
             <span class="cust-metric-label">PO #</span>
             <span class="cust-metric-value">{{ view.display_po }}</span>
+        </div>
+        {% endif %}
+        {% if view.primary.salesman %}
+        <div>
+            <span class="cust-metric-label">Salesman</span>
+            <span class="cust-metric-value">{{ view.primary.salesman }}</span>
         </div>
         {% endif %}
     </div>
@@ -81,12 +87,6 @@
 </div>
 
 <div class="table-wrap">
-    {% if view.lines and provisional_note %}
-    <p class="muted clo-provisional" title="{{ provisional_note }}">
-        <i data-feather="alert-triangle" style="width:13px;height:13px;vertical-align:-1px;"></i>
-        Qty Shipped / Qty Cancelled / Total are provisional (derived).
-    </p>
-    {% endif %}
     {% if view.lines %}
     <table class="data-table">
         <thead>
@@ -136,7 +136,7 @@
             <button type="button" class="modal-close" id="prevOrderClose" aria-label="Close">&times;</button>
         </div>
         <div class="modal-body">
-            <p class="muted" id="prevOrderLoading">Loading recent invoiced orders&hellip;</p>
+            <p class="muted" id="prevOrderLoading">Loading recent orders&hellip;</p>
             <div id="prevOrderList" hidden></div>
         </div>
         <div class="modal-foot">
@@ -175,7 +175,7 @@
     function loadOrders() {
         fetch(recentUrl).then(function (r) { return r.json(); }).then(function (data) {
             var orders = (data && data.orders) || [];
-            if (!orders.length) { loadingEl.textContent = "No invoiced orders found for this customer."; return; }
+            if (!orders.length) { loadingEl.textContent = "No recent orders found for this customer."; return; }
             var html = "";
             orders.forEach(function (o) {
                 var checked = selected.indexOf(o.order_number) !== -1;
@@ -188,7 +188,7 @@
             listEl.removeAttribute("hidden");
             loadingEl.style.display = "none";
             loaded = true;
-        }).catch(function () { loadingEl.textContent = "Could not load invoiced orders. Try again."; });
+        }).catch(function () { loadingEl.textContent = "Could not load recent orders. Try again."; });
     }
 
     function apply() {

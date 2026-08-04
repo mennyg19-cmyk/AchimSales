@@ -144,19 +144,17 @@ class ReportService:
         sp = P.translate("ordered", {"period": "all_time", "customers": [account]})
         return src_ordered.to_facts(self._rows("salesline_release", sp))
 
-    def last_order_facts(self, account: str) -> list:
-        """Full-history OrderLineFacts for one customer (Customer's Last Order).
+    def last_order_rows(self, account: str, *, order_count: int = 10) -> list[dict]:
+        """Recent logical-order lines for Customer's Last Order (ADDON rolled).
 
-        Anchors the window to go-live..today explicitly
-        so the "last invoiced order" is found over the customer's whole history,
-        not just the SP's default window.
+        Calls ``customer_last_orders`` for one account. The SP returns at most
+        ``order_count`` logical orders (default 10) so we don't pull the whole
+        history the way the old salesline_release path did.
         """
-        sp = {
-            "CreatedDateTimeFrom": sp_datetime(D365_GO_LIVE, end_of_day=False),
-            "CreatedDateTimeTo": sp_datetime(today_eastern(), end_of_day=True),
-            "CustomerAccount": account,
-        }
-        return src_ordered.to_facts(self._rows("salesline_release", sp))
+        return self._rows("customer_last_orders", P.translate(
+            "customer_last_order",
+            {"customer_account": account, "order_count": order_count},
+        ))
 
 
 # --------------------------------------------------------------------------- #

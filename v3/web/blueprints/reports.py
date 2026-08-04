@@ -532,28 +532,36 @@ def customer_last_order_salesmen():
     return jsonify({"salesmen": salesmen})
 
 
-def _clo_facts_or_403(p, account: str):
-    """Resolve the customer authoritatively, enforce scope, then fetch history.
+def _clo_rows_or_403(p, account: str):
+    """Resolve the customer authoritatively, enforce scope, then fetch last orders.
 
-    Returns (facts, customer_dict). Scope is checked against the CUSTOMER MASTER's
-    sales group (LookupService), never the order lines - salesline_release lines
-    can carry a blank SalesGroup, so trusting them would both deny valid customers
-    and skip authorization on empty history. When the master knows the customer we
-    authorize on its group even with zero orders; when it can't resolve the account
-    (unknown, or universe not warm) we fall back to the facts' group and only
-    authorize when there ARE facts (an empty unknown account leaks nothing).
+    Returns (rows, customer_dict). Scope is checked against the CUSTOMER MASTER's
+    sales group (LookupService), never the order lines — blank Salesman on a line
+    must not deny a valid customer or skip authorization on empty history. When the
+    master knows the customer we authorize on its group even with zero orders; when
+    it can't resolve the account we fall back to Salesman on the SP rows and only
+    authorize when there ARE rows (an empty unknown account leaks nothing).
     """
+    from report_engine.lib import first_of, text as _text
+
     info = _lookups().customer(account)
-    facts = _report_service().last_order_facts(account)
+    rows = _report_service().last_order_rows(account)
     if info is not None:
         sales_group, name = info["salesman"], info["name"]
         _authz().assert_can_view_customer(p, sales_group)
     else:
-        sales_group = next((f.sales_group for f in facts if f.sales_group), "")
-        name = next((f.customer_name for f in facts if f.customer_name), "")
-        if facts:
+        sales_group = ""
+        name = ""
+        for r in rows:
+            if not sales_group:
+                sales_group = _text(first_of(r, "Salesman", "SalesGroup"))
+            if not name:
+                name = _text(first_of(r, "Customer Name", "CustomerName", "customername"))
+            if sales_group and name:
+                break
+        if rows:
             _authz().assert_can_view_customer(p, sales_group)
-    return facts, {"account": account, "name": name or account, "sales_group": sales_group}
+    return rows, {"account": account, "name": name or account, "sales_group": sales_group}
 
 
 @reports_bp.get("/api/report/customer-last-order/<account>/recent-invoiced")
@@ -561,11 +569,11 @@ def _clo_facts_or_403(p, account: str):
 def customer_last_order_recent_invoiced(account: str):
     p = _principal_or_401()
     _assert_clo_access(p)
-    facts, _ = _clo_facts_or_403(p, account)
+    rows, _ = _clo_rows_or_403(p, account)
     orders = [
         {"order_number": o.order_number, "order_date": o.order_date,
          "status": o.status, "customer_req": o.customer_req, "order_name": o.order_name}
-        for o in clo.invoiced_orders(facts)[:10]
+        for o in clo.logical_orders(rows)
     ]
     return jsonify({"orders": orders})
 
@@ -577,10 +585,9 @@ def customer_last_order_view(account: str):
     _assert_clo_access(p)
 
     requested = [o.strip() for o in (request.args.get("orders") or "").split(",") if o.strip()]
-    error = None
     try:
-        facts, customer = _clo_facts_or_403(p, account)
-        view = clo.build(facts, requested_orders=requested)
+        rows, customer = _clo_rows_or_403(p, account)
+        view = clo.build(rows, requested_orders=requested)
     except Exception as exc:  # noqa: BLE001 - render a clean error card, never 500
         if getattr(exc, "status_code", None) == 403:
             raise
@@ -588,11 +595,11 @@ def customer_last_order_view(account: str):
         return render_template(
             "customer_last_order_view.html", active_tab="reports",
             customer={"account": account, "name": account, "sales_group": ""},
-            view=None, error=str(exc), provisional_note=clo.PROVISIONAL_NOTE,
+            view=None, error=str(exc),
         )
     return render_template(
         "customer_last_order_view.html", active_tab="reports",
-        customer=customer, view=view, error=None, provisional_note=clo.PROVISIONAL_NOTE,
+        customer=customer, view=view, error=None,
     )
 
 

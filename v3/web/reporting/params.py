@@ -214,6 +214,20 @@ def translate_customer_activity(p: dict) -> dict[str, Any]:
     return out
 
 
+def translate_customer_last_orders(p: dict) -> dict[str, Any]:
+    """customer_last_order page -> customer_last_orders (rpt.usp_customer_last_orders)."""
+    try:
+        order_count = int(p.get("order_count") or 10)
+    except (TypeError, ValueError):
+        order_count = 10
+    out: dict[str, Any] = {"OrderCount": min(100, max(1, order_count))}
+    if acct := _csv(p.get("customer_account") or p.get("CustomerAccount")):
+        out["CustomerAccount"] = acct
+    if as_of_date := _csv(p.get("as_of_date")):
+        out["AsOfDate"] = as_of_date
+    return out
+
+
 # (report_id, translator) keyed by in-app report key. Single source of truth.
 REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     "ordered": ("ordered_report", translate_ordered),
@@ -225,6 +239,8 @@ REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     "number_4": (NUMBER_4_BY_CUSTOMER_SP, translate_number_4),
     "item_averages": (NUMBER_4_BY_ITEM_SP, translate_item_averages),
     "customer_activity": ("customer_activity", translate_customer_activity),
+    # In-app page key stays customer_last_order; catalog/SP id is plural.
+    "customer_last_order": ("customer_last_orders", translate_customer_last_orders),
 }
 
 
