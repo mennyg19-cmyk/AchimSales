@@ -8,6 +8,7 @@ def _rows():
     return [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-01T08:30:00",
+         "CustomerRequisition": "PO-1001",
          "LineNumber": "1", "Item": "ITM-A", "ItemDescription": "Widget",
          "SalesPrice": "2.29", "SalesStatus": "Open", "QuantityOrdered": "30",
          "QuantityReserved": "5", "CancelledQTY": "0", "ReleasedQuantity": "10",
@@ -16,6 +17,7 @@ def _rows():
          "Commission": "0.06", "SalesmanName": "Ron Edwards"},
         {"SalesOrderNumber": "SO2", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-02T08:30:00",
+         "CustomerRequisition": "PO-1002",
          "LineNumber": "1", "Item": "ITM-B", "ItemDescription": "Gadget",
          "SalesPrice": "5.00", "SalesStatus": "Cancelled", "QuantityOrdered": "4",
          "QuantityReserved": "0", "CancelledQTY": "4", "ReleasedQuantity": "0",
@@ -37,7 +39,7 @@ def test_adapter_maps_sp_qty_columns_without_deriving_shipped():
     assert f.delivery_remainder == 20
     assert f.qty_shipped == 0  # SP has no shipped qty; do not invent one
     assert f.ordered_dollars == 68.70 and f.shipped_dollars == 22.90
-    assert f.po_number == "" and f.order_status == ""
+    assert f.po_number == "PO-1001" and f.order_status == ""
 
 
 def test_full_data_uses_sp_qty_columns():
@@ -52,6 +54,12 @@ def test_full_data_uses_sp_qty_columns():
     assert "QtyShipped" not in so1
     assert "QtyOpen" not in so1
     assert "Fulfillment %" not in so1
+    rel_col = next(c for c in full["columns"] if c["field"] == "QtyReleased")
+    assert rel_col["header"] == "QTY Shipping"
+    assert not any(c["field"] == "QtyShipped" for c in full["columns"])
+    assert not any(c["field"] == "Shipped $" for c in full["columns"])
+    ship_col = next(c for c in full["columns"] if c["field"] == "Released $")
+    assert ship_col["header"] == "Shipping $"
     assert so1["Open $"] == 45.80  # 68.70 - 22.90 - 0
     assert so1["Released $"] == 22.90  # 10 * 2.29
 
@@ -63,7 +71,7 @@ def test_full_data_uses_sp_qty_columns():
 def test_stub_fields_only_missing_sp_columns():
     tabs = B.build(S.to_facts_ordered_report(_rows()))
     full = next(t for t in tabs if t["key"] == "full_data")
-    assert "PO #" in full["stub_fields"]
+    assert "PO #" not in full["stub_fields"]
     assert "OrderStatus" in full["stub_fields"]
     assert "QtyShipped" not in full["stub_fields"]
     assert "QtyOpen" not in full["stub_fields"]
@@ -127,8 +135,10 @@ def test_build_consumes_facts_list_to_save_memory():
     assert facts == [None, None]
 
 
-def test_po_and_order_status_are_blank_stubs_in_by_order():
+def test_po_maps_from_customer_requisition_in_by_order():
     by_order = next(t for t in B.build(S.to_facts_ordered_report(_rows())) if t["key"] == "by_order")
-    row = by_order["rows"][0]
-    assert row["PO #"] == ""
-    assert row["OrderStatus"] == ""
+    so1 = next(r for r in by_order["rows"] if r["SalesOrderNumber"] == "SO1")
+    assert so1["PO #"] == "PO-1001"
+    assert so1["OrderStatus"] == ""
+    so2 = next(r for r in by_order["rows"] if r["SalesOrderNumber"] == "SO2")
+    assert so2["PO #"] == "PO-1002"

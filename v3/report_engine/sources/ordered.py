@@ -9,8 +9,8 @@ Two stored procedures feed OrderLineFact:
   * rpt.usp_ordered_report (to_fact_ordered_report / to_facts_ordered_report) -
     powers the Ordered report. Qty columns are taken as the SP sends them
     (ordered / reserved / released / cancelled / delivery remainder). No
-    QtyShipped derivation. SalesOrderName maps to customer name; PO# and header
-    OrderStatus stay blank until the SP provides them.
+    QtyShipped derivation. SalesOrderName maps to customer name. PO # comes from
+    CustomerRequisition. Header OrderStatus stays blank until the SP provides it.
 """
 
 from __future__ import annotations
@@ -64,7 +64,8 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
     """One rpt.usp_ordered_report row -> OrderLineFact.
 
     Qty columns come straight from the SP. qty_shipped stays 0 (SP has no shipped
-    quantity). SalesOrderName uses the customer name. PO# / OrderStatus blank.
+    quantity). SalesOrderName uses the customer name. PO # = CustomerRequisition.
+    OrderStatus blank until the SP provides it.
     """
     customer_name = text(first_of(raw, "customername", "CustomerName", "Name"))
     return OrderLineFact(
@@ -76,7 +77,7 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
         customer_account=text(first_of(raw, "CustomerAccount", "customeraccount", "AccountNum")),
         customer_name=customer_name,
         sales_group=text(first_of(raw, "SalesGroup", "salesgroup", "Salesman")),
-        po_number="",
+        po_number=text(first_of(raw, "CustomerRequisition", "CustomerReq", "PONumber", "PO #")),
         line_number=as_int(first_of(raw, "LineNumber", "LineNum")),
         item_number=text(first_of(raw, "Item", "ItemId", "ItemNumber", "Item#")),
         item_name=text(first_of(raw, "ItemDescription", "ItemName", "LineDescription")),

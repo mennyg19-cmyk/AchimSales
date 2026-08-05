@@ -504,11 +504,19 @@ def report_progress(run_id):
                 return jsonify({"step": "fetching", "pct": 30,
                                 "msg": "Report is running..."})
             if status in ("completed", "no_data"):
+                # Filenames only -- enough for multi-file pickers (salesman
+                # master vs individuals). Paths stay server-side.
+                extras = [
+                    {"filename": ef.get("filename")}
+                    for ef in (rec.get("extra_files") or [])
+                    if isinstance(ef, dict) and ef.get("filename")
+                ]
                 return jsonify({"step": "done", "pct": 100,
                                 "msg": "Report complete!",
                                 "result": {"success": True,
                                            "summary": rec.get("summary", {}),
-                                           "filename": rec.get("filename")}})
+                                           "filename": rec.get("filename"),
+                                           "extra_files": extras}})
             if status == "failed":
                 return jsonify({"step": "error", "pct": 100,
                                 "msg": rec.get("error") or "Report failed.",

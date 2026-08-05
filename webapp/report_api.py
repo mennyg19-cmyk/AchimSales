@@ -55,6 +55,28 @@ def _find_all_new_xlsx(directory: str, before: float) -> list[str]:
     return [p for _, p in found]
 
 
+# Multi-file reports write a master ("all reps") workbook plus individuals.
+# Newest-mtime order often makes an individual the primary History download.
+_CANONICAL_XLSX_NEEDLE = {
+    "salesman": "Monthly Salesmen Report",
+    "customer_activity": "Customer_Activity_All_",
+}
+
+
+def _prefer_canonical_xlsx(report_key: str, files: list[str]) -> list[str]:
+    """Put the all-reps workbook first when a run also wrote per-salesman files."""
+    if len(files) <= 1:
+        return files
+    needle = _CANONICAL_XLSX_NEEDLE.get(report_key)
+    if not needle:
+        return files
+    preferred = [p for p in files if needle in os.path.basename(p)]
+    if not preferred:
+        return files
+    rest = [p for p in files if p not in preferred]
+    return preferred + rest
+
+
 def _read_excel_sheets(filepath: str) -> dict[str, list[dict]]:
     """Read an Excel file and return {sheet_name: [row_dicts]} for display."""
     try:
@@ -226,8 +248,9 @@ def run_customer_activity(params: dict) -> dict:
     try:
         activity_run(send_email=False, test_mode=False, salesman_keys=salesman_keys)
 
-        all_files = _find_all_new_xlsx(
-            os.path.join(output_root, "Salesman Report"), before
+        all_files = _prefer_canonical_xlsx(
+            "customer_activity",
+            _find_all_new_xlsx(os.path.join(output_root, "Salesman Report"), before),
         )
         if not all_files:
             return {"success": False, "error": "Report generated but output file not found."}
@@ -304,11 +327,15 @@ def _run_class_report(runner_cls, argv: list[str], report_key: str) -> dict:
 
         report_name = runner.report_name
         search_dir = os.path.join(output_root, report_name)
-        all_files = _find_all_new_xlsx(search_dir, before)
+        all_files = _prefer_canonical_xlsx(
+            report_key, _find_all_new_xlsx(search_dir, before),
+        )
 
         if not all_files:
             search_dir = output_root
-            all_files = _find_all_new_xlsx(search_dir, before)
+            all_files = _prefer_canonical_xlsx(
+                report_key, _find_all_new_xlsx(search_dir, before),
+            )
 
         if not all_files:
             return {

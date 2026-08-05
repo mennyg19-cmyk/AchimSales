@@ -21,6 +21,10 @@ from openpyxl import load_workbook
 _HEADER_ALIASES: dict[str, str] = {
     "customeraccount": "customer_account",
     "customer account": "customer_account",
+    "cust. #": "customer_account",
+    "cust #": "customer_account",
+    "cust#": "customer_account",
+    "cust": "customer_account",  # slug of "Cust. #"
     "customername": "customer_name",
     "customer name": "customer_name",
     "invoicenumber": "invoice_number",
@@ -61,11 +65,14 @@ _HEADER_ALIASES: dict[str, str] = {
     "qtyshipped": "qty_shipped",
     "qtycancelled": "qty_cancelled",
     "qtyreleased": "qty_released",
+    "qty shipping": "qty_released",
+    "qtyshipping": "qty_released",
     "qtyopen": "qty_open",
     "ordered $": "ordered_dollars",
     "shipped $": "shipped_dollars",
     "cancelled $": "cancelled_dollars",
     "released $": "released_dollars",
+    "shipping $": "released_dollars",
     "open $": "open_dollars",
 }
 

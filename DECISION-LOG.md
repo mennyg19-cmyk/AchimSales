@@ -1,5 +1,27 @@
 # Decision Log
 
+## 2026-08-05 Ordered PO # from CustomerRequisition
+**What you asked for:** SP now returns CustomerRequisition (2nd column); retest
+ordered Customer PO.
+**What I did:** Mapped `CustomerRequisition` in `to_fact_ordered_report` into
+`po_number` / display `PO #`. Removed `PO #` from stub fields (OrderStatus still
+stubbed). Unit tests updated (10 pass). Live SP probe Jul 15–17: 3392 rows,
+`CustomerRequisition` present, **100% filled**.
+**Status:** DECIDED — code on `rebuild-reports` (not deployed yet); /test UI
+still blanks PO until deploy.
+
+## 2026-08-04 Customer Activity parity: /test is correct
+**What you asked for:** after filtering noise (same SO+PO, blank PO on
+/test, today-dated last orders), only 3 real SO/PO mismatches remained;
+confirm /test and lock it.
+**What I chose:** Customer Activity live↔/test is **signed off** — `/test`
+last-order pick is the source of truth. Remaining noise (date-only same
+SO+PO, blank-PO later orders, same-day high-volume DS, TZ) is not a /test bug.
+**Evidence:** `.scratch/parity/20260804-193031-postfix/`; filtered list ended at
+Broadway / Lefferts / Super Deal only after those cuts; owner accepted /test.
+**Status:** DECIDED — do not chase CA last-order parity further unless product
+reopens it.
+
 ## 2026-08-04 Site-wide dates via iso_date (YYYY-MM-DD)
 **What you asked for:** one helper for every date on the test site; display
 yyyy-mm-dd (CLO was showing truncated RFC like "Mon, 27 Ju").

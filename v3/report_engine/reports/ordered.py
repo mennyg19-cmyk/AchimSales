@@ -2,16 +2,18 @@
 
 Six tabs: Summary, By Customer, By Item, By Order, By Salesman, Full Data.
 
-Qty columns are the SP's own fields (no invented QtyShipped / QtyOpen)::
+Qty columns are the SP's own fields (no QtyShipped column — SP ReleasedQuantity
+is the combined live QtyReleased+QtyShipped)::
 
     QtyOrdered      = QuantityOrdered
     QtyReserved     = QuantityReserved
-    QtyReleased     = ReleasedQuantity
+    QtyReleased     = ReleasedQuantity   (Excel/UI header: "QTY Shipping")
     QtyCancelled    = CancelledQTY
     QtyLeftToShip   = DeliveryRemainder   ("qty left to ship")
 
-Dollar columns Ordered/Shipped/Cancelled $ come from the SP. Released $ and
-Open $ are still derived from those dollars / released qty × price.
+Dollar columns: Ordered/Cancelled $ from the SP; Shipping $ (= Released $)
+is qty_released × price (same combined qty as QTY Shipping). Shipped $ is
+kept only for Open $ / remainder math — not shown on Ordered tabs.
 
 LIVE also drops "ERROR ITEM" lines; we mirror that.
 """
@@ -24,17 +26,24 @@ from typing import Callable, Iterable, Sequence
 from report_engine.facts import OrderLineFact
 
 # Only columns the SP still doesn't supply.
-STUB_FIELDS: tuple[str, ...] = ("PO #", "OrderStatus")
-STUB_NOTE = ("PO # and Order Status are blank until the ordered_report SP "
-             "provides them. Qty columns and Ordered/Shipped/Cancelled $ come "
-             "straight from the SP.")
+STUB_FIELDS: tuple[str, ...] = ("OrderStatus",)
+STUB_NOTE = ("Order Status is blank until the ordered_report SP provides it. "
+             "PO # comes from CustomerRequisition. Qty columns and "
+             "Ordered/Cancelled $ come straight from the SP; Shipping $ is "
+             "released qty × price.")
 
 _ERROR_ITEM_RE = re.compile(r"ERROR\s*ITEM", re.IGNORECASE)
 
 _QTY: tuple[str, ...] = (
     "QtyOrdered", "QtyReserved", "QtyReleased", "QtyCancelled", "QtyLeftToShip",
 )
-_DOL: tuple[str, ...] = ("Ordered $", "Shipped $", "Cancelled $", "Released $", "Open $")
+_DOL: tuple[str, ...] = ("Ordered $", "Cancelled $", "Released $", "Open $")
+_DOL_HEADERS: dict[str, str] = {
+    "Ordered $": "Ordered $",
+    "Cancelled $": "Cancelled $",
+    "Released $": "Shipping $",
+    "Open $": "Open $",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -53,24 +62,25 @@ FULL_DATA_COLS = [
     {"field": "Status",           "header": "Status",            "type": "text"},
     {"field": "QtyOrdered",       "header": "QtyOrdered",        "type": "int"},
     {"field": "QtyReserved",      "header": "QtyReserved",       "type": "int"},
-    {"field": "QtyReleased",      "header": "QtyReleased",       "type": "int"},
+    {"field": "QtyReleased",      "header": "QTY Shipping",      "type": "int"},
     {"field": "QtyCancelled",     "header": "QtyCancelled",      "type": "int"},
     {"field": "QtyLeftToShip",    "header": "Qty left to ship",  "type": "int"},
     {"field": "Ordered $",        "header": "Ordered $",         "type": "money"},
-    {"field": "Shipped $",        "header": "Shipped $",         "type": "money"},
     {"field": "Cancelled $",      "header": "Cancelled $",       "type": "money"},
-    {"field": "Released $",       "header": "Released $",        "type": "money"},
+    {"field": "Released $",       "header": "Shipping $",        "type": "money"},
     {"field": "Open $",           "header": "Open $",            "type": "money"},
 ]
 
 _AGG_QTY_COLS = [
     {"field": "QtyOrdered", "header": "QtyOrdered", "type": "int"},
     {"field": "QtyReserved", "header": "QtyReserved", "type": "int"},
-    {"field": "QtyReleased", "header": "QtyReleased", "type": "int"},
+    {"field": "QtyReleased", "header": "QTY Shipping", "type": "int"},
     {"field": "QtyCancelled", "header": "QtyCancelled", "type": "int"},
     {"field": "QtyLeftToShip", "header": "Qty left to ship", "type": "int"},
 ]
-_AGG_DOL_COLS = [{"field": f, "header": f, "type": "money"} for f in _DOL]
+_AGG_DOL_COLS = [
+    {"field": f, "header": _DOL_HEADERS[f], "type": "money"} for f in _DOL
+]
 
 BY_CUSTOMER_COLS = [
     {"field": "CustomerAccount", "header": "CustomerAccount", "type": "text"},
@@ -105,7 +115,7 @@ SUMMARY_COLS = [
     {"field": "Line Description",         "header": "Line Description",         "type": "text"},
     {"field": "QtyOrdered",               "header": "QtyOrdered",               "type": "int"},
     {"field": "QtyReserved",              "header": "QtyReserved",              "type": "int"},
-    {"field": "QtyReleased",              "header": "QtyReleased",              "type": "int"},
+    {"field": "QtyReleased",              "header": "QTY Shipping",             "type": "int"},
     {"field": "QtyCancelled",             "header": "QtyCancelled",             "type": "int"},
     {"field": "QtyLeftToShip",            "header": "Qty left to ship",         "type": "int"},
     {"field": "Net Price",                "header": "Net Price",                "type": "money"},
