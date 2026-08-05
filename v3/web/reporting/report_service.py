@@ -10,6 +10,7 @@
 
 Multi-source reports own their extra fetches here (not in the builder):
     * invoiced     -> a second YTD fetch feeds the monthly commissions pivot,
+    * salesman     -> monthly_salesman_yoy (wide YoY pivot; no invoice facts),
     * number_4     -> one or two rolling-12 SPs, picked by the mode filter,
     * customer_activity -> dedicated customer_activity SP (All + salesman tabs).
 The builders stay pure and source-agnostic; this is where I/O lives.
@@ -223,10 +224,13 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
 
 
 def _orch_salesman(svc: ReportService, params: dict, visible_keys) -> dict:
-    facts = svc._facts("invoiced_order_charges", P.translate("salesman", params),
-                       src_invoiced.to_facts, visible_keys)
-    tabs = rpt_salesman.build(facts, salesmen=svc._salesmen(), year=_resolved_year(params))
-    return svc._payload("salesman", tabs, len(facts))
+    """Monthly Salesman YoY from rpt.usp_monthly_salesman_yoy (Total Invoice)."""
+    sp = P.translate("salesman", params)
+    fetched = svc.client.run_report(P.report_id_for("salesman"), sp)
+    rows = rpt_salesman.filter_rows_by_salesman(
+        rpt_salesman.clean_rows(fetched.rows), visible_keys)
+    tabs = rpt_salesman.build(rows, year=_resolved_year(params))
+    return svc._payload("salesman", tabs, len(rows))
 
 
 def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:

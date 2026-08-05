@@ -9,7 +9,7 @@ from web.reporting import params as P
 def test_report_id_map_is_complete():
     assert P.report_id_for("ordered") == "ordered_report"
     assert P.report_id_for("invoiced") == "invoiced_report"
-    assert P.report_id_for("salesman") == "invoiced_order_charges"
+    assert P.report_id_for("salesman") == "monthly_salesman_yoy"
     assert P.report_id_for("number_4") == "customer_item_sales_rolling_12"
     assert P.report_id_for("customer_activity") == "customer_activity"
     assert P.report_id_for("customer_last_order") == "customer_last_orders"
@@ -86,17 +86,20 @@ def test_invoiced_multi_customer_omits_invoiceaccount():
     assert "CustomerAccount" not in out
 
 
-def test_salesman_spans_prior_and_current_year():
-    out = P.translate("salesman", {"year": "2026"})
-    assert out["InvoiceDateFrom"] == "2025-01-01 00:00:00"
-    assert out["InvoiceDateTo"] == "2026-12-31 23:59:59"
+def test_salesman_uses_yoy_sp_params():
+    out = P.translate("salesman", {"year": "2026", "through_month": 5})
+    assert out["ReportYear"] == 2026
+    assert out["ThroughMonth"] == 5
+    assert "InvoiceDateFrom" not in out
 
 
-def test_salesman_defaults_to_current_year():
+def test_salesman_defaults_through_month_for_current_year():
     out = P.translate("salesman", {})
     y = today_eastern().year
-    assert out["InvoiceDateFrom"].startswith(f"{y - 1}-01-01")
-    assert out["InvoiceDateTo"].startswith(f"{y}-12-31")
+    assert out["ReportYear"] == y
+    assert 1 <= out["ThroughMonth"] <= 12
+    if out["ReportYear"] == y:
+        assert out["ThroughMonth"] == today_eastern().month
 
 
 def test_number_4_sends_as_of_today_including_current_month():

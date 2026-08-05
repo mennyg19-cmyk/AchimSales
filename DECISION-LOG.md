@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-08-05 Salesman report -> monthly_salesman_yoy SP
+**What you asked for:** stop using the invoiced endpoint for salesman; wire
+`rpt.usp_monthly_salesman_yoy` (Total Invoice basis, YoY columns). Ground truth
+is TEST invoiced / `vw_Invoiced_Report`, not OData.
+**What I did:** Catalog id `monthly_salesman_yoy`. Params: ReportYear,
+ThroughMonth (+ optional SalesmanId/Name, CustomerAccount/Name). Builder
+reshapes the wide SP row into the existing 12 month tabs; no CC/freight strip
+(SP sales = Total Invoice). Unit tests for builder + params (21 pass in those
+files).
+**Status:** DECIDED — code on `rebuild-reports`; deploy next to verify catalog
+id/column names against live API (hybrid connection only).
+
 ## 2026-08-05 Ordered PO # from CustomerRequisition
 **What you asked for:** SP now returns CustomerRequisition (2nd column); retest
 ordered Customer PO.

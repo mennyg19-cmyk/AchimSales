@@ -151,16 +151,35 @@ def translate_invoiced(p: dict) -> dict[str, Any]:
 
 
 def translate_salesman(p: dict) -> dict[str, Any]:
-    """salesman -> invoiced_order_charges over prior+current full years.
+    """salesman -> rpt.usp_monthly_salesman_yoy (catalog monthly_salesman_yoy).
 
-    The Monthly Salesman report compares each month to the same month last
-    year, so it needs Jan 1 (prior year) .. Dec 31 (selected year).
+    Sales basis is Total Invoice, computed in SQL from rpt.vw_Invoiced_Report.
     """
     year = _resolved_year(p)
-    return {
-        "InvoiceDateFrom": sp_datetime(date(year - 1, 1, 1), end_of_day=False),
-        "InvoiceDateTo": sp_datetime(date(year, 12, 31), end_of_day=True),
-    }
+    today = today_eastern()
+    through = 12
+    raw_through = p.get("through_month") if p.get("through_month") not in (None, "") else p.get("ThroughMonth")
+    try:
+        if raw_through not in (None, ""):
+            through = max(1, min(12, int(raw_through)))
+        elif year == today.year:
+            through = today.month
+    except (TypeError, ValueError):
+        through = today.month if year == today.year else 12
+
+    out: dict[str, Any] = {"ReportYear": year, "ThroughMonth": through}
+    if sid := _csv(p.get("salesman_id") or p.get("SalesmanId")):
+        out["SalesmanId"] = sid
+    if sname := _csv(p.get("salesman") or p.get("SalesmanName")):
+        out["SalesmanName"] = sname
+    if acct := _csv(p.get("customer_account") or p.get("CustomerAccount") or p.get("customers")):
+        # Single account only; multi-select is post-filtered if needed later.
+        if "," not in acct:
+            out["CustomerAccount"] = acct
+    if cname := _csv(p.get("customer_name") or p.get("CustomerName")):
+        out["CustomerName"] = cname
+    return out
+
 
 
 # Number 4's two rolling-12 SPs: same rows, one ordered customer-first and one
@@ -232,7 +251,8 @@ def translate_customer_last_orders(p: dict) -> dict[str, Any]:
 REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     "ordered": ("ordered_report", translate_ordered),
     "invoiced": ("invoiced_report", translate_invoiced),
-    "salesman": ("invoiced_order_charges", translate_salesman),
+    "salesman": ("monthly_salesman_yoy", translate_salesman),
+
     # number_4 runs one or two SPs depending on the mode filter; the primary
     # (By Customer) is listed here for the dev API preview. The orchestrator
     # picks the actual SP(s) via NUMBER_4_BY_CUSTOMER_SP / NUMBER_4_BY_ITEM_SP.
