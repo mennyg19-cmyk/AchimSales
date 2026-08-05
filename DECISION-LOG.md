@@ -7,8 +7,8 @@ ordered Customer PO.
 `po_number` / display `PO #`. Removed `PO #` from stub fields (OrderStatus still
 stubbed). Unit tests updated (10 pass). Live SP probe Jul 15–17: 3392 rows,
 `CustomerRequisition` present, **100% filled**.
-**Status:** DECIDED — code on `rebuild-reports` (not deployed yet); /test UI
-still blanks PO until deploy.
+**Status:** DECIDED — deployed `8fb3bcf` to `achim-sales-reports` (2026-08-05).
+Parity re-run next with noise filters.
 
 ## 2026-08-04 Customer Activity parity: /test is correct
 **What you asked for:** after filtering noise (same SO+PO, blank PO on
