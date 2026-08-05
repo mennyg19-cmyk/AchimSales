@@ -9,8 +9,9 @@ ThroughMonth (+ optional SalesmanId/Name, CustomerAccount/Name). Builder
 reshapes the wide SP row into the existing 12 month tabs; no CC/freight strip
 (SP sales = Total Invoice). Unit tests for builder + params (21 pass in those
 files).
-**Status:** DECIDED — code on `rebuild-reports`; deploy next to verify catalog
-id/column names against live API (hybrid connection only).
+**Status:** DECIDED — deployed `8a3c3c1` to `achim-sales-reports` (RuntimeSuccessful).
+Live column-name confirm still needed (Kudu probe hangs from this machine;
+open `/test` Salesman or hit the Reporting API from Azure).
 
 ## 2026-08-05 Ordered PO # from CustomerRequisition
 **What you asked for:** SP now returns CustomerRequisition (2nd column); retest
