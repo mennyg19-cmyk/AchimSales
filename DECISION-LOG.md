@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-08-05 Salesman YoY SP reconciles to invoiced Total Invoice
+**What you asked for:** run salesman and compare numbers to TEST invoiced.
+**What I found:** `POST /api/reports/monthly_salesman_yoy/run` works. YTD
+2026-01-01..2026-08-05: salesman YTD sum **$17,028,637.71** = invoiced
+Total Invoice sum **$17,028,637.71** (delta **$0.00**). By customer account:
+**586/586** within $0.05, **0** amount diffs. Salesman-label pair mismatches
+are name-format only (`REdwards` vs `Edwards, Reggie`) — same dollars.
+**Evidence:** `.scratch/parity/reconcile_salesman_out.json` via one-shot
+`/test/api/reports/diagnostics/reconcile-salesman-invoiced` (env-key gated;
+key cleared after run).
+**Status:** DECIDED — salesman SP money matches invoiced Total Invoice for YTD.
+
 ## 2026-08-05 Salesman report -> monthly_salesman_yoy SP
 **What you asked for:** stop using the invoiced endpoint for salesman; wire
 `rpt.usp_monthly_salesman_yoy` (Total Invoice basis, YoY columns). Ground truth
