@@ -787,6 +787,40 @@ def reporting_api_diagnostics():
     })
 
 
+@reports_bp.get("/api/reports/diagnostics/reconcile-salesman-invoiced")
+def reconcile_salesman_invoiced_diagnostic():
+    """One-shot: monthly_salesman_yoy YTD vs invoiced_report Total Invoice.
+
+    Gated by env DIAG_RECONCILE_KEY (?k=...). When the key is unset, returns 404.
+    Used because Kudu /api/command is broken on this Linux app and the hybrid
+    Reporting API is not reachable from a laptop.
+    """
+    import hmac
+
+    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
+    provided = (request.args.get("k") or "").strip()
+    if (
+        not expected
+        or not provided
+        or len(expected) != len(provided)
+        or not hmac.compare_digest(expected, provided)
+    ):
+        abort(404)
+
+    service = current_app.config.get("REPORT_SERVICE")
+    client = getattr(service, "client", None) if service is not None else None
+    if client is None or not getattr(client, "configured", False):
+        return jsonify({"ok": False, "error": "Reporting API not configured"}), 503
+
+    year = request.args.get("year", type=int)
+    through = request.args.get("through_month", type=int)
+    try:
+        from web.reporting.reconcile_salesman import reconcile
+        return jsonify(reconcile(client, year=year, through_month=through))
+    except Exception as exc:  # noqa: BLE001 - surface to the caller for one-shot ops
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+
 def _recent_jobs(db, limit: int = 10) -> list[dict]:
     """Last few jobs with owner + status, so 'Lost track of the job' can be told
     apart: a 404 on poll is either the job not existing or its owner_user_id not
