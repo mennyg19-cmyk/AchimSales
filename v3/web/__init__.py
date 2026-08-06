@@ -302,7 +302,7 @@ def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
             return None
         p = current_principal()
         if p is None:
-            return redirect(url_for("auth.login"))
+            return redirect(url_for("auth.login_page"))
         if not user_has_beta_access(p.email):
             abort(403)
         return None
