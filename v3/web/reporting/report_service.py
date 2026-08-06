@@ -9,7 +9,8 @@
     5. wraps the tabs into the viewer payload.
 
 Multi-source reports own their extra fetches here (not in the builder):
-    * invoiced     -> a second YTD fetch feeds the monthly commissions pivot,
+    * invoiced     -> YTD rows feed the monthly commissions pivot (one pull when
+      the selected period already sits inside that YTD window),
     * salesman     -> monthly_salesman_yoy (wide YoY pivot; no invoice facts),
     * number_4     -> one or two rolling-12 SPs, picked by the mode filter,
     * customer_activity -> dedicated customer_activity SP (All + salesman tabs).
@@ -218,23 +219,66 @@ def _selected_accounts(params: dict) -> set[str]:
     return set()
 
 
-def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
-    report_id = P.report_id_for("invoiced")
-    sp = P.translate("invoiced", params)
-    facts = svc._facts(report_id, sp, src_invoiced.to_facts, visible_keys)
+def _invoice_day(fact) -> date | None:
+    raw = (getattr(fact, "invoice_date", None) or "")[:10]
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
 
-    _, period_end = P.resolve_window(params)
+
+def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
+    """Invoiced tabs use the selected period; Commissions needs Jan 1..period end.
+
+    When the selected period already sits inside that YTD window, one SP pull
+    covers both (period tabs = date filter on the YTD rows). Otherwise we keep
+    the two-pull path (e.g. all_time / custom that starts before Jan 1).
+    """
+    report_id = P.report_id_for("invoiced")
+    period_start, period_end = P.resolve_window(params)
     end = period_end or today_eastern()
     year = end.year
-    ytd_sp = dict(sp)
-    ytd_sp["InvoiceDateFrom"] = date(year, 1, 1).isoformat()
-    ytd_sp["InvoiceDateTo"] = end.isoformat()
-    ytd_facts = svc._facts(report_id, ytd_sp, src_invoiced.to_facts, visible_keys)
+    ytd_start = date(year, 1, 1)
+    ytd_end = end
 
     accounts = _selected_accounts(params)
-    if len(accounts) > 1:
-        facts = [f for f in facts if f.customer_account in accounts]
-        ytd_facts = [f for f in ytd_facts if f.customer_account in accounts]
+
+    def _scope(facts):
+        if len(accounts) > 1:
+            return [f for f in facts if f.customer_account in accounts]
+        return facts
+
+    def _fetch(sp_params):
+        return _scope(svc._facts(report_id, sp_params, src_invoiced.to_facts, visible_keys))
+
+    period_inside_ytd = (
+        period_start is not None
+        and period_end is not None
+        and period_start >= ytd_start
+        and period_end <= ytd_end
+    )
+
+    base_sp = P.translate("invoiced", params)
+    if period_inside_ytd:
+        ytd_sp = dict(base_sp)
+        ytd_sp["InvoiceDateFrom"] = ytd_start.isoformat()
+        ytd_sp["InvoiceDateTo"] = ytd_end.isoformat()
+        ytd_facts = _fetch(ytd_sp)
+        if period_start == ytd_start and period_end == ytd_end:
+            facts = ytd_facts
+        else:
+            facts = [
+                f for f in ytd_facts
+                if (d := _invoice_day(f)) is not None and period_start <= d <= period_end
+            ]
+    else:
+        facts = _fetch(base_sp)
+        ytd_sp = dict(base_sp)
+        ytd_sp["InvoiceDateFrom"] = ytd_start.isoformat()
+        ytd_sp["InvoiceDateTo"] = ytd_end.isoformat()
+        ytd_facts = _fetch(ytd_sp)
 
     tabs = rpt_invoiced.build(
         facts, salesmen=svc._salesmen(),

@@ -63,8 +63,43 @@ def test_invoiced_does_ytd_fetch_for_commissions():
     svc = _svc({"invoiced_report": rows})
     out = svc.builder_for("invoiced")({"year": "2026"}, None)
     assert out["report_key"] == "invoiced"
-    # invoiced_report fetched twice: selected period + YTD window
+    # No named period → open SP window + separate YTD for commissions.
     assert svc.client.calls.count("invoiced_report") == 2
+
+
+def test_invoiced_ytd_period_uses_one_fetch():
+    """Selected period already is YTD → one pull feeds period tabs + commissions."""
+    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
+             "Amount": "100", "SalesGroup": "REdwards"}]
+    svc = _svc({"invoiced_report": rows})
+    out = svc.builder_for("invoiced")({"period": "ytd"}, None)
+    assert out["report_key"] == "invoiced"
+    assert svc.client.calls.count("invoiced_report") == 1
+    assert out["row_count"] == 1
+
+
+def test_invoiced_period_inside_ytd_uses_one_fetch_and_slices():
+    """Last-month (etc.) inside YTD: one YTD pull; period tabs keep only that slice."""
+    rows = [
+        {"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-01-15",
+         "Amount": "100", "SalesGroup": "REdwards"},
+        {"Invoice": "I2", "InvoiceAccount": "100", "InvoiceDate": "2026-07-15",
+         "Amount": "200", "SalesGroup": "REdwards"},
+    ]
+    svc = _svc({"invoiced_report": rows})
+    out = svc.builder_for("invoiced")({
+        "period": "custom", "start_date": "2026-07-01", "end_date": "2026-07-31",
+    }, None)
+    assert svc.client.calls.count("invoiced_report") == 1
+    ytd_params = svc.client.params_calls[0][1]
+    assert ytd_params["InvoiceDateFrom"].startswith("2026-01-01")
+    assert ytd_params["InvoiceDateTo"].startswith("2026-07-31")
+    inv_dates = {
+        r["InvoiceDate"]
+        for t in out["tabs"] if t["key"] == "invoices" for r in t["rows"]
+    }
+    assert inv_dates == {"2026-07-15"}
+    assert out["row_count"] == 1
 
 
 def test_invoiced_ytd_window_anchors_to_selected_period_end():
@@ -75,10 +110,9 @@ def test_invoiced_ytd_window_anchors_to_selected_period_end():
     svc = _svc({"invoiced_report": rows})
     svc.builder_for("invoiced")({"period": "custom",
                                  "start_date": "2025-02-01", "end_date": "2025-06-15"}, None)
-    # Second invoiced fetch = the YTD window; it must open at Jan 1 of the period
-    # end's year and close at the period end (end-of-day), regardless of start.
-    ytd_params = [p for (rid, p) in svc.client.params_calls
-                  if rid == "invoiced_report"][1]
+    # Period sits inside YTD → one fetch covering Jan 1 .. period end.
+    assert len(svc.client.params_calls) == 1
+    ytd_params = svc.client.params_calls[0][1]
     assert ytd_params["InvoiceDateFrom"].startswith("2025-01-01")
     assert ytd_params["InvoiceDateTo"].startswith("2025-06-15")
 
