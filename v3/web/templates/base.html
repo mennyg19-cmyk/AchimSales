@@ -73,7 +73,7 @@
     {% endif %}
 
     {% if user %}
-    <nav class="bottom-nav" data-notifications-url="{{ url_for('dashboard.notifications') }}">
+    <nav class="bottom-nav" {% if nav.notifications and nav.notifications != '#' %}data-notifications-url="{{ nav.notifications }}"{% endif %}>
         <a href="{{ nav.reports }}" class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="file-text"></i>
@@ -81,7 +81,7 @@
             </div>
             <span class="bottom-nav-label">Reports</span>
         </a>
-        {% if dashboard_enabled or user.role in ('admin', 'developer') %}
+        {% if not is_beta and (dashboard_enabled or user.role in ('admin', 'developer')) %}
         <a href="{{ nav.dashboard }}" class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="bar-chart-2"></i>
@@ -90,12 +90,14 @@
             <span class="bottom-nav-label">Dashboard</span>
         </a>
         {% endif %}
+        {% if not is_beta %}
         <a href="{{ nav.schedules }}" class="bottom-nav-item {% if active_tab == 'schedules' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="clock"></i>
             </div>
             <span class="bottom-nav-label">Schedules</span>
         </a>
+        {% endif %}
         {% if test_site_enabled %}
         <a href="/test/" class="bottom-nav-item" target="_blank">
             <div class="bottom-nav-icon">

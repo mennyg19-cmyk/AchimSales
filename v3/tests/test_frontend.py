@@ -71,6 +71,29 @@ def test_admin_sees_dashboard_nav(tmp_path):
     assert "badge-admin" in html
 
 
+def test_beta_base_html_skips_missing_dashboard_endpoints(tmp_path):
+    """Beta does not register dashboard — base.html must not url_for it (was a 500)."""
+    from dataclasses import replace
+
+    from web.data.migrate import migrate
+
+    cfg = replace(_cfg(tmp_path), is_beta=True)
+    app = create_app(cfg)
+    with app.app_context():
+        migrate(app.config["DB"])
+    with app.test_request_context("/"):
+        # Context processor supplies nav/is_beta; do not hardcode them.
+        html = render_template(
+            "base.html",
+            user={"name": "Dev", "role": "developer", "_dev": True},
+            active_tab="reports",
+        )
+    assert "Dashboard" not in html
+    assert "Schedules" not in html
+    assert "data-notifications-url" not in html
+    assert "Beta" in html
+
+
 def test_salesman_has_no_dashboard_nav(tmp_path):
     app = create_app(_cfg(tmp_path))
     html = _render(app, user={"name": "S", "role": "salesman", "_dev": False})

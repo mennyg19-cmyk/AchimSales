@@ -214,6 +214,8 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             "settings": _safe_url("settings.settings_page"),
             "login": _safe_url("auth.login_page"),
             "logout": _safe_url("auth.logout_route"),
+            # Missing on Beta (no dashboard blueprint) — template must not url_for hard.
+            "notifications": _safe_url("dashboard.notifications"),
         }
         p = current_principal()
         user = None
