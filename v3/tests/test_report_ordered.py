@@ -8,7 +8,8 @@ def _rows():
     return [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-01T08:30:00",
-         "CustomerRequisition": "PO-1001",
+         "CustomerRequisition": "PO-1001", "purchid": "PO-7788",
+         "ExpectedArrivalDate": "2026-03-15T00:00:00",
          "LineNumber": "1", "Item": "ITM-A", "ItemDescription": "Widget",
          "SalesPrice": "2.29", "SalesStatus": "Open", "QuantityOrdered": "30",
          "QuantityReserved": "5", "CancelledQTY": "0", "ReleasedQuantity": "10",
@@ -17,7 +18,8 @@ def _rows():
          "Commission": "0.06", "SalesmanName": "Ron Edwards"},
         {"SalesOrderNumber": "SO2", "CustomerAccount": "100", "customername": "Acme",
          "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-02T08:30:00",
-         "CustomerRequisition": "PO-1002",
+         "CustomerRequisition": "PO-1002", "purchid": "",
+         "ExpectedArrivalDate": "",
          "LineNumber": "1", "Item": "ITM-B", "ItemDescription": "Gadget",
          "SalesPrice": "5.00", "SalesStatus": "Cancelled", "QuantityOrdered": "4",
          "QuantityReserved": "0", "CancelledQTY": "4", "ReleasedQuantity": "0",
@@ -40,6 +42,8 @@ def test_adapter_maps_sp_qty_columns_without_deriving_shipped():
     assert f.qty_shipped == 0  # SP has no shipped qty; do not invent one
     assert f.ordered_dollars == 68.70 and f.shipped_dollars == 22.90
     assert f.po_number == "PO-1001" and f.order_status == ""
+    assert f.purch_id == "PO-7788"
+    assert f.expected_arrival_date == "2026-03-15"
 
 
 def test_full_data_uses_sp_qty_columns():
@@ -62,10 +66,16 @@ def test_full_data_uses_sp_qty_columns():
     assert ship_col["header"] == "Shipping $"
     assert so1["Open $"] == 45.80  # 68.70 - 22.90 - 0
     assert so1["Released $"] == 22.90  # 10 * 2.29
+    assert so1["purchid"] == "PO-7788"
+    assert so1["ExpectedArrivalDate"] == "2026-03-15"
+    assert any(c["field"] == "purchid" for c in full["columns"])
+    assert any(c["field"] == "ExpectedArrivalDate" for c in full["columns"])
 
     so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
     assert so2["QtyCancelled"] == 4
     assert so2["QtyLeftToShip"] == 0
+    assert so2["purchid"] == ""
+    assert so2["ExpectedArrivalDate"] == ""
 
 
 def test_stub_fields_only_missing_sp_columns():
@@ -110,10 +120,23 @@ def test_summary_uses_sp_left_to_ship():
     assert a["QtyReserved"] == 5
     # Extended remainder from SP dollars: 68.70 - 22.90 - 0
     assert a["Extended Price Remainder"] == 45.80
+    assert a["purchid"] == "PO-7788"
+    assert a["ExpectedArrivalDate"] == "2026-03-15"
 
     b = next(r for r in summary["rows"] if r["Item Number"] == "ITM-B")
     assert b["QtyLeftToShip"] == 0
     assert b["Extended Price Remainder"] == 0.0
+    assert b["purchid"] == ""
+    assert b["ExpectedArrivalDate"] == ""
+
+
+def test_by_item_includes_purchid_and_arrival():
+    by_item = next(t for t in B.build(S.to_facts_ordered_report(_rows())) if t["key"] == "by_item")
+    assert any(c["field"] == "purchid" for c in by_item["columns"])
+    assert any(c["field"] == "ExpectedArrivalDate" for c in by_item["columns"])
+    a = next(r for r in by_item["rows"] if r["Item#"] == "ITM-A")
+    assert a["purchid"] == "PO-7788"
+    assert a["ExpectedArrivalDate"] == "2026-03-15"
 
 
 def test_tab_order_matches_live():

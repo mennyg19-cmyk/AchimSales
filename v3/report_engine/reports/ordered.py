@@ -51,24 +51,26 @@ _DOL_HEADERS: dict[str, str] = {
 # --------------------------------------------------------------------------- #
 
 FULL_DATA_COLS = [
-    {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
-    {"field": "CustomerAccount",  "header": "CustomerAccount",  "type": "text"},
-    {"field": "SalesOrderName",   "header": "SalesOrderName",    "type": "text"},
-    {"field": "OrderDate",        "header": "OrderDate",         "type": "date"},
-    {"field": "LineNumber",       "header": "LineNumber",        "type": "int"},
-    {"field": "Item#",            "header": "Item#",             "type": "text"},
-    {"field": "ItemName",         "header": "ItemName",          "type": "text"},
-    {"field": "UnitPrice",        "header": "UnitPrice",         "type": "money"},
-    {"field": "Status",           "header": "Status",            "type": "text"},
-    {"field": "QtyOrdered",       "header": "QtyOrdered",        "type": "int"},
-    {"field": "QtyReserved",      "header": "QtyReserved",       "type": "int"},
-    {"field": "QtyReleased",      "header": "QTY Shipping",      "type": "int"},
-    {"field": "QtyCancelled",     "header": "QtyCancelled",      "type": "int"},
-    {"field": "QtyLeftToShip",    "header": "Qty left to ship",  "type": "int"},
-    {"field": "Ordered $",        "header": "Ordered $",         "type": "money"},
-    {"field": "Cancelled $",      "header": "Cancelled $",       "type": "money"},
-    {"field": "Released $",       "header": "Shipping $",        "type": "money"},
-    {"field": "Open $",           "header": "Open $",            "type": "money"},
+    {"field": "SalesOrderNumber",    "header": "SalesOrderNumber",    "type": "text"},
+    {"field": "CustomerAccount",     "header": "CustomerAccount",     "type": "text"},
+    {"field": "SalesOrderName",      "header": "SalesOrderName",      "type": "text"},
+    {"field": "OrderDate",           "header": "OrderDate",           "type": "date"},
+    {"field": "purchid",             "header": "purchid",             "type": "text"},
+    {"field": "ExpectedArrivalDate", "header": "ExpectedArrivalDate", "type": "date"},
+    {"field": "LineNumber",          "header": "LineNumber",          "type": "int"},
+    {"field": "Item#",               "header": "Item#",               "type": "text"},
+    {"field": "ItemName",            "header": "ItemName",            "type": "text"},
+    {"field": "UnitPrice",           "header": "UnitPrice",           "type": "money"},
+    {"field": "Status",              "header": "Status",              "type": "text"},
+    {"field": "QtyOrdered",          "header": "QtyOrdered",          "type": "int"},
+    {"field": "QtyReserved",         "header": "QtyReserved",         "type": "int"},
+    {"field": "QtyReleased",         "header": "QTY Shipping",        "type": "int"},
+    {"field": "QtyCancelled",        "header": "QtyCancelled",        "type": "int"},
+    {"field": "QtyLeftToShip",       "header": "Qty left to ship",    "type": "int"},
+    {"field": "Ordered $",           "header": "Ordered $",           "type": "money"},
+    {"field": "Cancelled $",         "header": "Cancelled $",         "type": "money"},
+    {"field": "Released $",          "header": "Shipping $",          "type": "money"},
+    {"field": "Open $",              "header": "Open $",              "type": "money"},
 ]
 
 _AGG_QTY_COLS = [
@@ -89,8 +91,10 @@ BY_CUSTOMER_COLS = [
     *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ITEM_COLS = [
-    {"field": "Item#",    "header": "Item#",    "type": "text"},
-    {"field": "ItemName", "header": "ItemName", "type": "text"},
+    {"field": "Item#",               "header": "Item#",               "type": "text"},
+    {"field": "ItemName",            "header": "ItemName",            "type": "text"},
+    {"field": "purchid",             "header": "purchid",             "type": "text"},
+    {"field": "ExpectedArrivalDate", "header": "ExpectedArrivalDate", "type": "date"},
     *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ORDER_COLS = [
@@ -113,6 +117,8 @@ SUMMARY_COLS = [
     {"field": "Salesman",                 "header": "Salesman",                 "type": "text"},
     {"field": "Item Number",              "header": "Item Number",              "type": "text"},
     {"field": "Line Description",         "header": "Line Description",         "type": "text"},
+    {"field": "purchid",                  "header": "purchid",                  "type": "text"},
+    {"field": "ExpectedArrivalDate",      "header": "ExpectedArrivalDate",      "type": "date"},
     {"field": "QtyOrdered",               "header": "QtyOrdered",               "type": "int"},
     {"field": "QtyReserved",              "header": "QtyReserved",              "type": "int"},
     {"field": "QtyReleased",              "header": "QTY Shipping",             "type": "int"},
@@ -176,6 +182,8 @@ def _classify_ordered_line(f: OrderLineFact) -> dict:
         "CustomerName":     f.customer_name,
         "Salesman":         f.sales_group,
         "OrderDate":        f.order_date,
+        "purchid":          f.purch_id,
+        "ExpectedArrivalDate": f.expected_arrival_date,
         "PO #":             f.po_number,
         "LineNumber":       f.line_number,
         "Item#":            f.item_number,
@@ -267,6 +275,8 @@ def _build_summary(lines: list[dict]) -> dict:
             g = grouped[k] = {
                 "Customer Name": cust, "Salesman": ln["Salesman"],
                 "Item Number": item, "Line Description": ln["ItemName"],
+                "purchid": ln["purchid"],
+                "ExpectedArrivalDate": ln["ExpectedArrivalDate"],
                 "QtyOrdered": 0, "QtyReserved": 0, "QtyReleased": 0,
                 "QtyCancelled": 0, "QtyLeftToShip": 0,
                 "Extended Price - Ordered": 0.0, "Extended Price Remainder": 0.0,
@@ -327,7 +337,9 @@ def build(facts: Iterable[OrderLineFact]) -> list[dict]:
     by_item = _aggregate(
         lines,
         key=lambda r: (r["Item#"] or "(none)",),
-        lead=lambda r: {"Item#": r["Item#"] or "(none)", "ItemName": r["ItemName"]},
+        lead=lambda r: {"Item#": r["Item#"] or "(none)", "ItemName": r["ItemName"],
+                        "purchid": r["purchid"],
+                        "ExpectedArrivalDate": r["ExpectedArrivalDate"]},
         sort=_by_ordered_desc,
     )
     by_order = _aggregate(

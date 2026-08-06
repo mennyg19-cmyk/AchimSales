@@ -10,7 +10,8 @@ Two stored procedures feed OrderLineFact:
     powers the Ordered report. Qty columns are taken as the SP sends them
     (ordered / reserved / released / cancelled / delivery remainder). No
     QtyShipped derivation. SalesOrderName maps to customer name. PO # comes from
-    CustomerRequisition. Header OrderStatus stays blank until the SP provides it.
+    CustomerRequisition. Also maps purchid + ExpectedArrivalDate. Header
+    OrderStatus stays blank until the SP provides it.
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
 
     Qty columns come straight from the SP. qty_shipped stays 0 (SP has no shipped
     quantity). SalesOrderName uses the customer name. PO # = CustomerRequisition.
+    purchid / ExpectedArrivalDate come from the SP when present.
     OrderStatus blank until the SP provides it.
     """
     customer_name = text(first_of(raw, "customername", "CustomerName", "Name"))
@@ -94,6 +96,9 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
         ordered_dollars=round(num(first_of(raw, "Ordered $", "OrderedDollars", "OrderedAmount")), 2),
         shipped_dollars=round(num(first_of(raw, "Shipped $", "ShippedDollars", "ShippedAmount")), 2),
         cancelled_dollars=round(num(first_of(raw, "Cancelled $", "CancelledDollars", "CancelledAmount")), 2),
+        purch_id=text(first_of(raw, "purchid", "PurchId", "PurchID")),
+        expected_arrival_date=iso_date(first_of(
+            raw, "ExpectedArrivalDate", "expectedarrivaldate", "ExpectedArrival")),
     )
 
 

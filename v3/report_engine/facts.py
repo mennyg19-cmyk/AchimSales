@@ -50,6 +50,9 @@ class OrderLineFact:
     ordered_dollars: float     # authoritative (server-side)
     shipped_dollars: float     # authoritative (server-side)
     cancelled_dollars: float   # authoritative (server-side)
+    # usp_ordered_report only (blank on salesline_release).
+    purch_id: str = ""
+    expected_arrival_date: str = ""  # 'YYYY-MM-DD' or ''
 
 
 @dataclass(frozen=True)
