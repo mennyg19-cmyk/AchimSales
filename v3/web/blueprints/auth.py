@@ -54,6 +54,15 @@ def _login_or_403(user: User, *, name: str, is_dev: bool) -> None:
 @auth_bp.get("/login")
 def login_page():
     cfg = _cfg()
+    if cfg.is_beta:
+        # Beta shares Live login — never start a second MSAL round-trip.
+        from web.auth.session import current_principal
+        from web.beta_live_session import adopt_live_identity, live_login_redirect
+
+        if adopt_live_identity() is not None or current_principal() is not None:
+            return redirect(url_for("reports.reports_list"))
+        mount = (request.script_root or "/beta").rstrip("/") or "/beta"
+        return redirect(live_login_redirect(f"{mount}/"))
     if cfg.auth_mode == "msal":
         session[_NEXT_KEY] = _safe_next()  # carry intended destination across the redirect
         return redirect(msal_flow.build_login_url(cfg))
@@ -63,6 +72,8 @@ def login_page():
 @auth_bp.post("/login/dev")
 def login_dev():
     cfg = _cfg()
+    if cfg.is_beta:
+        abort(403, description="Beta uses Live login; open /login on the live site")
     if cfg.auth_mode != "dev":
         abort(403, description="Dev login is disabled in this environment")
     email = (request.form.get("email") or "").strip().lower()
@@ -79,18 +90,29 @@ def login_dev():
 @auth_bp.route("/auth/callback", methods=["GET", "POST"])
 def callback():
     cfg = _cfg()
+    if cfg.is_beta:
+        # No separate Entra redirect URI for /beta — Live owns the callback.
+        from web.beta_live_session import live_login_redirect
+
+        return redirect(live_login_redirect("/beta/"))
     result = msal_flow.complete_login(cfg)
     if "error" in result:
         abort(400, description=result["error"])
     user = UserRepository(_db()).upsert(result["email"], display_name=result["name"])
-    _login_or_403(user, name=user.display_name or result["email"], is_dev=False)
+    _login_or_403(user, name=user.display_name or result["name"], is_dev=False)
     dest = session.pop(_NEXT_KEY, None) or url_for("health.healthz")
     return redirect(dest)
 
 
 @auth_bp.post("/logout")
 def logout_route():
+    cfg = _cfg()
     logout()
+    if cfg.is_beta:
+        # Shared cookie: clear Live identity too, then Live login page.
+        session.pop("user", None)
+        session.clear()
+        return redirect("/login")
     return redirect(url_for("auth.login_page"))
 
 

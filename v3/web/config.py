@@ -152,10 +152,19 @@ def load_config(*, is_beta: bool = False) -> Config:
         cache_default = "./.data/cache.db"
         precious_env = "PRECIOUS_DB_PATH"
         cache_env = "CACHE_DB_PATH"
+    # Beta shares Live's session cookie, so it must use Live's signing secret
+    # (FLASK_SECRET_KEY). /test keeps FLASK_SECRET so its cookie stays separate.
+    if is_beta:
+        flask_secret = (
+            os.environ.get("FLASK_SECRET_KEY", "").strip()
+            or os.environ.get("FLASK_SECRET", "").strip()
+        )
+    else:
+        flask_secret = os.environ.get("FLASK_SECRET", "").strip()
     cfg = Config(
         app_env=app_env,
         auth_mode=os.environ.get("AUTH_MODE", "dev").strip().lower(),
-        flask_secret=os.environ.get("FLASK_SECRET", "").strip(),
+        flask_secret=flask_secret,
         tenant_id=os.environ.get("GRAPH_TENANT_ID", "").strip(),
         client_id=os.environ.get("GRAPH_CLIENT_ID", "").strip(),
         client_secret=os.environ.get("GRAPH_CLIENT_SECRET", "").strip(),

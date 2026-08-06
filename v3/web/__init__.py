@@ -37,10 +37,12 @@ def create_app(config: Config | None = None) -> Flask:
     from report_engine.lib import iso_date as _iso_date
     app.jinja_env.filters["iso_date"] = _iso_date
 
-    # v3 shares its host with the live app (/) and optionally rebuild (/test-next)
-    # and beta (/beta). Each mount needs its own session cookie name so they don't
-    # stomp each other (symptom: "No auth flow in session" at callback).
-    app.config["SESSION_COOKIE_NAME"] = "beta_session" if cfg.is_beta else "v3_session"
+    # /test keeps its own cookie. Beta shares Live's default `session` cookie
+    # (same FLASK_SECRET_KEY) so one Live login covers /beta — no second Entra callback.
+    if cfg.is_beta:
+        app.config["SESSION_COOKIE_NAME"] = "session"
+    else:
+        app.config["SESSION_COOKIE_NAME"] = "v3_session"
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     if cfg.is_prod:
@@ -284,25 +286,38 @@ def _register_blueprints(app: Flask, cfg: Config) -> None:
 
 
 def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
-    """Hard-gate /beta: no Live beta_access_enabled => 403 even on direct URL."""
+    """Hard-gate /beta: no Live beta_access_enabled => 403 even on direct URL.
+
+    Auth is Live's: adopt session["user"], else send them to Live /login?next=/beta/...
+    """
     if not cfg.is_beta:
         return
 
-    from flask import abort, redirect, request, url_for
+    from flask import abort, redirect, request
 
     from web.beta_access import user_has_beta_access
+    from web.beta_live_session import adopt_live_identity, live_login_redirect
 
     @app.before_request
     def _require_beta_access():
         if request.endpoint in (None, "static"):
             return None
-        # Allow health + login/callback so people can sign in, then gate the rest.
         ep = request.endpoint or ""
-        if ep.startswith("health.") or ep.startswith("auth."):
+        if ep.startswith("health."):
             return None
-        p = current_principal()
+        # Auth routes: adopt if already signed into Live; else Live login page.
+        if ep.startswith("auth."):
+            adopt_live_identity()
+            return None
+
+        p = adopt_live_identity()
         if p is None:
-            return redirect(url_for("auth.login_page"))
+            # SCRIPT_NAME is /beta under DispatcherMiddleware; Live path needs the prefix.
+            mount = (request.script_root or "/beta").rstrip("/") or "/beta"
+            dest = mount + (request.full_path if request.full_path != "/?" else "/")
+            if dest.endswith("?"):
+                dest = dest[:-1]
+            return redirect(live_login_redirect(dest))
         if not user_has_beta_access(p.email):
             abort(403)
         return None

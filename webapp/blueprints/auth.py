@@ -6,6 +6,7 @@ Routes: /, /login, /login/start, /dev-login, /auth/callback,
 """
 
 import logging
+from urllib.parse import urlsplit
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
@@ -17,6 +18,34 @@ log = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__)
 
+_LOGIN_NEXT_KEY = "login_next"
+
+
+def _safe_next(raw: str | None) -> str | None:
+    """Same-site relative path only (supports /beta after Live login)."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not raw.startswith("/") or raw.startswith("//") or raw.startswith("/\\"):
+        return None
+    parts = urlsplit(raw)
+    if parts.scheme or parts.netloc:
+        return None
+    return raw
+
+
+def _remember_next(raw: str | None = None) -> None:
+    nxt = _safe_next(raw if raw is not None else request.args.get("next"))
+    if nxt:
+        session[_LOGIN_NEXT_KEY] = nxt
+
+
+def _redirect_after_login():
+    nxt = _safe_next(session.pop(_LOGIN_NEXT_KEY, None))
+    if nxt:
+        return redirect(nxt)
+    return redirect(url_for("reports.reports_list"))
+
 
 @auth_bp.route("/")
 def index():
@@ -27,8 +56,9 @@ def index():
 
 @auth_bp.route("/login")
 def login():
+    _remember_next()
     if get_current_user():
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
     if DEV_BYPASS_AUTH:
         return render_template("login_dev.html")
     return render_template("login.html")
@@ -37,6 +67,7 @@ def login():
 @auth_bp.route("/login/start")
 def login_start():
     """Redirect to Microsoft login."""
+    _remember_next()
     if DEV_BYPASS_AUTH:
         return redirect(url_for("auth.dev_login"))
     try:
@@ -74,7 +105,7 @@ def dev_login():
                 "role": "salesman",
                 "salesman_key": sm_key,
             }
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
 
     return render_template("login_dev.html", salesmen=get_salesmen_list())
 
@@ -116,7 +147,7 @@ def auth_callback():
     }
     from webapp.db import get_setting
     session["theme"] = get_setting(email, "theme", "light")
-    return redirect(url_for("reports.reports_list"))
+    return _redirect_after_login()
 
 
 @auth_bp.route("/dev/role-picker", methods=["GET", "POST"])
@@ -125,7 +156,7 @@ def role_picker():
     """Let authenticated developers impersonate any registered user."""
     user = get_current_user()
     if not is_developer(user) and not user.get("_dev"):
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
 
     dev_email = user.get("_dev_email") or user.get("email", "")
     raw_name = user.get("_dev_name") or user.get("name", dev_email)
@@ -146,7 +177,7 @@ def role_picker():
                 "_dev_email": dev_email,
             }
             session["theme"] = get_setting(dev_email, "theme", "light")
-            return redirect(url_for("reports.reports_list"))
+            return _redirect_after_login()
 
         target = get_user_by_email(target_email)
         if not target:
@@ -164,7 +195,7 @@ def role_picker():
             "_dev_email": dev_email,
         }
         session["theme"] = get_setting(target["email"], "theme", "light")
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
 
     from webapp.db import get_all_users
     all_users = get_all_users()
@@ -238,7 +269,7 @@ def consume_magic_link(token):
     }
     session["theme"] = get_setting(email, "theme", "light")
     log.info("Magic-link sign-in: %s", email)
-    return redirect(url_for("reports.reports_list"))
+    return _redirect_after_login()
 
 
 @auth_bp.route("/logout")

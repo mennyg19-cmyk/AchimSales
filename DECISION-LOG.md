@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-08-06 Beta shares Live login (no separate Entra callback)
+**What you asked for:** Fold Beta into Live so one Live sign-in covers `/beta`
+(no second Microsoft login / no `/beta/auth/callback` Entra URI).
+**What I chose:** Keep the v3 UI mount at `/beta` (Test look + hybrid reports),
+but share Live's `session` cookie and `FLASK_SECRET_KEY`. Beta adopts
+`session["user"]` into a v3 Principal; unauthenticated hits redirect to
+`/login?next=/beta/...`. Live login honors `next`. Mount stays — full Live
+blueprint rewrite of the Test UI is deferred.
+**Why:** Same user-facing outcome (one login) without re-porting the report UI
+into Live templates. Separate Entra callback was a side effect of a separate
+cookie, not a product need.
+**Status:** DECIDED
+
 ## 2026-08-06 Beta day-one scaffold (v3 mount, not rebuild tree)
 **What I had to decide:** Grill said Beta tree from rebuild + v3 look, but
 rebuild only seeds 4 reports while Beta needs every report day one.

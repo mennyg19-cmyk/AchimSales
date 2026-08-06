@@ -96,3 +96,30 @@ def test_odata_workbook_to_tabs(tmp_path):
     scoped = mod._scope_tab(tabs[0], {"SM01"})
     assert len(scoped["rows"]) == 1
     assert scoped["rows"][0]["InvoiceNumber"] == "IN1"
+
+
+def test_live_login_redirect_escapes_mount():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "v3" / "web" / "beta_live_session.py"
+    spec = importlib.util.spec_from_file_location("beta_live_session", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)
+
+    assert mod.live_login_redirect("/beta/") == "/login?next=/beta/"
+    assert mod.live_login_redirect("/beta/reports") == "/login?next=/beta/reports"
+    # Reject open redirects
+    assert mod.live_login_redirect("https://evil.example/") == "/login?next=/beta/"
+
+
+def test_live_auth_safe_next():
+    from webapp.blueprints.auth import _safe_next
+
+    assert _safe_next("/beta/") == "/beta/"
+    assert _safe_next("/beta/reports?x=1") == "/beta/reports?x=1"
+    assert _safe_next("https://evil.example/") is None
+    assert _safe_next("//evil.example/") is None
+    assert _safe_next(None) is None
+

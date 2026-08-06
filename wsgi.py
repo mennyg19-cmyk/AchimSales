@@ -8,7 +8,7 @@ It wires apps behind one process via werkzeug's DispatcherMiddleware:
 
     /          -> live Flask app (webapp/)     [production, unchanged]
     /test      -> v3 app (v3/web/)             [current interactive reports]
-    /beta      -> v3 in beta mode              [reports-only; hybrid SQL/OData]
+    /beta      -> v3 in beta mode              [reports-only; shares Live session]
     /test-next -> ground-up rebuild (rebuild/) [preview; retire after Beta]
 
 The old green v2 sandbox (test/) was retired 2026-06-11 -- unused, and its
