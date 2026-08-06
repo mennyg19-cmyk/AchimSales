@@ -53,15 +53,18 @@ class Schedule:
     start_date: str | None
     end_date: str | None
     created_at: str
+    filename_template: str = ""
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Schedule":
+        keys = r.keys()
         return cls(
             id=r["id"], owner_user_id=r["owner_user_id"], report_key=r["report_key"],
             params=_loads(r["params_json"]), layout=_loads(r["layout_json"]),
             cadence=_loads(r["cadence"]), recipients=r["recipients"],
             sharepoint_path=r["sharepoint_path"], is_active=bool(r["is_active"]),
             start_date=r["start_date"], end_date=r["end_date"], created_at=r["created_at"],
+            filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
         )
 
 
@@ -77,15 +80,18 @@ class MasterSchedule:
     sharepoint_path: str
     is_active: bool
     created_at: str
+    filename_template: str = ""
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "MasterSchedule":
+        keys = r.keys()
         return cls(
             id=r["id"], report_key=r["report_key"], name=r["name"],
             params=_loads(r["params_json"]), layout=_loads(r["layout_json"]),
             cadence=_loads(r["cadence"]), recipients=r["recipients"],
             sharepoint_path=r["sharepoint_path"], is_active=bool(r["is_active"]),
             created_at=r["created_at"],
+            filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
         )
 
 
@@ -117,31 +123,44 @@ class ScheduleRepository:
     def create(self, owner_user_id: int, report_key: str, *, params: dict,
                layout: dict, cadence: dict, recipients: str = "",
                sharepoint_path: str = "", start_date: str | None = None,
-               end_date: str | None = None) -> int:
+               end_date: str | None = None, filename_template: str = "") -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO schedules(owner_user_id, report_key, params_json, layout_json,"
-                " cadence, recipients, sharepoint_path, start_date, end_date)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " cadence, recipients, sharepoint_path, start_date, end_date, filename_template)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (owner_user_id, report_key, json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
-                 recipients or "", sharepoint_path or "", start_date, end_date),
+                 recipients or "", sharepoint_path or "", start_date, end_date,
+                 (filename_template or "").strip()),
             )
             return cur.lastrowid
 
     def update(self, schedule_id: int, owner_user_id: int, *, params: dict,
                layout: dict, cadence: dict, recipients: str = "",
                sharepoint_path: str = "", start_date: str | None = None,
-               end_date: str | None = None) -> bool:
+               end_date: str | None = None, filename_template: str | None = None) -> bool:
         with self.db.precious() as conn:
-            cur = conn.execute(
-                "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
-                " recipients=?, sharepoint_path=?, start_date=?, end_date=?"
-                " WHERE id=? AND owner_user_id=?",
-                (json.dumps(params or {}), json.dumps(layout or {}),
-                 json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                 start_date, end_date, schedule_id, owner_user_id),
-            )
+            if filename_template is None:
+                cur = conn.execute(
+                    "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
+                    " recipients=?, sharepoint_path=?, start_date=?, end_date=?"
+                    " WHERE id=? AND owner_user_id=?",
+                    (json.dumps(params or {}), json.dumps(layout or {}),
+                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
+                     start_date, end_date, schedule_id, owner_user_id),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
+                    " recipients=?, sharepoint_path=?, start_date=?, end_date=?,"
+                    " filename_template=?"
+                    " WHERE id=? AND owner_user_id=?",
+                    (json.dumps(params or {}), json.dumps(layout or {}),
+                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
+                     start_date, end_date, filename_template.strip(),
+                     schedule_id, owner_user_id),
+                )
             return cur.rowcount == 1
 
     def set_active(self, schedule_id: int, owner_user_id: int, active: bool) -> bool:
@@ -193,28 +212,48 @@ class MasterScheduleRepository:
         self.db = db
 
     def create(self, report_key: str, name: str, *, params: dict, layout: dict,
-               cadence: dict, recipients: str = "", sharepoint_path: str = "") -> int:
+               cadence: dict, recipients: str = "", sharepoint_path: str = "",
+               filename_template: str = "") -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO master_schedules(report_key, name, params_json, layout_json,"
-                " cadence, recipients, sharepoint_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " cadence, recipients, sharepoint_path, filename_template)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (report_key, name.strip(), json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
-                 recipients or "", sharepoint_path or ""),
+                 recipients or "", sharepoint_path or "",
+                 (filename_template or "").strip()),
             )
             return cur.lastrowid
 
     def update(self, schedule_id: int, *, name: str, params: dict, layout: dict,
                cadence: dict, recipients: str = "", sharepoint_path: str = "",
-               report_key: str | None = None) -> bool:
+               report_key: str | None = None, filename_template: str | None = None) -> bool:
         with self.db.precious() as conn:
-            if report_key:
+            tmpl = None if filename_template is None else filename_template.strip()
+            if report_key and tmpl is not None:
+                cur = conn.execute(
+                    "UPDATE master_schedules SET name=?, report_key=?, params_json=?, layout_json=?,"
+                    " cadence=?, recipients=?, sharepoint_path=?, filename_template=? WHERE id=?",
+                    (name.strip(), report_key.strip(), json.dumps(params or {}),
+                     json.dumps(layout or {}), json.dumps(cadence or {}),
+                     recipients or "", sharepoint_path or "", tmpl, schedule_id),
+                )
+            elif report_key:
                 cur = conn.execute(
                     "UPDATE master_schedules SET name=?, report_key=?, params_json=?, layout_json=?,"
                     " cadence=?, recipients=?, sharepoint_path=? WHERE id=?",
                     (name.strip(), report_key.strip(), json.dumps(params or {}),
                      json.dumps(layout or {}), json.dumps(cadence or {}),
                      recipients or "", sharepoint_path or "", schedule_id),
+                )
+            elif tmpl is not None:
+                cur = conn.execute(
+                    "UPDATE master_schedules SET name=?, params_json=?, layout_json=?,"
+                    " cadence=?, recipients=?, sharepoint_path=?, filename_template=? WHERE id=?",
+                    (name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
+                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
+                     tmpl, schedule_id),
                 )
             else:
                 cur = conn.execute(

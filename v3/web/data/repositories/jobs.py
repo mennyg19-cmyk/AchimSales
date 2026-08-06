@@ -49,15 +49,18 @@ class Job:
     params: dict
     result_ref: str
     error: str
+    kept_until: str | None = None
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Job":
+        keys = r.keys()
         return cls(
             id=r["id"], type=r["type"], status=r["status"],
             owner_user_id=r["owner_user_id"], dedup_key=r["dedup_key"],
             progress=r["progress"], attempts=r["attempts"],
             params=json.loads(r["params_json"] or "{}"),
             result_ref=r["result_ref"], error=r["error"],
+            kept_until=r["kept_until"] if "kept_until" in keys else None,
         )
 
 
@@ -235,9 +238,36 @@ class JobRepository:
         bar and the resume-on-return behaviour."""
         with self.db.precious() as conn:
             rows = conn.execute(
-                "SELECT id, status, progress, params_json, created_at, finished_at"
+                "SELECT id, status, progress, params_json, created_at, finished_at,"
+                " kept_until"
                 " FROM jobs WHERE owner_user_id = ? AND type = 'report.run'"
                 " ORDER BY created_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def keep_run(self, job_id: str, owner_user_id: int, *, kept_until: str,
+                 cap: int = 5) -> bool:
+        """Mark a finished run as Kept until kept_until. Enforces per-user cap by
+        clearing kept_until on the oldest Kept runs beyond ``cap``."""
+        with self.db.precious() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET kept_until=? WHERE id=? AND owner_user_id=?"
+                " AND type='report.run' AND status='success'",
+                (kept_until, job_id, owner_user_id),
+            )
+            if cur.rowcount != 1:
+                return False
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE owner_user_id=? AND type='report.run'"
+                " AND kept_until IS NOT NULL AND kept_until != ''"
+                " ORDER BY kept_until DESC, finished_at DESC",
+                (owner_user_id,),
+            ).fetchall()
+            if len(rows) > cap:
+                drop_ids = [r["id"] for r in rows[cap:]]
+                conn.executemany(
+                    "UPDATE jobs SET kept_until=NULL WHERE id=?",
+                    [(i,) for i in drop_ids],
+                )
+            return True

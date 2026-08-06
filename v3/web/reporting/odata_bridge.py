@@ -41,6 +41,9 @@ def build_odata_payload(
     if visible_keys is not None:
         tabs = [_scope_tab(tab, visible_keys) for tab in tabs]
 
+    if report_key == "ordered":
+        tabs = [_attach_ordered_default_group(tab) for tab in tabs]
+
     row_count = sum(len(t.get("rows") or []) for t in tabs)
     return {
         "report_key": report_key,
@@ -48,6 +51,26 @@ def build_odata_payload(
         "row_count": row_count,
         "data_source": "odata",
     }
+
+
+# Match SQL Ordered builder: Summary / By Customer / By Order group by Salesman.
+_ORDERED_DEFAULT_GROUP_KEYS = {
+    "summary", "by_customer", "by_order",
+    "summary_by_customer",  # live filtered variant sheet names sometimes differ
+}
+_ORDERED_DEFAULT_GROUP_NAMES = {
+    "summary", "by customer", "by order",
+}
+
+
+def _attach_ordered_default_group(tab: dict) -> dict:
+    key = str(tab.get("key") or "").strip().lower()
+    name = str(tab.get("name") or "").strip().lower()
+    if key in _ORDERED_DEFAULT_GROUP_KEYS or name in _ORDERED_DEFAULT_GROUP_NAMES:
+        out = dict(tab)
+        out["default_group"] = ["Salesman"]
+        return out
+    return tab
 
 
 def _workbook_to_tabs(path: str) -> list[dict]:

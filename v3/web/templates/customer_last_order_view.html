@@ -79,11 +79,33 @@
     {% endif %}
 </div>
 
-<div class="clo-head">
-    <h3>Items</h3>
+<div class="clo-head" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <h3 style="margin:0;">Items</h3>
     {% if view.lines %}
     <span class="muted">{{ view.lines|length }} unique item{{ 's' if view.lines|length != 1 else '' }}</span>
     {% endif %}
+    <button type="button" id="cloExportBtn" class="btn btn-sm btn-outline" style="margin-left:auto;">
+        <i data-feather="download" style="width:14px;height:14px;"></i> Export
+    </button>
+</div>
+
+<div id="cloExportModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cloExportTitle" style="max-width:360px;">
+        <div class="modal-head">
+            <h2 id="cloExportTitle">Export last order</h2>
+            <button type="button" id="cloExportClose" class="modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="muted">Choose a format:</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <a class="btn btn-primary" id="cloExportXlsx"
+                   href="{{ url_for('reports.customer_last_order_export', account=customer.account) }}?format=xlsx{% if view.selected_orders %}&orders={{ view.selected_orders|join(',') }}{% endif %}">Excel</a>
+                <a class="btn btn-outline" id="cloExportPdf"
+                   href="{{ url_for('reports.customer_last_order_export', account=customer.account) }}?format=pdf{% if view.selected_orders %}&orders={{ view.selected_orders|join(',') }}{% endif %}">PDF</a>
+                <button type="button" id="cloExportCancel" class="btn btn-outline">Cancel</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="table-wrap">
@@ -207,6 +229,25 @@
         modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
         document.addEventListener("keydown", function (e) {
             if (e.key === "Escape" && !modal.hasAttribute("hidden")) close();
+        });
+    }
+
+    var exportBtn = document.getElementById("cloExportBtn");
+    var exportModal = document.getElementById("cloExportModal");
+    function openExport() {
+        if (exportModal) { exportModal.removeAttribute("hidden"); document.body.style.overflow = "hidden"; }
+    }
+    function closeExport() {
+        if (exportModal) { exportModal.setAttribute("hidden", ""); document.body.style.overflow = ""; }
+    }
+    if (exportBtn && exportModal) {
+        exportBtn.addEventListener("click", openExport);
+        document.getElementById("cloExportClose").addEventListener("click", closeExport);
+        document.getElementById("cloExportCancel").addEventListener("click", closeExport);
+        exportModal.addEventListener("click", function (e) { if (e.target === exportModal) closeExport(); });
+        ["cloExportXlsx", "cloExportPdf"].forEach(function (id) {
+            var a = document.getElementById(id);
+            if (a) a.addEventListener("click", function () { setTimeout(closeExport, 200); });
         });
     }
 })();

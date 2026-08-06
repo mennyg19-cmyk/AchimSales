@@ -75,6 +75,7 @@ class ScheduleRunner:
                     params=_report_params(sched.params), layout=sched.layout,
                     recipients=sched.recipients, subject=subject, report_name=report_name,
                     sharepoint_path=sched.sharepoint_path,
+                    filename_template=getattr(sched, "filename_template", "") or "",
                 )
             meta = _output_meta(outcome)
             summary = _summary_message(outcome, ok=outcome.result.ok)
@@ -138,6 +139,7 @@ class ScheduleRunner:
                 builder_version=builder_version, params=_report_params(params),
                 layout=sched.layout, recipients=sched.recipients, subject=subject,
                 report_name=report_name, sharepoint_path=sched.sharepoint_path,
+                filename_template=getattr(sched, "filename_template", "") or "",
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -162,6 +164,7 @@ class ScheduleRunner:
                 builder_version=builder_version, params=split_params, layout=sched.layout,
                 recipients=email, subject=f"{subject} - {key}",
                 report_name=f"{report_name} - {key}", sharepoint_path="",
+                filename_template=getattr(sched, "filename_template", "") or "",
             )
             outcomes.append(outcome)
             deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))

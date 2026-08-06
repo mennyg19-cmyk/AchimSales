@@ -16,7 +16,7 @@ read stale wider-scoped cached data.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from flask import (
     Blueprint,
@@ -330,8 +330,10 @@ def report_result(job_id: str):
     return jsonify(cached.payload)
 
 
-# How long a finished run keeps showing on the status bar / stays resumable.
-_RECENT_DONE_SECONDS = 600
+# How long a finished run stays resumable without Keep.
+_RECENT_DONE_SECONDS = 48 * 3600
+_KEEP_SECONDS = 30 * 86400
+_KEEP_CAP = 5
 
 
 def _age_seconds(ts: str | None, now: datetime | None = None) -> int | None:
@@ -350,11 +352,23 @@ def _age_seconds(ts: str | None, now: datetime | None = None) -> int | None:
     return int((now - dt).total_seconds())
 
 
+def _kept_still_valid(kept_until: str | None, now: datetime) -> bool:
+    if not kept_until:
+        return False
+    try:
+        dt = datetime.fromisoformat(kept_until)
+    except ValueError:
+        return False
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt > now
+
+
 @reports_bp.get("/api/reports/active")
 @require_login
 def active_report_runs():
     """The current user's report runs that are still going (queued/running) or
-    finished in the last few minutes. Drives the always-on status bar and the
+    finished recently / Kept. Drives the always-on status bar and the
     resume-on-return behaviour. Owner-scoped: only the caller's own jobs."""
     p = _principal_or_401()
     uid = _user_id(p.email)
@@ -365,20 +379,40 @@ def active_report_runs():
     jobs = []
     for r in _job_repo().report_runs_for_user(uid, limit=30):
         status = r["status"]
+        kept_until = r.get("kept_until")
         if status not in ("queued", "running"):
-            age = _age_seconds(r["finished_at"] or r["created_at"], now)
-            if age is None or age > _RECENT_DONE_SECONDS:
-                continue
+            if _kept_still_valid(kept_until, now):
+                pass
+            else:
+                age = _age_seconds(r["finished_at"] or r["created_at"], now)
+                if age is None or age > _RECENT_DONE_SECONDS:
+                    continue
         rkey = json.loads(r["params_json"] or "{}").get("report_key")
         jobs.append({
             "job_id": r["id"], "report_key": rkey,
             "title": titles.get(rkey, rkey or "Report"),
             "status": status, "progress": r["progress"] or 0,
-            # Seconds since the run was kicked off, so a resumed screen can show
-            # the true elapsed time instead of restarting its clock at zero.
             "age_seconds": _age_seconds(r["created_at"], now),
+            "kept_until": kept_until or None,
+            "kept": _kept_still_valid(kept_until, now),
         })
     return jsonify({"jobs": jobs})
+
+
+@reports_bp.post("/api/reports/runs/<job_id>/keep")
+@require_login
+def keep_report_run(job_id: str):
+    """Extend a finished run's resume window to 30 days (cap 5 Kept per user)."""
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    job = _owned_job_or_404(job_id, uid)
+    if job.status != "success":
+        abort(409, description="Only a finished report can be kept")
+    kept_until = (datetime.now(timezone.utc) + timedelta(seconds=_KEEP_SECONDS)).isoformat()
+    ok = _job_repo().keep_run(job_id, uid, kept_until=kept_until, cap=_KEEP_CAP)
+    if not ok:
+        abort(404, description="Unknown job")
+    return jsonify({"job_id": job_id, "kept_until": kept_until, "kept": True})
 
 
 @reports_bp.post("/api/reports/<report_key>/export/<job_id>")
@@ -603,6 +637,83 @@ def customer_last_order_view(account: str):
     )
 
 
+@reports_bp.get("/report/customer-last-order/<account>/export")
+@require_login
+def customer_last_order_export(account: str):
+    """Excel or PDF of the current Last Order view (format=xlsx|pdf)."""
+    from openpyxl import Workbook
+    from web.reporting.last_order_export import last_order_pdf
+
+    p = _principal_or_401()
+    _assert_clo_access(p)
+    fmt = (request.args.get("format") or "xlsx").strip().lower()
+    if fmt not in ("xlsx", "pdf"):
+        abort(400, description="format must be xlsx or pdf")
+    requested = [o.strip() for o in (request.args.get("orders") or "").split(",") if o.strip()]
+    rows, customer = _clo_rows_or_403(p, account)
+    view = clo.build(rows, requested_orders=requested)
+    if not view or not view.primary:
+        abort(404, description="No order data to export")
+
+    primary = view.primary
+    name = customer.get("name") or account
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:40]
+    primary_dict = {
+        "order_number": primary.order_number,
+        "order_date": primary.order_date,
+        "salesman": primary.salesman,
+    }
+    line_dicts = [
+        {
+            "item": ln.item, "description": ln.description,
+            "qty_ordered": ln.qty_ordered, "qty_shipped": ln.qty_shipped,
+            "qty_cancelled": ln.qty_cancelled, "sales_price": ln.sales_price,
+            "total": ln.total,
+        }
+        for ln in (view.lines or [])
+    ]
+    if fmt == "pdf":
+        data = last_order_pdf(
+            customer_name=name, account=account, primary=primary_dict,
+            display_po=view.display_po or "", lines=line_dicts,
+            totals=view.totals or {},
+        )
+        return send_file(
+            io.BytesIO(data), mimetype="application/pdf", as_attachment=True,
+            download_name=f"Last_Order_{safe}.pdf",
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Last Order"
+    ws.append(["Customer", name, "Account", account])
+    ws.append(["Order", primary.order_number, "Date", primary.order_date,
+               "PO", view.display_po or ""])
+    ws.append([])
+    ws.append(["Item #", "Description", "Qty Ordered", "Qty Shipped",
+               "Qty Cancelled", "Sales Price", "Total"])
+    for line in line_dicts:
+        ws.append([
+            line["item"], line["description"],
+            line["qty_ordered"], line["qty_shipped"], line["qty_cancelled"],
+            line["sales_price"], line["total"],
+        ])
+    totals = view.totals or {}
+    ws.append([
+        "TOTALS", "", totals.get("qty_ordered"), totals.get("qty_shipped"),
+        totals.get("qty_cancelled"), "", totals.get("total"),
+    ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"Last_Order_{safe}.xlsx",
+    )
+
+
 # --- filter lookups (dropdown data + live API preview) --------------------- #
 
 @reports_bp.get("/api/reports/lookups/status")
@@ -789,11 +900,11 @@ def reporting_api_diagnostics():
 
 @reports_bp.get("/api/reports/diagnostics/reconcile-salesman-invoiced")
 def reconcile_salesman_invoiced_diagnostic():
-    """One-shot: monthly_salesman_yoy YTD vs invoiced_report Total Invoice.
+    """One-shot: monthly_salesman_yoy vs invoiced_report Total Invoice.
 
     Gated by env DIAG_RECONCILE_KEY (?k=...). When the key is unset, returns 404.
-    Used because Kudu /api/command is broken on this Linux app and the hybrid
-    Reporting API is not reachable from a laptop.
+    Optional ?scope=ty|ly|all (default all). Split ty/ly avoids App Service 230s
+    gateway timeout when both invoiced windows are large.
     """
     import hmac
 
@@ -814,9 +925,61 @@ def reconcile_salesman_invoiced_diagnostic():
 
     year = request.args.get("year", type=int)
     through = request.args.get("through_month", type=int)
+    scope = (request.args.get("scope") or "all").strip().lower()
+    only_month = request.args.get("month", type=int)
+    if scope not in ("ty", "ly", "all"):
+        return jsonify({"ok": False, "error": "scope must be ty, ly, or all"}), 400
     try:
         from web.reporting.reconcile_salesman import reconcile
-        return jsonify(reconcile(client, year=year, through_month=through))
+        return jsonify(reconcile(
+            client, year=year, through_month=through, scope=scope,
+            only_month=only_month,
+        ))
+    except Exception as exc:  # noqa: BLE001 - surface to the caller for one-shot ops
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@reports_bp.get("/api/reports/diagnostics/reconcile-number4-invoiced")
+def reconcile_number4_invoiced_diagnostic():
+    """One-shot: Number 4 rolling-12 vs invoiced_report (subtotal + Total Invoice).
+
+    Gated by env DIAG_RECONCILE_KEY (?k=...). Optional ?view=by_customer|by_item,
+    ?month=1..12 (index into the rolling window, 1=oldest) for gateway-safe slices.
+    """
+    import hmac
+
+    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
+    provided = (request.args.get("k") or "").strip()
+    if (
+        not expected
+        or not provided
+        or len(expected) != len(provided)
+        or not hmac.compare_digest(expected, provided)
+    ):
+        abort(404)
+
+    service = current_app.config.get("REPORT_SERVICE")
+    client = getattr(service, "client", None) if service is not None else None
+    if client is None or not getattr(client, "configured", False):
+        return jsonify({"ok": False, "error": "Reporting API not configured"}), 503
+
+    view = (request.args.get("view") or "by_customer").strip().lower()
+    if view not in ("by_customer", "by_item"):
+        return jsonify({"ok": False, "error": "view must be by_customer or by_item"}), 400
+    only_month = request.args.get("month", type=int)
+    as_of_raw = (request.args.get("as_of") or "").strip()
+    as_of = None
+    if as_of_raw:
+        try:
+            from datetime import date as _date
+            as_of = _date.fromisoformat(as_of_raw[:10])
+        except ValueError:
+            return jsonify({"ok": False, "error": "as_of must be YYYY-MM-DD"}), 400
+    try:
+        from web.reporting.reconcile_number4 import reconcile
+        return jsonify(reconcile(
+            client, as_of=as_of, view=view, only_month=only_month,
+        ))
     except Exception as exc:  # noqa: BLE001 - surface to the caller for one-shot ops
         return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 

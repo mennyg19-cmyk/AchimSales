@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-08-06 Beta additions: Keep runs + filename templates
+**What you asked for:** default Ordered grouping on Beta; resume previously run
+reports with a Keep option; salesman Live color bands on screen + Excel;
+schedule filename token GUI; Last Order Excel/PDF export popup.
+**What I chose:**
+- Ordered-only `default_group` (SQL already had it; OData bridge now attaches
+  the same for Summary / By Customer / By Order).
+- Resume window **48h**; **Keep** sets `jobs.kept_until` (+30d), cap **5** per
+  user (oldest Keep cleared). Migration `0003_keep_and_filename_template.sql`.
+- Salesman bands via streaming openpyxl fonts (no full-workbook mode) +
+  Tabulator colored formatters.
+- `filename_template` column on schedules/master_schedules; tokens resolved
+  Eastern in `web.delivery.filename_template`.
+- Last Order: one Export → Excel | PDF popup; PDF is a tiny stdlib writer.
+**Status:** DECIDED
+
 ## 2026-08-06 Beta shares Live login (no separate Entra callback)
 **What you asked for:** Fold Beta into Live so one Live sign-in covers `/beta`
 (no second Microsoft login / no `/beta/auth/callback` Entra URI).

@@ -713,6 +713,7 @@ export function bindMasterWizard(): void {
       cadence: cad.cadence,
       recipients: (form.elements.namedItem("recipients") as HTMLInputElement).value.trim(),
       sharepoint_path: (document.getElementById("spPathInput") as HTMLInputElement).value.trim(),
+      filename_template: (document.getElementById("msFilename") as HTMLInputElement | null)?.value.trim() || "",
       params: collectParams(form),
       layout: {},
     };
@@ -746,5 +747,44 @@ export function bindMasterWizard(): void {
     }
   });
 
+  document.querySelectorAll<HTMLButtonElement>(".js-ms-fn-token").forEach((b) => {
+    b.addEventListener("click", () => {
+      const input = document.getElementById("msFilename") as HTMLInputElement | null;
+      if (!input) return;
+      input.value = (input.value || "") + (b.dataset.token || "");
+      updateMsFilenamePreview();
+      input.focus();
+    });
+  });
+  document.getElementById("msFilename")?.addEventListener("input", updateMsFilenamePreview);
+  updateMsFilenamePreview();
+
   showStep(1);
+}
+
+function updateMsFilenamePreview(): void {
+  const input = document.getElementById("msFilename") as HTMLInputElement | null;
+  const prev = document.getElementById("msFilenamePreview");
+  if (!input || !prev) return;
+  const now = new Date();
+  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const map: Record<string, string> = {
+    "{YYYY}": String(now.getFullYear()),
+    "{YY}": String(now.getFullYear()).slice(-2),
+    "{MM}": pad(now.getMonth() + 1),
+    "{M}": String(now.getMonth() + 1),
+    "{Month}": months[now.getMonth()],
+    "{Mon}": months[now.getMonth()].slice(0, 3),
+    "{DD}": pad(now.getDate()),
+    "{D}": String(now.getDate()),
+    "{HH}": pad(now.getHours()),
+    "{mm}": pad(now.getMinutes()),
+    "{ss}": pad(now.getSeconds()),
+    "{Report}": "Report",
+    "{Period}": String(now.getFullYear()),
+  };
+  let out = (input.value || "{Report}_{YYYY}{MM}{DD}").replace(/\{[A-Za-z]+\}/g, (t) => map[t] || t);
+  if (!out.toLowerCase().endsWith(".xlsx")) out += ".xlsx";
+  prev.textContent = out;
 }

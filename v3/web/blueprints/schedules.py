@@ -209,6 +209,7 @@ def create_schedule():
         layout=body.get("layout") or {}, cadence=cadence,
         recipients=recipients, sharepoint_path=sp,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
+        filename_template=(body.get("filename_template") or "").strip(),
     )
     return jsonify({"id": sid}), 201
 
@@ -226,6 +227,7 @@ def update_schedule(schedule_id: int):
         layout=body.get("layout") or {}, cadence=cadence,
         recipients=recipients, sharepoint_path=sp,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
+        filename_template=(body.get("filename_template") or "").strip(),
     )
     if not ok:
         abort(404, description="Unknown schedule")
@@ -517,6 +519,7 @@ def create_master():
     mid = _master().create(
         report_key, name, params=params, layout=body.get("layout") or {},
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
+        filename_template=(body.get("filename_template") or "").strip(),
     )
     return jsonify({"id": mid}), 201
 
@@ -550,6 +553,7 @@ def update_master(schedule_id: int):
     kwargs = dict(
         name=name, params=params, layout=body.get("layout") or {},
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
+        filename_template=(body.get("filename_template") or "").strip(),
     )
     if report_key:
         kwargs["report_key"] = report_key

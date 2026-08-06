@@ -98,6 +98,7 @@
     <button type="button" id="columnsBtn" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
     <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout"><i data-feather="rotate-ccw"></i> <span>Reset view</span></button>
     <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Build an Excel file in the background, then download it"><i data-feather="download"></i> <span>Export</span></button>
+    <button type="button" id="keepBtn" class="btn btn-outline" disabled title="Keep this run available for 30 days (max 5)"><i data-feather="lock"></i> <span>Keep</span></button>
     <button type="button" id="exportsBtn" class="btn btn-outline" title="Your recent background exports"><i data-feather="archive"></i> <span>Recent exports</span></button>
     <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)"><i data-feather="mail"></i> <span>Email</span></button>
     {% if not is_beta %}
@@ -152,6 +153,7 @@
      data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"
      data-export-download-url="{{ url_for('reports.download_export', export_id='__ID__') }}"
      data-exports-url="{{ url_for('reports.list_exports') }}"
+     data-keep-url="{{ url_for('reports.keep_report_run', job_id='__ID__') }}"
      data-salesmen-url="{{ url_for('reports.report_salesmen', report_key=report.key) }}"
      data-customers-url="{{ url_for('reports.report_customers', report_key=report.key) }}"
      data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
@@ -235,6 +237,19 @@
             <label class="modal-field" id="schedMonthdayField" hidden>
                 <span>Day of month (1-28)</span>
                 <input type="number" id="schedMonthday" min="1" max="28" value="1">
+            </label>
+            <label class="modal-field">
+                <span>Filename template</span>
+                <input type="text" id="schedFilename" placeholder="{Report}_{MM}_{Month}_{YYYY}"
+                       value="{Report}_{YYYY}{MM}{DD}">
+                <span class="muted" style="font-size:12px;">Tokens:
+                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{MM}">MM</button>
+                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Month}">Month</button>
+                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Report}">Report</button>
+                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Period}">Period</button>
+                </span>
+                <span class="muted" style="font-size:12px;">Preview: <strong id="schedFilenamePreview"></strong></span>
             </label>
             <div class="modal-field" id="schedSpSection" hidden>
                 <span>Also save to SharePoint <em id="schedSpStatus" class="lookup-status"></em></span>

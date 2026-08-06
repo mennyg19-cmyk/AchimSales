@@ -22,14 +22,20 @@ interface Column {
 }
 
 interface CommissionMonth {
+  month: number;
   month_label: string;
   subtotal_invoices: number;
+  tariff_charges: number;
+  freight_charges: number;
+  cc_charges: number;
+  misc_charges: number;
   total_invoices: number;
   credits: number;
   net_commission: number;
   commission: number;
 }
 interface CommissionSalesman {
+  salesman?: string;
   salesman_number: string;
   salesman_name: string;
   commission_pct: number;
@@ -47,6 +53,8 @@ interface Tab {
   salesmen?: CommissionSalesman[];
   grand?: Record<string, number>;
   month_labels?: string[];
+  year?: number;
+  end_month?: number;
 }
 
 interface Payload {
@@ -136,10 +144,28 @@ function isoDate(value: unknown): string {
   return s;
 }
 
-function formatterFor(col: Column): Record<string, unknown> {
+function formatterFor(col: Column, colIndex = -1): Record<string, unknown> {
+  const band = attr("data-report-key") === "salesman" && colIndex >= 4
+    ? Math.min(Math.floor((colIndex - 4) / 4), 2)
+    : -1;
+  const bandColor = band === 0 ? "#0000CC" : band === 1 ? "#008000" : band === 2 ? "#800080" : null;
+
   switch (col.type) {
-    case "money":
-      return money(2);
+    case "money": {
+      if (!bandColor) return money(2);
+      return {
+        sorter: "number",
+        hozAlign: "right",
+        formatter: (cell: any) => {
+          const n = Number(cell.getValue());
+          const text = isFinite(n) && cell.getValue() !== "" && cell.getValue() != null
+            ? n.toLocaleString(undefined, { style: "currency", currency: "USD" })
+            : "";
+          const color = (isFinite(n) && n < 0) ? "#FF0000" : bandColor;
+          return color && text ? `<span style="color:${color}">${text}</span>` : text;
+        },
+      };
+    }
     case "int":
       return {
         formatter: "money",
@@ -153,7 +179,9 @@ function formatterFor(col: Column): Record<string, unknown> {
         hozAlign: "right",
         formatter: (cell: any) => {
           const n = Number(cell.getValue());
-          return isFinite(n) && cell.getValue() !== "" ? (n * 100).toFixed(1) + "%" : "";
+          const text = isFinite(n) && cell.getValue() !== "" ? (n * 100).toFixed(1) + "%" : "";
+          const color = (isFinite(n) && n < 0) ? "#FF0000" : bandColor;
+          return color && text ? `<span style="color:${color}">${text}</span>` : text;
         },
       };
     case "date":
@@ -241,7 +269,7 @@ function buildColumns(tab: Tab): any[] {
       ...tab.columns.filter((c) => !savedSet.has(c.field)),
     ];
   }
-  return ordered.map((c) => ({
+  return ordered.map((c, i) => ({
     title: c.header,
     field: c.field,
     visible: !v.hidden.has(c.field),
@@ -252,7 +280,7 @@ function buildColumns(tab: Tab): any[] {
     bottomCalc: isNumericType(c.type) && c.type !== "percent" ? "sum" : undefined,
     bottomCalcFormatter: c.type === "money" ? "money" : undefined,
     bottomCalcFormatterParams: c.type === "money" ? { symbol: "$", precision: 2, thousand: "," } : undefined,
-    ...formatterFor(c),
+    ...formatterFor(c, i),
   }));
 }
 
@@ -643,54 +671,126 @@ function fmtMoney(v: unknown): string {
   return n(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+function monthHeaderLabel(month: number, year: number | undefined): string {
+  const abbr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1] || `M${month}`;
+  if (!year) return abbr;
+  return `${abbr}-${String(year).slice(-2)}`;
+}
+
 function renderCommissionCards(tab: Tab, host: HTMLElement): void {
-  const labels = tab.month_labels || [];
-  const wrap = document.createElement("div");
-  wrap.className = "commission-cards";
-
-  (tab.salesmen || []).forEach((s) => {
-    const card = document.createElement("div");
-    card.className = "commission-card";
-
-    const head = document.createElement("div");
-    head.className = "commission-card-head";
-    const title = document.createElement("div");
-    title.className = "commission-card-title";
-    title.textContent = `${s.salesman_number} - ${s.salesman_name}`;
-    const payable = document.createElement("div");
-    payable.className = "commission-card-payable";
-    payable.innerHTML = `<span>Total payable</span><strong>${fmtMoney(s.ytd.total_payable ?? s.ytd.commission)}</strong>`;
-    head.appendChild(title);
-    head.appendChild(payable);
-    card.appendChild(head);
-
-    const sub = document.createElement("div");
-    sub.className = "commission-card-sub";
-    sub.textContent = `Commission ${(n(s.commission_pct) * 100).toFixed(1)}%`;
-    card.appendChild(sub);
-
-    const table = document.createElement("table");
-    table.className = "commission-month-table";
-    table.innerHTML =
-      "<thead><tr><th>Month</th><th>Net commission</th><th>Commission</th></tr></thead>";
-    const tbody = document.createElement("tbody");
-    s.monthly.forEach((m) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${m.month_label}</td><td>${fmtMoney(m.net_commission)}</td><td>${fmtMoney(m.commission)}</td>`;
-      tbody.appendChild(tr);
-    });
-    const tfoot = document.createElement("tfoot");
-    tfoot.innerHTML = `<tr><td>YTD</td><td>${fmtMoney(s.ytd.net_commission)}</td><td>${fmtMoney(s.ytd.commission)}</td></tr>`;
-    table.appendChild(tbody);
-    table.appendChild(tfoot);
-    card.appendChild(table);
-    wrap.appendChild(card);
-  });
-
-  if (!wrap.childElementCount) {
+  // Live Excel layout: metrics as rows, months as columns, no future months.
+  // Data already stops at end_month from the builder.
+  const salesmen = tab.salesmen || [];
+  if (!salesmen.length) {
     host.innerHTML = '<div class="empty-state">No commissions for this period.</div>';
     return;
   }
+
+  const wrap = document.createElement("div");
+  wrap.className = "commission-live";
+  wrap.style.height = `${tableHeight()}px`;
+
+  const title = document.createElement("div");
+  title.className = "commission-live-title";
+  title.textContent = tab.year
+    ? `Commissions Summary (${tab.year})`
+    : "Commissions Summary";
+  wrap.appendChild(title);
+
+  const metricRows: { label: string; field: string; kind: "money" | "net" | "comm" | "pay" }[] = [
+    { label: "SubTotal Invoices:", field: "subtotal_invoices", kind: "money" },
+    { label: "Total Tariff Charges:", field: "tariff_charges", kind: "money" },
+    { label: "Total Freight Charges:", field: "freight_charges", kind: "money" },
+    { label: "Total CC Charges:", field: "cc_charges", kind: "money" },
+    { label: "Total Invoices: (SubTotal+Tariff+Freight+CC)", field: "total_invoices", kind: "money" },
+    { label: "Total Credits:", field: "credits", kind: "money" },
+    { label: "Net Commission Amount (Less Freight and CC)", field: "net_commission", kind: "net" },
+    { label: "Commission:", field: "commission", kind: "comm" },
+  ];
+
+  salesmen.forEach((s) => {
+    const months = s.monthly || [];
+    const num = String(s.salesman_number || s.salesman || "").trim();
+    const name = String(s.salesman_name || "").trim();
+    const titleText = `${num} - ${name}`.replace(/^ - | - $/g, "").trim() || name || num;
+
+    const block = document.createElement("div");
+    block.className = "commission-live-block";
+
+    const table = document.createElement("table");
+    table.className = "commission-live-table";
+
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    const thName = document.createElement("th");
+    thName.className = "comm-label";
+    thName.textContent = titleText;
+    hr.appendChild(thName);
+    const thPct = document.createElement("th");
+    thPct.className = "comm-pct";
+    thPct.textContent = "";
+    hr.appendChild(thPct);
+    months.forEach((m) => {
+      const th = document.createElement("th");
+      th.textContent = monthHeaderLabel(m.month || 0, tab.year);
+      hr.appendChild(th);
+    });
+    const thYtd = document.createElement("th");
+    thYtd.textContent = "YTD Total";
+    hr.appendChild(thYtd);
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    metricRows.forEach((mr) => {
+      const tr = document.createElement("tr");
+      if (mr.kind === "net") tr.className = "comm-row-net";
+      if (mr.kind === "comm") tr.className = "comm-row-comm";
+      const tdLab = document.createElement("td");
+      tdLab.className = "comm-label";
+      tdLab.textContent = mr.label;
+      tr.appendChild(tdLab);
+      const tdPct = document.createElement("td");
+      tdPct.className = "comm-pct";
+      if (mr.kind === "comm") {
+        tdPct.textContent = `${(n(s.commission_pct) * 100).toFixed(2)}%`;
+      }
+      tr.appendChild(tdPct);
+      months.forEach((m) => {
+        const td = document.createElement("td");
+        const val = (m as unknown as Record<string, unknown>)[mr.field];
+        td.textContent = fmtMoney(val);
+        tr.appendChild(td);
+      });
+      const tdYtd = document.createElement("td");
+      tdYtd.textContent = fmtMoney(s.ytd?.[mr.field]);
+      tr.appendChild(tdYtd);
+      tbody.appendChild(tr);
+    });
+
+    const pay = document.createElement("tr");
+    pay.className = "comm-row-pay";
+    const payLab = document.createElement("td");
+    payLab.className = "comm-label";
+    payLab.colSpan = 2;
+    payLab.textContent = `Total Payable: ${titleText}`;
+    pay.appendChild(payLab);
+    months.forEach(() => {
+      const td = document.createElement("td");
+      td.textContent = "";
+      pay.appendChild(td);
+    });
+    const payYtd = document.createElement("td");
+    payYtd.textContent = fmtMoney(s.ytd?.total_payable ?? s.ytd?.commission);
+    pay.appendChild(payYtd);
+    tbody.appendChild(pay);
+
+    table.appendChild(tbody);
+    block.appendChild(table);
+    wrap.appendChild(block);
+  });
+
   host.appendChild(wrap);
 }
 
@@ -1324,7 +1424,7 @@ async function resumeInFlight(): Promise<boolean> {
 }
 
 function setToolbarEnabled(hasData: boolean): void {
-  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn"] as const).forEach((id) => {
+  (["refreshBtn", "resetBtn", "exportBtn", "keepBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
@@ -2041,14 +2141,63 @@ function syncCadenceFields(): void {
   if (md) md.hidden = freq !== "monthly";
 }
 
+async function keepCurrentRun(): Promise<void> {
+  const jobId = state.jobId;
+  if (!jobId) {
+    setStatus("Run a report first, then Keep it.", "error");
+    return;
+  }
+  const url = attr("data-keep-url").replace(/__ID__/g, jobId);
+  try {
+    const res = await fetch(url, { method: "POST", headers: csrfHeaders() });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    setStatus(`Kept until ${String(data.kept_until || "").slice(0, 10)} (30 days, max 5 Kept).`);
+  } catch {
+    setStatus("Could not Keep this run.", "error");
+  }
+}
+
 function openScheduleModal(): void {
   const modal = $("scheduleModal");
   if (!modal) return;
   (($("schedRecipients") as HTMLInputElement)).value = "";
+  const fn = $("schedFilename") as HTMLInputElement | null;
+  if (fn && !fn.value) fn.value = "{Report}_{YYYY}{MM}{DD}";
+  updateSchedFilenamePreview();
   schedMsg("", false);
   syncCadenceFields();
   modal.hidden = false;
   scheduleSp.init();
+}
+
+function updateSchedFilenamePreview(): void {
+  const input = $("schedFilename") as HTMLInputElement | null;
+  const prev = $("schedFilenamePreview");
+  if (!input || !prev) return;
+  const now = new Date();
+  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const mons = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const report = (attr("data-report-key") || "Report").replace(/[^A-Za-z0-9_-]+/g, "_");
+  const map: Record<string, string> = {
+    "{YYYY}": String(now.getFullYear()),
+    "{YY}": String(now.getFullYear()).slice(-2),
+    "{MM}": pad(now.getMonth() + 1),
+    "{M}": String(now.getMonth() + 1),
+    "{Month}": months[now.getMonth()],
+    "{Mon}": mons[now.getMonth()],
+    "{DD}": pad(now.getDate()),
+    "{D}": String(now.getDate()),
+    "{HH}": pad(now.getHours()),
+    "{mm}": pad(now.getMinutes()),
+    "{ss}": pad(now.getSeconds()),
+    "{Report}": report,
+    "{Period}": String((document.querySelector('[name="period"]') as HTMLSelectElement | null)?.value || now.getFullYear()),
+  };
+  let out = (input.value || "{Report}_{YYYY}{MM}{DD}").replace(/\{[A-Za-z]+\}/g, (t) => map[t] || t);
+  if (!out.toLowerCase().endsWith(".xlsx")) out += ".xlsx";
+  prev.textContent = out;
 }
 
 function closeScheduleModal(): void {
@@ -2088,6 +2237,7 @@ async function saveSchedule(): Promise<void> {
       body: JSON.stringify({
         report_key: attr("data-report-key"), recipients,
         sharepoint_path: scheduleSp.path() || "", cadence: cad.cadence,
+        filename_template: (($("schedFilename") as HTMLInputElement | null)?.value || "").trim(),
         params: collectParams(), layout: serializeLayout(),
       }),
     });
@@ -2133,6 +2283,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportBtn")?.addEventListener("click", exportExcel);
+  $("keepBtn")?.addEventListener("click", keepCurrentRun);
   $("exportsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleExportsPanel(); });
   $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
   $("saveViewBtn")?.addEventListener("click", saveView);
@@ -2147,6 +2298,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("schedCancel")?.addEventListener("click", closeScheduleModal);
   $("schedFreq")?.addEventListener("change", syncCadenceFields);
   $("schedSave")?.addEventListener("click", saveSchedule);
+  $("schedFilename")?.addEventListener("input", updateSchedFilenamePreview);
+  document.querySelectorAll<HTMLButtonElement>(".js-fn-token").forEach((b) => {
+    b.addEventListener("click", () => {
+      const input = $("schedFilename") as HTMLInputElement | null;
+      if (!input) return;
+      input.value = (input.value || "") + (b.dataset.token || "");
+      updateSchedFilenamePreview();
+      input.focus();
+    });
+  });
   $("scheduleModal")?.addEventListener("click", (e) => { if (e.target === $("scheduleModal")) closeScheduleModal(); });
   $("previewBtn")?.addEventListener("click", showApiPreview);
   $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);

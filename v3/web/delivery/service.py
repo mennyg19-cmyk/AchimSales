@@ -7,12 +7,11 @@ from Flask so the job worker and the scheduler can both call it.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Iterable
 
 from web.delivery.email import DeliveryResult, EmailService
+from web.delivery.filename_template import resolve_filename_template
 from web.delivery.layout import apply_layout, expand_clones
 from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
@@ -38,7 +37,8 @@ class DeliveryService:
                         visible_salesman_keys: Iterable[str] | None,
                         builder_version: int, params: dict, layout: dict,
                         recipients: str, subject: str, report_name: str,
-                        sharepoint_path: str = "", body_text: str = "") -> DeliveryOutcome:
+                        sharepoint_path: str = "", body_text: str = "",
+                        filename_template: str = "") -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
         outcome = self.runner.run(
             report_key=report_key, identity=identity,
@@ -47,15 +47,13 @@ class DeliveryService:
         )
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
         xlsx = build_workbook(payload, layout)
+        filename = resolve_filename_template(
+            filename_template, report_name=report_name, params=params or {},
+        )
         result = self.email.deliver(
             subject=subject or report_name, recipients_raw=recipients, body_text=body_text,
-            report_name=report_name, filename=_filename(report_name), xlsx_bytes=xlsx,
+            report_name=report_name, filename=filename, xlsx_bytes=xlsx,
             sharepoint_path=sharepoint_path or None,
         )
         rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
         return DeliveryOutcome(result=result, row_count=rows)
-
-
-def _filename(report_name: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", (report_name or "report").strip()).strip("_") or "report"
-    return f"{slug}_{datetime.now(timezone.utc):%Y%m%d}.xlsx"

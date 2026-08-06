@@ -170,6 +170,19 @@
                 </div>
             </label>
             <p class="ms-pane-help">Optional. The Excel file is saved in this folder each time the schedule runs.</p>
+            <label class="ms-field">
+                <span>Filename template</span>
+                <input type="text" name="filename_template" id="msFilename"
+                       placeholder="{Report}_{MM}_{Month}_{YYYY}" value="{Report}_{YYYY}{MM}{DD}">
+                <span class="ms-field-hint">Insert:
+                    <button type="button" class="btn btn-sm btn-outline js-ms-fn-token" data-token="{MM}">MM</button>
+                    <button type="button" class="btn btn-sm btn-outline js-ms-fn-token" data-token="{Month}">Month</button>
+                    <button type="button" class="btn btn-sm btn-outline js-ms-fn-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="btn btn-sm btn-outline js-ms-fn-token" data-token="{Report}">Report</button>
+                    <button type="button" class="btn btn-sm btn-outline js-ms-fn-token" data-token="{Period}">Period</button>
+                    — Preview: <strong id="msFilenamePreview"></strong>
+                </span>
+            </label>
             <div id="msSalesmanDelivery" class="ms-field ms-field-block" hidden>
                 <span>Salesman split emails</span>
                 <div id="msFilteredSalesmanEmail" hidden>
