@@ -48,6 +48,9 @@ class Config:
     # and boot-prime never enqueue dashboard.refresh jobs - so a slow/wedged
     # Reporting API can't tie up worker slots with a refresh nobody asked for.
     dashboard_refresh_enabled: bool = True
+    # Beta mount (/beta): reports-only surface with hybrid SQL/OData sources.
+    # When True, schedules/dashboard blueprints stay off and Live beta_access is gated.
+    is_beta: bool = False
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
     # Delivery (Phase C) - all optional; absent => email writes .eml to the outbox
@@ -128,14 +131,27 @@ def _is_app_service_home(path: Path) -> bool:
     return str(path).replace("\\", "/").startswith("/home/")
 
 
-def load_config() -> Config:
+def load_config(*, is_beta: bool = False) -> Config:
     """Build the Config from the environment and validate it.
 
     APP_ENV defaults to "prod" so that a forgotten setting fails CLOSED (an
     unconfigured deploy refuses to boot rather than silently running dev auth).
     Local dev must opt in explicitly with APP_ENV=dev (see .env.example).
+
+    ``is_beta`` selects Beta DB path defaults so /test and /beta don't share one
+    SQLite file when both are mounted in the same process.
     """
     app_env = os.environ.get("APP_ENV", "prod").strip().lower()
+    if is_beta:
+        precious_default = "./.data/beta_precious.db"
+        cache_default = "./.data/beta_cache.db"
+        precious_env = "BETA_PRECIOUS_DB_PATH"
+        cache_env = "BETA_CACHE_DB_PATH"
+    else:
+        precious_default = "./.data/precious.db"
+        cache_default = "./.data/cache.db"
+        precious_env = "PRECIOUS_DB_PATH"
+        cache_env = "CACHE_DB_PATH"
     cfg = Config(
         app_env=app_env,
         auth_mode=os.environ.get("AUTH_MODE", "dev").strip().lower(),
@@ -146,9 +162,12 @@ def load_config() -> Config:
         reporting_api_base_url=os.environ.get("REPORTING_API_BASE_URL", "").strip().rstrip("/"),
         reporting_api_key=os.environ.get("REPORTING_API_KEY", "").strip(),
         reporting_api_timeout=float(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "300")),
-        dashboard_refresh_enabled=_env_bool("DASHBOARD_REFRESH_ENABLED", True),
-        precious_db_path=_env_path("PRECIOUS_DB_PATH", "./.data/precious.db"),
-        cache_db_path=_env_path("CACHE_DB_PATH", "./.data/cache.db"),
+        dashboard_refresh_enabled=(
+            False if is_beta else _env_bool("DASHBOARD_REFRESH_ENABLED", True)
+        ),
+        is_beta=is_beta,
+        precious_db_path=_env_path(precious_env, precious_default),
+        cache_db_path=_env_path(cache_env, cache_default),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
         new_app_marker=_env_bool("NEW_APP_MARKER", True),
         outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),

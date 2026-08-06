@@ -94,6 +94,9 @@ function openUserPermModal(rowEl) {
     var testToggle = document.getElementById('editUserTestAccess');
     if (testToggle) testToggle.checked = !!u.test_access_enabled;
 
+    var betaToggle = document.getElementById('editUserBetaAccess');
+    if (betaToggle) betaToggle.checked = !!u.beta_access_enabled;
+
     var extToggle = document.getElementById('editUserIsExternal');
     if (extToggle) extToggle.checked = !!u.is_external;
 
@@ -170,6 +173,17 @@ function saveEditUser() {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({email: email, enabled: testToggle.checked})
+            }).then(function(r) { return r.json(); })
+        );
+    }
+
+    var betaToggle = document.getElementById('editUserBetaAccess');
+    if (betaToggle) {
+        promises.push(
+            fetch('/api/admin/user-beta-access', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email: email, enabled: betaToggle.checked})
             }).then(function(r) { return r.json(); })
         );
     }

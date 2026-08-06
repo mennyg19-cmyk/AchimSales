@@ -1,5 +1,53 @@
 # Decision Log
 
+## 2026-08-06 Beta day-one scaffold (v3 mount, not rebuild tree)
+**What I had to decide:** Grill said Beta tree from rebuild + v3 look, but
+rebuild only seeds 4 reports while Beta needs every report day one.
+**Options I considered:** (1) Port all reports into rebuild first, then mount;
+(2) Mount v3 at `/beta` with `is_beta` (Test look + full report set) and hybrid
+source switch; keep rebuild at `/test-next` until retired.
+**What I chose:** (2). Hybrid SQL/OData via shared `beta_report_sources` in live
+DB; OData bridge runs live Excel runners and shapes sheets into v3 tabs;
+schedules stay Live/OData (phase two).
+**Why:** "Every report" + Test look ship without blocking on rebuild feature
+parity. Rebuild quality can land incrementally; `/test-next` still retires when
+Beta is stable.
+**Status:** DECIDED
+
+## 2026-08-06 Beta app — reports page, hybrid SQL/OData, schedules later
+**What you asked for:** fourth surface (Beta) so users have one reports link;
+look like `/test`, run like `/test-next`, data per report (SQL if signed off,
+else OData); eventually replace Live; PM wants this while parity continues.
+**What I chose:**
+- `/beta` on same App Service; tree from `rebuild/` + `v3` look; retire
+  `/test-next` after Beta is stable; `/test` stays direct-link only.
+- Beta = **reports page only** (menu → run → screen → export). Schedule/email
+  and other product features stay on Live.
+- Per-report source switch in **Live Settings** (dev-only), shared storage.
+  Server hard-gates `can_access_beta` (direct URL too).
+- **Phase two:** Live Azure schedules honor the same SQL/OData map. Day one
+  schedules stay OData.
+**Evidence:** `.scratch/grill-notes.md` (Beta section).
+**Status:** DECIDED — plan locked; build not started until kickoff.
+
+## 2026-08-05 Salesman month/year reconcile perfect + commissions live layout
+**What you asked for:** break salesman↔invoiced down by month/year until
+perfect; commissions tab on invoiced should match live visually, but without
+future months.
+**What I found / did:**
+- Reconcile (env-key diagnostic): every month **Jan–Aug 2026** delta **$0.00**,
+  by-customer amount_diffs **0**; **Jan–Aug 2025** same; YTD Last Year
+  **$23,012,337.67** both sides; Full Year Last Year SP self-check delta **$0**;
+  YTD/Full Year This Year already **$0** vs invoiced. Future months empty.
+- Commissions UI: live Excel-style pivot (metric rows × month columns + YTD,
+  blue header / yellow commission+payable). Builder already caps at
+  `end_month` (no Sep–Dec mid-year). Excel export updated to the same rows.
+**Evidence:** `.scratch/parity/reconcile_ty_m{1..8}.json`,
+`reconcile_salesman_ly_out.json`.
+**Status:** DECIDED — salesman money perfect by month/year vs TEST invoiced;
+commissions layout matches live minus future months. Deployed to
+`achim-sales-reports`.
+
 ## 2026-08-05 Salesman YoY SP reconciles to invoiced Total Invoice
 **What you asked for:** run salesman and compare numbers to TEST invoiced.
 **What I found:** `POST /api/reports/monthly_salesman_yoy/run` works. YTD

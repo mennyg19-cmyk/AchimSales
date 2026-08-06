@@ -37,13 +37,10 @@ def create_app(config: Config | None = None) -> Flask:
     from report_engine.lib import iso_date as _iso_date
     app.jinja_env.filters["iso_date"] = _iso_date
 
-    # v3 shares its host with the live app (/) and optionally rebuild (/test-next).
-    # Multiple Flask apps on one host; the live app uses the default cookie name
-    # "session" and v3 did too, so they stomp on each other's session cookie and wipe
-    # the in-flight MSAL auth flow (symptom: "No auth flow in session" at callback).
-    # Give v3 its own name. SameSite=Lax is required so the cookie is still sent on
-    # the top-level GET redirect back from Microsoft.
-    app.config["SESSION_COOKIE_NAME"] = "v3_session"
+    # v3 shares its host with the live app (/) and optionally rebuild (/test-next)
+    # and beta (/beta). Each mount needs its own session cookie name so they don't
+    # stomp each other (symptom: "No auth flow in session" at callback).
+    app.config["SESSION_COOKIE_NAME"] = "beta_session" if cfg.is_beta else "v3_session"
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     if cfg.is_prod:
@@ -56,7 +53,8 @@ def create_app(config: Config | None = None) -> Flask:
     init_csrf(app)
     _register_reporting(app, cfg, db)
     _register_context(app, cfg, db)
-    _register_blueprints(app)
+    _register_blueprints(app, cfg)
+    _register_beta_access_gate(app, cfg)
     _register_error_handlers(app)
     _register_cli(app, db)
     return app
@@ -243,12 +241,14 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         return {
             "new_app_marker": cfg.new_app_marker,  # removable header pill; deleted at cutover
             "app_env": cfg.app_env,
+            "is_beta": cfg.is_beta,
             "asset_v": _ASSET_VERSION,
             "nav": nav,
             "user": user,
             "theme": theme or "light",
-            "dashboard_enabled": dashboard_enabled,
-            "order_entry_enabled": order_entry_enabled,
+            # Beta is reports-only: never show dashboard/schedules tabs.
+            "dashboard_enabled": False if cfg.is_beta else dashboard_enabled,
+            "order_entry_enabled": False if cfg.is_beta else order_entry_enabled,
             "test_site_enabled": test_site_enabled,
         }
 
@@ -261,22 +261,51 @@ def _load_theme(db, user_id: int) -> str | None:
     return row["theme"] if row else None
 
 
-def _register_blueprints(app: Flask) -> None:
+def _register_blueprints(app: Flask, cfg: Config) -> None:
     from web.blueprints.admin import admin_bp
     from web.blueprints.auth import auth_bp
-    from web.blueprints.dashboard import dashboard_bp
     from web.blueprints.health import health_bp
     from web.blueprints.reports import reports_bp
-    from web.blueprints.schedules import schedules_bp
     from web.blueprints.settings import settings_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(reports_bp)
-    app.register_blueprint(dashboard_bp)
-    app.register_blueprint(schedules_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(admin_bp)
+
+    # Beta is reports-only (grill): no dashboard / schedules surface.
+    if not cfg.is_beta:
+        from web.blueprints.dashboard import dashboard_bp
+        from web.blueprints.schedules import schedules_bp
+
+        app.register_blueprint(dashboard_bp)
+        app.register_blueprint(schedules_bp)
+
+
+def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
+    """Hard-gate /beta: no Live beta_access_enabled => 403 even on direct URL."""
+    if not cfg.is_beta:
+        return
+
+    from flask import abort, redirect, request, url_for
+
+    from web.beta_access import user_has_beta_access
+
+    @app.before_request
+    def _require_beta_access():
+        if request.endpoint in (None, "static"):
+            return None
+        # Allow health + login/callback so people can sign in, then gate the rest.
+        ep = request.endpoint or ""
+        if ep.startswith("health.") or ep.startswith("auth."):
+            return None
+        p = current_principal()
+        if p is None:
+            return redirect(url_for("auth.login"))
+        if not user_has_beta_access(p.email):
+            abort(403)
+        return None
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -310,7 +339,11 @@ def bootstrap_background(app: Flask) -> None:
     _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins override the mirror
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
-    _seed_master_schedules(app, db)   # migrate Azure Automation schedules into v3
+    cfg = app.config["APP_CONFIG"]
+    if not getattr(cfg, "is_beta", False):
+        _seed_master_schedules(app, db)   # migrate Azure Automation schedules into v3
+    else:
+        app.logger.info("beta mode: skipping master schedule seed")
 
     # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
     # must run in exactly ONE process. Under gunicorn we have multiple workers, so
@@ -325,7 +358,9 @@ def bootstrap_background(app: Flask) -> None:
             worker.start()
         if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
             _cancel_pending_dashboard_refreshes(app, db)
-        _start_scheduler(app, db)
+        # Beta is reports-only: no schedule cron (Live owns schedules).
+        if not getattr(app.config["APP_CONFIG"], "is_beta", False):
+            _start_scheduler(app, db)
     else:
         app.logger.info("v3 background ownership held by another worker; skipping (pid=%s)", os.getpid())
 

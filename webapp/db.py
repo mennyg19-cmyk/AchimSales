@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS app_users (
     display_name  TEXT,
     dashboard_enabled INTEGER DEFAULT 1,
     test_access_enabled INTEGER DEFAULT 0,
+    beta_access_enabled INTEGER DEFAULT 0,
     is_external   INTEGER DEFAULT 0
 );
 
@@ -341,6 +342,9 @@ def init_db():
         if "test_access_enabled" not in cols:
             conn.execute("ALTER TABLE app_users ADD COLUMN test_access_enabled INTEGER DEFAULT 0")
             conn.commit()
+        if "beta_access_enabled" not in cols:
+            conn.execute("ALTER TABLE app_users ADD COLUMN beta_access_enabled INTEGER DEFAULT 0")
+            conn.commit()
         if "is_external" not in cols:
             conn.execute("ALTER TABLE app_users ADD COLUMN is_external INTEGER DEFAULT 0")
             conn.commit()
@@ -383,6 +387,40 @@ def init_db():
     seed_report_config()
     seed_feature_flags()
     seed_demo_order_data()
+    seed_beta_report_sources()
+
+
+def seed_beta_report_sources():
+    """Ensure the Beta SQL/OData source map table exists with defaults."""
+    defaults = {
+        "ordered": "sql",
+        "invoiced": "sql",
+        "customer_activity": "sql",
+        "salesman": "sql",
+        "number_4": "odata",
+        "customer_last_order": "odata",
+        "item_averages": "odata",
+        "customer_aging": "odata",
+    }
+    conn = get_db()
+    try:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS beta_report_sources (
+                   report_key TEXT PRIMARY KEY,
+                   source TEXT NOT NULL CHECK(source IN ('sql', 'odata')),
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+               )"""
+        )
+        for key, source in defaults.items():
+            conn.execute(
+                "INSERT OR IGNORE INTO beta_report_sources (report_key, source) VALUES (?, ?)",
+                (key, source),
+            )
+        conn.commit()
+    except Exception:
+        log.exception("beta_report_sources seed failed")
+    finally:
+        conn.close()
 
 
 def migrate_json_history():
@@ -752,6 +790,7 @@ def seed_feature_flags():
         ("dashboard_enabled", 1, "Show the Dashboard tab for all users"),
         ("order_entry_enabled", 0, "Show the Order Entry tab for sales reps"),
         ("test_site_enabled", 0, "Show 'Go to Test' link for users with test access"),
+        ("beta_site_enabled", 1, "Show 'Beta' link for users with beta access"),
     ]
     conn = get_db()
     try:
@@ -980,14 +1019,15 @@ def get_users_permission_grid() -> list[dict]:
     """Return every app_user with their salesman info and per-report access map.
 
     Each item: {email, role, salesman_key, display_name, dashboard_enabled,
-                test_access_enabled, sm_number, sm_name, active, reports: {report_key: bool},
-                allowed_salesmen: [str]}
+                test_access_enabled, beta_access_enabled, sm_number, sm_name, active,
+                reports: {report_key: bool}, allowed_salesmen: [str]}
     """
     conn = get_db()
     try:
         users = conn.execute(
             """SELECT u.id, u.email, u.role, u.salesman_key, u.display_name,
-                      u.dashboard_enabled, u.test_access_enabled, u.is_external,
+                      u.dashboard_enabled, u.test_access_enabled, u.beta_access_enabled,
+                      u.is_external,
                       s.number AS sm_number, s.full_name AS sm_name, s.active
                FROM app_users u
                LEFT JOIN salesmen s ON u.salesman_key = s.key
@@ -1057,6 +1097,16 @@ def set_user_test_access(email: str, enabled: bool):
     conn = get_db()
     try:
         conn.execute("UPDATE app_users SET test_access_enabled = ? WHERE email = ?",
+                     (int(enabled), email.lower().strip()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_user_beta_access(email: str, enabled: bool):
+    conn = get_db()
+    try:
+        conn.execute("UPDATE app_users SET beta_access_enabled = ? WHERE email = ?",
                      (int(enabled), email.lower().strip()))
         conn.commit()
     finally:

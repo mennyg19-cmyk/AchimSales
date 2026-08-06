@@ -237,7 +237,7 @@
             <div id="permUserList" class="settings-customer-list" style="max-height:600px;">
                 {% for u in perm_grid %}
                 <div class="perm-user-row" data-email="{{ u.email }}"
-                     data-user='{{ {'email': u.email, 'role': u.role, 'salesman_key': u.salesman_key or '', 'display_name': u.display_name or '', 'dashboard_enabled': u.dashboard_enabled, 'test_access_enabled': u.test_access_enabled, 'is_external': u.is_external, 'active': u.active if u.active is not none else 1, 'reports': u.reports, 'allowed_salesmen': u.allowed_salesmen}|tojson }}'>
+                     data-user='{{ {'email': u.email, 'role': u.role, 'salesman_key': u.salesman_key or '', 'display_name': u.display_name or '', 'dashboard_enabled': u.dashboard_enabled, 'test_access_enabled': u.test_access_enabled, 'beta_access_enabled': u.beta_access_enabled, 'is_external': u.is_external, 'active': u.active if u.active is not none else 1, 'reports': u.reports, 'allowed_salesmen': u.allowed_salesmen}|tojson }}'>
                     <div class="perm-user-info" style="flex:1;">
                         <span class="perm-user-name">{{ u.display_name or u.sm_name or u.email }}</span>
                         <span class="perm-user-email">{{ u.email }}</span>
@@ -359,10 +359,21 @@
             <div class="settings-customer-item" style="min-height:38px;">
                 <div class="settings-cust-info">
                     <span class="settings-cust-account" style="font-size:13px;">Test Site Access <button class="help-icon" data-help="settings-test-access" style="width:16px;height:16px;font-size:10px;">?</button></span>
-                    <span class="settings-cust-name" style="font-size:11px; color:var(--text-muted);">Can access /test/ sandbox</span>
+                    <span class="settings-cust-name" style="font-size:11px; color:var(--text-muted);">Can access /test/ sandbox (direct link)</span>
                 </div>
                 <label class="toggle-switch">
                     <input type="checkbox" id="editUserTestAccess">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-customer-item" style="min-height:38px;">
+                <div class="settings-cust-info">
+                    <span class="settings-cust-account" style="font-size:13px;">Beta Access</span>
+                    <span class="settings-cust-name" style="font-size:11px; color:var(--text-muted);">Can open /beta/ reports page</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="editUserBetaAccess">
                     <span class="toggle-slider"></span>
                 </label>
             </div>
@@ -414,7 +425,58 @@
         </div>
         <a href="{{ url_for('db_explorer.notif_diagnostic_page') }}" class="btn btn-sm btn-outline">Open</a>
     </div>
+    <div style="margin-top:16px;">
+        <div class="settings-cust-account" style="margin-bottom:8px;">Beta report data sources</div>
+        <p class="settings-cust-name" style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+            Per-report SQL (Reporting API) vs OData (live) for <code>/beta</code>. Schedules stay OData until phase two.
+        </p>
+        <div id="betaSourcesList" style="display:grid; gap:8px;"></div>
+        <div id="betaSourcesMsg" style="margin-top:8px; font-size:12px; display:none;"></div>
+    </div>
 </div>
+<script>
+(function() {
+    var list = document.getElementById('betaSourcesList');
+    var msg = document.getElementById('betaSourcesMsg');
+    function showMsg(text, ok) {
+        msg.style.display = 'block';
+        msg.style.color = ok ? 'var(--success, #16a34a)' : 'var(--error, #dc2626)';
+        msg.textContent = text;
+    }
+    function render(sources) {
+        list.innerHTML = '';
+        Object.keys(sources).sort().forEach(function(key) {
+            var row = document.createElement('div');
+            row.className = 'settings-customer-item';
+            row.style.minHeight = '38px';
+            var src = sources[key];
+            row.innerHTML =
+                '<div class="settings-cust-info"><span class="settings-cust-account" style="font-size:13px;">' + key + '</span></div>' +
+                '<select data-report-key="' + key + '" style="font-size:13px; padding:4px 8px;">' +
+                '<option value="sql"' + (src === 'sql' ? ' selected' : '') + '>sql</option>' +
+                '<option value="odata"' + (src === 'odata' ? ' selected' : '') + '>odata</option>' +
+                '</select>';
+            list.appendChild(row);
+            row.querySelector('select').addEventListener('change', function(ev) {
+                var reportKey = ev.target.getAttribute('data-report-key');
+                var source = ev.target.value;
+                fetch('/api/dev/beta-sources', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({report_key: reportKey, source: source})
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (data.error) showMsg(data.error, false);
+                    else showMsg(reportKey + ' -> ' + source, true);
+                }).catch(function(err) { showMsg(String(err), false); });
+            });
+        });
+    }
+    fetch('/api/dev/beta-sources').then(function(r) { return r.json(); }).then(function(data) {
+        if (data.sources) render(data.sources);
+        else showMsg(data.error || 'Could not load sources', false);
+    }).catch(function(err) { showMsg(String(err), false); });
+})();
+</script>
 {% endif %}
 
 {% endblock %}

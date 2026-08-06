@@ -64,7 +64,27 @@ class ReportService:
         orchestrate = _ORCHESTRATORS.get(report_key)
         if orchestrate is None:
             raise KeyError(f"No report service for {report_key!r}")
-        return lambda params, visible_keys: orchestrate(self, params or {}, visible_keys)
+
+        def _build(params: dict, visible_keys):
+            # Beta hybrid source: OData via live runners when the shared map says so.
+            # /test ignores the map and always uses SQL (this path is a no-op there
+            # unless BETA forces the check — gated on app config at call sites).
+            from flask import current_app, has_app_context
+
+            use_odata = False
+            if has_app_context():
+                cfg = current_app.config.get("APP_CONFIG")
+                if cfg is not None and getattr(cfg, "is_beta", False):
+                    from web.beta_sources import get_source
+
+                    use_odata = get_source(report_key) == "odata"
+            if use_odata:
+                from web.reporting.odata_bridge import build_odata_payload
+
+                return build_odata_payload(report_key, params or {}, visible_keys)
+            return orchestrate(self, params or {}, visible_keys)
+
+        return _build
 
     # -- shared helpers ---------------------------------------------------
 

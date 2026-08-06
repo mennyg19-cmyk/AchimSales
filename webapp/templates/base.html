@@ -75,12 +75,12 @@
             <span class="bottom-nav-label">Dashboard</span>
         </a>
         {% endif %}
-        {% if test_site_enabled or (user.role == 'admin' or user.role == 'developer') %}
-        <a href="/test/" class="bottom-nav-item" target="_blank">
+        {% if beta_site_enabled or (user.role == 'developer') %}
+        <a href="/beta/" class="bottom-nav-item" target="_blank">
             <div class="bottom-nav-icon">
-                <i data-feather="external-link"></i>
+                <i data-feather="zap"></i>
             </div>
-            <span class="bottom-nav-label">Test Site</span>
+            <span class="bottom-nav-label">Beta</span>
         </a>
         {% endif %}
         <a href="{{ url_for('settings.settings_page') }}" class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}">

@@ -8,7 +8,8 @@ It wires apps behind one process via werkzeug's DispatcherMiddleware:
 
     /          -> live Flask app (webapp/)     [production, unchanged]
     /test      -> v3 app (v3/web/)             [current interactive reports]
-    /test-next -> ground-up rebuild (rebuild/) [preview; SQL-owns-math path]
+    /beta      -> v3 in beta mode              [reports-only; hybrid SQL/OData]
+    /test-next -> ground-up rebuild (rebuild/) [preview; retire after Beta]
 
 The old green v2 sandbox (test/) was retired 2026-06-11 -- unused, and its
 background mirror refresh kept overloading the on-prem Reporting API.
@@ -49,6 +50,7 @@ from webapp.app import app as live_app
 MOUNTS: dict[str, object] = {}
 
 _TEST_MOUNT = os.environ.get("V3_URL_PREFIX", "/test")
+_BETA_MOUNT = os.environ.get("BETA_URL_PREFIX", "/beta")
 
 
 def _write_boot_error(text: str) -> None:
@@ -137,10 +139,10 @@ def _build_rebuild_app():
 
     config = rebuild_pkg.load_config()
     mount = config.mount_path
-    if mount in ("", "/", _TEST_MOUNT):
+    if mount in ("", "/", _TEST_MOUNT, _BETA_MOUNT):
         raise ValueError(
             f"REBUILD_MOUNT_PATH resolved to {mount!r}, which collides with the live "
-            f"app or the existing /test app. Use a distinct slot like /test-next."
+            f"app, /test, or /beta. Use a distinct slot like /test-next."
         )
 
     app = rebuild_pkg.create_app(config)
@@ -168,6 +170,51 @@ if _env_bool("REBUILD_MOUNT_ENABLED"):
         _write_boot_error(traceback.format_exc())
 else:
     log.info("REBUILD_MOUNT_ENABLED off; rebuild not mounted")
+
+
+def _build_beta_app():
+    """Create the Beta surface: v3 look + reports-only + hybrid SQL/OData sources."""
+    import threading
+
+    v3_root = str(_REPO_ROOT / "v3")
+    if v3_root in sys.path:
+        sys.path.remove(v3_root)
+    sys.path.insert(0, v3_root)
+    import web as v3_web
+
+    cfg = v3_web.load_config(is_beta=True) if hasattr(v3_web, "load_config") else None
+    if cfg is None:
+        from web.config import load_config as _load
+
+        cfg = _load(is_beta=True)
+    app = v3_web.create_app(cfg)
+
+    def _run():
+        try:
+            v3_web.bootstrap_background(app)
+            log.info("beta bootstrap_background complete")
+        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
+            log.exception("beta bootstrap_background failed (beta stays mounted, may be degraded)")
+
+    threading.Thread(target=_run, name="beta-bootstrap", daemon=True).start()
+    return app
+
+
+if _env_bool("BETA_MOUNT_ENABLED"):
+    try:
+        if _BETA_MOUNT in ("", "/", _TEST_MOUNT):
+            raise ValueError(
+                f"BETA_URL_PREFIX resolved to {_BETA_MOUNT!r}, which collides with live or /test"
+            )
+        MOUNTS[_BETA_MOUNT] = _build_beta_app()
+        log.info("beta mounted at %s", _BETA_MOUNT)
+    except Exception:  # noqa: BLE001 - never let beta take down live or /test
+        import traceback
+
+        log.exception("beta failed to boot; %s will return 404", _BETA_MOUNT)
+        _write_boot_error(traceback.format_exc())
+else:
+    log.info("BETA_MOUNT_ENABLED off; beta not mounted")
 
 application = DispatcherMiddleware(live_app, MOUNTS)
 

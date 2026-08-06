@@ -59,6 +59,18 @@ cp .env.example .env      # fill in credentials
 python run.py ordered
 ```
 
+### Live vs /test vs /beta vs /test-next
+
+| Mount | Code | Role |
+|-------|------|------|
+| `/` | `webapp/` | Live — OData, Excel-first, schedules |
+| `/test` | `v3/` | SQL sandbox — direct link only |
+| `/beta` | `v3/` (`is_beta`) | Reports page for users; hybrid SQL/OData per report |
+| `/test-next` | `rebuild/` | Rebuild preview — retire after Beta is stable |
+
+Enable Beta with `BETA_MOUNT_ENABLED=1`. Grant users **Beta Access** in Live Settings.
+Developers flip SQL/OData per report under Developer Tools → Beta report data sources.
+
 ### Live vs /test parity
 
 Compares Excel from live (`/`, OData) and `/test` (Reporting API) with the same
