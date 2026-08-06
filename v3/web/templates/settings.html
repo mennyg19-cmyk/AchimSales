@@ -40,7 +40,9 @@
     <h2 class="section-title">Admin</h2>
 
     <div class="admin-links">
+        {% if not is_beta %}
         <a class="btn btn-outline btn-sm" href="{{ url_for('schedules.schedules_page') }}#company">Company schedules</a>
+        {% endif %}
         <a class="btn btn-outline btn-sm" href="{{ url_for('admin.users_page') }}">Users &amp; access</a>
         <a class="btn btn-outline btn-sm" href="{{ url_for('settings.run_log_page') }}">Report run log</a>
     </div>

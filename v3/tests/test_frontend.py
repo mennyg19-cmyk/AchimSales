@@ -94,6 +94,38 @@ def test_beta_base_html_skips_missing_dashboard_endpoints(tmp_path):
     assert "Beta" in html
 
 
+def test_beta_report_view_skips_schedule_endpoints(tmp_path):
+    """Beta omits schedules blueprint — report_view must not url_for create_schedule."""
+    from dataclasses import replace
+
+    from report_engine.registry import get as get_report
+    from web.data.migrate import migrate
+
+    cfg = replace(_cfg(tmp_path), is_beta=True)
+    app = create_app(cfg)
+    with app.app_context():
+        migrate(app.config["DB"])
+    spec = get_report("ordered")
+    assert spec is not None
+    with app.test_request_context("/reports/ordered"):
+        html = render_template(
+            "report_view.html",
+            user={"name": "Dev", "role": "developer", "_dev": True},
+            active_tab="reports",
+            report=spec,
+            filters=(),
+            period_options=(),
+            status_options=(),
+            year_options=[2026],
+            n4_mode_options=(),
+            is_developer=True,
+        )
+    assert "scheduleBtn" not in html
+    assert "data-schedules-url" not in html
+    assert "scheduleModal" not in html
+    assert "data-run-url" in html
+
+
 def test_salesman_has_no_dashboard_nav(tmp_path):
     app = create_app(_cfg(tmp_path))
     html = _render(app, user={"name": "S", "role": "salesman", "_dev": False})
