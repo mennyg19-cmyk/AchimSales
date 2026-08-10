@@ -180,6 +180,15 @@ scripts/
     requirements.txt        # Web app deps (adds Flask, gunicorn)
 ```
 
+## Rule Preferences
+
+Standing choices when rules disagree (also used by agents):
+
+| Topic | Choice |
+|-------|--------|
+| After a requested product change | **Commit + push + `.\deploy.ps1`** unless told not to. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
+| Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
+
 ## D365 Entity Reference
 
 All OData entity names and field mappings are defined in `data/field_maps.py`.

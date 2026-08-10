@@ -93,24 +93,6 @@
     <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
 </form>
 
-<div class="report-toolbar">
-    <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout"><i data-feather="refresh-cw"></i> <span>Refresh data</span></button>
-    <button type="button" id="columnsBtn" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
-    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout"><i data-feather="rotate-ccw"></i> <span>Reset view</span></button>
-    <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Build an Excel file in the background, then download it"><i data-feather="download"></i> <span>Export</span></button>
-    <button type="button" id="keepBtn" class="btn btn-outline" disabled title="Keep this run available for 30 days (max 5)"><i data-feather="lock"></i> <span>Keep</span></button>
-    <button type="button" id="exportsBtn" class="btn btn-outline" title="Your recent background exports"><i data-feather="archive"></i> <span>Recent exports</span></button>
-    <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)"><i data-feather="mail"></i> <span>Email</span></button>
-    {% if not is_beta %}
-    <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view"><i data-feather="calendar"></i> <span>Schedule</span></button>
-    {% endif %}
-    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset"><i data-feather="bookmark"></i> <span>Save view</span></button>
-    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view"><i data-feather="folder"></i> <span>Presets</span></button>
-    {% if is_developer %}
-    <button type="button" id="previewBtn" class="btn btn-outline" title="Show the body that would be sent to the Reporting API"><i data-feather="code"></i> <span>API preview</span></button>
-    {% endif %}
-</div>
-
 {% if is_developer %}
 <textarea id="apiPreview" class="api-preview api-preview-editable" hidden rows="12" spellcheck="false"></textarea>
 <div id="apiRunWrap" class="api-run-wrap" hidden>
@@ -118,12 +100,35 @@
     <span class="muted" style="font-size:12px;">Edit the JSON above, then hit Run to override the form filters.</span>
 </div>
 {% endif %}
-<div id="exportsPanel" class="exports-panel" hidden>
-    <div class="exports-head">Recent exports</div>
-    <div id="exportsList" class="exports-list"></div>
-</div>
     </div>
 </div>
+</div>
+
+{# Layout tools stay visible even when Filters & options is collapsed. #}
+<div class="report-layout-toolbar" id="layoutToolbar">
+    <button type="button" id="columnsBtn" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
+    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
+    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
+    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
+    {% if not is_beta or is_developer %}
+    <div class="toolbar-menu" id="moreMenuWrap">
+        <button type="button" id="moreBtn" class="btn btn-outline" aria-haspopup="true" aria-expanded="false" title="More actions">
+            <i data-feather="more-horizontal"></i> <span>More</span>
+        </button>
+        <div id="moreMenu" class="toolbar-dropdown" hidden role="menu">
+            {% if not is_beta %}
+            <button type="button" id="scheduleBtn" class="toolbar-dropdown-item" disabled role="menuitem" title="Schedule recurring delivery of this view">
+                <i data-feather="calendar"></i> <span>Schedule</span>
+            </button>
+            {% endif %}
+            {% if is_developer %}
+            <button type="button" id="previewBtn" class="toolbar-dropdown-item" role="menuitem" title="Show the body that would be sent to the Reporting API">
+                <i data-feather="code"></i> <span>API preview</span>
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <div class="report-status-row">
@@ -133,10 +138,35 @@
     </div>
 </div>
 
+<div id="exportsPanel" class="exports-panel" hidden>
+    <div class="exports-head">Recent exports</div>
+    <div id="exportsList" class="exports-list"></div>
+</div>
+
 <div id="reportSurface" class="report-surface" hidden>
     <div class="report-tabbar">
         <div id="reportTabs" class="report-tabs"></div>
-        <div id="reportMeta" class="report-meta"></div>
+        <div class="report-tabbar-right">
+            <div id="reportMeta" class="report-meta"></div>
+            <div class="report-result-actions" aria-label="Actions for this result">
+                <button type="button" id="refreshBtn" class="btn btn-outline btn-sm" disabled title="Re-run, keeping your current layout"><i data-feather="refresh-cw"></i> <span>Refresh</span></button>
+                <button type="button" id="keepBtn" class="btn btn-outline btn-sm" disabled title="Keep this run available for 30 days (max 5)"><i data-feather="lock"></i> <span>Keep this run</span></button>
+                <div class="toolbar-menu" id="exportMenuWrap">
+                    <button type="button" id="exportMenuBtn" class="btn btn-outline btn-sm" disabled aria-haspopup="true" aria-expanded="false" title="Download Excel or open recent exports">
+                        <i data-feather="download"></i> <span>Export</span>
+                    </button>
+                    <div id="exportMenu" class="toolbar-dropdown" hidden role="menu">
+                        <button type="button" id="exportBtn" class="toolbar-dropdown-item" role="menuitem" title="Build an Excel file in the background, then download it">
+                            <i data-feather="file-text"></i> <span>Download Excel now</span>
+                        </button>
+                        <button type="button" id="exportsBtn" class="toolbar-dropdown-item" role="menuitem" title="Your recent background exports">
+                            <i data-feather="archive"></i> <span>Recent exports…</span>
+                        </button>
+                    </div>
+                </div>
+                <button type="button" id="emailBtn" class="btn btn-outline btn-sm" disabled title="Email this report (and optionally save to SharePoint)"><i data-feather="mail"></i> <span>Email</span></button>
+            </div>
+        </div>
     </div>
     <div class="report-table-scroll">
         <div id="reportTable"></div>

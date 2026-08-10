@@ -1424,12 +1424,68 @@ async function resumeInFlight(): Promise<boolean> {
 }
 
 function setToolbarEnabled(hasData: boolean): void {
-  (["refreshBtn", "resetBtn", "exportBtn", "keepBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn"] as const).forEach((id) => {
+  (["refreshBtn", "resetBtn", "keepBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn", "exportMenuBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
   const runBtn = $("runBtn") as HTMLButtonElement | null;
   if (runBtn) runBtn.disabled = false;
+}
+
+// --------------------------------------------------------------------------
+// Export / More dropdown menus
+// --------------------------------------------------------------------------
+
+function closeExportMenu(): void {
+  const menu = $("exportMenu");
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $("exportMenuBtn")?.setAttribute("aria-expanded", "false");
+  document.removeEventListener("click", onExportMenuOutside, true);
+}
+
+function onExportMenuOutside(e: MouseEvent): void {
+  const wrap = $("exportMenuWrap");
+  if (wrap && !wrap.contains(e.target as Node)) closeExportMenu();
+}
+
+function toggleExportMenu(e: MouseEvent): void {
+  e.stopPropagation();
+  const menu = $("exportMenu");
+  const btn = $("exportMenuBtn") as HTMLButtonElement | null;
+  if (!menu || !btn || btn.disabled) return;
+  const opening = menu.hidden;
+  closeMoreMenu();
+  if (!opening) { closeExportMenu(); return; }
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  setTimeout(() => document.addEventListener("click", onExportMenuOutside, true), 0);
+}
+
+function closeMoreMenu(): void {
+  const menu = $("moreMenu");
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $("moreBtn")?.setAttribute("aria-expanded", "false");
+  document.removeEventListener("click", onMoreMenuOutside, true);
+}
+
+function onMoreMenuOutside(e: MouseEvent): void {
+  const wrap = $("moreMenuWrap");
+  if (wrap && !wrap.contains(e.target as Node)) closeMoreMenu();
+}
+
+function toggleMoreMenu(e: MouseEvent): void {
+  e.stopPropagation();
+  const menu = $("moreMenu");
+  const btn = $("moreBtn");
+  if (!menu || !btn) return;
+  const opening = menu.hidden;
+  closeExportMenu();
+  if (!opening) { closeMoreMenu(); return; }
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  setTimeout(() => document.addEventListener("click", onMoreMenuOutside, true), 0);
 }
 
 // --------------------------------------------------------------------------
@@ -1915,7 +1971,7 @@ async function togglePresetsPanel(): Promise<void> {
   panel.id = "presetsPanel";
   panel.className = "presets-panel";
   if (!presets.length) {
-    panel.innerHTML = '<div class="presets-empty">No saved views yet. Use “Save view”.</div>';
+    panel.innerHTML = '<div class="presets-empty">No saved views yet. Use “Save this view”.</div>';
   } else {
     presets.forEach((p) => {
       const row = document.createElement("div");
@@ -2282,18 +2338,34 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("cancelRunBtn")?.addEventListener("click", cancelRun);
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
-  $("exportBtn")?.addEventListener("click", exportExcel);
+  $("exportMenuBtn")?.addEventListener("click", toggleExportMenu);
+  $("exportBtn")?.addEventListener("click", () => { closeExportMenu(); exportExcel(); });
   $("keepBtn")?.addEventListener("click", keepCurrentRun);
-  $("exportsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleExportsPanel(); });
-  $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
+  $("exportsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeExportMenu();
+    toggleExportsPanel();
+  });
+  $("columnsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeExportMenu();
+    closeMoreMenu();
+    toggleColumnsPanel();
+  });
   $("saveViewBtn")?.addEventListener("click", saveView);
-  $("presetsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); togglePresetsPanel(); });
+  $("presetsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeExportMenu();
+    closeMoreMenu();
+    togglePresetsPanel();
+  });
+  $("moreBtn")?.addEventListener("click", toggleMoreMenu);
   $("emailBtn")?.addEventListener("click", openEmailModal);
   $("emailClose")?.addEventListener("click", closeEmailModal);
   $("emailCancel")?.addEventListener("click", closeEmailModal);
   $("emailSend")?.addEventListener("click", sendEmail);
   $("emailModal")?.addEventListener("click", (e) => { if (e.target === $("emailModal")) closeEmailModal(); });
-  $("scheduleBtn")?.addEventListener("click", openScheduleModal);
+  $("scheduleBtn")?.addEventListener("click", () => { closeMoreMenu(); openScheduleModal(); });
   $("schedClose")?.addEventListener("click", closeScheduleModal);
   $("schedCancel")?.addEventListener("click", closeScheduleModal);
   $("schedFreq")?.addEventListener("change", syncCadenceFields);
@@ -2309,7 +2381,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
   $("scheduleModal")?.addEventListener("click", (e) => { if (e.target === $("scheduleModal")) closeScheduleModal(); });
-  $("previewBtn")?.addEventListener("click", showApiPreview);
+  $("previewBtn")?.addEventListener("click", () => { closeMoreMenu(); showApiPreview(); });
   $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
   $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);
   setToolbarEnabled(false);
