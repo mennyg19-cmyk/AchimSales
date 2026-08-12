@@ -11,7 +11,7 @@ live on `master_schedules` with `owner_user_id`, `is_shared`, `run_as_user_id`.
 Share = list visibility, not a data upgrade. Manager-created shared runs stay
 in that manager’s book. Unscoped run = admin/developer with no manager picked.
 Notes: `.scratch/grill-notes-beta-scheduling.md`.
-**Status:** DECIDED — shipping
+**Status:** DECIDED — deployed `f8ac596` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-12 Beta scheduling (grill locked)
 **What you asked for:** Schedules on Beta — personal (OneDrive + email anyone) and
