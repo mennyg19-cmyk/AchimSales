@@ -142,8 +142,22 @@ def schedules_page():
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, PERSONAL),
         })
-    context = {"active_tab": "schedules", "schedules": items,
-               "is_admin": is_admin}
+    authz = _authz()
+    personal_reports = [
+        {"key": s.key, "title": s.title}
+        for s in registry.built_reports()
+        if (not s.in_app) and authz.can_view_report(p, s.key)
+    ]
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    year_now = datetime.now(ZoneInfo("America/New_York")).year
+    context = {
+        "active_tab": "schedules", "schedules": items, "is_admin": is_admin,
+        "personal_reports": personal_reports,
+        "personal_report_filters": {k: list(v) for k, v in _MASTER_REPORT_FILTERS.items()},
+        "period_options": _PERIOD_OPTIONS,
+        "year_options": list(range(year_now, year_now - 5, -1)),
+    }
     if is_admin:
         context.update(_master_page_context())
     context["recent_runs"] = _recent_run_log(
