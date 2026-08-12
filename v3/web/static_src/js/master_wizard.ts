@@ -18,9 +18,33 @@ let lookupPollTimer: number | null = null;
 let pendingSalesmen: string[] = [];
 let pendingEmailSalesmen: string[] = [];
 let pendingCustomers: string[] = [];
+let odSelected: string | null = null;
 
 function wizardRoot(): HTMLElement | null {
   return document.getElementById("msWizard");
+}
+
+function canSeeCompany(): boolean {
+  return wizardRoot()?.getAttribute("data-can-company") === "1";
+}
+
+function isPrivileged(): boolean {
+  return wizardRoot()?.getAttribute("data-privileged") === "1";
+}
+
+function usesReportLookups(): boolean {
+  return !wizardRoot()?.getAttribute("data-salesmen-url");
+}
+
+function lookupUrl(attr: string, tplAttr: string): string {
+  const root = wizardRoot();
+  if (!root) return "";
+  const direct = root.getAttribute(attr) || "";
+  if (direct) return direct;
+  const tpl = root.getAttribute(tplAttr) || "";
+  const form = masterForm();
+  const key = form ? selectedReportKey(form) : "";
+  return tpl && key ? tpl.replace("__KEY__", encodeURIComponent(key)) : "";
 }
 
 function masterForm(): HTMLFormElement | null {
@@ -87,10 +111,11 @@ function syncDeliveryOptionsVisibility(form: HTMLFormElement): void {
   const filtered = document.getElementById("msFilteredSalesmanEmail");
   const unfiltered = document.getElementById("msUnfilteredSalesmanSplit");
   const selectedSalesmen = multiValues(document.getElementById("msSalesman") as HTMLSelectElement | null);
-  if (wrapper) wrapper.hidden = !hasSalesmanFilter;
-  if (filtered) filtered.hidden = !hasSalesmanFilter || selectedSalesmen.length === 0;
-  if (unfiltered) unfiltered.hidden = !hasSalesmanFilter || selectedSalesmen.length > 0;
-  if (!hasSalesmanFilter) {
+  const showSplit = canSeeCompany() && hasSalesmanFilter;
+  if (wrapper) wrapper.hidden = !showSplit;
+  if (filtered) filtered.hidden = !showSplit || selectedSalesmen.length === 0;
+  if (unfiltered) unfiltered.hidden = !showSplit || selectedSalesmen.length > 0;
+  if (!showSplit) {
     const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
     const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
     if (emailToSalesmen) emailToSalesmen.checked = false;
@@ -160,12 +185,14 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
   if (needed.includes("salesman")) {
     const vals = multiValues(document.getElementById("msSalesman") as HTMLSelectElement | null);
     if (vals.length) out.salesman = vals;
-    const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
-    const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
-    const emailKeys = multiValues(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null);
-    out.email_to_salesmen = vals.length > 0 && !!emailToSalesmen?.checked;
-    out.split_by_salesman = vals.length === 0 && (!!splitBySalesman?.checked || emailKeys.length > 0);
-    out.email_salesman_keys = vals.length === 0 ? emailKeys : [];
+    if (canSeeCompany()) {
+      const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
+      const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
+      const emailKeys = multiValues(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null);
+      out.email_to_salesmen = vals.length > 0 && !!emailToSalesmen?.checked;
+      out.split_by_salesman = vals.length === 0 && (!!splitBySalesman?.checked || emailKeys.length > 0);
+      out.email_salesman_keys = vals.length === 0 ? emailKeys : [];
+    }
   }
   if (needed.includes("customers")) {
     const vals = [...selectedCustomers.keys()];
@@ -176,6 +203,15 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
     if (v) out.year = v;
   }
   return out;
+}
+
+function collectExtraParams(): Record<string, unknown> {
+  return {
+    email_cc: (document.getElementById("msCc") as HTMLInputElement | null)?.value.trim() || "",
+    email_bcc: (document.getElementById("msBcc") as HTMLInputElement | null)?.value.trim() || "",
+    email_on_no_data: !!(document.getElementById("msNoDataAll") as HTMLInputElement | null)?.checked,
+    email_on_no_data_me_only: !!(document.getElementById("msNoDataMe") as HTMLInputElement | null)?.checked,
+  };
 }
 
 function weekdayLabels(days: number[]): string {
@@ -220,15 +256,28 @@ function fillReview(form: HTMLFormElement): void {
 
   const recipients = (form.elements.namedItem("recipients") as HTMLInputElement).value.trim();
   const sp = (document.getElementById("spPathInput") as HTMLInputElement)?.value.trim() || "";
+  const extra = collectExtraParams();
+  const od = odSelected || "";
+  const shared = canSeeCompany()
+    && (form.querySelector<HTMLInputElement>('input[name="is_shared"]:checked')?.value === "1");
+  const runAs = (document.getElementById("msRunAs") as HTMLSelectElement | null);
+  const runAsLabel = runAs?.selectedOptions[0]?.textContent?.trim() || "";
 
   const rows: [string, string][] = [
-    ["Name", (form.elements.namedItem("name") as HTMLInputElement).value.trim()],
+    ["Name", (form.elements.namedItem("name") as HTMLInputElement).value.trim() || selectedReportTitle(form)],
     ["Report", selectedReportTitle(form)],
     ["When", when],
     ["Options", paramBits.length ? paramBits.join(", ") : "defaults (everything)"],
     ["Email", recipients || "—"],
-    ["SharePoint", sp || "—"],
   ];
+  if (extra.email_cc) rows.push(["CC", String(extra.email_cc)]);
+  if (extra.email_bcc) rows.push(["BCC", String(extra.email_bcc)]);
+  rows.push(["OneDrive", od || "—"]);
+  if (canSeeCompany()) rows.push(["SharePoint", sp || "—"]);
+  if (canSeeCompany()) rows.push(["Visibility", shared ? "shared with admins and managers" : "private"]);
+  if (isPrivileged() && runAsLabel) rows.push(["Run as", runAsLabel]);
+  if (extra.email_on_no_data) rows.push(["No data", "email recipients"]);
+  if (extra.email_on_no_data_me_only) rows.push(["No data", "email only me"]);
   review.innerHTML = rows.map(([k, v]) =>
     `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 }
@@ -246,7 +295,7 @@ async function getJSON<T>(url: string): Promise<T | null> {
 async function loadSalesmen(): Promise<void> {
   const sel = document.getElementById("msSalesman") as HTMLSelectElement | null;
   const hint = document.getElementById("msSalesmanHint");
-  const url = wizardRoot()?.getAttribute("data-salesmen-url") || "";
+  const url = lookupUrl("data-salesmen-url", "data-salesmen-url-tpl");
   if (!sel || !url) return;
   const data = await getJSON<{ salesmen: LookupRow[] }>(url);
   const rows = data?.salesmen || [];
@@ -422,7 +471,7 @@ function applyPendingCustomers(): void {
 
 async function loadCustomers(): Promise<void> {
   const hint = document.getElementById("msCustomerHint");
-  const url = wizardRoot()?.getAttribute("data-customers-url") || "";
+  const url = lookupUrl("data-customers-url", "data-customers-url-tpl");
   if (!url) return;
   const data = await getJSON<{ customers: LookupRow[] }>(url);
   customerOptions = data?.customers || [];
@@ -464,7 +513,7 @@ function pollLookupStatus(): void {
     if (ready) {
       stopLookupPoll();
       await loadSalesmen();
-      await loadSalesmenWithEmails();
+      if (canSeeCompany()) await loadSalesmenWithEmails();
       await loadCustomers();
       return;
     }
@@ -488,9 +537,14 @@ function pollLookupStatus(): void {
 }
 
 async function ensureLookups(): Promise<void> {
-  if (lookupsStarted) return;
+  const form = masterForm();
+  const key = form ? selectedReportKey(form) : "";
+  if (usesReportLookups() && !key) return;
+  if (lookupsStarted && !usesReportLookups()) return;
   lookupsStarted = true;
-  await Promise.all([loadSalesmen(), loadSalesmenWithEmails(), loadCustomers()]);
+  const jobs: Promise<void>[] = [loadSalesmen(), loadCustomers()];
+  if (canSeeCompany()) jobs.push(loadSalesmenWithEmails());
+  await Promise.all(jobs);
   pollLookupStatus();
 }
 
@@ -545,7 +599,7 @@ function showStep(step: number): void {
 function validateStep(step: number, form: HTMLFormElement): string | null {
   if (step === 1) {
     if (!selectedReportKey(form)) return "Pick which report this schedule should send.";
-    if (!(form.elements.namedItem("name") as HTMLInputElement).value.trim()) {
+    if (canSeeCompany() && !(form.elements.namedItem("name") as HTMLInputElement).value.trim()) {
       return "Give the schedule a name so you can find it later.";
     }
   }
@@ -556,14 +610,19 @@ function validateStep(step: number, form: HTMLFormElement): string | null {
   if (step === 4) {
     const recipients = (form.elements.namedItem("recipients") as HTMLInputElement).value.trim();
     const sp = (document.getElementById("spPathInput") as HTMLInputElement)?.value.trim() || "";
+    const od = odSelected || "";
     const params = collectParams(form);
     const selectedSalesmen = asStringList(params.salesman);
-    const salesmanDelivery = (selectedSalesmen.length > 0 && !!params.email_to_salesmen)
-      || asStringList(params.email_salesman_keys).length > 0;
-    if (!recipients && !sp && !salesmanDelivery) {
-      return "Add an email address, pick a SharePoint folder, or choose salesmen to email.";
+    const salesmanDelivery = canSeeCompany() && (
+      (selectedSalesmen.length > 0 && !!params.email_to_salesmen)
+      || asStringList(params.email_salesman_keys).length > 0
+    );
+    if (!recipients && !sp && !od && !salesmanDelivery) {
+      return canSeeCompany()
+        ? "Add an email address, pick a folder, or choose salesmen to email."
+        : "Add an email address or pick a OneDrive folder.";
     }
-    if (!selectedSalesmen.length && params.split_by_salesman
+    if (canSeeCompany() && !selectedSalesmen.length && params.split_by_salesman
         && !asStringList(params.email_salesman_keys).length) {
       return "Pick at least one salesman to email.";
     }
@@ -577,6 +636,7 @@ function openWizard(): void {
   wiz.hidden = false;
   document.getElementById("msEmpty")?.setAttribute("hidden", "");
   wiz.scrollIntoView({ behavior: "smooth", block: "start" });
+  void initOdPicker();
 }
 
 function closeWizard(): void {
@@ -589,11 +649,14 @@ function closeWizard(): void {
   pendingEmailSalesmen = [];
   pendingCustomers = [];
   salesmanEmailOptions = [];
+  odSelected = null;
+  const odSel = document.getElementById("msOdSelected");
+  if (odSel) odSel.textContent = "";
   stopLookupPoll();
   lookupsStarted = false;
   (document.getElementById("editingId") as HTMLInputElement).value = "";
   (document.getElementById("spPathInput") as HTMLInputElement).value = "";
-  document.getElementById("formTitle")!.textContent = "Set up a schedule";
+  document.getElementById("formTitle")!.textContent = "Add a schedule";
   document.getElementById("formSubmitBtn")!.textContent = "Save schedule";
   wiz.hidden = true;
   showStep(1);
@@ -651,7 +714,32 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
     params.year != null ? String(params.year) : "";
 
   (form.elements.namedItem("recipients") as HTMLInputElement).value = row.dataset.recipients || "";
-  (document.getElementById("spPathInput") as HTMLInputElement).value = row.dataset.sharepointPath || "";
+  const folderKind = String(params.folder_kind || "");
+  const folderPath = row.dataset.sharepointPath || "";
+  const shared = row.dataset.isShared === "1";
+  form.querySelectorAll<HTMLInputElement>('input[name="is_shared"]').forEach((r) => {
+    r.checked = r.value === (shared ? "1" : "0");
+  });
+  const runAs = document.getElementById("msRunAs") as HTMLSelectElement | null;
+  if (runAs) runAs.value = row.dataset.runAs || "";
+  const cc = document.getElementById("msCc") as HTMLInputElement | null;
+  const bcc = document.getElementById("msBcc") as HTMLInputElement | null;
+  if (cc) cc.value = String(params.email_cc || "");
+  if (bcc) bcc.value = String(params.email_bcc || "");
+  const noAll = document.getElementById("msNoDataAll") as HTMLInputElement | null;
+  const noMe = document.getElementById("msNoDataMe") as HTMLInputElement | null;
+  if (noAll) noAll.checked = !!params.email_on_no_data;
+  if (noMe) noMe.checked = !!params.email_on_no_data_me_only;
+  const useOd = folderKind === "onedrive" || (!shared && folderKind !== "sharepoint" && !!folderPath);
+  if (useOd) {
+    odSelected = folderPath;
+    const sel = document.getElementById("msOdSelected");
+    if (sel) sel.textContent = folderPath ? `Will save to: ${folderPath}` : "Will save to: OneDrive root";
+    (document.getElementById("spPathInput") as HTMLInputElement).value = "";
+  } else {
+    odSelected = null;
+    (document.getElementById("spPathInput") as HTMLInputElement).value = folderPath;
+  }
 
   document.getElementById("formTitle")!.textContent = "Edit schedule";
   document.getElementById("formSubmitBtn")!.textContent = "Save changes";
@@ -690,6 +778,10 @@ export function bindMasterWizard(): void {
   });
   form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {
     r.addEventListener("change", () => {
+      if (usesReportLookups()) {
+        lookupsStarted = false;
+        stopLookupPoll();
+      }
       syncParamsVisibility(form);
       syncDeliveryOptionsVisibility(form);
       suggestName(form);
@@ -718,16 +810,34 @@ export function bindMasterWizard(): void {
     const cad = masterCadence(form);
     if (!cad.ok) { masterMsg(cad.error!, true); return; }
 
-    const body = {
-      name: (form.elements.namedItem("name") as HTMLInputElement).value.trim(),
+    const extra = collectExtraParams();
+    const odPath = odSelected || "";
+    const spPath = (document.getElementById("spPathInput") as HTMLInputElement).value.trim();
+    const shared = canSeeCompany()
+      && (form.querySelector<HTMLInputElement>('input[name="is_shared"]:checked')?.value === "1");
+    const runAsEl = document.getElementById("msRunAs") as HTMLSelectElement | null;
+    const params = { ...collectParams(form), ...extra };
+    if (odPath && !spPath) params.folder_kind = "onedrive";
+    if (spPath) params.folder_kind = "sharepoint";
+    const nameEl = form.elements.namedItem("name") as HTMLInputElement;
+    const body: Record<string, unknown> = {
+      name: nameEl.value.trim() || selectedReportTitle(form) + " schedule",
       report_key: selectedReportKey(form),
       cadence: cad.cadence,
       recipients: (form.elements.namedItem("recipients") as HTMLInputElement).value.trim(),
-      sharepoint_path: (document.getElementById("spPathInput") as HTMLInputElement).value.trim(),
       filename_template: (document.getElementById("msFilename") as HTMLInputElement | null)?.value.trim() || "",
-      params: collectParams(form),
+      params,
       layout: {},
     };
+    if (canSeeCompany()) {
+      body.is_shared = shared;
+      body.sharepoint_path = spPath;
+      body.onedrive_path = shared ? "" : odPath;
+      if (isPrivileged()) body.run_as_user_id = runAsEl?.value || "";
+    } else {
+      body.onedrive_path = odPath;
+      body.sharepoint_path = odPath;
+    }
 
     const editId = (document.getElementById("editingId") as HTMLInputElement).value;
     masterMsg("Saving…", false);
@@ -741,7 +851,10 @@ export function bindMasterWizard(): void {
         const url = tpl.replace("/0", "/" + editId);
         res = await fetch(url, { method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body) });
       } else {
-        res = await fetch(wiz.getAttribute("data-create-url")!, {
+        const url = canSeeCompany()
+          ? (wiz.getAttribute("data-create-url") || "")
+          : (wiz.getAttribute("data-personal-create-url") || "");
+        res = await fetch(url, {
           method: "POST", headers: jsonHeaders(), body: JSON.stringify(body),
         });
       }
@@ -771,6 +884,78 @@ export function bindMasterWizard(): void {
   updateMsFilenamePreview();
 
   showStep(1);
+}
+
+async function initOdPicker(): Promise<void> {
+  const root = wizardRoot();
+  const section = document.getElementById("msOdSection");
+  const statusUrl = root?.getAttribute("data-od-status-url") || "";
+  if (!section || !statusUrl) return;
+  try {
+    const st = await fetch(statusUrl, { headers: { Accept: "application/json" } }).then((r) => r.json());
+    section.hidden = !st?.enabled;
+    const status = document.getElementById("msOdStatus");
+    if (status) status.textContent = st?.configured ? "" : "(mock folders in dev)";
+  } catch {
+    section.hidden = true;
+    return;
+  }
+  await loadOdFolders("");
+}
+
+async function loadOdFolders(path: string): Promise<void> {
+  const root = wizardRoot();
+  const url = (root?.getAttribute("data-od-folders-url") || "") + "?path=" + encodeURIComponent(path);
+  let folders: { name: string; path: string }[] = [];
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const data = await res.json();
+    folders = data.folders || [];
+  } catch { /* empty */ }
+  const bc = document.getElementById("msOdBreadcrumb");
+  if (bc) {
+    bc.innerHTML = "";
+    const crumb = (label: string, target: string) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "sp-crumb";
+      b.textContent = label;
+      b.addEventListener("click", () => { void loadOdFolders(target); });
+      return b;
+    };
+    bc.appendChild(crumb("OneDrive", ""));
+    let acc = "";
+    (path ? path.split("/") : []).forEach((p) => {
+      acc = acc ? `${acc}/${p}` : p;
+      bc.appendChild(document.createTextNode(" / "));
+      bc.appendChild(crumb(p, acc));
+    });
+    const use = document.createElement("button");
+    use.type = "button";
+    use.className = "sp-use";
+    use.textContent = "Use this folder";
+    use.addEventListener("click", () => {
+      odSelected = path;
+      const sel = document.getElementById("msOdSelected");
+      if (sel) sel.textContent = `Will save to: ${path || "OneDrive root"}`;
+    });
+    bc.appendChild(use);
+  }
+  const picker = document.getElementById("msOdPicker");
+  if (!picker) return;
+  picker.innerHTML = "";
+  if (!folders.length) {
+    picker.innerHTML = '<div class="sp-empty">No subfolders here.</div>';
+    return;
+  }
+  folders.forEach((f) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sp-folder";
+    b.textContent = f.name;
+    b.addEventListener("click", () => { void loadOdFolders(f.path); });
+    picker.appendChild(b);
+  });
 }
 
 function updateMsFilenamePreview(): void {

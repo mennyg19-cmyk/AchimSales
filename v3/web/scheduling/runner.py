@@ -62,14 +62,15 @@ class ScheduleRunner:
                 identity = principal.email
             report_name = spec.title if spec else sched.report_key
             subject = self._subject(sched, schedule_type, report_name)
+            od_user = _onedrive_user(sched, schedule_type, identity)
             if schedule_type == MASTER and self._salesman_targets(sched.params):
                 outcome = self._run_master_fanout(
                     sched=sched, identity=identity, scope=scope,
                     builder_version=spec.builder_version if spec else 1,
                     subject=subject, report_name=report_name,
+                    onedrive_user=od_user,
                 )
             else:
-                od_user = identity if schedule_type == PERSONAL and sched.sharepoint_path else ""
                 params = sched.params or {}
                 no_data_all = bool(params.get("email_on_no_data"))
                 no_data_me = bool(params.get("email_on_no_data_me_only"))
@@ -113,7 +114,20 @@ class ScheduleRunner:
     def _scope(self, sched, schedule_type: str):
         """Return (identity, visible_salesman_keys) for the delivery build."""
         if schedule_type == MASTER:
-            return "master@scheduler", None  # admin-owned: unrestricted
+            run_as = getattr(sched, "run_as_user_id", None)
+            owner_id = getattr(sched, "owner_user_id", None)
+            scoped_id = run_as or owner_id
+            if scoped_id:
+                principal = self.authz.principal_for_user_id(scoped_id)
+                if principal is None:
+                    return "scheduler", set()
+                if not principal.is_privileged:
+                    path = bool(getattr(sched, "sharepoint_path", ""))
+                    od = _onedrive_user(sched, MASTER, principal.email)
+                    scope = self.authz.authorize_delivery(
+                        principal, sched.report_key, sharepoint=path and not od)
+                    return principal.email, scope
+            return "master@scheduler", None  # unscoped company run
         owner = self._owner(sched.owner_user_id)
         if owner is None:
             return "scheduler", set()  # unknown owner -> see nothing (fail closed)
@@ -136,7 +150,8 @@ class ScheduleRunner:
 
     def _run_master_fanout(self, *, sched, identity: str,
                            scope: set[str] | None, builder_version: int,
-                           subject: str, report_name: str) -> DeliveryOutcome:
+                           subject: str, report_name: str,
+                           onedrive_user: str = "") -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
         deliveries: list[dict] = []
         skip_notes: list[str] = []
@@ -149,6 +164,7 @@ class ScheduleRunner:
                 layout=sched.layout, recipients=sched.recipients, subject=subject,
                 report_name=report_name, sharepoint_path=sched.sharepoint_path,
                 filename_template=getattr(sched, "filename_template", "") or "",
+                onedrive_user=onedrive_user,
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -220,7 +236,24 @@ class ScheduleRunner:
 _DELIVERY_PARAM_KEYS = {
     "split_by_salesman", "email_to_salesmen", "email_salesman_keys",
     "email_cc", "email_bcc", "email_on_no_data", "email_on_no_data_me_only",
+    "folder_kind",
 }
+
+
+def _onedrive_user(sched, schedule_type: str, identity: str) -> str:
+    path = getattr(sched, "sharepoint_path", "") or ""
+    if not path:
+        return ""
+    if schedule_type == PERSONAL:
+        return identity
+    kind = str((getattr(sched, "params", None) or {}).get("folder_kind") or "")
+    if kind == "onedrive":
+        return identity
+    if kind == "sharepoint":
+        return ""
+    if not getattr(sched, "is_shared", True):
+        return identity
+    return ""
 
 
 def _report_params(params: dict | None) -> dict:

@@ -41,13 +41,15 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## v3 master schedule split-email MVP
 
 **What to test:**
-- Admin can edit `salesmen.email` from Users & access.
-- Admins see company schedules on `/schedules`; salesmen see only personal schedules.
+- Admins and managers see company schedules on `/schedules`; salesmen see My schedules plus the shared Add wizard, never the company list.
+- Managers can create/share; they edit only rows they created or that run as them. Other shared rows are read-only with an admin note.
+- Private master rows stay off the company list and show under My schedules for the owner.
+- A manager-owned master run is scoped to that manager’s salesman keys. Unscoped (no owner/run-as, or privileged owner) stays unrestricted.
 - Master schedule params persist salesman delivery flags (`split_by_salesman`, `email_to_salesmen`, `email_salesman_keys`).
 - Master schedule delivery sends the full workbook to typed recipients/SharePoint and split salesman-filtered files to `salesmen.email`.
 
 **Expected behavior:**
-- `/master-schedules` redirects admins to `/schedules#company`; API routes under `/api/master-schedules*` still work.
+- `/master-schedules` redirects managers and admins to `/schedules#company`; salesmen get 403. API create/update stay company-viewer gated; salesmen still 403 on create.
 - Salesman split emails use raw SalesGroup values for report params and normalized keys only for email lookup.
 
 **Edge cases:**

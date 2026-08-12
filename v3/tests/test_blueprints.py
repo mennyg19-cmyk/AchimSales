@@ -879,13 +879,17 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     assert "My schedules" in admin_html
     assert "Company schedules" in admin_html
     assert "msWizard" in admin_html
+    assert "Add a schedule" in admin_html
 
     rep = app.test_client()
     _login(rep, app, email="rep@x.com", role="salesman")
     rep_html = rep.get("/schedules").get_data(as_text=True)
     assert "My schedules" in rep_html
+    assert "Add a schedule" in rep_html
+    assert "msWizard" in rep_html
     assert "Company schedules" not in rep_html
-    assert "msWizard" not in rep_html
+    assert "Keep private" not in rep_html
+    assert "Run as a manager" not in rep_html
 
 
 def test_master_schedule_admin_only(tmp_path):
@@ -920,7 +924,7 @@ def test_master_schedule_admin_only(tmp_path):
     assert "Company schedules" in page
     assert "Recent run log" in page
     assert "msWizard" in page
-    assert "Set up a schedule" in page
+    assert "Add a schedule" in page
     assert "data-pane=\"1\"" in page
     assert 'id="msStatus"' in page and "multiple" in page
     assert 'id="msSalesman"' in page
@@ -972,12 +976,70 @@ def test_master_schedule_lookups_admin_only(tmp_path):
     ])
     sm = admin.get("/api/master-schedules/lookups/salesmen").get_json()["salesmen"]
     assert {r["key"] for r in sm} >= {"MKolko", "AGrossman"}
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    assert mgr.get("/api/master-schedules/lookups/salesmen").status_code == 200
     sm_emails = admin.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
     assert sm_emails == [{"email": "m@x.com", "key": "MKolko", "name": "MKolko"}]
     cust = admin.get("/api/master-schedules/lookups/customers").get_json()["customers"]
     assert {c["key"] for c in cust} == {"100", "200"}
     st = admin.get("/api/master-schedules/lookups/status").get_json()
     assert st["cached_row_count"] == 2
+
+
+def test_manager_company_schedule_edit_and_share(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Admin nightly", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    admin_id = created.get_json()["id"]
+
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    page = mgr.get("/schedules").get_data(as_text=True)
+    assert "Company schedules" in page
+    assert "Admin nightly" in page
+    assert "Speak to an admin." in page
+    assert mgr.put(f"/api/master-schedules/{admin_id}", json={
+        "name": "Hacked", "report_key": "ordered", "recipients": "x@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"},
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 403
+
+    own = mgr.post("/api/master-schedules", json={
+        "name": "Mgr shared", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert own.status_code == 201
+    own_id = own.get_json()["id"]
+    assert mgr.put(f"/api/master-schedules/{own_id}", json={
+        "name": "Mgr shared edited", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 200
+
+    private = mgr.post("/api/master-schedules", json={
+        "name": "Mgr private", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}, "is_shared": False,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert private.status_code == 201
+    assert "Mgr private" not in admin.get("/schedules").get_data(as_text=True)
+    mgr_html = mgr.get("/schedules").get_data(as_text=True)
+    assert "Mgr private" in mgr_html
+    assert "Mgr shared edited" in mgr_html
+
+    other = app.test_client()
+    _login(other, app, email="mgr2@x.com", role="manager")
+    assert other.put(f"/api/master-schedules/{own_id}", json={
+        "name": "Nope", "report_key": "ordered", "recipients": "x@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"},
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    other_html = other.get("/schedules").get_data(as_text=True)
+    assert "Mgr shared edited" in other_html
+    assert "Mgr private" not in other_html
+    assert "Speak to an admin." in other_html
 
 
 def test_master_schedule_normalizes_csv_multi_params(tmp_path):

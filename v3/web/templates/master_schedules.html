@@ -1,36 +1,31 @@
-<section id="company" class="company-schedules-section">
-<div class="page-head page-head-row">
-    <div>
-        <h2 class="page-title">Company schedules</h2>
-        <p class="page-subtitle">
-            Shared automatic reports for the whole company. They run with full data
-            for typed recipients and SharePoint, with optional split emails to salesmen.
-        </p>
-    </div>
-    <div class="page-head-actions">
-        <button type="button" class="btn btn-primary" id="msStartBtn">
-            <i data-feather="plus" style="width:14px;height:14px;"></i>
-            Set up a schedule
-        </button>
-    </div>
-</div>
-
-{# ── Wizard (hidden until "Set up" / Edit) ── #}
+{# Shared 5-step wizard. Company list is managers/admins only. #}
 <div id="msWizard" class="ms-wizard" hidden
      data-create-url="{{ url_for('schedules.create_master') }}"
+     data-personal-create-url="{{ url_for('schedules.create_schedule') }}"
      data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
+     data-can-company="{{ '1' if can_see_company else '' }}"
+     data-privileged="{{ '1' if is_privileged else '' }}"
+     data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
+     data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
+     data-od-status-url="{{ url_for('reports.onedrive_status') }}"
+     {% if can_see_company %}
      data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
      data-salesmen-url="{{ url_for('schedules.master_lookup_salesmen') }}"
      data-salesmen-emails-url="{{ url_for('schedules.master_lookup_salesmen_emails') }}"
      data-customers-url="{{ url_for('schedules.master_lookup_customers') }}"
      data-lookup-status-url="{{ url_for('schedules.master_lookup_status') }}"
+     {% else %}
+     data-salesmen-url-tpl="{{ url_for('reports.report_salesmen', report_key='__KEY__') }}"
+     data-customers-url-tpl="{{ url_for('reports.report_customers', report_key='__KEY__') }}"
+     data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
+     {% endif %}
      data-report-filters='{{ report_filters|tojson }}'
      data-csrf="{{ csrf_token() }}">
     <input type="hidden" id="editingId" value="">
 
     <div class="ms-wizard-head">
-        <h2 id="formTitle" class="ms-wizard-title">Set up a schedule</h2>
+        <h2 id="formTitle" class="ms-wizard-title">Add a schedule</h2>
         <p class="ms-wizard-hint">Answer a few simple questions. You can go back anytime.</p>
         <ol class="ms-steps" aria-label="Steps">
             <li class="ms-step is-active" data-step="1"><span class="ms-step-num">1</span> Report</li>
@@ -42,7 +37,6 @@
     </div>
 
     <form id="masterCreateForm" class="ms-wizard-body" novalidate>
-        {# Step 1: which report + name #}
         <section class="ms-pane" data-pane="1">
             <h3 class="ms-pane-title" tabindex="-1">Which report should go out automatically?</h3>
             <p class="ms-pane-help">Pick one report. Each schedule sends one report.</p>
@@ -54,15 +48,18 @@
                 </label>
                 {% endfor %}
             </div>
+            {% if can_see_company %}
             <label class="ms-field ms-field-block">
                 <span>Give this schedule a name</span>
                 <input type="text" name="name" id="msName" maxlength="120"
                        placeholder="e.g. Daily Ordered Report" required>
             </label>
             <p class="ms-pane-help">A short name so you can find it later in the list below.</p>
+            {% else %}
+            <input type="hidden" name="name" id="msName" value="">
+            {% endif %}
         </section>
 
-        {# Step 2: when #}
         <section class="ms-pane" data-pane="2" hidden>
             <h3 class="ms-pane-title" tabindex="-1">How often should it run?</h3>
             <div class="ms-choice-row" role="radiogroup" aria-label="How often">
@@ -100,7 +97,6 @@
             <p class="ms-pane-help">Eastern time is New York time — the same clock the office uses.</p>
         </section>
 
-        {# Step 3: report parameters #}
         <section class="ms-pane" data-pane="3" hidden>
             <h3 class="ms-pane-title" tabindex="-1">Any report options?</h3>
             <p class="ms-pane-help" id="msParamsIntro">
@@ -156,17 +152,39 @@
             </div>
         </section>
 
-        {# Step 4: delivery #}
         <section class="ms-pane" data-pane="4" hidden>
             <h3 class="ms-pane-title" tabindex="-1">Where should it go?</h3>
-            <p class="ms-pane-help">Pick email, a SharePoint folder, salesman split emails, or any mix. You need at least one target.</p>
+            <p class="ms-pane-help" id="msWhereHelp">
+                {% if can_see_company %}
+                Pick email, a folder, salesman split emails, or any mix. You need at least one target.
+                {% else %}
+                Email anyone and/or save to your OneDrive. You need at least one.
+                {% endif %}
+            </p>
             <label class="ms-field ms-field-block">
                 <span>Email addresses</span>
                 <input type="text" name="recipients" id="msRecipients"
-                       placeholder="team@achimonline.com, boss@achimonline.com">
+                       placeholder="name@achimonline.com, other@achimonline.com">
+            </label>
+            <label class="ms-field ms-field-block">
+                <span>CC (optional)</span>
+                <input type="text" name="email_cc" id="msCc" placeholder="cc@achimonline.com">
+            </label>
+            <label class="ms-field ms-field-block">
+                <span>BCC (optional)</span>
+                <input type="text" name="email_bcc" id="msBcc" placeholder="bcc@achimonline.com">
             </label>
             <p class="ms-pane-help">Separate multiple addresses with commas.</p>
-            <label class="ms-field ms-field-block ms-field-sp">
+
+            <div class="ms-field ms-field-block" id="msOdSection" hidden>
+                <span>OneDrive folder <em id="msOdStatus" class="lookup-status"></em></span>
+                <div id="msOdBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="msOdPicker" class="sp-picker"></div>
+                <div id="msOdSelected" class="sp-selected"></div>
+            </div>
+
+            {% if has_sharepoint %}
+            <label class="ms-field ms-field-block ms-field-sp" id="msSpSection">
                 <span>SharePoint folder</span>
                 <div class="sp-input-row">
                     <input type="text" name="sharepoint_path" id="spPathInput" placeholder="(none)" readonly>
@@ -175,6 +193,10 @@
                 </div>
             </label>
             <p class="ms-pane-help">Optional. The Excel file is saved in this folder each time the schedule runs.</p>
+            {% else %}
+            <input type="hidden" name="sharepoint_path" id="spPathInput" value="">
+            {% endif %}
+
             <label class="ms-field">
                 <span>Filename template</span>
                 <input type="text" name="filename_template" id="msFilename"
@@ -188,6 +210,8 @@
                     — Preview: <strong id="msFilenamePreview"></strong>
                 </span>
             </label>
+
+            {% if can_see_company %}
             <div id="msSalesmanDelivery" class="ms-field ms-field-block" hidden>
                 <span>Salesman split emails</span>
                 <div id="msFilteredSalesmanEmail" hidden>
@@ -211,9 +235,40 @@
                     <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
                 </div>
             </div>
+
+            <div class="ms-field ms-field-block" id="msShareBox">
+                <span>Who can see this schedule?</span>
+                <div class="ms-choice-row" role="radiogroup" aria-label="Sharing">
+                    <label class="ms-choice"><input type="radio" name="is_shared" value="0" checked> Keep private</label>
+                    <label class="ms-choice"><input type="radio" name="is_shared" value="1"> Share with admins and managers</label>
+                </div>
+                <p class="ms-pane-help">Sharing does not change whose data the report uses.</p>
+            </div>
+            {% endif %}
+
+            {% if is_privileged %}
+            <label class="ms-field ms-field-block" id="msRunAsBox">
+                <span>Run as a manager (optional)</span>
+                <select name="run_as_user_id" id="msRunAs">
+                    <option value="">Company-wide (unscoped)</option>
+                    {% for m in managers %}
+                    <option value="{{ m.id }}">{{ m.name }}</option>
+                    {% endfor %}
+                </select>
+                <span class="ms-field-hint">Leave blank for full company data. Pick a manager to use that person’s book.</span>
+            </label>
+            {% endif %}
+
+            <label class="ms-field flag-row">
+                <input type="checkbox" id="msNoDataAll" name="email_on_no_data">
+                <span>Email recipients when there is no data</span>
+            </label>
+            <label class="ms-field flag-row">
+                <input type="checkbox" id="msNoDataMe" name="email_on_no_data_me_only">
+                <span>Email only me when there is no data</span>
+            </label>
         </section>
 
-        {# Step 5: review #}
         <section class="ms-pane" data-pane="5" hidden>
             <h3 class="ms-pane-title" tabindex="-1">Does this look right?</h3>
             <p class="ms-pane-help">Check the summary, then save. You can edit it later from the list.</p>
@@ -232,7 +287,16 @@
     </form>
 </div>
 
-{# ── Existing schedules list ── #}
+{% if can_see_company %}
+<section id="company" class="company-schedules-section">
+<div class="page-head">
+    <h2 class="page-title">Company schedules</h2>
+    <p class="page-subtitle">
+        Shared automatic reports. Sharing is who can see the schedule — not a data upgrade.
+        A manager’s shared schedule still runs in that manager’s book.
+    </p>
+</div>
+
 {% if master_schedules %}
 <div class="ms-table-wrap" data-csrf="{{ csrf_token() }}">
     <table class="data-table">
@@ -257,7 +321,9 @@
                 data-cadence='{{ s.cadence_raw|tojson }}'
                 data-params='{{ s.params|tojson }}'
                 data-recipients="{{ s.recipients }}"
-                data-sharepoint-path="{{ s.sharepoint_path }}">
+                data-sharepoint-path="{{ s.sharepoint_path }}"
+                data-run-as="{{ s.run_as_user_id or '' }}"
+                data-is-shared="1">
                 <td>{{ s.name }}</td>
                 <td>{{ s.report_title }}</td>
                 <td>{{ s.cadence }}</td>
@@ -266,21 +332,31 @@
                 <td class="td-truncate">{{ s.sharepoint_path or '—' }}</td>
                 <td>{{ s.last_run or 'never' }}</td>
                 <td>
+                    {% if s.can_edit %}
                     <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
                             data-url="{{ url_for('schedules.toggle_master', schedule_id=s.id) }}"
                             data-active="{{ 'false' if s.is_active else 'true' }}">
                         {{ 'On' if s.is_active else 'Off' }}
                     </button>
+                    {% else %}
+                    {{ 'On' if s.is_active else 'Off' }}
+                    {% endif %}
                 </td>
                 <td class="row-actions">
+                    {% if s.can_edit %}
                     <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
+                    {% else %}
+                    <span class="ms-field-hint">You can’t edit this schedule. Speak to an admin.</span>
+                    {% endif %}
                     <button type="button" class="btn btn-sm btn-outline js-run"
                             data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Run now</button>
                     <a class="btn btn-sm btn-outline"
                        href="{{ url_for('schedules.master_history', schedule_id=s.id) }}">History</a>
+                    {% if s.can_edit %}
                     <button type="button" class="btn btn-sm btn-outline js-delete"
                             data-url="{{ url_for('schedules.delete_master', schedule_id=s.id) }}"
                             data-confirm="Delete this master schedule?">Delete</button>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -290,10 +366,13 @@
 {% else %}
 <div class="empty-state" id="msEmpty">
     <i data-feather="clock"></i>
-    <p>No company schedules yet. Tap <strong>Set up a schedule</strong> to create one.</p>
+    <p>No company schedules yet. Tap <strong>Add a schedule</strong> and choose Share with admins and managers.</p>
 </div>
 {% endif %}
+</section>
+{% endif %}
 
+{% if has_sharepoint %}
 <div id="spPickerOverlay" class="sp-picker-overlay" style="display:none">
     <div class="sp-picker-modal" role="dialog" aria-modal="true" aria-label="Choose SharePoint folder">
         <div class="sp-picker-header">
@@ -314,4 +393,4 @@
         </div>
     </div>
 </div>
-</section>
+{% endif %}

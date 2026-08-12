@@ -48,6 +48,30 @@ class Authorization:
         u = self._active_user(p)
         return bool(u and self._is_privileged(u))
 
+    def is_manager(self, p: Principal | None) -> bool:
+        u = self._active_user(p)
+        return bool(u and u.role == ROLE_MANAGER)
+
+    def can_see_company_schedules(self, p: Principal | None) -> bool:
+        """Admins, developers, and managers see the shared company list."""
+        return self.is_privileged(p) or self.is_manager(p)
+
+    def user_id(self, p: Principal | None) -> int | None:
+        u = self._active_user(p)
+        return u.id if u else None
+
+    def can_edit_master(self, p: Principal | None, *, owner_user_id: int | None,
+                        run_as_user_id: int | None) -> bool:
+        """Privileged: always. Manager: only if they created it or it runs as them."""
+        if self.is_privileged(p):
+            return True
+        if not self.is_manager(p):
+            return False
+        uid = self.user_id(p)
+        if uid is None:
+            return False
+        return uid == owner_user_id or uid == run_as_user_id
+
     # --- salesman / customer scope -----------------------------------------
 
     def visible_salesman_keys(self, p: Principal) -> set[str] | None:

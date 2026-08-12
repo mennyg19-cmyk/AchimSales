@@ -1,5 +1,18 @@
 # Decision Log
 
+## 2026-08-12 One Schedules wizard (scope + share)
+**What you asked for:** Stop having two schedule products. One Schedules page,
+one Add flow. Company vs personal is options + an explicit share choice.
+Managers can share; admins can run a schedule as a picked manager. Managers
+see company schedules but cannot edit unless they created it or it is scoped
+to them (read-only note: talk to an admin). Sales reps see only their own.
+**What I chose:** Keep personal + master tables. Shared/company-setting rows
+live on `master_schedules` with `owner_user_id`, `is_shared`, `run_as_user_id`.
+Share = list visibility, not a data upgrade. Manager-created shared runs stay
+in that manager’s book. Unscoped run = admin/developer with no manager picked.
+Notes: `.scratch/grill-notes-beta-scheduling.md`.
+**Status:** DECIDED — shipping
+
 ## 2026-08-12 Beta scheduling (grill locked)
 **What you asked for:** Schedules on Beta — personal (OneDrive + email anyone) and
 admin/master (SharePoint); cadence; filename pills; schedule-this-view; salesman

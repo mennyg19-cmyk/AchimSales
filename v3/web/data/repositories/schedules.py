@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 
 from web.data.connection import Database
 
+_UNSET = object()
+
 PERSONAL = "personal"
 MASTER = "master"
 
@@ -81,10 +83,16 @@ class MasterSchedule:
     is_active: bool
     created_at: str
     filename_template: str = ""
+    owner_user_id: int | None = None
+    is_shared: bool = True
+    run_as_user_id: int | None = None
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "MasterSchedule":
         keys = r.keys()
+        owner = r["owner_user_id"] if "owner_user_id" in keys else None
+        run_as = r["run_as_user_id"] if "run_as_user_id" in keys else None
+        shared = r["is_shared"] if "is_shared" in keys else 1
         return cls(
             id=r["id"], report_key=r["report_key"], name=r["name"],
             params=_loads(r["params_json"]), layout=_loads(r["layout_json"]),
@@ -92,6 +100,9 @@ class MasterSchedule:
             sharepoint_path=r["sharepoint_path"], is_active=bool(r["is_active"]),
             created_at=r["created_at"],
             filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
+            owner_user_id=int(owner) if owner is not None else None,
+            is_shared=bool(shared),
+            run_as_user_id=int(run_as) if run_as is not None else None,
         )
 
 
@@ -213,56 +224,48 @@ class MasterScheduleRepository:
 
     def create(self, report_key: str, name: str, *, params: dict, layout: dict,
                cadence: dict, recipients: str = "", sharepoint_path: str = "",
-               filename_template: str = "") -> int:
+               filename_template: str = "", owner_user_id: int | None = None,
+               is_shared: bool = True, run_as_user_id: int | None = None) -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO master_schedules(report_key, name, params_json, layout_json,"
-                " cadence, recipients, sharepoint_path, filename_template)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " cadence, recipients, sharepoint_path, filename_template,"
+                " owner_user_id, is_shared, run_as_user_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (report_key, name.strip(), json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
                  recipients or "", sharepoint_path or "",
-                 (filename_template or "").strip()),
+                 (filename_template or "").strip(),
+                 owner_user_id, 1 if is_shared else 0, run_as_user_id),
             )
             return cur.lastrowid
 
     def update(self, schedule_id: int, *, name: str, params: dict, layout: dict,
                cadence: dict, recipients: str = "", sharepoint_path: str = "",
-               report_key: str | None = None, filename_template: str | None = None) -> bool:
+               report_key: str | None = None, filename_template: str | None = None,
+               is_shared: bool | None = None, run_as_user_id: int | None | object = _UNSET) -> bool:
         with self.db.precious() as conn:
             tmpl = None if filename_template is None else filename_template.strip()
-            if report_key and tmpl is not None:
-                cur = conn.execute(
-                    "UPDATE master_schedules SET name=?, report_key=?, params_json=?, layout_json=?,"
-                    " cadence=?, recipients=?, sharepoint_path=?, filename_template=? WHERE id=?",
-                    (name.strip(), report_key.strip(), json.dumps(params or {}),
-                     json.dumps(layout or {}), json.dumps(cadence or {}),
-                     recipients or "", sharepoint_path or "", tmpl, schedule_id),
-                )
-            elif report_key:
-                cur = conn.execute(
-                    "UPDATE master_schedules SET name=?, report_key=?, params_json=?, layout_json=?,"
-                    " cadence=?, recipients=?, sharepoint_path=? WHERE id=?",
-                    (name.strip(), report_key.strip(), json.dumps(params or {}),
-                     json.dumps(layout or {}), json.dumps(cadence or {}),
-                     recipients or "", sharepoint_path or "", schedule_id),
-                )
-            elif tmpl is not None:
-                cur = conn.execute(
-                    "UPDATE master_schedules SET name=?, params_json=?, layout_json=?,"
-                    " cadence=?, recipients=?, sharepoint_path=?, filename_template=? WHERE id=?",
-                    (name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
-                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                     tmpl, schedule_id),
-                )
-            else:
-                cur = conn.execute(
-                    "UPDATE master_schedules SET name=?, params_json=?, layout_json=?,"
-                    " cadence=?, recipients=?, sharepoint_path=? WHERE id=?",
-                    (name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
-                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                     schedule_id),
-                )
+            sets = ["name=?", "params_json=?", "layout_json=?", "cadence=?",
+                    "recipients=?", "sharepoint_path=?"]
+            vals: list = [name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
+                          json.dumps(cadence or {}), recipients or "", sharepoint_path or ""]
+            if report_key:
+                sets.append("report_key=?")
+                vals.append(report_key.strip())
+            if tmpl is not None:
+                sets.append("filename_template=?")
+                vals.append(tmpl)
+            if is_shared is not None:
+                sets.append("is_shared=?")
+                vals.append(1 if is_shared else 0)
+            if run_as_user_id is not _UNSET:
+                sets.append("run_as_user_id=?")
+                vals.append(run_as_user_id)
+            vals.append(schedule_id)
+            cur = conn.execute(
+                f"UPDATE master_schedules SET {', '.join(sets)} WHERE id=?", vals,
+            )
             return cur.rowcount == 1
 
     def set_active(self, schedule_id: int, active: bool) -> bool:
@@ -282,6 +285,22 @@ class MasterScheduleRepository:
         with self.db.precious() as conn:
             rows = conn.execute(
                 "SELECT * FROM master_schedules ORDER BY created_at DESC"
+            ).fetchall()
+            return [MasterSchedule.from_row(r) for r in rows]
+
+    def list_shared(self) -> list[MasterSchedule]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM master_schedules WHERE is_shared=1 ORDER BY created_at DESC"
+            ).fetchall()
+            return [MasterSchedule.from_row(r) for r in rows]
+
+    def list_private_for_user(self, user_id: int) -> list[MasterSchedule]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM master_schedules WHERE is_shared=0 AND owner_user_id=?"
+                " ORDER BY created_at DESC",
+                (user_id,),
             ).fetchall()
             return [MasterSchedule.from_row(r) for r in rows]
 

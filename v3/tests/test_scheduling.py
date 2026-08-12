@@ -113,6 +113,46 @@ def test_runner_master_runs_unrestricted(stack):
     assert len(hist) == 1 and hist[0].status == "success"
 
 
+def test_runner_master_manager_owner_is_scoped(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from report_engine.lib import salesman_key
+    mgr = UserRepository(db).upsert("mgr@x.com", display_name="Mgr", role="manager")
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+    ])
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO user_salesman_access(user_id, salesman_key) VALUES (?, ?)",
+            (mgr.id, salesman_key("MKolko")),
+        )
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Mgr book", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="m@x.com",
+        owner_user_id=mgr.id, is_shared=True)
+    runner.run(mid, MASTER)
+    assert delivery.calls[0]["identity"] == "mgr@x.com"
+    assert delivery.calls[0]["visible_salesman_keys"] == {salesman_key("MKolko")}
+
+
 def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
