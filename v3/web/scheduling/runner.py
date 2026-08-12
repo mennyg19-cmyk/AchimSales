@@ -56,9 +56,9 @@ class ScheduleRunner:
             # - fails closed here instead of delivering stale-scoped data.
             if schedule_type != MASTER:
                 principal = self.authz.principal_for_user_id(sched.owner_user_id)
+                # Personal folder saves go to OneDrive — do not require SharePoint access.
                 scope = self.authz.authorize_delivery(
-                    principal, sched.report_key,
-                    sharepoint=bool(sched.sharepoint_path))
+                    principal, sched.report_key, sharepoint=False)
                 identity = principal.email
             report_name = spec.title if spec else sched.report_key
             subject = self._subject(sched, schedule_type, report_name)
@@ -69,13 +69,22 @@ class ScheduleRunner:
                     subject=subject, report_name=report_name,
                 )
             else:
+                od_user = identity if schedule_type == PERSONAL and sched.sharepoint_path else ""
+                params = sched.params or {}
+                no_data_all = bool(params.get("email_on_no_data"))
+                no_data_me = bool(params.get("email_on_no_data_me_only"))
                 outcome = self.delivery.run_and_deliver(
                     report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                     builder_version=spec.builder_version if spec else 1,
-                    params=_report_params(sched.params), layout=sched.layout,
+                    params=_report_params(params), layout=sched.layout,
                     recipients=sched.recipients, subject=subject, report_name=report_name,
                     sharepoint_path=sched.sharepoint_path,
                     filename_template=getattr(sched, "filename_template", "") or "",
+                    onedrive_user=od_user,
+                    cc_raw=str(params.get("email_cc") or ""),
+                    bcc_raw=str(params.get("email_bcc") or ""),
+                    email_on_empty=no_data_all or no_data_me,
+                    empty_recipients_override=identity if (no_data_me and not no_data_all) else None,
                 )
             meta = _output_meta(outcome)
             summary = _summary_message(outcome, ok=outcome.result.ok)
@@ -208,7 +217,10 @@ class ScheduleRunner:
         return email_keys
 
 
-_DELIVERY_PARAM_KEYS = {"split_by_salesman", "email_to_salesmen", "email_salesman_keys"}
+_DELIVERY_PARAM_KEYS = {
+    "split_by_salesman", "email_to_salesmen", "email_salesman_keys",
+    "email_cc", "email_bcc", "email_on_no_data", "email_on_no_data_me_only",
+}
 
 
 def _report_params(params: dict | None) -> dict:

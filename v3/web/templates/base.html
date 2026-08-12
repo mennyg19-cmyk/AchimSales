@@ -90,14 +90,12 @@
             <span class="bottom-nav-label">Dashboard</span>
         </a>
         {% endif %}
-        {% if not is_beta %}
         <a href="{{ nav.schedules }}" class="bottom-nav-item {% if active_tab == 'schedules' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="clock"></i>
             </div>
             <span class="bottom-nav-label">Schedules</span>
         </a>
-        {% endif %}
         {% if test_site_enabled %}
         <a href="/test/" class="bottom-nav-item" target="_blank">
             <div class="bottom-nav-icon">

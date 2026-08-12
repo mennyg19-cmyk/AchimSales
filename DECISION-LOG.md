@@ -1,5 +1,16 @@
 # Decision Log
 
+## 2026-08-12 Beta scheduling (grill locked)
+**What you asked for:** Schedules on Beta — personal (OneDrive + email anyone) and
+admin/master (SharePoint); cadence; filename pills; schedule-this-view; salesman
+split; CC/BCC; no-data email options; test email; copy schedule.
+**What I chose:** Enable existing v3 schedules on Beta (blueprint + cron + UI).
+Master → SharePoint; personal → user OneDrive via app Graph. Excel now, PDF later.
+Monthly 1–28 + last day. Split = all salesman **app users** with email; master
+copy to typed recipients. Skip SP link-in-body and dry-run (use test email).
+Copy schedule; one schedule per param set. Notes: `.scratch/grill-notes-beta-scheduling.md`.
+**Status:** DECIDED — implementing
+
 ## 2026-08-06 Beta additions: Keep runs + filename templates
 **What you asked for:** default Ordered grouping on Beta; resume previously run
 reports with a Keep option; salesman Live color bands on screen + Excel;

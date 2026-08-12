@@ -92,14 +92,21 @@ def _parse_cadence(body: dict) -> dict:
 
 
 def _check_sharepoint(p, body: dict) -> str:
+    """Master schedules only: company SharePoint path (requires SP access)."""
     path = (body.get("sharepoint_path") or "").strip()
     if path and not _authz().has_sharepoint_access(p):
         abort(403, description="You don't have SharePoint delivery access.")
     return path
 
 
+def _check_personal_folder(body: dict) -> str:
+    """Personal schedules store an OneDrive relative path in sharepoint_path."""
+    return (body.get("onedrive_path") or body.get("sharepoint_path") or "").strip()
+
+
 def _clean_recipients(body: dict, *, sharepoint_path: str,
-                      has_salesman_delivery: bool = False) -> str:
+                      has_salesman_delivery: bool = False,
+                      folder_label: str = "SharePoint folder") -> str:
     """Validate recipients up front (same parser as delivery), so a schedule can't
     be saved with addresses that would silently drop at send time."""
     raw = (body.get("recipients") or "").strip()
@@ -107,7 +114,7 @@ def _clean_recipients(body: dict, *, sharepoint_path: str,
     if raw and not valid:
         abort(400, description="No valid email recipients (use name@domain.com).")
     if not valid and not sharepoint_path and not has_salesman_delivery:
-        abort(400, description="A schedule needs recipients or a SharePoint folder.")
+        abort(400, description=f"A schedule needs recipients or a {folder_label}.")
     return ", ".join(valid)
 
 
@@ -202,12 +209,12 @@ def create_schedule():
     report_key = (body.get("report_key") or "").strip()
     _validate_report(p, report_key)
     cadence = _parse_cadence(body)
-    sp = _check_sharepoint(p, body)
-    recipients = _clean_recipients(body, sharepoint_path=sp)
+    folder = _check_personal_folder(body)
+    recipients = _clean_recipients(body, sharepoint_path=folder, folder_label="OneDrive folder")
     sid = _repo().create(
         _uid(p.email), report_key, params=body.get("params") or {},
         layout=body.get("layout") or {}, cadence=cadence,
-        recipients=recipients, sharepoint_path=sp,
+        recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
         filename_template=(body.get("filename_template") or "").strip(),
     )
@@ -220,12 +227,12 @@ def update_schedule(schedule_id: int):
     p = _principal()
     body = request.get_json(silent=True) or {}
     cadence = _parse_cadence(body)
-    sp = _check_sharepoint(p, body)
-    recipients = _clean_recipients(body, sharepoint_path=sp)
+    folder = _check_personal_folder(body)
+    recipients = _clean_recipients(body, sharepoint_path=folder, folder_label="OneDrive folder")
     ok = _repo().update(
         schedule_id, _uid(p.email), params=body.get("params") or {},
         layout=body.get("layout") or {}, cadence=cadence,
-        recipients=recipients, sharepoint_path=sp,
+        recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
         filename_template=(body.get("filename_template") or "").strip(),
     )
@@ -265,6 +272,27 @@ def run_schedule(schedule_id: int):
                                   owner_user_id=uid)
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202
+
+
+@schedules_bp.post("/api/schedules/<int:schedule_id>/copy")
+@require_login
+def copy_schedule(schedule_id: int):
+    """Duplicate a personal schedule so the user can tweak one field."""
+    p = _principal()
+    uid = _uid(p.email)
+    src = _repo().get(schedule_id, uid)
+    if src is None:
+        abort(404, description="Unknown schedule")
+    sid = _repo().create(
+        uid, src.report_key, params=dict(src.params or {}),
+        layout=dict(src.layout or {}), cadence=dict(src.cadence or {}),
+        recipients=src.recipients, sharepoint_path=src.sharepoint_path,
+        start_date=src.start_date, end_date=src.end_date,
+        filename_template=getattr(src, "filename_template", "") or "",
+    )
+    # Leave the copy inactive so it doesn't double-fire until edited.
+    _repo().set_active(sid, uid, False)
+    return jsonify({"id": sid}), 201
 
 
 @schedules_bp.get("/schedules/<int:schedule_id>/history")

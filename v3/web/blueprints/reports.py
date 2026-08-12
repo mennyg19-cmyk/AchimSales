@@ -1348,5 +1348,30 @@ def sharepoint_folders():
         return jsonify({"path": path, "folders": [], "error": str(exc)}), 200
 
 
+@reports_bp.get("/api/onedrive/status")
+@require_login
+def onedrive_status():
+    od = current_app.config.get("ONEDRIVE_SERVICE")
+    return jsonify({
+        "enabled": True,
+        "configured": bool(od and od.is_configured()),
+        "root": "OneDrive",
+    })
+
+
+@reports_bp.get("/api/onedrive/folders")
+@require_login
+def onedrive_folders():
+    p = _principal_or_401()
+    od = current_app.config.get("ONEDRIVE_SERVICE")
+    if od is None:
+        abort(503, description="OneDrive is not available.")
+    path = (request.args.get("path") or "").strip()
+    try:
+        return jsonify({"path": path, "folders": od.list_folders(p.email, path)})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"path": path, "folders": [], "error": str(exc)}), 200
+
+
 def _visible_list(keys) -> list | None:
     return None if keys is None else sorted(set(keys))

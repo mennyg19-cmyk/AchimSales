@@ -57,6 +57,8 @@ class GraphMailer:
         body_text: str,
         filename: str,
         xlsx_bytes: bytes,
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
     ) -> None:
         safe_body = (body_text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         html_body = "<pre style='font-family:inherit;white-space:pre-wrap'>" + safe_body + "</pre>"
@@ -71,6 +73,10 @@ class GraphMailer:
                 "contentBytes": base64.b64encode(xlsx_bytes).decode("ascii"),
             }],
         }
+        if cc:
+            message["ccRecipients"] = [{"emailAddress": {"address": addr}} for addr in cc]
+        if bcc:
+            message["bccRecipients"] = [{"emailAddress": {"address": addr}} for addr in bcc]
         payload = json.dumps({"message": message, "saveToSentItems": True}).encode("utf-8")
         url = _GRAPH_SEND_URL.format(user=quote(sender, safe=""))
         try:

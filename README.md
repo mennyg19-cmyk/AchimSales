@@ -108,6 +108,7 @@ See `.env.example` for all required variables. Key groups:
 - **Graph/SharePoint**: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `SP_SITE_URL`
 - **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)
 - **Web App**: `FLASK_SECRET_KEY`, `DEV_BYPASS_AUTH`
+- **Beta personal OneDrive schedules**: Graph app needs `Files.ReadWrite.All` (admin consent) so overnight jobs can write to `/users/{email}/drive`
 
 ## Directory Structure
 

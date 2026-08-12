@@ -29,6 +29,7 @@ TOKEN_HELP: tuple[tuple[str, str], ...] = (
     ("{ss}", "second 00–59"),
     ("{Report}", "report title slug"),
     ("{Period}", "period / year from params, if any"),
+    ("{Weekday}", "Monday … Sunday"),
 )
 
 _TOKEN_RE = re.compile(r"\{[A-Za-z]+\}")
@@ -64,6 +65,7 @@ def resolve_filename_template(
         "{ss}": f"{now.second:02d}",
         "{Report}": report_slug,
         "{Period}": period or now.strftime("%Y%m%d"),
+        "{Weekday}": now.strftime("%A"),
     }
 
     raw = (template or "").strip()

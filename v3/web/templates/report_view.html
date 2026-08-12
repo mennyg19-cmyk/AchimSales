@@ -110,17 +110,14 @@
     <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
     <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
     <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
-    {% if not is_beta or is_developer %}
     <div class="toolbar-menu" id="moreMenuWrap">
         <button type="button" id="moreBtn" class="btn btn-outline" aria-haspopup="true" aria-expanded="false" title="More actions">
             <i data-feather="more-horizontal"></i> <span>More</span>
         </button>
         <div id="moreMenu" class="toolbar-dropdown" hidden role="menu">
-            {% if not is_beta %}
             <button type="button" id="scheduleBtn" class="toolbar-dropdown-item" disabled role="menuitem" title="Schedule recurring delivery of this view">
                 <i data-feather="calendar"></i> <span>Schedule</span>
             </button>
-            {% endif %}
             {% if is_developer %}
             <button type="button" id="previewBtn" class="toolbar-dropdown-item" role="menuitem" title="Show the body that would be sent to the Reporting API">
                 <i data-feather="code"></i> <span>API preview</span>
@@ -128,7 +125,6 @@
             {% endif %}
         </div>
     </div>
-    {% endif %}
 </div>
 
 <div class="report-status-row">
@@ -193,10 +189,10 @@
      data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
      data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
-     {% if not is_beta %}
+     data-od-status-url="{{ url_for('reports.onedrive_status') }}"
+     data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
      data-schedules-url="{{ url_for('schedules.create_schedule') }}"
      data-schedules-page="{{ url_for('schedules.schedules_page') }}"
-     {% endif %}
      data-csrf="{{ csrf_token() }}"
      hidden></div>
 
@@ -230,17 +226,25 @@
     </div>
 </div>
 
-{% if not is_beta %}
 <div id="scheduleModal" class="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
         <div class="modal-head">
-            <h2 id="schedTitle">Schedule report</h2>
+            <h2 id="schedTitle">Schedule this report</h2>
             <button type="button" id="schedClose" class="modal-close" aria-label="Close">&times;</button>
         </div>
         <div class="modal-body">
+            <p class="muted" style="font-size:13px;margin:0 0 10px;">Saves your current filters and layout. Date period on the schedule replaces any date filters in the view.</p>
             <label class="modal-field">
-                <span>Recipients</span>
+                <span>Recipients (To)</span>
                 <input type="text" id="schedRecipients" placeholder="name@achimonline.com, other@achimonline.com">
+            </label>
+            <label class="modal-field">
+                <span>CC (optional)</span>
+                <input type="text" id="schedCc" placeholder="cc@achimonline.com">
+            </label>
+            <label class="modal-field">
+                <span>BCC (optional)</span>
+                <input type="text" id="schedBcc" placeholder="bcc@achimonline.com">
             </label>
             <div class="modal-field-row">
                 <label class="modal-field">
@@ -265,8 +269,13 @@
                 </div>
             </div>
             <label class="modal-field" id="schedMonthdayField" hidden>
-                <span>Day of month (1-28)</span>
-                <input type="number" id="schedMonthday" min="1" max="28" value="1">
+                <span>Day of month</span>
+                <select id="schedMonthday">
+                    {% for d in range(1, 29) %}
+                    <option value="{{ d }}">{{ d }}</option>
+                    {% endfor %}
+                    <option value="-1">Last day of month</option>
+                </select>
             </label>
             <label class="modal-field">
                 <span>Filename template</span>
@@ -278,15 +287,25 @@
                     <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{YYYY}">YYYY</button>
                     <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Report}">Report</button>
                     <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Period}">Period</button>
+                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{DD}">DD</button>
+                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Weekday}">Weekday</button>
                 </span>
                 <span class="muted" style="font-size:12px;">Preview: <strong id="schedFilenamePreview"></strong></span>
             </label>
-            <div class="modal-field" id="schedSpSection" hidden>
-                <span>Also save to SharePoint <em id="schedSpStatus" class="lookup-status"></em></span>
-                <div id="schedSpBreadcrumb" class="sp-breadcrumb"></div>
-                <div id="schedSpPicker" class="sp-picker"></div>
-                <div id="schedSpSelected" class="sp-selected"></div>
+            <div class="modal-field" id="schedOdSection" hidden>
+                <span>Also save to my OneDrive <em id="schedOdStatus" class="lookup-status"></em></span>
+                <div id="schedOdBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedOdPicker" class="sp-picker"></div>
+                <div id="schedOdSelected" class="sp-selected"></div>
             </div>
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedNoDataRecipients">
+                <span>Email recipients when there is no data</span>
+            </label>
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedNoDataMeOnly">
+                <span>Email only me when there is no data</span>
+            </label>
             <div id="schedMsg" class="modal-msg" hidden></div>
         </div>
         <div class="modal-foot">
@@ -295,7 +314,6 @@
         </div>
     </div>
 </div>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}

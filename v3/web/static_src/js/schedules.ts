@@ -33,6 +33,14 @@ function bindRowActions(): void {
       setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
     });
   });
+  document.querySelectorAll<HTMLButtonElement>(".js-copy").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      const ok = await act(b.dataset.url!, "POST", {});
+      if (ok) location.reload();
+      else { b.disabled = false; window.alert("Could not copy this schedule."); }
+    });
+  });
   document.querySelectorAll<HTMLButtonElement>(".js-delete").forEach((b) => {
     b.addEventListener("click", async () => {
       if (!window.confirm(b.getAttribute("data-confirm") || "Delete?")) return;

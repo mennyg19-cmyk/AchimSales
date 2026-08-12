@@ -2022,11 +2022,17 @@ async function autoOpenPresetIfRequested(): Promise<void> {
 
 // A SharePoint folder picker bound to a set of element ids. Used by both the
 // email and schedule modals; each instance tracks its own selected path.
-interface SpPickerEls { section: string; breadcrumb: string; picker: string; selected: string; status: string; }
+interface SpPickerEls {
+  section: string; breadcrumb: string; picker: string; selected: string; status: string;
+  statusAttr?: string; foldersAttr?: string; rootLabel?: string;
+}
 
 function makeSpPicker(els: SpPickerEls) {
   let cur = "";
   let selected: string | null = null;
+  const statusAttr = els.statusAttr || "data-sp-status-url";
+  const foldersAttr = els.foldersAttr || "data-sp-folders-url";
+  const rootLabel = els.rootLabel || "Root";
 
   async function init(): Promise<void> {
     const section = $(els.section);
@@ -2035,7 +2041,7 @@ function makeSpPicker(els: SpPickerEls) {
     cur = "";
     const sel = $(els.selected);
     if (sel) sel.textContent = "";
-    const st = await getJSON<{ enabled: boolean; configured: boolean }>(attr("data-sp-status-url"));
+    const st = await getJSON<{ enabled: boolean; configured: boolean }>(attr(statusAttr));
     if (!st || !st.enabled) { section.hidden = true; return; }
     section.hidden = false;
     const status = $(els.status);
@@ -2045,7 +2051,7 @@ function makeSpPicker(els: SpPickerEls) {
 
   async function load(path: string): Promise<void> {
     cur = path;
-    const url = attr("data-sp-folders-url") + "?path=" + encodeURIComponent(path);
+    const url = attr(foldersAttr) + "?path=" + encodeURIComponent(path);
     const data = await getJSON<{ folders: { name: string; path: string }[] }>(url);
     renderBreadcrumb(path);
     renderFolders((data && data.folders) || []);
@@ -2063,7 +2069,7 @@ function makeSpPicker(els: SpPickerEls) {
       b.addEventListener("click", () => load(target));
       return b;
     };
-    bc.appendChild(crumb("Root", ""));
+    bc.appendChild(crumb(rootLabel, ""));
     let acc = "";
     (path ? path.split("/") : []).forEach((p) => {
       acc = acc ? `${acc}/${p}` : p;
@@ -2077,7 +2083,7 @@ function makeSpPicker(els: SpPickerEls) {
     use.addEventListener("click", () => {
       selected = cur;
       const sel = $(els.selected);
-      if (sel) sel.textContent = `Will save to: ${cur || "Direct Reports (root)"}`;
+      if (sel) sel.textContent = `Will save to: ${cur || rootLabel}`;
     });
     bc.appendChild(use);
   }
@@ -2178,8 +2184,11 @@ async function pollEmailJob(jobId: string): Promise<void> {
 
 // -- schedule modal ---------------------------------------------------------
 
-const scheduleSp = makeSpPicker({ section: "schedSpSection", breadcrumb: "schedSpBreadcrumb",
-  picker: "schedSpPicker", selected: "schedSpSelected", status: "schedSpStatus" });
+const scheduleOd = makeSpPicker({
+  section: "schedOdSection", breadcrumb: "schedOdBreadcrumb",
+  picker: "schedOdPicker", selected: "schedOdSelected", status: "schedOdStatus",
+  statusAttr: "data-od-status-url", foldersAttr: "data-od-folders-url", rootLabel: "OneDrive",
+});
 
 function schedMsg(text: string, isError: boolean): void {
   const el = $("schedMsg");
@@ -2218,13 +2227,21 @@ function openScheduleModal(): void {
   const modal = $("scheduleModal");
   if (!modal) return;
   (($("schedRecipients") as HTMLInputElement)).value = "";
+  const cc = $("schedCc") as HTMLInputElement | null;
+  const bcc = $("schedBcc") as HTMLInputElement | null;
+  if (cc) cc.value = "";
+  if (bcc) bcc.value = "";
+  const noRec = $("schedNoDataRecipients") as HTMLInputElement | null;
+  const noMe = $("schedNoDataMeOnly") as HTMLInputElement | null;
+  if (noRec) noRec.checked = false;
+  if (noMe) noMe.checked = false;
   const fn = $("schedFilename") as HTMLInputElement | null;
   if (fn && !fn.value) fn.value = "{Report}_{YYYY}{MM}{DD}";
   updateSchedFilenamePreview();
   schedMsg("", false);
   syncCadenceFields();
   modal.hidden = false;
-  scheduleSp.init();
+  scheduleOd.init();
 }
 
 function updateSchedFilenamePreview(): void {
@@ -2234,6 +2251,7 @@ function updateSchedFilenamePreview(): void {
   const now = new Date();
   const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const mons = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const weekdays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
   const pad = (n: number) => String(n).padStart(2, "0");
   const report = (attr("data-report-key") || "Report").replace(/[^A-Za-z0-9_-]+/g, "_");
   const map: Record<string, string> = {
@@ -2250,6 +2268,7 @@ function updateSchedFilenamePreview(): void {
     "{ss}": pad(now.getSeconds()),
     "{Report}": report,
     "{Period}": String((document.querySelector('[name="period"]') as HTMLSelectElement | null)?.value || now.getFullYear()),
+    "{Weekday}": weekdays[(now.getDay() + 6) % 7],
   };
   let out = (input.value || "{Report}_{YYYY}{MM}{DD}").replace(/\{[A-Za-z]+\}/g, (t) => map[t] || t);
   if (!out.toLowerCase().endsWith(".xlsx")) out += ".xlsx";
@@ -2271,15 +2290,23 @@ function collectCadence(): { ok: boolean; cadence?: any; error?: string } {
     if (!days.length) return { ok: false, error: "Pick at least one day of the week." };
     cadence.weekdays = days;
   } else if (freq === "monthly") {
-    cadence.monthday = Number(($("schedMonthday") as HTMLInputElement).value) || 1;
+    cadence.monthday = Number(($("schedMonthday") as HTMLSelectElement).value);
   }
   return { ok: true, cadence };
 }
 
+function collectScheduleRecipients(): { to: string; cc: string; bcc: string } {
+  return {
+    to: (($("schedRecipients") as HTMLInputElement)).value.trim(),
+    cc: (($("schedCc") as HTMLInputElement | null)?.value || "").trim(),
+    bcc: (($("schedBcc") as HTMLInputElement | null)?.value || "").trim(),
+  };
+}
+
 async function saveSchedule(): Promise<void> {
-  const recipients = (($("schedRecipients") as HTMLInputElement)).value.trim();
-  if (!recipients && !scheduleSp.path()) {
-    schedMsg("Enter recipients or pick a SharePoint folder.", true);
+  const { to, cc, bcc } = collectScheduleRecipients();
+  if (!to && !cc && !bcc && !scheduleOd.path()) {
+    schedMsg("Enter recipients or pick a OneDrive folder.", true);
     return;
   }
   const cad = collectCadence();
@@ -2287,14 +2314,21 @@ async function saveSchedule(): Promise<void> {
   const btn = $("schedSave") as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
   schedMsg("Saving…", false);
+  const params: Record<string, unknown> = {
+    ...collectParams(),
+    email_cc: cc,
+    email_bcc: bcc,
+    email_on_no_data: !!($("schedNoDataRecipients") as HTMLInputElement | null)?.checked,
+    email_on_no_data_me_only: !!($("schedNoDataMeOnly") as HTMLInputElement | null)?.checked,
+  };
   try {
     const res = await fetch(attr("data-schedules-url"), {
       method: "POST", headers: csrfHeaders(),
       body: JSON.stringify({
-        report_key: attr("data-report-key"), recipients,
-        sharepoint_path: scheduleSp.path() || "", cadence: cad.cadence,
+        report_key: attr("data-report-key"), recipients: to,
+        sharepoint_path: scheduleOd.path() || "", cadence: cad.cadence,
         filename_template: (($("schedFilename") as HTMLInputElement | null)?.value || "").trim(),
-        params: collectParams(), layout: serializeLayout(),
+        params, layout: serializeLayout(),
       }),
     });
     if (res.status !== 201) {

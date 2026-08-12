@@ -78,6 +78,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.data.repositories.salesmen import SalesmanRepository
     from web.delivery.email import EmailService
     from web.delivery.jobs import DELIVERY_JOB_TYPE, make_delivery_handler
+    from web.delivery.onedrive import OneDriveService
     from web.delivery.service import DeliveryService
     from web.delivery.sharepoint import SharePointService
     from web.jobs.worker import JobWorker
@@ -106,7 +107,8 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
         cache, exports, JobRepository(db), app.config["AUTHZ"]))
 
     sharepoint = SharePointService(cfg)
-    email = EmailService(cfg, OutboxRepository(db), sharepoint)
+    onedrive = OneDriveService(cfg)
+    email = EmailService(cfg, OutboxRepository(db), sharepoint, onedrive=onedrive)
     delivery = DeliveryService(runner, service.builder_for, email)
     worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery, app.config["AUTHZ"]))
 
@@ -134,6 +136,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     app.config["RUN_LOG_REPO"] = run_log
     app.config["JOB_WORKER"] = worker
     app.config["SHAREPOINT_SERVICE"] = sharepoint
+    app.config["ONEDRIVE_SERVICE"] = onedrive
     app.config["DELIVERY_SERVICE"] = delivery
     app.config["SCHEDULE_RUNNER"] = schedule_runner
 
@@ -250,7 +253,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             "nav": nav,
             "user": user,
             "theme": theme or "light",
-            # Beta is reports-only: never show dashboard/schedules tabs.
+            # Beta hides dashboard; schedules are enabled (grill 2026-08-12).
             "dashboard_enabled": False if cfg.is_beta else dashboard_enabled,
             "order_entry_enabled": False if cfg.is_beta else order_entry_enabled,
             "test_site_enabled": test_site_enabled,
@@ -278,13 +281,14 @@ def _register_blueprints(app: Flask, cfg: Config) -> None:
     app.register_blueprint(settings_bp)
     app.register_blueprint(admin_bp)
 
-    # Beta is reports-only (grill): no dashboard / schedules surface.
+    from web.blueprints.schedules import schedules_bp
+
+    app.register_blueprint(schedules_bp)
+    # Beta is reports + schedules; dashboard stays Live-only.
     if not cfg.is_beta:
         from web.blueprints.dashboard import dashboard_bp
-        from web.blueprints.schedules import schedules_bp
 
         app.register_blueprint(dashboard_bp)
-        app.register_blueprint(schedules_bp)
 
 
 def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
@@ -375,9 +379,8 @@ def bootstrap_background(app: Flask) -> None:
             worker.start()
         if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
             _cancel_pending_dashboard_refreshes(app, db)
-        # Beta is reports-only: no schedule cron (Live owns schedules).
-        if not getattr(app.config["APP_CONFIG"], "is_beta", False):
-            _start_scheduler(app, db)
+        # Schedule cron on Live and Beta (each mount has its own precious DB).
+        _start_scheduler(app, db)
     else:
         app.logger.info("v3 background ownership held by another worker; skipping (pid=%s)", os.getpid())
 

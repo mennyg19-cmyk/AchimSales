@@ -38,7 +38,11 @@ class DeliveryService:
                         builder_version: int, params: dict, layout: dict,
                         recipients: str, subject: str, report_name: str,
                         sharepoint_path: str = "", body_text: str = "",
-                        filename_template: str = "") -> DeliveryOutcome:
+                        filename_template: str = "",
+                        onedrive_user: str = "",
+                        cc_raw: str = "", bcc_raw: str = "",
+                        email_on_empty: bool = True,
+                        empty_recipients_override: str | None = None) -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
         outcome = self.runner.run(
             report_key=report_key, identity=identity,
@@ -46,14 +50,31 @@ class DeliveryService:
             params=params or {}, builder=builder, force_refresh=True,
         )
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
+        rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
+        if rows == 0 and not email_on_empty:
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=True,
+                    error="No data — email/folder delivery skipped (no-data checkbox off).",
+                ),
+                row_count=0,
+            )
         xlsx = build_workbook(payload, layout)
         filename = resolve_filename_template(
             filename_template, report_name=report_name, params=params or {},
         )
+        to = recipients
+        cc = cc_raw
+        bcc = bcc_raw
+        if rows == 0 and empty_recipients_override:
+            to = empty_recipients_override
+            cc = ""
+            bcc = ""
         result = self.email.deliver(
-            subject=subject or report_name, recipients_raw=recipients, body_text=body_text,
+            subject=subject or report_name, recipients_raw=to, body_text=body_text,
             report_name=report_name, filename=filename, xlsx_bytes=xlsx,
             sharepoint_path=sharepoint_path or None,
+            onedrive_user=(onedrive_user or "").strip() or None,
+            cc_raw=cc or "", bcc_raw=bcc or "",
         )
-        rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
         return DeliveryOutcome(result=result, row_count=rows)

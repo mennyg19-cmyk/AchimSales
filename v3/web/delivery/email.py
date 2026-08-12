@@ -21,6 +21,7 @@ from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
 from web.delivery.graph_mail import GraphMailError, GraphMailer
 from web.delivery.sharepoint import SharePointService
+from web.delivery.onedrive import OneDriveService
 
 log = logging.getLogger(__name__)
 
@@ -55,10 +56,11 @@ class DeliveryResult:
 
 class EmailService:
     def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService,
-                 graph: GraphMailer | None = None):
+                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None):
         self.cfg = cfg
         self.outbox = outbox
         self.sharepoint = sharepoint
+        self.onedrive = onedrive
         self._graph = graph
 
     def _graph_mailer(self) -> GraphMailer | None:
@@ -71,60 +73,72 @@ class EmailService:
 
     def deliver(self, *, subject: str, recipients_raw: str, body_text: str,
                 report_name: str, filename: str, xlsx_bytes: bytes,
-                sharepoint_path: str | None = None) -> DeliveryResult:
+                sharepoint_path: str | None = None,
+                onedrive_user: str | None = None,
+                cc_raw: str = "", bcc_raw: str = "") -> DeliveryResult:
         recipients = split_recipients(recipients_raw)
-        if not recipients and not sharepoint_path:
+        cc = split_recipients(cc_raw)
+        bcc = split_recipients(bcc_raw)
+        folder_path = (sharepoint_path or "").strip() or None
+        if not recipients and not folder_path:
             return DeliveryResult(ok=False, error="No valid recipients.")
 
-        msg = self._compose(subject, recipients, body_text, report_name, filename, xlsx_bytes)
+        msg = self._compose(subject, recipients, body_text, report_name, filename, xlsx_bytes,
+                            cc=cc, bcc=bcc)
         eml_name = self._write_eml(msg, report_name)
         body = body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n"
 
         sent = False
         channel = ""
-        if recipients:
+        if recipients or cc or bcc:
             graph = self._graph_mailer()
             if graph is not None:
                 try:
                     graph.send(
-                        sender=self.cfg.email_from, to=recipients,
+                        sender=self.cfg.email_from, to=recipients or [self.cfg.email_from],
                         subject=subject or report_name, body_text=body,
-                        filename=filename, xlsx_bytes=xlsx_bytes,
+                        filename=filename, xlsx_bytes=xlsx_bytes, cc=cc or None, bcc=bcc or None,
                     )
                     sent = True
                     channel = "graph"
                 except GraphMailError as exc:
                     log.exception("Graph send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        channel="", sp_path=sharepoint_path,
+                                        channel="", sp_path=folder_path,
                                         error=f"Graph failed: {exc}")
             elif self.cfg.smtp_host:
                 try:
-                    self._smtp_send(msg, recipients)
+                    self._smtp_send(msg, recipients + cc + bcc)
                     sent = True
                     channel = "smtp"
                 except Exception as exc:  # noqa: BLE001 - record, never crash the run
                     log.exception("SMTP send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        channel="", sp_path=sharepoint_path,
+                                        channel="", sp_path=folder_path,
                                         error=f"SMTP failed: {exc}")
             else:
                 channel = "outbox"
 
-        sp_saved, sp_url, sp_err = self._maybe_sharepoint(sharepoint_path, filename, xlsx_bytes)
+        sp_saved, sp_url, sp_err = self._maybe_folder(
+            folder_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
 
         result = self._record(subject, recipients, filename, eml_name, sent=sent,
-                              channel=channel, sp_path=sharepoint_path, sp_saved=sp_saved,
+                              channel=channel, sp_path=folder_path, sp_saved=sp_saved,
                               sp_url=sp_url, sp_error=sp_err)
         return result
 
     # -- internals ----------------------------------------------------------
 
-    def _compose(self, subject, recipients, body_text, report_name, filename, xlsx_bytes):
+    def _compose(self, subject, recipients, body_text, report_name, filename, xlsx_bytes,
+                 cc=None, bcc=None):
         msg = EmailMessage()
         msg["Subject"] = subject or report_name
         msg["From"] = self.cfg.email_from
         msg["To"] = ", ".join(recipients) or self.cfg.email_from
+        if cc:
+            msg["Cc"] = ", ".join(cc)
+        if bcc:
+            msg["Bcc"] = ", ".join(bcc)
         msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
         msg.set_content(body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n")
         msg.add_attachment(xlsx_bytes, maintype="application", subtype=_XLSX_MIME, filename=filename)
@@ -149,14 +163,19 @@ class EmailService:
                 s.login(self.cfg.smtp_user, self.cfg.smtp_password)
             s.send_message(msg, from_addr=self.cfg.email_from, to_addrs=recipients)
 
-    def _maybe_sharepoint(self, path, filename, xlsx_bytes):
+    def _maybe_folder(self, path, filename, xlsx_bytes, *, onedrive_user: str | None):
         if not path:
             return False, None, None
         try:
-            res = self.sharepoint.upload_file(path, filename, xlsx_bytes)
+            if onedrive_user:
+                if self.onedrive is None:
+                    raise RuntimeError("OneDrive service is not configured")
+                res = self.onedrive.upload_file(onedrive_user, path, filename, xlsx_bytes)
+            else:
+                res = self.sharepoint.upload_file(path, filename, xlsx_bytes)
             return True, res.get("webUrl"), None
         except Exception as exc:  # noqa: BLE001
-            log.exception("SharePoint upload failed")
+            log.exception("%s upload failed", "OneDrive" if onedrive_user else "SharePoint")
             return False, None, str(exc)
 
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
