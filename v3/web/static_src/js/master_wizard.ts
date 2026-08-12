@@ -117,7 +117,10 @@ function masterCadence(form: HTMLFormElement): { ok: boolean; cadence?: any; err
     if (!days.length) return { ok: false, error: "Pick at least one day of the week." };
     cadence.weekdays = days;
   } else if (freq === "monthly") {
-    cadence.monthday = Number((form.elements.namedItem("monthday") as HTMLSelectElement).value) || 1;
+    const days = [...form.querySelectorAll<HTMLInputElement>('input[name="monthday"]:checked')]
+      .map((c) => Number(c.value));
+    if (!days.length) return { ok: false, error: "Pick at least one day of the month." };
+    cadence.monthdays = days;
   }
   return { ok: true, cadence };
 }
@@ -193,8 +196,11 @@ function fillReview(form: HTMLFormElement): void {
   let when = "Every day";
   if (freq === "weekly") when = "Weekly on " + weekdayLabels(cad.cadence.weekdays || []);
   if (freq === "monthly") {
-    const md = cad.cadence.monthday;
-    when = md === -1 ? "Monthly on the last day" : `Monthly on day ${md}`;
+    const days = Array.isArray(cad.cadence.monthdays) && cad.cadence.monthdays.length
+      ? cad.cadence.monthdays
+      : [cad.cadence.monthday ?? 1];
+    const labels = days.map((d: number) => (d === -1 ? "last day" : `day ${d}`));
+    when = "Monthly on " + labels.join(", ");
   }
   when += ` at ${cad.cadence?.time || "08:00"} Eastern`;
 
@@ -504,19 +510,21 @@ function clearMultiFilters(): void {
 }
 
 function showStep(step: number): void {
+  const root = wizardRoot();
+  if (!root) return;
   wizardStep = step;
-  document.querySelectorAll<HTMLElement>(".ms-pane").forEach((pane) => {
+  root.querySelectorAll<HTMLElement>(".ms-pane").forEach((pane) => {
     const n = Number(pane.getAttribute("data-pane"));
     pane.hidden = n !== step;
   });
-  document.querySelectorAll<HTMLElement>(".ms-step").forEach((el) => {
+  root.querySelectorAll<HTMLElement>(".ms-step").forEach((el) => {
     const n = Number(el.getAttribute("data-step"));
     el.classList.toggle("is-active", n === step);
     el.classList.toggle("is-done", n < step);
     if (n === step) el.setAttribute("aria-current", "step");
     else el.removeAttribute("aria-current");
   });
-  const pane = document.querySelector<HTMLElement>(`.ms-pane[data-pane="${step}"]`);
+  const pane = root.querySelector<HTMLElement>(`.ms-pane[data-pane="${step}"]`);
   pane?.querySelector<HTMLElement>(".ms-pane-title")?.focus({ preventScroll: true });
   const back = document.getElementById("msBackBtn");
   const next = document.getElementById("msNextBtn");
@@ -618,9 +626,12 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   form.querySelectorAll<HTMLInputElement>('input[name="weekday"]').forEach((c) => {
     c.checked = Array.isArray(cad.weekdays) && cad.weekdays.includes(Number(c.value));
   });
-  if (cad.monthday != null) {
-    (form.elements.namedItem("monthday") as HTMLSelectElement).value = String(cad.monthday);
-  }
+  const monthdays = Array.isArray(cad.monthdays) && cad.monthdays.length
+    ? cad.monthdays.map(Number)
+    : (cad.monthday != null ? [Number(cad.monthday)] : []);
+  form.querySelectorAll<HTMLInputElement>('input[name="monthday"]').forEach((c) => {
+    c.checked = monthdays.includes(Number(c.value));
+  });
 
   (form.elements.namedItem("period") as HTMLSelectElement).value = params.period || "";
   setMultiSelected(

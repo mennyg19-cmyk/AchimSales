@@ -73,20 +73,25 @@
 
             <div class="ms-field ms-field-block" id="mWeekdays" hidden>
                 <span>Which days?</span>
-                <div class="sched-weekdays">
+                <div class="sched-day-grid" role="group" aria-label="Weekdays">
                     {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
-                    <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
+                    <label class="sched-day-chip"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
                     {% endfor %}
                 </div>
             </div>
 
-            <label class="ms-field ms-field-block" id="mMonthday" hidden>
-                <span>Which day of the month?</span>
-                <select name="monthday">
-                    {% for d in range(1, 29) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-                    <option value="-1">Last day of the month</option>
-                </select>
-            </label>
+            <div class="ms-field ms-field-block" id="mMonthday" hidden>
+                <span>Which days of the month?</span>
+                <div class="sched-day-grid sched-month-grid" role="group" aria-label="Days of month">
+                    {% for d in range(1, 29) %}
+                    <label class="sched-day-chip"><input type="checkbox" name="monthday" value="{{ d }}"> {{ d }}</label>
+                    {% endfor %}
+                    <label class="sched-day-chip sched-day-chip-wide">
+                        <input type="checkbox" name="monthday" value="-1"> Last day
+                    </label>
+                </div>
+                <span class="ms-field-hint">Tap one or more. Days 1–28 and last day only.</span>
+            </div>
 
             <label class="ms-field ms-field-block">
                 <span>What time? (Eastern time)</span>

@@ -1,7 +1,7 @@
 // Schedules management pages (personal + master).
-// Master create/edit is a 5-step wizard aimed at non-technical admins.
+// Personal create uses the same inline multi-step wizard chrome as master.
 
-import { jsonHeaders } from "./http";
+import { esc, jsonHeaders } from "./http";
 import { bindMasterWizard } from "./master_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
 
@@ -49,9 +49,9 @@ function bindRowActions(): void {
   });
 }
 
-// --- Personal create wizard (compact overlay) ------------------------------
+// --- Personal create wizard (same chrome as master) ------------------------
 
-const PS_STEPS = 4;
+const PS_STEPS = 5;
 
 interface LookupRow { key: string; name: string; }
 
@@ -66,7 +66,7 @@ function psRoot(): HTMLElement | null {
   return document.getElementById("psForm");
 }
 
-function psForm(): HTMLFormElement | null {
+function psFormEl(): HTMLFormElement | null {
   return document.getElementById("psCreateForm") as HTMLFormElement | null;
 }
 
@@ -75,7 +75,8 @@ function psMsg(text: string, isError: boolean): void {
   if (!el) return;
   el.textContent = text;
   el.hidden = !text;
-  el.className = "modal-msg" + (isError ? " modal-msg-error" : "");
+  el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
+  el.setAttribute("role", isError ? "alert" : "status");
 }
 
 function psReportFilters(): Record<string, string[]> {
@@ -86,13 +87,24 @@ function psReportFilters(): Record<string, string[]> {
   }
 }
 
+function psReportKey(form: HTMLFormElement): string {
+  return form.querySelector<HTMLInputElement>('input[name="report_key"]:checked')?.value || "";
+}
+
+function psReportTitle(form: HTMLFormElement): string {
+  const checked = form.querySelector<HTMLInputElement>('input[name="report_key"]:checked');
+  const card = checked?.closest(".ms-report-card");
+  return card?.querySelector(".ms-report-name")?.textContent?.trim() || psReportKey(form);
+}
+
 function multiValues(sel: HTMLSelectElement | null): string[] {
   if (!sel) return [];
   return [...sel.selectedOptions].map((o) => o.value).filter(Boolean);
 }
 
 function syncPsCadence(): void {
-  const freq = (document.querySelector<HTMLInputElement>('#psCreateForm input[name="freq"]:checked')?.value) || "daily";
+  const form = psFormEl();
+  const freq = form?.querySelector<HTMLInputElement>('input[name="freq"]:checked')?.value || "daily";
   const wd = document.getElementById("psWeekdays");
   const md = document.getElementById("psMonthday");
   if (wd) wd.hidden = freq !== "weekly";
@@ -100,9 +112,11 @@ function syncPsCadence(): void {
 }
 
 function syncPsParams(): void {
-  const key = (document.getElementById("psReport") as HTMLSelectElement | null)?.value || "";
+  const form = psFormEl();
+  if (!form) return;
+  const key = psReportKey(form);
   const needed = psReportFilters()[key] || [];
-  document.querySelectorAll<HTMLElement>("#psParamsFields [data-param]").forEach((el) => {
+  form.querySelectorAll<HTMLElement>("#psParamsFields [data-param]").forEach((el) => {
     const param = el.getAttribute("data-param") || "";
     el.hidden = !needed.includes(param);
   });
@@ -117,47 +131,65 @@ function syncPsParams(): void {
 }
 
 function setPsStep(step: number): void {
+  const root = psRoot();
+  if (!root) return;
   psStep = Math.max(1, Math.min(PS_STEPS, step));
-  document.querySelectorAll<HTMLElement>("#psCreateForm .ms-pane").forEach((pane) => {
+  root.querySelectorAll<HTMLElement>(".ms-pane").forEach((pane) => {
     pane.hidden = Number(pane.getAttribute("data-pane")) !== psStep;
   });
-  document.querySelectorAll<HTMLElement>(".ps-steps .ms-step").forEach((el) => {
+  root.querySelectorAll<HTMLElement>(".ms-step").forEach((el) => {
     const n = Number(el.getAttribute("data-step"));
     el.classList.toggle("is-active", n === psStep);
     el.classList.toggle("is-done", n < psStep);
+    if (n === psStep) el.setAttribute("aria-current", "step");
+    else el.removeAttribute("aria-current");
   });
+  const pane = root.querySelector<HTMLElement>(`.ms-pane[data-pane="${psStep}"]`);
+  pane?.querySelector<HTMLElement>(".ms-pane-title")?.focus({ preventScroll: true });
   const back = document.getElementById("psBackBtn") as HTMLButtonElement | null;
   const next = document.getElementById("psNextBtn") as HTMLButtonElement | null;
   const save = document.getElementById("psSaveBtn") as HTMLButtonElement | null;
-  if (back) back.hidden = psStep === 1;
-  if (next) next.hidden = psStep === PS_STEPS;
-  if (save) save.hidden = psStep !== PS_STEPS;
+  if (back) back.hidden = psStep <= 1;
+  if (next) next.hidden = psStep >= PS_STEPS;
+  if (save) save.hidden = psStep < PS_STEPS;
+  psMsg("", false);
   if (psStep === 2) syncPsCadence();
   if (psStep === 3) syncPsParams();
   if (psStep === 4) updatePsFilenamePreview();
-  psMsg("", false);
+  if (psStep === 5) fillPsReview();
 }
 
 function validatePsStep(step: number): string | null {
+  const form = psFormEl();
+  if (!form) return "Form missing.";
   if (step === 1) {
-    const key = (document.getElementById("psReport") as HTMLSelectElement).value;
-    return key ? null : "Pick a report.";
+    return psReportKey(form) ? null : "Pick which report this schedule should send.";
   }
   if (step === 2) {
-    const freq = document.querySelector<HTMLInputElement>('#psCreateForm input[name="freq"]:checked')?.value || "daily";
+    const freq = form.querySelector<HTMLInputElement>('input[name="freq"]:checked')?.value || "daily";
     if (freq === "weekly") {
-      const days = document.querySelectorAll('#psCreateForm input[name="weekday"]:checked');
-      if (!days.length) return "Pick at least one weekday.";
+      if (!form.querySelectorAll('input[name="weekday"]:checked').length) {
+        return "Pick at least one day of the week.";
+      }
     }
     if (freq === "monthly") {
-      const days = document.querySelectorAll('#psCreateForm input[name="monthday"]:checked');
-      if (!days.length) return "Pick at least one day of the month.";
+      if (!form.querySelectorAll('input[name="monthday"]:checked').length) {
+        return "Pick at least one day of the month.";
+      }
+    }
+  }
+  if (step === 4) {
+    const to = (document.getElementById("psRecipients") as HTMLInputElement).value.trim();
+    const folder = (document.getElementById("psOdSelected")?.textContent || "").trim();
+    // folder path tracked by od picker; validate on save with od.path()
+    if (!to && !folder) {
+      // still allow next if they might pick OD — checked again on save with od.path()
     }
   }
   return null;
 }
 
-function makeOdPicker(): { init: () => Promise<void>; path: () => string | null } {
+function makeOdPicker(): { init: () => Promise<void>; path: () => string | null; clear: () => void } {
   let cur = "";
   let selected: string | null = null;
   const root = psRoot();
@@ -237,6 +269,7 @@ function makeOdPicker(): { init: () => Promise<void>; path: () => string | null 
       await load("");
     },
     path: () => selected,
+    clear() { selected = null; },
   };
 }
 
@@ -376,11 +409,11 @@ function renderPsCustomerPills(): void {
 }
 
 async function loadPsCustomers(): Promise<void> {
-  const reportKey = (document.getElementById("psReport") as HTMLSelectElement | null)?.value || "";
+  const form = psFormEl();
+  const reportKey = form ? psReportKey(form) : "";
   if (!reportKey) return;
   const salesmen = multiValues(document.getElementById("psSalesman") as HTMLSelectElement | null);
   let url = lookupUrl("data-customers-url-tpl", reportKey);
-  // API takes one salesman; for several, load all then filter client-side.
   if (salesmen.length === 1) url += `?salesman=${encodeURIComponent(salesmen[0])}`;
   const data = await getJSON<{ customers: Array<LookupRow & { salesman?: string }> }>(url);
   let rows = data?.customers || [];
@@ -403,14 +436,17 @@ async function loadPsCustomers(): Promise<void> {
 }
 
 async function loadPsSalesmen(): Promise<void> {
-  const reportKey = (document.getElementById("psReport") as HTMLSelectElement | null)?.value || "";
+  const form = psFormEl();
+  const reportKey = form ? psReportKey(form) : "";
   if (!reportKey) return;
   const data = await getJSON<{ salesmen: LookupRow[] }>(lookupUrl("data-salesmen-url-tpl", reportKey));
   fillSalesmanSelect(data?.salesmen || []);
 }
 
 async function ensurePsLookups(): Promise<void> {
-  const key = (document.getElementById("psReport") as HTMLSelectElement | null)?.value || "";
+  const form = psFormEl();
+  if (!form) return;
+  const key = psReportKey(form);
   const needed = psReportFilters()[key] || [];
   if (!needed.includes("salesman") && !needed.includes("customers")) return;
   ensurePsCustomerHandlers();
@@ -432,16 +468,16 @@ async function ensurePsLookups(): Promise<void> {
 }
 
 function updatePsFilenamePreview(): void {
+  const form = psFormEl();
   const input = document.getElementById("psFilename") as HTMLInputElement | null;
   const prev = document.getElementById("psFilenamePreview");
-  if (!input || !prev) return;
+  if (!input || !prev || !form) return;
   const now = new Date();
   const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const mons = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const weekdays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
   const pad = (n: number) => String(n).padStart(2, "0");
-  const report = ((document.getElementById("psReport") as HTMLSelectElement | null)?.value || "Report")
-    .replace(/[^A-Za-z0-9_-]+/g, "_");
+  const report = psReportKey(form).replace(/[^A-Za-z0-9_-]+/g, "_") || "Report";
   const map: Record<string, string> = {
     "{YYYY}": String(now.getFullYear()),
     "{YY}": String(now.getFullYear()).slice(-2),
@@ -464,7 +500,8 @@ function updatePsFilenamePreview(): void {
 }
 
 function collectPsParams(): Record<string, unknown> {
-  const key = (document.getElementById("psReport") as HTMLSelectElement).value;
+  const form = psFormEl()!;
+  const key = psReportKey(form);
   const needed = psReportFilters()[key] || [];
   const params: Record<string, unknown> = {
     email_cc: (document.getElementById("psCc") as HTMLInputElement).value.trim(),
@@ -495,51 +532,116 @@ function collectPsParams(): Record<string, unknown> {
   return params;
 }
 
+function collectPsCadence(form: HTMLFormElement): { ok: boolean; cadence?: Record<string, unknown>; error?: string } {
+  const freq = form.querySelector<HTMLInputElement>('input[name="freq"]:checked')?.value || "daily";
+  const time = (form.querySelector<HTMLInputElement>('input[name="time"]')?.value) || "08:00";
+  const cadence: Record<string, unknown> = { freq, time };
+  if (freq === "weekly") {
+    const days = [...form.querySelectorAll<HTMLInputElement>('input[name="weekday"]:checked')]
+      .map((c) => Number(c.value));
+    if (!days.length) return { ok: false, error: "Pick at least one day of the week." };
+    cadence.weekdays = days;
+  } else if (freq === "monthly") {
+    const days = [...form.querySelectorAll<HTMLInputElement>('input[name="monthday"]:checked')]
+      .map((c) => Number(c.value));
+    if (!days.length) return { ok: false, error: "Pick at least one day of the month." };
+    cadence.monthdays = days;
+  }
+  return { ok: true, cadence };
+}
+
+function fillPsReview(): void {
+  const form = psFormEl();
+  const review = document.getElementById("psReview");
+  if (!form || !review) return;
+  const cad = collectPsCadence(form);
+  const freq = String(cad.cadence?.freq || "daily");
+  let when = "Every day";
+  if (freq === "weekly") {
+    const names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const days = (cad.cadence?.weekdays as number[] | undefined) || [];
+    when = "Weekly on " + days.map((d) => names[d] || String(d)).join(", ");
+  } else if (freq === "monthly") {
+    const days = (cad.cadence?.monthdays as number[] | undefined) || [];
+    when = "Monthly on " + days.map((d) => (d === -1 ? "last day" : `day ${d}`)).join(", ");
+  }
+  when += ` at ${cad.cadence?.time || "08:00"} Eastern`;
+
+  const params = collectPsParams();
+  const paramBits: string[] = [];
+  if (params.period) paramBits.push(String(params.period).replace(/_/g, " "));
+  if (params.year) paramBits.push(`year ${params.year}`);
+  if (params.status) paramBits.push("status " + (params.status as string[]).join(", "));
+  if (params.salesman) paramBits.push("salesman " + (params.salesman as string[]).join(", "));
+  if (params.customers) paramBits.push("customers " + (params.customers as string[]).join(", "));
+
+  const to = (document.getElementById("psRecipients") as HTMLInputElement).value.trim() || "—";
+  const cc = (document.getElementById("psCc") as HTMLInputElement).value.trim();
+  const bcc = (document.getElementById("psBcc") as HTMLInputElement).value.trim();
+  const od = document.getElementById("psOdSelected")?.textContent?.replace(/^Will save to:\s*/, "") || "—";
+  const fn = (document.getElementById("psFilename") as HTMLInputElement).value.trim()
+    || "{Report}_{YYYY}{MM}{DD}";
+
+  const rows: [string, string][] = [
+    ["Report", psReportTitle(form)],
+    ["When", when],
+    ["Options", paramBits.join(", ") || "defaults"],
+    ["Email To", to],
+  ];
+  if (cc) rows.push(["CC", cc]);
+  if (bcc) rows.push(["BCC", bcc]);
+  rows.push(["OneDrive", od]);
+  rows.push(["Filename", fn]);
+  if (params.email_on_no_data) rows.push(["No data", "email recipients"]);
+  if (params.email_on_no_data_me_only) rows.push(["No data", "email only me"]);
+
+  review.innerHTML = rows.map(([k, v]) =>
+    `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+}
+
 function bindPersonalCreate(): void {
-  const form = psForm();
+  const form = psFormEl();
   const panel = psRoot();
   if (!form || !panel) return;
   const od = makeOdPicker();
 
   const open = () => {
+    form.reset();
     psSelectedCustomers.clear();
     renderPsCustomerPills();
-    (document.getElementById("psReport") as HTMLSelectElement).value = "";
+    fillSalesmanSelect([]);
+    od.clear();
     form.querySelectorAll<HTMLInputElement>('input[name="freq"]').forEach((r, i) => { r.checked = i === 0; });
     form.querySelectorAll<HTMLInputElement>('input[name="weekday"]').forEach((c) => { c.checked = false; });
     form.querySelectorAll<HTMLInputElement>('input[name="monthday"]').forEach((c) => { c.checked = false; });
-    syncPsCadence();
-    (document.getElementById("psRecipients") as HTMLInputElement).value = "";
-    (document.getElementById("psCc") as HTMLInputElement).value = "";
-    (document.getElementById("psBcc") as HTMLInputElement).value = "";
     (document.getElementById("psFilename") as HTMLInputElement).value = "{Report}_{YYYY}{MM}{DD}";
-    (document.getElementById("psNoDataAll") as HTMLInputElement).checked = false;
-    (document.getElementById("psNoDataMe") as HTMLInputElement).checked = false;
-    const status = document.getElementById("psStatus") as HTMLSelectElement | null;
-    if (status) [...status.options].forEach((o) => { o.selected = false; });
-    fillSalesmanSelect([]);
-    psMsg("", false);
+    syncPsCadence();
     setPsStep(1);
     panel.hidden = false;
+    document.getElementById("psEmpty")?.setAttribute("hidden", "");
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
     void od.init();
   };
   const close = () => {
     panel.hidden = true;
     if (psLookupPoll != null) { window.clearInterval(psLookupPoll); psLookupPoll = null; }
+    if (!document.getElementById("schedulesRoot")) {
+      document.getElementById("psEmpty")?.removeAttribute("hidden");
+    }
   };
 
   document.getElementById("psStartBtn")?.addEventListener("click", open);
   document.getElementById("psCancelBtn")?.addEventListener("click", close);
-  document.getElementById("psCloseBtn")?.addEventListener("click", close);
-  panel.addEventListener("click", (e) => { if (e.target === panel) close(); });
   form.querySelectorAll<HTMLInputElement>('input[name="freq"]').forEach((r) => {
     r.addEventListener("change", syncPsCadence);
   });
-  document.getElementById("psReport")?.addEventListener("change", () => {
-    psSelectedCustomers.clear();
-    renderPsCustomerPills();
-    syncPsParams();
-    updatePsFilenamePreview();
+  form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {
+    r.addEventListener("change", () => {
+      psSelectedCustomers.clear();
+      renderPsCustomerPills();
+      syncPsParams();
+      updatePsFilenamePreview();
+    });
   });
   document.getElementById("psSalesman")?.addEventListener("change", () => { void loadPsCustomers(); });
   document.getElementById("psPeriod")?.addEventListener("change", updatePsFilenamePreview);
@@ -558,29 +660,24 @@ function bindPersonalCreate(): void {
   document.getElementById("psNextBtn")?.addEventListener("click", () => {
     const err = validatePsStep(psStep);
     if (err) { psMsg(err, true); return; }
+    if (psStep === 4) {
+      const to = (document.getElementById("psRecipients") as HTMLInputElement).value.trim();
+      if (!to && !od.path()) {
+        psMsg("Add an email address or pick a OneDrive folder.", true);
+        return;
+      }
+    }
     setPsStep(psStep + 1);
   });
 
   document.getElementById("psSaveBtn")?.addEventListener("click", async () => {
-    const reportKey = (document.getElementById("psReport") as HTMLSelectElement).value;
+    const reportKey = psReportKey(form);
     if (!reportKey) { psMsg("Pick a report.", true); setPsStep(1); return; }
-    const freq = form.querySelector<HTMLInputElement>('input[name="freq"]:checked')?.value || "daily";
-    const time = (form.querySelector<HTMLInputElement>('input[name="time"]')?.value) || "08:00";
-    const cadence: Record<string, unknown> = { freq, time };
-    if (freq === "weekly") {
-      const days = [...form.querySelectorAll<HTMLInputElement>('input[name="weekday"]:checked')]
-        .map((c) => Number(c.value));
-      if (!days.length) { psMsg("Pick at least one weekday.", true); setPsStep(2); return; }
-      cadence.weekdays = days;
-    } else if (freq === "monthly") {
-      const days = [...form.querySelectorAll<HTMLInputElement>('input[name="monthday"]:checked')]
-        .map((c) => Number(c.value));
-      if (!days.length) { psMsg("Pick at least one day of the month.", true); setPsStep(2); return; }
-      cadence.monthdays = days;
-    }
+    const cad = collectPsCadence(form);
+    if (!cad.ok || !cad.cadence) { psMsg(cad.error || "Check the schedule timing.", true); setPsStep(2); return; }
     const to = (document.getElementById("psRecipients") as HTMLInputElement).value.trim();
     const folder = od.path() || "";
-    if (!to && !folder) { psMsg("Enter recipients or pick a OneDrive folder.", true); return; }
+    if (!to && !folder) { psMsg("Add an email address or pick a OneDrive folder.", true); setPsStep(4); return; }
 
     const btn = document.getElementById("psSaveBtn") as HTMLButtonElement | null;
     if (btn) btn.disabled = true;
@@ -593,7 +690,7 @@ function bindPersonalCreate(): void {
           report_key: reportKey,
           recipients: to,
           sharepoint_path: folder,
-          cadence,
+          cadence: cad.cadence,
           filename_template: (document.getElementById("psFilename") as HTMLInputElement).value.trim(),
           params: collectPsParams(),
           layout: {},
