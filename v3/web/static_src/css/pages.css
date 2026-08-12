@@ -462,6 +462,23 @@
 .sched-weekdays { display: flex; flex-wrap: wrap; gap: 8px; }
 .sched-day { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text); }
 
+/* Personal schedule create — compact multi-step overlay */
+.ps-modal { max-width: 440px; }
+.ps-steps {
+    list-style: none; display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--border);
+}
+.ps-body { gap: 10px; max-height: min(58vh, 420px); }
+.ps-body .ms-choice { padding: 8px 12px; font-size: 13px; }
+.ps-body .ms-choice-row { margin-bottom: 8px; }
+.ps-body select.ms-multi {
+    appearance: auto; background-image: none; min-height: 110px; cursor: default;
+}
+.ps-foot { flex-wrap: wrap; align-items: center; }
+.ps-foot .modal-msg { flex: 1 1 100%; margin: 0; }
+.fn-tokens { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.fn-preview { font-size: 12px; margin-top: 4px; }
+
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table th, .data-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }

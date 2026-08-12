@@ -60,121 +60,165 @@
     </div>
 </div>
 
-<div id="psForm" class="ms-wizard" hidden
+<div id="psForm" class="modal-overlay ps-overlay" hidden
      data-create-url="{{ url_for('schedules.create_schedule') }}"
      data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
      data-od-status-url="{{ url_for('reports.onedrive_status') }}"
+     data-salesmen-url-tpl="{{ url_for('reports.report_salesmen', report_key='__KEY__') }}"
+     data-customers-url-tpl="{{ url_for('reports.report_customers', report_key='__KEY__') }}"
+     data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
      data-report-filters='{{ personal_report_filters|tojson }}'
      data-csrf="{{ csrf_token() }}">
-    <div class="ms-wizard-head">
-        <h2 class="ms-wizard-title">New personal schedule</h2>
-        <p class="ms-wizard-hint">Sends to your recipients and/or your OneDrive. Layout starts as the report default — use Schedule from a report page to lock in a custom view.</p>
-    </div>
-    <form id="psCreateForm" class="ms-wizard-body" novalidate>
-        <label class="ms-field ms-field-block">
-            <span>Report</span>
-            <select name="report_key" id="psReport" required>
-                <option value="">Pick a report…</option>
-                {% for r in personal_reports %}
-                <option value="{{ r.key }}">{{ r.title }}</option>
-                {% endfor %}
-            </select>
-        </label>
-
-        <div class="ms-choice-row" role="radiogroup" aria-label="How often">
-            <label class="ms-choice"><input type="radio" name="freq" value="daily" checked> Every day</label>
-            <label class="ms-choice"><input type="radio" name="freq" value="weekly"> Every week</label>
-            <label class="ms-choice"><input type="radio" name="freq" value="monthly"> Every month</label>
+    <div class="modal ps-modal" role="dialog" aria-modal="true" aria-labelledby="psTitle">
+        <div class="modal-head">
+            <h2 id="psTitle">New personal schedule</h2>
+            <button type="button" class="modal-close" id="psCloseBtn" aria-label="Close">&times;</button>
         </div>
-        <div class="ms-field ms-field-block" id="psWeekdays" hidden>
-            <span>Which days?</span>
-            <div class="sched-weekdays">
-                {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
-                <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
-                {% endfor %}
-            </div>
-        </div>
-        <label class="ms-field ms-field-block" id="psMonthday" hidden>
-            <span>Day of month</span>
-            <select name="monthday">
-                {% for d in range(1, 29) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-                <option value="-1">Last day of the month</option>
-            </select>
-        </label>
-        <label class="ms-field ms-field-block">
-            <span>Time (Eastern)</span>
-            <input type="time" name="time" value="08:00" required>
-        </label>
+        <ol class="ms-steps ps-steps" aria-label="Steps">
+            <li class="ms-step is-active" data-step="1"><span class="ms-step-num">1</span> Report</li>
+            <li class="ms-step" data-step="2"><span class="ms-step-num">2</span> When</li>
+            <li class="ms-step" data-step="3"><span class="ms-step-num">3</span> Options</li>
+            <li class="ms-step" data-step="4"><span class="ms-step-num">4</span> Delivery</li>
+        </ol>
+        <form id="psCreateForm" class="modal-body ps-body" novalidate>
+            <section class="ms-pane" data-pane="1">
+                <p class="ms-pane-help">Pick which report this schedule sends. Layout starts as the report default.</p>
+                <label class="modal-field">
+                    <span>Report</span>
+                    <select name="report_key" id="psReport" required>
+                        <option value="">Pick a report…</option>
+                        {% for r in personal_reports %}
+                        <option value="{{ r.key }}">{{ r.title }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </section>
 
-        <div id="psParamsFields">
-            <label class="ms-field ms-field-block" data-param="period" hidden>
-                <span>Period</span>
-                <select name="period" id="psPeriod">
-                    {% for value, label in period_options %}
-                    <option value="{{ value }}">{{ label }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <label class="ms-field ms-field-block" data-param="year" hidden>
-                <span>Year</span>
-                <select name="year" id="psYear">
-                    <option value="">Current year</option>
-                    {% for y in year_options %}
-                    <option value="{{ y }}">{{ y }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <label class="ms-field ms-field-block" data-param="status" hidden>
-                <span>Status (optional)</span>
-                <input type="text" name="status" id="psStatus" placeholder="e.g. Open order">
-            </label>
-            <label class="ms-field ms-field-block" data-param="customers" hidden>
-                <span>Customers (optional)</span>
-                <input type="text" name="customers" id="psCustomers" placeholder="Account numbers, comma-separated">
-            </label>
-            <label class="ms-field ms-field-block" data-param="salesman" hidden>
-                <span>Salesman (optional)</span>
-                <input type="text" name="salesman" id="psSalesman" placeholder="Leave blank for your scoped book">
-            </label>
-        </div>
+            <section class="ms-pane" data-pane="2" hidden>
+                <div class="ms-choice-row" role="radiogroup" aria-label="How often">
+                    <label class="ms-choice"><input type="radio" name="freq" value="daily" checked> Daily</label>
+                    <label class="ms-choice"><input type="radio" name="freq" value="weekly"> Weekly</label>
+                    <label class="ms-choice"><input type="radio" name="freq" value="monthly"> Monthly</label>
+                </div>
+                <div class="modal-field" id="psWeekdays" hidden>
+                    <span>Which days?</span>
+                    <div class="sched-weekdays">
+                        {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+                        <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <label class="modal-field" id="psMonthday" hidden>
+                    <span>Day of month</span>
+                    <select name="monthday">
+                        {% for d in range(1, 29) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+                        <option value="-1">Last day of the month</option>
+                    </select>
+                </label>
+                <label class="modal-field">
+                    <span>Time (Eastern)</span>
+                    <input type="time" name="time" value="08:00" required>
+                </label>
+            </section>
 
-        <label class="ms-field ms-field-block">
-            <span>Email To</span>
-            <input type="text" name="recipients" id="psRecipients" placeholder="you@achimonline.com">
-        </label>
-        <label class="ms-field ms-field-block">
-            <span>CC (optional)</span>
-            <input type="text" name="email_cc" id="psCc">
-        </label>
-        <label class="ms-field ms-field-block">
-            <span>BCC (optional)</span>
-            <input type="text" name="email_bcc" id="psBcc">
-        </label>
-        <label class="ms-field ms-field-block">
-            <span>Filename template</span>
-            <input type="text" name="filename_template" id="psFilename" value="{Report}_{YYYY}{MM}{DD}">
-        </label>
-        <div class="ms-field ms-field-block" id="psOdSection" hidden>
-            <span>Also save to my OneDrive <em id="psOdStatus" class="lookup-status"></em></span>
-            <div id="psOdBreadcrumb" class="sp-breadcrumb"></div>
-            <div id="psOdPicker" class="sp-picker"></div>
-            <div id="psOdSelected" class="sp-selected"></div>
-        </div>
-        <label class="flag-row">
-            <input type="checkbox" name="email_on_no_data" id="psNoDataAll">
-            <span>Email recipients when there is no data</span>
-        </label>
-        <label class="flag-row">
-            <input type="checkbox" name="email_on_no_data_me_only" id="psNoDataMe">
-            <span>Email only me when there is no data</span>
-        </label>
+            <section class="ms-pane" data-pane="3" hidden>
+                <p class="ms-pane-help" id="psParamsIntro">Leave blank for “everything” in that filter.</p>
+                <div id="psParamsNone" class="ms-params-none" hidden>
+                    <p>This report needs no extra options. Tap Next.</p>
+                </div>
+                <div id="psParamsFields">
+                    <label class="modal-field" data-param="period" hidden>
+                        <span>Period</span>
+                        <select name="period" id="psPeriod">
+                            {% for value, label in period_options %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="modal-field" data-param="year" hidden>
+                        <span>Year</span>
+                        <select name="year" id="psYear">
+                            <option value="">Current year</option>
+                            {% for y in year_options %}
+                            <option value="{{ y }}">{{ y }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="modal-field" data-param="status" hidden>
+                        <span>Status (optional — pick one or more)</span>
+                        <select name="status" id="psStatus" class="ms-multi" multiple size="5" aria-label="Order statuses">
+                            {% for value, label in status_options %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <span class="ms-field-hint">Hold Ctrl (Windows) or ⌘ (Mac) to pick several.</span>
+                    </label>
+                    <label class="modal-field" data-param="salesman" hidden>
+                        <span>Salesman (optional — pick one or more)</span>
+                        <select name="salesman" id="psSalesman" class="ms-multi" multiple size="6" aria-label="Salesmen">
+                        </select>
+                        <span class="ms-field-hint" id="psSalesmanHint">Leave empty for your scoped book.</span>
+                    </label>
+                    <div class="modal-field" data-param="customers" hidden>
+                        <span>Customers (optional)</span>
+                        <div id="psCustomerPicker" class="customer-picker" data-placeholder="Search customers…"></div>
+                        <div id="psCustomerPills" class="customer-pills" aria-live="polite"></div>
+                        <span class="ms-field-hint" id="psCustomerHint">Leave empty for all customers.</span>
+                    </div>
+                </div>
+            </section>
 
-        <div class="ms-wizard-foot" style="margin-top:14px;">
+            <section class="ms-pane" data-pane="4" hidden>
+                <label class="modal-field">
+                    <span>Email To</span>
+                    <input type="text" name="recipients" id="psRecipients" placeholder="you@achimonline.com">
+                </label>
+                <label class="modal-field">
+                    <span>CC (optional)</span>
+                    <input type="text" name="email_cc" id="psCc">
+                </label>
+                <label class="modal-field">
+                    <span>BCC (optional)</span>
+                    <input type="text" name="email_bcc" id="psBcc">
+                </label>
+                <label class="modal-field">
+                    <span>Filename template</span>
+                    <input type="text" name="filename_template" id="psFilename" value="{Report}_{YYYY}{MM}{DD}">
+                    <span class="fn-tokens" role="group" aria-label="Filename tokens">
+                        <button type="button" class="btn btn-sm btn-outline js-ps-fn-token" data-token="{MM}">MM</button>
+                        <button type="button" class="btn btn-sm btn-outline js-ps-fn-token" data-token="{Month}">Month</button>
+                        <button type="button" class="btn btn-sm btn-outline js-ps-fn-token" data-token="{YYYY}">YYYY</button>
+                        <button type="button" class="btn btn-sm btn-outline js-ps-fn-token" data-token="{Report}">Report</button>
+                        <button type="button" class="btn btn-sm btn-outline js-ps-fn-token" data-token="{Period}">Period</button>
+                        <button type="button" class="btn btn-sm btn-outline js-ps-fn-token" data-token="{DD}">DD</button>
+                        <button type="button" class="btn btn-sm btn-outline js-ps-fn-token" data-token="{Weekday}">Weekday</button>
+                    </span>
+                    <span class="muted fn-preview">Preview: <strong id="psFilenamePreview"></strong></span>
+                </label>
+                <div class="modal-field" id="psOdSection" hidden>
+                    <span>Also save to my OneDrive <em id="psOdStatus" class="lookup-status"></em></span>
+                    <div id="psOdBreadcrumb" class="sp-breadcrumb"></div>
+                    <div id="psOdPicker" class="sp-picker"></div>
+                    <div id="psOdSelected" class="sp-selected"></div>
+                </div>
+                <label class="flag-row">
+                    <input type="checkbox" name="email_on_no_data" id="psNoDataAll">
+                    <span>Email recipients when there is no data</span>
+                </label>
+                <label class="flag-row">
+                    <input type="checkbox" name="email_on_no_data_me_only" id="psNoDataMe">
+                    <span>Email only me when there is no data</span>
+                </label>
+            </section>
+        </form>
+        <div class="modal-foot ps-foot">
             <button type="button" class="btn btn-outline" id="psCancelBtn">Cancel</button>
-            <button type="submit" class="btn btn-primary" id="psSaveBtn">Save schedule</button>
-            <span id="psMsg" class="ms-msg" role="status" aria-live="polite" hidden></span>
+            <button type="button" class="btn btn-outline" id="psBackBtn" hidden>Back</button>
+            <button type="button" class="btn btn-primary" id="psNextBtn">Next</button>
+            <button type="button" class="btn btn-primary" id="psSaveBtn" hidden>Save schedule</button>
+            <span id="psMsg" class="modal-msg" role="status" aria-live="polite" hidden></span>
         </div>
-    </form>
+    </div>
 </div>
 
 {% if schedules %}

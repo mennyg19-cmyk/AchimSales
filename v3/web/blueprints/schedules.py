@@ -156,6 +156,7 @@ def schedules_page():
         "personal_reports": personal_reports,
         "personal_report_filters": {k: list(v) for k, v in _MASTER_REPORT_FILTERS.items()},
         "period_options": _PERIOD_OPTIONS,
+        "status_options": [(v, label) for v, label in _STATUS_OPTIONS if v],
         "year_options": list(range(year_now, year_now - 5, -1)),
     }
     if is_admin:
