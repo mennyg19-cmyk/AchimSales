@@ -1,0 +1,1 @@
+{"properties":{"runbook":{"name":"universal_runbook"},"parameters":{"report_name":"invoiced","extra_args":"--period last_month --force"}}}

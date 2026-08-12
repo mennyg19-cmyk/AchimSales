@@ -247,6 +247,9 @@ def test_commissions_monthly_pivot_math():
     assert apr["net_commission"] == 900.0
     assert apr["commission"] == 45.0                # 900 * 0.05
     assert sm["ytd"]["total_payable"] == 45.0
+    assert sm["salesman_number"]
+    assert len(sm["monthly"]) == 4  # end_month=4 → no future months
+    assert sm["monthly"][-1]["month"] == 4
 
 
 def test_adapter_reads_commission_rate_as_fraction():

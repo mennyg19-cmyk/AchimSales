@@ -1,0 +1,969 @@
+side,sales_order,line_number,item,report_order_date,header_order_creation,line_sys_created,header_in_july,line_in_july,dates_differ,bucket,customer_account,customer_name,status,tz_edge
+live_only,ORD00866999,1,MSG227WD06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867000,1,OMPN84ER06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867001,1,GMVL14TP06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867002,1,PAPN84BU12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867003,1,569-0-PK12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867004,1,BCNAPKSG36,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867004,2,BCNAPKTP36,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867005,1,MSG2324AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867005,2,MSG2324AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867005,3,MSG2324AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867005,4,MSG2324AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867006,1,505-0-PK48,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867006,2,505-0-PK48,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867007,1,DRTU63WT06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867007,2,DRTU63WT06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867008,1,WRM1830DI6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867009,1,MSG231GY06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867010,1,MSG228AL06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867010,2,MSG234AL06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867011,1,STSQP70220,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867012,1,MSG259AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867013,1,MSG247AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867014,1,RTFTV60120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867015,1,MFG230GY02,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867016,1,DSG223WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867016,2,DSG248WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867017,1,TQPN84MS06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867018,1,PAPN84NY12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867019,1,CAPRI3P410,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867020,1,MSG2297WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867021,1,LUG229MH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867022,1,MSG226GY06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867023,1,MSG2584BK4,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867024,1,MSG243AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867025,1,260-0-PK24,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867026,1,MSG2274BK6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867026,2,MSG2314BK6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867027,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867028,1,BCVL14BU12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867028,2,BCTU63BU12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867029,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867030,1,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867030,2,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867030,3,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867030,4,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867030,5,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867030,6,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867030,7,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867030,8,FTVWD23120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867031,1,MSG228BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867032,1,DSG231MH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867033,1,RTFTV60820,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867034,1,RDCFMGD664,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,8015,WAYFAIR LLC (DS),Invoiced,yes
+live_only,ORD00867035,1,CITV24TS12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867036,1,OMSF144BL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867037,1,COM1830VN6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867038,1,LUG232WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867039,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867040,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867041,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867042,1,260-0-PK24,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867043,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867044,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867045,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867046,1,MSG252WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867047,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867048,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867049,1,STT1M23145,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867050,1,MSG2237WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867050,2,MSG2237WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867051,1,TRL376WH12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867051,2,TRL376WH12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867052,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867053,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867053,2,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867054,1,MSG227GY06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867055,1,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867056,1,MSG226WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867057,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867058,1,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867059,1,MSG2357WD6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867060,1,MSG2337AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867061,1,MSG228BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867062,1,MSG235BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867063,1,MSG2452WH4,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867064,1,MSG2704WH4,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867064,2,MSG2247WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867065,1,MSG2584BK4,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867066,1,MSG2274WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867067,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867068,1,MSG252WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867069,1,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867070,1,STT1M10320,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867071,1,VRCO36CS06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867072,1,MSG2327AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867073,1,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867073,2,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867073,3,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867073,4,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867074,1,MSG246AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867075,1,ANFTMBNY12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867076,1,MSG239BK04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867077,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867078,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867079,1,MSG242WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867080,1,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867081,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867081,2,MSG2467WH4,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867082,1,HPTL36SN12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867083,1,225-0-PK24,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867084,1,SOCO48WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867085,1,MSG225BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867085,2,MSG225BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867086,1,WIPN84WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,8015,WAYFAIR LLC (DS),Invoiced,yes
+live_only,ORD00867087,1,DRVL14NW12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,8015,WAYFAIR LLC (DS),Invoiced,yes
+live_only,ORD00867088,1,WRM1830DA6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867089,1,TYPN63TN06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867090,1,COM1830DS6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867091,1,LLTV24CC12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867092,1,COM1830SR6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867093,1,WRM1830IW6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867094,1,WRM1830DA6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867095,1,WRM1830TU6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867096,1,MSG247AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867097,1,DSG234BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867098,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867099,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867100,1,DSG223BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867101,1,TRS376WH12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867102,1,MSG222WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867102,2,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867102,3,MSG231WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867103,1,MSG227WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867104,1,PLZFT80520,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867105,1,MSG2344WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867106,1,MSG246AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867107,1,260-0-PK24,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867108,1,MSG242AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867109,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867110,1,VFP2.0RW10,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867111,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867112,1,MSG247WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867113,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867114,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867115,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867116,1,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867117,1,MSG2584WH4,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9091,OJ COMMERCE,Invoiced,yes
+live_only,ORD00867118,1,DSG233WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867119,1,MJCS36ML12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867120,1,STP2.0BW10,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867121,1,MSG243WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867122,1,MSG235WD06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867123,1,FTVMA45745,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,8015,WAYFAIR LLC (DS),Invoiced,yes
+live_only,ORD00867124,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867125,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867126,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867127,1,MSG238WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867128,1,MSG246AL04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867129,1,HVVL14BL12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+live_only,ORD00867130,1,STT1M40220,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,8015,WAYFAIR LLC (DS),Invoiced,yes
+live_only,ORD00867130,2,FTVMA45045,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,8015,WAYFAIR LLC (DS),Invoiced,yes
+live_only,ORD00867130,3,FTVSO10220,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,8015,WAYFAIR LLC (DS),Invoiced,yes
+live_only,ORD00867131,1,FTVMA46120,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867132,1,STT1M45045,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867133,1,INOBRNNK04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867134,1,BCCHPDSG14,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867135,1,FTVMA40220,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867136,1,COM1830SR6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867136,2,COM1830HQ6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867137,1,ANFTMGAR12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867138,1,DRTV24TW12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867138,2,DRTV36GC12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867139,1,RM1830CP12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867140,1,210-0-PK24,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867141,1,WRM1830IW6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867142,1,SOCO48WD06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+live_only,ORD00867143,1,MSG226GY06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867144,1,DSG239BK04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867145,1,MSG236WD06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867146,1,MSG252WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867147,1,DSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867148,1,MSG245WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867149,1,MSG229BK06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867150,1,420-0-PK12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867150,2,415-0-PK12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867150,3,415-0-PK12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867151,1,TRL376WH12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867151,2,TRL376WH12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867151,3,TRL376WH12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867152,1,MSG242WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867153,1,MSG2297AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867154,1,MSG258WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867155,1,MSG2237AL6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867156,1,MSG258WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867157,1,MSG247WH04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867158,1,MSG232WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867159,1,RDMRGL2806,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867160,1,TRL376WH12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867161,1,MSG232GY06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867161,2,MSG236GY06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867162,1,MSG223WD06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7025,HOMEDEPOT.COM,Invoiced,yes
+live_only,ORD00867163,1,TOVYELBK04,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867164,1,WRM1830IW6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867164,2,WRM1830IW6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867164,3,WRM1830IW6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+live_only,ORD00867165,1,280-0-PK12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867166,1,MFMTMANY24,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867167,1,LBTS36BL12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867168,1,DMCS36ML12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867168,2,BECS36GN12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867169,1,WRM1830LT6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867170,1,MFMTMABR24,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867171,1,HNVA14TN12,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1412,KOHL'S,Invoiced,yes
+live_only,ORD00867172,1,MSG234WH06,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+live_only,ORD00867435,2.5,MSG2347WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,5046,SHERWIN WILLIAMS,Invoiced,yes
+live_only,ORD00867484,37.5,MSG2287WH6,2026-07-01,2026-07-01,2026-07-01,yes,yes,no,both_in_period_other_cause,1977,LEE DISTRIBUTORS,Invoiced,yes
+live_only,ORD00868085,4.5,TQPN84GR06,2026-07-02,2026-07-02,2026-07-02,yes,yes,no,both_in_period_other_cause,917,"FULLBEAUTY BRANDS, INC. (OSP)",Open,no
+live_only,ORD00868105,191.5,LATV36BK12,2026-07-02,2026-07-02,2026-07-02,yes,yes,no,both_in_period_other_cause,5194,K & S CURTAIN PLUS,Cancelled,no
+live_only,ORD00868105,84.5,MFG229WH02,2026-07-02,2026-07-02,2026-07-02,yes,yes,no,both_in_period_other_cause,5194,K & S CURTAIN PLUS,Invoiced,no
+live_only,ORD00870877,39.5,CHCHPDBK14,2026-07-06,2026-07-06,2026-07-06,yes,yes,no,both_in_period_other_cause,00011616,Brighton Best 99 Cents Store,Open,no
+live_only,ORD00872151,10.5,MSG239WH04,2026-07-08,2026-07-08,2026-07-08,yes,yes,no,both_in_period_other_cause,3241807,Dreamland Discount,Invoiced,no
+live_only,ORD00872151,10.75,MSG240WH04,2026-07-08,2026-07-08,2026-07-08,yes,yes,no,both_in_period_other_cause,3241807,Dreamland Discount,Invoiced,no
+live_only,ORD00872151,10.875,MSG241WH04,2026-07-08,2026-07-08,2026-07-08,yes,yes,no,both_in_period_other_cause,3241807,Dreamland Discount,Invoiced,no
+live_only,ORD00872151,10.9375,MSG242WH04,2026-07-08,2026-07-08,2026-07-08,yes,yes,no,both_in_period_other_cause,3241807,Dreamland Discount,Invoiced,no
+live_only,ORD00872159,2.5,MSG223AL06,2026-07-08,2026-07-08,2026-07-08,yes,yes,no,both_in_period_other_cause,3484083,Home Department,Invoiced,no
+live_only,ORD00872867,7.5,MSG227WH06,2026-07-09,2026-07-09,2026-07-09,yes,yes,no,both_in_period_other_cause,6639,DEE II STORES,Invoiced,no
+live_only,ORD00873585,16.5,LLTV24GY12,2026-07-10,2026-07-10,2026-07-15,yes,yes,yes,both_in_period_other_cause,8023,GOODGRAM,Cancelled,no
+live_only,ORD00873859,20.5,205-0-PK48,2026-07-10,2026-07-10,2026-07-10,yes,yes,no,both_in_period_other_cause,38012,C.H. MARTIN INC. #12(JrnlSqre),In Process,no
+live_only,ORD00873859,25.5,COM1830ML6,2026-07-10,2026-07-10,2026-07-10,yes,yes,no,both_in_period_other_cause,38012,C.H. MARTIN INC. #12(JrnlSqre),In Process,no
+live_only,ORD00875989,25.5,MSG2297AL6,2026-07-13,2026-07-13,2026-07-13,yes,yes,no,both_in_period_other_cause,6639,DEE II STORES,Cancelled,no
+live_only,ORD00877611,61.5,MSG243AL04,2026-07-15,2026-07-15,2026-07-15,yes,yes,no,both_in_period_other_cause,1963,MASTERS LTD.,In Process,no
+live_only,ORD00878278,1.5,MSG2247WH6,2026-07-16,2026-07-16,2026-07-16,yes,yes,no,both_in_period_other_cause,6054,HARDWARE EXPRESS,Invoiced,no
+live_only,ORD00878278,1.75,MSG2267WH6,2026-07-16,2026-07-16,2026-07-16,yes,yes,no,both_in_period_other_cause,6054,HARDWARE EXPRESS,Cancelled,no
+live_only,ORD00878278,1.875,MSG2277WH6,2026-07-16,2026-07-16,2026-07-16,yes,yes,no,both_in_period_other_cause,6054,HARDWARE EXPRESS,Invoiced,no
+live_only,ORD00878278,1.9375,MSG2357WH6,2026-07-16,2026-07-16,2026-07-16,yes,yes,no,both_in_period_other_cause,6054,HARDWARE EXPRESS,Invoiced,no
+live_only,ORD00878278,1.96875,MSG2367WH6,2026-07-16,2026-07-16,2026-07-16,yes,yes,no,both_in_period_other_cause,6054,HARDWARE EXPRESS,Invoiced,no
+live_only,ORD00882399,1.5,MSG225WH06,2026-07-22,2026-07-22,2026-07-22,yes,yes,no,both_in_period_other_cause,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+live_only,ORD00882399,6.5,MSG227AL06,2026-07-22,2026-07-22,2026-07-22,yes,yes,no,both_in_period_other_cause,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+live_only,ORD00882399,8.5,MSG231AL06,2026-07-22,2026-07-22,2026-07-22,yes,yes,no,both_in_period_other_cause,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+live_only,ORD00882399,9.25,MSG229BK06,2026-07-22,2026-07-22,2026-07-22,yes,yes,no,both_in_period_other_cause,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+live_only,ORD00882399,9.625,MSG230BK06,2026-07-22,2026-07-22,2026-07-22,yes,yes,no,both_in_period_other_cause,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+live_only,ORD00882399,9.8125,MSG234BK06,2026-07-22,2026-07-22,2026-07-22,yes,yes,no,both_in_period_other_cause,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+live_only,ORD00883027,17.5,RDMCAR6606,2026-07-23,2026-07-23,2026-07-23,yes,yes,no,both_in_period_other_cause,0123456789,Avi Grossman,Invoiced,no
+live_only,ORD00883053,2.5,CHCHPDBU14,2026-07-23,2026-07-23,2026-07-23,yes,yes,no,both_in_period_other_cause,846,FABRIC HOME FASHIONS CORP.,Cancelled,no
+live_only,ORD00885705,11.5,FTVGM33245,2026-07-27,2026-07-27,2026-07-27,yes,yes,no,both_in_period_other_cause,1841,Nostrand Paint & Hardware,Cancelled,no
+live_only,ORD00885705,11.75,FTVMA42545,2026-07-27,2026-07-27,2026-07-27,yes,yes,no,both_in_period_other_cause,1841,Nostrand Paint & Hardware,Cancelled,no
+live_only,ORD00885705,20.75,MSG234WH06,2026-07-27,2026-07-27,2026-07-27,yes,yes,no,both_in_period_other_cause,1841,Nostrand Paint & Hardware,Invoiced,no
+live_only,ORD00886151,26.5,MSG235BK06,2026-07-28,2026-07-28,2026-07-28,yes,yes,no,both_in_period_other_cause,00011509,210 Food Inc.,In Process,no
+live_only,ORD00886151,26.75,MSG235AL06,2026-07-28,2026-07-28,2026-07-28,yes,yes,no,both_in_period_other_cause,00011509,210 Food Inc.,In Process,no
+live_only,ORD00886151,41.5,TRL736WH06,2026-07-28,2026-07-28,2026-07-28,yes,yes,no,both_in_period_other_cause,00011509,210 Food Inc.,Cancelled,no
+live_only,ORD00886156,5.5,TRL556WH12,2026-07-28,2026-07-28,2026-07-28,yes,yes,no,both_in_period_other_cause,3447360,Toolbox Hardware,Invoiced,no
+live_only,ORD00886254,23.5,MSG223GY06,2026-07-28,2026-07-28,2026-07-28,yes,yes,no,both_in_period_other_cause,472,CEE & CEE (331 FORDHAM),Invoiced,no
+live_only,ORD00886254,36.5,AB75DTAC04,2026-07-28,2026-07-28,2026-07-28,yes,yes,no,both_in_period_other_cause,472,CEE & CEE (331 FORDHAM),Invoiced,no
+live_only,ORD00886886,1.5,MSG2287WH6,2026-07-29,2026-07-29,2026-07-29,yes,yes,no,both_in_period_other_cause,6646,BARGAIN LAND (FULTON ST.),Invoiced,no
+live_only,ORD00886942,28.5,MIPN84TL06,2026-07-29,2026-07-29,2026-07-30,yes,yes,yes,both_in_period_other_cause,5358,CITY 99 CENTS,In Process,no
+live_only,ORD00886942,28.75,MIPN84BH06,2026-07-29,2026-07-29,2026-07-30,yes,yes,yes,both_in_period_other_cause,5358,CITY 99 CENTS,In Process,no
+live_only,ORD00886942,28.875,TQPN84MS06,2026-07-29,2026-07-29,2026-07-30,yes,yes,yes,both_in_period_other_cause,5358,CITY 99 CENTS,In Process,no
+live_only,ORD00886942,28.9375,TQPN84GR06,2026-07-29,2026-07-29,2026-07-30,yes,yes,yes,both_in_period_other_cause,5358,CITY 99 CENTS,Cancelled,no
+live_only,ORD00888117,34.5,MSG245WH04,2026-07-31,2026-07-31,2026-07-31,yes,yes,no,both_in_period_other_cause,2983818,Dyckman Discount Inc,In Process,no
+live_only,ORD00888117,34.75,MSG246WH04,2026-07-31,2026-07-31,2026-07-31,yes,yes,no,both_in_period_other_cause,2983818,Dyckman Discount Inc,In Process,no
+live_only,ORD00888117,34.875,MSG247WH04,2026-07-31,2026-07-31,2026-07-31,yes,yes,no,both_in_period_other_cause,2983818,Dyckman Discount Inc,In Process,no
+live_only,ORD00888117,34.9375,MSG248WH04,2026-07-31,2026-07-31,2026-07-31,yes,yes,no,both_in_period_other_cause,2983818,Dyckman Discount Inc,In Process,no
+live_only,ORD00888117,34.96875,MSG252WH04,2026-07-31,2026-07-31,2026-07-31,yes,yes,no,both_in_period_other_cause,2983818,Dyckman Discount Inc,In Process,no
+live_only,Total,,,,,,no,no,,no_header_odata,,,,no
+test_only,ORD00848192,2,FTVWD20245,2026-07-21,,2026-07-21,no,yes,,no_header_odata,6102,J. Alperin Co. Inc.,Open Order,no
+test_only,ORD00848192,3,FTVWD20245,2026-07-21,,2026-07-21,no,yes,,no_header_odata,6102,J. Alperin Co. Inc.,Open Order,no
+test_only,ORD00863771,3,OPT376WH36,2026-07-02,2026-06-26,2026-07-02,no,yes,yes,explained_line_in_header_out,1978,MBA SUPPLY CO.,Invoiced,no
+test_only,ORD00863771,4,FTVWD20545,2026-07-06,2026-06-26,2026-07-06,no,yes,yes,explained_line_in_header_out,1978,MBA SUPPLY CO.,Invoiced,no
+test_only,ORD00865884,25,MSG235AL06,2026-07-13,2026-06-29,2026-07-13,no,yes,yes,explained_line_in_header_out,ROCHDALE OUTLET DEPA,RVO-ROCHDALE OUTLET DEPT.STORE (RVO),Invoiced,no
+test_only,ORD00865884,26,MSG229AL06,2026-07-13,2026-06-29,2026-07-13,no,yes,yes,explained_line_in_header_out,ROCHDALE OUTLET DEPA,RVO-ROCHDALE OUTLET DEPT.STORE (RVO),Invoiced,no
+test_only,ORD00865884,27,MSG227WH06,2026-07-13,2026-06-29,2026-07-13,no,yes,yes,explained_line_in_header_out,ROCHDALE OUTLET DEPA,RVO-ROCHDALE OUTLET DEPT.STORE (RVO),Canceled,no
+test_only,ORD00865989,3,VFP2.0MO10,2026-07-01,2026-06-29,2026-07-01,no,yes,yes,explained_line_in_header_out,6966,STARCO MAINTENANCE SUPPLIES,Invoiced,no
+test_only,ORD00867435,0,MSG2347WH6,2026-07-01,2026-07-01,,yes,no,,no_line_created_odata,5046,SHERWIN WILLIAMS,Invoiced,no
+test_only,ORD00867484,0,MSG2287WH6,2026-07-01,2026-07-01,,yes,no,,no_line_created_odata,1977,LEE DISTRIBUTORS,Invoiced,no
+test_only,ORD00868085,0,TQPN84GR06,2026-07-02,2026-07-02,,yes,no,,no_line_created_odata,917,"FULLBEAUTY BRANDS, INC. (OSP)",Open Order,no
+test_only,ORD00868105,0,LATV36BK12,2026-07-02,2026-07-02,,yes,no,,no_line_created_odata,5194,K & S CURTAIN PLUS,Canceled,no
+test_only,ORD00868105,0,MFG229WH02,2026-07-02,2026-07-02,,yes,no,,no_line_created_odata,5194,K & S CURTAIN PLUS,Invoiced,no
+test_only,ORD00868307,1,MSG234AL06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,6639,DEE II STORES,Open Order,no
+test_only,ORD00868307,2,MSG231AL06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,6639,DEE II STORES,Open Order,no
+test_only,ORD00868307,3,MSG227WH06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,6639,DEE II STORES,Open Order,no
+test_only,ORD00868307,4,MSG2327WH6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,6639,DEE II STORES,Open Order,no
+test_only,ORD00868340,1,TRL736WH06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,10,MSG21842W6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,11,MSG22342W6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,12,SOCO72WH06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,13,SOCO60WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,14,SOCO72WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,15,SOCO36GY06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,16,SOCO72GY06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,17,MSG223WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,18,MSG226WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,19,MSG228WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,2,MSG229BK06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,20,MSG232WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,21,MSG2297WD6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,22,MSG226GY06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,23,RDMATM2806,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,24,MSG2277GY6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,25,MSG229AL06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,3,CPS736NT01,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,4,LUG223MH04,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,5,LUG229MH04,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,6,MSG2284WH6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,7,MSG2294WH6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,8,MSG222WH06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868340,9,MSG226BK06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,1,RDMCAR4806,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,10,MSG2237BK6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,11,MSG2347BK6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,12,DSG243AL04,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,13,SOCO72WH06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,14,SOCO36WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,15,SOCO60WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,16,CPS376CO12,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,17,MSG270WH04,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,18,MSG271WH04,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,19,SOCO36GY06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,2,TRS736WH06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,20,MSG235WD06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,21,MSG2347WD6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,22,MSG2367WD6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,23,MSG2364AL6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,24,MSG2334BK6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,25,MSG2364BK6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,26,MSG229AL06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,27,MSG235WH06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,28,MSG235AL06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,29,MSG236AL06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,3,TRL376WH12,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,4,MSG230BK06,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,5,MSG2294WH6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,6,MSG2344WH6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,7,MSG2364WH6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,8,MSG2367WH6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00868376,9,MSG2367AL6,2026-07-02,,2026-07-02,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00870877,0,CHCHPDBK14,2026-07-06,2026-07-06,,yes,no,,no_line_created_odata,00011616,Brighton Best 99 Cents Store,Open Order,no
+test_only,ORD00870951,1,OMWFVLSG06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,10,PAPN84BU12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,100,ANFTMGAR12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,101,AFB1830G12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,102,AF1830BK06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,103,AF1830BK06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,104,ANFTMBES06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,105,ANFTMLMD06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,106,RM1830SF12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,107,COM1830SR6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,108,COM1830ML6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,109,WRM1830AD6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,11,ROTS36BU12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,110,WRM1830FL6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,111,COM1830RM6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,112,RM1830WE06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,12,ARTV36GR12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,13,LATV36TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,14,DRTV36TW12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,15,VGPN63BR06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,16,ESPN63TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,17,FRTS24ML12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,18,BMPN84BK06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,19,KEPN63BL06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,2,SPTS24BW12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,20,KEPN63BL06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,21,VGPN63MS06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,22,TQPN84TN06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,23,HPPN84MO06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,24,DRTU63NY06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,25,TYPN84AB06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,26,TQPN63SL06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,27,TQPN84SL06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,28,OMSF144BL6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,29,TAVL13BK12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,3,LATV36GY04,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,30,LLVL14CC12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,31,HNVA14BK12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,32,HNVA14TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,33,LDTV24YL12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,34,KEVL14TN06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,35,ENTS36GL04,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,36,WNPP84SV06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,37,LATV36TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,38,LDTV24YL12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,39,BCPN95BW12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,4,BETR36GY12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,40,SPTS24BW12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,41,BOPN63SV06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,42,SUPN84TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,43,TQPN84TN06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,44,TAVL13BK12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,45,ARTV36TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,46,TYPN84AB06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,47,LLTV24GY12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,48,HNVA14TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,49,MIPN84HN06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,5,OMWFVLCH06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,50,BCPN63YL12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,51,CFTS24BW12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,52,TQPN84SL06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,53,MIPN63TL06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,54,LATV36TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,55,LLVL14GY12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,56,DRTV24MT12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,57,FF5P84WH12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,58,OMPN63ER06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,59,BOTV36MC12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,6,OMPN63ER06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,60,KEVL14GY06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,61,BLPN84TN06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,62,DRTV24TW12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,63,SUPN63TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,64,DRTU63NY06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,65,PAVL13BL12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,66,ENTS24GL12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,67,LBTS36BL12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,68,WIPN63TF06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,69,DRTV36GW04,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,7,PAPN84TN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,70,SSTS24YL12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,71,PAVL13GR12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,72,HNVA14AG12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,73,DMCS24ML12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,74,LLTV36CC12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,75,BECS36GN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,76,AVTV36CC12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,77,OMPN84SS06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,78,BCGS63BW06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,79,HNVA14GY12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,8,OMSF144ER6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,80,HNVA14BK12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,81,OMSF144SG6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,82,SUPN63SG12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,83,PAPN84NY12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,84,SUPN84SG12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,85,ARTV24GR12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,86,LLVL14GN12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,87,TAVL13BU12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,88,MSG2237AL6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,89,441-0-PK12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,9,OMSF144SG6,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,90,205-0-PK48,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,91,260-0-PK24,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,92,420-0-PK12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,93,ANFTMCOZ06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,94,ANFTMBOH06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,95,AFB1830T12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,96,ANFTMGAR12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,97,ANFTMGAR12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,98,AFB1830G12,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00870951,99,AF1830TN06,2026-07-06,,2026-07-06,no,yes,,no_header_odata,1412,KOHL'S,Invoiced,no
+test_only,ORD00872151,0,MSG239WH04,2026-07-08,2026-07-08,,yes,no,,no_line_created_odata,3241807,Dreamland Discount,Invoiced,no
+test_only,ORD00872151,0,MSG240WH04,2026-07-08,2026-07-08,,yes,no,,no_line_created_odata,3241807,Dreamland Discount,Invoiced,no
+test_only,ORD00872151,0,MSG241WH04,2026-07-08,2026-07-08,,yes,no,,no_line_created_odata,3241807,Dreamland Discount,Invoiced,no
+test_only,ORD00872151,0,MSG242WH04,2026-07-08,2026-07-08,,yes,no,,no_line_created_odata,3241807,Dreamland Discount,Invoiced,no
+test_only,ORD00872159,0,MSG223AL06,2026-07-08,2026-07-08,,yes,no,,no_line_created_odata,3484083,Home Department,Invoiced,no
+test_only,ORD00872867,0,MSG227WH06,2026-07-09,2026-07-09,,yes,no,,no_line_created_odata,6639,DEE II STORES,Invoiced,no
+test_only,ORD00873585,0,LLTV24GY12,2026-07-15,2026-07-10,,yes,no,,no_line_created_odata,8023,GOODGRAM,Canceled,no
+test_only,ORD00873658,1,DRTV36NW12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,10,BETR24GY12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,11,MIPN84BH06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,12,DRVL14MT12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,13,TAVL13BU12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,14,KETV36WH12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,15,PAVL13TN12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,16,TTVL14GY12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,17,DRTV24GC12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,18,CITV24TS12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,19,HNTV24GY12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,2,LDTV24YL12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,20,BCTR36BW06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,21,OMPN84GY06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,22,BCVL14BW06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,23,BLPN63TN06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,24,BEPN84TN06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,25,OMTU63BL06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,26,DRPN84GC06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,27,BCVL14SG12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,28,TQPN84SL06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,29,OMSF144BL6,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,3,GBTV36MU06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,30,BEPN63TN06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,31,HNVA14TN12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,32,SSTS24YL12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,33,PA5P63BL12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,34,KETV24TN12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,35,SYVL14GY12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,36,PA5P63SV12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,37,SUWTVLTN12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,38,SUWTVLBW12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,39,HVVL14BU12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,4,DRVL14TW12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,40,TQPN84MS06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,41,KEVL14BL06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,42,KETV36TN12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,43,OMPN84BL06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,44,BEPN84TN06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,45,AF2039GY06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,46,ANFTMCFE06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,47,ANFTMAPO12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,48,ANFTMCOZ06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,49,AFB1830B12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,5,TQPN63BH06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,50,AFB1830T12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,51,WRM1830AD6,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,52,COM1830SR6,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,53,WRM1830DI6,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,54,WRM1830FL6,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,55,WRM1830TU6,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,56,RM1830WE06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,57,RM1830CP06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,58,RM1830SF12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,59,MFMTMANY24,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,6,WIPN63WH06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,60,MFMTMABR24,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,61,AF1830BK06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,62,360-0-PK24,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,63,280-0-PK12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,64,365-0-PK24,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,65,260-0-PK24,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,66,SOCO30WD06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,67,SOCO60WD06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,7,DRVL14NW12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,8,AVVL14IB12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873658,9,DRVL14BW12,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873667,1,BEPN63TN06,2026-07-10,,2026-07-10,no,yes,,no_header_odata,1412,KOHL'S,Open Order,no
+test_only,ORD00873859,0,205-0-PK48,2026-07-10,2026-07-10,,yes,no,,no_line_created_odata,38012,C.H. MARTIN INC. #12(JrnlSqre),Open Order,no
+test_only,ORD00873859,0,COM1830ML6,2026-07-10,2026-07-10,,yes,no,,no_line_created_odata,38012,C.H. MARTIN INC. #12(JrnlSqre),Open Order,no
+test_only,ORD00875989,0,MSG2297AL6,2026-07-13,2026-07-13,,yes,no,,no_line_created_odata,6639,DEE II STORES,Canceled,no
+test_only,ORD00877611,0,MSG243AL04,2026-07-15,2026-07-15,,yes,no,,no_line_created_odata,1963,MASTERS LTD.,Open Order,no
+test_only,ORD00878278,0,MSG2247WH6,2026-07-16,2026-07-16,,yes,no,,no_line_created_odata,6054,HARDWARE EXPRESS,Invoiced,no
+test_only,ORD00878278,0,MSG2267WH6,2026-07-16,2026-07-16,,yes,no,,no_line_created_odata,6054,HARDWARE EXPRESS,Canceled,no
+test_only,ORD00878278,0,MSG2277WH6,2026-07-16,2026-07-16,,yes,no,,no_line_created_odata,6054,HARDWARE EXPRESS,Invoiced,no
+test_only,ORD00878278,0,MSG2357WH6,2026-07-16,2026-07-16,,yes,no,,no_line_created_odata,6054,HARDWARE EXPRESS,Invoiced,no
+test_only,ORD00878278,0,MSG2367WH6,2026-07-16,2026-07-16,,yes,no,,no_line_created_odata,6054,HARDWARE EXPRESS,Invoiced,no
+test_only,ORD00882399,0,MSG225WH06,2026-07-22,2026-07-22,,yes,no,,no_line_created_odata,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+test_only,ORD00882399,0,MSG227AL06,2026-07-22,2026-07-22,,yes,no,,no_line_created_odata,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+test_only,ORD00882399,0,MSG229BK06,2026-07-22,2026-07-22,,yes,no,,no_line_created_odata,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+test_only,ORD00882399,0,MSG230BK06,2026-07-22,2026-07-22,,yes,no,,no_line_created_odata,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+test_only,ORD00882399,0,MSG231AL06,2026-07-22,2026-07-22,,yes,no,,no_line_created_odata,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+test_only,ORD00882399,0,MSG234BK06,2026-07-22,2026-07-22,,yes,no,,no_line_created_odata,5507,99 CENT & DISCOUNT DEPOT,Invoiced,no
+test_only,ORD00883027,0,RDMCAR6606,2026-07-23,2026-07-23,,yes,no,,no_line_created_odata,0123456789,Avi Grossman,Invoiced,no
+test_only,ORD00883053,0,CHCHPDBU14,2026-07-23,2026-07-23,,yes,no,,no_line_created_odata,846,FABRIC HOME FASHIONS CORP.,Canceled,no
+test_only,ORD00885427,1,MSG2327WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,10,MSG234WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,11,MSG2247WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,12,MSG2347WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,13,MSG224WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,14,MSG2327AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,15,MSG2337WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,16,MSG2334WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,17,MSG232BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,18,MSG2334AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,19,MSG232WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,2,MSG235WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,20,RDCLNGD486,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,21,SOCO72WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,22,ANFTMBBK12,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,23,CL6P84IV06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,24,MSG226BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,25,GLCS24RD12,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,26,MSG2357AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,27,MSG2327BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,28,MSG2344WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,29,MSG234WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,3,MSG235WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,30,MSG2247WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,31,MSG2327WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,32,MSG235WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,33,MSG235WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,34,MSG2354BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,35,MSG234BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,36,MSG234WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,37,MSG224WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,38,MSG2327AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,39,MSG2337WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,4,MSG2357AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,40,MSG2347WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,41,MSG2334WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,42,MSG2334AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,43,RDCLNGD486,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,44,SOCO72WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,45,MSG226BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,46,MSG232BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,47,MSG232WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,48,ANFTMBBK12,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,49,CL6P84IV06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,5,MSG2327BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,50,GLCS24RD12,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,6,MSG2354BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,7,MSG234BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,8,MSG234WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885427,9,MSG2344WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,1,SOCO72WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,10,123CO36B24,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,11,TRS736WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,12,MSG2474WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,13,MSG2464WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,14,MSG248AL04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,15,MSG242WD04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,16,MSG2454WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,17,MSG237WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,18,MSG241WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,19,MSG2327BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,2,PVVPLALB02,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,20,MSG230AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,21,MSG231WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,22,MSG2317BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,23,MSG233AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,24,MSG232WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,25,MSG2334BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,26,MSG230AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,27,MSG230AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,28,MSG2247WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,29,MSG225WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,3,PVVRBWHT02,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,30,MSG245WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,31,PVVPLALB02,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,32,PVVRBWHT02,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,33,MSG270WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,34,SOCO72WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,35,MSG270AL04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,36,MSG271WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,37,PVVPLALB02,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,38,SOCO60WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,39,VRCO60DA06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,4,MSG270AL04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,40,123CO36B24,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,41,TRS736WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,42,MSG2464WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,43,MSG242WD04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,44,MSG2454WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,45,MSG230AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,46,MSG233AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,47,MSG2247WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,48,MSG2474WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,49,MSG248AL04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,5,MSG271WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,50,MSG237WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,51,MSG241WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,52,MSG2327BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,53,MSG231WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,54,MSG2317BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,55,MSG232WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,56,MSG2334BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,57,MSG230AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,58,MSG230AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,59,MSG225WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,6,MSG270WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,60,MSG245WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,7,PVVPLALB02,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,8,VRCO60DA06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885462,9,SOCO60WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,1,SOCO72WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,10,MSG2344WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,11,MSG2334WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,12,MSG2344BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,13,MSG2354BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,14,MSG2357WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,15,MSG224WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,16,MSG22342W6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,17,MSG2234BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,18,MSG222WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,19,MSG225WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,2,SOCO72WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,20,MSG229GY06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,21,MSG232GY06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,22,MSG2357GY6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,23,MSG2237AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,24,MSG226BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,25,MSG223WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,26,MSG226AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,27,MSG228WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,28,SOCO72WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,29,SOCO72GY06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,3,SOCO72GY06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,30,MSG232WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,31,SOCO72WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,32,MSG271WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,33,MSG272WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,34,MSG2474WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,35,MSG236WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,36,MSG2344WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,37,MSG2344WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,38,MSG2344BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,39,MSG2334WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,4,MSG271WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,40,MSG224WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,41,MSG22342W6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,42,MSG2234BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,43,MSG222WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,44,MSG225WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,45,MSG229GY06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,46,MSG2354BK6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,47,MSG2357WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,48,MSG232GY06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,49,MSG2357GY6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,5,MSG272WH04,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,50,MSG2237AL6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,51,MSG226BK06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,52,MSG226AL06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,53,MSG223WD06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,54,MSG228WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,6,MSG2474WH4,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,7,MSG236WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,8,MSG232WH06,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885496,9,MSG2344WH6,2026-07-27,,2026-07-27,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00885705,0,FTVGM33245,2026-07-27,2026-07-27,,yes,no,,no_line_created_odata,1841,Nostrand Paint & Hardware,Canceled,no
+test_only,ORD00885705,0,FTVMA42545,2026-07-27,2026-07-27,,yes,no,,no_line_created_odata,1841,Nostrand Paint & Hardware,Canceled,no
+test_only,ORD00885705,0,MSG234WH06,2026-07-27,2026-07-27,,yes,no,,no_line_created_odata,1841,Nostrand Paint & Hardware,Invoiced,no
+test_only,ORD00886151,0,MSG235AL06,2026-07-28,2026-07-28,,yes,no,,no_line_created_odata,00011509,210 Food Inc.,Open Order,no
+test_only,ORD00886151,0,MSG235BK06,2026-07-28,2026-07-28,,yes,no,,no_line_created_odata,00011509,210 Food Inc.,Open Order,no
+test_only,ORD00886151,0,TRL736WH06,2026-07-28,2026-07-28,,yes,no,,no_line_created_odata,00011509,210 Food Inc.,Canceled,no
+test_only,ORD00886152,1,MSG224WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,2854,Wilhelm's Houseware,Open Order,no
+test_only,ORD00886152,2,MSG2307WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,2854,Wilhelm's Houseware,Open Order,no
+test_only,ORD00886152,3,MSG234WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,2854,Wilhelm's Houseware,Open Order,no
+test_only,ORD00886152,4,MSG235WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,2854,Wilhelm's Houseware,Open Order,no
+test_only,ORD00886152,5,MSG223WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,2854,Wilhelm's Houseware,Open Order,no
+test_only,ORD00886152,6,MSG222WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,2854,Wilhelm's Houseware,Open Order,no
+test_only,ORD00886152,7,MSG236WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,2854,Wilhelm's Houseware,Open Order,no
+test_only,ORD00886153,1,PCM1830SH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,8023,GOODGRAM,Open Order,no
+test_only,ORD00886154,1,MSG2267WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,3050,ADVANTAGE WHOLESALE SUPPLY,Open Order,no
+test_only,ORD00886156,0,TRL556WH12,2026-07-28,2026-07-28,,yes,no,,no_line_created_odata,3447360,Toolbox Hardware,Invoiced,no
+test_only,ORD00886157,1,CHCHPDBK14,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,10,RDMNBK4806,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,11,RDMNBK6606,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,2,CHCHPDGY14,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,3,CHCHPDTN14,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,4,CHCHPDBU14,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,5,RUG2X6AS12,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,6,RUG3X4AS12,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,7,RDJNM66120,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,8,RDBAC66120,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886157,9,RDJNMH4886,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,1,RDBHDN6606,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,10,MSG2327BK6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,11,MSG2337WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,12,RDBACH2848,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,13,MSG2367AL6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,14,MSG2327WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,15,MSG2317BK6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,16,MSG2307WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,17,MSG2297WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,18,MSG2317AL6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,19,MSG2327AL6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,2,RDBHDN4806,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,20,MSG2287AL6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,21,MSG2347BK6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,22,RDJNMH2848,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,23,MSG2357BK6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,24,MSG2297BK6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,25,MSG2317WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,26,MSG2347WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,27,MSG2357AL6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,28,MSG2367BK6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,29,MSG2357WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,3,RDBACH4886,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,30,MSG2367WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,4,RDBHDN2806,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,5,RDMNBK2806,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,6,380-0-PK12,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,7,MSG2307BK6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,8,MSG2297AL6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886159,9,MSG2287WH6,2026-07-28,,2026-07-28,no,yes,,no_header_odata,00011247,Value Queen (MAX DEALS),Open Order,no
+test_only,ORD00886254,0,AB75DTAC04,2026-07-28,2026-07-28,,yes,no,,no_line_created_odata,472,CEE & CEE (331 FORDHAM),Invoiced,no
+test_only,ORD00886254,0,MSG223GY06,2026-07-28,2026-07-28,,yes,no,,no_line_created_odata,472,CEE & CEE (331 FORDHAM),Invoiced,no
+test_only,ORD00886371,1,AB73TWAC04,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,10,MSG232WD06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,11,MSG232GY06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,12,AB73TWAC04,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,13,MSG223GY06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,14,MSG237AL04,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,15,MSG232WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,16,MSG231WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,2,MSG223GY06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,3,MSG237AL04,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,4,MSG232WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,5,MSG231WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,6,MSG227WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,7,MSG232WD06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,8,MSG232GY06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886371,9,MSG227WH06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,9025,VALUE ZONE #10 (Newark),Open Order,no
+test_only,ORD00886372,1,MSG231WD06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,308,AJ HOUSEWARES DBA BEST BUYS,Open Order,no
+test_only,ORD00886372,2,MSG235WD06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,308,AJ HOUSEWARES DBA BEST BUYS,Open Order,no
+test_only,ORD00886372,3,MSG233WD06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,308,AJ HOUSEWARES DBA BEST BUYS,Open Order,no
+test_only,ORD00886372,4,MSG234WD06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,308,AJ HOUSEWARES DBA BEST BUYS,Open Order,no
+test_only,ORD00886372,5,MSG228WD06,2026-07-28,,2026-07-28,no,yes,,no_header_odata,308,AJ HOUSEWARES DBA BEST BUYS,Open Order,no
+test_only,ORD00886819,1,ANFTMCFE12,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,10,MSG259WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,11,MSG248WD04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,12,MSG252WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,13,MSG2464WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,14,MSG2452WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,15,MSG2474WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,16,MSG272AL04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,17,MFG234WH02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,18,MSG271WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,19,PVVPLWHT02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,2,VRCO60DA06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,20,PVVRBALB02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,21,PVVPLALB02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,22,PVVRBWHT02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,23,MSG270WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,24,MSG2704WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,25,MSG272WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,26,VRCO72DA06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,27,SOCO72GY06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,28,MSG245WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,29,ANFTMCFE12,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,3,VRCO72DA06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,30,VRCO60DA06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,31,SOCO72WD06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,32,SOCO72WH06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,33,VRCO72CA06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,34,MSG2454WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,35,MSG259WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,36,MSG248WD04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,37,MSG252WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,38,MSG2464WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,39,MSG2452WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,4,SOCO72GY06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,40,MSG272AL04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,41,PVVPLWHT02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,42,PVVRBALB02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,43,MSG2474WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,44,MFG234WH02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,45,MSG271WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,46,PVVPLALB02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,47,PVVRBWHT02,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,48,MSG272WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,49,MSG270WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,5,SOCO72WD06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,50,MSG2704WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,6,SOCO72WH06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,7,VRCO72CA06,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,8,MSG2454WH4,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886819,9,MSG245WH04,2026-07-29,,2026-07-29,no,yes,,no_header_odata,4105,"CHANNEL MARKETING, LLC",Open Order,no
+test_only,ORD00886886,0,MSG2287WH6,2026-07-29,2026-07-29,,yes,no,,no_line_created_odata,6646,BARGAIN LAND (FULTON ST.),Invoiced,no
+test_only,ORD00886942,0,MIPN84BH06,2026-07-30,2026-07-29,,yes,no,,no_line_created_odata,5358,CITY 99 CENTS,Open Order,no
+test_only,ORD00886942,0,MIPN84TL06,2026-07-30,2026-07-29,,yes,no,,no_line_created_odata,5358,CITY 99 CENTS,Open Order,no
+test_only,ORD00886942,0,TQPN84GR06,2026-07-30,2026-07-29,,yes,no,,no_line_created_odata,5358,CITY 99 CENTS,Canceled,no
+test_only,ORD00886942,0,TQPN84MS06,2026-07-30,2026-07-29,,yes,no,,no_line_created_odata,5358,CITY 99 CENTS,Open Order,no
+test_only,ORD00888117,0,MSG245WH04,2026-07-31,2026-07-31,,yes,no,,no_line_created_odata,2983818,Dyckman Discount Inc,Open Order,yes
+test_only,ORD00888117,0,MSG246WH04,2026-07-31,2026-07-31,,yes,no,,no_line_created_odata,2983818,Dyckman Discount Inc,Open Order,yes
+test_only,ORD00888117,0,MSG247WH04,2026-07-31,2026-07-31,,yes,no,,no_line_created_odata,2983818,Dyckman Discount Inc,Open Order,yes
+test_only,ORD00888117,0,MSG248WH04,2026-07-31,2026-07-31,,yes,no,,no_line_created_odata,2983818,Dyckman Discount Inc,Open Order,yes
+test_only,ORD00888117,0,MSG252WH04,2026-07-31,2026-07-31,,yes,no,,no_line_created_odata,2983818,Dyckman Discount Inc,Open Order,yes
+test_only,ORD00888415,1,FTVSO10220,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888416,1,MSG226WD06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888417,1,MSG243AL04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888418,1,MSG2314BK6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888419,1,DSG231WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888420,1,MSG2284BK6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888420,2,MSG2284BK6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888421,1,TRS376WH12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888421,2,TRS376WH12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888422,1,RTFTV63020,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888423,1,DSG234MH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888424,1,MSG252WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888425,1,MSG2234BK6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888425,2,MSG2284BK6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888426,1,RTFTV60220,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888427,1,LUG227MH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888427,2,LUG227MH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888428,1,MSG232BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888428,2,MSG232BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888429,1,MSG252BK04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888429,2,MSG234BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888430,1,CSTD29WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888431,1,WRM1830LT6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888432,1,DSG229BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888433,1,MSG239WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888434,1,MSG231WD06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888435,1,MSG238WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888436,1,ANFTMBTF12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,1412,KOHL'S,Invoiced,yes
+test_only,ORD00888437,1,HNPN63GY06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,1412,KOHL'S,Invoiced,yes
+test_only,ORD00888438,1,MSG230BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888439,1,MSG226WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888440,1,MSG226WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888441,1,MSG244WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888442,1,RDFUTR6606,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888443,1,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888444,1,ALPN84WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888445,1,ANFTMMAJ12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888446,1,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888446,2,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888447,1,AFB1830G12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888448,1,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888448,2,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888448,3,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888448,4,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888449,1,420-0-PK12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888450,1,TOVYSTCH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888451,1,DMCS36ML12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888451,2,GECS36YL12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888452,1,TRL376IV12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888453,1,MSG2367BK6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888454,1,DSG243WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888455,1,WRM1830IW6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888456,1,TRL376WH12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888457,1,MSG2287WH6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888458,1,260-0-PK24,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888459,1,MSG226WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888460,1,MSG232WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888461,1,MSG226WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888462,1,STP1.2GO10,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888462,2,STP1.2GO10,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888463,1,WRM1830IW6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,1412,KOHL'S,Invoiced,yes
+test_only,ORD00888464,1,GBTV36MU12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,1412,KOHL'S,Invoiced,yes
+test_only,ORD00888465,1,MSG239BK04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888466,1,MSG232WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888467,1,MSG252BK04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888468,1,OMPN63ER06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888469,1,AF1830TN12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888470,1,NXCRPTJT12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888470,2,NXCRPTJT12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888470,3,NXCRPTJT12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888470,4,NXCRPTJT12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888470,5,NXCRPTJT12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888470,6,NXCRPTJT12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888471,1,MSG226WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888472,1,FTVSO10220,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888473,1,TRL376BK12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888474,1,STT1M10120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888475,1,TRL376WH12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888476,1,BETR36GY12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888477,1,MSG238WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888478,1,MSG242WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888479,1,FTVMA46120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888480,1,MSG2274BK6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888481,1,DSG234MH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888482,1,BECS36GN12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,1412,KOHL'S,Invoiced,yes
+test_only,ORD00888483,1,MSG229WD06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888484,1,DSG233LT06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888485,1,MSG238WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888486,1,MSG232WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888487,1,MSG252WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888488,1,BCTR36BW12,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888489,1,VFP1.2HK10,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888490,1,DSG234GY06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888491,1,MSG238WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888492,1,MSG239GY04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888493,1,TRS736BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888494,1,TRS736BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888495,1,WNPP84IV06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888496,1,FTVMA40220,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888497,1,MSG227BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888498,1,PCM1830GA6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888499,1,MSG225WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888500,1,RTFTV60520,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888501,1,MSG235BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888502,1,FTVSO10320,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888503,1,MSG238WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888504,1,DR54X72TN6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,8015,WAYFAIR LLC (DS),Invoiced,yes
+test_only,ORD00888505,1,FTVMA40920,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888506,1,WIPN84GY06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888507,1,MSG222WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888507,2,MSG226WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888507,3,MSG230WH06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7025,HOMEDEPOT.COM,Invoiced,yes
+test_only,ORD00888508,1,WRM1830AD6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9022,JCPENNEY COMPANY INC.  (DS),Invoiced,yes
+test_only,ORD00888509,1,PCM1830WL6,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888510,1,INOPOR6604,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888511,1,MSG239BK04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888512,1,FTVWD23120,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888513,1,MFG230MH02,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888513,2,MFG230MH02,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,7125,"WAL-MART STORES, INC.#546978",Invoiced,yes
+test_only,ORD00888514,1,MSG238WH04,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888515,1,FTVSO10220,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9206,LOWE'S COMPANIES INC.  (DS),Invoiced,yes
+test_only,ORD00888516,1,DSG229BK06,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9303,"AMAZON.COM DEDC,LLC (DROPSHIP)",Invoiced,yes
+test_only,ORD00888517,1,FTVMA45545,2026-07-31,2026-08-01,2026-08-01,no,no,no,unexplained_test_only,9091,OJ COMMERCE,Invoiced,yes
+test_only,Total,429928,,,,,no,no,,no_header_odata,,,,no

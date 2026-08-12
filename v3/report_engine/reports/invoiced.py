@@ -339,7 +339,9 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             ytd[k] = round(ytd[k], 2)
         ytd["total_payable"] = ytd["commission"]
         salesmen_out.append({
-            "salesman": bucket["label"], "salesman_name": bucket["name"],
+            "salesman": bucket["label"],
+            "salesman_number": (sm.number if sm else "") or bucket["label"],
+            "salesman_name": bucket["name"],
             "commission_pct": pct, "monthly": monthly_out, "ytd": ytd,
         })
 

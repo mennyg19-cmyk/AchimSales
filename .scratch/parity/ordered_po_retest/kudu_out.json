@@ -1,0 +1,88 @@
+﻿{
+  "row_count": 3392,
+  "has_CustomerRequisition_col": true,
+  "column_count": 23,
+  "first_cols": [
+    "SalesOrderNumber",
+    "CustomerRequisition",
+    "CustomerAccount",
+    "customername",
+    "CreatedDateTime",
+    "LineNumber",
+    "Item",
+    "ItemDescription",
+    "SalesPrice",
+    "SalesStatus",
+    "QuantityOrdered",
+    "QuantityReserved",
+    "ReleasedQuantity",
+    "DeliveryRemainder",
+    "CancelledQTY"
+  ],
+  "po_filled": 3392,
+  "po_blank": 0,
+  "pct_filled": 100.0,
+  "samples": [
+    {
+      "so": "ORD00879237",
+      "acct": "9303",
+      "po": "PsT5DLzz6"
+    },
+    {
+      "so": "ORD00879236",
+      "acct": "9303",
+      "po": "PknfSXTj6"
+    },
+    {
+      "so": "ORD00879235",
+      "acct": "1412",
+      "po": "6721693175_2"
+    },
+    {
+      "so": "ORD00879234",
+      "acct": "1412",
+      "po": "6721686991_1"
+    },
+    {
+      "so": "ORD00879233",
+      "acct": "7025",
+      "po": "71643983"
+    },
+    {
+      "so": "ORD00879232",
+      "acct": "9303",
+      "po": "P4TxPDzw6"
+    },
+    {
+      "so": "ORD00879231",
+      "acct": "8015",
+      "po": "CS668525578"
+    },
+    {
+      "so": "ORD00879230",
+      "acct": "7125",
+      "po": "129120016864068"
+    },
+    {
+      "so": "ORD00879229",
+      "acct": "7125",
+      "po": "129120016830025"
+    },
+    {
+      "so": "ORD00879228",
+      "acct": "7125",
+      "po": "129120016781436"
+    },
+    {
+      "so": "ORD00879227",
+      "acct": "7125",
+      "po": "129120016777601"
+    },
+    {
+      "so": "ORD00879226",
+      "acct": "7025",
+      "po": "71641438"
+    }
+  ]
+}
+
