@@ -149,6 +149,10 @@ function validatePsStep(step: number): string | null {
       const days = document.querySelectorAll('#psCreateForm input[name="weekday"]:checked');
       if (!days.length) return "Pick at least one weekday.";
     }
+    if (freq === "monthly") {
+      const days = document.querySelectorAll('#psCreateForm input[name="monthday"]:checked');
+      if (!days.length) return "Pick at least one day of the month.";
+    }
   }
   return null;
 }
@@ -503,6 +507,8 @@ function bindPersonalCreate(): void {
     (document.getElementById("psReport") as HTMLSelectElement).value = "";
     form.querySelectorAll<HTMLInputElement>('input[name="freq"]').forEach((r, i) => { r.checked = i === 0; });
     form.querySelectorAll<HTMLInputElement>('input[name="weekday"]').forEach((c) => { c.checked = false; });
+    form.querySelectorAll<HTMLInputElement>('input[name="monthday"]').forEach((c) => { c.checked = false; });
+    syncPsCadence();
     (document.getElementById("psRecipients") as HTMLInputElement).value = "";
     (document.getElementById("psCc") as HTMLInputElement).value = "";
     (document.getElementById("psBcc") as HTMLInputElement).value = "";
@@ -567,7 +573,10 @@ function bindPersonalCreate(): void {
       if (!days.length) { psMsg("Pick at least one weekday.", true); setPsStep(2); return; }
       cadence.weekdays = days;
     } else if (freq === "monthly") {
-      cadence.monthday = Number((form.querySelector<HTMLSelectElement>('select[name="monthday"]')?.value) || "1");
+      const days = [...form.querySelectorAll<HTMLInputElement>('input[name="monthday"]:checked')]
+        .map((c) => Number(c.value));
+      if (!days.length) { psMsg("Pick at least one day of the month.", true); setPsStep(2); return; }
+      cadence.monthdays = days;
     }
     const to = (document.getElementById("psRecipients") as HTMLInputElement).value.trim();
     const folder = od.path() || "";

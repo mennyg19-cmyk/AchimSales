@@ -2,8 +2,9 @@
 
 Cadence shape (stored as JSON in the schedule's ``cadence`` column):
     {"freq": "daily"|"weekly"|"monthly", "time": "HH:MM",
-     "weekdays": [0..6]   # Mon=0, only for weekly
-     "monthday": 1..28 | -1}  # only for monthly; -1 = last day of month
+     "weekdays": [0..6],          # Mon=0, only for weekly
+     "monthdays": [1..28 | -1],   # monthly; -1 = last day of month
+     "monthday": 1..28 | -1}      # legacy single day (still accepted on write)
 
 All wall-clock reasoning is in US/Eastern (the business timezone) so an "8:00"
 schedule fires at 8am Eastern regardless of the container's UTC clock. A schedule
@@ -40,8 +41,11 @@ def normalize(cadence: dict | None) -> dict:
             raise ValueError("weekly cadence needs at least one weekday")
         out["weekdays"] = days
     elif freq == "monthly":
-        day = int(c.get("monthday", 1))
-        out["monthday"] = -1 if day == -1 else max(1, min(28, day))
+        days = _clean_monthdays(c)
+        if not days:
+            raise ValueError("monthly cadence needs at least one day of the month")
+        out["monthdays"] = days
+        out["monthday"] = days[0]  # keep for older readers / UIs
     return out
 
 
@@ -68,9 +72,9 @@ def describe(cadence: dict | None) -> str:
         days = ", ".join(names[d] for d in c.get("weekdays", []) if 0 <= d <= 6)
         return f"Weekly ({days}) at {t}"
     if freq == "monthly":
-        md = c.get("monthday", 1)
-        day_label = "last day" if md == -1 else f"day {md}"
-        return f"Monthly on {day_label} at {t}"
+        labels = [_monthday_label(d) for d in _monthdays_from(c)]
+        joined = ", ".join(labels) if labels else "day 1"
+        return f"Monthly on {joined} at {t}"
     return "Not scheduled"
 
 
@@ -99,6 +103,36 @@ def _parse_time(raw) -> tuple[int, int]:
         return 8, 0
 
 
+def _clamp_monthday(day: int) -> int:
+    return -1 if day == -1 else max(1, min(28, day))
+
+
+def _clean_monthdays(c: dict) -> list[int]:
+    raw = c.get("monthdays")
+    if raw is None:
+        if c.get("monthday") is not None:
+            raw = [c.get("monthday")]
+        else:
+            raw = [1]
+    if not isinstance(raw, (list, tuple, set)):
+        raw = [raw]
+    cleaned = {_clamp_monthday(int(d)) for d in raw}
+    # numbers first, last-day (-1) at the end
+    return sorted(cleaned, key=lambda d: (d < 0, d))
+
+
+def _monthdays_from(c: dict) -> list[int]:
+    if isinstance(c.get("monthdays"), (list, tuple)) and c["monthdays"]:
+        return [_clamp_monthday(int(d)) for d in c["monthdays"]]
+    if c.get("monthday") is not None:
+        return [_clamp_monthday(int(c["monthday"]))]
+    return [1]
+
+
+def _monthday_label(day: int) -> str:
+    return "last day" if day == -1 else f"day {day}"
+
+
 def _day_matches(c: dict, now: datetime) -> bool:
     freq = c.get("freq")
     if freq == "daily":
@@ -106,11 +140,14 @@ def _day_matches(c: dict, now: datetime) -> bool:
     if freq == "weekly":
         return now.weekday() in (c.get("weekdays") or [])
     if freq == "monthly":
-        md = int(c.get("monthday", 1))
-        if md == -1:
-            last = calendar.monthrange(now.year, now.month)[1]
-            return now.day == last
-        return now.day == max(1, min(28, md))
+        last = calendar.monthrange(now.year, now.month)[1]
+        for md in _monthdays_from(c):
+            if md == -1:
+                if now.day == last:
+                    return True
+            elif now.day == md:
+                return True
+        return False
     return False
 
 

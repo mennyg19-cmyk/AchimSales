@@ -95,26 +95,31 @@
             </section>
 
             <section class="ms-pane" data-pane="2" hidden>
-                <div class="ms-choice-row" role="radiogroup" aria-label="How often">
-                    <label class="ms-choice"><input type="radio" name="freq" value="daily" checked> Daily</label>
-                    <label class="ms-choice"><input type="radio" name="freq" value="weekly"> Weekly</label>
-                    <label class="ms-choice"><input type="radio" name="freq" value="monthly"> Monthly</label>
+                <div class="ps-seg" role="radiogroup" aria-label="How often">
+                    <label class="ps-seg-opt"><input type="radio" name="freq" value="daily" checked> Daily</label>
+                    <label class="ps-seg-opt"><input type="radio" name="freq" value="weekly"> Weekly</label>
+                    <label class="ps-seg-opt"><input type="radio" name="freq" value="monthly"> Monthly</label>
                 </div>
-                <div class="modal-field" id="psWeekdays" hidden>
+                <div class="modal-field ps-cadence-extra" id="psWeekdays" hidden>
                     <span>Which days?</span>
-                    <div class="sched-weekdays">
+                    <div class="sched-day-grid" role="group" aria-label="Weekdays">
                         {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
-                        <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
+                        <label class="sched-day-chip"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
                         {% endfor %}
                     </div>
                 </div>
-                <label class="modal-field" id="psMonthday" hidden>
-                    <span>Day of month</span>
-                    <select name="monthday">
-                        {% for d in range(1, 29) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-                        <option value="-1">Last day of the month</option>
-                    </select>
-                </label>
+                <div class="modal-field ps-cadence-extra" id="psMonthday" hidden>
+                    <span>Which days of the month?</span>
+                    <div class="sched-day-grid sched-month-grid" role="group" aria-label="Days of month">
+                        {% for d in range(1, 29) %}
+                        <label class="sched-day-chip"><input type="checkbox" name="monthday" value="{{ d }}"> {{ d }}</label>
+                        {% endfor %}
+                        <label class="sched-day-chip sched-day-chip-wide">
+                            <input type="checkbox" name="monthday" value="-1"> Last day
+                        </label>
+                    </div>
+                    <span class="ms-field-hint">Tap one or more. Days 1–28 and last day only.</span>
+                </div>
                 <label class="modal-field">
                     <span>Time (Eastern)</span>
                     <input type="time" name="time" value="08:00" required>

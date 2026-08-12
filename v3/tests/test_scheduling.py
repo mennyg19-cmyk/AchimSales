@@ -36,6 +36,8 @@ def test_normalize_validates_and_clamps():
     assert C.normalize({"freq": "weekly", "time": "08:00", "weekdays": [3, 1, 1]}) == \
         {"freq": "weekly", "time": "08:00", "weekdays": [1, 3]}
     assert C.normalize({"freq": "monthly", "monthday": 99})["monthday"] == 28
+    assert C.normalize({"freq": "monthly", "monthday": 99})["monthdays"] == [28]
+    assert C.normalize({"freq": "monthly", "monthdays": [1, 15, -1, 15]})["monthdays"] == [1, 15, -1]
     with pytest.raises(ValueError):
         C.normalize({"freq": "hourly"})
     with pytest.raises(ValueError):
