@@ -23,6 +23,24 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Beta import of Live Azure runbook schedules
+
+**What to test:**
+- Beta boot inserts Live Azure job names as company master schedules with `is_active=0`.
+- Re-seed does not duplicate existing names.
+- `amazon_weekly` is not imported.
+
+**Expected behavior:**
+- Company schedules list on `/beta/schedules` shows the Live jobs as Off.
+- The minute poller does not fire them until someone turns a row On.
+
+**Edge cases:**
+- A name you already created on Beta is left as-is (not overwritten).
+
+**Test file:** `v3/tests/test_schedule_seed.py`
+
+---
+
 ## Salesman-scoped invoiced fetch
 
 **What to test:**

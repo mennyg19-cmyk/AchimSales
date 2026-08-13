@@ -361,10 +361,10 @@ def bootstrap_background(app: Flask) -> None:
     _seed_admins(app, db)             # explicit env admins override the mirror
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
     cfg = app.config["APP_CONFIG"]
-    if not getattr(cfg, "is_beta", False):
-        _seed_master_schedules(app, db)   # migrate Azure Automation schedules into v3
+    if getattr(cfg, "is_beta", False):
+        _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     else:
-        app.logger.info("beta mode: skipping master schedule seed")
+        _seed_master_schedules(app, db, _AZURE_SCHEDULES)
 
     # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
     # must run in exactly ONE process. Under gunicorn we have multiple workers, so
@@ -668,29 +668,122 @@ _AZURE_SCHEDULES: list[dict] = [
 ]
 
 
-def _seed_master_schedules(app: Flask, db) -> None:
-    """Seed master_schedules from the current Azure Automation configuration.
+# Live Azure Automation jobs as of 2026-08-13. Names match Azure. Email-only
+# Live jobs have no stored recipients here — SharePoint is the delivery so the
+# row can be saved; add addresses after you check each one. Skipped:
+# amazon_weekly (no Beta report) and the leftover OrderReportDirect link.
+_LIVE_RUNBOOK_SCHEDULES: list[dict] = [
+    {
+        "name": "DailyInvoicedReport",
+        "report_key": "invoiced",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "sharepoint_path": "Direct Reports/Invoiced Report/Daily",
+    },
+    {
+        "name": "DailyOrderReport",
+        "report_key": "ordered",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
+    },
+    {
+        "name": "Daily 5am Number_4",
+        "report_key": "number_4",
+        "params": {},
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "sharepoint_path": "Direct Reports/Number 4 Report/Daily",
+    },
+    {
+        "name": "Daily 9am",
+        "report_key": "ordered",
+        "params": {"period": "yesterday", "customers": ["48999", "917", "2267"]},
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
+    },
+    {
+        "name": "Daily 9am Salesmen Ordered",
+        "report_key": "ordered",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Salesman Report/Daily",
+    },
+    {
+        "name": "Daily 9am Salesmen Shipped",
+        "report_key": "invoiced",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Salesman Report/Daily",
+    },
+    {
+        "name": "Daily Open Orders Report",
+        "report_key": "ordered",
+        "params": {"period": "yesterday", "salesman": ["Hkaufman"], "status": ["Open order"]},
+        "cadence": {"freq": "daily", "time": "11:00"},
+        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
+    },
+    {
+        "name": "Monthly Invoiced Report",
+        "report_key": "invoiced",
+        "params": {"period": "last_month"},
+        "cadence": {"freq": "monthly", "time": "05:00", "monthdays": [1]},
+        "sharepoint_path": "Direct Reports/Invoiced Report/Monthly",
+    },
+    {
+        "name": "Monthly 1st 12am Customer Activity",
+        "report_key": "customer_activity",
+        "params": {},
+        "cadence": {"freq": "monthly", "time": "00:00", "monthdays": [1]},
+        "sharepoint_path": "Direct Reports/Salesman Report/Customer Activity",
+    },
+    {
+        "name": "Monthly 1st 12am Monthly Salesman",
+        "report_key": "salesman",
+        "params": {},
+        "cadence": {"freq": "monthly", "time": "22:00", "monthdays": [1]},
+        "sharepoint_path": "Direct Reports/Salesman Report/Monthly",
+    },
+    {
+        "name": "Amazon Monthly Ordered",
+        "report_key": "ordered",
+        "params": {"period": "mtd", "customers": ["9300", "9301"]},
+        "cadence": {"freq": "monthly", "time": "19:59", "monthdays": [-1]},
+        "sharepoint_path": "Direct Reports/Amazon Weekly",
+    },
+    {
+        "name": "Weekly 5pm Friday Amazon Ordered",
+        "report_key": "ordered",
+        "params": {"period": "last_7_days", "customers": ["9300", "9301"]},
+        "cadence": {"freq": "weekly", "time": "00:00", "weekdays": [3]},
+        "sharepoint_path": "Direct Reports/Amazon Weekly",
+    },
+]
 
-    Uses upsert-by-name: inserts any schedule whose name doesn't already exist.
-    Existing schedules (including manually edited ones) are left untouched.
-    """
+
+def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
+                           *, inactive: bool = False) -> None:
+    """Insert missing master_schedules. Existing names are left untouched."""
     from web.data.repositories.schedules import MasterScheduleRepository
+    from web.scheduling import cadence as C
 
     try:
         repo = MasterScheduleRepository(db)
         existing = {s.name for s in repo.list_all()}
         added = 0
-        for s in _AZURE_SCHEDULES:
+        for s in (rows if rows is not None else _AZURE_SCHEDULES):
             if s["name"] in existing:
                 continue
             repo.create(
                 s["report_key"], s["name"],
                 params=s.get("params", {}), layout={},
-                cadence=s.get("cadence", {}),
+                cadence=C.normalize(s.get("cadence") or {"freq": "daily", "time": "08:00"}),
                 sharepoint_path=s.get("sharepoint_path", ""),
+                is_shared=True,
+                is_active=not inactive,
             )
             added += 1
         if added:
-            app.logger.info("seeded %d master schedules from Azure config", added)
+            state = "disabled" if inactive else "active"
+            app.logger.info("seeded %d master schedules (%s) from Azure config", added, state)
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("master schedule seed failed")

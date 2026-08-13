@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-08-13 Import Live Azure runbooks onto Beta (disabled)
+**What you asked for:** Copy the LIVE Azure Automation schedules onto Beta,
+left Off until you check each one.
+**What I chose:** On Beta boot, seed company (`is_shared`) master rows from the
+current Azure job list, all `is_active=0`. Names match Azure. SharePoint folders
+match the Live Direct Reports paths. Recipients are empty (Live emails come from
+env/distributions, not the job). Skipped `amazon_weekly` (no Beta report) and the
+old OrderReportDirect link. `--salesman all` jobs write one workbook to the
+Salesman Report folder — turn on split later if you want per-rep files. Re-seed
+skips names that already exist.
+**Status:** DECIDED — shipping
+
 ## 2026-08-12 One Schedules wizard (scope + share)
 **What you asked for:** Stop having two schedule products. One Schedules page,
 one Add flow. Company vs personal is options + an explicit share choice.

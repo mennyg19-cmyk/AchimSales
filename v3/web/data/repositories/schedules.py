@@ -225,17 +225,19 @@ class MasterScheduleRepository:
     def create(self, report_key: str, name: str, *, params: dict, layout: dict,
                cadence: dict, recipients: str = "", sharepoint_path: str = "",
                filename_template: str = "", owner_user_id: int | None = None,
-               is_shared: bool = True, run_as_user_id: int | None = None) -> int:
+               is_shared: bool = True, run_as_user_id: int | None = None,
+               is_active: bool = True) -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO master_schedules(report_key, name, params_json, layout_json,"
-                " cadence, recipients, sharepoint_path, filename_template,"
+                " cadence, recipients, sharepoint_path, filename_template, is_active,"
                 " owner_user_id, is_shared, run_as_user_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (report_key, name.strip(), json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
                  recipients or "", sharepoint_path or "",
                  (filename_template or "").strip(),
+                 1 if is_active else 0,
                  owner_user_id, 1 if is_shared else 0, run_as_user_id),
             )
             return cur.lastrowid

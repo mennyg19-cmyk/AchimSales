@@ -118,6 +118,17 @@ def test_master_schedule_crud(db):
     assert repo.delete(mid) is True
 
 
+def test_master_schedule_create_can_start_inactive(db):
+    repo = MasterScheduleRepository(db)
+    mid = repo.create("ordered", "Off copy", params={}, layout={},
+                      cadence={"freq": "daily", "time": "08:00"},
+                      sharepoint_path="Direct Reports/Ordered Report/Daily",
+                      is_active=False)
+    row = repo.get(mid)
+    assert row.is_active is False
+    assert repo.list_active() == []
+
+
 # --- outbox ----------------------------------------------------------------
 
 def test_outbox_enqueue_and_mark(db):
