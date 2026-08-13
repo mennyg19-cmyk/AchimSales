@@ -10,7 +10,7 @@ env/distributions, not the job). Skipped `amazon_weekly` (no Beta report) and th
 old OrderReportDirect link. `--salesman all` jobs write one workbook to the
 Salesman Report folder — turn on split later if you want per-rep files. Re-seed
 skips names that already exist.
-**Status:** DECIDED — shipping
+**Status:** DECIDED — deployed `4214a62` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-12 One Schedules wizard (scope + share)
 **What you asked for:** Stop having two schedule products. One Schedules page,
