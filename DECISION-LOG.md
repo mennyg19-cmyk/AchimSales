@@ -8,7 +8,7 @@ need at least one to turn On). While On, company schedule mail (Run now and
 the clock) goes only to that list, subject tagged `[TEST]`, SharePoint/OneDrive
 skipped, salesman-split fanout skipped. Personal schedules unchanged. Off
 restores stored recipients and SharePoint. Notes: `.scratch/grill-notes-schedule-test-mode.md`.
-**Status:** DECIDED — shipping
+**Status:** DECIDED — deployed `2fe1404` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-13 Import Live Azure runbooks onto Beta (disabled)
 **What you asked for:** Copy the LIVE Azure Automation schedules onto Beta,
