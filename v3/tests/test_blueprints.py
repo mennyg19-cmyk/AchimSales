@@ -1190,6 +1190,42 @@ def test_feature_flag_forbidden_for_salesman(tmp_path):
     assert resp.status_code == 403
 
 
+def test_schedule_test_mode_admin_set_and_rejects_empty_enable(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/settings").get_data(as_text=True)
+    assert "Schedule test mode" in html
+    empty = client.post("/api/admin/schedule-test", json={"enabled": True},
+                        headers={"X-CSRF-Token": _CSRF})
+    assert empty.status_code == 400
+    saved = client.post(
+        "/api/admin/schedule-test",
+        json={"enabled": True, "emails": ["menny@x.com", "other@x.com", "bad"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    body = saved.get_json()
+    assert body["enabled"] is True
+    assert body["emails"] == ["menny@x.com", "other@x.com"]
+    banner = client.get("/schedules").get_data(as_text=True)
+    assert "Test mode is on" in banner
+    assert "menny@x.com" in banner
+
+
+def test_schedule_test_mode_forbidden_for_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "rep@x.com", "name": "Rep", "role": "salesman", "is_dev": True}
+        s["_csrf_token"] = _CSRF
+    resp = client.post(
+        "/api/admin/schedule-test", json={"enabled": True, "emails": ["a@x.com"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert resp.status_code == 403
+
+
 def _clo_rows():
     return [
         {"Order Rank": 1, "Customer Account": "100", "Customer Name": "Acme",

@@ -228,6 +228,10 @@ def schedules_page():
         include_master=can_see_company,
         viewer=p, viewer_id=uid,
     )
+    from web.data.repositories.app_settings import AppSettingsRepository
+    test_settings = AppSettingsRepository(current_app.config["DB"])
+    context["test_mode_on"] = can_see_company and test_settings.is_schedule_test_mode()
+    context["test_emails"] = test_settings.test_emails() if context["test_mode_on"] else []
     return render_template("schedules.html", **context)
 
 

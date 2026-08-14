@@ -36,7 +36,10 @@
 </section>
 
 {% if is_admin %}
-<section class="settings-card" id="adminSettings" data-flag-url="{{ url_for('settings.set_feature_flag') }}" data-csrf="{{ csrf_token() }}">
+<section class="settings-card" id="adminSettings"
+         data-flag-url="{{ url_for('settings.set_feature_flag') }}"
+         data-test-url="{{ url_for('settings.set_schedule_test') }}"
+         data-csrf="{{ csrf_token() }}">
     <h2 class="section-title">Admin</h2>
 
     <div class="admin-links">
@@ -44,6 +47,34 @@
         <a class="btn btn-outline btn-sm" href="{{ url_for('admin.users_page') }}">Users &amp; access</a>
         <a class="btn btn-outline btn-sm" href="{{ url_for('settings.run_log_page') }}">Report run log</a>
     </div>
+
+    <h3 class="settings-subhead">Schedule test mode</h3>
+    <p class="flag-desc">While on, company schedule mail (Run now and the clock) goes only to the addresses below. SharePoint is skipped. Personal schedules are unchanged.</p>
+    <ul class="flag-list">
+        <li class="flag-row">
+            <label class="switch">
+                <input type="checkbox" id="scheduleTestToggle" {% if test_mode_on %}checked{% endif %}>
+                <span class="switch-track"></span>
+            </label>
+            <span class="flag-meta">
+                <span class="flag-name">Redirect company schedule mail</span>
+                <span class="flag-desc">Subject is tagged [TEST]. Turn off to send to real recipients and SharePoint again.</span>
+            </span>
+        </li>
+    </ul>
+    <div id="testEmailChips" class="test-email-chips">
+        {% for e in test_emails %}
+        <button type="button" class="customer-chip js-test-email-remove" data-email="{{ e }}" aria-label="Remove {{ e }}">{{ e }} ✕</button>
+        {% endfor %}
+    </div>
+    <form id="testEmailAdd" class="test-email-add">
+        <label class="filter-field">
+            <span>Add test email</span>
+            <input type="email" id="testEmailInput" placeholder="name@achimonline.com" autocomplete="off">
+        </label>
+        <button type="submit" class="btn btn-outline btn-sm">Add</button>
+    </form>
+    <p class="flag-desc test-mode-msg" id="testModeMsg" hidden></p>
 
     {% if flags %}
     <h3 class="settings-subhead">Feature flags <button type="button" class="help-btn" data-help="settings-feature-flags" data-no-guard aria-label="Help">?</button></h3>

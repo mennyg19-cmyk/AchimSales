@@ -16,6 +16,13 @@
     </div>
 </div>
 
+{% if test_mode_on %}
+<div class="alert alert-warn" role="status">
+    Test mode is on. Company schedule mail goes to {{ test_emails|join(', ') }}. SharePoint is not written.
+    <a href="{{ url_for('settings.settings_page') }}">Settings</a>
+</div>
+{% endif %}
+
 <details class="run-log-panel" {% if recent_runs %}open{% endif %}>
     <summary class="run-log-summary">
         Recent run log

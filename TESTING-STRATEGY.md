@@ -23,6 +23,26 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Schedule test mode
+
+**What to test:**
+- Admin can save several test emails and turn test mode on; cannot turn on with an empty list.
+- Salesman cannot POST the API.
+- Company schedule Run now in test mode emails only the test list, `[TEST]` subject, no SharePoint.
+- Personal schedules ignore test mode.
+- Test mode on with no emails fails the run instead of sending to stored recipients.
+
+**Expected behavior:**
+- Settings shows the toggle and address chips.
+- `/schedules` shows a banner listing the test addresses while On.
+
+**Edge cases:**
+- Invalid addresses are dropped; salesman-split jobs send one combined workbook to the test list.
+
+**Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
+
+---
+
 ## Beta import of Live Azure runbook schedules
 
 **What to test:**

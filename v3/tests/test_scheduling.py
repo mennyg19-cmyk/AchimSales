@@ -247,6 +247,132 @@ def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path
     assert any(d.get("salesman") == "NoMail" and d.get("skipped") for d in meta.get("deliveries") or [])
 
 
+def test_runner_master_test_mode_redirects_and_skips_sharepoint(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    AppSettingsRepository(db).set_schedule_test(
+        enabled=True, emails=["menny@x.com", "other@x.com"])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["menny@x.com", "other@x.com"], eml_name="x.eml"),
+                row_count=2,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "DailyInvoicedReport", params={"email_cc": "cc@x.com"}, layout={},
+        cadence={"freq": "daily", "time": "05:00"}, recipients="customers@x.com",
+        sharepoint_path="Direct Reports/Invoiced Report/Daily")
+    runner.run(mid, MASTER)
+    assert len(delivery.calls) == 1
+    call = delivery.calls[0]
+    assert call["recipients"] == "menny@x.com; other@x.com"
+    assert call["sharepoint_path"] == ""
+    assert call["onedrive_user"] == ""
+    assert call["cc_raw"] == ""
+    assert call["subject"].startswith("[TEST] ")
+
+
+def test_runner_personal_ignores_test_mode(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    AppSettingsRepository(db).set_schedule_test(enabled=True, emails=["menny@x.com"])
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="real@x.com")
+    runner.run(sid, PERSONAL)
+    assert delivery.calls[0]["recipients"] == "real@x.com"
+    assert not delivery.calls[0]["subject"].startswith("[TEST]")
+
+
+def test_runner_test_mode_on_without_emails_fails(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    settings = AppSettingsRepository(db)
+    settings.set_schedule_test(enabled=True, emails=["menny@x.com"])
+    with db.precious() as conn:
+        conn.execute("UPDATE app_settings SET value='1' WHERE key='schedule_test_mode'")
+        conn.execute("UPDATE app_settings SET value='[]' WHERE key='schedule_test_emails'")
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=object())  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    with pytest.raises(RuntimeError, match="no test emails"):
+        runner.run(mid, MASTER)
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "failure"
+
+
+def test_runner_test_mode_skips_salesman_fanout(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    AppSettingsRepository(db).set_schedule_test(enabled=True, emails=["menny@x.com"])
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+    ])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["menny@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={"email_salesman_keys": ["MKolko"]}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="manager@x.com",
+        sharepoint_path="Direct Reports/Salesman Report/Daily")
+    runner.run(mid, MASTER)
+    assert len(delivery.calls) == 1
+    assert delivery.calls[0]["recipients"] == "menny@x.com"
+    assert delivery.calls[0]["sharepoint_path"] == ""
+
+
 # --- cron tick -------------------------------------------------------------
 
 def test_tick_enqueues_due_and_dedups(tmp_path):

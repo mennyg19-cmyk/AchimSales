@@ -1,5 +1,15 @@
 # Decision Log
 
+## 2026-08-14 Schedule test mode (redirect + address list)
+**What you asked for:** A test mode with test emails so you can run the new
+Beta schedules and compare the workbooks to Live, without hitting customers.
+**What I chose:** Admin Settings toggle plus a list of addresses (add/remove;
+need at least one to turn On). While On, company schedule mail (Run now and
+the clock) goes only to that list, subject tagged `[TEST]`, SharePoint/OneDrive
+skipped, salesman-split fanout skipped. Personal schedules unchanged. Off
+restores stored recipients and SharePoint. Notes: `.scratch/grill-notes-schedule-test-mode.md`.
+**Status:** DECIDED — shipping
+
 ## 2026-08-13 Import Live Azure runbooks onto Beta (disabled)
 **What you asked for:** Copy the LIVE Azure Automation schedules onto Beta,
 left Off until you check each one.

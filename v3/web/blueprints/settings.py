@@ -21,6 +21,7 @@ from flask import (
 
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
+from web.data.repositories.app_settings import AppSettingsRepository
 from web.data.repositories.feature_flags import DEFAULTS as FLAG_DEFAULTS
 from web.data.repositories.feature_flags import FeatureFlagRepository
 from web.data.repositories.preferences import PreferencesRepository
@@ -55,14 +56,20 @@ def _require_admin():
 def settings_page():
     p = current_principal()
     flags = []
+    test_mode_on = False
+    test_emails: list[str] = []
     if current_app.config["AUTHZ"].is_privileged(p):  # live DB check, not session role
         current = _flags().all()
         flags = [
             {"key": key, "enabled": current.get(key, default), "description": desc}
             for key, (default, desc) in FLAG_DEFAULTS.items()
         ]
+        settings = AppSettingsRepository(current_app.config["DB"])
+        test_mode_on = settings.is_schedule_test_mode()
+        test_emails = settings.test_emails()
     return render_template(
         "settings.html", active_tab="settings", profile=p, flags=flags,
+        test_mode_on=test_mode_on, test_emails=test_emails,
     )
 
 
@@ -86,6 +93,27 @@ def set_feature_flag():
         return jsonify({"error": "Unknown flag"}), 400
     _flags().set(key, bool(body.get("enabled")))
     return jsonify({"key": key, "enabled": bool(body.get("enabled"))})
+
+
+@settings_bp.post("/api/admin/schedule-test")
+@require_login
+def set_schedule_test():
+    if _require_admin() is None:
+        return jsonify({"error": "Forbidden"}), 403
+    body = request.get_json(silent=True) or {}
+    repo = AppSettingsRepository(current_app.config["DB"])
+    emails = body.get("emails")
+    enabled = body.get("enabled")
+    if emails is not None and not isinstance(emails, list):
+        return jsonify({"error": "emails must be a list"}), 400
+    try:
+        repo.set_schedule_test(
+            enabled=None if enabled is None else bool(enabled),
+            emails=None if emails is None else [str(x) for x in emails],
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"enabled": repo.is_schedule_test_mode(), "emails": repo.test_emails()})
 
 
 @settings_bp.post("/settings/theme")

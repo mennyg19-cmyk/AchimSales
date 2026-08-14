@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from report_engine import registry
 from web.auth.authorization import Authorization
 from web.auth.principal import Principal
+from web.data.repositories.app_settings import AppSettingsRepository
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -33,13 +34,15 @@ log = logging.getLogger(__name__)
 class ScheduleRunner:
     def __init__(self, *, schedule_repo: ScheduleRepository,
                  master_repo: MasterScheduleRepository, run_repo: ScheduleRunRepository,
-                 user_repo: UserRepository, authz: Authorization, delivery: DeliveryService):
+                 user_repo: UserRepository, authz: Authorization, delivery: DeliveryService,
+                 settings: AppSettingsRepository | None = None):
         self.schedule_repo = schedule_repo
         self.master_repo = master_repo
         self.run_repo = run_repo
         self.user_repo = user_repo
         self.authz = authz
         self.delivery = delivery
+        self.settings = settings or AppSettingsRepository(user_repo.db)
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL) -> int:
         sched = self._load(schedule_id, schedule_type)
@@ -62,15 +65,9 @@ class ScheduleRunner:
                 identity = principal.email
             report_name = spec.title if spec else sched.report_key
             subject = self._subject(sched, schedule_type, report_name)
-            od_user = _onedrive_user(sched, schedule_type, identity)
-            if schedule_type == MASTER and self._salesman_targets(sched.params):
-                outcome = self._run_master_fanout(
-                    sched=sched, identity=identity, scope=scope,
-                    builder_version=spec.builder_version if spec else 1,
-                    subject=subject, report_name=report_name,
-                    onedrive_user=od_user,
-                )
-            else:
+            test_to = self._company_test_recipients(schedule_type)
+            if test_to is not None:
+                subject = f"[TEST] {subject}"
                 params = sched.params or {}
                 no_data_all = bool(params.get("email_on_no_data"))
                 no_data_me = bool(params.get("email_on_no_data_me_only"))
@@ -78,15 +75,41 @@ class ScheduleRunner:
                     report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                     builder_version=spec.builder_version if spec else 1,
                     params=_report_params(params), layout=sched.layout,
-                    recipients=sched.recipients, subject=subject, report_name=report_name,
-                    sharepoint_path=sched.sharepoint_path,
+                    recipients="; ".join(test_to), subject=subject, report_name=report_name,
+                    sharepoint_path="",
                     filename_template=getattr(sched, "filename_template", "") or "",
-                    onedrive_user=od_user,
-                    cc_raw=str(params.get("email_cc") or ""),
-                    bcc_raw=str(params.get("email_bcc") or ""),
+                    onedrive_user="",
+                    cc_raw="",
+                    bcc_raw="",
                     email_on_empty=no_data_all or no_data_me,
-                    empty_recipients_override=identity if (no_data_me and not no_data_all) else None,
+                    empty_recipients_override=None,
                 )
+            else:
+                od_user = _onedrive_user(sched, schedule_type, identity)
+                if schedule_type == MASTER and self._salesman_targets(sched.params):
+                    outcome = self._run_master_fanout(
+                        sched=sched, identity=identity, scope=scope,
+                        builder_version=spec.builder_version if spec else 1,
+                        subject=subject, report_name=report_name,
+                        onedrive_user=od_user,
+                    )
+                else:
+                    params = sched.params or {}
+                    no_data_all = bool(params.get("email_on_no_data"))
+                    no_data_me = bool(params.get("email_on_no_data_me_only"))
+                    outcome = self.delivery.run_and_deliver(
+                        report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
+                        builder_version=spec.builder_version if spec else 1,
+                        params=_report_params(params), layout=sched.layout,
+                        recipients=sched.recipients, subject=subject, report_name=report_name,
+                        sharepoint_path=sched.sharepoint_path,
+                        filename_template=getattr(sched, "filename_template", "") or "",
+                        onedrive_user=od_user,
+                        cc_raw=str(params.get("email_cc") or ""),
+                        bcc_raw=str(params.get("email_bcc") or ""),
+                        email_on_empty=no_data_all or no_data_me,
+                        empty_recipients_override=identity if (no_data_me and not no_data_all) else None,
+                    )
             meta = _output_meta(outcome)
             summary = _summary_message(outcome, ok=outcome.result.ok)
             self.run_repo.finish(
@@ -141,6 +164,20 @@ class ScheduleRunner:
             row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
         from web.data.repositories.users import User
         return User.from_row(row) if row else None
+
+    def _company_test_recipients(self, schedule_type: str) -> list[str] | None:
+        """Test-mode address list for company schedules, or None to send as stored."""
+        if schedule_type != MASTER:
+            return None
+        if not self.settings.is_schedule_test_mode():
+            return None
+        emails = self.settings.test_emails()
+        if not emails:
+            raise RuntimeError(
+                "Test mode is on but no test emails are set. "
+                "Add addresses in Settings or turn test mode off."
+            )
+        return emails
 
     def _subject(self, sched, schedule_type: str, report_name: str) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
