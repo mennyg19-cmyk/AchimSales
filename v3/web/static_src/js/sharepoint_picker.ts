@@ -98,11 +98,16 @@ async function spLoadPath(path: string): Promise<void> {
   const wiz = document.getElementById("msWizard");
   const url = wiz?.getAttribute("data-sp-folders-url") || "/api/sharepoint/folders";
   try {
-    const r = await fetch(url + "?path=" + encodeURIComponent(spCurrentPath),
-      { headers: { Accept: "application/json" } });
+    const r = await fetch(url + "?path=" + encodeURIComponent(spCurrentPath), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
     const json = await r.json().catch(() => ({}));
     if (!r.ok) {
-      body.innerHTML = `<div class="sp-picker-error">${esc(json.error || "HTTP " + r.status)}</div>`;
+      const msg = json.error || (r.status === 401
+        ? "Sign in expired — refresh the page."
+        : "HTTP " + r.status);
+      body.innerHTML = `<div class="sp-picker-error">${esc(msg)}</div>`;
       return;
     }
     if (json.error) {
@@ -128,10 +133,14 @@ async function openSharePointPicker(initialPath: string): Promise<string | null>
   const wiz = document.getElementById("msWizard");
   const statusUrl = wiz?.getAttribute("data-sp-status-url") || "/api/sharepoint/status";
   try {
-    const r = await fetch(statusUrl);
+    const r = await fetch(statusUrl, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
     const j = await r.json().catch(() => ({}));
-    if (j?.root_path) {
-      const parts = String(j.root_path).split("/").filter(Boolean);
+    const root = j?.root_path || j?.root;
+    if (root) {
+      const parts = String(root).split("/").filter(Boolean);
       spRootLabel = parts.length ? parts[parts.length - 1] : "Direct Reports";
     }
   } catch { /* use default */ }

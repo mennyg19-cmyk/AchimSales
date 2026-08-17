@@ -29,3 +29,22 @@ def test_period_from_params():
         params={"period": "last_month"}, when=when,
     )
     assert name == "Ordered_last_month.xlsx"
+
+
+def test_schedule_name_token():
+    when = datetime(2026, 8, 17, 8, 0, tzinfo=_ET)
+    name = resolve_filename_template(
+        "{Schedule}_{Report}_{YYYY}{MM}{DD}",
+        report_name="Ordered Report",
+        schedule_name="Daily Ordered Report",
+        when=when,
+    )
+    assert name == "Daily_Ordered_Report_Ordered_Report_20260817.xlsx"
+
+
+def test_report_title_is_slugged():
+    when = datetime(2026, 8, 17, tzinfo=_ET)
+    name = resolve_filename_template(
+        "{Report}_{YYYY}{MM}{DD}", report_name="Ordered Report", when=when,
+    )
+    assert name == "Ordered_Report_20260817.xlsx"

@@ -106,9 +106,13 @@ See `.env.example` for all required variables. Key groups:
 
 - **D365**: `D365_ENV_URL`, `D365_TENANT_ID`, `D365_CLIENT_ID`, `D365_CLIENT_SECRET`, `D365_COMPANY_ID`
 - **Graph/SharePoint**: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `SP_SITE_URL`
+- **Graph app permissions (Application, not Delegated)** — Entra → the app in `GRAPH_CLIENT_ID` → API permissions → **Grant admin consent**:
+  - `Mail.Send` — send schedule mail as `EMAIL_FROM_ADDRESS`
+  - `Files.ReadWrite.All` — list/write a user's OneDrive (`/users/{email}/drive`)
+  - `Sites.ReadWrite.All` — list/write the SharePoint site in `SP_SITE_URL` (or `Sites.Selected` plus a site grant)
+  A 401 from the folder picker is usually a rejected token (secret expired, or consent never granted). A 403 is a valid token that still cannot read that drive.
 - **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)
 - **Web App**: `FLASK_SECRET_KEY`, `DEV_BYPASS_AUTH`
-- **Beta personal OneDrive schedules**: Graph app needs `Files.ReadWrite.All` (admin consent) so overnight jobs can write to `/users/{email}/drive`
 
 ## Directory Structure
 

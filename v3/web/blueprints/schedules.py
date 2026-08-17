@@ -185,6 +185,7 @@ def schedules_page():
             "cadence": C.describe(s.cadence), "recipients": s.recipients,
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, PERSONAL),
+            "filename_template": getattr(s, "filename_template", "") or "",
             "kind": "personal",
         })
     for s in _master().list_private_for_user(uid):
@@ -196,6 +197,7 @@ def schedules_page():
             "params": s.params or {}, "recipients": s.recipients,
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, MASTER),
+            "filename_template": getattr(s, "filename_template", "") or "",
             "kind": "master", "run_as_user_id": s.run_as_user_id,
         })
     personal_reports = [
@@ -223,11 +225,7 @@ def schedules_page():
         context.update(_master_page_context(p, uid))
     else:
         context["master_schedules"] = []
-    context["recent_runs"] = _recent_run_log(
-        personal_ids={s["id"] for s in items if s["kind"] == "personal"},
-        include_master=can_see_company,
-        viewer=p, viewer_id=uid,
-    )
+    context["recent_runs"] = _viewer_run_log(p)
     from web.data.repositories.app_settings import AppSettingsRepository
     test_settings = AppSettingsRepository(current_app.config["DB"])
     context["test_mode_on"] = can_see_company and test_settings.is_schedule_test_mode()
@@ -284,6 +282,21 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
         if len(out) >= limit:
             break
     return out
+
+
+def _viewer_run_log(p) -> list[dict]:
+    uid = _uid(p.email)
+    return _recent_run_log(
+        personal_ids={s.id for s in _repo().list_for_user(uid)},
+        include_master=_authz().can_see_company_schedules(p),
+        viewer=p, viewer_id=uid,
+    )
+
+
+@schedules_bp.get("/api/schedules/recent-runs")
+@require_login
+def recent_runs():
+    return jsonify({"runs": _viewer_run_log(_principal())})
 
 
 @schedules_bp.post("/api/schedules")
@@ -597,6 +610,7 @@ def _master_page_context(p, uid: int) -> dict:
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, MASTER),
             "can_edit": can_edit,
+            "filename_template": getattr(s, "filename_template", "") or "",
             "is_shared": True,
             "owner_user_id": s.owner_user_id,
             "run_as_user_id": s.run_as_user_id,

@@ -127,7 +127,10 @@
     font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; cursor: pointer;
 }
 .customer-option:hover { background: var(--primary-light); }
-.customer-option input { min-width: 0; width: auto; }
+.customer-option input[type="checkbox"] {
+    min-width: 16px; width: 16px; height: 16px; padding: 0; margin: 0;
+    accent-color: var(--primary); flex: 0 0 auto;
+}
 .customer-empty { padding: 8px 10px; color: var(--text-muted); font-size: 13px; }
 
 /* -- Live API preview panel -- */
@@ -789,24 +792,33 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .ms-choice:has(input:checked) {
     border-color: var(--primary); background: var(--primary-light); color: var(--primary);
 }
-.ms-choice input { margin: 0; }
+.ms-choice input { margin: 0; width: 16px; height: 16px; accent-color: var(--primary); flex: 0 0 auto; }
+.ms-choice-col { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 12px 0 16px; max-width: 560px; }
+.ms-choice-col .ms-choice { width: 100%; }
 
 .ms-field {
-    display: flex; flex-direction: column; gap: 4px; font-size: 12px;
-    font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px;
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 14px; font-weight: 400; color: var(--text);
 }
 .ms-field[hidden] { display: none !important; }
+.ms-field > span:first-of-type {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .3px;
+}
 .ms-field-block { margin-bottom: 14px; max-width: 420px; }
-.ms-field input, .ms-field select {
+.ms-field input:not([type=checkbox]):not([type=radio]), .ms-field select {
     padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     font-size: 15px; font-weight: 400; color: var(--text); background: var(--bg);
     text-transform: none; letter-spacing: 0; width: 100%;
 }
-.ms-field input:focus, .ms-field select:focus { outline: none; border-color: var(--border-focus); }
+.ms-field input:not([type=checkbox]):not([type=radio]):focus, .ms-field select:focus {
+    outline: none; border-color: var(--border-focus);
+}
 .ms-field select { appearance: none; padding-right: 28px; cursor: pointer;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: right 8px center;
 }
+.ms-field select[hidden] { display: none !important; }
 .ms-field select.ms-multi {
     appearance: auto; background-image: none; padding-right: 12px;
     min-height: 120px; cursor: default;
@@ -816,7 +828,24 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
     text-transform: none; letter-spacing: 0; margin-top: 2px;
 }
 .ms-field .customer-picker { margin-top: 4px; }
-.ms-field .customer-pills { padding-bottom: 0; margin-top: 6px; }
+.ms-field .customer-pills { padding-bottom: 0; margin-top: 6px; align-self: stretch; }
+.ms-field .customer-chip, .ms-field .customer-option, .ms-field .customer-empty, .ms-field .customer-search {
+    text-transform: none; letter-spacing: 0; font-weight: 500;
+}
+.fn-token {
+    display: inline-flex; align-items: center; border: none; cursor: pointer;
+    background: var(--primary-light); color: var(--primary);
+    padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    text-transform: none; letter-spacing: 0; margin: 2px 2px 0 0;
+}
+.fn-token:hover { filter: brightness(0.96); }
+.ms-filename-preview {
+    display: block; margin-top: 8px; padding: 8px 10px;
+    background: var(--bg); border: 1px dashed var(--border); border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 400; color: var(--text-muted);
+    text-transform: none; letter-spacing: 0; word-break: break-all;
+}
+.ms-filename-preview strong { color: var(--text); font-weight: 600; }
 .ms-field-sp { max-width: 560px; }
 .ms-params-none {
     padding: 16px; background: var(--bg); border: 1px dashed var(--border);

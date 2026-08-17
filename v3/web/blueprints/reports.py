@@ -46,6 +46,7 @@ from web.auth.session import current_principal
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import split_recipients
+from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
 from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
@@ -1345,7 +1346,7 @@ def sharepoint_folders():
     try:
         return jsonify({"path": path, "folders": _sharepoint().list_folders(path)})
     except Exception as exc:  # noqa: BLE001 - surface as a clean error, never 500 the picker
-        return jsonify({"path": path, "folders": [], "error": str(exc)}), 200
+        return jsonify({"path": path, "folders": [], "error": graph_error_message(exc, what="SharePoint")}), 502
 
 
 @reports_bp.get("/api/onedrive/status")
@@ -1370,7 +1371,7 @@ def onedrive_folders():
     try:
         return jsonify({"path": path, "folders": od.list_folders(p.email, path)})
     except Exception as exc:  # noqa: BLE001
-        return jsonify({"path": path, "folders": [], "error": str(exc)}), 200
+        return jsonify({"path": path, "folders": [], "error": graph_error_message(exc, what="OneDrive")}), 502
 
 
 def _visible_list(keys) -> list | None:

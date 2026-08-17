@@ -42,7 +42,8 @@ class DeliveryService:
                         onedrive_user: str = "",
                         cc_raw: str = "", bcc_raw: str = "",
                         email_on_empty: bool = True,
-                        empty_recipients_override: str | None = None) -> DeliveryOutcome:
+                        empty_recipients_override: str | None = None,
+                        schedule_name: str = "") -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
         outcome = self.runner.run(
             report_key=report_key, identity=identity,
@@ -62,6 +63,7 @@ class DeliveryService:
         xlsx = build_workbook(payload, layout)
         filename = resolve_filename_template(
             filename_template, report_name=report_name, params=params or {},
+            schedule_name=schedule_name,
         )
         to = recipients
         cc = cc_raw

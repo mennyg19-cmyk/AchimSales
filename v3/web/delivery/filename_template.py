@@ -28,6 +28,7 @@ TOKEN_HELP: tuple[tuple[str, str], ...] = (
     ("{mm}", "minute 00–59"),
     ("{ss}", "second 00–59"),
     ("{Report}", "report title slug"),
+    ("{Schedule}", "schedule name slug"),
     ("{Period}", "period / year from params, if any"),
     ("{Weekday}", "Monday … Sunday"),
 )
@@ -41,6 +42,7 @@ def resolve_filename_template(
     report_name: str,
     params: dict | None = None,
     when: datetime | None = None,
+    schedule_name: str = "",
 ) -> str:
     """Expand tokens; always ends with .xlsx; filesystem-safe."""
     now = when or datetime.now(_EASTERN)
@@ -51,6 +53,7 @@ def resolve_filename_template(
 
     period = _period_label(params or {})
     report_slug = _slug(report_name) or "Report"
+    schedule_slug = _slug(schedule_name) or report_slug
     mapping = {
         "{YYYY}": f"{now.year:04d}",
         "{YY}": f"{now.year % 100:02d}",
@@ -64,6 +67,7 @@ def resolve_filename_template(
         "{mm}": f"{now.minute:02d}",
         "{ss}": f"{now.second:02d}",
         "{Report}": report_slug,
+        "{Schedule}": schedule_slug,
         "{Period}": period or now.strftime("%Y%m%d"),
         "{Weekday}": now.strftime("%A"),
     }

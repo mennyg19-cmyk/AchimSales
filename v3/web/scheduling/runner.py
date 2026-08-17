@@ -83,6 +83,7 @@ class ScheduleRunner:
                     bcc_raw="",
                     email_on_empty=no_data_all or no_data_me,
                     empty_recipients_override=None,
+                    schedule_name=getattr(sched, "name", "") or report_name,
                 )
             else:
                 od_user = _onedrive_user(sched, schedule_type, identity)
@@ -109,6 +110,7 @@ class ScheduleRunner:
                         bcc_raw=str(params.get("email_bcc") or ""),
                         email_on_empty=no_data_all or no_data_me,
                         empty_recipients_override=identity if (no_data_me and not no_data_all) else None,
+                        schedule_name=getattr(sched, "name", "") or report_name,
                     )
             meta = _output_meta(outcome)
             summary = _summary_message(outcome, ok=outcome.result.ok)
@@ -202,6 +204,7 @@ class ScheduleRunner:
                 report_name=report_name, sharepoint_path=sched.sharepoint_path,
                 filename_template=getattr(sched, "filename_template", "") or "",
                 onedrive_user=onedrive_user,
+                schedule_name=getattr(sched, "name", "") or report_name,
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -227,6 +230,7 @@ class ScheduleRunner:
                 recipients=email, subject=f"{subject} - {key}",
                 report_name=f"{report_name} - {key}", sharepoint_path="",
                 filename_template=getattr(sched, "filename_template", "") or "",
+                schedule_name=getattr(sched, "name", "") or report_name,
             )
             outcomes.append(outcome)
             deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))

@@ -171,6 +171,7 @@
 
 <div id="reportRoot"
      data-report-key="{{ report.key }}"
+     data-report-title="{{ report.title }}"
      data-run-url="{{ url_for('reports.run_report', report_key=report.key) }}"
      data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
      data-active-url="{{ url_for('reports.active_report_runs') }}"
@@ -282,15 +283,16 @@
                 <input type="text" id="schedFilename" placeholder="{Report}_{MM}_{Month}_{YYYY}"
                        value="{Report}_{YYYY}{MM}{DD}">
                 <span class="muted" style="font-size:12px;">Tokens:
-                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{MM}">MM</button>
-                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Month}">Month</button>
-                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{YYYY}">YYYY</button>
-                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Report}">Report</button>
-                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Period}">Period</button>
-                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{DD}">DD</button>
-                    <button type="button" class="btn btn-sm btn-outline js-fn-token" data-token="{Weekday}">Weekday</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Report}">Report name</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Schedule}">Schedule name</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{MM}">MM</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Month}">Month</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Period}">Period</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{DD}">DD</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Weekday}">Weekday</button>
                 </span>
-                <span class="muted" style="font-size:12px;">Preview: <strong id="schedFilenamePreview"></strong></span>
+                <span class="ms-filename-preview">Will save as <strong id="schedFilenamePreview"></strong></span>
             </label>
             <div class="modal-field" id="schedOdSection" hidden>
                 <span>Also save to my OneDrive <em id="schedOdStatus" class="lookup-status"></em></span>

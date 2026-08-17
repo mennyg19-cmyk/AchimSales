@@ -23,13 +23,14 @@
 </div>
 {% endif %}
 
-<details class="run-log-panel" {% if recent_runs %}open{% endif %}>
+<details class="run-log-panel" id="runLogPanel"
+         data-recent-url="{{ url_for('schedules.recent_runs') }}"
+         {% if recent_runs %}open{% endif %}>
     <summary class="run-log-summary">
         Recent run log
-        {% if recent_runs %}
-        <span class="run-log-count">{{ recent_runs|length }}</span>
-        {% endif %}
+        <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>
     </summary>
+    <div id="runLogBody">
     {% if recent_runs %}
     <div class="table-wrap run-log-table-wrap">
         <table class="data-table run-log-table">
@@ -38,7 +39,7 @@
                     <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="runLogRows">
                 {% for r in recent_runs %}
                 <tr>
                     <td class="run-log-when">{{ r.finished_at or r.started_at or '—' }}</td>
@@ -62,6 +63,7 @@
     {% else %}
     <p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>
     {% endif %}
+    </div>
 </details>
 
 {% include "master_schedules.html" %}
@@ -94,6 +96,7 @@
                 data-params='{{ s.params|tojson }}'
                 data-recipients="{{ s.recipients }}"
                 data-sharepoint-path="{{ s.sharepoint_path }}"
+                data-filename-template="{{ s.filename_template or '' }}"
                 data-run-as="{{ s.run_as_user_id or '' }}"
                 data-is-shared="0"{% endif %}>
                 <td>{{ s.report_title }}</td>

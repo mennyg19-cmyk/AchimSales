@@ -1,6 +1,8 @@
 // Master schedule wizard (admin page).
 
+import { previewFilename } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
+import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
 
 const TOTAL_STEPS = 5;
 let wizardStep = 1;
@@ -8,11 +10,11 @@ let wizardStep = 1;
 interface LookupRow { key: string; name: string; }
 interface SalesmanEmailRow extends LookupRow { email: string; }
 
-const selectedCustomers = new Map<string, string>(); // account -> display name
-let customerOptions: LookupRow[] = [];
+let statusPicker: SearchablePicker | null = null;
+let salesmanPicker: SearchablePicker | null = null;
+let emailSalesmanPicker: SearchablePicker | null = null;
+let customerPicker: SearchablePicker | null = null;
 let salesmanEmailOptions: SalesmanEmailRow[] = [];
-let customerPickerOpen = false;
-let customerHandlersBound = false;
 let lookupsStarted = false;
 let lookupPollTimer: number | null = null;
 let pendingSalesmen: string[] = [];
@@ -110,7 +112,7 @@ function syncDeliveryOptionsVisibility(form: HTMLFormElement): void {
   const wrapper = document.getElementById("msSalesmanDelivery");
   const filtered = document.getElementById("msFilteredSalesmanEmail");
   const unfiltered = document.getElementById("msUnfilteredSalesmanSplit");
-  const selectedSalesmen = multiValues(document.getElementById("msSalesman") as HTMLSelectElement | null);
+  const selectedSalesmen = salesmanPicker?.selectedKeys() || [];
   const showSplit = canSeeCompany() && hasSalesmanFilter;
   if (wrapper) wrapper.hidden = !showSplit;
   if (filtered) filtered.hidden = !showSplit || selectedSalesmen.length === 0;
@@ -120,7 +122,7 @@ function syncDeliveryOptionsVisibility(form: HTMLFormElement): void {
     const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
     if (emailToSalesmen) emailToSalesmen.checked = false;
     if (splitBySalesman) splitBySalesman.checked = false;
-    setMultiSelected(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null, []);
+    emailSalesmanPicker?.setSelected([]);
   }
   void ensureLookups();
 }
@@ -150,11 +152,6 @@ function masterCadence(form: HTMLFormElement): { ok: boolean; cadence?: any; err
   return { ok: true, cadence };
 }
 
-function multiValues(sel: HTMLSelectElement | null): string[] {
-  if (!sel) return [];
-  return [...sel.selectedOptions].map((o) => o.value.trim()).filter(Boolean);
-}
-
 function asStringList(raw: unknown): string[] {
   if (raw == null) return [];
   if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
@@ -162,12 +159,6 @@ function asStringList(raw: unknown): string[] {
   if (!s) return [];
   if (s.includes(",")) return s.split(",").map((p) => p.trim()).filter(Boolean);
   return s.split(/\s+/).map((p) => p.trim()).filter(Boolean);
-}
-
-function setMultiSelected(sel: HTMLSelectElement | null, values: string[]): void {
-  if (!sel) return;
-  const want = new Set(values);
-  [...sel.options].forEach((o) => { o.selected = want.has(o.value); });
 }
 
 function collectParams(form: HTMLFormElement): Record<string, unknown> {
@@ -179,23 +170,23 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
     if (v) out.period = v;
   }
   if (needed.includes("status")) {
-    const vals = multiValues(document.getElementById("msStatus") as HTMLSelectElement | null);
+    const vals = statusPicker?.selectedKeys() || [];
     if (vals.length) out.status = vals;
   }
   if (needed.includes("salesman")) {
-    const vals = multiValues(document.getElementById("msSalesman") as HTMLSelectElement | null);
+    const vals = salesmanPicker?.selectedKeys() || [];
     if (vals.length) out.salesman = vals;
     if (canSeeCompany()) {
       const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
       const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
-      const emailKeys = multiValues(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null);
+      const emailKeys = emailSalesmanPicker?.selectedKeys() || [];
       out.email_to_salesmen = vals.length > 0 && !!emailToSalesmen?.checked;
       out.split_by_salesman = vals.length === 0 && (!!splitBySalesman?.checked || emailKeys.length > 0);
       out.email_salesman_keys = vals.length === 0 ? emailKeys : [];
     }
   }
   if (needed.includes("customers")) {
-    const vals = [...selectedCustomers.keys()];
+    const vals = customerPicker?.selectedKeys() || [];
     if (vals.length) out.customers = vals;
   }
   if (needed.includes("year")) {
@@ -284,7 +275,10 @@ function fillReview(form: HTMLFormElement): void {
 
 async function getJSON<T>(url: string): Promise<T | null> {
   try {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const res = await fetch(url, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -292,47 +286,72 @@ async function getJSON<T>(url: string): Promise<T | null> {
   }
 }
 
+function ensurePickers(): void {
+  const form = masterForm();
+  const src = document.getElementById("msStatusSource") as HTMLSelectElement | null;
+  const statusHost = document.getElementById("msStatusPicker");
+  const statusPills = document.getElementById("msStatusPills");
+  if (!statusPicker && src && statusHost && statusPills) {
+    statusPicker = pickerFromSelect(src, statusHost, statusPills, {
+      placeholder: "Search statuses…",
+    });
+  }
+  const smHost = document.getElementById("msSalesmanPicker");
+  const smPills = document.getElementById("msSalesmanPills");
+  if (!salesmanPicker && smHost && smPills) {
+    salesmanPicker = new SearchablePicker({
+      host: smHost, pills: smPills, placeholder: "Search salesmen…",
+      onChange: () => { if (form) syncDeliveryOptionsVisibility(form); },
+    });
+  }
+  const emHost = document.getElementById("msEmailSalesmanPicker");
+  const emPills = document.getElementById("msEmailSalesmanPills");
+  if (!emailSalesmanPicker && emHost && emPills) {
+    emailSalesmanPicker = new SearchablePicker({
+      host: emHost, pills: emPills, placeholder: "Search salesmen to email…",
+      formatOption: (i) => i.name,
+    });
+  }
+  const cuHost = document.getElementById("msCustomerPicker");
+  const cuPills = document.getElementById("msCustomerPills");
+  if (!customerPicker && cuHost && cuPills) {
+    customerPicker = new SearchablePicker({
+      host: cuHost, pills: cuPills, placeholder: "Search customers…",
+      formatOption: (i) => `${i.key} — ${i.name}`,
+    });
+  }
+}
+
 async function loadSalesmen(): Promise<void> {
-  const sel = document.getElementById("msSalesman") as HTMLSelectElement | null;
+  ensurePickers();
   const hint = document.getElementById("msSalesmanHint");
   const url = lookupUrl("data-salesmen-url", "data-salesmen-url-tpl");
-  if (!sel || !url) return;
+  if (!salesmanPicker || !url) return;
   const data = await getJSON<{ salesmen: LookupRow[] }>(url);
   const rows = data?.salesmen || [];
-  const keep = pendingSalesmen.length ? pendingSalesmen : multiValues(sel);
-  sel.innerHTML = "";
-  rows.forEach((r) => {
-    const o = document.createElement("option");
-    o.value = r.key;
-    o.textContent = r.name;
-    sel.appendChild(o);
-  });
-  setMultiSelected(sel, keep);
-  if (rows.length) pendingSalesmen = [];
+  const keep = pendingSalesmen.length ? pendingSalesmen : salesmanPicker.selectedKeys();
+  salesmanPicker.setOptions(rows);
+  pendingSalesmen = salesmanPicker.applyPending(keep);
   if (hint) {
     hint.textContent = rows.length
-      ? "Hold Ctrl (Windows) or ⌘ (Mac) to pick several. Leave empty for all salesmen."
+      ? "Search and check salesmen. Leave empty for all."
       : "Loading salesmen from customer master…";
   }
 }
 
 async function loadSalesmenWithEmails(): Promise<void> {
-  const sel = document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null;
+  ensurePickers();
   const hint = document.getElementById("msEmailSalesmanHint");
   const url = wizardRoot()?.getAttribute("data-salesmen-emails-url") || "";
-  if (!sel || !url) return;
+  if (!emailSalesmanPicker || !url) return;
   const data = await getJSON<{ salesmen: SalesmanEmailRow[] }>(url);
   salesmanEmailOptions = data?.salesmen || [];
-  const keep = pendingEmailSalesmen.length ? pendingEmailSalesmen : multiValues(sel);
-  sel.innerHTML = "";
-  salesmanEmailOptions.forEach((r) => {
-    const o = document.createElement("option");
-    o.value = r.key;
-    o.textContent = `${r.name} <${r.email}>`;
-    sel.appendChild(o);
-  });
-  setMultiSelected(sel, keep);
-  if (salesmanEmailOptions.length) pendingEmailSalesmen = [];
+  const rows: PickerItem[] = salesmanEmailOptions.map((r) => ({
+    key: r.key, name: `${r.name} <${r.email}>`,
+  }));
+  const keep = pendingEmailSalesmen.length ? pendingEmailSalesmen : emailSalesmanPicker.selectedKeys();
+  emailSalesmanPicker.setOptions(rows);
+  pendingEmailSalesmen = emailSalesmanPicker.applyPending(keep);
   if (hint) {
     hint.textContent = salesmanEmailOptions.length
       ? "Pick who should receive a split workbook. Only salesmen with saved emails appear."
@@ -340,152 +359,19 @@ async function loadSalesmenWithEmails(): Promise<void> {
   }
 }
 
-function positionCustomerOptions(): void {
-  const host = document.getElementById("msCustomerPicker");
-  const search = host?.querySelector<HTMLElement>(".customer-search");
-  const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!search || !list || list.hidden) return;
-  const r = search.getBoundingClientRect();
-  list.style.position = "fixed";
-  list.style.top = `${Math.round(r.bottom + 2)}px`;
-  list.style.left = `${Math.round(r.left)}px`;
-  list.style.width = `${Math.round(r.width)}px`;
-}
-
-function ensureCustomerHandlers(): void {
-  if (customerHandlersBound) return;
-  customerHandlersBound = true;
-  const inside = (t: Node) => {
-    const p = document.getElementById("msCustomerPicker");
-    const pills = document.getElementById("msCustomerPills");
-    return !!((p && p.contains(t)) || (pills && pills.contains(t)));
-  };
-  document.addEventListener("click", (e) => {
-    if (customerPickerOpen && !inside(e.target as Node)) closeCustomerOptions();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && customerPickerOpen) closeCustomerOptions();
-  });
-  window.addEventListener("scroll", positionCustomerOptions, true);
-  window.addEventListener("resize", positionCustomerOptions);
-}
-
-function ensureCustomerInput(): HTMLInputElement | null {
-  const host = document.getElementById("msCustomerPicker");
-  if (!host) return null;
-  let search = host.querySelector<HTMLInputElement>(".customer-search");
-  if (search) return search;
-  host.innerHTML = "";
-  search = document.createElement("input");
-  search.type = "text";
-  search.className = "customer-search";
-  search.placeholder = host.dataset.placeholder || "Search customers…";
-  search.setAttribute("role", "combobox");
-  search.addEventListener("focus", () => { customerPickerOpen = true; renderCustomerOptions(); });
-  search.addEventListener("input", () => { customerPickerOpen = true; renderCustomerOptions(); });
-  host.appendChild(search);
-  const list = document.createElement("div");
-  list.className = "customer-options";
-  list.hidden = true;
-  host.appendChild(list);
-  return search;
-}
-
-function closeCustomerOptions(): void {
-  customerPickerOpen = false;
-  const list = document.getElementById("msCustomerPicker")?.querySelector<HTMLElement>(".customer-options");
-  if (list) list.hidden = true;
-}
-
-function renderCustomerOptions(): void {
-  const host = document.getElementById("msCustomerPicker");
-  const search = ensureCustomerInput();
-  const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!host || !search || !list) return;
-  if (!customerPickerOpen) { list.hidden = true; return; }
-
-  const q = search.value.trim().toLowerCase();
-  const matches = q
-    ? customerOptions.filter(
-        (c) => c.name.toLowerCase().includes(q) || c.key.toLowerCase().includes(q),
-      )
-    : customerOptions;
-
-  list.innerHTML = "";
-  matches.slice(0, 200).forEach((c) => {
-    const row = document.createElement("label");
-    row.className = "customer-option";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = selectedCustomers.has(c.key);
-    cb.addEventListener("change", () => {
-      if (cb.checked) selectedCustomers.set(c.key, c.name);
-      else selectedCustomers.delete(c.key);
-      renderCustomerPills();
-    });
-    row.appendChild(cb);
-    const text = document.createElement("span");
-    text.textContent = `${c.key} — ${c.name}`;
-    row.appendChild(text);
-    list.appendChild(row);
-  });
-  if (!matches.length) {
-    const empty = document.createElement("div");
-    empty.className = "customer-empty";
-    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
-    list.appendChild(empty);
-  }
-  list.hidden = false;
-  positionCustomerOptions();
-}
-
-function renderCustomerPills(): void {
-  const host = document.getElementById("msCustomerPills");
-  if (!host) return;
-  host.innerHTML = "";
-  selectedCustomers.forEach((name, key) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "customer-chip";
-    chip.textContent = `${name} ✕`;
-    chip.title = `Remove ${key}`;
-    chip.addEventListener("click", () => {
-      selectedCustomers.delete(key);
-      renderCustomerPills();
-      if (customerPickerOpen) renderCustomerOptions();
-    });
-    host.appendChild(chip);
-  });
-}
-
-function applyPendingCustomers(): void {
-  if (!pendingCustomers.length) return;
-  if (!customerOptions.length) return;
-  pendingCustomers.forEach((key) => {
-    const row = customerOptions.find((c) => c.key === key);
-    selectedCustomers.set(key, row?.name || key);
-  });
-  pendingCustomers = [];
-  renderCustomerPills();
-}
-
 async function loadCustomers(): Promise<void> {
+  ensurePickers();
   const hint = document.getElementById("msCustomerHint");
   const url = lookupUrl("data-customers-url", "data-customers-url-tpl");
-  if (!url) return;
+  if (!customerPicker || !url) return;
   const data = await getJSON<{ customers: LookupRow[] }>(url);
-  customerOptions = data?.customers || [];
-  ensureCustomerHandlers();
-  ensureCustomerInput();
-  applyPendingCustomers();
-  renderCustomerPills();
-  if (customerPickerOpen) renderCustomerOptions();
+  const rows = data?.customers || [];
+  customerPicker.setOptions(rows);
+  pendingCustomers = customerPicker.applyPending(pendingCustomers);
   if (hint) {
-    if (customerOptions.length) {
-      hint.textContent = "Search and check customers. Leave empty for all.";
-    } else {
-      hint.textContent = "Loading customers from customer master…";
-    }
+    hint.textContent = rows.length
+      ? "Search and check customers. Leave empty for all."
+      : "Loading customers from customer master…";
   }
 }
 
@@ -524,12 +410,12 @@ function pollLookupStatus(): void {
       : s.status === "error"
         ? "Customer master still warming — retrying…"
         : (!s.configured ? "Customer master is not configured." : "Waiting for customer master…");
-    if (smHint && !(document.getElementById("msSalesman") as HTMLSelectElement | null)?.options.length) {
+    if (smHint && !(salesmanPicker && salesmanPicker.optionCount())) {
       smHint.textContent = msg;
     }
     const emHint = document.getElementById("msEmailSalesmanHint");
     if (emHint && !salesmanEmailOptions.length) emHint.textContent = msg;
-    if (cuHint && !customerOptions.length) cuHint.textContent = msg;
+    if (cuHint && !(customerPicker && customerPicker.optionCount())) cuHint.textContent = msg;
   };
   void tick();
   stopLookupPoll();
@@ -549,18 +435,14 @@ async function ensureLookups(): Promise<void> {
 }
 
 function clearMultiFilters(): void {
-  selectedCustomers.clear();
-  renderCustomerPills();
-  setMultiSelected(document.getElementById("msStatus") as HTMLSelectElement | null, []);
-  setMultiSelected(document.getElementById("msSalesman") as HTMLSelectElement | null, []);
-  setMultiSelected(document.getElementById("msEmailSalesmanKeys") as HTMLSelectElement | null, []);
+  statusPicker?.clear();
+  salesmanPicker?.clear();
+  emailSalesmanPicker?.clear();
+  customerPicker?.clear();
   const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
   const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
   if (emailToSalesmen) emailToSalesmen.checked = false;
   if (splitBySalesman) splitBySalesman.checked = false;
-  const search = document.getElementById("msCustomerPicker")?.querySelector<HTMLInputElement>(".customer-search");
-  if (search) search.value = "";
-  closeCustomerOptions();
 }
 
 function showStep(step: number): void {
@@ -654,6 +536,9 @@ function closeWizard(): void {
   if (odSel) odSel.textContent = "";
   stopLookupPoll();
   lookupsStarted = false;
+  const fn = document.getElementById("msFilename") as HTMLInputElement | null;
+  if (fn) fn.value = "{Report}_{YYYY}{MM}{DD}";
+  updateMsFilenamePreview();
   (document.getElementById("editingId") as HTMLInputElement).value = "";
   (document.getElementById("spPathInput") as HTMLInputElement).value = "";
   document.getElementById("formTitle")!.textContent = "Add a schedule";
@@ -675,6 +560,8 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
 
   (document.getElementById("editingId") as HTMLInputElement).value = id;
   (form.elements.namedItem("name") as HTMLInputElement).value = row.dataset.name || "";
+  const fn = document.getElementById("msFilename") as HTMLInputElement | null;
+  if (fn) fn.value = row.dataset.filenameTemplate || "{Report}_{YYYY}{MM}{DD}";
 
   const reportKey = row.dataset.reportKey || "";
   form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {
@@ -697,19 +584,18 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   });
 
   (form.elements.namedItem("period") as HTMLSelectElement).value = params.period || "";
-  setMultiSelected(
-    document.getElementById("msStatus") as HTMLSelectElement | null,
-    asStringList(params.status),
-  );
+  ensurePickers();
+  statusPicker?.setSelected(asStringList(params.status));
   pendingSalesmen = asStringList(params.salesman);
   pendingEmailSalesmen = asStringList(params.email_salesman_keys);
+  salesmanPicker?.setSelected(pendingSalesmen);
+  emailSalesmanPicker?.setSelected(pendingEmailSalesmen);
   const emailToSalesmen = document.getElementById("msEmailToSalesmen") as HTMLInputElement | null;
   const splitBySalesman = document.getElementById("msSplitBySalesman") as HTMLInputElement | null;
   if (emailToSalesmen) emailToSalesmen.checked = !!params.email_to_salesmen;
   if (splitBySalesman) splitBySalesman.checked = !!params.split_by_salesman;
   pendingCustomers = asStringList(params.customers);
-  selectedCustomers.clear();
-  renderCustomerPills();
+  customerPicker?.setSelected(pendingCustomers);
   (form.elements.namedItem("year") as HTMLSelectElement).value =
     params.year != null ? String(params.year) : "";
 
@@ -750,12 +636,14 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   showStep(1);
   syncParamsVisibility(form);
   await ensureLookups();
+  updateMsFilenamePreview();
 }
 
 export function bindMasterWizard(): void {
   const form = masterForm();
   const wiz = wizardRoot();
   if (!form || !wiz) return;
+  ensurePickers();
 
   document.getElementById("msStartBtn")?.addEventListener("click", () => {
     closeWizard();
@@ -771,6 +659,7 @@ export function bindMasterWizard(): void {
     if (err) { masterMsg(err, true); return; }
     if (wizardStep === 1) suggestName(form);
     if (wizardStep < TOTAL_STEPS) showStep(wizardStep + 1);
+    updateMsFilenamePreview();
   });
 
   form.querySelectorAll<HTMLInputElement>('input[name="freq"]').forEach((r) => {
@@ -785,11 +674,11 @@ export function bindMasterWizard(): void {
       syncParamsVisibility(form);
       syncDeliveryOptionsVisibility(form);
       suggestName(form);
+      updateMsFilenamePreview();
     });
   });
-  document.getElementById("msSalesman")?.addEventListener("change", () => {
-    syncDeliveryOptionsVisibility(form);
-  });
+  document.getElementById("msName")?.addEventListener("input", updateMsFilenamePreview);
+  document.getElementById("msPeriod")?.addEventListener("change", updateMsFilenamePreview);
   document.getElementById("msSplitBySalesman")?.addEventListener("change", () => {
     syncDeliveryOptionsVisibility(form);
   });
@@ -892,7 +781,10 @@ async function initOdPicker(): Promise<void> {
   const statusUrl = root?.getAttribute("data-od-status-url") || "";
   if (!section || !statusUrl) return;
   try {
-    const st = await fetch(statusUrl, { headers: { Accept: "application/json" } }).then((r) => r.json());
+    const st = await fetch(statusUrl, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    }).then((r) => r.json());
     section.hidden = !st?.enabled;
     const status = document.getElementById("msOdStatus");
     if (status) status.textContent = st?.configured ? "" : "(mock folders in dev)";
@@ -907,11 +799,25 @@ async function loadOdFolders(path: string): Promise<void> {
   const root = wizardRoot();
   const url = (root?.getAttribute("data-od-folders-url") || "") + "?path=" + encodeURIComponent(path);
   let folders: { name: string; path: string }[] = [];
+  let error = "";
   try {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    const data = await res.json();
-    folders = data.folders || [];
-  } catch { /* empty */ }
+    const res = await fetch(url, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      error = data.error || (res.status === 401
+        ? "Sign in expired — refresh the page."
+        : "HTTP " + res.status);
+    } else if (data.error) {
+      error = data.error;
+    } else {
+      folders = data.folders || [];
+    }
+  } catch (e: any) {
+    error = e?.message || "Could not load OneDrive folders.";
+  }
   const bc = document.getElementById("msOdBreadcrumb");
   if (bc) {
     bc.innerHTML = "";
@@ -944,6 +850,10 @@ async function loadOdFolders(path: string): Promise<void> {
   const picker = document.getElementById("msOdPicker");
   if (!picker) return;
   picker.innerHTML = "";
+  if (error) {
+    picker.innerHTML = `<div class="sp-empty sp-picker-error">${esc(error)}</div>`;
+    return;
+  }
   if (!folders.length) {
     picker.innerHTML = '<div class="sp-empty">No subfolders here.</div>';
     return;
@@ -962,25 +872,10 @@ function updateMsFilenamePreview(): void {
   const input = document.getElementById("msFilename") as HTMLInputElement | null;
   const prev = document.getElementById("msFilenamePreview");
   if (!input || !prev) return;
-  const now = new Date();
-  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const map: Record<string, string> = {
-    "{YYYY}": String(now.getFullYear()),
-    "{YY}": String(now.getFullYear()).slice(-2),
-    "{MM}": pad(now.getMonth() + 1),
-    "{M}": String(now.getMonth() + 1),
-    "{Month}": months[now.getMonth()],
-    "{Mon}": months[now.getMonth()].slice(0, 3),
-    "{DD}": pad(now.getDate()),
-    "{D}": String(now.getDate()),
-    "{HH}": pad(now.getHours()),
-    "{mm}": pad(now.getMinutes()),
-    "{ss}": pad(now.getSeconds()),
-    "{Report}": "Report",
-    "{Period}": String(now.getFullYear()),
-  };
-  let out = (input.value || "{Report}_{YYYY}{MM}{DD}").replace(/\{[A-Za-z]+\}/g, (t) => map[t] || t);
-  if (!out.toLowerCase().endsWith(".xlsx")) out += ".xlsx";
-  prev.textContent = out;
+  const form = masterForm();
+  const report = form ? selectedReportTitle(form) : "";
+  const schedule = (document.getElementById("msName") as HTMLInputElement | null)?.value.trim()
+    || (report ? report + " schedule" : "");
+  const period = (document.getElementById("msPeriod") as HTMLSelectElement | null)?.value || "";
+  prev.textContent = previewFilename(input.value, { report, schedule, period });
 }

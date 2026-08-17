@@ -832,6 +832,12 @@ def test_schedule_create_run_history_and_delete(tmp_path):
     assert client.get(f"/api/jobs/{run.get_json()['job_id']}").get_json()["status"] == "success"
     assert "success" in client.get(f"/schedules/{sid}/history").get_data(as_text=True).lower()
 
+    recent = client.get("/api/schedules/recent-runs")
+    assert recent.status_code == 200
+    runs = recent.get_json()["runs"]
+    assert runs and runs[0]["status"] == "success"
+    assert runs[0]["schedule_id"] == sid
+
     # toggle + delete
     assert client.post(f"/api/schedules/{sid}/toggle", json={"active": False},
                        headers={"X-CSRF-Token": _CSRF}).status_code == 200
@@ -926,8 +932,8 @@ def test_master_schedule_admin_only(tmp_path):
     assert "msWizard" in page
     assert "Add a schedule" in page
     assert "data-pane=\"1\"" in page
-    assert 'id="msStatus"' in page and "multiple" in page
-    assert 'id="msSalesman"' in page
+    assert 'id="msStatusPicker"' in page
+    assert 'id="msSalesmanPicker"' in page
     assert 'id="msCustomerPicker"' in page
     assert "master-schedules/lookups/salesmen" in page
     assert "master-schedules/lookups/salesmen-emails" in page
@@ -1211,6 +1217,125 @@ def test_schedule_test_mode_admin_set_and_rejects_empty_enable(tmp_path):
     banner = client.get("/schedules").get_data(as_text=True)
     assert "Test mode is on" in banner
     assert "menny@x.com" in banner
+
+
+def test_schedule_copy_is_inactive_duplicate(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "a@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "filename_template": "{Report}_{Period}",
+        "params": {"period": "yesterday"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    sid = created.get_json()["id"]
+    copied = client.post(f"/api/schedules/{sid}/copy", headers={"X-CSRF-Token": _CSRF})
+    assert copied.status_code == 201
+    copy_id = copied.get_json()["id"]
+    assert copy_id != sid
+    from web.data.repositories.schedules import ScheduleRepository
+    repo = ScheduleRepository(app.config["DB"])
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    original = repo.get(sid, uid)
+    clone = repo.get(copy_id, uid)
+    assert original.is_active is True
+    assert clone.is_active is False
+    assert clone.recipients == "a@x.com"
+    assert clone.filename_template == "{Report}_{Period}"
+    assert clone.params["period"] == "yesterday"
+
+
+def test_master_run_now_writes_outbox_and_history(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "DailyInvoicedReport", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    run = client.post(f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
+    from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.schedules import MASTER, ScheduleRunRepository
+    job = JobRepository(app.config["DB"]).get(run.get_json()["job_id"])
+    assert job is not None and job.status == "success"
+    hist_rows = ScheduleRunRepository(app.config["DB"]).list_for_schedule(mid, MASTER)
+    assert hist_rows and hist_rows[0].status == "success"
+    hist = client.get(f"/master-schedules/{mid}/history").get_data(as_text=True).lower()
+    assert "success" in hist
+    from web.data.repositories.outbox import OutboxRepository
+    rows = OutboxRepository(app.config["DB"]).list_recent()
+    assert rows and "team@x.com" in rows[0].recipients
+    assert "[TEST]" not in rows[0].subject
+    assert list((tmp_path / "outbox").glob("*.eml"))
+
+
+def test_master_run_now_test_mode_mails_test_list_only(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    saved = client.post(
+        "/api/admin/schedule-test",
+        json={"enabled": True, "emails": ["menny@x.com"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    created = client.post("/api/master-schedules", json={
+        "name": "DailyInvoicedReport", "report_key": "ordered",
+        "recipients": "customers@x.com",
+        "sharepoint_path": "Direct Reports/Invoiced Report/Daily",
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "params": {"period": "all_time", "email_cc": "cc@x.com"}},
+        headers={"X-CSRF-Token": _CSRF})
+    mid = created.get_json()["id"]
+    run = client.post(f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
+    from web.data.repositories.jobs import JobRepository
+    job = JobRepository(app.config["DB"]).get(run.get_json()["job_id"])
+    assert job is not None and job.status == "success"
+    from web.data.repositories.outbox import OutboxRepository
+    row = OutboxRepository(app.config["DB"]).list_recent()[0]
+    assert row.recipients == "menny@x.com"
+    assert row.subject.startswith("[TEST] ")
+    assert "customers@x.com" not in row.recipients
+    assert not (row.sharepoint_meta or {}).get("saved")
+
+
+def test_clock_tick_drains_personal_and_master_to_outbox(tmp_path):
+    from datetime import datetime, timezone
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due
+
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    personal = client.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "me@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert personal.status_code == 201
+    master = client.post("/api/master-schedules", json={
+        "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert master.status_code == 201
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    db = app.config["DB"]
+    assert enqueue_due(db, JobRepository(db), now) == 2
+    app.config["JOB_WORKER"].drain()
+    from web.data.repositories.outbox import OutboxRepository
+    recips = {r.recipients for r in OutboxRepository(db).list_recent()}
+    assert "me@x.com" in recips
+    assert "team@x.com" in recips
+    assert len(list((tmp_path / "outbox").glob("*.eml"))) >= 2
 
 
 def test_schedule_test_mode_forbidden_for_salesman(tmp_path):

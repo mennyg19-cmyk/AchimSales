@@ -13,6 +13,8 @@
  * reflects each tab's on-screen view, with live-style formatting + group totals.
  */
 
+import { previewFilename } from "./filename_preview";
+
 declare const Tabulator: any;
 
 interface Column {
@@ -2248,31 +2250,9 @@ function updateSchedFilenamePreview(): void {
   const input = $("schedFilename") as HTMLInputElement | null;
   const prev = $("schedFilenamePreview");
   if (!input || !prev) return;
-  const now = new Date();
-  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  const mons = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const weekdays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const report = (attr("data-report-key") || "Report").replace(/[^A-Za-z0-9_-]+/g, "_");
-  const map: Record<string, string> = {
-    "{YYYY}": String(now.getFullYear()),
-    "{YY}": String(now.getFullYear()).slice(-2),
-    "{MM}": pad(now.getMonth() + 1),
-    "{M}": String(now.getMonth() + 1),
-    "{Month}": months[now.getMonth()],
-    "{Mon}": mons[now.getMonth()],
-    "{DD}": pad(now.getDate()),
-    "{D}": String(now.getDate()),
-    "{HH}": pad(now.getHours()),
-    "{mm}": pad(now.getMinutes()),
-    "{ss}": pad(now.getSeconds()),
-    "{Report}": report,
-    "{Period}": String((document.querySelector('[name="period"]') as HTMLSelectElement | null)?.value || now.getFullYear()),
-    "{Weekday}": weekdays[(now.getDay() + 6) % 7],
-  };
-  let out = (input.value || "{Report}_{YYYY}{MM}{DD}").replace(/\{[A-Za-z]+\}/g, (t) => map[t] || t);
-  if (!out.toLowerCase().endsWith(".xlsx")) out += ".xlsx";
-  prev.textContent = out;
+  const report = attr("data-report-title") || attr("data-report-key") || "Report";
+  const period = String((document.querySelector('[name="period"]') as HTMLSelectElement | null)?.value || "");
+  prev.textContent = previewFilename(input.value, { report, schedule: report, period });
 }
 
 function closeScheduleModal(): void {
