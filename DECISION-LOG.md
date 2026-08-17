@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-08-17 Settings mobile overflow + exclusive accordion
+**What you asked for:** Settings on a phone was overflowing. Opening a section
+should close the others.
+**What I chose:** Exclusive `<details>` (one open at a time on every width).
+Desktop no longer auto-opens all categories. Header **Previously run** shortens
+to **Runs** under 480px; settings fields wrap instead of forcing min-widths.
+**Status:** DECIDED — deployed `189024d` to `achim-sales-reports` (RuntimeSuccessful).
+
 ## 2026-08-17 Beta settings hub (mini rebuild)
 **What you asked for:** One settings page on Beta that matches Live, categorized,
 half-width, phone-first, with users, run histories, DB explorer, notification
