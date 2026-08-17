@@ -5,6 +5,9 @@
 # also serves the LIVE production app via the dispatcher).
 #
 # All values come from app settings (env). ${VAR} is expanded by Litestream.
+# /test and /beta each have their own local sqlite file under /tmp (wiped on
+# recycle). Each needs its own Blob replica or the Beta file is empty after
+# every cold start — settings like schedule test mode appear to "not save".
 dbs:
   - path: ${PRECIOUS_DB_PATH}
     replicas:
@@ -13,3 +16,10 @@ dbs:
         account-key: ${LITESTREAM_AZURE_ACCOUNT_KEY}
         bucket: ${LITESTREAM_AZURE_CONTAINER}
         path: ${LITESTREAM_AZURE_PATH}
+  - path: ${BETA_PRECIOUS_DB_PATH}
+    replicas:
+      - type: abs
+        account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
+        account-key: ${LITESTREAM_AZURE_ACCOUNT_KEY}
+        bucket: ${LITESTREAM_AZURE_CONTAINER}
+        path: ${LITESTREAM_AZURE_BETA_PATH}

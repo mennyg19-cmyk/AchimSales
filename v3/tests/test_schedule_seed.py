@@ -3,6 +3,8 @@
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from web import _LIVE_RUNBOOK_SCHEDULES, _seed_master_schedules, create_app
 from web.config import Config
 from web.data.migrate import migrate
@@ -41,6 +43,20 @@ def test_beta_runbook_seed_inserts_disabled_company_schedules(tmp_path: Path):
     assert amazon.params["period"] == "mtd"
     _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     assert len(MasterScheduleRepository(db).list_all()) == len(rows)
+
+
+def test_shared_master_schedule_name_is_unique(tmp_path: Path):
+    import sqlite3
+
+    app = create_app(replace(_cfg(tmp_path), is_beta=True))
+    db = app.config["DB"]
+    migrate(db)
+    repo = MasterScheduleRepository(db)
+    repo.create("ordered", "Daily 9am", params={}, layout={},
+                cadence={"freq": "daily", "time": "08:00"}, is_shared=True)
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.create("ordered", "Daily 9am", params={}, layout={},
+                    cadence={"freq": "daily", "time": "08:00"}, is_shared=True)
 
 
 def test_test_mount_seed_stays_on_old_azure_names(tmp_path: Path):

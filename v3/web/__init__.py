@@ -774,6 +774,8 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
 def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
                            *, inactive: bool = False) -> None:
     """Insert missing master_schedules. Existing names are left untouched."""
+    import sqlite3
+
     from web.data.repositories.schedules import MasterScheduleRepository
     from web.scheduling import cadence as C
 
@@ -784,14 +786,18 @@ def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
         for s in (rows if rows is not None else _AZURE_SCHEDULES):
             if s["name"] in existing:
                 continue
-            repo.create(
-                s["report_key"], s["name"],
-                params=s.get("params", {}), layout={},
-                cadence=C.normalize(s.get("cadence") or {"freq": "daily", "time": "08:00"}),
-                sharepoint_path=s.get("sharepoint_path", ""),
-                is_shared=True,
-                is_active=not inactive,
-            )
+            try:
+                repo.create(
+                    s["report_key"], s["name"],
+                    params=s.get("params", {}), layout={},
+                    cadence=C.normalize(s.get("cadence") or {"freq": "daily", "time": "08:00"}),
+                    sharepoint_path=s.get("sharepoint_path", ""),
+                    is_shared=True,
+                    is_active=not inactive,
+                )
+            except sqlite3.IntegrityError:
+                continue
+            existing.add(s["name"])
             added += 1
         if added:
             state = "disabled" if inactive else "active"

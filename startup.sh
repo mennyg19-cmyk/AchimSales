@@ -100,6 +100,17 @@ if [ -x "${LS_BIN}" ] && [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${R
   # the one-time seed above the local DB already exists, so this also no-ops.
   "${LS_BIN}" restore -config "${ROOT}/litestream.yml" -if-replica-exists -if-db-not-exists "${PRECIOUS}" \
     || echo "startup: litestream restore skipped/failed (continuing)"
+  BETA_PRECIOUS="${BETA_PRECIOUS_DB_PATH:-}"
+  if [ -n "${BETA_PRECIOUS}" ]; then
+    case "${BETA_PRECIOUS}" in
+      /home/*) echo "startup: beta precious.db on /home (${BETA_PRECIOUS}); skip restore" ;;
+      *)
+        mkdir -p "$(dirname "${BETA_PRECIOUS}")" 2>/dev/null || true
+        "${LS_BIN}" restore -config "${ROOT}/litestream.yml" -if-replica-exists -if-db-not-exists "${BETA_PRECIOUS}" \
+          || echo "startup: beta litestream restore skipped/failed (continuing)"
+        ;;
+    esac
+  fi
   echo "startup: launching gunicorn under litestream replicate"
   exec "${LS_BIN}" replicate -config "${ROOT}/litestream.yml" -exec "${GUNICORN_CMD}"
 fi

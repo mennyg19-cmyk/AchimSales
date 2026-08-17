@@ -77,7 +77,9 @@ asks for an optional name; the bottom-right pill can be minimized.
 On Beta, **Settings** is the control panel (same ~800px width as Live): You,
 People, Reports, Delivery, History, and (developers) Database explorer,
 notification diagnostic, and beta SQL/OData sources. Live Email Distributions
-stay on Live only.
+stay on Live only. Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
+and is restored/replicated by Litestream (same as `/test`), so Settings like
+schedule test mode survive an App Service recycle.
 
 ### Live vs /test parity
 

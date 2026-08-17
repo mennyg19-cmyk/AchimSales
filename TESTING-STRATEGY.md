@@ -23,6 +23,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Schedule test mode persistence
+
+**What to test:**
+- Shared master schedule names cannot be inserted twice (`IntegrityError`).
+- Re-seeding the Azure import does not duplicate rows.
+
+**Expected behavior:**
+- Beta `app_settings` (test mode + emails) survive App Service recycle via Litestream replica `LITESTREAM_AZURE_BETA_PATH`.
+
+**Test file:** `v3/tests/test_schedule_seed.py`
+
 ## Beta settings hub
 
 **What to test:**

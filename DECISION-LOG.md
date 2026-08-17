@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-08-17 Beta schedule test mode was not surviving recycle
+**What you asked for:** The Delivery test-mode switch (and the test email list)
+kept going back to Off after saving.
+**What I chose:** The toggle was saving. Azure wipes `/tmp/betadata/precious.db`
+on recycle, and Litestream only replicated the `/test` DB. Add a second replica
+for `BETA_PRECIOUS_DB_PATH` (`LITESTREAM_AZURE_BETA_PATH`). Unique company
+schedule name so two gunicorn workers cannot double-insert the Azure import.
+**Status:** DECIDED — deploying
+
 ## 2026-08-17 Settings mobile overflow + exclusive accordion
 **What you asked for:** Settings on a phone was overflowing. Opening a section
 should close the others.
