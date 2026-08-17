@@ -10,7 +10,7 @@ Reports / Delivery / History / Developer). Email Distributions stays Live-only
 on/off is new `report_config`. Explorer covers precious + cache. Beta sources UI
 lives on Beta; storage stays the live `beta_report_sources` table. Notes:
 `.scratch/grill-notes.md`.
-**Status:** DECIDED — implementing
+**Status:** DECIDED — deployed `a56a67b` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-17 Previously run list + OneDrive root Graph URL
 **What you asked for:** A Previously run button; a minimizable run pill that shows
