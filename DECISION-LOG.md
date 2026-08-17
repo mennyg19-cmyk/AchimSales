@@ -7,7 +7,7 @@ still split by salesman so I can check the splits.
 SharePoint. Split schedules now fan out: one combined file plus one file per
 salesman with an email, salesman in the subject and filename. Salesmen are
 not emailed. Salesmen without an email are still skipped (same as live).
-**Status:** DECIDED
+**Status:** DECIDED — deployed `e4cd482` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-17 Schedule workbook filenames include the schedule name
 **What you asked for:** File names that are intuitive for each run (typed on a
