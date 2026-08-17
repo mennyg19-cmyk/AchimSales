@@ -337,7 +337,7 @@ def test_runner_test_mode_on_without_emails_fails(tmp_path):
     assert hist[0].status == "failure"
 
 
-def test_runner_test_mode_skips_salesman_fanout(tmp_path):
+def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
     from web.data.repositories.app_settings import AppSettingsRepository
@@ -345,6 +345,8 @@ def test_runner_test_mode_skips_salesman_fanout(tmp_path):
     SalesmanRepository(db).upsert_many([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
+        SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
+                     display_name="A Grossman", email="a@x.com"),
     ])
 
     class FakeDelivery:
@@ -364,13 +366,21 @@ def test_runner_test_mode_skips_salesman_fanout(tmp_path):
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
         authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
-        "ordered", "Nightly", params={"email_salesman_keys": ["MKolko"]}, layout={},
-        cadence={"freq": "daily", "time": "08:00"}, recipients="manager@x.com",
+        "ordered", "Nightly", params={"email_salesman_keys": ["MKolko", "AGrossman"]},
+        layout={}, cadence={"freq": "daily", "time": "08:00"}, recipients="manager@x.com",
         sharepoint_path="Direct Reports/Salesman Report/Daily")
     runner.run(mid, MASTER)
-    assert len(delivery.calls) == 1
-    assert delivery.calls[0]["recipients"] == "menny@x.com"
-    assert delivery.calls[0]["sharepoint_path"] == ""
+    assert len(delivery.calls) == 3
+    assert all(c["recipients"] == "menny@x.com" for c in delivery.calls)
+    assert all(c["sharepoint_path"] == "" for c in delivery.calls)
+    assert delivery.calls[0]["subject"].startswith("[TEST] ")
+    assert delivery.calls[0]["params"] == {}
+    assert [c["params"].get("salesman") for c in delivery.calls[1:]] == [["MKolko"], ["AGrossman"]]
+    assert delivery.calls[1]["subject"].endswith(" - MKolko")
+    assert delivery.calls[1]["schedule_name"] == "Nightly - MKolko"
+    assert "m@x.com" not in str(delivery.calls)
+    assert "a@x.com" not in str(delivery.calls)
+    assert "manager@x.com" not in str([c["recipients"] for c in delivery.calls])
 
 
 # --- cron tick -------------------------------------------------------------

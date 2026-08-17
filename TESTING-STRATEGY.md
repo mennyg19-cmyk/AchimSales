@@ -112,6 +112,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Admin can save several test emails and turn test mode on; cannot turn on with an empty list.
 - Salesman cannot POST the API.
 - Company schedule Run now in test mode emails only the test list, `[TEST]` subject, no SharePoint.
+- Split schedules still fan out in test mode; every file goes to the test list with the salesman in the subject/filename.
 - Personal schedules ignore test mode.
 - Test mode on with no emails fails the run instead of sending to stored recipients.
 
@@ -120,7 +121,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `/schedules` shows a banner listing the test addresses while On.
 
 **Edge cases:**
-- Invalid addresses are dropped; salesman-split jobs send one combined workbook to the test list.
+- Invalid addresses are dropped; salesman-split jobs still fan out, but every file (full + each salesman) goes to the test list. Salesmen are not emailed.
 
 **Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
 

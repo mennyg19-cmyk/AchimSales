@@ -68,6 +68,15 @@ class ScheduleRunner:
             test_to = self._company_test_recipients(schedule_type)
             if test_to is not None:
                 subject = f"[TEST] {subject}"
+            od_user = "" if test_to else _onedrive_user(sched, schedule_type, identity)
+            if schedule_type == MASTER and self._salesman_targets(sched.params):
+                outcome = self._run_master_fanout(
+                    sched=sched, identity=identity, scope=scope,
+                    builder_version=spec.builder_version if spec else 1,
+                    subject=subject, report_name=report_name,
+                    onedrive_user=od_user, test_to=test_to,
+                )
+            else:
                 params = sched.params or {}
                 no_data_all = bool(params.get("email_on_no_data"))
                 no_data_me = bool(params.get("email_on_no_data_me_only"))
@@ -75,43 +84,20 @@ class ScheduleRunner:
                     report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                     builder_version=spec.builder_version if spec else 1,
                     params=_report_params(params), layout=sched.layout,
-                    recipients="; ".join(test_to), subject=subject, report_name=report_name,
-                    sharepoint_path="",
+                    recipients="; ".join(test_to) if test_to else sched.recipients,
+                    subject=subject, report_name=report_name,
+                    sharepoint_path="" if test_to else sched.sharepoint_path,
                     filename_template=getattr(sched, "filename_template", "") or "",
-                    onedrive_user="",
-                    cc_raw="",
-                    bcc_raw="",
+                    onedrive_user=od_user,
+                    cc_raw="" if test_to else str(params.get("email_cc") or ""),
+                    bcc_raw="" if test_to else str(params.get("email_bcc") or ""),
                     email_on_empty=no_data_all or no_data_me,
-                    empty_recipients_override=None,
+                    empty_recipients_override=(
+                        None if test_to
+                        else (identity if (no_data_me and not no_data_all) else None)
+                    ),
                     schedule_name=getattr(sched, "name", "") or report_name,
                 )
-            else:
-                od_user = _onedrive_user(sched, schedule_type, identity)
-                if schedule_type == MASTER and self._salesman_targets(sched.params):
-                    outcome = self._run_master_fanout(
-                        sched=sched, identity=identity, scope=scope,
-                        builder_version=spec.builder_version if spec else 1,
-                        subject=subject, report_name=report_name,
-                        onedrive_user=od_user,
-                    )
-                else:
-                    params = sched.params or {}
-                    no_data_all = bool(params.get("email_on_no_data"))
-                    no_data_me = bool(params.get("email_on_no_data_me_only"))
-                    outcome = self.delivery.run_and_deliver(
-                        report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                        builder_version=spec.builder_version if spec else 1,
-                        params=_report_params(params), layout=sched.layout,
-                        recipients=sched.recipients, subject=subject, report_name=report_name,
-                        sharepoint_path=sched.sharepoint_path,
-                        filename_template=getattr(sched, "filename_template", "") or "",
-                        onedrive_user=od_user,
-                        cc_raw=str(params.get("email_cc") or ""),
-                        bcc_raw=str(params.get("email_bcc") or ""),
-                        email_on_empty=no_data_all or no_data_me,
-                        empty_recipients_override=identity if (no_data_me and not no_data_all) else None,
-                        schedule_name=getattr(sched, "name", "") or report_name,
-                    )
             meta = _output_meta(outcome)
             summary = _summary_message(outcome, ok=outcome.result.ok)
             self.run_repo.finish(
@@ -190,21 +176,27 @@ class ScheduleRunner:
     def _run_master_fanout(self, *, sched, identity: str,
                            scope: set[str] | None, builder_version: int,
                            subject: str, report_name: str,
-                           onedrive_user: str = "") -> DeliveryOutcome:
+                           onedrive_user: str = "",
+                           test_to: list[str] | None = None) -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
         deliveries: list[dict] = []
         skip_notes: list[str] = []
         params = sched.params or {}
+        test_recips = "; ".join(test_to) if test_to else ""
+        sched_name = getattr(sched, "name", "") or report_name
 
         if sched.recipients or sched.sharepoint_path:
             full = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                 builder_version=builder_version, params=_report_params(params),
-                layout=sched.layout, recipients=sched.recipients, subject=subject,
-                report_name=report_name, sharepoint_path=sched.sharepoint_path,
+                layout=sched.layout,
+                recipients=test_recips if test_to else sched.recipients,
+                subject=subject,
+                report_name=report_name,
+                sharepoint_path="" if test_to else sched.sharepoint_path,
                 filename_template=getattr(sched, "filename_template", "") or "",
-                onedrive_user=onedrive_user,
-                schedule_name=getattr(sched, "name", "") or report_name,
+                onedrive_user="" if test_to else onedrive_user,
+                schedule_name=sched_name,
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -227,10 +219,11 @@ class ScheduleRunner:
             outcome = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                 builder_version=builder_version, params=split_params, layout=sched.layout,
-                recipients=email, subject=f"{subject} - {key}",
+                recipients=test_recips if test_to else email,
+                subject=f"{subject} - {key}",
                 report_name=f"{report_name} - {key}", sharepoint_path="",
                 filename_template=getattr(sched, "filename_template", "") or "",
-                schedule_name=getattr(sched, "name", "") or report_name,
+                schedule_name=f"{sched_name} - {key}",
             )
             outcomes.append(outcome)
             deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))

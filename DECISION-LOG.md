@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-08-17 Test mode still splits salesman workbooks
+**What you asked for:** Run company schedules just to me for a day or two, but
+still split by salesman so I can check the splits.
+**What I chose:** Test mode keeps mail on the test list and still skips
+SharePoint. Split schedules now fan out: one combined file plus one file per
+salesman with an email, salesman in the subject and filename. Salesmen are
+not emailed. Salesmen without an email are still skipped (same as live).
+**Status:** DECIDED
+
 ## 2026-08-17 Schedule workbook filenames include the schedule name
 **What you asked for:** File names that are intuitive for each run (typed on a
 Hebrew keyboard: change the file names to be more intuitive for each run).
