@@ -9,7 +9,7 @@ bottom-right pill shrinks to an icon (remembered in localStorage). Each chip sho
 Eastern date/time and optional `jobs.keep_name`. Keep and Name POST `{name}`
 (max 80 chars). Opening a chip uses `?job=<id>`. OneDrive root listing uses
 `/drive/root/children`, not `root::/children`.
-**Status:** DECIDED — implementing
+**Status:** DECIDED — deployed `04b649e` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-14 Schedule test mode (redirect + address list)
 **What you asked for:** A test mode with test emails so you can run the new
