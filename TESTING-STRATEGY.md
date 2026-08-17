@@ -23,6 +23,19 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Schedule workbook filenames
+
+**What to test:**
+- Blank `filename_template` uses the schedule name plus Eastern date and time, not just the report type.
+- Two company schedules on the same report get different filenames.
+- Missing schedule name falls back to the report title slug.
+
+**Expected behavior:**
+- `Daily 9am` and `DailyOrderReport` no longer both become `Ordered_YYYYMMDD.xlsx`.
+- Custom templates still expand tokens as written.
+
+**Test file:** `v3/tests/test_filename_template.py`
+
 ## Schedule test mode persistence
 
 **What to test:**

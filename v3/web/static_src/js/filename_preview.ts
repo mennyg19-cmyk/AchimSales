@@ -11,6 +11,9 @@ export function slugFilenamePart(value: string, fallback = "Report"): string {
     || fallback;
 }
 
+/** Keep in sync with web.delivery.filename_template.DEFAULT_FILENAME_TEMPLATE. */
+export const DEFAULT_FILENAME_TEMPLATE = "{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}";
+
 export function previewFilename(
   template: string,
   tokens: { report?: string; schedule?: string; period?: string },
@@ -37,7 +40,7 @@ export function previewFilename(
     "{Period}": period,
     "{Weekday}": WEEKDAYS[(when.getDay() + 6) % 7],
   };
-  let out = (template || "{Report}_{YYYY}{MM}{DD}").replace(/\{[A-Za-z]+\}/g, (t) => map[t] || t);
+  let out = (template || DEFAULT_FILENAME_TEMPLATE).replace(/\{[A-Za-z]+\}/g, (t) => map[t] || t);
   out = out.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+|[._]+$/g, "") || report;
   if (!out.toLowerCase().endsWith(".xlsx")) out += ".xlsx";
   return out.slice(0, 180);

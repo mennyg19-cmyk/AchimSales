@@ -1,6 +1,6 @@
 // Master schedule wizard (admin page).
 
-import { previewFilename } from "./filename_preview";
+import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
 
@@ -537,7 +537,7 @@ function closeWizard(): void {
   stopLookupPoll();
   lookupsStarted = false;
   const fn = document.getElementById("msFilename") as HTMLInputElement | null;
-  if (fn) fn.value = "{Report}_{YYYY}{MM}{DD}";
+  if (fn) fn.value = DEFAULT_FILENAME_TEMPLATE;
   updateMsFilenamePreview();
   (document.getElementById("editingId") as HTMLInputElement).value = "";
   (document.getElementById("spPathInput") as HTMLInputElement).value = "";
@@ -561,7 +561,7 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   (document.getElementById("editingId") as HTMLInputElement).value = id;
   (form.elements.namedItem("name") as HTMLInputElement).value = row.dataset.name || "";
   const fn = document.getElementById("msFilename") as HTMLInputElement | null;
-  if (fn) fn.value = row.dataset.filenameTemplate || "{Report}_{YYYY}{MM}{DD}";
+  if (fn) fn.value = row.dataset.filenameTemplate || DEFAULT_FILENAME_TEMPLATE;
 
   const reportKey = row.dataset.reportKey || "";
   form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {

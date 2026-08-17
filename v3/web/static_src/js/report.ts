@@ -13,7 +13,7 @@
  * reflects each tab's on-screen view, with live-style formatting + group totals.
  */
 
-import { previewFilename } from "./filename_preview";
+import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
 
 declare const Tabulator: any;
 
@@ -2249,7 +2249,7 @@ function openScheduleModal(): void {
   if (noRec) noRec.checked = false;
   if (noMe) noMe.checked = false;
   const fn = $("schedFilename") as HTMLInputElement | null;
-  if (fn && !fn.value) fn.value = "{Report}_{YYYY}{MM}{DD}";
+  if (fn && !fn.value) fn.value = DEFAULT_FILENAME_TEMPLATE;
   updateSchedFilenamePreview();
   schedMsg("", false);
   syncCadenceFields();

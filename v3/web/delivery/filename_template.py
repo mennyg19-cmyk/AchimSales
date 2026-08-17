@@ -35,6 +35,10 @@ TOKEN_HELP: tuple[tuple[str, str], ...] = (
 
 _TOKEN_RE = re.compile(r"\{[A-Za-z]+\}")
 
+# Blank templates used to be "{Report}_{YYYY}{MM}{DD}", so Daily 9am and
+# DailyOrderReport both arrived as Ordered_20260817.xlsx.
+DEFAULT_FILENAME_TEMPLATE = "{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}"
+
 
 def resolve_filename_template(
     template: str,
@@ -74,7 +78,7 @@ def resolve_filename_template(
 
     raw = (template or "").strip()
     if not raw:
-        raw = "{Report}_{YYYY}{MM}{DD}"
+        raw = DEFAULT_FILENAME_TEMPLATE
 
     def repl(m: re.Match[str]) -> str:
         key = m.group(0)

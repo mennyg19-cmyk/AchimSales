@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-08-17 Schedule workbook filenames include the schedule name
+**What you asked for:** File names that are intuitive for each run (typed on a
+Hebrew keyboard: change the file names to be more intuitive for each run).
+**What I chose:** Blank `filename_template` is now
+`{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}` (Eastern). Company schedules had empty
+templates, so Daily 9am and DailyOrderReport both arrived as
+`Ordered_20260817.xlsx`. Custom templates are unchanged.
+**Status:** DECIDED
+
 ## 2026-08-17 Beta schedule test mode was not surviving recycle
 **What you asked for:** The Delivery test-mode switch (and the test email list)
 kept going back to Off after saving.
