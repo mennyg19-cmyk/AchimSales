@@ -7,7 +7,7 @@ kept going back to Off after saving.
 on recycle, and Litestream only replicated the `/test` DB. Add a second replica
 for `BETA_PRECIOUS_DB_PATH` (`LITESTREAM_AZURE_BETA_PATH`). Unique company
 schedule name so two gunicorn workers cannot double-insert the Azure import.
-**Status:** DECIDED — deploying
+**Status:** DECIDED — deployed `9f7f613` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-17 Settings mobile overflow + exclusive accordion
 **What you asked for:** Settings on a phone was overflowing. Opening a section
