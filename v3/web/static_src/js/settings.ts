@@ -20,9 +20,16 @@ async function postJson(url: string, body: unknown): Promise<Response> {
 }
 
 function initAccordion(): void {
-  if (!window.matchMedia("(min-width: 768px)").matches) return;
-  document.querySelectorAll<HTMLDetailsElement>("details.settings-cat").forEach((d) => {
-    d.open = true;
+  const cats = Array.from(
+    document.querySelectorAll<HTMLDetailsElement>("details.settings-cat"),
+  );
+  cats.forEach((section) => {
+    section.addEventListener("toggle", () => {
+      if (!section.open) return;
+      cats.forEach((other) => {
+        if (other !== section) other.open = false;
+      });
+    });
   });
 }
 

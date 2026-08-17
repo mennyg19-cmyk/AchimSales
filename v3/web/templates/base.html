@@ -35,7 +35,7 @@
                 {{ user.role|title }}
             </span>
             <button type="button" id="prevRunsBtn" class="btn btn-sm btn-outline" data-no-guard
-                    title="Previously run and kept reports">Previously run</button>
+                    title="Previously run and kept reports"><span class="prev-runs-full">Previously run</span><span class="prev-runs-short">Runs</span></button>
             <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
                     title="Switch theme (light / dark / monochrome)"
                     data-url="{{ url_for('settings.set_preferences') }}" data-csrf="{{ csrf_token() }}">

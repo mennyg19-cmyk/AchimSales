@@ -672,10 +672,11 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .data-table td.num, .data-table th.num { text-align: right; }
 
 /* -- Settings -- */
-.settings-hub { display: flex; flex-direction: column; gap: 12px; }
+.settings-hub { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow-x: clip; }
 .settings-cat {
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius); box-shadow: var(--shadow);
+    min-width: 0;
 }
 .settings-cat > summary {
     cursor: pointer; list-style: none; padding: 14px 16px;
@@ -687,19 +688,24 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .settings-cat > summary::after { content: "▾"; color: var(--text-muted); font-size: 12px; }
 .settings-cat:not([open]) > summary::after { content: "▸"; }
 .settings-cat > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
-.settings-cat .settings-card { margin: 0; border: none; box-shadow: none; border-radius: 0; }
+.settings-cat .settings-card { margin: 0; border: none; box-shadow: none; border-radius: 0; padding-left: 16px; padding-right: 16px; }
 .settings-grid { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
 .settings-grid > .settings-card { margin-bottom: 0; }
-.settings-card { padding: 16px 20px 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 16px; }
-.profile-list { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; }
+.settings-card { padding: 16px 20px 20px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 16px; min-width: 0; }
+.profile-list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 16px; font-size: 14px; }
 .profile-list dt { color: var(--text-muted); font-weight: 600; }
-.theme-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.profile-list dd { overflow-wrap: anywhere; min-width: 0; }
+.theme-form { display: flex; align-items: stretch; gap: 12px; flex-wrap: wrap; }
+.settings-hub .theme-form .filter-field { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+.settings-hub .filter-field select,
+.settings-hub .filter-field input { min-width: 0; width: 100%; max-width: 100%; }
 .admin-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-links .btn { max-width: 100%; }
 .settings-subhead { font-size: 13px; font-weight: 700; color: var(--text-muted); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.4px; }
 .excl-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; margin-top: 8px; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.beta-source-key { min-width: 8.75rem; }
-.beta-source-select { font-size: 13px; padding: 6px 8px; min-height: 44px; }
+.beta-source-key { min-width: 0; }
+.beta-source-select { font-size: 13px; padding: 6px 8px; min-height: 44px; max-width: 100%; }
 .nd-user { margin-bottom: 12px; }
 .dbx-warn {
     background: var(--warning-light, #fef3c7); color: var(--text);
@@ -725,14 +731,14 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 
 /* Feature-flag toggles */
 .flag-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-.flag-row { display: flex; align-items: center; gap: 12px; }
-.flag-meta { display: flex; flex-direction: column; }
-.flag-name { font-weight: 600; color: var(--text); font-size: 14px; }
-.flag-desc { color: var(--text-muted); font-size: 12px; }
+.flag-row { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.flag-meta { display: flex; flex-direction: column; min-width: 0; flex: 1 1 10rem; }
+.flag-name { font-weight: 600; color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+.flag-desc { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 
 .test-email-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .test-email-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 8px; }
-.test-email-add .filter-field { flex: 1; min-width: 180px; }
+.test-email-add .filter-field { flex: 1 1 100%; min-width: 0; }
 .test-mode-msg { margin-top: 8px; color: var(--error); }
 .alert-warn { background: var(--warning-light); color: var(--text); border: 1px solid var(--warning); }
 .alert-warn a { font-weight: 600; }
