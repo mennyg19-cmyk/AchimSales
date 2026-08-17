@@ -106,25 +106,25 @@ class Authorization:
         u = self._active_user(p)
         if u is None:
             return False
-        if self._is_privileged(u):
-            return True
         # Company-wide admin reports: salesmen and managers never get them, even
         # with an explicit allow row.
-        if getattr(spec, "privileged_only", False):
+        if getattr(spec, "privileged_only", False) and not self._is_privileged(u):
             return False
-        # Non-privileged: an explicit per-user override (allow/deny) wins. With no
-        # row the access is "inherit" -> fall back to the legacy role default
-        # (test/webapp report_access.list_accessible_reports): managers see all
-        # reports; salesmen see only salesman-filter reports. This is the per-user
-        # report-settings model the live/legacy app uses; seeded users start at
-        # "inherit" (no rows) and behave per their role.
         with self.db.precious() as conn:
-            row = conn.execute(
+            override = conn.execute(
                 "SELECT allowed FROM user_report_access WHERE user_id = ? AND report_key = ?",
                 (u.id, report_key),
             ).fetchone()
-        if row is not None:
-            return bool(row["allowed"])
+            glob = conn.execute(
+                "SELECT enabled FROM report_config WHERE report_key = ?", (report_key,),
+            ).fetchone()
+        # Per-user override wins (Live). Else a missing report_config row is on.
+        if override is not None:
+            return bool(override["allowed"])
+        if glob is not None and not glob["enabled"]:
+            return False
+        if self._is_privileged(u):
+            return True
         return self._role_default_report_visible(u.role, spec)
 
     @staticmethod

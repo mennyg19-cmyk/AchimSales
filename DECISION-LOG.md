@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-08-17 Beta settings hub (mini rebuild)
+**What you asked for:** One settings page on Beta that matches Live, categorized,
+half-width, phone-first, with users, run histories, DB explorer, notification
+diagnostic, and beta data sources. Test that it is wired.
+**What I chose:** Rebuild Beta `/settings` only. Six categories (You / People /
+Reports / Delivery / History / Developer). Email Distributions stays Live-only
+(Beta schedules already send mail). Heavy tools stay linked pages. Global report
+on/off is new `report_config`. Explorer covers precious + cache. Beta sources UI
+lives on Beta; storage stays the live `beta_report_sources` table. Notes:
+`.scratch/grill-notes.md`.
+**Status:** DECIDED — implementing
+
 ## 2026-08-17 Previously run list + OneDrive root Graph URL
 **What you asked for:** A Previously run button; a minimizable run pill that shows
 when the report ran; a way to name a kept run. OneDrive Browse 400 after Graph

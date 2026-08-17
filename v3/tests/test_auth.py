@@ -163,6 +163,25 @@ def test_inherit_resolves_to_role_default(db, monkeypatch):
     assert authz.can_view_report(sm, "ordered") is True
 
 
+def test_global_report_off_hides_unless_override(db, monkeypatch):
+    monkeypatch.setitem(
+        registry._BY_KEY, "ordered",
+        ReportSpec("ordered", "Ordered", ReportStatus.BUILT, salesman_default=True),
+    )
+    from web.data.repositories.report_config import ReportConfigRepository
+    users = UserRepository(db)
+    users.upsert("sm@b.com", role="salesman")
+    users.upsert("admin@b.com", role="admin")
+    ReportConfigRepository(db).set("ordered", False)
+    authz = Authorization(db)
+    sm = Principal("sm@b.com", "S", "salesman")
+    admin = Principal("admin@b.com", "A", "admin")
+    assert authz.can_view_report(sm, "ordered") is False
+    assert authz.can_view_report(admin, "ordered") is False
+    users.set_report_access(users.get_by_email("sm@b.com").id, "ordered", True)
+    assert authz.can_view_report(sm, "ordered") is True
+
+
 def test_role_revocation_takes_effect_immediately(db):
     """Downgrading a user in the DB must drop privileges even with an old cookie."""
     authz = Authorization(db)

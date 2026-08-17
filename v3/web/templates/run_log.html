@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Run log{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -9,6 +10,7 @@
 </div>
 
 {% if entries %}
+<div class="table-scroll">
 <table class="simple-table">
   <thead>
     <tr><th>When</th><th>User</th><th>Report</th><th>Status</th><th>Rows</th><th>Duration</th><th>Source</th></tr>
@@ -27,6 +29,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
 <div class="empty-state"><i data-feather="clock"></i><div>No report runs recorded yet.</div></div>
 {% endif %}

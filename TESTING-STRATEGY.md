@@ -23,6 +23,29 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Beta settings hub
+
+**What to test:**
+- Salesman `/settings` is `container-narrow`, has You (profile, theme, exclusions), no admin/developer blocks.
+- Admin has People, Reports, Delivery, History; not Database explorer.
+- Developer has explorer, notification diagnostic, beta sources.
+- `POST /api/admin/report-visibility` hides a report unless a per-user allow override exists.
+- Exclusions save without the dashboard blueprint (Beta).
+- `/admin/schedule-runs` and `/admin/run-log` are admin-only.
+- DB explorer lists precious tables; salesman/admin get 403. No arbitrary SQL.
+
+**Expected behavior:**
+- Settings is ~800px, accordion on phone, stacked categories.
+- Live Email Distributions is not on Beta.
+
+**Edge cases:**
+- Globally disabled report + explicit allow still visible.
+- Unknown `report_config` row means enabled.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_auth.py`
+
+---
+
 ## Previously run list + Keep name + OneDrive root URL
 
 **What to test:**

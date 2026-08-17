@@ -20,6 +20,7 @@ from web.auth.session import current_principal
 from web.config import Config, load_config
 from web.data.connection import from_config
 from web.data.repositories.feature_flags import FeatureFlagRepository
+from web.data.repositories.report_config import ReportConfigRepository
 from web.data.repositories.users import UserRepository
 from web.extensions import init_csrf
 
@@ -280,6 +281,8 @@ def _register_blueprints(app: Flask, cfg: Config) -> None:
     app.register_blueprint(reports_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(admin_bp)
+    from web.blueprints.devtools import devtools_bp
+    app.register_blueprint(devtools_bp)
 
     from web.blueprints.schedules import schedules_bp
 
@@ -356,6 +359,7 @@ def bootstrap_background(app: Flask) -> None:
     db = app.config["DB"]
     migrate(db)
     _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
+    _seed_report_config(app, db)
     _seed_salesmen_if_empty(app, db)  # salesmen first: user_salesman_access FKs them
     _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins override the mirror
@@ -501,6 +505,13 @@ def _seed_feature_flags(app: Flask, db) -> None:
         FeatureFlagRepository(db).seed_defaults()
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("feature-flag seed failed")
+
+
+def _seed_report_config(app: Flask, db) -> None:
+    try:
+        ReportConfigRepository(db).seed_built()
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("report-config seed failed")
 
 
 def _seed_admins(app: Flask, db) -> None:

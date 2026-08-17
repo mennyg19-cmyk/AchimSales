@@ -74,6 +74,11 @@ Developers flip SQL/OData per report under Developer Tools → Beta report data 
 On Beta, **Previously run** (header) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
+On Beta, **Settings** is the control panel (same ~800px width as Live): You,
+People, Reports, Delivery, History, and (developers) Database explorer,
+notification diagnostic, and beta SQL/OData sources. Live Email Distributions
+stay on Live only.
+
 ### Live vs /test parity
 
 Compares Excel from live (`/`, OData) and `/test` (Reporting API) with the same

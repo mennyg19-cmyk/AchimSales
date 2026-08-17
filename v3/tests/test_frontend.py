@@ -91,13 +91,13 @@ def test_beta_base_html_skips_missing_dashboard_endpoints(tmp_path):
             active_tab="reports",
         )
     assert "Dashboard" not in html
-    assert "Schedules" not in html
+    assert "Schedules" in html
     assert "data-notifications-url" not in html
     assert "Beta" in html
 
 
-def test_beta_report_view_skips_schedule_endpoints(tmp_path):
-    """Beta omits schedules blueprint — report_view must not url_for create_schedule."""
+def test_beta_report_view_keeps_schedule_and_run(tmp_path):
+    """Beta registers schedules — report view can offer Schedule this view."""
     from dataclasses import replace
 
     from report_engine.registry import get as get_report
@@ -122,9 +122,7 @@ def test_beta_report_view_skips_schedule_endpoints(tmp_path):
             n4_mode_options=(),
             is_developer=True,
         )
-    assert "scheduleBtn" not in html
-    assert "data-schedules-url" not in html
-    assert "scheduleModal" not in html
+    assert "scheduleBtn" in html
     assert "data-run-url" in html
 
 

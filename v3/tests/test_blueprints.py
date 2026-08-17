@@ -1520,3 +1520,83 @@ def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     payload = client.get(f"/api/reports/result/{job_id}").get_json()
     comm = next(t for t in payload["tabs"] if t["key"] == "commissions")
     assert comm["columns"] and comm["rows"]  # renders as a real table, not blank
+
+
+def test_settings_hub_hides_admin_from_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    html = client.get("/settings").get_data(as_text=True)
+    assert "container-narrow" in html
+    assert "Customer exclusions" in html
+    assert "Users &amp; access" not in html
+    assert "Database explorer" not in html
+    assert "Global report visibility" not in html
+
+
+def test_settings_hub_admin_has_categories(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/settings").get_data(as_text=True)
+    assert "container-narrow" in html
+    assert "Users &amp; access" in html
+    assert "Global report visibility" in html
+    assert "Scheduled run history" in html
+    assert "Email Distributions" not in html
+    assert "Database explorer" not in html  # admin is not developer
+
+
+def test_report_visibility_api_and_history_pages(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/admin/report-visibility",
+                       json={"report_key": "ordered", "enabled": False},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200 and resp.get_json()["enabled"] is False
+    assert client.get("/admin/schedule-runs").status_code == 200
+    assert client.get("/admin/run-log").status_code == 200
+    sales = app.test_client()
+    _login(sales, app, email="rep@x.com", role="salesman")
+    assert sales.post("/api/admin/report-visibility",
+                      json={"report_key": "ordered", "enabled": True},
+                      headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    assert sales.get("/admin/schedule-runs").status_code == 403
+
+
+def test_settings_exclusion_does_not_need_dashboard(tmp_path):
+    from web.data.repositories.dashboard import DashboardCustomer, DashboardRepository
+    from web.data.repositories.exclusions import ExclusionRepository
+    app = _make_app(tmp_path)
+    DashboardRepository(app.config["DB"]).replace_all([
+        DashboardCustomer("100", "Acme", "", "2026-05-01", 5, 30.0, 2.0, 32.0, 5, "active"),
+    ])
+    admin = app.test_client()
+    _login(admin, app)
+    assert "Acme" in admin.get("/settings").get_data(as_text=True)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    assert client.get("/settings").status_code == 200
+    resp = client.post("/api/settings/exclusions",
+                       json={"customer_account": "100", "excluded": True},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    uid = UserRepository(app.config["DB"]).get_by_email("rep@x.com").id
+    assert "100" in ExclusionRepository(app.config["DB"]).get(uid)
+
+
+def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    assert admin.get("/dev/db-explorer").status_code == 403
+    assert admin.get("/dev/notif-diagnostic").status_code == 403
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    assert dev.get("/dev/db-explorer").status_code == 200
+    tables = dev.get("/api/dev/db/tables?db=precious").get_json()["tables"]
+    assert any(t["name"] == "users" for t in tables)
+    html = dev.get("/settings").get_data(as_text=True)
+    assert "Database explorer" in html and "Beta report data sources" in html
+    assert dev.get("/dev/notif-diagnostic").status_code == 200

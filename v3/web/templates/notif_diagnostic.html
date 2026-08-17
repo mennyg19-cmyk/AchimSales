@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Notification diagnostic{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
+
+{% block content %}
+<div class="page-head" id="ndRoot"
+     data-url="{{ url_for('devtools.api_notif_diagnostic', email='__EMAIL__') }}"
+     data-run-url="{{ url_for('devtools.api_notif_diagnostic_run', email='__EMAIL__') }}"
+     data-csrf="{{ csrf_token() }}">
+  <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
+  <h1 class="page-title">Notification diagnostic</h1>
+  <p class="page-subtitle">Why a user does or does not get overdue-customer alerts.</p>
+</div>
+<label class="filter-field nd-user">
+  <span>User</span>
+  <select id="ndUser">
+    <option value="">Choose a user…</option>
+    {% for u in users %}
+    <option value="{{ u.email }}">{{ u.display_name or u.email }} ({{ u.role }})</option>
+    {% endfor %}
+  </select>
+</label>
+<button type="button" class="btn btn-outline btn-sm" id="ndRun">Generate overdue now</button>
+<p class="flag-desc" id="ndMsg" hidden></p>
+<div id="ndOut"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/notif_diag.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

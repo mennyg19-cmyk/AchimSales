@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Scheduled run history{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
+  <h1 class="page-title">Scheduled run history</h1>
+  <p class="page-subtitle">The {{ entries|length }} most recent company and personal schedule runs.</p>
+</div>
+
+{% if entries %}
+<div class="table-scroll">
+<table class="simple-table">
+  <thead>
+    <tr><th>When</th><th>Schedule</th><th>Kind</th><th>Status</th><th>Rows</th></tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.started_at or '—' }}</td>
+      <td>{{ e.label }}</td>
+      <td>{{ e.schedule_type }}</td>
+      <td><span class="status-pill status-{{ e.status }}">{{ e.status }}</span></td>
+      <td>{{ e.rows if e.rows is not none else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state"><i data-feather="clock"></i><div>No schedule runs recorded yet.</div></div>
+{% endif %}
+{% endblock %}
