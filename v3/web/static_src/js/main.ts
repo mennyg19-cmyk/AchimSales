@@ -255,6 +255,23 @@ interface ActiveReportJob {
   title: string;
   status: string;
   progress: number;
+  created_at?: string | null;
+  finished_at?: string | null;
+  kept?: boolean;
+  keep_name?: string;
+}
+
+const JOBS_MIN_KEY = "achim.reportJobs.minimized";
+
+function formatJobWhen(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit",
+  });
 }
 
 /**
@@ -262,47 +279,107 @@ interface ActiveReportJob {
  * report runs. Tap it to open a small panel listing each run and how far along
  * it is; tap a row to jump to that report -- if it's still running the report
  * page reconnects to it, if it just finished it loads the result.
+ * Header "Previously run" opens the same list. The pill shrinks to an icon.
  */
 function initReportJobsBar(): void {
   const bar = document.getElementById("reportJobsBar");
   if (!bar) return;
   const activeUrl = bar.getAttribute("data-active-url") || "";
   const reportUrlTpl = bar.getAttribute("data-report-url") || "";
+  const keepUrlTpl = bar.getAttribute("data-keep-url") || "";
+  const csrf = bar.getAttribute("data-csrf") || "";
   if (!activeUrl) return;
 
   let lastSignature = "";
   let panelOpen = false;
+  let minimized = localStorage.getItem(JOBS_MIN_KEY) === "1";
+  let lastJobs: ActiveReportJob[] = [];
 
   function statusWord(job: ActiveReportJob): string {
     if (job.status === "running") return `building ${job.progress || 0}%`;
     if (job.status === "queued") return "waiting to start";
-    if (job.status === "success") return "ready";
+    if (job.status === "success") return job.kept ? "kept" : "ready";
     if (job.status === "failure") return "failed";
     return job.status;
   }
 
-  function render(jobs: ActiveReportJob[]): void {
-    const signature = JSON.stringify(jobs.map((j) => [j.job_id, j.status, j.progress]));
-    if (signature === lastSignature) return; // nothing changed; don't churn the DOM
-    lastSignature = signature;
+  function jobHref(job: ActiveReportJob): string {
+    if (!job.report_key) return "";
+    return reportUrlTpl.replace("__KEY__", encodeURIComponent(job.report_key))
+      + "?job=" + encodeURIComponent(job.job_id);
+  }
 
-    if (!jobs.length) {
-      bar.hidden = true;
-      bar.innerHTML = "";
-      panelOpen = false;
-      return;
+  async function renameKept(job: ActiveReportJob): Promise<void> {
+    if (!keepUrlTpl) return;
+    const current = (job.keep_name || job.title || "").trim();
+    const name = window.prompt("Name this kept run:", current);
+    if (name === null) return;
+    const url = keepUrlTpl.replace(/__ID__/g, job.job_id);
+    try {
+      const res = await fetch(url, {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf, Accept: "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      lastSignature = "";
+      await poll();
+    } catch {
+      window.alert("Could not rename this run.");
     }
+  }
+
+  function render(jobs: ActiveReportJob[]): void {
+    lastJobs = jobs;
+    const signature = JSON.stringify(jobs.map((j) =>
+      [j.job_id, j.status, j.progress, j.keep_name, j.finished_at, j.kept]))
+      + String(minimized) + String(panelOpen);
+    if (signature === lastSignature) return;
+    lastSignature = signature;
 
     const running = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
     const anyFailed = jobs.some((j) => j.status === "failure");
     bar.classList.toggle("report-jobs-busy", running > 0);
     bar.classList.toggle("report-jobs-failed", running === 0 && anyFailed);
-    bar.classList.toggle("report-jobs-done", running === 0 && !anyFailed);
+    bar.classList.toggle("report-jobs-done", jobs.length > 0 && running === 0 && !anyFailed);
+    bar.classList.toggle("report-jobs-min", minimized);
+    bar.hidden = false;
 
     const panel = document.createElement("div");
     panel.className = "report-jobs-panel";
     panel.hidden = !panelOpen;
+
+    const head = document.createElement("div");
+    head.className = "report-jobs-panel-head";
+    const headTitle = document.createElement("span");
+    headTitle.textContent = "Previously run";
+    head.appendChild(headTitle);
+    const minBtn = document.createElement("button");
+    minBtn.type = "button";
+    minBtn.className = "report-jobs-min-btn";
+    minBtn.dataset.noGuard = "1";
+    minBtn.textContent = "Minimize";
+    minBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      minimized = true;
+      panelOpen = false;
+      localStorage.setItem(JOBS_MIN_KEY, "1");
+      lastSignature = "";
+      render(lastJobs);
+    });
+    head.appendChild(minBtn);
+    panel.appendChild(head);
+
+    if (!jobs.length) {
+      const empty = document.createElement("div");
+      empty.className = "report-jobs-empty";
+      empty.textContent = "No recent or kept runs. Open a report, run it, then Keep this run.";
+      panel.appendChild(empty);
+    }
+
     jobs.forEach((job) => {
+      const row = document.createElement("div");
+      row.className = "report-job-row";
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "report-job-chip report-job-" + job.status;
@@ -310,46 +387,91 @@ function initReportJobsBar(): void {
       chip.title = "Open this report";
       const dot = document.createElement("span");
       dot.className = "report-job-dot";
+      const text = document.createElement("span");
+      text.className = "report-job-text";
       const label = document.createElement("span");
       label.className = "report-job-label";
-      label.textContent = `${job.title} — ${statusWord(job)}`;
+      label.textContent = (job.keep_name || job.title || "Report").trim();
+      const meta = document.createElement("span");
+      meta.className = "report-job-meta";
+      const when = formatJobWhen(job.finished_at || job.created_at);
+      meta.textContent = [when, statusWord(job)].filter(Boolean).join(" · ");
+      text.appendChild(label);
+      text.appendChild(meta);
       chip.appendChild(dot);
-      chip.appendChild(label);
+      chip.appendChild(text);
       chip.addEventListener("click", () => {
-        if (!job.report_key) return;
-        window.location.href = reportUrlTpl.replace("__KEY__", encodeURIComponent(job.report_key));
+        const href = jobHref(job);
+        if (href) window.location.href = href;
       });
-      panel.appendChild(chip);
+      row.appendChild(chip);
+      if (job.kept) {
+        const rename = document.createElement("button");
+        rename.type = "button";
+        rename.className = "report-job-rename";
+        rename.dataset.noGuard = "1";
+        rename.textContent = "Name";
+        rename.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void renameKept(job);
+        });
+        row.appendChild(rename);
+      }
+      panel.appendChild(row);
     });
 
     const fab = document.createElement("button");
     fab.type = "button";
     fab.className = "report-jobs-fab";
     fab.dataset.noGuard = "1";
+    fab.title = minimized ? "Previously run reports" : "Hide or show previously run reports";
     if (running > 0) {
       const spin = document.createElement("span");
       spin.className = "report-jobs-spinner";
       fab.appendChild(spin);
     }
-    const fabLabel = document.createElement("span");
-    fabLabel.textContent = running > 0
-      ? `${running} running`
-      : anyFailed ? "Report failed" : "Reports ready";
-    fab.appendChild(fabLabel);
+    if (!minimized) {
+      const fabLabel = document.createElement("span");
+      fabLabel.textContent = running > 0
+        ? `${running} running`
+        : !jobs.length ? "Previously run"
+          : anyFailed ? "Report failed" : "Reports ready";
+      fab.appendChild(fabLabel);
+    } else {
+      const fabMark = document.createElement("span");
+      fabMark.textContent = jobs.length ? String(Math.min(jobs.length, 9)) : "•";
+      fab.appendChild(fabMark);
+    }
     fab.addEventListener("click", (e) => {
       e.stopPropagation();
-      panelOpen = !panelOpen;
-      panel.hidden = !panelOpen;
+      if (minimized) {
+        minimized = false;
+        localStorage.setItem(JOBS_MIN_KEY, "0");
+        panelOpen = true;
+      } else {
+        panelOpen = !panelOpen;
+      }
+      lastSignature = "";
+      render(lastJobs);
     });
 
     bar.innerHTML = "";
     bar.appendChild(panel);
     bar.appendChild(fab);
-    bar.hidden = false;
   }
 
+  document.getElementById("prevRunsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    minimized = false;
+    panelOpen = true;
+    localStorage.setItem(JOBS_MIN_KEY, "0");
+    lastSignature = "";
+    render(lastJobs);
+  });
+
   document.addEventListener("click", (e) => {
-    if (panelOpen && !bar.contains(e.target as Node)) {
+    if (panelOpen && !bar.contains(e.target as Node)
+        && (e.target as HTMLElement).id !== "prevRunsBtn") {
       panelOpen = false;
       const panel = bar.querySelector<HTMLElement>(".report-jobs-panel");
       if (panel) panel.hidden = true;

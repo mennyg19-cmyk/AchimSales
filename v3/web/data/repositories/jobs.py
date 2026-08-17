@@ -50,6 +50,7 @@ class Job:
     result_ref: str
     error: str
     kept_until: str | None = None
+    keep_name: str = ""
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Job":
@@ -61,6 +62,7 @@ class Job:
             params=json.loads(r["params_json"] or "{}"),
             result_ref=r["result_ref"], error=r["error"],
             kept_until=r["kept_until"] if "kept_until" in keys else None,
+            keep_name=(r["keep_name"] if "keep_name" in keys else "") or "",
         )
 
 
@@ -239,7 +241,7 @@ class JobRepository:
         with self.db.precious() as conn:
             rows = conn.execute(
                 "SELECT id, status, progress, params_json, created_at, finished_at,"
-                " kept_until"
+                " kept_until, keep_name"
                 " FROM jobs WHERE owner_user_id = ? AND type = 'report.run'"
                 " ORDER BY created_at DESC LIMIT ?",
                 (user_id, limit),
@@ -247,14 +249,15 @@ class JobRepository:
             return [dict(r) for r in rows]
 
     def keep_run(self, job_id: str, owner_user_id: int, *, kept_until: str,
-                 cap: int = 5) -> bool:
+                 name: str = "", cap: int = 5) -> bool:
         """Mark a finished run as Kept until kept_until. Enforces per-user cap by
         clearing kept_until on the oldest Kept runs beyond ``cap``."""
+        label = (name or "").strip()[:80]
         with self.db.precious() as conn:
             cur = conn.execute(
-                "UPDATE jobs SET kept_until=? WHERE id=? AND owner_user_id=?"
+                "UPDATE jobs SET kept_until=?, keep_name=? WHERE id=? AND owner_user_id=?"
                 " AND type='report.run' AND status='success'",
-                (kept_until, job_id, owner_user_id),
+                (kept_until, label, job_id, owner_user_id),
             )
             if cur.rowcount != 1:
                 return False
@@ -267,7 +270,7 @@ class JobRepository:
             if len(rows) > cap:
                 drop_ids = [r["id"] for r in rows[cap:]]
                 conn.executemany(
-                    "UPDATE jobs SET kept_until=NULL WHERE id=?",
+                    "UPDATE jobs SET kept_until=NULL, keep_name='' WHERE id=?",
                     [(i,) for i in drop_ids],
                 )
             return True

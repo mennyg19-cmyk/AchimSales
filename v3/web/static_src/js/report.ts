@@ -1409,6 +1409,7 @@ async function resumeInFlight(): Promise<boolean> {
   const url = attr("data-active-url");
   const key = attr("data-report-key");
   if (!url || !key) return false;
+  const wanted = new URLSearchParams(window.location.search).get("job");
   let jobs: { job_id: string; report_key: string | null; status: string; age_seconds: number | null }[];
   try {
     const data = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
@@ -1416,9 +1417,10 @@ async function resumeInFlight(): Promise<boolean> {
   } catch {
     return false;
   }
-  // Server returns newest first, so the first match is the most recent run.
-  const mine = jobs.find((j) => j.report_key === key &&
-    (j.status === "running" || j.status === "queued" || j.status === "success"));
+  const mine = wanted
+    ? jobs.find((j) => j.job_id === wanted && j.report_key === key)
+    : jobs.find((j) => j.report_key === key &&
+      (j.status === "running" || j.status === "queued" || j.status === "success"));
   if (!mine) return false;
   state.jobId = mine.job_id;
   await resumeJob(mine.job_id, (mine.age_seconds || 0) * 1000);
@@ -2214,12 +2216,21 @@ async function keepCurrentRun(): Promise<void> {
     setStatus("Run a report first, then Keep it.", "error");
     return;
   }
+  const name = window.prompt("Name this kept run (optional):", "");
+  if (name === null) return;
   const url = attr("data-keep-url").replace(/__ID__/g, jobId);
   try {
-    const res = await fetch(url, { method: "POST", headers: csrfHeaders() });
+    const res = await fetch(url, {
+      method: "POST", headers: csrfHeaders(),
+      body: JSON.stringify({ name: name.trim() }),
+    });
     if (!res.ok) throw new Error();
     const data = await res.json();
-    setStatus(`Kept until ${String(data.kept_until || "").slice(0, 10)} (30 days, max 5 Kept).`);
+    const until = String(data.kept_until || "").slice(0, 10);
+    const label = String(data.keep_name || "").trim();
+    setStatus(label
+      ? `Kept as “${label}” until ${until} (30 days, max 5 Kept).`
+      : `Kept until ${until} (30 days, max 5 Kept).`);
   } catch {
     setStatus("Could not Keep this run.", "error");
   }

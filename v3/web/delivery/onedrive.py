@@ -54,8 +54,8 @@ class OneDriveService:
             return _mock_folders(rel_path)
         import requests
 
-        url = f"{self._drive_root(user)}:{self._enc_path(rel_path)}:/children"
-        r = requests.get(url, headers=self._headers(), timeout=TIMEOUT)
+        r = requests.get(onedrive_children_url(user, rel_path),
+                         headers=self._headers(), timeout=TIMEOUT)
         if r.status_code == 404:
             return []
         r.raise_for_status()
@@ -83,8 +83,11 @@ class OneDriveService:
         import requests
 
         self._ensure_folder(user, rel_folder)
-        folder = self._enc_path(rel_folder)
-        url = f"{self._drive_root(user)}:{folder}/{quote(filename)}:/content"
+        folder = _enc_path(rel_folder)
+        if folder:
+            url = f"{self._drive_root(user)}:{folder}/{quote(filename)}:/content"
+        else:
+            url = f"{self._drive_root(user)}:/{quote(filename)}:/content"
         r = requests.put(
             url,
             headers={**self._headers(), "Content-Type": "application/octet-stream"},
@@ -97,12 +100,6 @@ class OneDriveService:
 
     def _drive_root(self, user: str) -> str:
         return f"{GRAPH_BASE}/users/{quote(user)}/drive/root"
-
-    def _enc_path(self, rel_path: str) -> str:
-        segments = _validate_segments(rel_path)
-        if not segments:
-            return ""
-        return "/" + "/".join(quote(s) for s in segments)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._get_token()}"}
@@ -137,6 +134,23 @@ class OneDriveService:
                 r.raise_for_status()
             seg_enc = quote(part)
             current_enc = f"{current_enc}/{seg_enc}" if current_enc else f"/{seg_enc}"
+
+
+def onedrive_children_url(user_email: str, rel_path: str = "") -> str:
+    """Graph children URL. Root is ``…/drive/root/children`` — not ``root::/children``."""
+    user = _user_key(user_email)
+    enc = _enc_path(rel_path)
+    root = f"{GRAPH_BASE}/users/{quote(user)}/drive/root"
+    if not enc:
+        return f"{root}/children"
+    return f"{root}:{enc}:/children"
+
+
+def _enc_path(rel_path: str) -> str:
+    segments = _validate_segments(rel_path)
+    if not segments:
+        return ""
+    return "/" + "/".join(quote(s) for s in segments)
 
 
 def _user_key(email: str) -> str:

@@ -394,8 +394,11 @@ def active_report_runs():
             "title": titles.get(rkey, rkey or "Report"),
             "status": status, "progress": r["progress"] or 0,
             "age_seconds": _age_seconds(r["created_at"], now),
+            "created_at": r["created_at"],
+            "finished_at": r["finished_at"],
             "kept_until": kept_until or None,
             "kept": _kept_still_valid(kept_until, now),
+            "keep_name": (r["keep_name"] or "").strip() if "keep_name" in r.keys() else "",
         })
     return jsonify({"jobs": jobs})
 
@@ -410,10 +413,12 @@ def keep_report_run(job_id: str):
     if job.status != "success":
         abort(409, description="Only a finished report can be kept")
     kept_until = (datetime.now(timezone.utc) + timedelta(seconds=_KEEP_SECONDS)).isoformat()
-    ok = _job_repo().keep_run(job_id, uid, kept_until=kept_until, cap=_KEEP_CAP)
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()[:80]
+    ok = _job_repo().keep_run(job_id, uid, kept_until=kept_until, name=name, cap=_KEEP_CAP)
     if not ok:
         abort(404, description="Unknown job")
-    return jsonify({"job_id": job_id, "kept_until": kept_until, "kept": True})
+    return jsonify({"job_id": job_id, "kept_until": kept_until, "kept": True, "keep_name": name})
 
 
 @reports_bp.post("/api/reports/<report_key>/export/<job_id>")

@@ -7,6 +7,7 @@ import pytest
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.jobs import JobRepository
+from web.data.repositories.users import UserRepository
 from web.jobs.scheduler import Scheduler
 from web.jobs.worker import JobContext, JobWorker
 
@@ -255,6 +256,23 @@ def test_background_concurrency_is_bounded(db):
         worker.stop()
     assert all(jobs.get(j).status == "success" for j in ids)
     assert live["max"] <= 2  # never exceeded max_workers
+
+
+def test_keep_run_stores_name_and_drops_oldest_over_cap(db):
+    uid = UserRepository(db).upsert("a@x.com", display_name="A", role="admin").id
+    jobs = JobRepository(db)
+    ids = []
+    for i in range(3):
+        jid = jobs.enqueue("report.run", owner_user_id=uid, params={"i": i})
+        jobs.claim_next()
+        jobs.mark_success(jid, "ref")
+        ids.append(jid)
+    assert jobs.keep_run(ids[0], uid, kept_until="2099-01-01T00:00:00", name="Alpha", cap=2)
+    assert jobs.keep_run(ids[1], uid, kept_until="2099-01-02T00:00:00", name="Beta", cap=2)
+    assert jobs.keep_run(ids[2], uid, kept_until="2099-01-03T00:00:00", name="Gamma", cap=2)
+    dropped = jobs.get(ids[0])
+    assert dropped.kept_until is None and dropped.keep_name == ""
+    assert jobs.get(ids[2]).keep_name == "Gamma"
 
 
 def test_scheduler_queues_jobs_before_start():

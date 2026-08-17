@@ -1,5 +1,16 @@
 # Decision Log
 
+## 2026-08-17 Previously run list + OneDrive root Graph URL
+**What you asked for:** A Previously run button; a minimizable run pill that shows
+when the report ran; a way to name a kept run. OneDrive Browse 400 after Graph
+permissions were granted (`…/drive/root::/children`).
+**What I chose:** Header **Previously run** opens the existing jobs panel. The
+bottom-right pill shrinks to an icon (remembered in localStorage). Each chip shows
+Eastern date/time and optional `jobs.keep_name`. Keep and Name POST `{name}`
+(max 80 chars). Opening a chip uses `?job=<id>`. OneDrive root listing uses
+`/drive/root/children`, not `root::/children`.
+**Status:** DECIDED — implementing
+
 ## 2026-08-14 Schedule test mode (redirect + address list)
 **What you asked for:** A test mode with test emails so you can run the new
 Beta schedules and compare the workbooks to Live, without hitting customers.

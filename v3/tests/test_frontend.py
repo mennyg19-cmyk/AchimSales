@@ -45,6 +45,8 @@ def test_base_html_renders_shell(tmp_path):
         )
     assert 'class="header-logo"' in html
     assert 'class="bottom-nav"' in html
+    assert 'id="prevRunsBtn"' in html
+    assert 'id="reportJobsBar"' in html
     # Bundled assets, not inline scripts / per-page CSS.
     assert "css/main.css" in html and "js/main.js" in html
     # Logout is a CSRF-protected POST form, not a GET link.

@@ -11,6 +11,7 @@ from web.data.repositories.outbox import OutboxRepository
 from web.delivery.email import EmailService, split_recipients
 from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.service import DeliveryService
+from web.delivery.onedrive import onedrive_children_url
 from web.delivery.sharepoint import SharePointService
 
 
@@ -226,6 +227,17 @@ def test_sharepoint_prod_without_creds_raises(tmp_path):
     assert sp.is_configured() is False
     with pytest.raises(RuntimeError):
         sp.upload_file("Ordered", "r.xlsx", b"x")
+
+
+def test_onedrive_children_url_root_is_not_double_colon():
+    url = onedrive_children_url("mennyg@achimonline.com", "")
+    assert url.endswith("/drive/root/children")
+    assert "root::" not in url
+
+
+def test_onedrive_children_url_nested_uses_colon_path():
+    url = onedrive_children_url("mennyg@achimonline.com", "Reports/2026")
+    assert "/drive/root:/Reports/2026:/children" in url
 
 
 # --- orchestration ---------------------------------------------------------

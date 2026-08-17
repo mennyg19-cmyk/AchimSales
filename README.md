@@ -71,6 +71,9 @@ python run.py ordered
 Enable Beta with `BETA_MOUNT_ENABLED=1`. Grant users **Beta Access** in Live Settings.
 Developers flip SQL/OData per report under Developer Tools → Beta report data sources.
 
+On Beta, **Previously run** (header) opens recent and kept runs. **Keep this run**
+asks for an optional name; the bottom-right pill can be minimized.
+
 ### Live vs /test parity
 
 Compares Excel from live (`/`, OData) and `/test` (Reporting API) with the same
@@ -108,7 +111,7 @@ See `.env.example` for all required variables. Key groups:
 - **Graph/SharePoint**: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `SP_SITE_URL`
 - **Graph app permissions (Application, not Delegated)** — Entra → the app in `GRAPH_CLIENT_ID` → API permissions → **Grant admin consent**:
   - `Mail.Send` — send schedule mail as `EMAIL_FROM_ADDRESS`
-  - `Files.ReadWrite.All` — list/write a user's OneDrive (`/users/{email}/drive`)
+  - `Files.ReadWrite.All` — list/write a user's OneDrive (`/users/{email}/drive`). Root listing is `…/drive/root/children` (not `root::/children`).
   - `Sites.ReadWrite.All` — list/write the SharePoint site in `SP_SITE_URL` (or `Sites.Selected` plus a site grant)
   A 401 from the folder picker is usually a rejected token (secret expired, or consent never granted). A 403 is a valid token that still cannot read that drive.
 - **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)

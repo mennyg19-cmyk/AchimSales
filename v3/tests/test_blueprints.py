@@ -365,6 +365,35 @@ def test_active_report_runs_lists_owners_recent_run(tmp_path):
     assert mine[0]["report_key"] == "ordered"
     assert mine[0]["status"] == "success"  # worker drains inline in tests
     assert mine[0]["title"]
+    assert mine[0]["created_at"]
+    assert "keep_name" in mine[0]
+
+
+def test_keep_report_run_stores_name(tmp_path):
+    rows = {
+        "ordered_report": [
+            {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+             "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
+        ]
+    }
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    resp = client.post(
+        f"/api/reports/runs/{job_id}/keep",
+        json={"name": "Monday morning"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["keep_name"] == "Monday morning" and body["kept"] is True
+    mine = [j for j in client.get("/api/reports/active").get_json()["jobs"]
+            if j["job_id"] == job_id][0]
+    assert mine["keep_name"] == "Monday morning" and mine["kept"] is True
+    assert mine["finished_at"]
 
 
 def test_active_report_runs_is_owner_scoped(tmp_path):

@@ -23,6 +23,25 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Previously run list + Keep name + OneDrive root URL
+
+**What to test:**
+- `onedrive_children_url` at root is `…/drive/root/children`, never `root::/children`. Nested folders keep `root:/{path}:/children`.
+- `keep_run` stores `keep_name` and clears name when a Keep overflows the cap of 5 (test uses cap 2).
+- `POST /api/reports/runs/<id>/keep` with `{name}` returns that name; `/api/reports/active` includes `keep_name`, `created_at`, `finished_at`.
+- Logged-in `base.html` has Previously run (`#prevRunsBtn`) and the jobs bar.
+
+**Expected behavior:**
+- Header Previously run opens the floating list. Keep this run prompts for a name. Chips show Eastern date/time.
+- OneDrive Browse at the drive root no longer 400s from a bad Graph path.
+
+**Edge cases:**
+- Empty keep name is allowed; UI falls back to the report title. Name is trimmed to 80 chars.
+
+**Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_jobs.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
+---
+
 ## Invoiced one-day SQL window (Daily / yesterday)
 
 **What to test:**
