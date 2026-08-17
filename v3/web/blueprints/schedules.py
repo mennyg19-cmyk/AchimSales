@@ -367,7 +367,7 @@ def run_schedule(schedule_id: int):
         abort(404, description="Unknown schedule")
     job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
                                   schedule_id=schedule_id, schedule_type=PERSONAL,
-                                  owner_user_id=uid)
+                                  owner_user_id=uid, ignore_sabbath=True)
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202
 
@@ -795,6 +795,7 @@ def run_master(schedule_id: int):
         abort(404, description="Unknown master schedule")
     _require_master_visible(p, sched)
     job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
-                                  schedule_id=schedule_id, schedule_type=MASTER)
+                                  schedule_id=schedule_id, schedule_type=MASTER,
+                                  ignore_sabbath=True)
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202

@@ -23,6 +23,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Shabbos / Yom Tov schedule skip (Beta clock)
+
+**What to test:**
+- Hebcal candle→havdalah window is restricted (Shabbos, or named Yom Tov). Weekday-name candle memo is still Shabbos.
+- Check fails open on a malformed Hebcal payload.
+- Clock tick during a restricted window records `skipped` and sets `catch_up_pending`; no delivery job.
+- After the window, the tick enqueues the owed catch-up once.
+- Manual Run now sets `ignore_sabbath` so it still sends.
+
+**Expected behavior:**
+- Company and personal clock runs skip Shabbos/Yom Tov (Brooklyn, 18-min candles) and catch up after havdalah, like the live runbook.
+- Run now is a deliberate send and does not skip.
+
+**Test files:** `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`
+
 ## Schedule workbook filenames
 
 **What to test:**

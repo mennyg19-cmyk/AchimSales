@@ -56,6 +56,7 @@ class Schedule:
     end_date: str | None
     created_at: str
     filename_template: str = ""
+    catch_up_pending: bool = False
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Schedule":
@@ -67,6 +68,7 @@ class Schedule:
             sharepoint_path=r["sharepoint_path"], is_active=bool(r["is_active"]),
             start_date=r["start_date"], end_date=r["end_date"], created_at=r["created_at"],
             filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
+            catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
         )
 
 
@@ -86,6 +88,7 @@ class MasterSchedule:
     owner_user_id: int | None = None
     is_shared: bool = True
     run_as_user_id: int | None = None
+    catch_up_pending: bool = False
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "MasterSchedule":
@@ -103,6 +106,7 @@ class MasterSchedule:
             owner_user_id=int(owner) if owner is not None else None,
             is_shared=bool(shared),
             run_as_user_id=int(run_as) if run_as is not None else None,
+            catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
         )
 
 
@@ -217,6 +221,13 @@ class ScheduleRepository:
             rows = conn.execute("SELECT * FROM schedules WHERE is_active=1").fetchall()
             return [Schedule.from_row(r) for r in rows]
 
+    def set_catch_up(self, schedule_id: int, pending: bool) -> None:
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE schedules SET catch_up_pending=? WHERE id=?",
+                (1 if pending else 0, schedule_id),
+            )
+
 
 class MasterScheduleRepository:
     def __init__(self, db: Database):
@@ -277,6 +288,13 @@ class MasterScheduleRepository:
                 (1 if active else 0, schedule_id),
             )
             return cur.rowcount == 1
+
+    def set_catch_up(self, schedule_id: int, pending: bool) -> None:
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE master_schedules SET catch_up_pending=? WHERE id=?",
+                (1 if pending else 0, schedule_id),
+            )
 
     def delete(self, schedule_id: int) -> bool:
         with self.db.precious() as conn:

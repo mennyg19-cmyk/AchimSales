@@ -27,6 +27,7 @@ from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
+from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 
 log = logging.getLogger(__name__)
 
@@ -44,13 +45,23 @@ class ScheduleRunner:
         self.delivery = delivery
         self.settings = settings or AppSettingsRepository(user_repo.db)
 
-    def run(self, schedule_id: int, schedule_type: str = PERSONAL) -> int:
+    def run(self, schedule_id: int, schedule_type: str = PERSONAL,
+            *, ignore_sabbath: bool = False) -> int:
         sched = self._load(schedule_id, schedule_type)
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
 
         run_id = self.run_repo.start(schedule_id, schedule_type)
         try:
+            if not ignore_sabbath and skip_sabbath_enabled(getattr(sched, "params", None)):
+                assur, reason = melacha_assur()
+                if assur:
+                    self.run_repo.finish(
+                        run_id, status="skipped",
+                        debug_log=f"Skipped ({reason or 'Shabbos'}); will run after Shabbos",
+                    )
+                    self._set_catch_up(schedule_id, schedule_type, True)
+                    return run_id
             identity, scope = self._scope(sched, schedule_type)
             spec = registry.get(sched.report_key)
             # Re-authorize the owner live (personal schedules only; masters are
@@ -104,6 +115,8 @@ class ScheduleRunner:
                 run_id, status="success" if outcome.result.ok else "failure",
                 rows=outcome.row_count, output_meta=meta, debug_log=summary,
             )
+            if outcome.result.ok:
+                self._set_catch_up(schedule_id, schedule_type, False)
             if not outcome.result.ok:
                 raise RuntimeError(outcome.result.error or "delivery failed")
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
@@ -121,6 +134,12 @@ class ScheduleRunner:
         if schedule_type == MASTER:
             return self.master_repo.get(schedule_id)
         return self.schedule_repo.get_any(schedule_id)
+
+    def _set_catch_up(self, schedule_id: int, schedule_type: str, pending: bool) -> None:
+        if schedule_type == MASTER:
+            self.master_repo.set_catch_up(schedule_id, pending)
+        else:
+            self.schedule_repo.set_catch_up(schedule_id, pending)
 
     def _scope(self, sched, schedule_type: str):
         """Return (identity, visible_salesman_keys) for the delivery build."""
@@ -270,7 +289,7 @@ class ScheduleRunner:
 _DELIVERY_PARAM_KEYS = {
     "split_by_salesman", "email_to_salesmen", "email_salesman_keys",
     "email_cc", "email_bcc", "email_on_no_data", "email_on_no_data_me_only",
-    "folder_kind",
+    "folder_kind", "skip_sabbath",
 }
 
 

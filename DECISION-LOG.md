@@ -1,5 +1,15 @@
 # Decision Log
 
+## 2026-08-17 Shabbos skip + catch-up on Beta clock
+**What you asked for:** The Shabbos schedule override from the original runbook,
+built into Beta.
+**What I chose:** It was not on Beta. Clock runs now check Hebcal for Brooklyn
+(same as the runbook): skip while melacha is assur, flag a catch-up, send after
+havdalah. Run now still sends (deliberate). Hebcal errors fail open. Live Azure
+skip-vs-reschedule by period is folded into this one catch-up so monthly
+last_month is not lost until next month.
+**Status:** DECIDED
+
 ## 2026-08-17 Test mode still splits salesman workbooks
 **What you asked for:** Run company schedules just to me for a day or two, but
 still split by salesman so I can check the splits.

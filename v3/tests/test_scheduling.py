@@ -425,3 +425,52 @@ def test_tick_skips_outside_window_and_inactive(tmp_path):
     repo.set_active(sid, uid, False)
     now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
     assert enqueue_due(db, JobRepository(db), now) == 0
+
+
+def test_tick_skips_shabbos_and_catches_up_after(tmp_path, monkeypatch):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling import tick as tick_mod
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "DailyInvoicedReport", params={"period": "yesterday"}, layout={},
+        cadence={"freq": "daily", "time": "05:00"}, recipients="team@x.com")
+    job_repo = JobRepository(db)
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(tick_mod, "melacha_assur", lambda _now=None: (True, "Shabbos"))
+    assert enqueue_due(db, job_repo, now) == 0
+    assert job_repo.claim_next() is None
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "skipped"
+    assert "Shabbos" in (hist[0].debug_log or "")
+    assert MasterScheduleRepository(db).get(mid).catch_up_pending is True
+
+    monkeypatch.setattr(tick_mod, "melacha_assur", lambda _now=None: (False, ""))
+    assert enqueue_due(db, job_repo, now) == 1
+    job = job_repo.claim_next()
+    assert job is not None and job.params["schedule_id"] == mid
+    assert MasterScheduleRepository(db).get(mid).catch_up_pending is False
+
+
+def test_tick_run_now_style_enqueue_still_works_when_restricted(tmp_path, monkeypatch):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling import tick as tick_mod
+    from web.scheduling.jobs import enqueue_schedule_run
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    monkeypatch.setattr(tick_mod, "melacha_assur", lambda _now=None: (True, "Shabbos"))
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "05:00"}, recipients="team@x.com")
+    job_repo = JobRepository(db)
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, job_repo, now) == 0
+    enqueue_schedule_run(job_repo, schedule_id=mid, schedule_type=MASTER,
+                         ignore_sabbath=True)
+    job = job_repo.claim_next()
+    assert job is not None and job.params["ignore_sabbath"] is True
+
