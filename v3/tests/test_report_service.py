@@ -102,6 +102,30 @@ def test_invoiced_period_inside_ytd_uses_one_fetch_and_slices():
     assert out["row_count"] == 1
 
 
+def test_invoiced_one_day_period_keeps_that_days_invoices():
+    """Daily/yesterday: YTD fetch must close at 23:59:59 so that calendar day
+    is in the SQL window, then period tabs keep only that day."""
+    rows = [
+        {"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-08-15",
+         "Amount": "100", "SalesGroup": "REdwards"},
+        {"Invoice": "I2", "InvoiceAccount": "100", "InvoiceDate": "2026-08-16",
+         "Amount": "200", "SalesGroup": "REdwards"},
+    ]
+    svc = _svc({"invoiced_report": rows})
+    out = svc.builder_for("invoiced")({
+        "period": "custom", "start_date": "2026-08-16", "end_date": "2026-08-16",
+    }, None)
+    ytd_params = svc.client.params_calls[0][1]
+    assert ytd_params["InvoiceDateFrom"] == "2026-01-01 00:00:00"
+    assert ytd_params["InvoiceDateTo"] == "2026-08-16 23:59:59"
+    inv_dates = {
+        r["InvoiceDate"]
+        for t in out["tabs"] if t["key"] == "invoices" for r in t["rows"]
+    }
+    assert inv_dates == {"2026-08-16"}
+    assert out["row_count"] == 1
+
+
 def test_invoiced_ytd_window_anchors_to_selected_period_end():
     """v2 parity: the commissions YTD window is Jan 1 .. selected period end,
     derived from the period filter (not a separate year filter)."""

@@ -19,6 +19,7 @@ def test_daily_is_yesterday():
     p = parse_period("daily", today=_TODAY)
     assert p.start_date == date(2026, 4, 14)
     assert p.end_date == date(2026, 4, 14)
+    assert parse_period("yesterday", today=_TODAY) == p
 
 
 def test_mtd_starts_first_of_month():

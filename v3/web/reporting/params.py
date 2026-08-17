@@ -130,12 +130,7 @@ def translate_invoiced(p: dict) -> dict[str, Any]:
     single-customer selection is pushed down; multi-select is post-filtered
     by the caller.
     """
-    start, end = _resolve_window(p)
-    out: dict[str, Any] = {}
-    if start:
-        out["InvoiceDateFrom"] = start.isoformat()
-    if end:
-        out["InvoiceDateTo"] = end.isoformat()
+    out = _date_range(p, "InvoiceDateFrom", "InvoiceDateTo")
     customers = p.get("customers")
     if isinstance(customers, (list, tuple, set)):
         cust = [str(c).strip() for c in customers if str(c).strip()]

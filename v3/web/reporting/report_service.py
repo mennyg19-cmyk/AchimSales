@@ -263,8 +263,8 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     base_sp = P.translate("invoiced", params)
     if period_inside_ytd:
         ytd_sp = dict(base_sp)
-        ytd_sp["InvoiceDateFrom"] = ytd_start.isoformat()
-        ytd_sp["InvoiceDateTo"] = ytd_end.isoformat()
+        ytd_sp["InvoiceDateFrom"] = sp_datetime(ytd_start, end_of_day=False)
+        ytd_sp["InvoiceDateTo"] = sp_datetime(ytd_end, end_of_day=True)
         ytd_facts = _fetch(ytd_sp)
         if period_start == ytd_start and period_end == ytd_end:
             facts = ytd_facts
@@ -276,8 +276,8 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     else:
         facts = _fetch(base_sp)
         ytd_sp = dict(base_sp)
-        ytd_sp["InvoiceDateFrom"] = ytd_start.isoformat()
-        ytd_sp["InvoiceDateTo"] = ytd_end.isoformat()
+        ytd_sp["InvoiceDateFrom"] = sp_datetime(ytd_start, end_of_day=False)
+        ytd_sp["InvoiceDateTo"] = sp_datetime(ytd_end, end_of_day=True)
         ytd_facts = _fetch(ytd_sp)
 
     tabs = rpt_invoiced.build(

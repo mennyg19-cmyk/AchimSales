@@ -23,6 +23,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Invoiced one-day SQL window (Daily / yesterday)
+
+**What to test:**
+- `translate_invoiced` sends `InvoiceDateFrom` at 00:00:00 and `InvoiceDateTo` at 23:59:59.
+- `daily` and `yesterday` produce the same window.
+- A one-day custom range keeps that day's invoices after the YTD fetch + slice.
+
+**Expected behavior:**
+- Scheduled Daily Invoiced is not an empty workbook when that day has invoices.
+
+**Edge cases:**
+- Same calendar day From/To must not collapse to midnight–midnight.
+
+**Test files:** `v3/tests/test_params.py`, `v3/tests/test_report_service.py`, `v3/tests/test_dates.py`
+
+---
+
 ## Schedule test mode
 
 **What to test:**

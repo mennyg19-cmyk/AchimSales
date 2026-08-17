@@ -74,6 +74,25 @@ def test_custom_with_invalid_dates_omits_rather_than_raises():
     assert "CreatedDateTimeTo" not in out
 
 
+def test_invoiced_same_day_window_uses_end_of_day():
+    """A one-day period (Daily / yesterday) must not send From=To at midnight.
+
+    SQL datetime params with no time collapse to an empty window, so the
+    scheduled Daily Invoiced workbook arrives with sheets and no rows.
+    """
+    out = P.translate("invoiced", {
+        "period": "custom", "start_date": "2026-08-16", "end_date": "2026-08-16",
+    })
+    assert out["InvoiceDateFrom"] == "2026-08-16 00:00:00"
+    assert out["InvoiceDateTo"] == "2026-08-16 23:59:59"
+    daily = P.translate("invoiced", {"period": "daily"})
+    yesterday = P.translate("invoiced", {"period": "yesterday"})
+    assert daily == yesterday
+    assert daily["InvoiceDateFrom"].endswith("00:00:00")
+    assert daily["InvoiceDateTo"].endswith("23:59:59")
+    assert daily["InvoiceDateFrom"][:10] == daily["InvoiceDateTo"][:10]
+
+
 def test_invoiced_single_customer_pushes_invoiceaccount():
     out = P.translate("invoiced", {"period": "mtd", "customers": ["100001"]})
     assert out["CustomerAccount"] == "100001"
