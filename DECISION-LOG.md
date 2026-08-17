@@ -8,7 +8,7 @@ built into Beta.
 havdalah. Run now still sends (deliberate). Hebcal errors fail open. Live Azure
 skip-vs-reschedule by period is folded into this one catch-up so monthly
 last_month is not lost until next month.
-**Status:** DECIDED
+**Status:** DECIDED — deployed `785684c` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-17 Test mode still splits salesman workbooks
 **What you asked for:** Run company schedules just to me for a day or two, but
