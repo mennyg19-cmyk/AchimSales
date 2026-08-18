@@ -118,6 +118,12 @@ def test_build_tab_order_and_presence():
     assert keys[:5] == ["summary_by_customer", "commissions", "full_data", "credits", "invoices"]
 
 
+def test_build_skip_commissions_omits_that_tab():
+    keys = [t["key"] for t in B.build(_basic_facts(), salesmen=_salesmen(), skip_commissions=True)]
+    assert "commissions" not in keys
+    assert keys[:4] == ["summary_by_customer", "full_data", "credits", "invoices"]
+
+
 def test_credits_and_invoices_split():
     tabs = _tabs_by_key(B.build(_basic_facts(), salesmen=_salesmen()))
     assert {r["InvoiceNumber"] for r in tabs["credits"]["rows"]} == {"CRD1"}

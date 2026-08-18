@@ -180,14 +180,18 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **What to test:**
 - A one-day salesman-scoped invoiced report requests only its selected date range.
+- Beta: salesman filter, `_skip_commissions`, or a layout `order` without `commissions` skips the YTD pull and omits the Commissions tab.
+- Unscoped Invoiced still YTD-fetches for commissions.
 
 **Expected behavior:**
-- Salesman-scoped reports do not fetch year-to-date data because their output omits the commissions tab.
+- Salesman-scoped / shipped reports do not fetch year-to-date data because their output omits the commissions tab.
+- Daily 9am Salesmen Shipped (layout without commissions) fetches only the selected period.
 
 **Edge cases:**
 - An unscoped report keeps the existing year-to-date query for its commissions tab.
+- Empty/missing layout `order` still fetches YTD (old schedules).
 
-**Test file:** `tests/test_invoiced_loader.py`
+**Test files:** `tests/test_invoiced_loader.py`, `v3/tests/test_report_service.py`, `v3/tests/test_report_invoiced.py`, `v3/tests/test_delivery.py`
 
 ---
 

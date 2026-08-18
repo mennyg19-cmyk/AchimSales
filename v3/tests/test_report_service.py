@@ -8,7 +8,7 @@ from report_engine.facts import SalesmanFact
 from report_engine.lib import salesman_key
 from report_engine.sources import ordered as src_ordered
 from web.reporting.http_client import ReportResult, ReportingApiError
-from web.reporting.report_service import ReportService
+from web.reporting.report_service import ReportService, invoiced_skip_commissions
 
 
 class _FakeClient:
@@ -100,6 +100,51 @@ def test_invoiced_period_inside_ytd_uses_one_fetch_and_slices():
     }
     assert inv_dates == {"2026-07-15"}
     assert out["row_count"] == 1
+
+
+def test_invoiced_skip_commissions_helper():
+    assert invoiced_skip_commissions({}) is False
+    assert invoiced_skip_commissions({"salesman": ["MKolko"]}) is True
+    assert invoiced_skip_commissions({"salesman": ["all"]}) is True
+    assert invoiced_skip_commissions({}, {"order": ["summary_by_customer", "invoices"]}) is True
+    assert invoiced_skip_commissions({}, {"order": ["summary_by_customer", "commissions"]}) is False
+    assert invoiced_skip_commissions({}, {"order": []}) is False
+    assert invoiced_skip_commissions({"_skip_commissions": True}) is True
+
+
+def test_invoiced_salesman_filter_fetches_only_selected_period():
+    """Shipped (--salesman): period window only, no Commissions tab."""
+    rows = [
+        {"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-08-16",
+         "Amount": "100", "SalesGroup": "REdwards"},
+        {"Invoice": "I2", "InvoiceAccount": "100", "InvoiceDate": "2026-01-15",
+         "Amount": "200", "SalesGroup": "REdwards"},
+    ]
+    svc = _svc({"invoiced_report": rows})
+    out = svc.builder_for("invoiced")({
+        "period": "custom", "start_date": "2026-08-16", "end_date": "2026-08-16",
+        "salesman": ["REdwards"],
+    }, None)
+    assert len(svc.client.params_calls) == 1
+    sp = svc.client.params_calls[0][1]
+    assert sp["InvoiceDateFrom"] == "2026-08-16 00:00:00"
+    assert sp["InvoiceDateTo"] == "2026-08-16 23:59:59"
+    assert "commissions" not in {t["key"] for t in out["tabs"]}
+
+
+def test_invoiced_skip_flag_fetches_only_selected_period():
+    """Delivery stamps _skip_commissions when layout dropped Commissions."""
+    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-08-16",
+             "Amount": "100", "SalesGroup": "REdwards"}]
+    svc = _svc({"invoiced_report": rows})
+    out = svc.builder_for("invoiced")({
+        "period": "custom", "start_date": "2026-08-16", "end_date": "2026-08-16",
+        "_skip_commissions": True,
+    }, None)
+    assert len(svc.client.params_calls) == 1
+    sp = svc.client.params_calls[0][1]
+    assert sp["InvoiceDateFrom"] == "2026-08-16 00:00:00"
+    assert "commissions" not in {t["key"] for t in out["tabs"]}
 
 
 def test_invoiced_one_day_period_keeps_that_days_invoices():

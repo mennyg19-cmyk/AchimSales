@@ -10,7 +10,9 @@
 
 Multi-source reports own their extra fetches here (not in the builder):
     * invoiced     -> YTD rows feed the monthly commissions pivot (one pull when
-      the selected period already sits inside that YTD window),
+      the selected period already sits inside that YTD window). Skipped when
+      the output will not include Commissions (salesman-scoped / shipped, or a
+      saved layout that dropped that tab),
     * salesman     -> monthly_salesman_yoy (wide YoY pivot; no invoice facts),
     * number_4     -> one or two rolling-12 SPs, picked by the mode filter,
     * customer_activity -> dedicated customer_activity SP (All + salesman tabs).
@@ -229,9 +231,38 @@ def _invoice_day(fact) -> date | None:
         return None
 
 
+def _salesman_filter(params: dict | None) -> list[str]:
+    raw = (params or {}).get("salesman")
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    return [s.strip() for s in str(raw).split(",") if s.strip()]
+
+
+def invoiced_skip_commissions(params: dict | None, layout: dict | None = None) -> bool:
+    """True when output omits Commissions — fetch the selected period only.
+
+    Matches live Shipped Reports (`--salesman` / `--salesman all`): no
+    commissions tab, so no January-through-period pull. A saved layout.order
+    that does not include `commissions` is the same (9am Salesmen Shipped, or
+    Remove tab then Schedule).
+    """
+    p = params or {}
+    if p.get("_skip_commissions"):
+        return True
+    if _salesman_filter(p):
+        return True
+    order = (layout or {}).get("order") if isinstance(layout, dict) else None
+    if isinstance(order, list) and order:
+        return "commissions" not in order
+    return False
+
+
 def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     """Invoiced tabs use the selected period; Commissions needs Jan 1..period end.
 
+    When Commissions will not be in the output, skip the YTD pull and the tab.
     When the selected period already sits inside that YTD window, one SP pull
     covers both (period tabs = date filter on the YTD rows). Otherwise we keep
     the two-pull path (e.g. all_time / custom that starts before Jan 1).
@@ -253,6 +284,14 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     def _fetch(sp_params):
         return _scope(svc._facts(report_id, sp_params, src_invoiced.to_facts, visible_keys))
 
+    base_sp = P.translate("invoiced", params)
+    if invoiced_skip_commissions(params):
+        facts = _fetch(base_sp)
+        tabs = rpt_invoiced.build(
+            facts, salesmen=svc._salesmen(), skip_commissions=True,
+        )
+        return svc._payload("invoiced", tabs, len(facts))
+
     period_inside_ytd = (
         period_start is not None
         and period_end is not None
@@ -260,7 +299,6 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
         and period_end <= ytd_end
     )
 
-    base_sp = P.translate("invoiced", params)
     if period_inside_ytd:
         ytd_sp = dict(base_sp)
         ytd_sp["InvoiceDateFrom"] = sp_datetime(ytd_start, end_of_day=False)

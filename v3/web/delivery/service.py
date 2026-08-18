@@ -15,6 +15,7 @@ from web.delivery.filename_template import resolve_filename_template
 from web.delivery.layout import apply_layout, expand_clones
 from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
+from web.reporting.report_service import invoiced_skip_commissions
 from web.reporting.runner import ReportRunner
 
 
@@ -45,10 +46,13 @@ class DeliveryService:
                         empty_recipients_override: str | None = None,
                         schedule_name: str = "") -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
+        run_params = dict(params or {})
+        if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
+            run_params["_skip_commissions"] = True
         outcome = self.runner.run(
             report_key=report_key, identity=identity,
             visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
-            params=params or {}, builder=builder, force_refresh=True,
+            params=run_params, builder=builder, force_refresh=True,
         )
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
         rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])

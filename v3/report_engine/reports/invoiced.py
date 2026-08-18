@@ -500,26 +500,33 @@ def build(facts: Iterable[InvoiceChargeFact], *,
           salesmen: Mapping[str, SalesmanFact],
           ytd_facts: Iterable[InvoiceChargeFact] | None = None,
           year: int | None = None,
-          end_month: int | None = None) -> list[dict]:
+          end_month: int | None = None,
+          skip_commissions: bool = False) -> list[dict]:
     """Build the invoiced multi-tab payload.
 
     All tabs except Commissions come from `facts` (selected period). The
     Commissions pivot uses `ytd_facts` (Jan 1..period end) when provided; else
-    it falls back to the flat per-customer commissions table.
+    it falls back to the flat per-customer commissions table. Shipped reports
+    pass ``skip_commissions=True`` and omit that tab entirely.
     """
     raw = [_enriched(f, salesmen) for f in facts]
     netted = _net_by_invoice(raw) if _has_duplicate_invoices(raw) else list(raw)
     summary = _summary_by_customer(raw)
 
-    if ytd_facts is not None and year is not None and end_month is not None:
-        ytd_rows = [_enriched(f, salesmen) for f in ytd_facts]
-        commissions = _commissions_monthly(ytd_rows, salesmen, year=year, end_month=end_month)
-    else:
-        commissions = _commissions_simple(summary["rows"], salesmen, _row_rates_by_salesman(raw))
+    commissions = None
+    if not skip_commissions:
+        if ytd_facts is not None and year is not None and end_month is not None:
+            ytd_rows = [_enriched(f, salesmen) for f in ytd_facts]
+            commissions = _commissions_monthly(ytd_rows, salesmen, year=year, end_month=end_month)
+        else:
+            commissions = _commissions_simple(summary["rows"], salesmen, _row_rates_by_salesman(raw))
 
     summary["rows"] = [_public(r) for r in summary["rows"]]
 
-    tabs = [summary, commissions, _full_details(netted), _credits(raw), _invoices(raw)]
+    tabs = [summary]
+    if commissions is not None:
+        tabs.append(commissions)
+    tabs.extend([_full_details(netted), _credits(raw), _invoices(raw)])
     if (audit := _audit_reversals(raw)) is not None:
         tabs.append(audit)
     if (totals := _totals_by_salesman(raw)) is not None:

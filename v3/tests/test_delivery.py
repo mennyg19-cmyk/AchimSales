@@ -278,3 +278,35 @@ def test_delivery_service_builds_applies_layout_and_delivers(tmp_path):
     )
     assert outcome.result.ok and outcome.row_count == 2
     assert OutboxRepository(db).get(outcome.result.outbox_id) is not None
+
+
+def test_delivery_stamps_skip_commissions_when_layout_drops_that_tab(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    seen = {}
+    payload = {"tabs": [
+        {"key": "summary_by_customer", "name": "Summary", "columns": [{"field": "a"}], "rows": [{"a": 1}]},
+        {"key": "commissions", "name": "Commissions", "columns": [{"field": "a"}], "rows": [{"a": 2}]},
+        {"key": "invoices", "name": "Invoices", "columns": [{"field": "a"}], "rows": [{"a": 3}]},
+    ]}
+
+    def builder(params, vk):
+        seen["params"] = params
+        return payload
+
+    runner = ReportRunner(ReportCache(db))
+    svc = DeliveryService(runner, lambda key: builder, email)
+    layout = {"order": ["summary_by_customer", "invoices"]}
+    outcome = svc.run_and_deliver(
+        report_key="invoiced", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={"period": "yesterday"}, layout=layout,
+        recipients="a@x.com", subject="S", report_name="Invoiced", sharepoint_path="",
+    )
+    assert seen["params"].get("_skip_commissions") is True
+    assert outcome.result.ok
