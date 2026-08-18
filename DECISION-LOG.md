@@ -3,7 +3,7 @@
 ## 2026-08-18 Invoiced shipped reports skip YTD (match live)
 **What you asked for:** Original Python rules on Beta. `--salesman all` / salesman-scoped Shipped omits Commissions, so do not pull YTD — check what tabs are needed, then fetch only that.
 **What I chose:** Skip the Commissions tab and the Jan 1 fetch when `params.salesman` is set, when `_skip_commissions` is set, or when a saved `layout.order` exists and does not include `commissions`. Delivery stamps `_skip_commissions` from that layout before the run (9am Salesmen Shipped). Unscoped Invoiced still YTD-fetches. Live OData runners were already correct; this is the SQL Beta path.
-**Status:** DECIDED — implementing
+**Status:** DECIDED — deployed `2edb1cd` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-17 Shabbos skip + catch-up on Beta clock
 **What you asked for:** The Shabbos schedule override from the original runbook,
