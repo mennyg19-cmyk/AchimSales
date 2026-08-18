@@ -598,6 +598,15 @@ def _seed_salesmen_if_empty(app: Flask, db) -> None:
         app.logger.exception("salesmen seed failed")
 
 
+# Invoiced always includes a Commissions sheet. Salesmen Shipped files should not.
+_INVOICED_WITHOUT_COMMISSIONS = {
+    "order": [
+        "summary_by_customer", "full_data", "credits", "invoices",
+        "audit_reversals", "totals_by_salesman",
+    ],
+}
+
+
 _AZURE_SCHEDULES: list[dict] = [
     {
         "name": "Daily Invoiced Report",
@@ -640,6 +649,7 @@ _AZURE_SCHEDULES: list[dict] = [
         "params": {"period": "yesterday"},
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Direct Reports/Salesman Report/Daily",
+        "layout": _INVOICED_WITHOUT_COMMISSIONS,
     },
     {
         "name": "Monthly Invoiced Report",
@@ -725,6 +735,7 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
         "params": {"period": "yesterday"},
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Direct Reports/Salesman Report/Daily",
+        "layout": _INVOICED_WITHOUT_COMMISSIONS,
     },
     {
         "name": "Daily Open Orders Report",
@@ -789,7 +800,7 @@ def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
             try:
                 repo.create(
                     s["report_key"], s["name"],
-                    params=s.get("params", {}), layout={},
+                    params=s.get("params", {}), layout=s.get("layout") or {},
                     cadence=C.normalize(s.get("cadence") or {"freq": "daily", "time": "08:00"}),
                     sharepoint_path=s.get("sharepoint_path", ""),
                     is_shared=True,
@@ -799,6 +810,10 @@ def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
                 continue
             existing.add(s["name"])
             added += 1
+        for s in (rows if rows is not None else _AZURE_SCHEDULES):
+            layout = s.get("layout") or {}
+            if layout.get("order"):
+                repo.fill_layout_if_blank(s["name"], layout)
         if added:
             state = "disabled" if inactive else "active"
             app.logger.info("seeded %d master schedules (%s) from Azure config", added, state)

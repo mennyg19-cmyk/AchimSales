@@ -62,6 +62,21 @@ def test_expand_clones_noop_without_clones_or_order():
     assert expand_clones(_payload(), {"views": {}}) == _payload()
 
 
+def test_expand_clones_drops_tabs_not_in_order():
+    payload = {"tabs": [
+        {"key": "summary", "name": "Summary", "rows": [{"a": 1}]},
+        {"key": "commissions", "name": "Commissions", "rows": [{"a": 2}]},
+        {"key": "invoices", "name": "Invoices", "rows": [{"a": 3}]},
+    ]}
+    out = expand_clones(payload, {"order": ["summary", "invoices"], "views": {}})
+    assert [t["key"] for t in out["tabs"]] == ["summary", "invoices"]
+
+
+def test_expand_clones_empty_order_keeps_every_tab():
+    payload = _payload()
+    assert expand_clones(payload, {"order": []}) == payload
+
+
 def test_apply_layout_hides_reorders_sorts_and_filters():
     layout = {"views": {"summary": {
         "hidden": ["a"], "order": ["c", "b"],

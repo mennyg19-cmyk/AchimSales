@@ -281,6 +281,23 @@ class MasterScheduleRepository:
             )
             return cur.rowcount == 1
 
+    def fill_layout_if_blank(self, name: str, layout: dict) -> bool:
+        """Stamp a tab layout onto an existing schedule that has none yet."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT id, layout_json FROM master_schedules WHERE name=?", (name,),
+            ).fetchone()
+            if row is None:
+                return False
+            current = _loads(row["layout_json"])
+            if isinstance(current, dict) and current.get("order"):
+                return False
+            conn.execute(
+                "UPDATE master_schedules SET layout_json=? WHERE id=?",
+                (json.dumps(layout or {}), row["id"]),
+            )
+            return True
+
     def set_active(self, schedule_id: int, active: bool) -> bool:
         with self.db.precious() as conn:
             cur = conn.execute(

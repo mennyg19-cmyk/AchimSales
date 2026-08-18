@@ -1077,6 +1077,29 @@ def test_manager_company_schedule_edit_and_share(tmp_path):
     assert "Speak to an admin." in other_html
 
 
+def test_master_schedule_put_keeps_layout_when_wizard_sends_empty(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Shipped", "report_key": "invoiced", "recipients": "t@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"}, "is_shared": True,
+        "layout": {"order": ["invoices", "credits"]},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    assert admin.put(f"/api/master-schedules/{mid}", json={
+        "name": "Shipped", "report_key": "invoiced", "recipients": "t@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"}, "is_shared": True,
+        "layout": {},
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 200
+    from web.data.repositories.schedules import MasterScheduleRepository
+    with app.app_context():
+        row = MasterScheduleRepository(app.config["DB"]).get(mid)
+    assert row is not None
+    assert row.layout.get("order") == ["invoices", "credits"]
+
+
 def test_master_schedule_normalizes_csv_multi_params(tmp_path):
     app = _make_app(tmp_path)
     admin = app.test_client()

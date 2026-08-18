@@ -211,7 +211,8 @@ const state: {
   views: Record<string, ViewState>;
   table: any;
   jobId: string | null;
-} = { tabs: {}, order: [], active: null, views: {}, table: null, jobId: null };
+  removed: Set<string>;
+} = { tabs: {}, order: [], active: null, views: {}, table: null, jobId: null, removed: new Set<string>() };
 
 function freshView(): ViewState {
   return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [], widths: {} };
@@ -862,8 +863,8 @@ function openTabMenuAt(key: string, x: number, y: number): void {
     menu.appendChild(b);
   };
   mk("Duplicate tab", () => duplicateTab(key));
-  if ((tab as any)._isDuplicate) {
-    mk("Delete tab", () => deleteTab(key), true);
+  if (state.order.length > 1) {
+    mk((tab as any)._isDuplicate ? "Delete tab" : "Remove tab", () => deleteTab(key), true);
   }
   document.body.appendChild(menu);
   tabMenuEl = menu;
@@ -890,7 +891,10 @@ function duplicateTab(key: string): void {
 }
 
 function deleteTab(key: string): void {
-  if (!(state.tabs[key] as any)?._isDuplicate) return;
+  if (state.order.length <= 1) return;
+  const tab = state.tabs[key];
+  if (!tab) return;
+  if (!(tab as any)._isDuplicate) state.removed.add(key);
   const idx = state.order.indexOf(key);
   delete state.tabs[key];
   delete state.views[key];
@@ -1170,6 +1174,7 @@ function loadPayload(payload: Payload, render = true): void {
   state.tabs = {};
   state.order = [];
   state.views = {};
+  state.removed = new Set();
   (state.tabs as any).__generated_at__ = payload.generated_at;
   payload.tabs.forEach((tab) => {
     state.tabs[tab.key] = tab;
@@ -1205,6 +1210,7 @@ function loadPayloadPreserving(payload: Payload): void {
   const prevViews = state.views;
   const prevActive = state.active;
   const prevOrder = [...state.order];
+  const prevRemoved = new Set(state.removed);
   const duplicates = state.order
     .filter((k) => (state.tabs[k] as any)?._isDuplicate)
     .map((k) => ({
@@ -1215,6 +1221,7 @@ function loadPayloadPreserving(payload: Payload): void {
     }));
 
   loadPayload(payload, false); // resets to the fresh server tabs (no render yet)
+  state.removed = prevRemoved;
 
   // Re-create duplicates from their refreshed base tab, preserving their views.
   duplicates.forEach((d) => {
@@ -1234,9 +1241,12 @@ function loadPayloadPreserving(payload: Payload): void {
     if (state.tabs[k] && !(state.tabs[k] as any)._isDuplicate) state.views[k] = prevViews[k];
   });
 
-  // Restore order: previous keys that still exist, then any newly-added tabs.
+  // Restore order: previous keys that still exist, then any newly-added tabs
+  // the user did not explicitly remove (e.g. Audit that only appears some days).
   const restored = prevOrder.filter((k) => state.tabs[k]);
-  state.order.forEach((k) => { if (!restored.includes(k)) restored.push(k); });
+  state.order.forEach((k) => {
+    if (!restored.includes(k) && !state.removed.has(k)) restored.push(k);
+  });
   state.order = restored;
 
   state.active = prevActive && state.tabs[prevActive] ? prevActive : state.order[0] || null;
@@ -1901,11 +1911,24 @@ function serializeLayout(): SavedLayout {
 }
 
 function applyLayout(layout: SavedLayout | null): void {
-  if (!layout || !layout.views) return;
-  Object.keys(layout.views).forEach((k) => {
-    if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
-  });
+  if (!layout) return;
+  if (layout.views) {
+    Object.keys(layout.views).forEach((k) => {
+      if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
+    });
+  }
   if (layout.active && state.tabs[layout.active]) state.active = layout.active;
+  if (Array.isArray(layout.order) && layout.order.length) {
+    const wanted = layout.order.filter((k) => state.tabs[k]);
+    if (wanted.length) {
+      Object.keys(state.tabs).forEach((k) => {
+        if (!wanted.includes(k) && !(state.tabs[k] as any)._isDuplicate) {
+          state.removed.add(k);
+        }
+      });
+      state.order = wanted;
+    }
+  }
   renderTabs();
   if (state.active) { buildTable(state.tabs[state.active]); syncColumnsButton(state.tabs[state.active]); }
 }

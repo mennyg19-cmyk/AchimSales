@@ -38,6 +38,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test files:** `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`
 
+## Scheduled Excel matches on-screen tabs
+
+**What to test:**
+- A layout `order` list drops server tabs not on that list (Commissions off Salesmen Shipped).
+- Empty/missing `order` keeps every tab (old schedules unchanged).
+- Saving a company schedule from the wizard with `layout: {}` does not wipe a stored tab order.
+
+**Expected behavior:**
+- Right-click → Remove tab, then save/schedule, emails a workbook without that sheet.
+- Daily 9am Salesmen Shipped ships without Commissions.
+
+**Edge cases:**
+- Optional invoiced tabs (Audit, Totals by Salesman) listed in order but absent from a given run are skipped, not an error.
+
+**Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_blueprints.py`
+
 ## Schedule workbook filenames
 
 **What to test:**

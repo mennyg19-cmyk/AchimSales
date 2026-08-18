@@ -114,6 +114,18 @@ def _parse_cadence(body: dict) -> dict:
         abort(400, description=str(exc))
 
 
+def _layout_for_update(body: dict, existing: dict | None) -> dict:
+    """Keep the saved tab/column view when the editor doesn't send one.
+
+    The schedules wizard always posts `layout: {}`. Treating that as a wipe
+    would put Commissions (and every other dropped tab) back on the next send.
+    """
+    incoming = body.get("layout")
+    if isinstance(incoming, dict) and incoming:
+        return incoming
+    return existing or {}
+
+
 def _check_sharepoint(p, body: dict) -> str:
     """Master schedules only: company SharePoint path (requires SP access)."""
     path = (body.get("sharepoint_path") or "").strip()
@@ -327,9 +339,12 @@ def update_schedule(schedule_id: int):
     cadence = _parse_cadence(body)
     folder = _check_personal_folder(body)
     recipients = _clean_recipients(body, sharepoint_path=folder, folder_label="OneDrive folder")
+    existing = _repo().get(schedule_id, _uid(p.email))
+    if existing is None:
+        abort(404, description="Unknown schedule")
     ok = _repo().update(
         schedule_id, _uid(p.email), params=body.get("params") or {},
-        layout=body.get("layout") or {}, cadence=cadence,
+        layout=_layout_for_update(body, existing.layout), cadence=cadence,
         recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
         filename_template=(body.get("filename_template") or "").strip(),
@@ -746,7 +761,7 @@ def update_master(schedule_id: int):
         folder_label="folder",
     )
     kwargs = dict(
-        name=name, params=params, layout=body.get("layout") or {},
+        name=name, params=params, layout=_layout_for_update(body, existing.layout),
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
         filename_template=(body.get("filename_template") or "").strip(),
         is_shared=_parse_is_shared(body),
