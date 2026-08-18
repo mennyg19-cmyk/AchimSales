@@ -283,7 +283,11 @@ class ScheduleRunner:
         if selected and p.get("email_to_salesmen"):
             return selected
         email_keys = _as_str_list(p.get("email_salesman_keys"))
-        return email_keys
+        if email_keys:
+            return email_keys
+        if _as_bool(p.get("split_by_salesman")):
+            return SalesmanRepository(self.user_repo.db).keys_with_email()
+        return []
 
 
 _DELIVERY_PARAM_KEYS = {
@@ -311,6 +315,14 @@ def _onedrive_user(sched, schedule_type: str, identity: str) -> str:
 
 def _report_params(params: dict | None) -> dict:
     return {k: v for k, v in (params or {}).items() if k not in _DELIVERY_PARAM_KEYS}
+
+
+def _as_bool(raw) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return False
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _as_str_list(raw) -> list[str]:

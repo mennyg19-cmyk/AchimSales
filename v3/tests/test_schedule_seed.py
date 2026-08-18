@@ -44,6 +44,9 @@ def test_beta_runbook_seed_inserts_disabled_company_schedules(tmp_path: Path):
     shipped = next(r for r in rows if r.name == "Daily 9am Salesmen Shipped")
     assert "commissions" not in (shipped.layout.get("order") or [])
     assert "invoices" in (shipped.layout.get("order") or [])
+    assert shipped.params.get("split_by_salesman") is True
+    ordered_sm = next(r for r in rows if r.name == "Daily 9am Salesmen Ordered")
+    assert ordered_sm.params.get("split_by_salesman") is True
     _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     assert len(MasterScheduleRepository(db).list_all()) == len(rows)
 
@@ -74,3 +77,19 @@ def test_test_mount_seed_stays_on_old_azure_names(tmp_path: Path):
     assert "Daily Invoiced Report" in names
     assert "DailyInvoicedReport" not in names
     assert all(r.is_active for r in rows)
+
+
+def test_existing_salesmen_schedule_gets_split_all_on_reseed(tmp_path: Path):
+    app = create_app(replace(_cfg(tmp_path), is_beta=True))
+    db = app.config["DB"]
+    migrate(db)
+    repo = MasterScheduleRepository(db)
+    repo.create(
+        "ordered", "Daily 9am Salesmen Ordered",
+        params={"period": "yesterday"}, layout={},
+        cadence={"freq": "daily", "time": "09:00"}, is_shared=True, is_active=False,
+    )
+    _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
+    row = next(r for r in repo.list_all() if r.name == "Daily 9am Salesmen Ordered")
+    assert row.params.get("split_by_salesman") is True
+    assert row.params.get("period") == "yesterday"

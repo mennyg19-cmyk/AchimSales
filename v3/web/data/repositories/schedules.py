@@ -281,6 +281,30 @@ class MasterScheduleRepository:
             )
             return cur.rowcount == 1
 
+    def enable_split_all_if_plain(self, name: str) -> bool:
+        """Turn on split-all when this schedule has no salesman-delivery flags yet."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT id, params_json FROM master_schedules WHERE name=?", (name,),
+            ).fetchone()
+            if row is None:
+                return False
+            params = _loads(row["params_json"])
+            if not isinstance(params, dict):
+                params = {}
+            if (
+                "split_by_salesman" in params
+                or params.get("email_salesman_keys")
+                or params.get("email_to_salesmen")
+            ):
+                return False
+            params["split_by_salesman"] = True
+            conn.execute(
+                "UPDATE master_schedules SET params_json=? WHERE id=?",
+                (json.dumps(params), row["id"]),
+            )
+            return True
+
     def fill_layout_if_blank(self, name: str, layout: dict) -> bool:
         """Stamp a tab layout onto an existing schedule that has none yet."""
         with self.db.precious() as conn:

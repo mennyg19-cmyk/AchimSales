@@ -324,7 +324,7 @@ def _classify_lines(facts: Iterable[OrderLineFact]) -> list[dict]:
     return lines
 
 
-def build(facts: Iterable[OrderLineFact]) -> list[dict]:
+def build(facts: Iterable[OrderLineFact], *, skip_by_salesman: bool = False) -> list[dict]:
     lines = _classify_lines(facts)
 
     by_customer = _aggregate(
@@ -352,23 +352,25 @@ def build(facts: Iterable[OrderLineFact]) -> list[dict]:
         sort=lambda r: (r["OrderDate"] or ""),
     )
     by_order.sort(key=lambda r: (r["OrderDate"] or ""), reverse=True)
-    by_salesman = _aggregate(
-        lines,
-        key=lambda r: (r["Salesman"] or "(none)",),
-        lead=lambda r: {"Salesman": r["Salesman"] or "(none)"},
-        sort=_by_ordered_desc,
-    )
 
     summary = _build_summary(lines)
     summary["default_group"] = ["Salesman"]
 
-    return [
+    tabs = [
         summary,
         _tab("by_customer", "By Customer", BY_CUSTOMER_COLS, by_customer, stub=STUB_FIELDS,
              default_group=["Salesman"]),
         _tab("by_item", "By Item", BY_ITEM_COLS, by_item, stub=STUB_FIELDS),
         _tab("by_order", "By Order", BY_ORDER_COLS, by_order, stub=STUB_FIELDS,
              default_group=["Salesman"]),
-        _tab("by_salesman", "By Salesman", BY_SALESMAN_COLS, by_salesman, stub=STUB_FIELDS),
-        _tab("full_data", "Full Data", FULL_DATA_COLS, lines, stub=STUB_FIELDS),
     ]
+    if not skip_by_salesman:
+        by_salesman = _aggregate(
+            lines,
+            key=lambda r: (r["Salesman"] or "(none)",),
+            lead=lambda r: {"Salesman": r["Salesman"] or "(none)"},
+            sort=_by_ordered_desc,
+        )
+        tabs.append(_tab("by_salesman", "By Salesman", BY_SALESMAN_COLS, by_salesman, stub=STUB_FIELDS))
+    tabs.append(_tab("full_data", "Full Data", FULL_DATA_COLS, lines, stub=STUB_FIELDS))
+    return tabs

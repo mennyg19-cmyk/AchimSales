@@ -176,6 +176,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Salesman-all fan-out (Beta)
+
+**What to test:**
+- 9am Salesmen Ordered / Shipped seed with `split_by_salesman`.
+- Existing plain rows get that flag on re-seed.
+- `split_by_salesman` with no key list fans out to active salesmen who have an email.
+- Salesman-filtered Ordered omits the By Salesman tab; unscoped Ordered keeps it.
+
+**Expected behavior:**
+- One combined file (folder/recipients) plus one file per salesman with an email.
+- Per-rep Ordered files match live `--salesman all` (no By Salesman sheet).
+
+**Test files:** `v3/tests/test_schedule_seed.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_report_service.py`, `v3/tests/test_salesmen_seed.py`
+
 ## Salesman-scoped invoiced fetch
 
 **What to test:**

@@ -207,7 +207,7 @@ def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
     # build() consumes the facts list to keep peak memory down on big runs, so
     # capture the count first.
     row_count = len(facts)
-    tabs = rpt_ordered.build(facts)
+    tabs = rpt_ordered.build(facts, skip_by_salesman=bool(_salesman_filter(params)))
     return svc._payload("ordered", tabs, row_count)
 
 

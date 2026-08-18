@@ -566,7 +566,9 @@ def _normalize_master_params(raw: dict | None, *, allow_salesman_delivery: bool 
 def _has_salesman_delivery(params: dict) -> bool:
     if params.get("email_to_salesmen") and _as_str_list(params.get("salesman")):
         return True
-    return bool(_as_str_list(params.get("email_salesman_keys")))
+    if _as_str_list(params.get("email_salesman_keys")):
+        return True
+    return _as_bool(params.get("split_by_salesman"))
 
 
 def _manager_options() -> list[dict]:

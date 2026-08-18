@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-18 Salesman-all jobs fan out; Ordered drops By Salesman
+**What you asked for:** 9am Salesmen Ordered/Shipped should split one file per rep like live `--salesman all`, and those files should not include the By Salesman tab.
+**What I chose:** Those company schedules now have `split_by_salesman` (stamped onto existing rows that had no split flags). Split-all with no picked keys emails every active salesman who has an address; no-email salesmen are skipped. Combined SharePoint/management copy still goes out. Per-salesman Ordered builds omit By Salesman (same as the live salesman workbook). Unscoped Ordered still has the tab. Test mode still sends every split to the test inbox.
+**Status:** DECIDED — implementing
+
 ## 2026-08-18 Invoiced shipped reports skip YTD (match live)
 **What you asked for:** Original Python rules on Beta. `--salesman all` / salesman-scoped Shipped omits Commissions, so do not pull YTD — check what tabs are needed, then fetch only that.
 **What I chose:** Skip the Commissions tab and the Jan 1 fetch when `params.salesman` is set, when `_skip_commissions` is set, or when a saved `layout.order` exists and does not include `commissions`. Delivery stamps `_skip_commissions` from that layout before the run (9am Salesmen Shipped). Unscoped Invoiced still YTD-fetches. Live OData runners were already correct; this is the SQL Beta path.

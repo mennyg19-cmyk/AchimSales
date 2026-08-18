@@ -49,6 +49,19 @@ def test_upsert_is_idempotent_and_updates(db):
     assert facts[salesman_key("MKolko")].commission_pct == 0.03
 
 
+def test_keys_with_email_prefers_salesgroup_display_name(db):
+    repo = SalesmanRepository(db)
+    repo.upsert_many([
+        SalesmanSeed(raw_key="REdwards", number="080", full_name="Reggie Edwards",
+                     display_name="REdwards", email="r@x.com"),
+        SalesmanSeed(raw_key="NoMail", number="1", full_name="No Mail",
+                     display_name="NoMail", email=""),
+        SalesmanSeed(raw_key="MKolko", number="012", full_name="Mendy Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+    ])
+    assert repo.keys_with_email() == ["mkolko", "REdwards"]
+
+
 def test_reads_live_config_xlsx_if_present(db):
     if not SEED.DEFAULT_XLSX.is_file():
         pytest.skip("live salesman_map.xlsx not present in this checkout")

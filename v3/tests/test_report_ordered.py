@@ -145,6 +145,11 @@ def test_tab_order_matches_live():
                     "by_salesman", "full_data"]
 
 
+def test_salesman_variant_drops_by_salesman_tab():
+    keys = [t["key"] for t in B.build(S.to_facts_ordered_report(_rows()), skip_by_salesman=True)]
+    assert keys == ["summary", "by_customer", "by_item", "by_order", "full_data"]
+
+
 def test_full_data_preserves_source_row_order():
     rows = _rows() * 3
     full = next(t for t in B.build(S.to_facts_ordered_report(rows)) if t["key"] == "full_data")

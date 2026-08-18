@@ -203,6 +203,47 @@ def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_pa
     assert len(deliveries) == 3
 
 
+def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="MKolko", email="m@x.com"),
+        SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
+                     display_name="AGrossman", email="a@x.com"),
+        SalesmanSeed(raw_key="NoMail", number="3", full_name="No Mail",
+                     display_name="NoMail", email=""),
+    ])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Salesmen Ordered", params={
+            "period": "yesterday", "split_by_salesman": True,
+        }, layout={}, cadence={"freq": "daily", "time": "09:00"},
+        recipients="manager@x.com")
+    runner.run(mid, MASTER)
+
+    assert delivery.calls[0]["params"] == {"period": "yesterday"}
+    split = delivery.calls[1:]
+    assert [c["params"]["salesman"] for c in split] == [["AGrossman"], ["MKolko"]]
+    assert [c["recipients"] for c in split] == ["a@x.com", "m@x.com"]
+
+
 def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)

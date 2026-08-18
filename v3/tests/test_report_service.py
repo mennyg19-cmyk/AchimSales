@@ -55,6 +55,17 @@ def test_ordered_payload_shape():
     assert out["report_key"] == "ordered"
     assert out["row_count"] == 1
     assert [t["key"] for t in out["tabs"]][0] == "summary"
+    assert "by_salesman" in {t["key"] for t in out["tabs"]}
+
+
+def test_ordered_salesman_filter_drops_by_salesman_tab():
+    rows = [{"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "A",
+             "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open",
+             "SalesGroup": "REdwards"}]
+    out = _svc({"ordered_report": rows}).builder_for("ordered")(
+        {"salesman": ["REdwards"]}, None)
+    assert "by_salesman" not in {t["key"] for t in out["tabs"]}
+    assert "full_data" in {t["key"] for t in out["tabs"]}
 
 
 def test_invoiced_does_ytd_fetch_for_commissions():

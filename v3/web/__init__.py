@@ -598,6 +598,8 @@ def _seed_salesmen_if_empty(app: Flask, db) -> None:
         app.logger.exception("salesmen seed failed")
 
 
+# Live `--salesman all`: one file per salesman with an email.
+_SALESMEN_ALL = {"period": "yesterday", "split_by_salesman": True}
 # Invoiced always includes a Commissions sheet. Salesmen Shipped files should not.
 _INVOICED_WITHOUT_COMMISSIONS = {
     "order": [
@@ -639,14 +641,14 @@ _AZURE_SCHEDULES: list[dict] = [
     {
         "name": "Daily Salesmen Ordered (9am)",
         "report_key": "ordered",
-        "params": {"period": "yesterday"},
+        "params": _SALESMEN_ALL,
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Direct Reports/Salesman Report/Daily",
     },
     {
         "name": "Daily Salesmen Shipped (9am)",
         "report_key": "invoiced",
-        "params": {"period": "yesterday"},
+        "params": _SALESMEN_ALL,
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Direct Reports/Salesman Report/Daily",
         "layout": _INVOICED_WITHOUT_COMMISSIONS,
@@ -725,14 +727,14 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
     {
         "name": "Daily 9am Salesmen Ordered",
         "report_key": "ordered",
-        "params": {"period": "yesterday"},
+        "params": _SALESMEN_ALL,
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Direct Reports/Salesman Report/Daily",
     },
     {
         "name": "Daily 9am Salesmen Shipped",
         "report_key": "invoiced",
-        "params": {"period": "yesterday"},
+        "params": _SALESMEN_ALL,
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Direct Reports/Salesman Report/Daily",
         "layout": _INVOICED_WITHOUT_COMMISSIONS,
@@ -814,6 +816,8 @@ def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
             layout = s.get("layout") or {}
             if layout.get("order"):
                 repo.fill_layout_if_blank(s["name"], layout)
+            if (s.get("params") or {}).get("split_by_salesman"):
+                repo.enable_split_all_if_plain(s["name"])
         if added:
             state = "disabled" if inactive else "active"
             app.logger.info("seeded %d master schedules (%s) from Azure config", added, state)
