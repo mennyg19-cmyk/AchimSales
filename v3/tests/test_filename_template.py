@@ -3,7 +3,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from web.delivery.filename_template import resolve_filename_template
+from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
 
 _ET = ZoneInfo("America/New_York")
 
@@ -71,3 +71,17 @@ def test_report_title_is_slugged():
         "{Report}_{YYYY}{MM}{DD}", report_name="Ordered Report", when=when,
     )
     assert name == "Ordered_Report_20260817.xlsx"
+
+
+def test_folder_template_keeps_spaces_and_slashes():
+    when = datetime(2026, 8, 19, 12, 0, tzinfo=_ET)
+    path = resolve_folder_template(
+        "Salesman Report/Customer Activity/{Month} {YYYY}",
+        report_name="Customer Activity", when=when,
+    )
+    assert path == "Salesman Report/Customer Activity/August 2026"
+
+
+def test_folder_template_blank_is_empty():
+    assert resolve_folder_template("") == ""
+    assert resolve_folder_template("  /  ") == ""

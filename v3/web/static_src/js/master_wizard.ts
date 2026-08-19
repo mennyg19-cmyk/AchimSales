@@ -1,6 +1,6 @@
 // Master schedule wizard (admin page).
 
-import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
+import { DEFAULT_FILENAME_TEMPLATE, previewFilename, previewFolder } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
 
@@ -539,6 +539,7 @@ function closeWizard(): void {
   const fn = document.getElementById("msFilename") as HTMLInputElement | null;
   if (fn) fn.value = DEFAULT_FILENAME_TEMPLATE;
   updateMsFilenamePreview();
+  updateMsFolderPreview();
   (document.getElementById("editingId") as HTMLInputElement).value = "";
   (document.getElementById("spPathInput") as HTMLInputElement).value = "";
   document.getElementById("formTitle")!.textContent = "Add a schedule";
@@ -637,6 +638,7 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   syncParamsVisibility(form);
   await ensureLookups();
   updateMsFilenamePreview();
+  updateMsFolderPreview();
 }
 
 export function bindMasterWizard(): void {
@@ -660,6 +662,7 @@ export function bindMasterWizard(): void {
     if (wizardStep === 1) suggestName(form);
     if (wizardStep < TOTAL_STEPS) showStep(wizardStep + 1);
     updateMsFilenamePreview();
+    updateMsFolderPreview();
   });
 
   form.querySelectorAll<HTMLInputElement>('input[name="freq"]').forEach((r) => {
@@ -675,10 +678,17 @@ export function bindMasterWizard(): void {
       syncDeliveryOptionsVisibility(form);
       suggestName(form);
       updateMsFilenamePreview();
+      updateMsFolderPreview();
     });
   });
-  document.getElementById("msName")?.addEventListener("input", updateMsFilenamePreview);
-  document.getElementById("msPeriod")?.addEventListener("change", updateMsFilenamePreview);
+  document.getElementById("msName")?.addEventListener("input", () => {
+    updateMsFilenamePreview();
+    updateMsFolderPreview();
+  });
+  document.getElementById("msPeriod")?.addEventListener("change", () => {
+    updateMsFilenamePreview();
+    updateMsFolderPreview();
+  });
   document.getElementById("msSplitBySalesman")?.addEventListener("change", () => {
     syncDeliveryOptionsVisibility(form);
   });
@@ -769,8 +779,29 @@ export function bindMasterWizard(): void {
       input.focus();
     });
   });
+  document.querySelectorAll<HTMLButtonElement>(".js-ms-sp-token").forEach((b) => {
+    b.addEventListener("click", () => {
+      const input = document.getElementById("spPathInput") as HTMLInputElement | null;
+      if (!input) return;
+      const token = b.dataset.token || "";
+      const cur = (input.value || "").trim();
+      if (!cur) {
+        input.value = token;
+      } else if (cur.endsWith("/")) {
+        input.value = cur + token;
+      } else if (/\{[A-Za-z]+\}/.test(cur.split("/").pop() || "")) {
+        input.value = cur + " " + token;
+      } else {
+        input.value = cur + "/" + token;
+      }
+      updateMsFolderPreview();
+      input.focus();
+    });
+  });
   document.getElementById("msFilename")?.addEventListener("input", updateMsFilenamePreview);
+  document.getElementById("spPathInput")?.addEventListener("input", updateMsFolderPreview);
   updateMsFilenamePreview();
+  updateMsFolderPreview();
 
   showStep(1);
 }
@@ -878,4 +909,16 @@ function updateMsFilenamePreview(): void {
     || (report ? report + " schedule" : "");
   const period = (document.getElementById("msPeriod") as HTMLSelectElement | null)?.value || "";
   prev.textContent = previewFilename(input.value, { report, schedule, period });
+}
+
+function updateMsFolderPreview(): void {
+  const input = document.getElementById("spPathInput") as HTMLInputElement | null;
+  const prev = document.getElementById("msFolderPreview");
+  if (!input || !prev) return;
+  const form = masterForm();
+  const report = form ? selectedReportTitle(form) : "";
+  const schedule = (document.getElementById("msName") as HTMLInputElement | null)?.value.trim()
+    || (report ? report + " schedule" : "");
+  const period = (document.getElementById("msPeriod") as HTMLSelectElement | null)?.value || "";
+  prev.textContent = previewFolder(input.value, { report, schedule, period });
 }

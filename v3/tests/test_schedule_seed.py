@@ -114,3 +114,54 @@ def test_seed_does_not_restore_deleted_company_schedule(tmp_path: Path):
     _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     names = {r.name for r in repo.list_all()}
     assert "Daily 9am Salesmen Ordered" not in names
+
+
+def test_seed_sharepoint_paths_omit_direct_reports_home():
+    from web import _AZURE_SCHEDULES, _LIVE_RUNBOOK_SCHEDULES
+
+    rows = _AZURE_SCHEDULES + _LIVE_RUNBOOK_SCHEDULES
+    for s in rows:
+        path = s.get("sharepoint_path") or ""
+        assert not path.lower().startswith("direct reports"), s["name"]
+    live = next(s for s in _LIVE_RUNBOOK_SCHEDULES
+                if s["name"] == "Monthly 1st 12am Customer Activity")
+    azure = next(s for s in _AZURE_SCHEDULES if s["name"] == "Monthly Customer Activity")
+    assert live["sharepoint_path"] == "Salesman Report/Customer Activity/{Month} {YYYY}"
+    assert azure["sharepoint_path"] == "Salesman Report/Customer Activity/{Month} {YYYY}"
+
+
+def test_migration_0011_strips_prefix_and_sets_customer_activity_month_folder(tmp_path: Path):
+    from web.data.connection import Database, _connect
+    from web.data.migrate import migrate
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    repo = MasterScheduleRepository(db)
+    doubled = repo.create(
+        "ordered", "DailyOrderReport", params={}, layout={},
+        cadence={"freq": "daily", "time": "00:00"},
+        sharepoint_path="Direct Reports/Direct Reports/Ordered Report/Daily",
+        is_shared=True,
+    )
+    activity = repo.create(
+        "customer_activity", "Monthly 1st 12am Customer Activity",
+        params={}, layout={},
+        cadence={"freq": "monthly", "time": "00:00", "monthdays": [1]},
+        sharepoint_path="Salesman Report/Customer Activity",
+        is_shared=True,
+    )
+    sql = (
+        Path(__file__).resolve().parents[1]
+        / "web/data/migrations/precious/0011_strip_direct_reports_prefix.sql"
+    ).read_text(encoding="utf-8")
+    conn = _connect(db.precious_path)
+    try:
+        conn.executescript(sql)
+        conn.commit()
+    finally:
+        conn.close()
+    assert repo.get(doubled).sharepoint_path == "Ordered Report/Daily"
+    assert repo.get(activity).sharepoint_path == (
+        "Salesman Report/Customer Activity/{Month} {YYYY}"
+    )

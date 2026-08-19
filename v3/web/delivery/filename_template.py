@@ -34,31 +34,30 @@ TOKEN_HELP: tuple[tuple[str, str], ...] = (
 )
 
 _TOKEN_RE = re.compile(r"\{[A-Za-z]+\}")
+# Folder segments keep spaces ("August 2026"). Strip Graph-illegal chars only.
+_FOLDER_BAD = re.compile(r'[\\:*?"<>|#%]')
 
 # Blank templates used to be "{Report}_{YYYY}{MM}{DD}", so Daily 9am and
 # DailyOrderReport both arrived as Ordered_20260817.xlsx.
 DEFAULT_FILENAME_TEMPLATE = "{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}"
 
 
-def resolve_filename_template(
-    template: str,
+def token_values(
     *,
     report_name: str,
     params: dict | None = None,
     when: datetime | None = None,
     schedule_name: str = "",
-) -> str:
-    """Expand tokens; always ends with .xlsx; filesystem-safe."""
+) -> dict[str, str]:
     now = when or datetime.now(_EASTERN)
     if now.tzinfo is None:
         now = now.replace(tzinfo=_EASTERN)
     else:
         now = now.astimezone(_EASTERN)
-
     period = _period_label(params or {})
     report_slug = _slug(report_name) or "Report"
     schedule_slug = _slug(schedule_name) or report_slug
-    mapping = {
+    return {
         "{YYYY}": f"{now.year:04d}",
         "{YY}": f"{now.year % 100:02d}",
         "{MM}": f"{now.month:02d}",
@@ -76,6 +75,22 @@ def resolve_filename_template(
         "{Weekday}": now.strftime("%A"),
     }
 
+
+def resolve_filename_template(
+    template: str,
+    *,
+    report_name: str,
+    params: dict | None = None,
+    when: datetime | None = None,
+    schedule_name: str = "",
+) -> str:
+    """Expand tokens; always ends with .xlsx; filesystem-safe."""
+    mapping = token_values(
+        report_name=report_name, params=params, when=when,
+        schedule_name=schedule_name,
+    )
+    report_slug = mapping["{Report}"]
+
     raw = (template or "").strip()
     if not raw:
         raw = DEFAULT_FILENAME_TEMPLATE
@@ -89,6 +104,36 @@ def resolve_filename_template(
     if not expanded.lower().endswith(".xlsx"):
         expanded = f"{expanded}.xlsx"
     return expanded[:180]
+
+
+def resolve_folder_template(
+    template: str,
+    *,
+    report_name: str = "",
+    params: dict | None = None,
+    when: datetime | None = None,
+    schedule_name: str = "",
+) -> str:
+    """Expand the same tokens as filenames. Keeps `/` as folders and spaces in names."""
+    raw = (template or "").replace("\\", "/").strip("/")
+    if not raw:
+        return ""
+    mapping = token_values(
+        report_name=report_name, params=params, when=when,
+        schedule_name=schedule_name,
+    )
+
+    def repl(m: re.Match[str]) -> str:
+        return mapping.get(m.group(0), m.group(0))
+
+    expanded = _TOKEN_RE.sub(repl, raw)
+    parts: list[str] = []
+    for seg in expanded.split("/"):
+        cleaned = _FOLDER_BAD.sub("", seg).strip(" .")
+        if not cleaned or cleaned in (".", ".."):
+            continue
+        parts.append(cleaned)
+    return "/".join(parts)
 
 
 def _period_label(params: dict) -> str:

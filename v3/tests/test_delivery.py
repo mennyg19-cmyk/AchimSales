@@ -236,6 +236,23 @@ def test_sharepoint_rejects_path_traversal(tmp_path):
     assert _validate_segments("Ordered/Daily") == ["Ordered", "Daily"]
 
 
+def test_strip_reports_home_drops_duplicated_prefix():
+    from web.delivery.sharepoint import strip_reports_home
+
+    assert strip_reports_home("Direct Reports/Salesman Report/Daily") == "Salesman Report/Daily"
+    assert strip_reports_home("Direct Reports/Direct Reports/Ordered") == "Ordered"
+    assert strip_reports_home("Direct Reports") == ""
+    assert strip_reports_home("Salesman Report/Customer Activity") == "Salesman Report/Customer Activity"
+
+
+def test_sharepoint_list_and_upload_strip_home_prefix(tmp_path):
+    sp = SharePointService(_cfg(tmp_path))
+    names = [f["name"] for f in sp.list_folders("Direct Reports")]
+    assert "Ordered" in names
+    res = sp.upload_file("Direct Reports/Salesman Report/Customer Activity", "f.xlsx", b"x")
+    assert res["webUrl"] == "mock://Salesman Report/Customer Activity/f.xlsx"
+
+
 def test_sharepoint_prod_without_creds_raises(tmp_path):
     sp = SharePointService(_cfg(tmp_path, app_env="prod",
                                 tenant_id="", client_id="", client_secret=""))
@@ -310,3 +327,48 @@ def test_delivery_stamps_skip_commissions_when_layout_drops_that_tab(tmp_path):
     )
     assert seen["params"].get("_skip_commissions") is True
     assert outcome.result.ok
+
+
+def test_delivery_expands_folder_tokens_and_strips_home(tmp_path, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    frozen = datetime(2026, 8, 19, 12, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz is None else frozen.astimezone(tz)
+
+    monkeypatch.setattr("web.delivery.filename_template.datetime", FrozenDateTime)
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    seen = {}
+    orig = email.deliver
+
+    def wrap(**kwargs):
+        seen["sharepoint_path"] = kwargs.get("sharepoint_path")
+        return orig(**kwargs)
+
+    email.deliver = wrap  # type: ignore[method-assign]
+
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}],
+                         "rows": [{"a": 1}]}]}
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: payload), email,
+    )
+    outcome = svc.run_and_deliver(
+        report_key="customer_activity", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={}, layout={},
+        recipients="a@x.com", subject="S", report_name="Customer Activity",
+        sharepoint_path="Direct Reports/Salesman Report/Customer Activity/{Month} {YYYY}",
+    )
+    assert outcome.result.ok
+    assert seen["sharepoint_path"] == "Salesman Report/Customer Activity/August 2026"

@@ -120,6 +120,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_filename_template.py`
 
+## SharePoint folder paths and date tokens
+
+**What to test:**
+- Stored paths do not start with `Direct Reports` (that folder is already the drive home). Saving `Direct Reports/Ordered` stores `Ordered`. Nested `Direct Reports/Direct Reports/...` is stripped.
+- Folder templates expand the same date tokens as filenames, but keep `/` and spaces (`{Month} {YYYY}` → `August 2026`).
+- Customer Activity seed path is `Salesman Report/Customer Activity/{Month} {YYYY}`.
+- Migration 0011 strips existing prefixes and sets that Customer Activity month folder when the path is still the old static one.
+
+**Expected behavior:**
+- Files land in `Direct Reports/<schedule path>/`, not `Direct Reports/Direct Reports/...`.
+- Monthly Customer Activity creates `.../Customer Activity/August 2026` (run date, Eastern).
+- Other monthly jobs stay on their current folders until someone adds tokens in the wizard.
+
+**Test files:** `v3/tests/test_filename_template.py`, `v3/tests/test_delivery.py`, `v3/tests/test_schedule_seed.py`, `v3/tests/test_blueprints.py`
+
 ## Schedule test mode persistence
 
 **What to test:**

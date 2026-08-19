@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from web.delivery.email import DeliveryResult, EmailService
-from web.delivery.filename_template import resolve_filename_template
+from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
 from web.delivery.layout import apply_layout, expand_clones
+from web.delivery.sharepoint import strip_reports_home
 from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
 from web.reporting.report_service import invoiced_skip_commissions
@@ -69,6 +70,10 @@ class DeliveryService:
             filename_template, report_name=report_name, params=params or {},
             schedule_name=schedule_name,
         )
+        folder = strip_reports_home(resolve_folder_template(
+            sharepoint_path, report_name=report_name, params=params or {},
+            schedule_name=schedule_name,
+        ))
         to = recipients
         cc = cc_raw
         bcc = bcc_raw
@@ -79,7 +84,7 @@ class DeliveryService:
         result = self.email.deliver(
             subject=subject or report_name, recipients_raw=to, body_text=body_text,
             report_name=report_name, filename=filename, xlsx_bytes=xlsx,
-            sharepoint_path=sharepoint_path or None,
+            sharepoint_path=folder or None,
             onedrive_user=(onedrive_user or "").strip() or None,
             cc_raw=cc or "", bcc_raw=bcc or "",
         )

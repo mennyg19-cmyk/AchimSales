@@ -1371,7 +1371,7 @@ def test_master_schedule_copy_is_inactive_unique_name(tmp_path):
     assert clone.is_active is False
     assert clone.name == "CopySrc Ordered (copy)"
     assert clone.recipients == "team@x.com"
-    assert clone.sharepoint_path == "Direct Reports/Ordered"
+    assert clone.sharepoint_path == "Ordered"
     assert clone.filename_template == "{Schedule}_{YYYY}-{MM}-{DD}"
     assert clone.params["period"] == "yesterday"
     assert clone.params["split_by_salesman"] is True
@@ -1385,6 +1385,23 @@ def test_master_schedule_copy_is_inactive_unique_name(tmp_path):
     assert repo.get(again.get_json()["id"]).name == "CopySrc Ordered (copy 2)"
     html = client.get("/schedules").get_data(as_text=True)
     assert f"/api/master-schedules/{sid}/copy" in html
+
+
+def test_master_schedule_save_strips_direct_reports_prefix(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "Prefixed folder", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Direct Reports/Ordered Report/Daily",
+        "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    row = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert row.sharepoint_path == "Ordered Report/Daily"
 
 
 def test_master_schedule_copy_forbidden_unless_can_edit(tmp_path):

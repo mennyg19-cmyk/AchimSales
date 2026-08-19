@@ -1,6 +1,7 @@
 // SharePoint folder picker for the master-schedules page.
 
 import { esc } from "./http";
+import { stripReportsHome } from "./filename_preview";
 
 // --------------------------------------------------------------------------
 // SharePoint folder picker
@@ -159,11 +160,22 @@ export function bindSharePointPicker(): void {
   if (!browseBtn || !input) return;
 
   browseBtn.addEventListener("click", async () => {
-    const result = await openSharePointPicker(input.value);
-    if (result !== null) input.value = result;
+    const raw = input.value.trim();
+    const brace = raw.indexOf("{");
+    const suffix = brace >= 0 ? raw.slice(brace).replace(/^\/+/, "") : "";
+    const start = stripReportsHome((brace >= 0 ? raw.slice(0, brace) : raw).replace(/\/+$/, ""));
+    const result = await openSharePointPicker(start);
+    if (result !== null) {
+      const folder = stripReportsHome(result);
+      input.value = suffix ? (folder ? folder + "/" + suffix : suffix) : folder;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
   });
 
-  clearBtn?.addEventListener("click", () => { input.value = ""; });
+  clearBtn?.addEventListener("click", () => {
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 
   const ov = spOverlay();
   if (!ov) return;

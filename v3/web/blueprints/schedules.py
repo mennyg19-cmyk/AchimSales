@@ -133,7 +133,8 @@ def _layout_for_update(body: dict, existing: dict | None) -> dict:
 
 def _check_sharepoint(p, body: dict) -> str:
     """Master schedules only: company SharePoint path (requires SP access)."""
-    path = (body.get("sharepoint_path") or "").strip()
+    from web.delivery.sharepoint import strip_reports_home
+    path = strip_reports_home((body.get("sharepoint_path") or "").strip())
     if path and not _authz().has_sharepoint_access(p):
         abort(403, description="You don't have SharePoint delivery access.")
     return path
