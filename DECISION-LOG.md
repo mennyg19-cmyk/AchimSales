@@ -3,7 +3,7 @@
 ## 2026-08-19 Monthly Salesman SharePoint job stays; add a split schedule
 **What you asked for:** Do not rewrite the monthly salesman SharePoint job. Add a separate schedule that fans out.
 **What I chose:** Left `Monthly 1st 12am Monthly Salesman` / `Monthly Salesman Report` on `Salesman Report/Monthly` with no split. Seeded `Monthly 1st 12am Monthly Salesmen` / `Monthly Salesmen Report` with `split_by_salesman` and no folder (same 1st / 22:00 clock). Wizard salesman-report filters include salesman so that split flag survives a save. Test mode still On.
-**Status:** DECIDED
+**Status:** DECIDED — deployed `ebdcdb2` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-19 Save and On wait for the next scheduled time
 **What you asked for:** Saving an edit or turning a schedule On should not run it right away.
