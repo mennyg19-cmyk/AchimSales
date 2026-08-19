@@ -1299,6 +1299,90 @@ def test_schedule_copy_is_inactive_duplicate(tmp_path):
     assert clone.params["period"] == "yesterday"
 
 
+def test_master_schedule_copy_is_inactive_unique_name(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "CopySrc Ordered", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "params": {"period": "yesterday", "split_by_salesman": True},
+        "layout": {"order": ["invoices"]},
+        "filename_template": "{Schedule}_{YYYY}-{MM}-{DD}",
+        "sharepoint_path": "Direct Reports/Ordered",
+        "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    sid = created.get_json()["id"]
+    copied = client.post(f"/api/master-schedules/{sid}/copy", headers={"X-CSRF-Token": _CSRF})
+    assert copied.status_code == 201
+    copy_id = copied.get_json()["id"]
+    assert copy_id != sid
+    from web.data.repositories.schedules import MasterScheduleRepository
+    repo = MasterScheduleRepository(app.config["DB"])
+    original = repo.get(sid)
+    clone = repo.get(copy_id)
+    assert original.is_active is True
+    assert clone.is_active is False
+    assert clone.name == "CopySrc Ordered (copy)"
+    assert clone.recipients == "team@x.com"
+    assert clone.sharepoint_path == "Direct Reports/Ordered"
+    assert clone.filename_template == "{Schedule}_{YYYY}-{MM}-{DD}"
+    assert clone.params["period"] == "yesterday"
+    assert clone.params["split_by_salesman"] is True
+    assert clone.layout["order"] == ["invoices"]
+    assert clone.is_shared is True
+    assert clone.run_as_user_id == original.run_as_user_id
+    owner = UserRepository(app.config["DB"]).get_by_email("admin@x.com")
+    assert clone.owner_user_id == owner.id
+    again = client.post(f"/api/master-schedules/{sid}/copy", headers={"X-CSRF-Token": _CSRF})
+    assert again.status_code == 201
+    assert repo.get(again.get_json()["id"]).name == "CopySrc Ordered (copy 2)"
+    html = client.get("/schedules").get_data(as_text=True)
+    assert f"/api/master-schedules/{sid}/copy" in html
+
+
+def test_master_schedule_copy_forbidden_unless_can_edit(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Admin nightly copygate", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    admin_id = created.get_json()["id"]
+
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    assert mgr.post(f"/api/master-schedules/{admin_id}/copy",
+                    headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    mgr_html = mgr.get("/schedules").get_data(as_text=True)
+    assert f"/api/master-schedules/{admin_id}/copy" not in mgr_html
+
+    own = mgr.post("/api/master-schedules", json={
+        "name": "Mgr copyable", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert own.status_code == 201
+    own_id = own.get_json()["id"]
+    copied = mgr.post(f"/api/master-schedules/{own_id}/copy",
+                      headers={"X-CSRF-Token": _CSRF})
+    assert copied.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    clone = MasterScheduleRepository(app.config["DB"]).get(copied.get_json()["id"])
+    assert clone.name == "Mgr copyable (copy)"
+    assert clone.is_active is False
+    assert f"/api/master-schedules/{own_id}/copy" in mgr.get("/schedules").get_data(as_text=True)
+
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    assert rep.post(f"/api/master-schedules/{admin_id}/copy",
+                    headers={"X-CSRF-Token": _CSRF}).status_code == 403
+
+
 def test_master_run_now_writes_outbox_and_history(tmp_path):
     app = _make_app(tmp_path, rows_by_report=_ordered_rows())
     client = app.test_client()

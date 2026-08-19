@@ -117,10 +117,8 @@
                     {% endif %}
                     <button type="button" class="btn btn-sm btn-outline js-run"
                             data-url="{% if is_master %}{{ url_for('schedules.run_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.run_schedule', schedule_id=s.id) }}{% endif %}">Run now</button>
-                    {% if not is_master %}
                     <button type="button" class="btn btn-sm btn-outline js-copy"
-                            data-url="{{ url_for('schedules.copy_schedule', schedule_id=s.id) }}">Copy</button>
-                    {% endif %}
+                            data-url="{% if is_master %}{{ url_for('schedules.copy_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.copy_schedule', schedule_id=s.id) }}{% endif %}">Copy</button>
                     <a class="btn btn-sm btn-outline" href="{% if is_master %}{{ url_for('schedules.master_history', schedule_id=s.id) }}{% else %}{{ url_for('schedules.schedule_history', schedule_id=s.id) }}{% endif %}">History</a>
                     <button type="button" class="btn btn-sm btn-outline js-delete"
                             data-url="{% if is_master %}{{ url_for('schedules.delete_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}{% endif %}"

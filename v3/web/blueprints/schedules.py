@@ -735,6 +735,20 @@ def create_master():
     return jsonify({"id": mid}), 201
 
 
+@schedules_bp.post("/api/master-schedules/<int:schedule_id>/copy")
+@require_login
+def copy_master(schedule_id: int):
+    """Duplicate a company schedule so the user can tweak one field."""
+    p = _principal()
+    _require_company_viewer(p)
+    src = _master().get(schedule_id)
+    if src is None:
+        abort(404, description="Unknown master schedule")
+    _require_master_edit(p, src)
+    mid = _master().copy(src, owner_user_id=_uid(p.email))
+    return jsonify({"id": mid}), 201
+
+
 @schedules_bp.put("/api/master-schedules/<int:schedule_id>")
 @require_login
 def update_master(schedule_id: int):

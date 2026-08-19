@@ -23,6 +23,25 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Company schedule Copy
+
+**What to test:**
+- Copying a company schedule returns 201, a new id, `is_active=False`, and name `{original} (copy)`.
+- A second copy of the same source is `{original} (copy 2)`.
+- Params, layout, cadence, recipients, SharePoint, filename, share flag, and run-as match the source. Owner is the copier.
+- A manager cannot copy a company row they cannot edit (403, no Copy button). They can copy a row they own.
+- A salesman cannot copy company schedules (403).
+- Personal Copy still leaves the duplicate inactive.
+
+**Expected behavior:**
+- Copy on a company row you can edit. The copy stays Off until someone turns it on.
+- Shared names stay unique so the copy does not collide with the Azure seed index.
+
+**Edge cases:**
+- Copying a 120-character name still fits in the name column (`next_copy_name` truncates the stem).
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_schedule_seed.py`
+
 ## Shabbos / Yom Tov schedule skip (Beta clock)
 
 **What to test:**

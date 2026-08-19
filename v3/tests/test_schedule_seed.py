@@ -65,6 +65,14 @@ def test_shared_master_schedule_name_is_unique(tmp_path: Path):
                     cadence={"freq": "daily", "time": "08:00"}, is_shared=True)
 
 
+def test_next_copy_name_uses_copy_then_numbered():
+    from web.data.repositories.schedules import next_copy_name
+
+    assert next_copy_name("Daily 9am", set()) == "Daily 9am (copy)"
+    assert next_copy_name("Daily 9am", {"Daily 9am (copy)"}) == "Daily 9am (copy 2)"
+    assert next_copy_name("Daily 9am", {"Daily 9am (copy)", "Daily 9am (copy 2)"}) == "Daily 9am (copy 3)"
+
+
 def test_test_mount_seed_stays_on_old_azure_names(tmp_path: Path):
     from web import _AZURE_SCHEDULES
 

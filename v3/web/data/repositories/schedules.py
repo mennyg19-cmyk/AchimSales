@@ -28,6 +28,20 @@ _UNSET = object()
 
 PERSONAL = "personal"
 MASTER = "master"
+_NAME_MAX = 120
+
+
+def next_copy_name(base: str, existing: set[str]) -> str:
+    """`Daily 9am (copy)`, then `(copy 2)` if that name is taken."""
+    stem = (base or "Schedule").strip() or "Schedule"
+    n = 1
+    while True:
+        suffix = " (copy)" if n == 1 else f" (copy {n})"
+        room = max(1, _NAME_MAX - len(suffix))
+        candidate = (stem[:room] + suffix)[:_NAME_MAX]
+        if candidate not in existing:
+            return candidate
+        n += 1
 
 
 def _now() -> str:
@@ -252,6 +266,29 @@ class MasterScheduleRepository:
                  owner_user_id, 1 if is_shared else 0, run_as_user_id),
             )
             return cur.lastrowid
+
+    def unused_copy_name(self, base: str) -> str:
+        with self.db.precious() as conn:
+            rows = conn.execute("SELECT name FROM master_schedules").fetchall()
+        return next_copy_name(base, {r["name"] for r in rows})
+
+    def copy(self, src: MasterSchedule, *, owner_user_id: int) -> int:
+        """Inactive duplicate. Unique name so shared copies don't trip the index."""
+        fields = dict(
+            params=dict(src.params or {}), layout=dict(src.layout or {}),
+            cadence=dict(src.cadence or {}), recipients=src.recipients,
+            sharepoint_path=src.sharepoint_path,
+            filename_template=src.filename_template or "",
+            owner_user_id=owner_user_id, is_shared=src.is_shared,
+            run_as_user_id=src.run_as_user_id, is_active=False,
+        )
+        for _ in range(8):
+            name = self.unused_copy_name(src.name)
+            try:
+                return self.create(src.report_key, name, **fields)
+            except sqlite3.IntegrityError:
+                continue
+        raise sqlite3.IntegrityError("Could not find an unused copy name")
 
     def update(self, schedule_id: int, *, name: str, params: dict, layout: dict,
                cadence: dict, recipients: str = "", sharepoint_path: str = "",

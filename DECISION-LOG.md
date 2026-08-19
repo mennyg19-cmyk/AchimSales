@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-19 Company schedules can be copied
+**What you asked for:** Copy a company schedule, then change options. Personal Copy already existed.
+**What I chose:** Copy on company rows you can already edit. Duplicate everything (report, params, layout, cadence, recipients, SharePoint, filename, share flag, run-as). Name is `{original} (copy)`, then `(copy 2)` if taken. Leave Off so it does not double-send. Copier owns the new row so they can edit it. Shared names stay unique.
+**Status:** DECIDED — implementing.
+
 ## 2026-08-18 Salesman-all jobs fan out; Ordered drops By Salesman
 **What you asked for:** 9am Salesmen Ordered/Shipped should split one file per rep like live `--salesman all`, and those files should not include the By Salesman tab.
 **What I chose:** Those company schedules now have `split_by_salesman` (stamped onto existing rows that had no split flags). Split-all with no picked keys emails every active salesman who has an address; no-email salesmen are skipped. Combined SharePoint/management copy still goes out. Per-salesman Ordered builds omit By Salesman (same as the live salesman workbook). Unscoped Ordered still has the tab. Test mode still sends every split to the test inbox.

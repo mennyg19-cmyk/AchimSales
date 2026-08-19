@@ -350,6 +350,8 @@
                 <td class="row-actions">
                     {% if s.can_edit %}
                     <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
+                    <button type="button" class="btn btn-sm btn-outline js-copy"
+                            data-url="{{ url_for('schedules.copy_master', schedule_id=s.id) }}">Copy</button>
                     {% else %}
                     <span class="ms-field-hint">You can’t edit this schedule. Speak to an admin.</span>
                     {% endif %}
