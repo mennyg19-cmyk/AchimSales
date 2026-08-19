@@ -3,7 +3,7 @@
 ## 2026-08-19 Save and On wait for the next scheduled time
 **What you asked for:** Saving an edit or turning a schedule On should not run it right away.
 **What I chose:** Save, create, and On claim today's slot when that time has already passed, so the clock waits until the next cadence. A schedule that was already On still catch-up-fires if we missed it (app down). Run now is unchanged.
-**Status:** DECIDED
+**Status:** DECIDED — deployed `51a4641` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-19 SharePoint paths drop duplicated Direct Reports; folder tokens
 **What you asked for:** Stop dumping files in Direct Reports/Direct Reports. One-shot fix. Let a schedule add a dated subfolder (Customer Activity → August 2026), and let me type that on any schedule.
