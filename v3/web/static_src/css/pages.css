@@ -491,6 +491,13 @@
 .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table th, .data-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .data-table th { background: var(--bg); color: var(--text-muted); font-weight: 600; }
+.data-table th.th-sort { cursor: pointer; user-select: none; }
+.data-table th.th-sort:hover { color: var(--text); }
+.data-table th.th-sort[aria-sort="ascending"]::after,
+.data-table th.th-sort[aria-sort="descending"]::after {
+    content: " ▲"; font-size: 10px; color: var(--primary);
+}
+.data-table th.th-sort[aria-sort="descending"]::after { content: " ▼"; }
 .data-table tr:last-child td { border-bottom: none; }
 .row-actions { display: flex; gap: 6px; }
 .badge-success { background: var(--success-light, #dcfce7); color: var(--success, #16a34a); }

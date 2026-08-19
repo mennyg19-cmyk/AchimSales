@@ -986,6 +986,22 @@ def test_master_schedule_admin_only(tmp_path):
     assert rep.get(f"/master-schedules/{mid}/history").status_code == 403
 
 
+def test_company_schedules_list_sorted_by_name(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    for name in ("Zebra nightly", "Apple daily"):
+        created = client.post("/api/master-schedules", json={
+            "name": name, "report_key": "ordered", "recipients": "t@x.com",
+            "cadence": {"freq": "daily", "time": "06:00"}, "is_shared": True,
+        }, headers={"X-CSRF-Token": _CSRF})
+        assert created.status_code == 201
+    page = client.get("/schedules").get_data(as_text=True)
+    assert 'id="companySchedulesTable"' in page
+    assert "js-sortable" in page
+    assert page.find("Apple daily") < page.find("Zebra nightly")
+
+
 def test_deleted_company_schedule_is_not_reseeded(tmp_path):
     from web import _seed_master_schedules
     from web.data.repositories.schedules import MasterScheduleRepository

@@ -637,6 +637,7 @@ def _master_page_context(p, uid: int) -> dict:
             "owner_user_id": s.owner_user_id,
             "run_as_user_id": s.run_as_user_id,
         })
+    items.sort(key=lambda row: (row["name"] or "").casefold())
     built = [
         {"key": s.key, "title": s.title}
         for s in registry.built_reports()

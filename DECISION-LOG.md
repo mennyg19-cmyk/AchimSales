@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-19 Company schedules table sorts by name
+**What you asked for:** The table with all the schedules should be sortable and automatically sort based on name.
+**What I chose:** Company schedules render A→Z by name. Column headers (except Actions) are clickable to re-sort.
+**Status:** DECIDED — implementing.
+
 ## 2026-08-19 Deleted company schedules must not come back on boot
 **What you asked for:** Stop putting Daily 9am back after you delete it.
 **What I chose:** Boot seed was re-inserting any Azure name that was missing. Delete now records the name so seed skips it. Daily 9am is also off the Beta seed list, and a migration deletes the leftover shared row so this deploy does not resurrect it.

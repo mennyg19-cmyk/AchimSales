@@ -303,10 +303,10 @@
 
 {% if master_schedules %}
 <div class="ms-table-wrap" data-csrf="{{ csrf_token() }}">
-    <table class="data-table">
+    <table class="data-table js-sortable" id="companySchedulesTable">
         <thead>
             <tr>
-                <th>Name</th>
+                <th aria-sort="ascending">Name</th>
                 <th>Report</th>
                 <th>When</th>
                 <th>Options</th>
@@ -314,7 +314,7 @@
                 <th>SharePoint</th>
                 <th>Last run</th>
                 <th>Active</th>
-                <th>Actions</th>
+                <th data-sort-skip>Actions</th>
             </tr>
         </thead>
         <tbody>

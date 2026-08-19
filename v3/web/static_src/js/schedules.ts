@@ -149,8 +149,62 @@ function bindRowActions(): void {
   });
 }
 
+function bindSortableTables(): void {
+  document.querySelectorAll<HTMLTableElement>("table.js-sortable").forEach((table) => {
+    const head = table.tHead?.rows[0];
+    const body = table.tBodies[0];
+    if (!head || !body) return;
+    let sortCol = 0;
+    let sortAsc = true;
+
+    const key = (row: HTMLTableRowElement, col: number): string => {
+      if (col === 0) {
+        return (row.getAttribute("data-name") || row.cells[0]?.textContent || "")
+          .trim().toLowerCase();
+      }
+      return (row.cells[col]?.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+    };
+
+    const apply = () => {
+      const rows = Array.from(body.rows);
+      rows.sort((a, b) => {
+        const cmp = key(a, sortCol).localeCompare(key(b, sortCol), undefined, {
+          numeric: true, sensitivity: "base",
+        });
+        return sortAsc ? cmp : -cmp;
+      });
+      rows.forEach((row) => body.appendChild(row));
+      Array.from(head.cells).forEach((th, i) => {
+        if (th.hasAttribute("data-sort-skip")) {
+          th.removeAttribute("aria-sort");
+          return;
+        }
+        th.setAttribute("aria-sort", i === sortCol
+          ? (sortAsc ? "ascending" : "descending") : "none");
+      });
+    };
+
+    Array.from(head.cells).forEach((th, i) => {
+      if (th.hasAttribute("data-sort-skip")) return;
+      th.classList.add("th-sort");
+      th.tabIndex = 0;
+      const go = () => {
+        if (sortCol === i) sortAsc = !sortAsc;
+        else { sortCol = i; sortAsc = true; }
+        apply();
+      };
+      th.addEventListener("click", go);
+      th.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); }
+      });
+    });
+    apply();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   bindRowActions();
+  bindSortableTables();
   bindMasterWizard();
   bindSharePointPicker();
 });

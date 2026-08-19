@@ -23,6 +23,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Company schedules table sorts by name
+
+**What to test:**
+- Company list HTML has Apple before Zebra when those two rows exist.
+- Table is marked `js-sortable` so column headers can be clicked.
+
+**Expected behavior:**
+- Company schedules open sorted by name. Click a header to sort that column.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
 ## Deleted company schedules stay deleted
 
 **What to test:**
