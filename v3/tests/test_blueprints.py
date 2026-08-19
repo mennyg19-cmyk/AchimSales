@@ -1188,6 +1188,23 @@ def test_master_schedule_persists_unfiltered_salesman_delivery_options(tmp_path)
     assert saved.params["email_salesman_keys"] == ["MKolko", "AGrossman"]
 
 
+def test_master_schedule_persists_salesman_report_split(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Monthly Salesmen", "report_key": "salesman",
+        "cadence": {"freq": "monthly", "time": "22:00", "monthdays": [1]},
+        "params": {"split_by_salesman": True},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    saved = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert saved.recipients == ""
+    assert saved.sharepoint_path == ""
+    assert saved.params["split_by_salesman"] is True
+
+
 def test_master_schedule_rejects_in_app_report(tmp_path):
     app = _make_app(tmp_path)
     admin = app.test_client()

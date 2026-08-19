@@ -474,7 +474,7 @@ def master_history(schedule_id: int):
 _MASTER_REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "ordered": ("period", "status", "customers", "salesman"),
     "invoiced": ("period", "customers", "salesman"),
-    "salesman": ("year",),
+    "salesman": ("year", "salesman"),
     "number_4": (),
     "customer_activity": ("salesman",),
 }

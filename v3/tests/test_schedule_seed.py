@@ -29,7 +29,7 @@ def test_beta_runbook_seed_inserts_disabled_company_schedules(tmp_path: Path):
     _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     rows = MasterScheduleRepository(db).list_all()
     names = {r.name for r in rows}
-    assert len(rows) == 11
+    assert len(rows) == 12
     assert "Daily 9am" not in names
     assert "Weekly 5pm Friday Amazon Ordered" in names
     assert "Weekly Amazon Thursday using amazon_weekly" not in names
@@ -44,6 +44,13 @@ def test_beta_runbook_seed_inserts_disabled_company_schedules(tmp_path: Path):
     assert shipped.params.get("split_by_salesman") is True
     ordered_sm = next(r for r in rows if r.name == "Daily 9am Salesmen Ordered")
     assert ordered_sm.params.get("split_by_salesman") is True
+    combined = next(r for r in rows if r.name == "Monthly 1st 12am Monthly Salesman")
+    assert combined.sharepoint_path == "Salesman Report/Monthly"
+    assert not combined.params.get("split_by_salesman")
+    split = next(r for r in rows if r.name == "Monthly 1st 12am Monthly Salesmen")
+    assert split.params.get("split_by_salesman") is True
+    assert split.sharepoint_path == ""
+    assert split.cadence["time"] == "22:00"
     _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     assert len(MasterScheduleRepository(db).list_all()) == len(rows)
 
@@ -82,6 +89,12 @@ def test_test_mount_seed_stays_on_old_azure_names(tmp_path: Path):
     assert "Daily Invoiced Report" in names
     assert "DailyInvoicedReport" not in names
     assert all(r.is_active for r in rows)
+    combined = next(r for r in rows if r.name == "Monthly Salesman Report")
+    assert combined.sharepoint_path == "Salesman Report/Monthly"
+    assert not combined.params.get("split_by_salesman")
+    split = next(r for r in rows if r.name == "Monthly Salesmen Report")
+    assert split.params.get("split_by_salesman") is True
+    assert split.sharepoint_path == ""
 
 
 def test_existing_salesmen_schedule_gets_split_all_on_reseed(tmp_path: Path):

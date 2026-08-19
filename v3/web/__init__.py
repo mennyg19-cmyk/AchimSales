@@ -675,6 +675,12 @@ _AZURE_SCHEDULES: list[dict] = [
         "sharepoint_path": "Salesman Report/Monthly",
     },
     {
+        "name": "Monthly Salesmen Report",
+        "report_key": "salesman",
+        "params": {"split_by_salesman": True},
+        "cadence": {"freq": "monthly", "time": "22:00", "monthday": 1},
+    },
+    {
         "name": "Amazon Monthly Ordered",
         "report_key": "ordered",
         "params": {"period": "month"},
@@ -760,6 +766,12 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
         "params": {},
         "cadence": {"freq": "monthly", "time": "22:00", "monthdays": [1]},
         "sharepoint_path": "Salesman Report/Monthly",
+    },
+    {
+        "name": "Monthly 1st 12am Monthly Salesmen",
+        "report_key": "salesman",
+        "params": {"split_by_salesman": True},
+        "cadence": {"freq": "monthly", "time": "22:00", "monthdays": [1]},
     },
     {
         "name": "Amazon Monthly Ordered",

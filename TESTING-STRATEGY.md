@@ -265,10 +265,12 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Existing plain rows get that flag on re-seed.
 - `split_by_salesman` with no key list fans out to active salesmen who have an email.
 - Salesman-filtered Ordered omits the By Salesman tab; unscoped Ordered keeps it.
+- Monthly combined SharePoint job stays `Salesman Report/Monthly` with no split. A second seed (`Monthly 1st 12am Monthly Salesmen` / `Monthly Salesmen Report`) is split-only, no folder.
 
 **Expected behavior:**
 - One combined file (folder/recipients) plus one file per salesman with an email.
 - Per-rep Ordered files match live `--salesman all` (no By Salesman sheet).
+- Monthly SharePoint job is unchanged. The extra monthly split schedule emails each salesman and does not write SharePoint.
 
 **Test files:** `v3/tests/test_schedule_seed.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_report_service.py`, `v3/tests/test_salesmen_seed.py`
 
