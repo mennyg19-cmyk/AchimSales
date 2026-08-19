@@ -3,7 +3,7 @@
 ## 2026-08-19 Company schedules table sorts by name
 **What you asked for:** The table with all the schedules should be sortable and automatically sort based on name.
 **What I chose:** Company schedules render A→Z by name. Column headers (except Actions) are clickable to re-sort.
-**Status:** DECIDED — implementing.
+**Status:** DECIDED — deployed `45ece96` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-19 Deleted company schedules must not come back on boot
 **What you asked for:** Stop putting Daily 9am back after you delete it.
