@@ -3,7 +3,7 @@
 ## 2026-08-19 SharePoint paths drop duplicated Direct Reports; folder tokens
 **What you asked for:** Stop dumping files in Direct Reports/Direct Reports. One-shot fix. Let a schedule add a dated subfolder (Customer Activity → August 2026), and let me type that on any schedule.
 **What I chose:** Strip a leading Direct Reports from seed, save, browse, and upload (migration for existing rows). Filename date tokens also work in the folder path; spaces stay (`{Month} {YYYY}` → August 2026). Wizard path is editable with token chips. Only Customer Activity auto-gets the month folder; other jobs keep their current path.
-**Status:** DECIDED
+**Status:** DECIDED — deployed `4ad39b6` to `achim-sales-reports` (RuntimeSuccessful).
 
 ## 2026-08-19 Company schedules table sorts by name
 **What you asked for:** The table with all the schedules should be sortable and automatically sort based on name.
