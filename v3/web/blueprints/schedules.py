@@ -89,6 +89,11 @@ def _master() -> MasterScheduleRepository:
     return MasterScheduleRepository(_db())
 
 
+def _settings():
+    from web.data.repositories.app_settings import AppSettingsRepository
+    return AppSettingsRepository(_db())
+
+
 def _runs() -> ScheduleRunRepository:
     return ScheduleRunRepository(_db())
 
@@ -732,6 +737,7 @@ def create_master():
         is_shared=_parse_is_shared(body),
         run_as_user_id=_parse_run_as(p, body),
     )
+    _settings().unskip_seed_name(name)
     return jsonify({"id": mid}), 201
 
 
@@ -787,6 +793,9 @@ def update_master(schedule_id: int):
         kwargs["report_key"] = report_key
     if not _master().update(schedule_id, **kwargs):
         abort(404, description="Unknown master schedule")
+    if existing.name != name:
+        _settings().skip_seed_name(existing.name)
+        _settings().unskip_seed_name(name)
     return jsonify({"updated": True})
 
 
@@ -812,8 +821,10 @@ def delete_master(schedule_id: int):
     if sched is None:
         abort(404, description="Unknown master schedule")
     _require_master_edit(p, sched)
+    name = sched.name
     if not _master().delete(schedule_id):
         abort(404, description="Unknown master schedule")
+    _settings().skip_seed_name(name)
     return jsonify({"deleted": True})
 
 

@@ -29,15 +29,12 @@ def test_beta_runbook_seed_inserts_disabled_company_schedules(tmp_path: Path):
     _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     rows = MasterScheduleRepository(db).list_all()
     names = {r.name for r in rows}
-    assert len(rows) == 12
-    assert "Daily 9am" in names
+    assert len(rows) == 11
+    assert "Daily 9am" not in names
     assert "Weekly 5pm Friday Amazon Ordered" in names
     assert "Weekly Amazon Thursday using amazon_weekly" not in names
     assert all(not r.is_active for r in rows)
     assert all(r.is_shared for r in rows)
-    nine = next(r for r in rows if r.name == "Daily 9am")
-    assert nine.params["customers"] == ["48999", "917", "2267"]
-    assert nine.sharepoint_path == "Direct Reports/Ordered Report/Daily"
     amazon = next(r for r in rows if r.name == "Amazon Monthly Ordered")
     assert amazon.cadence["monthdays"] == [-1]
     assert amazon.params["period"] == "mtd"
@@ -101,3 +98,19 @@ def test_existing_salesmen_schedule_gets_split_all_on_reseed(tmp_path: Path):
     row = next(r for r in repo.list_all() if r.name == "Daily 9am Salesmen Ordered")
     assert row.params.get("split_by_salesman") is True
     assert row.params.get("period") == "yesterday"
+
+
+def test_seed_does_not_restore_deleted_company_schedule(tmp_path: Path):
+    from web.data.repositories.app_settings import AppSettingsRepository
+
+    app = create_app(replace(_cfg(tmp_path), is_beta=True))
+    db = app.config["DB"]
+    migrate(db)
+    _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
+    repo = MasterScheduleRepository(db)
+    row = next(r for r in repo.list_all() if r.name == "Daily 9am Salesmen Ordered")
+    AppSettingsRepository(db).skip_seed_name(row.name)
+    assert repo.delete(row.id)
+    _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
+    names = {r.name for r in repo.list_all()}
+    assert "Daily 9am Salesmen Ordered" not in names

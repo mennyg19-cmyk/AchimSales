@@ -986,6 +986,34 @@ def test_master_schedule_admin_only(tmp_path):
     assert rep.get(f"/master-schedules/{mid}/history").status_code == 403
 
 
+def test_deleted_company_schedule_is_not_reseeded(tmp_path):
+    from web import _seed_master_schedules
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "Daily Ordered Report", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "00:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    sid = created.get_json()["id"]
+    assert client.delete(
+        f"/api/master-schedules/{sid}", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 200
+    _seed_master_schedules(app, app.config["DB"], [{
+        "name": "Daily Ordered Report",
+        "report_key": "ordered",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
+    }])
+    repo = MasterScheduleRepository(app.config["DB"])
+    assert "Daily Ordered Report" not in {r.name for r in repo.list_all()}
+
+
 def test_master_schedule_lookups_admin_only(tmp_path):
     rows = [
         {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "MKolko"},

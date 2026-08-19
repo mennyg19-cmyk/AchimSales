@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-19 Deleted company schedules must not come back on boot
+**What you asked for:** Stop putting Daily 9am back after you delete it.
+**What I chose:** Boot seed was re-inserting any Azure name that was missing. Delete now records the name so seed skips it. Daily 9am is also off the Beta seed list, and a migration deletes the leftover shared row so this deploy does not resurrect it.
+**Status:** DECIDED — implementing.
+
 ## 2026-08-19 Schedules run log starts collapsed
 **What you asked for:** The report run log should be collapsed by default.
 **What I chose:** The Schedules Recent run log no longer auto-opens when there are rows. Run now still opens it so you can watch that job.

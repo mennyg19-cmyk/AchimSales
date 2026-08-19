@@ -23,6 +23,19 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Deleted company schedules stay deleted
+
+**What to test:**
+- Boot seed does not re-insert a company schedule after it was deleted.
+- Beta seed no longer includes `Daily 9am` (customer 48999/917/2267).
+- Migration `0010` deletes a leftover shared `Daily 9am` row.
+
+**Expected behavior:**
+- Delete on company schedules is remembered across deploys/recycles.
+- Recreating the same name later is allowed (the skip list is cleared on create).
+
+**Test files:** `v3/tests/test_schedule_seed.py`, `v3/tests/test_blueprints.py`
+
 ## Schedules run log starts collapsed
 
 **What to test:**

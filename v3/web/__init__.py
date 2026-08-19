@@ -694,7 +694,8 @@ _AZURE_SCHEDULES: list[dict] = [
 # Live Azure Automation jobs as of 2026-08-13. Names match Azure. Email-only
 # Live jobs have no stored recipients here — SharePoint is the delivery so the
 # row can be saved; add addresses after you check each one. Skipped:
-# amazon_weekly (no Beta report) and the leftover OrderReportDirect link.
+# amazon_weekly (no Beta report), leftover OrderReportDirect, and Daily 9am
+# (customer 48999/917/2267 — deleted on Beta; boot must not put it back).
 _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
     {
         "name": "DailyInvoicedReport",
@@ -716,13 +717,6 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
         "params": {},
         "cadence": {"freq": "daily", "time": "05:00"},
         "sharepoint_path": "Direct Reports/Number 4 Report/Daily",
-    },
-    {
-        "name": "Daily 9am",
-        "report_key": "ordered",
-        "params": {"period": "yesterday", "customers": ["48999", "917", "2267"]},
-        "cadence": {"freq": "daily", "time": "09:00"},
-        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
     },
     {
         "name": "Daily 9am Salesmen Ordered",
@@ -786,18 +780,21 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
 
 def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
                            *, inactive: bool = False) -> None:
-    """Insert missing master_schedules. Existing names are left untouched."""
+    """Insert missing master_schedules. Existing and operator-deleted names stay put."""
     import sqlite3
 
     from web.data.repositories.schedules import MasterScheduleRepository
     from web.scheduling import cadence as C
 
     try:
+        from web.data.repositories.app_settings import AppSettingsRepository
+
         repo = MasterScheduleRepository(db)
+        skipped = AppSettingsRepository(db).skipped_seed_names()
         existing = {s.name for s in repo.list_all()}
         added = 0
         for s in (rows if rows is not None else _AZURE_SCHEDULES):
-            if s["name"] in existing:
+            if s["name"] in existing or s["name"] in skipped:
                 continue
             try:
                 repo.create(
