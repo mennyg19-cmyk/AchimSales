@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-19 Schedules run log starts collapsed
+**What you asked for:** The report run log should be collapsed by default.
+**What I chose:** The Schedules Recent run log no longer auto-opens when there are rows. Run now still opens it so you can watch that job.
+**Status:** DECIDED — implementing.
+
 ## 2026-08-19 Company schedules can be copied
 **What you asked for:** Copy a company schedule, then change options. Personal Copy already existed.
 **What I chose:** Copy on company rows you can already edit. Duplicate everything (report, params, layout, cadence, recipients, SharePoint, filename, share flag, run-as). Name is `{original} (copy)`, then `(copy 2)` if taken. Leave Off so it does not double-send. Copier owns the new row so they can edit it. Shared names stay unique.

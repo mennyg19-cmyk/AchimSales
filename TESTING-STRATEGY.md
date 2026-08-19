@@ -23,6 +23,16 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 -->
 
+## Schedules run log starts collapsed
+
+**What to test:**
+- After a schedule has run, `/schedules` still renders the Recent run log without the `open` attribute.
+
+**Expected behavior:**
+- The log is closed on page load. Run now still opens it so you can watch that job.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
 ## Company schedule Copy
 
 **What to test:**

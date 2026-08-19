@@ -39,7 +39,6 @@ function renderRunLog(runs: RunLogRow[]): void {
   const body = document.getElementById("runLogBody");
   const count = document.getElementById("runLogCount");
   if (!panel || !body) return;
-  panel.setAttribute("open", "");
   if (count) {
     count.textContent = String(runs.length);
     count.hidden = runs.length === 0;
@@ -118,6 +117,7 @@ function bindRowActions(): void {
     b.addEventListener("click", async () => {
       b.disabled = true;
       b.textContent = "Running…";
+      document.getElementById("runLogPanel")?.setAttribute("open", "");
       const before = await refreshRunLog();
       const beforeIds = new Set(before.map((r) => r.id));
       const ok = await act(b.dataset.url!, "POST", {});

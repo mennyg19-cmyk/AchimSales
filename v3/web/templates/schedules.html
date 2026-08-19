@@ -24,8 +24,7 @@
 {% endif %}
 
 <details class="run-log-panel" id="runLogPanel"
-         data-recent-url="{{ url_for('schedules.recent_runs') }}"
-         {% if recent_runs %}open{% endif %}>
+         data-recent-url="{{ url_for('schedules.recent_runs') }}">
     <summary class="run-log-summary">
         Recent run log
         <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>

@@ -1410,6 +1410,10 @@ def test_master_run_now_writes_outbox_and_history(tmp_path):
     assert rows and "team@x.com" in rows[0].recipients
     assert "[TEST]" not in rows[0].subject
     assert list((tmp_path / "outbox").glob("*.eml"))
+    page = client.get("/schedules").get_data(as_text=True)
+    start = page.find('<details class="run-log-panel"')
+    end = page.find(">", start)
+    assert start != -1 and "open" not in page[start:end]
 
 
 def test_master_run_now_test_mode_mails_test_list_only(tmp_path):
