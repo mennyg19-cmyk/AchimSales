@@ -71,6 +71,7 @@ class Schedule:
     created_at: str
     filename_template: str = ""
     catch_up_pending: bool = False
+    last_claimed_at: str | None = None
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Schedule":
@@ -83,6 +84,7 @@ class Schedule:
             start_date=r["start_date"], end_date=r["end_date"], created_at=r["created_at"],
             filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
             catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
+            last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
         )
 
 
@@ -103,6 +105,7 @@ class MasterSchedule:
     is_shared: bool = True
     run_as_user_id: int | None = None
     catch_up_pending: bool = False
+    last_claimed_at: str | None = None
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "MasterSchedule":
@@ -121,6 +124,7 @@ class MasterSchedule:
             is_shared=bool(shared),
             run_as_user_id=int(run_as) if run_as is not None else None,
             catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
+            last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
         )
 
 
@@ -199,6 +203,14 @@ class ScheduleRepository:
                 (1 if active else 0, schedule_id, owner_user_id),
             )
             return cur.rowcount == 1
+
+    def claim_slot(self, schedule_id: int, when_iso: str) -> None:
+        """Mark today's slot taken so a save/On does not catch up a missed send."""
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE schedules SET last_claimed_at=? WHERE id=?",
+                (when_iso, schedule_id),
+            )
 
     def delete(self, schedule_id: int, owner_user_id: int) -> bool:
         with self.db.precious() as conn:
@@ -366,6 +378,14 @@ class MasterScheduleRepository:
                 (1 if active else 0, schedule_id),
             )
             return cur.rowcount == 1
+
+    def claim_slot(self, schedule_id: int, when_iso: str) -> None:
+        """Mark today's slot taken so a save/On does not catch up a missed send."""
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE master_schedules SET last_claimed_at=? WHERE id=?",
+                (when_iso, schedule_id),
+            )
 
     def set_catch_up(self, schedule_id: int, pending: bool) -> None:
         with self.db.precious() as conn:

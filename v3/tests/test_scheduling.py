@@ -61,6 +61,14 @@ def test_due_now_weekly_wrong_day():
     assert C.due_now(cad, None, monday) is False
 
 
+def test_later_iso_picks_the_newer_stamp():
+    older = "2026-06-01T12:00:00+00:00"
+    newer = "2026-06-01T13:00:00+00:00"
+    assert C.later_iso(older, newer) == newer
+    assert C.later_iso(newer, None) == newer
+    assert C.later_iso(None, None) is None
+
+
 def test_describe():
     assert "Daily" in C.describe({"freq": "daily", "time": "08:00"})
     assert "Mon" in C.describe({"freq": "weekly", "time": "08:00", "weekdays": [0]})
@@ -514,4 +522,55 @@ def test_tick_run_now_style_enqueue_still_works_when_restricted(tmp_path, monkey
                          ignore_sabbath=True)
     job = job_repo.claim_next()
     assert job is not None and job.params["ignore_sabbath"] is True
+
+
+def test_already_on_overdue_schedule_still_catch_up_fires(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, JobRepository(db), now) == 1
+
+
+def test_hold_until_next_slot_stops_same_day_catch_up(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due, hold_until_next_slot
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    sched = MasterScheduleRepository(db).get(mid)
+    assert hold_until_next_slot(
+        MasterScheduleRepository(db), ScheduleRunRepository(db), sched, MASTER, now,
+    ) is True
+    assert enqueue_due(db, JobRepository(db), now) == 0
+    later = datetime(2026, 6, 2, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, JobRepository(db), later) == 1
+
+
+def test_hold_before_slot_still_fires_when_time_arrives(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due, hold_until_next_slot
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    morning = datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc)
+    after = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    sched = MasterScheduleRepository(db).get(mid)
+    assert hold_until_next_slot(
+        MasterScheduleRepository(db), ScheduleRunRepository(db), sched, MASTER, morning,
+    ) is False
+    assert enqueue_due(db, JobRepository(db), morning) == 0
+    assert enqueue_due(db, JobRepository(db), after) == 1
 

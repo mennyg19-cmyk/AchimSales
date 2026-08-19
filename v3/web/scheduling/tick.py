@@ -55,6 +55,27 @@ def enqueue_due(db, job_repo: JobRepository, now: datetime | None = None) -> int
     return enqueued
 
 
+def hold_until_next_slot(repo, runs: ScheduleRunRepository, sched,
+                         schedule_type: str, now: datetime | None = None) -> bool:
+    """If the next tick would fire this schedule, claim today instead.
+
+    Turning a schedule On or saving an edit must wait for the next scheduled
+    time. A schedule that was already On still catch-up-fires if the slot
+    was missed (app down).
+    """
+    if not getattr(sched, "is_active", True):
+        return False
+    now = now or datetime.now(timezone.utc)
+    last = C.later_iso(
+        runs.last_run_at(sched.id, schedule_type),
+        getattr(sched, "last_claimed_at", None),
+    )
+    if not C.due_now(sched.cadence, last, now):
+        return False
+    repo.claim_slot(sched.id, now.isoformat())
+    return True
+
+
 def make_tick(db, job_repo: JobRepository):
     """Build the no-arg callable APScheduler will fire each minute."""
     def tick() -> None:
@@ -78,7 +99,11 @@ def _consider(job_repo, runs, repo, sched, schedule_type: str, now: datetime,
             owner_user_id=owner_user_id,
         )
         return 1
-    if not C.due_now(sched.cadence, runs.last_run_at(sched.id, schedule_type), now):
+    last = C.later_iso(
+        runs.last_run_at(sched.id, schedule_type),
+        getattr(sched, "last_claimed_at", None),
+    )
+    if not C.due_now(sched.cadence, last, now):
         return 0
     if skip and assur:
         run_id = runs.start(sched.id, schedule_type)

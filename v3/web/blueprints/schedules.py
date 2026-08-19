@@ -26,6 +26,7 @@ from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.scheduling import cadence as C
 from web.scheduling.jobs import enqueue_schedule_run
+from web.scheduling.tick import hold_until_next_slot
 
 schedules_bp = Blueprint("schedules", __name__)
 
@@ -96,6 +97,10 @@ def _settings():
 
 def _runs() -> ScheduleRunRepository:
     return ScheduleRunRepository(_db())
+
+
+def _hold_if_due(repo, sched, schedule_type: str) -> None:
+    hold_until_next_slot(repo, _runs(), sched, schedule_type)
 
 
 def _lookups():
@@ -334,6 +339,9 @@ def create_schedule():
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
         filename_template=(body.get("filename_template") or "").strip(),
     )
+    created = _repo().get(sid, _uid(p.email))
+    if created:
+        _hold_if_due(_repo(), created, PERSONAL)
     return jsonify({"id": sid}), 201
 
 
@@ -357,6 +365,9 @@ def update_schedule(schedule_id: int):
     )
     if not ok:
         abort(404, description="Unknown schedule")
+    updated = _repo().get(schedule_id, _uid(p.email))
+    if updated:
+        _hold_if_due(_repo(), updated, PERSONAL)
     return jsonify({"updated": True})
 
 
@@ -365,9 +376,15 @@ def update_schedule(schedule_id: int):
 def toggle_schedule(schedule_id: int):
     p = _principal()
     body = request.get_json(silent=True) or {}
-    if not _repo().set_active(schedule_id, _uid(p.email), bool(body.get("active"))):
+    uid = _uid(p.email)
+    active = bool(body.get("active"))
+    if not _repo().set_active(schedule_id, uid, active):
         abort(404, description="Unknown schedule")
-    return jsonify({"active": bool(body.get("active"))})
+    if active:
+        sched = _repo().get(schedule_id, uid)
+        if sched:
+            _hold_if_due(_repo(), sched, PERSONAL)
+    return jsonify({"active": active})
 
 
 @schedules_bp.delete("/api/schedules/<int:schedule_id>")
@@ -740,6 +757,9 @@ def create_master():
         run_as_user_id=_parse_run_as(p, body),
     )
     _settings().unskip_seed_name(name)
+    created = _master().get(mid)
+    if created:
+        _hold_if_due(_master(), created, MASTER)
     return jsonify({"id": mid}), 201
 
 
@@ -798,6 +818,9 @@ def update_master(schedule_id: int):
     if existing.name != name:
         _settings().skip_seed_name(existing.name)
         _settings().unskip_seed_name(name)
+    updated = _master().get(schedule_id)
+    if updated:
+        _hold_if_due(_master(), updated, MASTER)
     return jsonify({"updated": True})
 
 
@@ -810,9 +833,14 @@ def toggle_master(schedule_id: int):
         abort(404, description="Unknown master schedule")
     _require_master_edit(p, sched)
     body = request.get_json(silent=True) or {}
-    if not _master().set_active(schedule_id, bool(body.get("active"))):
+    active = bool(body.get("active"))
+    if not _master().set_active(schedule_id, active):
         abort(404, description="Unknown master schedule")
-    return jsonify({"active": bool(body.get("active"))})
+    if active:
+        row = _master().get(schedule_id)
+        if row:
+            _hold_if_due(_master(), row, MASTER)
+    return jsonify({"active": active})
 
 
 @schedules_bp.delete("/api/master-schedules/<int:schedule_id>")

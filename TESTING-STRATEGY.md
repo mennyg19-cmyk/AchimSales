@@ -120,6 +120,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_filename_template.py`
 
+## Save and On wait for the next scheduled time
+
+**What to test:**
+- Turning a company or personal schedule On after today's time has passed does not enqueue a run.
+- Saving an edit on an active schedule does not enqueue a run.
+- Creating a schedule whose time already passed today does not enqueue a run.
+- A schedule that was already On still catch-up-fires if the slot was missed (app down).
+- Turning On before the slot still fires at that time. Run now still sends immediately.
+
+**Expected behavior:**
+- Save / On wait for the next cadence. Only Run now or the clock at the scheduled time send.
+
+**Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
+
 ## SharePoint folder paths and date tokens
 
 **What to test:**

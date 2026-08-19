@@ -161,3 +161,25 @@ def _ran_today(last_run_iso: str | None, now_eastern: datetime) -> bool:
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
     return last.astimezone(_EASTERN).date() == now_eastern.date()
+
+
+def later_iso(a: str | None, b: str | None) -> str | None:
+    """The later of two ISO timestamps. Invalid values are ignored."""
+    da, db = _as_dt(a), _as_dt(b)
+    if da is None:
+        return b if db is not None else None
+    if db is None:
+        return a
+    return a if da >= db else b
+
+
+def _as_dt(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt

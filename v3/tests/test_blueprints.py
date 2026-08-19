@@ -1511,25 +1511,22 @@ def test_master_run_now_test_mode_mails_test_list_only(tmp_path):
 def test_clock_tick_drains_personal_and_master_to_outbox(tmp_path):
     from datetime import datetime, timezone
     from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.schedules import MasterScheduleRepository, ScheduleRepository
+    from web.data.repositories.users import UserRepository
     from web.scheduling.tick import enqueue_due
 
     app = _make_app(tmp_path, rows_by_report=_ordered_rows())
     client = app.test_client()
     _login(client, app)
-    personal = client.post("/api/schedules", json={
-        "report_key": "ordered", "recipients": "me@x.com",
-        "cadence": {"freq": "daily", "time": "08:00"},
-        "params": {"period": "all_time"}},
-        headers={"X-CSRF-Token": _CSRF})
-    assert personal.status_code == 201
-    master = client.post("/api/master-schedules", json={
-        "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
-        "cadence": {"freq": "daily", "time": "05:00"},
-        "params": {"period": "all_time"}},
-        headers={"X-CSRF-Token": _CSRF})
-    assert master.status_code == 201
-    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
     db = app.config["DB"]
+    ScheduleRepository(db).create(
+        uid, "ordered", params={"period": "all_time"}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="me@x.com")
+    MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={"period": "all_time"}, layout={},
+        cadence={"freq": "daily", "time": "05:00"}, recipients="team@x.com")
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
     assert enqueue_due(db, JobRepository(db), now) == 2
     app.config["JOB_WORKER"].drain()
     from web.data.repositories.outbox import OutboxRepository
@@ -1537,6 +1534,44 @@ def test_clock_tick_drains_personal_and_master_to_outbox(tmp_path):
     assert "me@x.com" in recips
     assert "team@x.com" in recips
     assert len(list((tmp_path / "outbox").glob("*.eml"))) >= 2
+
+
+def test_save_and_on_do_not_catch_up_todays_missed_slot(tmp_path):
+    from datetime import datetime, timezone
+    from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.schedules import MasterScheduleRepository
+    from web.scheduling.tick import enqueue_due
+
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "Wait for slot", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    db = app.config["DB"]
+    now = datetime.now(timezone.utc)
+    assert enqueue_due(db, JobRepository(db), now) == 0
+
+    client.post(f"/api/master-schedules/{mid}/toggle", json={"active": False},
+                headers={"X-CSRF-Token": _CSRF})
+    client.post(f"/api/master-schedules/{mid}/toggle", json={"active": True},
+                headers={"X-CSRF-Token": _CSRF})
+    assert enqueue_due(db, JobRepository(db), now) == 0
+
+    client.put(f"/api/master-schedules/{mid}", json={
+        "name": "Wait for slot", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert enqueue_due(db, JobRepository(db), now) == 0
+    row = MasterScheduleRepository(db).get(mid)
+    assert row.last_claimed_at
+    run = client.post(f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
 
 
 def test_schedule_test_mode_forbidden_for_salesman(tmp_path):
