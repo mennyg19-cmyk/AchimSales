@@ -72,6 +72,10 @@ class Authorization:
             return False
         return uid == owner_user_id or uid == run_as_user_id
 
+    def may_see_commissions(self, p: Principal | None) -> bool:
+        """Commissions is a company tab. Salesmen never see it; managers and admins do."""
+        return self.is_privileged(p) or self.is_manager(p)
+
     # --- salesman / customer scope -----------------------------------------
 
     def visible_salesman_keys(self, p: Principal) -> set[str] | None:

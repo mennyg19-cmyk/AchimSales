@@ -132,6 +132,7 @@ def test_report_view_renders_filters(tmp_path):
     _login(client, app)
     html = client.get("/reports/ordered").get_data(as_text=True)
     assert 'id="runBtn"' in html
+    assert 'id="emailMeBtn"' in html
     assert 'name="period"' in html  # ordered exposes a period filter
 
 
@@ -1744,6 +1745,42 @@ def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     payload = client.get(f"/api/reports/result/{job_id}").get_json()
     comm = next(t for t in payload["tabs"] if t["key"] == "commissions")
     assert comm["columns"] and comm["rows"]  # renders as a real table, not blank
+
+
+def test_salesman_invoiced_run_omits_commissions_tab(tmp_path):
+    rows = [
+        {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
+         "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    html = client.get("/reports/invoiced").get_data(as_text=True)
+    assert 'data-hide-commissions="1"' in html
+    job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    payload = client.get(f"/api/reports/result/{job_id}").get_json()
+    assert "commissions" not in {t["key"] for t in payload["tabs"]}
+
+
+def test_salesman_email_now_invoiced_skips_commissions(tmp_path):
+    rows = [
+        {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
+         "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    resp = client.post("/api/reports/invoiced/email-now",
+                       json={"recipients": "rep@x.com", "subject": "Invoiced",
+                             "params": {"year": "2026"}, "layout": {}},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 202
+    job_id = resp.get_json()["job_id"]
+    status = client.get(f"/api/jobs/{job_id}").get_json()
+    assert status["status"] == "success"
 
 
 def test_settings_hub_hides_admin_from_salesman(tmp_path):

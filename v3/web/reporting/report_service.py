@@ -259,6 +259,17 @@ def invoiced_skip_commissions(params: dict | None, layout: dict | None = None) -
     return False
 
 
+def drop_commissions_tab(payload: dict) -> dict:
+    """Copy a payload without the Commissions tab (salesman viewers never see it)."""
+    tabs = payload.get("tabs") or []
+    kept = [t for t in tabs if t.get("key") != "commissions"]
+    if len(kept) == len(tabs):
+        return payload
+    out = dict(payload)
+    out["tabs"] = kept
+    return out
+
+
 def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     """Invoiced tabs use the selected period; Commissions needs Jan 1..period end.
 

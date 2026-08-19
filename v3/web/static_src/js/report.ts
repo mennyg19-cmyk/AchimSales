@@ -1176,7 +1176,10 @@ function loadPayload(payload: Payload, render = true): void {
   state.views = {};
   state.removed = new Set();
   (state.tabs as any).__generated_at__ = payload.generated_at;
-  payload.tabs.forEach((tab) => {
+  const tabs = attr("data-hide-commissions") === "1"
+    ? payload.tabs.filter((t) => t.key !== "commissions")
+    : payload.tabs;
+  tabs.forEach((tab) => {
     state.tabs[tab.key] = tab;
     state.order.push(tab.key);
     const v = freshView();
@@ -2159,6 +2162,22 @@ function closeEmailModal(): void {
   if (modal) modal.hidden = true;
 }
 
+async function postEmailNow(recipients: string, subject: string, sharepointPath: string): Promise<string> {
+  const res = await fetch(attr("data-email-url"), {
+    method: "POST", headers: csrfHeaders(),
+    body: JSON.stringify({
+      recipients, subject, sharepoint_path: sharepointPath,
+      params: collectParams(), layout: serializeLayout(),
+    }),
+  });
+  if (res.status !== 202) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error((e as any).error || "Could not queue the email.");
+  }
+  const { job_id } = await res.json();
+  return job_id as string;
+}
+
 async function sendEmail(): Promise<void> {
   const recipients = (($("emailRecipients") as HTMLInputElement)).value.trim();
   const subject = (($("emailSubject") as HTMLInputElement)).value.trim();
@@ -2170,23 +2189,45 @@ async function sendEmail(): Promise<void> {
   if (sendBtn) sendBtn.disabled = true;
   emailMsg("Sending…", false);
   try {
-    const res = await fetch(attr("data-email-url"), {
-      method: "POST", headers: csrfHeaders(),
-      body: JSON.stringify({
-        recipients, subject, sharepoint_path: emailSp.path() || "",
-        params: collectParams(), layout: serializeLayout(),
-      }),
-    });
-    if (res.status !== 202) {
-      const e = await res.json().catch(() => ({}));
-      throw new Error((e as any).error || "Could not queue the email.");
-    }
-    const { job_id } = await res.json();
-    await pollEmailJob(job_id);
+    const jobId = await postEmailNow(recipients, subject, emailSp.path() || "");
+    await pollEmailJob(jobId);
   } catch (e) {
     emailMsg((e as Error).message || "Could not send.", true);
   } finally {
     if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+async function emailMe(): Promise<void> {
+  const me = attr("data-user-email").trim();
+  if (!me) {
+    setStatus("This account has no email address.", "error");
+    return;
+  }
+  const btn = $("emailMeBtn") as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  setStatus("Emailing you…");
+  try {
+    const jobId = await postEmailNow(me, attr("data-report-title") || "Report", "");
+    const jobUrl = attr("data-job-url").replace("__ID__", jobId);
+    for (let i = 0; i < 60; i++) {
+      const j = await getJSON<{ status: string; error: string }>(jobUrl);
+      if (!j) break;
+      if (j.status === "success") {
+        setStatus("Sent to " + me + ".");
+        return;
+      }
+      if (j.status === "failure" || j.status === "cancelled") {
+        setStatus(j.error || "Could not send the email.", "error");
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    setStatus("Still sending — check your inbox shortly.");
+  } catch (e) {
+    setStatus((e as Error).message || "Could not send.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -2409,6 +2450,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("moreBtn")?.addEventListener("click", toggleMoreMenu);
   $("emailBtn")?.addEventListener("click", openEmailModal);
+  $("emailMeBtn")?.addEventListener("click", () => { void emailMe(); });
   $("emailClose")?.addEventListener("click", closeEmailModal);
   $("emailCancel")?.addEventListener("click", closeEmailModal);
   $("emailSend")?.addEventListener("click", sendEmail);

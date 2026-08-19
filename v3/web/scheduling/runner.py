@@ -64,6 +64,7 @@ class ScheduleRunner:
                     return run_id
             identity, scope = self._scope(sched, schedule_type)
             spec = registry.get(sched.report_key)
+            params = _with_viewer_limits(self.authz, sched, schedule_type, sched.params)
             # Re-authorize the owner live (personal schedules only; masters are
             # admin-owned + unrestricted). A run that the owner can no longer
             # perform - report access pulled, account disabled, SharePoint revoked
@@ -80,15 +81,15 @@ class ScheduleRunner:
             if test_to is not None:
                 subject = f"[TEST] {subject}"
             od_user = "" if test_to else _onedrive_user(sched, schedule_type, identity)
-            if schedule_type == MASTER and self._salesman_targets(sched.params):
+            if schedule_type == MASTER and self._salesman_targets(params):
                 outcome = self._run_master_fanout(
                     sched=sched, identity=identity, scope=scope,
                     builder_version=spec.builder_version if spec else 1,
                     subject=subject, report_name=report_name,
                     onedrive_user=od_user, test_to=test_to,
+                    params=params,
                 )
             else:
-                params = sched.params or {}
                 no_data_all = bool(params.get("email_on_no_data"))
                 no_data_me = bool(params.get("email_on_no_data_me_only"))
                 outcome = self.delivery.run_and_deliver(
@@ -196,11 +197,12 @@ class ScheduleRunner:
                            scope: set[str] | None, builder_version: int,
                            subject: str, report_name: str,
                            onedrive_user: str = "",
-                           test_to: list[str] | None = None) -> DeliveryOutcome:
+                           test_to: list[str] | None = None,
+                           params: dict | None = None) -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
         deliveries: list[dict] = []
         skip_notes: list[str] = []
-        params = sched.params or {}
+        params = params if params is not None else (sched.params or {})
         test_recips = "; ".join(test_to) if test_to else ""
         sched_name = getattr(sched, "name", "") or report_name
 
@@ -311,6 +313,22 @@ def _onedrive_user(sched, schedule_type: str, identity: str) -> str:
     if not getattr(sched, "is_shared", True):
         return identity
     return ""
+
+
+def _with_viewer_limits(authz, sched, schedule_type: str, params: dict | None) -> dict:
+    """Salesmen never get the invoiced Commissions tab, even on a scheduled send."""
+    out = dict(params or {})
+    if getattr(sched, "report_key", "") != "invoiced":
+        return out
+    owner_id = getattr(sched, "owner_user_id", None)
+    if schedule_type == MASTER:
+        owner_id = getattr(sched, "run_as_user_id", None)
+    if not owner_id:
+        return out
+    principal = authz.principal_for_user_id(owner_id)
+    if principal is not None and not authz.may_see_commissions(principal):
+        out["_skip_commissions"] = True
+    return out
 
 
 def _report_params(params: dict | None) -> dict:

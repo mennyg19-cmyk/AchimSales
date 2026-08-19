@@ -51,6 +51,7 @@ from web.delivery.jobs import enqueue_delivery
 from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
+from web.reporting.report_service import drop_commissions_tab
 
 reports_bp = Blueprint("reports", __name__)
 
@@ -239,6 +240,8 @@ def report_view(report_key: str):
         status_options=STATUS_OPTIONS, year_options=_year_options(),
         n4_mode_options=N4_MODE_OPTIONS,
         is_developer=(p.role == ROLE_DEVELOPER),
+        user_email=p.email,
+        hide_commissions=not authz.may_see_commissions(p),
     )
 
 
@@ -274,6 +277,7 @@ def run_report(report_key: str):
     if uid is None:
         abort(403, description="Unknown user")
     visible = authz.visible_salesman_keys(p)
+    params = _params_for_viewer(p, report_key, params)
     job_id = enqueue_report_run(
         _job_repo(), report_key=report_key, identity=p.email,
         visible_salesman_keys=visible, builder_version=spec.builder_version,
@@ -328,7 +332,10 @@ def report_result(job_id: str):
     cached = _cache().get(job.result_ref)
     if cached is None:
         abort(404, description="Result expired; please re-run")
-    return jsonify(cached.payload)
+    payload = cached.payload
+    if not _authz().may_see_commissions(p):
+        payload = drop_commissions_tab(payload)
+    return jsonify(payload)
 
 
 # How long a finished run stays resumable without Keep.
@@ -1318,7 +1325,8 @@ def email_now(report_key: str):
     job_id = enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
         "report_key": report_key, "identity": p.email,
         "visible_keys": _visible_list(authz.visible_salesman_keys(p)),
-        "builder_version": spec.builder_version, "params": body.get("params") or {},
+        "builder_version": spec.builder_version,
+        "params": _params_for_viewer(p, report_key, body.get("params") or {}),
         "layout": body.get("layout") or {}, "recipients": recipients,
         "subject": (body.get("subject") or "").strip(), "report_name": spec.title,
         "sharepoint_path": sharepoint_path,
@@ -1377,6 +1385,14 @@ def onedrive_folders():
         return jsonify({"path": path, "folders": od.list_folders(p.email, path)})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"path": path, "folders": [], "error": graph_error_message(exc, what="OneDrive")}), 502
+
+
+def _params_for_viewer(p, report_key: str, params: dict) -> dict:
+    """Stamp viewer limits that the builder honors (salesmen never get Commissions)."""
+    out = dict(params or {})
+    if report_key == "invoiced" and not _authz().may_see_commissions(p):
+        out["_skip_commissions"] = True
+    return out
 
 
 def _visible_list(keys) -> list | None:

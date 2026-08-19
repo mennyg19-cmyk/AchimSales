@@ -107,6 +107,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_blueprints.py`
 
+## Email me + hide Commissions from salesmen
+
+**What to test:**
+- Report page has Email me next to Run report.
+- Email me POSTs email-now to the signed-in user's address (existing Email modal still works for other people).
+- Salesman invoiced run/result/export/email has no `commissions` tab. Admin/manager still have it.
+- Page for a salesman sets `data-hide-commissions=1`.
+
+**Expected behavior:**
+- One click emails the current filters as Excel to the user. No recipient modal.
+- A salesman never sees Commissions on screen or in a file they generate.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`
+
 ## Schedule workbook filenames
 
 **What to test:**

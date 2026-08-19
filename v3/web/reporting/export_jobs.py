@@ -23,6 +23,7 @@ from web.delivery.layout import apply_layout, expand_clones
 from web.jobs.worker import Handler, JobContext
 from web.reporting.cache import ReportCache
 from web.reporting.export import build_workbook
+from web.reporting.report_service import drop_commissions_tab
 
 EXPORT_JOB_TYPE = "report.export"
 
@@ -123,6 +124,8 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
 
         layout = p.get("layout") if isinstance(p.get("layout"), dict) else None
         payload = cached.payload
+        if not authz.may_see_commissions(principal):
+            payload = drop_commissions_tab(payload)
         if layout:
             payload = apply_layout(expand_clones(payload, layout), layout)
         ctx.set_progress(55)

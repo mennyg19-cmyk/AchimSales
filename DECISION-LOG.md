@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-19 Email me button; salesmen never see Commissions
+**What you asked for:** A report-page button that runs and emails the user themselves. Salesmen must never see the commissions tab.
+**What I chose:** Email me next to Run report (current filters → Excel to the signed-in address). Existing Email modal stays for other people/SharePoint. Invoiced Commissions is omitted for salesman role on run, result, export, email-now, and personal schedules. Managers and admins still see it.
+**Status:** DECIDED
+
 ## 2026-08-19 Monthly Salesman SharePoint job stays; add a split schedule
 **What you asked for:** Do not rewrite the monthly salesman SharePoint job. Add a separate schedule that fans out.
 **What I chose:** Left `Monthly 1st 12am Monthly Salesman` / `Monthly Salesman Report` on `Salesman Report/Monthly` with no split. Seeded `Monthly 1st 12am Monthly Salesmen` / `Monthly Salesmen Report` with `split_by_salesman` and no folder (same 1st / 22:00 clock). Wizard salesman-report filters include salesman so that split flag survives a save. Test mode still On.

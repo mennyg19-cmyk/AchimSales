@@ -123,6 +123,15 @@ def test_invoiced_skip_commissions_helper():
     assert invoiced_skip_commissions({"_skip_commissions": True}) is True
 
 
+def test_drop_commissions_tab_removes_that_sheet_only():
+    from web.reporting.report_service import drop_commissions_tab
+
+    payload = {"tabs": [{"key": "invoices"}, {"key": "commissions"}, {"key": "credits"}]}
+    out = drop_commissions_tab(payload)
+    assert [t["key"] for t in out["tabs"]] == ["invoices", "credits"]
+    assert payload["tabs"][1]["key"] == "commissions"
+
+
 def test_invoiced_salesman_filter_fetches_only_selected_period():
     """Shipped (--salesman): period window only, no Commissions tab."""
     rows = [
