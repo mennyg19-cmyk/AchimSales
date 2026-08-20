@@ -17,43 +17,60 @@ _LIVE_USER_KEY = "user"
 
 
 def live_login_redirect(next_path: str = "/") -> str:
-    """Live login URL (Live sits at /legacy; Entra callback stays /auth/callback)."""
+    """Home login URL. Microsoft still starts on Live at /legacy/login/start."""
     safe = next_path if next_path.startswith("/") and not next_path.startswith("//") else "/"
-    return f"/legacy/login?next={quote(safe, safe='/?=&')}"
+    return f"/login?next={quote(safe, safe='/?=&')}"
 
 
 def adopt_live_identity():
-    """If Live session has a user and Beta has none, adopt it. Returns principal."""
+    """If Live session has a user, adopt it (or refresh if they switched user)."""
     from flask import current_app, session
 
     from web.auth.principal import VALID_ROLES, Principal
     from web.auth.session import current_principal, login
     from web.data.repositories.users import UserRepository
 
-    existing = current_principal()
-    if existing is not None:
-        return existing
-
     live = session.get(_LIVE_USER_KEY)
     if not isinstance(live, dict) or not live.get("email"):
-        return None
+        return current_principal()
 
     email = str(live["email"]).strip().lower()
-    name = str(live.get("name") or email)
+    raw_name = str(live.get("name") or email)
+    display = raw_name.split(" (as ")[0] if " (as " in raw_name else raw_name
     role = str(live.get("role") or "salesman").strip().lower()
     if role not in VALID_ROLES:
         role = "salesman"
     is_dev = bool(live.get("_dev")) or role == "developer"
+    dev_email = str(live.get("_dev_email") or "").strip().lower()
+    impersonating = is_dev and bool(dev_email) and email != dev_email
+
+    existing = current_principal()
+    if (
+        existing is not None
+        and existing.email == email
+        and existing.role == role
+        and existing.is_dev == is_dev
+        and existing.impersonating == impersonating
+    ):
+        return existing
 
     db = current_app.config["DB"]
     users = UserRepository(db)
-    # create() upserts role so Live promotions show up on Beta without re-seed.
-    user = users.create(email, role=role, display_name=name)
+    persist_role = "developer" if is_dev and email == (dev_email or email) else role
+    user = users.create(email, role=persist_role, display_name=display)
     _sync_salesman_scope(users, user.id, live, email, role)
 
-    principal = Principal(email=email, name=name, role=role, is_dev=is_dev)
+    principal = Principal(
+        email=email,
+        name=raw_name,
+        role=role,
+        is_dev=is_dev,
+        impersonating=impersonating,
+        real_email=dev_email if impersonating else "",
+        real_name=str(live.get("_dev_name") or "") if impersonating else "",
+    )
     login(principal)
-    log.info("beta adopted live session for %s role=%s", email, role)
+    log.info("beta adopted live session for %s role=%s impersonating=%s", email, role, impersonating)
     return principal
 
 

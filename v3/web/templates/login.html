@@ -1,6 +1,55 @@
 {% extends "base.html" %}
 {% block title %}Sign in &mdash; Sales Reports{% endblock %}
 {% block content %}
+{% if live_login %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1 class="auth-title">Sales Reports</h1>
+    <p class="auth-sub">Sign in to continue</p>
+    <a href="{{ login_start }}" class="btn btn-primary btn-lg btn-block">Achim User Login</a>
+    <button type="button" id="externalLoginBtn" class="btn btn-outline btn-lg btn-block" style="margin-top:10px;">
+      External Rep Login
+    </button>
+  </div>
+</div>
+<div id="externalLoginModal" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.55); z-index:1000; align-items:center; justify-content:center; padding:16px;"
+     onclick="if(event.target===this) closeExternalLogin()">
+  <div role="dialog" aria-labelledby="extLoginTitle"
+       style="background:var(--bg-card); color:var(--text); border-radius:12px; box-shadow:0 18px 50px rgba(0,0,0,0.35); width:min(440px,100%); padding:24px; position:relative;">
+    <button type="button" onclick="closeExternalLogin()" aria-label="Close"
+            style="position:absolute; top:8px; right:12px; background:none; border:none; font-size:24px; color:var(--text-muted); cursor:pointer;">&times;</button>
+    <h2 id="extLoginTitle" style="margin:0 0 8px;">External Rep Login</h2>
+    <p style="color:var(--text-muted); font-size:14px; margin:0 0 16px;">
+      Enter the email your account is registered with. We'll send you a
+      one-time sign-in link from <strong>reports@achimonline.com</strong>.
+      The link expires in 15 minutes.
+    </p>
+    <form method="POST" action="/legacy/login/magic-link">
+      <input type="email" name="email" required autofocus placeholder="you@company.com"
+             style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px;">
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button type="button" class="btn btn-outline" onclick="closeExternalLogin()" style="flex:1;">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex:2;">Send sign-in link</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function() {
+    var btn = document.getElementById('externalLoginBtn');
+    var modal = document.getElementById('externalLoginModal');
+    btn.addEventListener('click', function() {
+        modal.style.display = 'flex';
+        var email = modal.querySelector('input[name="email"]');
+        setTimeout(function() { email.focus(); }, 50);
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && modal.style.display === 'flex') closeExternalLogin();
+    });
+    window.closeExternalLogin = function() { modal.style.display = 'none'; };
+})();
+</script>
+{% else %}
 <div class="auth-wrap">
   <div class="auth-card">
     <h1 class="auth-title">Sales Reports</h1>
@@ -22,4 +71,5 @@
     </form>
   </div>
 </div>
+{% endif %}
 {% endblock %}

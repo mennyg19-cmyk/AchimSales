@@ -342,3 +342,54 @@ def test_impersonate_cannot_nest(app):
         s["_csrf_token"] = "t"
     assert client.get("/impersonate").status_code == 400
     assert client.post("/impersonate", data={"email": "x@x.com", "csrf_token": "t"}).status_code == 400
+
+
+def test_beta_login_shows_microsoft_button(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    resp = application.test_client().get("/login")
+    assert resp.status_code == 200
+    assert b"Achim User Login" in resp.data
+    assert b"/legacy/login/start" in resp.data
+    assert b"Developer sign-in" not in resp.data
+
+
+def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer", display_name="Dev")
+    UserRepository(application.config["DB"]).upsert("rep@x.com", role="salesman", display_name="Sales Rep")
+
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "dev@x.com", "name": "Dev", "role": "developer",
+            "salesman_key": None, "_dev": True, "_dev_name": "Dev", "_dev_email": "dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    page = client.get("/dev/role-picker")
+    assert page.status_code == 200
+    assert b"Impersonate User" in page.data
+    assert b"Sales Rep" in page.data
+    resp = client.post("/dev/role-picker", data={"target_email": "rep@x.com", "csrf_token": "t"})
+    assert resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["user"]["email"] == "rep@x.com"
+        assert s["user"]["_dev"] is True
+        assert s["v3_user"]["email"] == "rep@x.com"
+        assert s["v3_user"]["impersonating"] is True
+    again = client.get("/dev/role-picker")
+    assert again.status_code == 200
+    self_resp = client.post("/dev/role-picker", data={"target_email": "__self__", "csrf_token": "t"})
+    assert self_resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["user"]["email"] == "dev@x.com"
+        assert s["v3_user"]["email"] == "dev@x.com"
+        assert not s["v3_user"].get("impersonating")
+

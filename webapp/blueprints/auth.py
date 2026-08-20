@@ -51,7 +51,7 @@ def _redirect_after_login():
 def index():
     if get_current_user():
         return redirect(url_for("reports.reports_list"))
-    return redirect(url_for("auth.login"))
+    return redirect("/login")
 
 
 @auth_bp.route("/login")
@@ -77,14 +77,14 @@ def login_start():
     except Exception:
         log.exception("Failed to build login URL")
         flash("Could not connect to Microsoft login. Please try again.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
 
 @auth_bp.route("/dev-login", methods=["GET", "POST"])
 def dev_login():
     """Dev-only: bypass Microsoft login, pick a role to sign in as."""
     if not DEV_BYPASS_AUTH:
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     if request.method == "POST":
         role = request.form.get("role", "admin")
@@ -117,7 +117,7 @@ def auth_callback():
     ms_user = complete_login()
     if not ms_user:
         flash("Login failed. Please try again.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     email = ms_user.get("email", "")
     user_info = get_user(email)
@@ -218,7 +218,7 @@ def request_magic_link():
     email = (request.form.get("email") or "").strip().lower()
     if not email or "@" not in email:
         flash("Please enter a valid email address.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     user = get_user(email)
     if user and user.get("role") == "salesman":
@@ -241,7 +241,7 @@ def request_magic_link():
     # Generic response: don't reveal whether the email is registered.
     flash("If that email is registered as an external sales rep, "
           "you'll get a sign-in link in a minute.", "info")
-    return redirect(url_for("auth.login"))
+    return redirect("/login")
 
 
 @auth_bp.route("/login/magic-link/<token>")
@@ -253,13 +253,13 @@ def consume_magic_link(token):
     if not email:
         flash("That sign-in link is invalid or has expired. "
               "Please request a new one.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     user_info = get_user(email)
     if not user_info:
         log.warning("Magic-link token consumed for unknown email %s", email)
         flash("Account not found.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     session["user"] = {
         "email": email,
@@ -275,4 +275,4 @@ def consume_magic_link(token):
 @auth_bp.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("auth.login"))
+    return redirect("/login")

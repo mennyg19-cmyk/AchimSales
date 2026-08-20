@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-20 Login and role picker live on the home app
+**What you asked for:** Login should go to Beta (home). The developer role picker should work there.
+**What I chose:** `/login` is the home sign-in page (Achim User + External Rep). Microsoft still starts at `/legacy/login/start` and comes back to `/auth/callback`. Developers land on `/dev/role-picker` (same picker as old Live: yourself as admin, or search/pick a user). The header switch-user button opens that picker even while impersonating. Test mode stays On.
+**Status:** DECIDED
+
 ## 2026-08-20 Beta is the site home; old Live is /legacy
 **What you asked for:** Make the Beta page the home page. Put the current home at `/legacy`.
 **What I chose:** `/` is v3 with `is_beta`. `/legacy` is `webapp/` (OData, email distributions). `/beta/...` 302s to the same path without the prefix. Microsoft login stays `/auth/callback` (no new Entra URI); the login page is `/legacy/login`. Anyone who can sign into Live can use `/` — the Beta Access flag is not a gate. If Beta fails to boot, `/` stays the old Live app. Test mode stays On.

@@ -55,19 +55,22 @@ def _login_or_403(user: User, *, name: str, is_dev: bool) -> None:
 def login_page():
     cfg = _cfg()
     if cfg.is_beta:
-        # Beta shares Live login — never start a second MSAL round-trip.
+        from urllib.parse import quote
+
         from web.auth.session import current_principal
-        from web.beta_live_session import adopt_live_identity, live_login_redirect
+        from web.beta_live_session import adopt_live_identity
 
         if adopt_live_identity() is not None or current_principal() is not None:
             return redirect(url_for("reports.reports_list"))
-        mount = (request.script_root or "").rstrip("/")
-        dest = f"{mount}/" if mount else "/"
-        return redirect(live_login_redirect(dest))
+        nxt = request.args.get("next") or "/"
+        if not nxt.startswith("/") or nxt.startswith("//"):
+            nxt = "/"
+        start = f"/legacy/login/start?next={quote(nxt, safe='/?=&')}"
+        return render_template("login.html", live_login=True, next_val=nxt, login_start=start)
     if cfg.auth_mode == "msal":
         session[_NEXT_KEY] = _safe_next()  # carry intended destination across the redirect
         return redirect(msal_flow.build_login_url(cfg))
-    return render_template("login.html", next_val=_safe_next(), roles=VALID_ROLES)
+    return render_template("login.html", live_login=False, next_val=_safe_next(), roles=VALID_ROLES)
 
 
 @auth_bp.post("/login/dev")
@@ -110,14 +113,142 @@ def logout_route():
     cfg = _cfg()
     logout()
     if cfg.is_beta:
-        # Shared cookie: clear Live identity too, then Live login page.
+        # Shared cookie: clear Live identity too, then the home login page.
         session.pop("user", None)
         session.clear()
-        return redirect("/legacy/login")
+        return redirect("/login")
     return redirect(url_for("auth.login_page"))
 
 
-# --- Impersonation (developer-only, production-safe) ----------------------- #
+def _role_picker_users() -> list[dict]:
+    """People list for the picker — Live directory first, Beta DB if that fails."""
+    rows = None
+    try:
+        from webapp.db import get_all_users
+
+        rows = get_all_users()
+    except ImportError:
+        rows = None
+    except Exception:  # noqa: BLE001 - picker still works from Beta's own users table
+        current_app.logger.exception("role picker: could not read Live users")
+        rows = None
+    if rows:
+        return rows
+    return [
+        {
+            "email": u.email,
+            "display_name": u.display_name,
+            "role": u.role,
+            "salesman_key": "",
+        }
+        for u in UserRepository(_db()).all_users(include_inactive=True)
+    ]
+
+
+def _group_users(rows: list[dict]) -> dict[str, list]:
+    grouped: dict[str, list] = {"admin": [], "developer": [], "manager": [], "salesman": []}
+    for u in rows:
+        grouped.setdefault(u.get("role") or "salesman", []).append(u)
+    return grouped
+
+
+@auth_bp.route("/dev/role-picker", methods=["GET", "POST"])
+def role_picker():
+    """Live-style impersonation: pick any user, or view as yourself."""
+    from web.auth.session import current_principal
+    from web.beta_live_session import adopt_live_identity
+
+    p = adopt_live_identity() or current_principal()
+    if p is None:
+        return redirect(url_for("auth.login_page"))
+    if not p.is_dev:
+        return redirect(url_for("reports.reports_list"))
+
+    live = session.get("user") if isinstance(session.get("user"), dict) else {}
+    dev_email = str(live.get("_dev_email") or p.real_email or p.email).strip().lower()
+    raw_name = str(live.get("_dev_name") or p.real_name or p.name)
+    dev_name = raw_name.split(" (as ")[0] if " (as " in raw_name else raw_name
+
+    if request.method == "POST":
+        target_email = (request.form.get("target_email") or "").strip()
+        get_setting = None
+        get_user_by_email = None
+        try:
+            from webapp.db import get_setting as _gs, get_user_by_email as _gue
+            get_setting, get_user_by_email = _gs, _gue
+        except ImportError:
+            pass
+        except Exception:  # noqa: BLE001 - Beta DB is enough if Live isn't on path
+            current_app.logger.exception("role picker: Live db helpers unavailable")
+
+        if target_email == "__self__":
+            session["user"] = {
+                "email": dev_email,
+                "name": dev_name,
+                "role": "admin",
+                "salesman_key": None,
+                "_dev": True,
+                "_dev_name": dev_name,
+                "_dev_email": dev_email,
+            }
+            if get_setting is not None:
+                try:
+                    session["theme"] = get_setting(dev_email, "theme", "light")
+                except Exception:  # noqa: BLE001 - theme is optional
+                    pass
+        else:
+            target = None
+            if get_user_by_email is not None:
+                try:
+                    target = get_user_by_email(target_email)
+                except Exception:  # noqa: BLE001 - fall through to Beta DB
+                    current_app.logger.exception("role picker: Live user lookup failed")
+            if not target:
+                row = UserRepository(_db()).get_by_email(target_email.lower())
+                if row is not None:
+                    target = {
+                        "email": row.email,
+                        "display_name": row.display_name,
+                        "role": row.role,
+                        "salesman_key": None,
+                    }
+            if not target:
+                abort(404, description="User not found")
+            display = target.get("display_name") or target["email"]
+            session["user"] = {
+                "email": target["email"],
+                "name": f"{display} (as {dev_name})",
+                "role": target["role"],
+                "salesman_key": target.get("salesman_key"),
+                "_dev": True,
+                "_dev_name": dev_name,
+                "_dev_email": dev_email,
+            }
+            if get_setting is not None:
+                try:
+                    session["theme"] = get_setting(target["email"], "theme", "light")
+                except Exception:  # noqa: BLE001 - theme is optional
+                    pass
+        session.pop("v3_user", None)
+        adopt_live_identity()
+        return redirect(url_for("reports.reports_list"))
+
+    user = {
+        "name": p.name,
+        "role": p.role,
+        "_dev": True,
+        "_dev_name": dev_name,
+        "_dev_email": dev_email,
+    }
+    return render_template(
+        "role_picker.html",
+        user=user,
+        grouped_users=_group_users(_role_picker_users()),
+        dev_email=dev_email,
+    )
+
+
+# --- Impersonation (developer-only, /test; home uses /dev/role-picker) ----- #
 
 @auth_bp.get("/impersonate")
 def impersonate_page():

@@ -5,7 +5,8 @@ When Beta is the site home:
   /legacy/...    -> former Live app
   /beta/...      -> 302 to the same path without /beta
   /auth/...      -> Live at site root (Entra redirect URI stays /auth/callback)
-  /login,...     -> 307 to /legacy/login so Live static/CSS still load
+  /login/start, /login/magic-link... -> 307 to /legacy/... (MSAL + magic links)
+  /login, /logout, /dev/role-picker  -> home (Beta)
 """
 
 from __future__ import annotations
@@ -38,15 +39,16 @@ class PrefixRedirectMiddleware:
 
 
 def _is_live_login_path(path: str) -> bool:
-    if path in ("/login", "/logout", "/dev-login"):
+    """MSAL start + magic-link stay on Live. /login itself is the home app."""
+    if path == "/dev-login" or path.startswith("/dev-login"):
         return True
-    if path.startswith("/login/") or path.startswith("/dev-login"):
+    if path == "/login/start" or path.startswith("/login/start"):
         return True
-    return path.startswith("/dev/")
+    return path.startswith("/login/magic-link")
 
 
 class LiveRootAuthMiddleware:
-    """Entra callback stays on Live at /. Login HTML lives under /legacy."""
+    """Entra callback stays on Live at /. Login HTML is the home app."""
 
     def __init__(self, app, live_app, legacy_prefix: str = "/legacy"):
         self.app = app

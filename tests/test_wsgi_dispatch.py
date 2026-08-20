@@ -75,10 +75,26 @@ def test_auth_callback_hits_live_at_root():
     assert "sn=/legacy" not in text
 
 
-def test_login_redirects_to_legacy_login():
+def test_login_hits_home_app():
     resp = _client().get("/login?next=/", follow_redirects=False)
+    assert resp.status_code == 200
+    assert resp.get_data(as_text=True).startswith("beta|")
+    assert "pi=/login" in resp.get_data(as_text=True)
+
+
+def test_login_start_goes_to_live():
+    resp = _client().get("/login/start?next=/", follow_redirects=False)
     assert resp.status_code == 307
-    assert resp.headers["Location"] == "/legacy/login?next=/"
+    assert resp.headers["Location"] == "/legacy/login/start?next=/"
+
+
+def test_role_picker_hits_home_app():
+    resp = _client().get("/dev/role-picker", follow_redirects=False)
+    assert resp.status_code == 200
+    text = resp.get_data(as_text=True)
+    assert text.startswith("beta|")
+    assert "pi=/dev/role-picker" in text
+    assert "sn=/legacy" not in text
 
 
 def test_test_mount_unchanged():

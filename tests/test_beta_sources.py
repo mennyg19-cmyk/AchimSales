@@ -108,10 +108,10 @@ def test_live_login_redirect_escapes_mount():
     assert spec and spec.loader
     spec.loader.exec_module(mod)
 
-    assert mod.live_login_redirect("/") == "/legacy/login?next=/"
-    assert mod.live_login_redirect("/reports") == "/legacy/login?next=/reports"
+    assert mod.live_login_redirect("/") == "/login?next=/"
+    assert mod.live_login_redirect("/reports") == "/login?next=/reports"
     # Reject open redirects
-    assert mod.live_login_redirect("https://evil.example/") == "/legacy/login?next=/"
+    assert mod.live_login_redirect("https://evil.example/") == "/login?next=/"
 
 
 def test_live_auth_safe_next():

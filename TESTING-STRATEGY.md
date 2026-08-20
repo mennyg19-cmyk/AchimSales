@@ -27,21 +27,35 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - `/` is the Beta (v3 is_beta) app; `/legacy` is the old Live app.
 - `/beta` and `/beta/reports` 302 to `/` and `/reports`.
-- `/login` 307 to `/legacy/login`.
+- `/login` is the home (Beta) sign-in page. `/login/start` 307s to Live for Microsoft.
+- `/dev/role-picker` is the home app (developers). `/auth/callback` still hits Live.
 - `/auth/callback` hits Live with no `/legacy` SCRIPT_NAME (Entra URI unchanged).
 - `/test` still strips to the v3 sandbox.
 - Live login `next` accepts `/legacy/...` and leftover `/beta/...`.
 - Entra redirect URI is `https://host/auth/callback` even when Live's SCRIPT_NAME is `/legacy`.
-- Logged-out home users go to `/legacy/login?next=/`. No 403 for missing Beta Access.
+- Logged-out home users go to `/login?next=/`. No 403 for missing Beta Access.
 
 **Expected behavior:**
 - Dummy WSGI apps behind `mount_beta_as_home` see the paths above.
-- `live_login_redirect("/")` is `/legacy/login?next=/`.
+- `live_login_redirect("/")` is `/login?next=/`.
 
 **Edge cases:**
 - If `BETA_MOUNT_ENABLED` is off or Beta fails to boot, `/` stays Live (not covered by the dummy dispatch tests).
 
 **Test files:** `tests/test_wsgi_dispatch.py`, `tests/test_beta_sources.py`
+
+## Login page and developer role picker on home
+
+**What to test:**
+- Logged-out `/login` is the home Microsoft / External Rep page, not `/legacy/login`.
+- `/login/start` still 307s to Live so Entra keeps working.
+- A developer session can open `/dev/role-picker`, pick a user, then open the picker again.
+
+**Expected behavior:**
+- Home login shows "Achim User Login".
+- Role picker lists users; View as Selected User then View as Admin (yourself) both 302 home.
+
+**Test files:** `v3/tests/test_auth.py`, `tests/test_wsgi_dispatch.py`
 
 ## Company schedules table sorts by name
 

@@ -196,6 +196,10 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         p = current_principal()
         if p is None:
             return
+        live = session.get("user")
+        if isinstance(live, dict) and live.get("_dev"):
+            # Impersonation: session role is the picked user, not the DB row.
+            return
         try:
             row = users.get_by_email(p.email)
             if row is not None and row.is_active:
@@ -216,7 +220,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             "schedules": _safe_url("schedules.schedules_page"),
             "master_schedules": _safe_url("schedules.master_page"),
             "settings": _safe_url("settings.settings_page"),
-            "login": _safe_url("auth.login_page"),
+            "login": _safe_url("auth.role_picker") if cfg.is_beta else _safe_url("auth.login_page"),
             "logout": _safe_url("auth.logout_route"),
             # Missing on Beta (no dashboard blueprint) — template must not url_for hard.
             "notifications": _safe_url("dashboard.notifications"),
@@ -228,7 +232,12 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         test_site_enabled = False
         theme = session.get("theme")
         if p is not None:
-            user = {"name": p.name, "role": p.role, "_dev": p.is_dev}
+            user = {
+                "name": p.name,
+                "role": p.role,
+                "_dev": p.is_dev,
+                "_dev_name": p.real_name or (p.name.split(" (as ")[0] if " (as " in p.name else p.name),
+            }
             try:
                 flag_map = flags.all()
                 order_entry_enabled = flag_map.get("order_entry_enabled", False)
