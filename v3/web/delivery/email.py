@@ -71,6 +71,17 @@ class EmailService:
             return None
         return GraphMailer(self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret)
 
+    def send_notice(self, *, to: list[str], subject: str, body_text: str) -> None:
+        """Plain mail, no workbook. Used for failure alerts."""
+        if not to:
+            return
+        graph = self._graph_mailer()
+        if graph is None:
+            raise GraphMailError("Mail is not configured.")
+        graph.send(
+            sender=self.cfg.email_from, to=to, subject=subject, body_text=body_text,
+        )
+
     def deliver(self, *, subject: str, recipients_raw: str, body_text: str,
                 report_name: str, filename: str, xlsx_bytes: bytes,
                 sharepoint_path: str | None = None,

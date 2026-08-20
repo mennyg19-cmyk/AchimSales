@@ -218,11 +218,12 @@ def _sp_resolve_drive(site_url, token):
 
 
 def _sp_list_children(drive_id, cloud_path, token):
-    import requests
     t = _resolve_token(token)
     p = cloud_path.replace("\\", "/").strip("/")
     url = f"{GRAPH_BASE}/drives/{drive_id}/root:/{p}:/children" if p else f"{GRAPH_BASE}/drives/{drive_id}/root/children"
-    r = requests.get(url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT)
+    r = _graph_request_with_retry(
+        "GET", url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT,
+    )
     if r.status_code == 404:
         return []
     r.raise_for_status()
@@ -230,21 +231,23 @@ def _sp_list_children(drive_id, cloud_path, token):
 
 
 def _sp_download_content(drive_id, item_id, token):
-    import requests
     t = _resolve_token(token)
     url = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"
-    r = requests.get(url, headers={"Authorization": f"Bearer {t}"}, timeout=UPLOAD_TIMEOUT)
+    r = _graph_request_with_retry(
+        "GET", url, headers={"Authorization": f"Bearer {t}"}, timeout=UPLOAD_TIMEOUT,
+    )
     r.raise_for_status()
     return r.content
 
 
 def _sp_download_file(drive_id, cloud_path, local_path, token):
     """Download a single file. Returns True on success."""
-    import requests
     t = _resolve_token(token)
     p = cloud_path.replace("\\", "/").strip("/")
     url = f"{GRAPH_BASE}/drives/{drive_id}/root:/{p}"
-    r = requests.get(url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT)
+    r = _graph_request_with_retry(
+        "GET", url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT,
+    )
     if r.status_code != 200:
         log.warning("Download %s returned %d", p, r.status_code)
         return False

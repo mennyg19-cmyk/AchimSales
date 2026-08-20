@@ -55,8 +55,8 @@ class GraphMailer:
         to: list[str],
         subject: str,
         body_text: str,
-        filename: str,
-        xlsx_bytes: bytes,
+        filename: str = "",
+        xlsx_bytes: bytes | None = None,
         cc: list[str] | None = None,
         bcc: list[str] | None = None,
     ) -> None:
@@ -66,13 +66,14 @@ class GraphMailer:
             "subject": subject,
             "body": {"contentType": "HTML", "content": html_body},
             "toRecipients": [{"emailAddress": {"address": addr}} for addr in to],
-            "attachments": [{
+        }
+        if filename and xlsx_bytes:
+            message["attachments"] = [{
                 "@odata.type": "#microsoft.graph.fileAttachment",
                 "name": filename,
                 "contentType": _XLSX_CONTENT_TYPE,
                 "contentBytes": base64.b64encode(xlsx_bytes).decode("ascii"),
-            }],
-        }
+            }]
         if cc:
             message["ccRecipients"] = [{"emailAddress": {"address": addr}} for addr in cc]
         if bcc:

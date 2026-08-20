@@ -126,6 +126,7 @@ class ScheduleRunner:
             # Don't wipe a detailed finish() already written for a delivery failure.
             if existing is None or existing.status == "running":
                 self.run_repo.finish(run_id, status="failure", debug_log=str(exc))
+            self._notify_failure(sched, schedule_type, str(exc))
             raise
         return run_id
 
@@ -186,6 +187,31 @@ class ScheduleRunner:
                 "Add addresses in Settings or turn test mode off."
             )
         return emails
+
+    def _notify_failure(self, sched, schedule_type: str, error: str) -> None:
+        """Mail the test-email list. Runs even when test mode is off."""
+        emails = self.settings.test_emails()
+        if not emails:
+            log.warning(
+                "Schedule failed but no test emails are set; not sending a failure notice"
+            )
+            return
+        email = getattr(self.delivery, "email", None)
+        send = getattr(email, "send_notice", None) if email is not None else None
+        if send is None:
+            return
+        name = getattr(sched, "name", None) or getattr(sched, "report_key", "schedule")
+        kind = "Company" if schedule_type == MASTER else "Personal"
+        body = (
+            f"{kind} schedule failed.\n\n"
+            f"Schedule: {name}\n"
+            f"Report: {getattr(sched, 'report_key', '')}\n"
+            f"Error: {error}\n"
+        )
+        try:
+            send(to=emails, subject=f"[FAIL] {name}", body_text=body)
+        except Exception:  # noqa: BLE001 - never hide the original failure
+            log.exception("Could not send schedule failure notice")
 
     def _subject(self, sched, schedule_type: str, report_name: str) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")

@@ -22,6 +22,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Home-site schedule failure mail
+
+**What to test:**
+- A failed company schedule emails the test-email list even when test mode is off.
+- If sending that notice throws, the original schedule error still raises.
+
+**Expected behavior:**
+- Subject is `[FAIL] {schedule name}`. Body names company/personal, report, and error.
+- Recipients are `settings.test_emails()`, not the schedule's customer list.
+
+**Edge cases:**
+- Empty test list: no send, original failure still recorded.
+- Fake delivery with no `email.send_notice` (older tests) must not crash.
+
+**Test file:** `v3/tests/test_scheduling.py`
+
 ## Home is Beta; Live at /legacy
 
 **What to test:**

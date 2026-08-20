@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-20 Home-site schedule failures email the test list
+**What you asked for:** Know why the three legacy 9am jobs failed, stop that class of miss, and get a mail on the home site whenever a report fails — using the test-email field even when test mode is off.
+**What I chose:** The 9am jobs were not shut off. SharePoint dropped the TLS connection while they downloaded scripts (and once the run log). Downloads now use the existing Graph retry (up to 4 tries). Home-site clock and Run now failures send `[FAIL]` mail to the test-email list, test mode on or off. On-page Run report / Email me stay on-screen only. Test mode stays On.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-20 Login and role picker live on the home app
 **What you asked for:** Login should go to Beta (home). The developer role picker should work there.
 **What I chose:** `/login` is the home sign-in page (Achim User + External Rep). Microsoft still starts at `/legacy/login/start` and comes back to `/auth/callback`. Developers land on `/dev/role-picker` (same picker as old Live: yourself as admin, or search/pick a user). The header switch-user button opens that picker even while impersonating. Test mode stays On.
