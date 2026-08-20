@@ -914,7 +914,7 @@ var OE = (function () {
         }).then(function (d) {
             if (d.success) {
                 _showToast('Order submitted!', 'success');
-                setTimeout(function () { window.location.href = '/orders'; }, 1000);
+                setTimeout(function () { window.location.href = appUrl('/orders'); }, 1000);
             } else if (d.missing) {
                 _showToast('Missing: ' + d.missing.join(', '), 'error');
             } else {
@@ -929,7 +929,7 @@ var OE = (function () {
         _api('DELETE', '/api/orders/' + _orderId).then(function (d) {
             if (d.success) {
                 _showToast('Order deleted', 'success');
-                setTimeout(function () { window.location.href = '/orders'; }, 500);
+                setTimeout(function () { window.location.href = appUrl('/orders'); }, 500);
             }
         });
     }

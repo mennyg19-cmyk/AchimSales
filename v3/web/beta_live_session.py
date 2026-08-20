@@ -1,6 +1,6 @@
 """Bridge Live's session identity into Beta (shared cookie, no second login).
 
-Beta keeps the v3 UI mount at /beta, but uses Live's `session` cookie + the same
+The home app is v3 with is_beta, but uses Live's `session` cookie + the same
 signing secret. After Live sign-in, `session["user"]` is present; this module
 turns that into a v3 Principal and mirrors role/salesman scope into Beta's DB
 so Authorization keeps working.
@@ -16,10 +16,10 @@ log = logging.getLogger(__name__)
 _LIVE_USER_KEY = "user"
 
 
-def live_login_redirect(next_path: str = "/beta/") -> str:
-    """Absolute Live login URL (escapes the /beta SCRIPT_NAME mount)."""
-    safe = next_path if next_path.startswith("/") and not next_path.startswith("//") else "/beta/"
-    return f"/login?next={quote(safe, safe='/?=&')}"
+def live_login_redirect(next_path: str = "/") -> str:
+    """Live login URL (Live sits at /legacy; Entra callback stays /auth/callback)."""
+    safe = next_path if next_path.startswith("/") and not next_path.startswith("//") else "/"
+    return f"/legacy/login?next={quote(safe, safe='/?=&')}"
 
 
 def adopt_live_identity():

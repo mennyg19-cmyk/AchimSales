@@ -61,8 +61,9 @@ def login_page():
 
         if adopt_live_identity() is not None or current_principal() is not None:
             return redirect(url_for("reports.reports_list"))
-        mount = (request.script_root or "/beta").rstrip("/") or "/beta"
-        return redirect(live_login_redirect(f"{mount}/"))
+        mount = (request.script_root or "").rstrip("/")
+        dest = f"{mount}/" if mount else "/"
+        return redirect(live_login_redirect(dest))
     if cfg.auth_mode == "msal":
         session[_NEXT_KEY] = _safe_next()  # carry intended destination across the redirect
         return redirect(msal_flow.build_login_url(cfg))
@@ -73,7 +74,7 @@ def login_page():
 def login_dev():
     cfg = _cfg()
     if cfg.is_beta:
-        abort(403, description="Beta uses Live login; open /login on the live site")
+        abort(403, description="Beta uses Live login; open /legacy/login")
     if cfg.auth_mode != "dev":
         abort(403, description="Dev login is disabled in this environment")
     email = (request.form.get("email") or "").strip().lower()
@@ -94,7 +95,7 @@ def callback():
         # No separate Entra redirect URI for /beta — Live owns the callback.
         from web.beta_live_session import live_login_redirect
 
-        return redirect(live_login_redirect("/beta/"))
+        return redirect(live_login_redirect("/"))
     result = msal_flow.complete_login(cfg)
     if "error" in result:
         abort(400, description=result["error"])
@@ -112,7 +113,7 @@ def logout_route():
         # Shared cookie: clear Live identity too, then Live login page.
         session.pop("user", None)
         session.clear()
-        return redirect("/login")
+        return redirect("/legacy/login")
     return redirect(url_for("auth.login_page"))
 
 

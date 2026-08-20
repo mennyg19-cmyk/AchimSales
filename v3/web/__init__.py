@@ -39,7 +39,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.jinja_env.filters["iso_date"] = _iso_date
 
     # /test keeps its own cookie. Beta shares Live's default `session` cookie
-    # (same FLASK_SECRET_KEY) so one Live login covers /beta — no second Entra callback.
+    # (same FLASK_SECRET_KEY) so one Live login covers the home app — no second Entra callback.
     if cfg.is_beta:
         app.config["SESSION_COOKIE_NAME"] = "session"
     else:
@@ -295,20 +295,19 @@ def _register_blueprints(app: Flask, cfg: Config) -> None:
 
 
 def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
-    """Hard-gate /beta: no Live beta_access_enabled => 403 even on direct URL.
+    """Home (is_beta) uses Live login: adopt session["user"], else /legacy/login.
 
-    Auth is Live's: adopt session["user"], else send them to Live /login?next=/beta/...
+    Beta Access is no longer a hard gate — / is the site.
     """
     if not cfg.is_beta:
         return
 
-    from flask import abort, redirect, request
+    from flask import redirect, request
 
-    from web.beta_access import user_has_beta_access
     from web.beta_live_session import adopt_live_identity, live_login_redirect
 
     @app.before_request
-    def _require_beta_access():
+    def _require_live_login():
         if request.endpoint in (None, "static"):
             return None
         ep = request.endpoint or ""
@@ -321,14 +320,15 @@ def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
 
         p = adopt_live_identity()
         if p is None:
-            # SCRIPT_NAME is /beta under DispatcherMiddleware; Live path needs the prefix.
-            mount = (request.script_root or "/beta").rstrip("/") or "/beta"
+            mount = (request.script_root or "").rstrip("/")
             dest = mount + (request.full_path if request.full_path != "/?" else "/")
             if dest.endswith("?"):
                 dest = dest[:-1]
+            if not dest.startswith("/"):
+                dest = "/" + dest
+            if dest in ("", "?"):
+                dest = "/"
             return redirect(live_login_redirect(dest))
-        if not user_has_beta_access(p.email):
-            abort(403)
         return None
 
 

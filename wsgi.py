@@ -6,18 +6,18 @@ This is the single module gunicorn serves:
 
 It wires apps behind one process via werkzeug's DispatcherMiddleware:
 
-    /          -> live Flask app (webapp/)     [production, unchanged]
-    /test      -> v3 app (v3/web/)             [current interactive reports]
-    /beta      -> v3 in beta mode              [reports-only; shares Live session]
-    /test-next -> ground-up rebuild (rebuild/) [preview; retire after Beta]
+    /          -> v3 in beta mode              [site home; hybrid SQL/OData]
+    /legacy    -> live Flask app (webapp/)     [former home; OData]
+    /test      -> v3 app (v3/web/)             [SQL sandbox]
+    /beta      -> 302 to the same path without /beta
+    /test-next -> ground-up rebuild (rebuild/) [preview]
 
 The old green v2 sandbox (test/) was retired 2026-06-11 -- unused, and its
 background mirror refresh kept overloading the on-prem Reporting API.
 
-Safety: mounting v3 at /test is gated on V3_MOUNT_ENABLED and wrapped in
-try/except. If v3 fails to boot (e.g. its prod config isn't set), the boot
-error is dumped to a downloadable log and /test returns 404 -- the live app
-is never affected. Rebuild mounts the same way behind REBUILD_MOUNT_ENABLED.
+Safety: Beta-as-home is gated on BETA_MOUNT_ENABLED. If Beta fails to boot,
+/ stays the live app so the site is never taken down. /test is gated on
+V3_MOUNT_ENABLED the same way. Rebuild mounts behind REBUILD_MOUNT_ENABLED.
 """
 
 from __future__ import annotations
@@ -39,18 +39,21 @@ log = logging.getLogger("wsgi")
 
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
+from wsgi_dispatch import mount_beta_as_home
+
 
 def _env_bool(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-log.info("Creating live (/) app...")
+log.info("Creating live app...")
 from webapp.app import app as live_app
 
 MOUNTS: dict[str, object] = {}
 
 _TEST_MOUNT = os.environ.get("V3_URL_PREFIX", "/test")
-_BETA_MOUNT = os.environ.get("BETA_URL_PREFIX", "/beta")
+_BETA_REDIRECT = os.environ.get("BETA_URL_PREFIX", "/beta")
+_LEGACY_MOUNT = os.environ.get("LEGACY_URL_PREFIX", "/legacy")
 
 
 def _write_boot_error(text: str) -> None:
@@ -139,10 +142,10 @@ def _build_rebuild_app():
 
     config = rebuild_pkg.load_config()
     mount = config.mount_path
-    if mount in ("", "/", _TEST_MOUNT, _BETA_MOUNT):
+    if mount in ("", "/", _TEST_MOUNT, _BETA_REDIRECT, _LEGACY_MOUNT):
         raise ValueError(
-            f"REBUILD_MOUNT_PATH resolved to {mount!r}, which collides with the live "
-            f"app, /test, or /beta. Use a distinct slot like /test-next."
+            f"REBUILD_MOUNT_PATH resolved to {mount!r}, which collides with /, /legacy, "
+            f"/test, or /beta. Use a distinct slot like /test-next."
         )
 
     app = rebuild_pkg.create_app(config)
@@ -200,25 +203,40 @@ def _build_beta_app():
     return app
 
 
+_beta_app = None
 if _env_bool("BETA_MOUNT_ENABLED"):
     try:
-        if _BETA_MOUNT in ("", "/", _TEST_MOUNT):
+        if _LEGACY_MOUNT in ("", "/", _TEST_MOUNT):
             raise ValueError(
-                f"BETA_URL_PREFIX resolved to {_BETA_MOUNT!r}, which collides with live or /test"
+                f"LEGACY_URL_PREFIX resolved to {_LEGACY_MOUNT!r}, which collides with / or /test"
             )
-        MOUNTS[_BETA_MOUNT] = _build_beta_app()
-        log.info("beta mounted at %s", _BETA_MOUNT)
+        _beta_app = _build_beta_app()
+        log.info("beta will serve / ; live at %s", _LEGACY_MOUNT)
     except Exception:  # noqa: BLE001 - never let beta take down live or /test
         import traceback
 
-        log.exception("beta failed to boot; %s will return 404", _BETA_MOUNT)
+        log.exception("beta failed to boot; / stays the live app")
         _write_boot_error(traceback.format_exc())
+        _beta_app = None
 else:
-    log.info("BETA_MOUNT_ENABLED off; beta not mounted")
+    log.info("BETA_MOUNT_ENABLED off; / stays the live app")
 
-application = DispatcherMiddleware(live_app, MOUNTS)
-
-log.info("WSGI dispatcher ready: live -> /, mounts -> %s", sorted(MOUNTS))
+if _beta_app is not None:
+    application = mount_beta_as_home(
+        _beta_app,
+        live_app,
+        MOUNTS,
+        legacy=_LEGACY_MOUNT,
+        beta_redirect=_BETA_REDIRECT,
+    )
+    log.info(
+        "WSGI dispatcher ready: beta -> /, live -> %s, extra mounts -> %s, /beta redirects",
+        _LEGACY_MOUNT,
+        sorted(MOUNTS),
+    )
+else:
+    application = DispatcherMiddleware(live_app, MOUNTS)
+    log.info("WSGI dispatcher ready: live -> /, mounts -> %s", sorted(MOUNTS))
 
 
 if __name__ == "__main__":

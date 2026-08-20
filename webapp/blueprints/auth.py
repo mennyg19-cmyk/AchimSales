@@ -22,7 +22,7 @@ _LOGIN_NEXT_KEY = "login_next"
 
 
 def _safe_next(raw: str | None) -> str | None:
-    """Same-site relative path only (supports /beta after Live login)."""
+    """Same-site relative path only (supports /legacy and leftover /beta next)."""
     if not raw:
         return None
     raw = raw.strip()
@@ -44,7 +44,7 @@ def _redirect_after_login():
     nxt = _safe_next(session.pop(_LOGIN_NEXT_KEY, None))
     if nxt:
         return redirect(nxt)
-    return redirect(url_for("reports.reports_list"))
+    return redirect("/")
 
 
 @auth_bp.route("/")

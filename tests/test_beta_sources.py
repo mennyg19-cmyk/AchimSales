@@ -108,10 +108,10 @@ def test_live_login_redirect_escapes_mount():
     assert spec and spec.loader
     spec.loader.exec_module(mod)
 
-    assert mod.live_login_redirect("/beta/") == "/login?next=/beta/"
-    assert mod.live_login_redirect("/beta/reports") == "/login?next=/beta/reports"
+    assert mod.live_login_redirect("/") == "/legacy/login?next=/"
+    assert mod.live_login_redirect("/reports") == "/legacy/login?next=/reports"
     # Reject open redirects
-    assert mod.live_login_redirect("https://evil.example/") == "/login?next=/beta/"
+    assert mod.live_login_redirect("https://evil.example/") == "/legacy/login?next=/"
 
 
 def test_live_auth_safe_next():
@@ -119,7 +119,23 @@ def test_live_auth_safe_next():
 
     assert _safe_next("/beta/") == "/beta/"
     assert _safe_next("/beta/reports?x=1") == "/beta/reports?x=1"
+    assert _safe_next("/legacy/settings") == "/legacy/settings"
     assert _safe_next("https://evil.example/") is None
     assert _safe_next("//evil.example/") is None
     assert _safe_next(None) is None
+
+
+def test_entra_redirect_uri_ignores_legacy_script_name():
+    from flask import Flask
+
+    from webapp.auth import _get_redirect_uri
+
+    app = Flask(__name__)
+    with app.test_request_context(
+        "/login",
+        base_url="https://reports.achimonline.com",
+        environ_overrides={"SCRIPT_NAME": "/legacy"},
+        headers={"X-Forwarded-Proto": "https"},
+    ):
+        assert _get_redirect_uri() == "https://reports.achimonline.com/auth/callback"
 

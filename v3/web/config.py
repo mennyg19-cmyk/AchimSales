@@ -48,8 +48,8 @@ class Config:
     # and boot-prime never enqueue dashboard.refresh jobs - so a slow/wedged
     # Reporting API can't tie up worker slots with a refresh nobody asked for.
     dashboard_refresh_enabled: bool = True
-    # Beta mount (/beta): reports-only surface with hybrid SQL/OData sources.
-    # When True, schedules/dashboard blueprints stay off and Live beta_access is gated.
+    # Home app (is_beta): reports-only surface with hybrid SQL/OData sources.
+    # Dashboard stays off. Login is Live's (/legacy/login).
     is_beta: bool = False
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
@@ -138,7 +138,7 @@ def load_config(*, is_beta: bool = False) -> Config:
     unconfigured deploy refuses to boot rather than silently running dev auth).
     Local dev must opt in explicitly with APP_ENV=dev (see .env.example).
 
-    ``is_beta`` selects Beta DB path defaults so /test and /beta don't share one
+    ``is_beta`` selects Beta DB path defaults so /test and the home app don't share one
     SQLite file when both are mounted in the same process.
     """
     app_env = os.environ.get("APP_ENV", "prod").strip().lower()

@@ -59,22 +59,23 @@ cp .env.example .env      # fill in credentials
 python run.py ordered
 ```
 
-### Live vs /test vs /beta vs /test-next
+### Live vs /test vs /legacy vs /test-next
 
 | Mount | Code | Role |
 |-------|------|------|
-| `/` | `webapp/` | Live — OData, Excel-first, schedules |
+| `/` | `v3/` (`is_beta`) | Site home — reports; hybrid SQL/OData per report |
+| `/legacy` | `webapp/` | Former Live — OData, Excel-first, email distributions |
 | `/test` | `v3/` | SQL sandbox — direct link only |
-| `/beta` | `v3/` (`is_beta`) | Reports page for users; hybrid SQL/OData per report |
-| `/test-next` | `rebuild/` | Rebuild preview — retire after Beta is stable |
+| `/beta` | — | Redirects to `/` (old bookmarks) |
+| `/test-next` | `rebuild/` | Rebuild preview — retire after home is stable |
 
-Enable Beta with `BETA_MOUNT_ENABLED=1`. Grant users **Beta Access** in Live Settings.
-Developers flip SQL/OData per report under Developer Tools → Beta report data sources.
+Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
+Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings).
 
-On Beta, **Previously run** (header) opens recent and kept runs. **Keep this run**
+On the home site, **Previously run** (header) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
-On Beta, **Settings** is the control panel (same ~800px width as Live): You,
+On the home site, **Settings** is the control panel (same ~800px width as Live): You,
 People, Reports, Delivery, History, and (developers) Database explorer,
 notification diagnostic, and beta SQL/OData sources. Live Email Distributions
 stay on Live only. Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
@@ -83,7 +84,7 @@ schedule test mode survive an App Service recycle.
 
 ### Live vs /test parity
 
-Compares Excel from live (`/`, OData) and `/test` (Reporting API) with the same
+Compares Excel from legacy live (`/legacy`, OData) and `/test` (Reporting API) with the same
 params. Writes a per-report diff under `.scratch/parity/<stamp>/`.
 
 ```powershell

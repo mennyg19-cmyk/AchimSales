@@ -8,7 +8,7 @@ salesmen-list builder so they aren't duplicated in every blueprint.
 import logging
 from functools import wraps
 
-from flask import redirect, session, url_for
+from flask import redirect, request, session, url_for
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +25,12 @@ def require_login(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         if not get_current_user():
-            return redirect(url_for("auth.login"))
+            dest = (request.script_root or "") + (
+                request.full_path if request.full_path != "/?" else "/"
+            )
+            if dest.endswith("?"):
+                dest = dest[:-1]
+            return redirect(url_for("auth.login", next=dest))
         return f(*args, **kwargs)
     return wrapper
 

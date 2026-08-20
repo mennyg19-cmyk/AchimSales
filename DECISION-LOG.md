@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-20 Beta is the site home; old Live is /legacy
+**What you asked for:** Make the Beta page the home page. Put the current home at `/legacy`.
+**What I chose:** `/` is v3 with `is_beta`. `/legacy` is `webapp/` (OData, email distributions). `/beta/...` 302s to the same path without the prefix. Microsoft login stays `/auth/callback` (no new Entra URI); the login page is `/legacy/login`. Anyone who can sign into Live can use `/` — the Beta Access flag is not a gate. If Beta fails to boot, `/` stays the old Live app. Test mode stays On.
+**Status:** DECIDED
+
 ## 2026-08-19 Email me button; salesmen never see Commissions
 **What you asked for:** A report-page button that runs and emails the user themselves. Salesmen must never see the commissions tab.
 **What I chose:** Email me next to Run report (current filters → Excel to the signed-in address). Existing Email modal stays for other people/SharePoint. Invoiced Commissions is omitted for salesman role on run, result, export, email-now, and personal schedules. Managers and admins still see it.

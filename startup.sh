@@ -12,7 +12,7 @@
 #      post_fork hook runs (exactly ONE worker owns the email-distribution loop
 #      AND the v3 job worker + scheduler -- no duplicate sends).
 #
-# CRITICAL: this process also serves the LIVE production app at "/" via the
+# CRITICAL: this process also serves the site home (Beta) at "/" via the
 # dispatcher, so every Litestream step is FAIL-OPEN. If the binary can't be
 # fetched, the config is wrong, or a restore fails, we log it and fall back to
 # launching gunicorn directly. Litestream must never cause an outage.

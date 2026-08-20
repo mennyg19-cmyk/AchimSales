@@ -21,8 +21,12 @@ def _build_msal_app(cache=None):
 
 
 def _get_redirect_uri():
-    """Build the redirect URI, forcing https when behind a reverse proxy."""
-    root = request.url_root.rstrip("/")
+    """Entra app registration is https://host/auth/callback (not /legacy/...).
+
+    request.url_root includes SCRIPT_NAME, which is /legacy when Live is mounted
+    there. host_url is scheme+host only.
+    """
+    root = request.host_url.rstrip("/")
     if request.headers.get("X-Forwarded-Proto") == "https" and root.startswith("http://"):
         root = "https://" + root[7:]
     return root + REDIRECT_PATH

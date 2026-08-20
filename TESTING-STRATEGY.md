@@ -20,8 +20,28 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - ...
 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
-
 -->
+
+## Home is Beta; Live at /legacy
+
+**What to test:**
+- `/` is the Beta (v3 is_beta) app; `/legacy` is the old Live app.
+- `/beta` and `/beta/reports` 302 to `/` and `/reports`.
+- `/login` 307 to `/legacy/login`.
+- `/auth/callback` hits Live with no `/legacy` SCRIPT_NAME (Entra URI unchanged).
+- `/test` still strips to the v3 sandbox.
+- Live login `next` accepts `/legacy/...` and leftover `/beta/...`.
+- Entra redirect URI is `https://host/auth/callback` even when Live's SCRIPT_NAME is `/legacy`.
+- Logged-out home users go to `/legacy/login?next=/`. No 403 for missing Beta Access.
+
+**Expected behavior:**
+- Dummy WSGI apps behind `mount_beta_as_home` see the paths above.
+- `live_login_redirect("/")` is `/legacy/login?next=/`.
+
+**Edge cases:**
+- If `BETA_MOUNT_ENABLED` is off or Beta fails to boot, `/` stays Live (not covered by the dummy dispatch tests).
+
+**Test files:** `tests/test_wsgi_dispatch.py`, `tests/test_beta_sources.py`
 
 ## Company schedules table sorts by name
 
@@ -262,7 +282,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `amazon_weekly` is not imported.
 
 **Expected behavior:**
-- Company schedules list on `/beta/schedules` shows the Live jobs as Off.
+- Company schedules list on `/schedules` (home) shows the Live jobs as Off.
 - The minute poller does not fire them until someone turns a row On.
 
 **Edge cases:**

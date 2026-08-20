@@ -74,7 +74,7 @@
         var max = Math.min(rows.length, 200);
         for (var i = 0; i < max; i++) {
             var c = rows[i];
-            var url = "/report/customer-last-order/" + encodeURIComponent(c.account);
+            var url = appUrl("/report/customer-last-order/" + encodeURIComponent(c.account));
             html += '<a href="' + url + '" class="customer-pick-row">' +
                     '<span class="customer-pick-acct">' + c.account + '</span>' +
                     '<span class="customer-pick-name">' + (c.name || "") + '</span>' +
