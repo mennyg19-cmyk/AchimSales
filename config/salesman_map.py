@@ -74,10 +74,7 @@ def lookup_salesman(sales_group: str) -> tuple[str, str, str]:
 
 def get_salesman_number(sales_group: str) -> str:
     try:
-        from config.salesman_excel import excel_numbers_collapsed, get_salesman_number_xl
-        if excel_numbers_collapsed():
-            log.warning("Salesman spreadsheet numbers look collapsed; using the built-in map")
-            return _fallback_lookup(sales_group)[0]
+        from config.salesman_excel import get_salesman_number_xl
         rec_num = get_salesman_number_xl(sales_group)
         if rec_num and rec_num != "?unassigned":
             return rec_num

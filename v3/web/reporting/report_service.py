@@ -22,10 +22,13 @@ The builders stay pure and source-agnostic; this is where I/O lives.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import date
 from typing import Any, Callable
 
 from report_engine.dates import D365_GO_LIVE, month_chunks, sp_datetime, today_eastern
+from report_engine.facts import InvoiceChargeFact, SalesmanFact
+from report_engine.lib import filter_facts_by_scope, salesman_key
 from report_engine.reports import customer_activity as rpt_customer_activity
 from report_engine.reports import invoiced as rpt_invoiced
 from report_engine.reports import item_averages as rpt_item_averages
@@ -35,7 +38,6 @@ from report_engine.reports import salesman as rpt_salesman
 from report_engine.sources import customer_master as src_customers
 from report_engine.sources import invoiced as src_invoiced
 from report_engine.sources import ordered as src_ordered
-from report_engine.lib import filter_facts_by_scope
 from web.reporting import params as P
 from web.reporting.http_client import ReportingApiError
 from web.reporting.runner import Builder
@@ -45,6 +47,57 @@ log = logging.getLogger(__name__)
 # Optional fallback that returns customer_master-shaped rows from a local
 # mirror when the live SP is unreachable (owner decision #15).
 CustomerMirror = Callable[[], list[dict]]
+
+
+def _is_numeric_sales_group(value: str) -> bool:
+    digits = value.replace(" ", "")
+    return bool(digits) and digits.isdigit()
+
+
+def _known_salesman_labels(salesmen: dict[str, SalesmanFact],
+                           customers_by_acct: dict[str, str] | None = None) -> set[str]:
+    """Labels the salesman/customer dropdowns would accept (not Excel numbers)."""
+    known: set[str] = set()
+    for sm in salesmen.values():
+        for label in (sm.key, sm.display_name):
+            if label:
+                known.add(label)
+                known.add(salesman_key(label))
+    if customers_by_acct:
+        for sg in customers_by_acct.values():
+            if sg:
+                known.add(sg)
+                known.add(salesman_key(sg))
+    return known
+
+
+def _sales_group_needs_lookup(fact: InvoiceChargeFact, known: set[str]) -> bool:
+    sg = (fact.sales_group or "").strip()
+    if not sg or _is_numeric_sales_group(sg):
+        return True
+    return sg not in known and salesman_key(sg) not in known
+
+
+def fill_invoiced_sales_group(
+    facts: list[InvoiceChargeFact],
+    customers_by_acct: dict[str, str],
+    salesmen: dict[str, SalesmanFact],
+) -> list[InvoiceChargeFact]:
+    """Keep a real SalesGroup from the invoiced SP; otherwise use the customer dropdown."""
+    known = _known_salesman_labels(salesmen, customers_by_acct)
+    out: list[InvoiceChargeFact] = []
+    for fact in facts:
+        if not _sales_group_needs_lookup(fact, known):
+            out.append(fact)
+            continue
+        cust_sg = (customers_by_acct.get(fact.customer_account) or "").strip()
+        if not cust_sg:
+            out.append(fact)
+            continue
+        sm = salesmen.get(salesman_key(cust_sg))
+        name = fact.salesman_name or (sm.full_name if sm else "")
+        out.append(replace(fact, sales_group=cust_sg, salesman_name=name))
+    return out
 
 
 def _resolved_year(params: dict) -> int:
@@ -144,6 +197,49 @@ class ReportService:
             if self.customer_mirror is not None:
                 return src_customers.to_facts(self.customer_mirror())
             return []
+
+    def _customer_sales_groups(self) -> dict[str, str]:
+        """{account -> SalesGroup} from the same source as the report dropdowns."""
+        from flask import current_app, has_app_context
+
+        if has_app_context():
+            lookups = current_app.config.get("LOOKUP_SERVICE")
+            if lookups is not None:
+                mapped = lookups.customer_sales_groups()
+                if mapped:
+                    return mapped
+        return {
+            (getattr(f, "customer_account", "") or "").strip():
+                (getattr(f, "sales_group", "") or "").strip()
+            for f in self._customer_universe()
+            if (getattr(f, "customer_account", "") or "").strip()
+            and (getattr(f, "sales_group", "") or "").strip()
+        }
+
+    def _with_dropdown_salesman(
+        self,
+        facts: list,
+        extra: list | None = None,
+    ) -> tuple[dict, list, list | None]:
+        salesmen = self._salesmen()
+        known = _known_salesman_labels(salesmen)
+        pool = list(facts)
+        if extra is not None and extra is not facts:
+            pool.extend(extra)
+        customers_by_acct = (
+            self._customer_sales_groups()
+            if any(_sales_group_needs_lookup(f, known) for f in pool)
+            else {}
+        )
+        same = extra is facts
+        facts = fill_invoiced_sales_group(facts, customers_by_acct, salesmen)
+        if extra is None:
+            filled_extra = None
+        elif same:
+            filled_extra = facts
+        else:
+            filled_extra = fill_invoiced_sales_group(extra, customers_by_acct, salesmen)
+        return salesmen, facts, filled_extra
 
     # -- dashboard mirror feeds (public; used by the mirror refresh) -------
 
@@ -298,8 +394,9 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     base_sp = P.translate("invoiced", params)
     if invoiced_skip_commissions(params):
         facts = _fetch(base_sp)
+        salesmen, facts, _ = svc._with_dropdown_salesman(facts)
         tabs = rpt_invoiced.build(
-            facts, salesmen=svc._salesmen(), skip_commissions=True,
+            facts, salesmen=salesmen, skip_commissions=True,
         )
         return svc._payload("invoiced", tabs, len(facts))
 
@@ -329,8 +426,9 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
         ytd_sp["InvoiceDateTo"] = sp_datetime(ytd_end, end_of_day=True)
         ytd_facts = _fetch(ytd_sp)
 
+    salesmen, facts, ytd_facts = svc._with_dropdown_salesman(facts, ytd_facts)
     tabs = rpt_invoiced.build(
-        facts, salesmen=svc._salesmen(),
+        facts, salesmen=salesmen,
         ytd_facts=ytd_facts, year=year, end_month=end.month,
     )
     return svc._payload("invoiced", tabs, len(facts))

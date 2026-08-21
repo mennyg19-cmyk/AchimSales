@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-21 Invoiced salesman from endpoints, not Excel
+**What I had to decide:** After the 029 stamp, whether to keep using salesman_map.xlsx / the hardcoded map for invoiced salesman codes.
+**What I chose:** Do not use the Excel map for invoiced salesman identity. Use the invoiced report row; if that is missing or just a number, use the same customer/salesman data as the report dropdowns. Live OData invoiced uses CustomersV3.SalesGroup the same way, with no Excel overlay.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-21 Invoiced 029; saved views; schedule Where page
 **What you asked for:** Daily invoiced marked every salesman as 029. Saved views should open without running, be editable, and appear when scheduling. The Where page should not squash fields; hide Email/OneDrive/SharePoint until chosen; filename first; move sharing / run-as / test-email-on-empty to Options.
 **What I chose:** Prefer SalesGroup/SalesmanName when the salesman field is a number; if the spreadsheet stamps one number on most rows, use the built-in map for numbers. Saved views: click applies filters without running; Edit patches name+filters+layout; Options has a per-report dropdown. Where: filename, then Email / Save to Cloud. OneDrive vs SharePoint is one cloud target (same as before). Empty-data "test email addresses" uses the Settings test list.

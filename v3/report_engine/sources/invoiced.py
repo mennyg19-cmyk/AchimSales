@@ -33,16 +33,11 @@ def _is_credit(raw: Mapping, invoice_number: str) -> bool:
 
 
 def _sales_group_label(raw: Mapping) -> str:
-    """Prefer a name over a numeric code so every row is not stamped 029."""
+    """SalesGroup from the invoiced endpoint; salesman / SalesmanName if that is blank."""
     group = text(first_of(raw, "SalesGroup"))
     if group:
         return group
-    salesman = text(first_of(raw, "salesman", "Salesman"))
-    name = text(first_of(raw, "SalesmanName"))
-    digits = salesman.replace(" ", "")
-    if digits and digits.isdigit() and name:
-        return name
-    return salesman or name
+    return text(first_of(raw, "salesman", "Salesman")) or text(first_of(raw, "SalesmanName"))
 
 
 def _commission_fraction(raw: Mapping) -> float:

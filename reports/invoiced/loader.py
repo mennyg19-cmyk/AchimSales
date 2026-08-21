@@ -11,7 +11,6 @@ from datetime import date
 
 import pandas as pd
 
-from config.salesman_map import get_salesman_display_name, get_salesman_full_name, get_salesman_number
 from core.columns import rename_columns, to_number
 from core.odata import fetch_odata_entity
 from data.d365_entities import (
@@ -167,7 +166,9 @@ def _assign_salesman(
     Uses a bulk date-range fetch of SalesOrderHeadersV3 instead of per-order-number
     batching to avoid thousands of HTTP requests.
 
-    Priority: SalesOrderHeaders.CommissionSalesRepresentativeGroupId -> CustomersV3.SalesGroup
+    Priority: CustomersV3.SalesGroup (same assignment as the report dropdowns),
+    then SalesOrderHeaders.CommissionSalesRepresentativeGroupId. Do not map
+    through salesman_map.xlsx.
     """
     import time as _time
 
@@ -244,11 +245,12 @@ def _assign_salesman(
     so_col = detail["SalesOrderNumber"].astype(str).str.strip()
     acct_col = detail["CustomerAccount"].astype(str).str.strip()
 
-    sg = so_col.map(so_salesman_map).fillna(acct_col.map(cust_salesman_map)).fillna("")
+    sg = acct_col.map(cust_salesman_map).fillna(so_col.map(so_salesman_map)).fillna("")
+    sg = sg.astype(str).str.strip().replace({"nan": "", "None": ""})
 
-    detail["Salesman"] = sg.map(lambda s: get_salesman_display_name(s) if s else "Unassigned")
-    detail["SalesmanNumber"] = sg.map(lambda s: get_salesman_number(s) if s else "?unassigned")
-    detail["SalesmanName"] = sg.map(lambda s: get_salesman_full_name(s) if s else "Unassigned")
+    detail["Salesman"] = sg.mask(sg.eq(""), "Unassigned")
+    detail["SalesmanName"] = detail["Salesman"]
+    detail["SalesmanNumber"] = sg.mask(sg.eq(""), "?unassigned")
 
     if cust_name_map and ("CustomerName" not in detail.columns or detail["CustomerName"].astype(str).str.strip().eq("").all()):
         detail["CustomerName"] = acct_col.map(cust_name_map).fillna("")

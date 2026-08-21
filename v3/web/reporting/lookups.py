@@ -189,6 +189,16 @@ class LookupService:
                         "salesman": (getattr(f, "sales_group", "") or "").strip()}
         return None
 
+    def customer_sales_groups(self) -> dict[str, str]:
+        """{customer account -> SalesGroup} from the same universe as the dropdowns."""
+        out: dict[str, str] = {}
+        for f in self._universe():
+            acct = (getattr(f, "customer_account", "") or "").strip()
+            sg = (getattr(f, "sales_group", "") or "").strip()
+            if acct and sg and acct not in out:
+                out[acct] = sg
+        return out
+
     def ensure_customers(self, accounts: list[str]) -> list[str]:
         """Validate that accounts exist in the customer universe.
 

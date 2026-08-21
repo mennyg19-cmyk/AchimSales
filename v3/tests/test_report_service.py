@@ -6,9 +6,10 @@ import pytest
 
 from report_engine.facts import SalesmanFact
 from report_engine.lib import salesman_key
+from report_engine.sources import invoiced as src_invoiced
 from report_engine.sources import ordered as src_ordered
 from web.reporting.http_client import ReportResult, ReportingApiError
-from web.reporting.report_service import ReportService, invoiced_skip_commissions
+from web.reporting.report_service import ReportService, fill_invoiced_sales_group, invoiced_skip_commissions
 
 
 class _FakeClient:
@@ -121,6 +122,46 @@ def test_invoiced_skip_commissions_helper():
     assert invoiced_skip_commissions({}, {"order": ["summary_by_customer", "commissions"]}) is False
     assert invoiced_skip_commissions({}, {"order": []}) is False
     assert invoiced_skip_commissions({"_skip_commissions": True}) is True
+
+
+def test_fill_invoiced_sales_group_uses_customer_when_code_is_numeric():
+    fact = src_invoiced.to_fact({
+        "InvoiceNumber": "I1", "InvoiceAccount": "100", "CustomerName": "Acme",
+        "salesman": "029", "amount": "10",
+    })
+    salesmen = _FakeSalesmenRepo().all_as_facts()
+    out = fill_invoiced_sales_group([fact], {"100": "REdwards"}, salesmen)
+    assert out[0].sales_group == "REdwards"
+    assert out[0].salesman_name == "Reggie Edwards"
+
+
+def test_fill_invoiced_sales_group_keeps_endpoint_salesgroup():
+    fact = src_invoiced.to_fact({
+        "InvoiceNumber": "I1", "InvoiceAccount": "100",
+        "SalesGroup": "REdwards", "amount": "10",
+    })
+    out = fill_invoiced_sales_group(
+        [fact], {"100": "HKaufman"}, _FakeSalesmenRepo().all_as_facts())
+    assert out[0].sales_group == "REdwards"
+
+
+def test_invoiced_numeric_salesman_uses_customer_master():
+    invoiced = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
+                 "Amount": "100", "salesman": "029"}]
+    customers = [{"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"}]
+    svc = _svc({"invoiced_report": invoiced, "customer_master": customers})
+    out = svc.builder_for("invoiced")({"_skip_commissions": True}, None)
+    full = next(t for t in out["tabs"] if t["key"] == "full_data")
+    assert full["rows"][0]["Salesman"] == "REdwards"
+    assert "customer_master" in svc.client.calls
+
+
+def test_invoiced_known_salesgroup_skips_customer_master():
+    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
+             "Amount": "100", "SalesGroup": "REdwards"}]
+    svc = _svc({"invoiced_report": rows})
+    svc.builder_for("invoiced")({"_skip_commissions": True}, None)
+    assert "customer_master" not in svc.client.calls
 
 
 def test_drop_commissions_tab_removes_that_sheet_only():
@@ -316,6 +357,7 @@ def test_lookup_dropdowns_populate_from_mirror_before_universe_warms():
     # SalesGroup), so auth works on a worker whose live universe is still cold.
     rec = lk.customer("100")
     assert rec == {"key": "100", "name": "Acme", "salesman": "REdwards"}
+    assert lk.customer_sales_groups() == {"100": "REdwards", "200": "REdwards"}
 
 
 def test_customer_activity_uses_sp_rows():

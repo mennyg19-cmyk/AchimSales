@@ -369,7 +369,6 @@ def bootstrap_background(app: Flask) -> None:
     migrate(db)
     _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
     _seed_report_config(app, db)
-    _seed_salesmen_if_empty(app, db)  # salesmen first: user_salesman_access FKs them
     _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins override the mirror
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
@@ -588,23 +587,6 @@ def _seed_users_from_live(app: Flask, db) -> None:
             app.logger.info("mirrored %d users from live DB (%s)", n, live_db_path())
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("live user mirror failed")
-
-
-def _seed_salesmen_if_empty(app: Flask, db) -> None:
-    """Seed the salesmen table from config/salesman_map.xlsx on a fresh DB."""
-    from web.data.repositories.salesmen import SalesmanRepository
-
-    try:
-        if SalesmanRepository(db).count() > 0:
-            return
-        from web.data.seed_salesmen import read_seeds_from_xlsx
-
-        seeds = read_seeds_from_xlsx()
-        if seeds:
-            SalesmanRepository(db).upsert_many(seeds)
-            app.logger.info("seeded %d salesmen from config", len(seeds))
-    except Exception:  # noqa: BLE001 - seeding must never block boot
-        app.logger.exception("salesmen seed failed")
 
 
 # Live `--salesman all`: one file per salesman with an email.
