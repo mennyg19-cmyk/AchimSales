@@ -33,7 +33,11 @@ python run.py invoiced --salesman all --email            # shipped reports for a
 `runbooks/universal_runbook.py` is the sole runbook used in Azure Automation.
 It downloads the codebase from SharePoint, imports the appropriate report
 runner via `report_registry.json`, runs it, uploads the output, and sends a
-heartbeat email.
+heartbeat email. If the whole job fails once (dropped Graph, non-zero exit),
+it waits 30 seconds and runs again before Azure marks it Failed.
+
+Home-site company schedules do the same: one extra full delivery, then `[FAIL]`
+mail to the test-email list.
 
 ```
 universal_runbook.py ordered --period daily

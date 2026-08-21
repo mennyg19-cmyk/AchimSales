@@ -10,6 +10,7 @@ row count, and a full message (errors, skips, and success details).
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 
 from report_engine import registry
@@ -30,6 +31,11 @@ from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 
 log = logging.getLogger(__name__)
+
+# One extra full run after a short wait so a dropped Graph call is not the
+# last word. [FAIL] mail goes out only after this is exhausted.
+_TRANSIENT_ATTEMPTS = 2
+_TRANSIENT_RETRY_WAIT_S = 30
 
 
 class ScheduleRunner:
@@ -81,45 +87,56 @@ class ScheduleRunner:
             if test_to is not None:
                 subject = f"[TEST] {subject}"
             od_user = "" if test_to else _onedrive_user(sched, schedule_type, identity)
-            if schedule_type == MASTER and self._salesman_targets(params):
-                outcome = self._run_master_fanout(
-                    sched=sched, identity=identity, scope=scope,
-                    builder_version=spec.builder_version if spec else 1,
-                    subject=subject, report_name=report_name,
-                    onedrive_user=od_user, test_to=test_to,
-                    params=params,
-                )
-            else:
-                no_data_all = bool(params.get("email_on_no_data"))
-                no_data_me = bool(params.get("email_on_no_data_me_only"))
-                outcome = self.delivery.run_and_deliver(
-                    report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                    builder_version=spec.builder_version if spec else 1,
-                    params=_report_params(params), layout=sched.layout,
-                    recipients="; ".join(test_to) if test_to else sched.recipients,
-                    subject=subject, report_name=report_name,
-                    sharepoint_path="" if test_to else sched.sharepoint_path,
-                    filename_template=getattr(sched, "filename_template", "") or "",
-                    onedrive_user=od_user,
-                    cc_raw="" if test_to else str(params.get("email_cc") or ""),
-                    bcc_raw="" if test_to else str(params.get("email_bcc") or ""),
-                    email_on_empty=no_data_all or no_data_me,
-                    empty_recipients_override=(
-                        None if test_to
-                        else (identity if (no_data_me and not no_data_all) else None)
-                    ),
-                    schedule_name=getattr(sched, "name", "") or report_name,
-                )
-            meta = _output_meta(outcome)
-            summary = _summary_message(outcome, ok=outcome.result.ok)
-            self.run_repo.finish(
-                run_id, status="success" if outcome.result.ok else "failure",
-                rows=outcome.row_count, output_meta=meta, debug_log=summary,
-            )
-            if outcome.result.ok:
-                self._set_catch_up(schedule_id, schedule_type, False)
-            if not outcome.result.ok:
-                raise RuntimeError(outcome.result.error or "delivery failed")
+            for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
+                try:
+                    if schedule_type == MASTER and self._salesman_targets(params):
+                        outcome = self._run_master_fanout(
+                            sched=sched, identity=identity, scope=scope,
+                            builder_version=spec.builder_version if spec else 1,
+                            subject=subject, report_name=report_name,
+                            onedrive_user=od_user, test_to=test_to,
+                            params=params,
+                        )
+                    else:
+                        no_data_all = bool(params.get("email_on_no_data"))
+                        no_data_me = bool(params.get("email_on_no_data_me_only"))
+                        outcome = self.delivery.run_and_deliver(
+                            report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
+                            builder_version=spec.builder_version if spec else 1,
+                            params=_report_params(params), layout=sched.layout,
+                            recipients="; ".join(test_to) if test_to else sched.recipients,
+                            subject=subject, report_name=report_name,
+                            sharepoint_path="" if test_to else sched.sharepoint_path,
+                            filename_template=getattr(sched, "filename_template", "") or "",
+                            onedrive_user=od_user,
+                            cc_raw="" if test_to else str(params.get("email_cc") or ""),
+                            bcc_raw="" if test_to else str(params.get("email_bcc") or ""),
+                            email_on_empty=no_data_all or no_data_me,
+                            empty_recipients_override=(
+                                None if test_to
+                                else (identity if (no_data_me and not no_data_all) else None)
+                            ),
+                            schedule_name=getattr(sched, "name", "") or report_name,
+                        )
+                    if not outcome.result.ok:
+                        raise RuntimeError(outcome.result.error or "delivery failed")
+                    meta = _output_meta(outcome)
+                    summary = _summary_message(outcome, ok=True)
+                    self.run_repo.finish(
+                        run_id, status="success",
+                        rows=outcome.row_count, output_meta=meta, debug_log=summary,
+                    )
+                    self._set_catch_up(schedule_id, schedule_type, False)
+                    break
+                except Exception:
+                    if attempt >= _TRANSIENT_ATTEMPTS:
+                        raise
+                    log.warning(
+                        "schedule %s:%s attempt %d/%d failed; retrying in %ss",
+                        schedule_type, schedule_id, attempt, _TRANSIENT_ATTEMPTS,
+                        _TRANSIENT_RETRY_WAIT_S, exc_info=True,
+                    )
+                    time.sleep(_TRANSIENT_RETRY_WAIT_S)
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
             log.exception("schedule run failed (%s:%s)", schedule_type, schedule_id)
             existing = self.run_repo.get(run_id)

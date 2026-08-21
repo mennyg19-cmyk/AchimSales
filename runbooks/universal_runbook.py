@@ -1917,5 +1917,31 @@ def main():
     return overall_exit
 
 
+_JOB_ATTEMPTS = 2
+_JOB_RETRY_WAIT_S = 30
+
+
+def run_with_retry(run_fn=main, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAIT_S,
+                   sleeper=time.sleep):
+    """Run the job once more after a wait so a one-off Graph drop is not final."""
+    last_code = 1
+    for attempt in range(1, attempts + 1):
+        try:
+            last_code = int(run_fn() or 0)
+        except Exception:
+            if attempt >= attempts:
+                raise
+            log.exception("Runbook attempt %d/%d failed; retrying in %ss",
+                          attempt, attempts, wait_s)
+            sleeper(wait_s)
+            continue
+        if last_code == 0 or attempt >= attempts:
+            return last_code
+        log.warning("Runbook exited %s (attempt %d/%d); retrying in %ss",
+                    last_code, attempt, attempts, wait_s)
+        sleeper(wait_s)
+    return last_code
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_with_retry())

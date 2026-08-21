@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-21 Whole-job retry; unlink dead OrderReportDirect
+**What you asked for:** Another job failed this morning. Add a retry so a one-time blip is not the last word.
+**What I chose:** This morning's Failed row was leftover `OrderReportDirect` on `DailyOrderReport` looking for `daily_order_report.py` on SharePoint (gone). The real 4am `universal_runbook` job Completed. Unlinked that leftover. Real jobs now retry the whole run once after 30s (Azure runbook + home-site schedules). `[FAIL]` mail still only after that second miss. Test mode stays On.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-20 Home-site schedule failures email the test list
 **What you asked for:** Know why the three legacy 9am jobs failed, stop that class of miss, and get a mail on the home site whenever a report fails — using the test-email field even when test mode is off.
 **What I chose:** The 9am jobs were not shut off. SharePoint dropped the TLS connection while they downloaded scripts (and once the run log). Downloads now use the existing Graph retry (up to 4 tries). Home-site clock and Run now failures send `[FAIL]` mail to the test-email list, test mode on or off. On-page Run report / Email me stay on-screen only. Test mode stays On.
