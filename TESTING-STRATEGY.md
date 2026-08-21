@@ -22,6 +22,25 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Invoiced salesman code 029 + saved views + schedule Where
+
+**What to test:**
+- Invoiced adapter uses SalesGroup / SalesmanName when `salesman` is a numeric code like 029.
+- Excel salesman map with one number on most rows falls back to the built-in number map.
+- PATCH on a saved view renames it and updates params.
+- Empty-data "test email addresses" flag sends to settings.test_emails(), not the runner identity.
+
+**Expected behavior:**
+- `salesman=029` + `SalesmanName=Reggie Edwards` → sales_group is the name.
+- `get_salesman_number("REdwards")` is 080 even if Excel stamps 029 on everyone.
+- Saved view PATCH returns the new name.
+
+**Edge cases:**
+- Numeric salesman with no name keeps the code.
+- Collapsed Excel detection needs at least 8 rows.
+
+**Test file:** `v3/tests/test_report_invoiced.py`, `tests/test_salesman_numbers.py`, `v3/tests/test_blueprints.py`
+
 ## Home-site schedule failure mail
 
 **What to test:**

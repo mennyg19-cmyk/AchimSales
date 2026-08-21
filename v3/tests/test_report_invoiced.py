@@ -64,7 +64,25 @@ def test_adapter_detects_credits_as_substring_case_insensitive():
     assert S.to_fact({"InvoiceNumber": "INV9", "amount": "5"}).is_credit is False
 
 
-def test_adapter_passes_through_salesman_name():
+def test_adapter_prefers_salesman_name_when_code_is_numeric():
+    fact = S.to_fact({
+        "InvoiceNumber": "INV1",
+        "salesman": "029",
+        "SalesmanName": "Reggie Edwards",
+        "amount": "10",
+    })
+    assert fact.sales_group == "Reggie Edwards"
+
+
+def test_adapter_prefers_salesgroup_over_numeric_salesman():
+    fact = S.to_fact({
+        "InvoiceNumber": "INV1",
+        "salesman": "029",
+        "SalesGroup": "REdwards",
+        "SalesmanName": "Herschel Kaufman",
+        "amount": "10",
+    })
+    assert fact.sales_group == "REdwards"
     fact = S.to_fact({
         "InvoiceNumber": "INV1", "salesman": "REdwards",
         "SalesmanName": "Robert Edwards", "amount": "10",

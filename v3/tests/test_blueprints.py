@@ -714,11 +714,18 @@ def test_preset_create_list_get_delete_and_home(tmp_path):
     one = client.get(f"/api/reports/presets/{pid}").get_json()
     assert one["layout"]["active"] == "summary"
 
+    patched = client.patch(f"/api/reports/presets/{pid}",
+                           json={"name": "March edited", "params": {"period": "yesterday"}},
+                           headers={"X-CSRF-Token": _CSRF})
+    assert patched.status_code == 200
+    assert patched.get_json()["name"] == "March edited"
+    assert patched.get_json()["params"]["period"] == "yesterday"
+
     # Cross-report list (My Presets) + home page shows it
     allp = client.get("/api/saved-reports").get_json()["presets"]
     assert any(p["id"] == pid for p in allp)
     assert "My presets" in client.get("/").get_data(as_text=True)
-    assert "March" in client.get("/").get_data(as_text=True)
+    assert "March edited" in client.get("/").get_data(as_text=True)
 
     # Delete
     assert client.delete(f"/api/reports/presets/{pid}",

@@ -150,61 +150,46 @@
                     </select>
                 </label>
             </div>
+            <label class="ms-field ms-field-block" id="msSavedViewBox">
+                <span>Saved view (optional)</span>
+                <select id="msSavedView">
+                    <option value="">Current filters — no saved view</option>
+                </select>
+                <span class="ms-field-hint">Views you saved for this report. Applying one fills the filters and column layout.</span>
+            </label>
+            {% if can_see_company %}
+            <div class="ms-field ms-field-block" id="msShareBox">
+                <span>Who can see this schedule?</span>
+                <div class="ms-choice-row" role="radiogroup" aria-label="Sharing">
+                    <label class="ms-choice"><input type="radio" name="is_shared" value="0" checked> Keep private</label>
+                    <label class="ms-choice"><input type="radio" name="is_shared" value="1"> Share with admins and managers</label>
+                </div>
+                <p class="ms-pane-help">Sharing does not change whose data the report uses.</p>
+            </div>
+            {% endif %}
+            {% if is_privileged %}
+            <label class="ms-field ms-field-block" id="msRunAsBox">
+                <span>Run as a manager (optional)</span>
+                <select name="run_as_user_id" id="msRunAs">
+                    <option value="">Company-wide (unscoped)</option>
+                    {% for m in managers %}
+                    <option value="{{ m.id }}">{{ m.name }}</option>
+                    {% endfor %}
+                </select>
+                <span class="ms-field-hint">Leave blank for full company data. Pick a manager to use that person’s book.</span>
+            </label>
+            {% endif %}
+            <label class="ms-choice" id="msNoDataMeRow">
+                <input type="checkbox" id="msNoDataMe" name="email_on_no_data_me_only">
+                Email test email addresses when there is no data
+            </label>
         </section>
 
-        <section class="ms-pane" data-pane="4" hidden>
+        <section class="ms-pane ms-where" data-pane="4" hidden>
             <h3 class="ms-pane-title" tabindex="-1">Where should it go?</h3>
             <p class="ms-pane-help" id="msWhereHelp">
-                {% if can_see_company %}
-                Pick email, a folder, salesman split emails, or any mix. You need at least one target.
-                {% else %}
-                Email anyone and/or save to your OneDrive. You need at least one.
-                {% endif %}
+                First name the file. Then pick Email and/or Save to Cloud.
             </p>
-            <label class="ms-field ms-field-block">
-                <span>Email addresses</span>
-                <input type="text" name="recipients" id="msRecipients"
-                       placeholder="name@achimonline.com, other@achimonline.com">
-            </label>
-            <label class="ms-field ms-field-block">
-                <span>CC (optional)</span>
-                <input type="text" name="email_cc" id="msCc" placeholder="cc@achimonline.com">
-            </label>
-            <label class="ms-field ms-field-block">
-                <span>BCC (optional)</span>
-                <input type="text" name="email_bcc" id="msBcc" placeholder="bcc@achimonline.com">
-            </label>
-            <p class="ms-pane-help">Separate multiple addresses with commas.</p>
-
-            <div class="ms-field ms-field-block" id="msOdSection" hidden>
-                <span>OneDrive folder <em id="msOdStatus" class="lookup-status"></em></span>
-                <div id="msOdBreadcrumb" class="sp-breadcrumb"></div>
-                <div id="msOdPicker" class="sp-picker"></div>
-                <div id="msOdSelected" class="sp-selected"></div>
-            </div>
-
-            {% if has_sharepoint %}
-            <label class="ms-field ms-field-block ms-field-sp" id="msSpSection">
-                <span>SharePoint folder</span>
-                <div class="sp-input-row">
-                    <input type="text" name="sharepoint_path" id="spPathInput"
-                           placeholder="Salesman Report/Customer Activity/{Month} {YYYY}">
-                    <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
-                    <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear">&times;</button>
-                </div>
-                <span class="ms-field-hint">Direct Reports is already the home. Don’t type it. Insert:
-                    <button type="button" class="fn-token js-ms-sp-token" data-token="{Month} {YYYY}">Month year</button>
-                    <button type="button" class="fn-token js-ms-sp-token" data-token="{Month}">Month</button>
-                    <button type="button" class="fn-token js-ms-sp-token" data-token="{YYYY}">YYYY</button>
-                    <button type="button" class="fn-token js-ms-sp-token" data-token="{MM}">MM</button>
-                </span>
-                <span class="ms-filename-preview">Will save in <strong id="msFolderPreview"></strong></span>
-            </label>
-            <p class="ms-pane-help">Optional. The Excel file is saved in this folder each time the schedule runs. Tokens become a real subfolder (August 2026).</p>
-            {% else %}
-            <input type="hidden" name="sharepoint_path" id="spPathInput" value="">
-            {% endif %}
-
             <label class="ms-field ms-field-block">
                 <span>Filename template</span>
                 <input type="text" name="filename_template" id="msFilename"
@@ -222,62 +207,92 @@
                 <span class="ms-filename-preview">Will save as <strong id="msFilenamePreview"></strong></span>
             </label>
 
-            {% if can_see_company %}
-            <div id="msSalesmanDelivery" class="ms-field ms-field-block" hidden>
-                <span>Salesman split emails</span>
-                <div id="msFilteredSalesmanEmail" hidden>
-                    <label class="ms-choice">
-                        <input type="checkbox" id="msEmailToSalesmen" name="email_to_salesmen">
-                        Email the selected salesmen their own files
-                    </label>
-                    <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
-                </div>
-                <div id="msUnfilteredSalesmanSplit" hidden>
-                    <label class="ms-choice">
-                        <input type="checkbox" id="msSplitBySalesman" name="split_by_salesman">
-                        Split by salesman and email selected salesmen
-                    </label>
-                    <div id="msEmailSalesmanPicker" class="customer-picker" data-placeholder="Search salesmen to email…"></div>
-                    <div id="msEmailSalesmanPills" class="customer-pills" aria-live="polite"></div>
-                    <span class="ms-field-hint" id="msEmailSalesmanHint">
-                        Only salesmen with emails in Users &amp; access appear here.
-                    </span>
-                    <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
-                </div>
+            <div class="ms-dest-toggles" role="group" aria-label="Where to send">
+                <label class="ms-choice"><input type="checkbox" id="msWantEmail"> Email</label>
+                <label class="ms-choice"><input type="checkbox" id="msWantCloud"> Save to Cloud</label>
             </div>
 
-            <div class="ms-field ms-field-block" id="msShareBox">
-                <span>Who can see this schedule?</span>
-                <div class="ms-choice-row" role="radiogroup" aria-label="Sharing">
-                    <label class="ms-choice"><input type="radio" name="is_shared" value="0" checked> Keep private</label>
-                    <label class="ms-choice"><input type="radio" name="is_shared" value="1"> Share with admins and managers</label>
+            <div id="msEmailPanel" class="ms-dest-panel" hidden>
+                <label class="ms-field ms-field-block">
+                    <span>Email addresses</span>
+                    <input type="text" name="recipients" id="msRecipients"
+                           placeholder="name@achimonline.com, other@achimonline.com">
+                </label>
+                <div class="ms-field-row">
+                    <label class="ms-field ms-field-block">
+                        <span>CC (optional)</span>
+                        <input type="text" name="email_cc" id="msCc" placeholder="cc@achimonline.com">
+                    </label>
+                    <label class="ms-field ms-field-block">
+                        <span>BCC (optional)</span>
+                        <input type="text" name="email_bcc" id="msBcc" placeholder="bcc@achimonline.com">
+                    </label>
                 </div>
-                <p class="ms-pane-help">Sharing does not change whose data the report uses.</p>
-            </div>
-            {% endif %}
-
-            {% if is_privileged %}
-            <label class="ms-field ms-field-block" id="msRunAsBox">
-                <span>Run as a manager (optional)</span>
-                <select name="run_as_user_id" id="msRunAs">
-                    <option value="">Company-wide (unscoped)</option>
-                    {% for m in managers %}
-                    <option value="{{ m.id }}">{{ m.name }}</option>
-                    {% endfor %}
-                </select>
-                <span class="ms-field-hint">Leave blank for full company data. Pick a manager to use that person’s book.</span>
-            </label>
-            {% endif %}
-
-            <div class="ms-choice-col">
+                <p class="ms-pane-help">Separate multiple addresses with commas.</p>
                 <label class="ms-choice">
                     <input type="checkbox" id="msNoDataAll" name="email_on_no_data">
                     Email recipients when there is no data
                 </label>
-                <label class="ms-choice">
-                    <input type="checkbox" id="msNoDataMe" name="email_on_no_data_me_only">
-                    Email only me when there is no data
+                {% if can_see_company %}
+                <div id="msSalesmanDelivery" class="ms-field ms-field-block" hidden>
+                    <span>Salesman split emails</span>
+                    <div id="msFilteredSalesmanEmail" hidden>
+                        <label class="ms-choice">
+                            <input type="checkbox" id="msEmailToSalesmen" name="email_to_salesmen">
+                            Email the selected salesmen their own files
+                        </label>
+                        <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
+                    </div>
+                    <div id="msUnfilteredSalesmanSplit" hidden>
+                        <label class="ms-choice">
+                            <input type="checkbox" id="msSplitBySalesman" name="split_by_salesman">
+                            Split by salesman and email selected salesmen
+                        </label>
+                        <div id="msEmailSalesmanPicker" class="customer-picker" data-placeholder="Search salesmen to email…"></div>
+                        <div id="msEmailSalesmanPills" class="customer-pills" aria-live="polite"></div>
+                        <span class="ms-field-hint" id="msEmailSalesmanHint">
+                            Only salesmen with emails in Users &amp; access appear here.
+                        </span>
+                        <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div id="msCloudPanel" class="ms-dest-panel" hidden>
+                <div class="ms-dest-toggles" role="group" aria-label="Cloud destination">
+                    <label class="ms-choice"><input type="checkbox" id="msWantOnedrive"> OneDrive</label>
+                    {% if has_sharepoint %}
+                    <label class="ms-choice"><input type="checkbox" id="msWantSharepoint"> SharePoint</label>
+                    {% endif %}
+                </div>
+                <div class="ms-field ms-field-block" id="msOdSection" hidden>
+                    <span>OneDrive folder <em id="msOdStatus" class="lookup-status"></em></span>
+                    <div id="msOdBreadcrumb" class="sp-breadcrumb"></div>
+                    <div id="msOdPicker" class="sp-picker"></div>
+                    <div id="msOdSelected" class="sp-selected"></div>
+                </div>
+                {% if has_sharepoint %}
+                <label class="ms-field ms-field-block ms-field-sp" id="msSpSection" hidden>
+                    <span>SharePoint folder</span>
+                    <div class="sp-input-row">
+                        <input type="text" name="sharepoint_path" id="spPathInput"
+                               placeholder="Salesman Report/Customer Activity/{Month} {YYYY}">
+                        <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
+                        <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear">&times;</button>
+                    </div>
+                    <span class="ms-field-hint">Direct Reports is already the home. Don’t type it. Insert:
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{Month} {YYYY}">Month year</button>
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{Month}">Month</button>
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{YYYY}">YYYY</button>
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{MM}">MM</button>
+                    </span>
+                    <span class="ms-filename-preview">Will save in <strong id="msFolderPreview"></strong></span>
                 </label>
+                <p class="ms-pane-help">Optional. The Excel file is saved in this folder each time the schedule runs. Tokens become a real subfolder (August 2026).</p>
+                {% else %}
+                <input type="hidden" name="sharepoint_path" id="spPathInput" value="">
+                {% endif %}
             </div>
         </section>
 
@@ -286,6 +301,7 @@
             <p class="ms-pane-help">Check the summary, then save. You can edit it later from the list.</p>
             <dl class="ms-review" id="msReview"></dl>
         </section>
+
 
         <div class="ms-wizard-foot">
             <button type="button" class="btn btn-outline" id="msCancelBtn">Cancel</button>

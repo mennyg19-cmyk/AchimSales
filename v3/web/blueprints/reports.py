@@ -1287,6 +1287,32 @@ def get_preset(preset_id: int):
     return jsonify(_preset_dict(s))
 
 
+@reports_bp.patch("/api/reports/presets/<int:preset_id>")
+@require_login
+def update_preset(preset_id: int):
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    existing = _saved_repo().get(preset_id, uid)
+    if existing is None or not _authz().can_view_report(p, existing.report_key):
+        abort(404, description="Unknown preset")
+    body = request.get_json(silent=True) or {}
+    name = body.get("name")
+    if name is not None and not str(name).strip():
+        abort(400, description="A preset name is required")
+    ok = _saved_repo().update(
+        preset_id, uid,
+        name=None if name is None else str(name).strip(),
+        params=body["params"] if "params" in body else None,
+        layout=body["layout"] if "layout" in body else None,
+    )
+    if not ok:
+        abort(400, description="Could not save that view (the name may already be used)")
+    updated = _saved_repo().get(preset_id, uid)
+    return jsonify(_preset_dict(updated) if updated else {"id": preset_id})
+
+
 @reports_bp.delete("/api/reports/presets/<int:preset_id>")
 @require_login
 def delete_preset(preset_id: int):

@@ -159,10 +159,39 @@ def load_salesman_map(path: str | None = None) -> dict[str, SalesmanRecord]:
     return result
 
 
+def excel_numbers_collapsed() -> bool:
+    """True when the spreadsheet stamps the same number on most salesmen.
+
+    A bad Number column (every row 029) would mark every file as salesman 029.
+    Callers then use the hardcoded map for numbers instead.
+    """
+    mapping = load_salesman_map()
+    nums = [str(rec.number).strip() for rec in mapping.values()
+            if str(rec.number).strip() and str(rec.number).strip() != "?unassigned"]
+    if len(nums) < 8:
+        return False
+    from collections import Counter
+    _, count = Counter(nums).most_common(1)[0]
+    return count >= len(nums) // 2
+
+
 def lookup_salesman_xl(sales_group: str) -> SalesmanRecord:
-    """Look up salesman by raw sales group string."""
+    """Look up salesman by key, number, or display name."""
+    mapping = load_salesman_map()
     key = _norm_key(sales_group)
-    return load_salesman_map().get(key, DEFAULT_SALESMAN)
+    if key in mapping:
+        return mapping[key]
+    raw = str(sales_group or "").strip()
+    raw_digits = raw.lstrip("0") or "0" if raw.isdigit() else ""
+    for rec in mapping.values():
+        rec_num = str(rec.number).strip()
+        if raw and rec_num == raw:
+            return rec
+        if raw_digits and rec_num.isdigit() and (rec_num.lstrip("0") or "0") == raw_digits:
+            return rec
+        if key and (_norm_key(rec.display_name) == key or _norm_key(rec.full_name) == key):
+            return rec
+    return DEFAULT_SALESMAN
 
 
 def get_salesman_email(sales_group: str) -> str:

@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-21 Invoiced 029; saved views; schedule Where page
+**What you asked for:** Daily invoiced marked every salesman as 029. Saved views should open without running, be editable, and appear when scheduling. The Where page should not squash fields; hide Email/OneDrive/SharePoint until chosen; filename first; move sharing / run-as / test-email-on-empty to Options.
+**What I chose:** Prefer SalesGroup/SalesmanName when the salesman field is a number; if the spreadsheet stamps one number on most rows, use the built-in map for numbers. Saved views: click applies filters without running; Edit patches name+filters+layout; Options has a per-report dropdown. Where: filename, then Email / Save to Cloud. OneDrive vs SharePoint is one cloud target (same as before). Empty-data "test email addresses" uses the Settings test list.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-21 Whole-job retry; unlink dead OrderReportDirect
 **What you asked for:** Another job failed this morning. Add a retry so a one-time blip is not the last word.
 **What I chose:** This morning's Failed row was leftover `OrderReportDirect` on `DailyOrderReport` looking for `daily_order_report.py` on SharePoint (gone). The real 4am `universal_runbook` job Completed. Unlinked that leftover. Real jobs now retry the whole run once after 30s (Azure runbook + home-site schedules). `[FAIL]` mail still only after that second miss. Test mode stays On.

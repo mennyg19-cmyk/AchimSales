@@ -419,6 +419,11 @@
     color: var(--text); font-size: 13px; border-radius: 6px; cursor: pointer;
 }
 .presets-open:hover { background: var(--bg); }
+.presets-edit {
+    flex: 0 0 auto; border: none; background: none; color: var(--primary);
+    font-size: 12px; font-weight: 600; cursor: pointer; padding: 6px 8px; border-radius: 6px;
+}
+.presets-edit:hover { background: var(--primary-light); }
 .presets-del {
     flex: 0 0 auto; border: none; background: none; color: var(--text-muted);
     font-size: 13px; cursor: pointer; padding: 6px 8px; border-radius: 6px;
@@ -859,6 +864,17 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
     text-transform: uppercase; letter-spacing: .3px;
 }
 .ms-field-block { margin-bottom: 14px; max-width: 420px; }
+.ms-where { max-width: 720px; }
+.ms-where .ms-field-block { max-width: none; }
+.ms-field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.ms-field-row .ms-field-block { flex: 1 1 240px; min-width: 200px; }
+.ms-dest-toggles { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 16px; }
+.ms-dest-panel { margin: 0 0 18px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+.ms-dest-panel[hidden] { display: none !important; }
+.ms-dest-panel .ms-choice { margin: 8px 8px 8px 0; }
+.ms-where .customer-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.ms-where .ms-choice-col { max-width: none; }
+.ms-where .ms-choice-col .ms-choice { width: auto; }
 .ms-field input:not([type=checkbox]):not([type=radio]), .ms-field select {
     padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     font-size: 15px; font-weight: 400; color: var(--text); background: var(--bg);

@@ -100,6 +100,8 @@ class ScheduleRunner:
                     else:
                         no_data_all = bool(params.get("email_on_no_data"))
                         no_data_me = bool(params.get("email_on_no_data_me_only"))
+                        test_empty = self.settings.test_emails()
+                        empty_to_test = no_data_me and not no_data_all and bool(test_empty)
                         outcome = self.delivery.run_and_deliver(
                             report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                             builder_version=spec.builder_version if spec else 1,
@@ -111,10 +113,10 @@ class ScheduleRunner:
                             onedrive_user=od_user,
                             cc_raw="" if test_to else str(params.get("email_cc") or ""),
                             bcc_raw="" if test_to else str(params.get("email_bcc") or ""),
-                            email_on_empty=no_data_all or no_data_me,
+                            email_on_empty=no_data_all or empty_to_test,
                             empty_recipients_override=(
                                 None if test_to
-                                else (identity if (no_data_me and not no_data_all) else None)
+                                else ("; ".join(test_empty) if empty_to_test else None)
                             ),
                             schedule_name=getattr(sched, "name", "") or report_name,
                         )

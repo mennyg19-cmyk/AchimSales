@@ -2010,7 +2010,30 @@ async function togglePresetsPanel(): Promise<void> {
       open.type = "button";
       open.className = "presets-open";
       open.textContent = p.name;
-      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p); });
+      open.title = "Apply this view’s filters (does not run the report)";
+      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p, { run: false }); });
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "presets-edit";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const name = window.prompt("Rename this view:", p.name);
+        if (name == null) return;
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        try {
+          const res = await fetch(presetUrl(p.id), {
+            method: "PATCH", headers: csrfHeaders(),
+            body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
+          });
+          if (!res.ok) throw new Error();
+          closePresetsPanel();
+          setStatus(`Updated “${trimmed}”.`);
+        } catch {
+          setStatus("Could not update this view. The name may already be used.", "error");
+        }
+      });
       const del = document.createElement("button");
       del.type = "button";
       del.className = "presets-del";
@@ -2021,7 +2044,7 @@ async function togglePresetsPanel(): Promise<void> {
         await fetch(presetUrl(p.id), { method: "DELETE", headers: csrfHeaders() });
         row.remove();
       });
-      row.append(open, del);
+      row.append(open, edit, del);
       panel.appendChild(row);
     });
   }
@@ -2029,10 +2052,10 @@ async function togglePresetsPanel(): Promise<void> {
   setTimeout(() => document.addEventListener("click", onPresetsOutside, true), 0);
 }
 
-function loadPreset(preset: { params?: Record<string, unknown>; layout?: SavedLayout }): void {
+function loadPreset(preset: { params?: Record<string, unknown>; layout?: SavedLayout }, opts?: { run?: boolean }): void {
   applyParamsObject(preset.params || {});
   pendingLayout = preset.layout || null;
-  run();
+  if (opts?.run !== false) run();
 }
 
 async function autoOpenPresetIfRequested(): Promise<void> {

@@ -18,6 +18,7 @@ let salesmanEmailOptions: SalesmanEmailRow[] = [];
 let lookupsStarted = false;
 let lookupPollTimer: number | null = null;
 let pendingSalesmen: string[] = [];
+let pendingLayout: Record<string, unknown> = {};
 let pendingEmailSalesmen: string[] = [];
 let pendingCustomers: string[] = [];
 let odSelected: string | null = null;
@@ -124,7 +125,77 @@ function syncDeliveryOptionsVisibility(form: HTMLFormElement): void {
     if (splitBySalesman) splitBySalesman.checked = false;
     emailSalesmanPicker?.setSelected([]);
   }
+  syncDestVisibility();
   void ensureLookups();
+}
+
+function destOn(id: string): boolean {
+  return !!(document.getElementById(id) as HTMLInputElement | null)?.checked;
+}
+
+function setDest(id: string, on: boolean): void {
+  const el = document.getElementById(id) as HTMLInputElement | null;
+  if (el) el.checked = on;
+}
+
+function syncDestVisibility(): void {
+  const emailOn = destOn("msWantEmail");
+  const cloudOn = destOn("msWantCloud");
+  const odOn = cloudOn && destOn("msWantOnedrive");
+  const spOn = cloudOn && destOn("msWantSharepoint");
+  const emailPanel = document.getElementById("msEmailPanel");
+  const cloudPanel = document.getElementById("msCloudPanel");
+  const odSection = document.getElementById("msOdSection");
+  const spSection = document.getElementById("msSpSection");
+  if (emailPanel) emailPanel.hidden = !emailOn;
+  if (cloudPanel) cloudPanel.hidden = !cloudOn;
+  if (odSection) odSection.hidden = !odOn;
+  if (spSection) spSection.hidden = !spOn;
+}
+
+async function loadSavedViews(reportKey: string): Promise<void> {
+  const sel = document.getElementById("msSavedView") as HTMLSelectElement | null;
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Current filters — no saved view</option>';
+  if (!reportKey) return;
+  const data = await getJSON<{ presets: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[] }>(
+    `/api/reports/${encodeURIComponent(reportKey)}/presets`,
+  );
+  (data?.presets || []).forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = String(p.id);
+    opt.textContent = p.name;
+    opt.dataset.preset = JSON.stringify(p);
+    sel.appendChild(opt);
+  });
+  if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+}
+
+function applySavedViewFromSelect(): void {
+  const sel = document.getElementById("msSavedView") as HTMLSelectElement | null;
+  const form = masterForm();
+  if (!sel || !form || !sel.value) {
+    pendingLayout = {};
+    return;
+  }
+  const raw = sel.selectedOptions[0]?.dataset.preset;
+  if (!raw) return;
+  const preset = JSON.parse(raw) as { params?: Record<string, unknown>; layout?: Record<string, unknown> };
+  const params = preset.params || {};
+  const periodEl = form.elements.namedItem("period") as HTMLSelectElement | null;
+  if (periodEl) periodEl.value = String(params.period || "");
+  const yearEl = form.elements.namedItem("year") as HTMLSelectElement | null;
+  if (yearEl) yearEl.value = params.year != null ? String(params.year) : "";
+  ensurePickers();
+  statusPicker?.setSelected(asStringList(params.status));
+  pendingSalesmen = asStringList(params.salesman);
+  salesmanPicker?.setSelected(pendingSalesmen);
+  pendingCustomers = asStringList(params.customers);
+  customerPicker?.setSelected(pendingCustomers);
+  pendingLayout = (preset.layout && typeof preset.layout === "object") ? preset.layout : {};
+  syncParamsVisibility(form);
+  syncDeliveryOptionsVisibility(form);
 }
 
 function suggestName(form: HTMLFormElement): void {
@@ -268,7 +339,7 @@ function fillReview(form: HTMLFormElement): void {
   if (canSeeCompany()) rows.push(["Visibility", shared ? "shared with admins and managers" : "private"]);
   if (isPrivileged() && runAsLabel) rows.push(["Run as", runAsLabel]);
   if (extra.email_on_no_data) rows.push(["No data", "email recipients"]);
-  if (extra.email_on_no_data_me_only) rows.push(["No data", "email only me"]);
+  if (extra.email_on_no_data_me_only) rows.push(["No data", "email test addresses"]);
   review.innerHTML = rows.map(([k, v]) =>
     `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 }
@@ -473,8 +544,14 @@ function showStep(step: number): void {
   const form = masterForm();
   if (!form) return;
   if (step === 2) syncCadenceVisibility(form);
-  if (step === 3) syncParamsVisibility(form);
-  if (step === 4) syncDeliveryOptionsVisibility(form);
+  if (step === 3) {
+    syncParamsVisibility(form);
+    void loadSavedViews(selectedReportKey(form));
+  }
+  if (step === 4) {
+    syncDeliveryOptionsVisibility(form);
+    syncDestVisibility();
+  }
   if (step === 5) fillReview(form);
 }
 
@@ -490,12 +567,18 @@ function validateStep(step: number, form: HTMLFormElement): string | null {
     if (!cad.ok) return cad.error || "Check the schedule timing.";
   }
   if (step === 4) {
-    const recipients = (form.elements.namedItem("recipients") as HTMLInputElement).value.trim();
-    const sp = (document.getElementById("spPathInput") as HTMLInputElement)?.value.trim() || "";
-    const od = odSelected || "";
+    const emailOn = destOn("msWantEmail");
+    const cloudOn = destOn("msWantCloud");
+    const recipients = emailOn
+      ? (form.elements.namedItem("recipients") as HTMLInputElement).value.trim()
+      : "";
+    const sp = (cloudOn && destOn("msWantSharepoint"))
+      ? ((document.getElementById("spPathInput") as HTMLInputElement)?.value.trim() || "")
+      : "";
+    const od = (cloudOn && destOn("msWantOnedrive")) ? (odSelected || "") : "";
     const params = collectParams(form);
     const selectedSalesmen = asStringList(params.salesman);
-    const salesmanDelivery = canSeeCompany() && (
+    const salesmanDelivery = emailOn && canSeeCompany() && (
       (selectedSalesmen.length > 0 && !!params.email_to_salesmen)
       || asStringList(params.email_salesman_keys).length > 0
     );
@@ -504,7 +587,7 @@ function validateStep(step: number, form: HTMLFormElement): string | null {
         ? "Add an email address, pick a folder, or choose salesmen to email."
         : "Add an email address or pick a OneDrive folder.";
     }
-    if (canSeeCompany() && !selectedSalesmen.length && params.split_by_salesman
+    if (canSeeCompany() && emailOn && !selectedSalesmen.length && params.split_by_salesman
         && !asStringList(params.email_salesman_keys).length) {
       return "Pick at least one salesman to email.";
     }
@@ -531,6 +614,7 @@ function closeWizard(): void {
   pendingEmailSalesmen = [];
   pendingCustomers = [];
   salesmanEmailOptions = [];
+  pendingLayout = {};
   odSelected = null;
   const odSel = document.getElementById("msOdSelected");
   if (odSel) odSel.textContent = "";
@@ -618,6 +702,13 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   if (noAll) noAll.checked = !!params.email_on_no_data;
   if (noMe) noMe.checked = !!params.email_on_no_data_me_only;
   const useOd = folderKind === "onedrive" || (!shared && folderKind !== "sharepoint" && !!folderPath);
+  const hasEmail = !!(row.dataset.recipients || "").trim()
+    || !!params.email_to_salesmen || !!params.split_by_salesman
+    || asStringList(params.email_salesman_keys).length > 0;
+  setDest("msWantEmail", hasEmail);
+  setDest("msWantCloud", !!folderPath);
+  setDest("msWantOnedrive", useOd && !!folderPath);
+  setDest("msWantSharepoint", !useOd && !!folderPath);
   if (useOd) {
     odSelected = folderPath;
     const sel = document.getElementById("msOdSelected");
@@ -637,6 +728,7 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   showStep(1);
   syncParamsVisibility(form);
   await ensureLookups();
+  void loadSavedViews(selectedReportKey(form));
   updateMsFilenamePreview();
   updateMsFolderPreview();
 }
@@ -677,10 +769,24 @@ export function bindMasterWizard(): void {
       syncParamsVisibility(form);
       syncDeliveryOptionsVisibility(form);
       suggestName(form);
+      pendingLayout = {};
+      void loadSavedViews(selectedReportKey(form));
       updateMsFilenamePreview();
       updateMsFolderPreview();
     });
   });
+  ["msWantEmail", "msWantCloud"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", () => syncDestVisibility());
+  });
+  document.getElementById("msWantOnedrive")?.addEventListener("change", () => {
+    if (destOn("msWantOnedrive")) setDest("msWantSharepoint", false);
+    syncDestVisibility();
+  });
+  document.getElementById("msWantSharepoint")?.addEventListener("change", () => {
+    if (destOn("msWantSharepoint")) setDest("msWantOnedrive", false);
+    syncDestVisibility();
+  });
+  document.getElementById("msSavedView")?.addEventListener("change", () => applySavedViewFromSelect());
   document.getElementById("msName")?.addEventListener("input", () => {
     updateMsFilenamePreview();
     updateMsFolderPreview();
@@ -710,12 +816,23 @@ export function bindMasterWizard(): void {
     if (!cad.ok) { masterMsg(cad.error!, true); return; }
 
     const extra = collectExtraParams();
-    const odPath = odSelected || "";
-    const spPath = (document.getElementById("spPathInput") as HTMLInputElement).value.trim();
+    const emailOn = destOn("msWantEmail");
+    const cloudOn = destOn("msWantCloud");
+    const odOn = cloudOn && destOn("msWantOnedrive");
+    const spOn = cloudOn && destOn("msWantSharepoint");
+    const odPath = odOn ? (odSelected || "") : "";
+    const spPath = spOn
+      ? (document.getElementById("spPathInput") as HTMLInputElement).value.trim()
+      : "";
     const shared = canSeeCompany()
       && (form.querySelector<HTMLInputElement>('input[name="is_shared"]:checked')?.value === "1");
     const runAsEl = document.getElementById("msRunAs") as HTMLSelectElement | null;
     const params = { ...collectParams(form), ...extra };
+    if (!emailOn) {
+      params.email_to_salesmen = false;
+      params.split_by_salesman = false;
+      params.email_salesman_keys = [];
+    }
     if (odPath && !spPath) params.folder_kind = "onedrive";
     if (spPath) params.folder_kind = "sharepoint";
     const nameEl = form.elements.namedItem("name") as HTMLInputElement;
@@ -723,10 +840,12 @@ export function bindMasterWizard(): void {
       name: nameEl.value.trim() || selectedReportTitle(form) + " schedule",
       report_key: selectedReportKey(form),
       cadence: cad.cadence,
-      recipients: (form.elements.namedItem("recipients") as HTMLInputElement).value.trim(),
+      recipients: emailOn
+        ? (form.elements.namedItem("recipients") as HTMLInputElement).value.trim()
+        : "",
       filename_template: (document.getElementById("msFilename") as HTMLInputElement | null)?.value.trim() || "",
       params,
-      layout: {},
+      layout: pendingLayout,
     };
     if (canSeeCompany()) {
       body.is_shared = shared;

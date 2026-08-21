@@ -32,6 +32,19 @@ def _is_credit(raw: Mapping, invoice_number: str) -> bool:
     return is_credit_number(invoice_number)
 
 
+def _sales_group_label(raw: Mapping) -> str:
+    """Prefer a name over a numeric code so every row is not stamped 029."""
+    group = text(first_of(raw, "SalesGroup"))
+    if group:
+        return group
+    salesman = text(first_of(raw, "salesman", "Salesman"))
+    name = text(first_of(raw, "SalesmanName"))
+    digits = salesman.replace(" ", "")
+    if digits and digits.isdigit() and name:
+        return name
+    return salesman or name
+
+
 def _commission_fraction(raw: Mapping) -> float:
     """The salesman's commission rate from the SP, normalized to a fraction.
 
@@ -75,7 +88,7 @@ def to_fact(raw: Mapping) -> InvoiceChargeFact:
         cc=cc,
         misc=misc,
         total=total,
-        sales_group=text(first_of(raw, "salesman", "SalesGroup")),
+        sales_group=_sales_group_label(raw),
         salesman_name=text(first_of(raw, "SalesmanName")),
         is_credit=_is_credit(raw, invoice_number),
         commission_pct=_commission_fraction(raw),

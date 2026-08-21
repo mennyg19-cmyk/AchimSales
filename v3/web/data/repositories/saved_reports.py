@@ -72,6 +72,36 @@ class SavedReportRepository:
             ).fetchone()
             return SavedReport.from_row(row) if row else None
 
+    def update(self, preset_id: int, user_id: int, *, name: str | None = None,
+               params: dict | None = None, layout: dict | None = None) -> bool:
+        """Rename and/or replace filters/layout. Owner-scoped."""
+        sets: list[str] = []
+        vals: list = []
+        if name is not None:
+            stripped = name.strip()
+            if not stripped:
+                return False
+            sets.append("name=?")
+            vals.append(stripped)
+        if params is not None:
+            sets.append("params_json=?")
+            vals.append(json.dumps(params or {}))
+        if layout is not None:
+            sets.append("layout_json=?")
+            vals.append(json.dumps(layout or {}))
+        if not sets:
+            return False
+        vals.extend([preset_id, user_id])
+        with self.db.precious() as conn:
+            try:
+                cur = conn.execute(
+                    f"UPDATE saved_reports SET {', '.join(sets)} WHERE id=? AND user_id=?",
+                    vals,
+                )
+            except sqlite3.IntegrityError:
+                return False
+            return cur.rowcount == 1
+
     def delete(self, preset_id: int, user_id: int) -> bool:
         with self.db.precious() as conn:
             cur = conn.execute(
