@@ -25,6 +25,22 @@ TIMEOUT = 30
 UPLOAD_TIMEOUT = 120
 REPORTS_SUBFOLDER = "Direct Reports"
 
+
+def strip_reports_home(path: str) -> str:
+    """Drop a duplicated Direct Reports prefix. That folder is already the drive root."""
+    p = (path or "").replace("\\", "/").strip("/")
+    home = REPORTS_SUBFOLDER.lower()
+    while p:
+        low = p.lower()
+        if low == home:
+            return ""
+        if low.startswith(home + "/"):
+            p = p.split("/", 1)[1]
+            continue
+        return p
+    return ""
+
+
 # Characters that must never appear in a folder/file segment we interpolate into a
 # Graph path (path traversal, drive-path separators, and OneDrive-reserved chars).
 _BAD_SEGMENT = re.compile(r'[\\/:*?"<>|#%]')
@@ -61,6 +77,7 @@ class SharePointService:
     # -- public API ---------------------------------------------------------
 
     def list_folders(self, rel_path: str = "") -> list[dict]:
+        rel_path = strip_reports_home(rel_path)
         if not self.is_configured():
             self._mock_or_raise("list folders")
             return _mock_folders(rel_path)
@@ -82,6 +99,7 @@ class SharePointService:
         return out
 
     def upload_file(self, rel_folder: str, filename: str, content: bytes) -> dict[str, Any]:
+        rel_folder = strip_reports_home(rel_folder)
         _validate_segments(rel_folder)
         _validate_segments(filename)
         if not self.is_configured():
@@ -92,17 +110,18 @@ class SharePointService:
                     "id": f"mock-{rel_folder}-{filename}".replace(" ", "_"), "mock": True}
         import requests
 
+        from web.delivery.graph_upload import upload_drive_item
+
         self._ensure_folder(rel_folder)
-        url = f"{self._drive_base()}/root:/{self._abs(rel_folder)}/{quote(filename)}:/content"
-        r = requests.put(
-            url,
-            headers={"Authorization": f"Bearer {self._get_token()}",
-                     "Content-Type": "application/octet-stream"},
-            data=content, timeout=UPLOAD_TIMEOUT,
+        path = f"{self._abs(rel_folder)}/{quote(filename)}"
+        base = self._drive_base()
+        body = upload_drive_item(
+            requests,
+            put_url=f"{base}/root:/{path}:/content",
+            session_url=f"{base}/root:/{path}:/createUploadSession",
+            headers={"Authorization": f"Bearer {self._get_token()}"},
+            content=content, put_timeout=UPLOAD_TIMEOUT,
         )
-        if r.status_code not in (200, 201):
-            r.raise_for_status()
-        body = r.json()
         return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
 
     # -- internals ----------------------------------------------------------
