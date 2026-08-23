@@ -24,6 +24,11 @@ _TIMEOUT_SECONDS = 60
 class GraphMailError(RuntimeError):
     """Token failure or Graph rejected the send."""
 
+    def __init__(self, message: str, status_code: int | None = None, detail: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.detail = detail
+
 
 class GraphMailer:
     def __init__(self, tenant_id: str, client_id: str, client_secret: str) -> None:
@@ -97,7 +102,10 @@ class GraphMailer:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:500]
             log.warning("Graph sendMail failed: HTTP %s %s", exc.code, detail)
-            raise GraphMailError(f"Microsoft Graph rejected the send (HTTP {exc.code}).") from exc
+            raise GraphMailError(
+                f"Microsoft Graph rejected the send (HTTP {exc.code}).",
+                status_code=exc.code, detail=detail,
+            ) from exc
         except Exception as exc:  # noqa: BLE001
             log.warning("Graph sendMail error: %s", exc)
             raise GraphMailError("Microsoft Graph could not be reached to send mail.") from exc

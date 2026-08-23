@@ -8,7 +8,8 @@ from web.config import Config
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.outbox import OutboxRepository
-from web.delivery.email import EmailService, split_recipients
+from web.delivery.email import MAX_GRAPH_ATTACH_BYTES, EmailService, split_recipients
+from web.delivery.graph_mail import GraphMailError
 from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.service import DeliveryService
 from web.delivery.onedrive import onedrive_children_url
@@ -194,6 +195,62 @@ def test_email_uploads_to_sharepoint_mock(email):
     assert res.sharepoint_saved is True and res.sharepoint_url.startswith("mock://")
 
 
+class _FakeGraph:
+    def __init__(self):
+        self.calls = []
+
+    def send(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+def _graph_svc(tmp_path, graph):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s",
+               email_from="reports@x.com")
+    return EmailService(cfg, OutboxRepository(db), SharePointService(cfg), graph=graph)
+
+
+def test_graph_omits_attachment_when_workbook_too_large(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {
+            "webUrl": f"mock://{folder}/{name}", "name": name, "id": "1",
+        }
+    )
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(subject="YTD Ordered", recipients_raw="a@x.com", body_text="",
+                      report_name="Ordered", filename="Ordered_Report_YTD.xlsx",
+                      xlsx_bytes=big, sharepoint_path="Ordered/YTD")
+    assert res.ok and res.send_channel == "graph"
+    assert graph.calls[0]["xlsx_bytes"] is None
+    assert graph.calls[0]["filename"] == ""
+    assert "too large" in graph.calls[0]["body_text"].lower()
+    assert "mock://Ordered/YTD/Ordered_Report_YTD.xlsx" in graph.calls[0]["body_text"]
+    assert res.sharepoint_saved is True
+
+
+def test_graph_retries_without_attachment_after_413(tmp_path):
+    class RejectThenOk(_FakeGraph):
+        def send(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs.get("xlsx_bytes"):
+                raise GraphMailError("Microsoft Graph rejected the send (HTTP 413).",
+                                     status_code=413)
+
+    graph = RejectThenOk()
+    svc = _graph_svc(tmp_path, graph)
+    res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
+                      report_name="Ordered", filename="ordered.xlsx",
+                      xlsx_bytes=b"PK\x03\x04")
+    assert res.ok and res.send_channel == "graph"
+    assert len(graph.calls) == 2
+    assert graph.calls[0]["xlsx_bytes"] == b"PK\x03\x04"
+    assert graph.calls[1]["xlsx_bytes"] is None
+    assert "too large" in graph.calls[1]["body_text"].lower()
+
+
 def test_sharepoint_mock_lists_folders(tmp_path):
     sp = SharePointService(_cfg(tmp_path))
     assert sp.is_configured() is False
@@ -251,6 +308,53 @@ def test_sharepoint_list_and_upload_strip_home_prefix(tmp_path):
     assert "Ordered" in names
     res = sp.upload_file("Direct Reports/Salesman Report/Customer Activity", "f.xlsx", b"x")
     assert res["webUrl"] == "mock://Salesman Report/Customer Activity/f.xlsx"
+
+
+def test_upload_drive_item_uses_session_over_4mb():
+    from web.delivery.graph_upload import SIMPLE_UPLOAD_MAX, upload_drive_item
+
+    class _Resp:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class _Req:
+        def __init__(self):
+            self.puts = []
+            self.posts = []
+
+        def put(self, url, **kwargs):
+            self.puts.append((url, kwargs))
+            return _Resp(200, {"webUrl": "https://sp/file", "name": "f.xlsx", "id": "1"})
+
+        def post(self, url, **kwargs):
+            self.posts.append((url, kwargs))
+            return _Resp(200, {"uploadUrl": "https://upload/session"})
+
+    req = _Req()
+    small = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"}, content=b"hello", put_timeout=10,
+    )
+    assert small["webUrl"] == "https://sp/file"
+    assert req.posts == []
+
+    req = _Req()
+    big = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"},
+        content=b"x" * SIMPLE_UPLOAD_MAX, put_timeout=10,
+    )
+    assert big["webUrl"] == "https://sp/file"
+    assert req.posts[0][0] == "https://graph/session"
+    assert req.puts[0][0] == "https://upload/session"
 
 
 def test_sharepoint_prod_without_creds_raises(tmp_path):

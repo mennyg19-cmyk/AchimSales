@@ -82,20 +82,21 @@ class OneDriveService:
                     "name": filename, "id": f"mock-od-{filename}", "mock": True}
         import requests
 
+        from web.delivery.graph_upload import upload_drive_item
+
         self._ensure_folder(user, rel_folder)
         folder = _enc_path(rel_folder)
         if folder:
-            url = f"{self._drive_root(user)}:{folder}/{quote(filename)}:/content"
+            item = f"{self._drive_root(user)}:{folder}/{quote(filename)}"
         else:
-            url = f"{self._drive_root(user)}:/{quote(filename)}:/content"
-        r = requests.put(
-            url,
-            headers={**self._headers(), "Content-Type": "application/octet-stream"},
-            data=content, timeout=UPLOAD_TIMEOUT,
+            item = f"{self._drive_root(user)}:/{quote(filename)}"
+        body = upload_drive_item(
+            requests,
+            put_url=f"{item}:/content",
+            session_url=f"{item}:/createUploadSession",
+            headers=self._headers(),
+            content=content, put_timeout=UPLOAD_TIMEOUT,
         )
-        if r.status_code not in (200, 201):
-            r.raise_for_status()
-        body = r.json()
         return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
 
     def _drive_root(self, user: str) -> str:
