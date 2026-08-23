@@ -32,6 +32,8 @@ def test_upsert_and_facts_roundtrip(db):
     assert key in facts
     assert facts[key].number == "080"
     assert facts[key].commission_pct == 0.05
+    assert repo.list_all()[0].email == "r@x.com"
+    assert repo.get_email("REdwards") == "r@x.com"
 
 
 def test_upsert_is_idempotent_and_updates(db):
@@ -45,6 +47,19 @@ def test_upsert_is_idempotent_and_updates(db):
     facts = repo.all_as_facts()
     assert facts[salesman_key("MKolko")].display_name == "MK"
     assert facts[salesman_key("MKolko")].commission_pct == 0.03
+
+
+def test_keys_with_email_prefers_salesgroup_display_name(db):
+    repo = SalesmanRepository(db)
+    repo.upsert_many([
+        SalesmanSeed(raw_key="REdwards", number="080", full_name="Reggie Edwards",
+                     display_name="REdwards", email="r@x.com"),
+        SalesmanSeed(raw_key="NoMail", number="1", full_name="No Mail",
+                     display_name="NoMail", email=""),
+        SalesmanSeed(raw_key="MKolko", number="012", full_name="Mendy Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+    ])
+    assert repo.keys_with_email() == ["mkolko", "REdwards"]
 
 
 def test_reads_live_config_xlsx_if_present(db):

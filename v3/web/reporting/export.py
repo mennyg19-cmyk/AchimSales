@@ -36,6 +36,8 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from report_engine.lib import iso_date
+
 # Excel sheet-title constraints: <=31 chars, none of : \ / ? * [ ]
 _INVALID_SHEET = re.compile(r"[:\\/?*\[\]]")
 # CSV/Excel formula-injection: a cell whose text starts with one of these can be
@@ -56,7 +58,7 @@ _FMT = {
     "money": '"$"#,##0.00',
     "int": "#,##0",
     "percent": "0.0%",
-    "date": "M/D/YYYY",
+    "date": "YYYY-MM-DD",
 }
 
 # --- Styling (live palette: grey header, light zebra, darker totals) ---
@@ -70,6 +72,12 @@ _GROUP_FILL = PatternFill("solid", fgColor="BDD7EE")
 _GROUP_FONT = Font(bold=True)
 _THIN = Side(style="thin", color="000000")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+# Live salesman YoY column bands (month / YTD / full-year) + red negatives.
+_FONT_BAND_BLUE = Font(color="0000CC")
+_FONT_BAND_GREEN = Font(color="008000")
+_FONT_BAND_PURPLE = Font(color="800080")
+_FONT_BAND_RED = Font(color="FF0000")
+_BAND_FONTS = (_FONT_BAND_BLUE, _FONT_BAND_GREEN, _FONT_BAND_PURPLE)
 
 
 def _safe_text(value: Any) -> str:
@@ -91,10 +99,13 @@ def _coerce(value: Any, col_type: str | None) -> tuple[Any, str | None]:
     if col_type == "date":
         if isinstance(value, (date, datetime)):
             return value, _FMT["date"]
-        try:
-            return datetime.strptime(str(value)[:10], "%Y-%m-%d").date(), _FMT["date"]
-        except (TypeError, ValueError):
-            return _safe_text(value), None
+        s = iso_date(value)
+        if s and len(s) == 10 and s[4] == "-" and s[7] == "-":
+            try:
+                return date.fromisoformat(s), _FMT["date"]
+            except ValueError:
+                pass
+        return _safe_text(value), None
     if col_type in _NUMERIC_TYPES:
         try:
             f = float(value)
@@ -182,18 +193,27 @@ def _header_cells(ws, metas) -> list[WriteOnlyCell]:
                   align=_HEADER_ALIGN, border=_BORDER) for h, _f, _t in metas]
 
 
-def _data_cells(ws, metas, row: dict, acc: dict[str, float]) -> list[WriteOnlyCell]:
+def _data_cells(ws, metas, row: dict, acc: dict[str, float],
+                *, salesman_bands: bool = False) -> list[WriteOnlyCell]:
     """Data row cells — styled lightly (number formats only, no borders/zebra).
 
     The live app applies no per-cell borders or zebra on data rows; only headers,
     totals, and group banners get fills/borders. Skipping these two style objects
     on every cell is the single biggest speedup for large exports (borders alone
     were ~40% of openpyxl's write-time on a 120k-row grid).
+
+    Salesman month tabs optionally get Live's blue/green/purple font bands
+    (and red for negatives) while still using write-only streaming.
     """
     cells = []
-    for _header, field, ctype in metas:
+    for idx, (_header, field, ctype) in enumerate(metas):
         value, fmt = _coerce(row.get(field), ctype)
-        cells.append(_cell(ws, value, fmt=fmt))
+        font = None
+        if salesman_bands and idx >= 4:
+            band = _BAND_FONTS[min((idx - 4) // 4, 2)]
+            n = _num(row.get(field))
+            font = _FONT_BAND_RED if n is not None and n < 0 else band
+        cells.append(_cell(ws, value, fmt=fmt, font=font))
         if ctype in _SUMMABLE_TYPES:
             x = _num(row.get(field))
             if x is not None:
@@ -224,7 +244,8 @@ def _banner_cells(ws, ncol: int, text: str) -> list[WriteOnlyCell]:
     return cells
 
 
-def _stream_grid(ws, metas, rows: list, group_fields: list[str]) -> None:
+def _stream_grid(ws, metas, rows: list, group_fields: list[str],
+                 *, salesman_bands: bool = False) -> None:
     if not metas:
         return
     ncol = len(metas)
@@ -248,7 +269,7 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str]) -> None:
             ws.append(_banner_cells(ws, ncol, f"{glabel}: {label}"))
             sub: dict[str, float] = {}
             for row in grp:
-                ws.append(_data_cells(ws, metas, row, sub))
+                ws.append(_data_cells(ws, metas, row, sub, salesman_bands=salesman_bands))
             ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}"))
             for k, val in sub.items():
                 grand[k] = grand.get(k, 0.0) + val
@@ -257,52 +278,77 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str]) -> None:
     else:
         grand: dict[str, float] = {}
         for row in rows:
-            ws.append(_data_cells(ws, metas, row, grand))
+            ws.append(_data_cells(ws, metas, row, grand, salesman_bands=salesman_bands))
         if rows:
             ws.append(_total_cells(ws, metas, grand, "Total"))
 
 
 def _stream_commission(ws, tab: dict) -> None:
-    """Per-salesman monthly + YTD block (live-style commissions pivot)."""
+    """Per-salesman monthly + YTD block (live Excel commissions layout)."""
     year = tab.get("year") or ""
     labels = list(tab.get("month_labels") or [])
     salesmen = tab.get("salesmen") or []
     ws.freeze_panes = "A2"
-    ws.append([_cell(ws, f"Commissions Summary {year}".strip(), font=Font(bold=True, size=14))])
+    title = f"Commissions Summary ({year})" if year else "Commissions Summary"
+    ws.append([_cell(ws, title, font=Font(bold=True, size=14))])
     if not salesmen:
-        ws.column_dimensions["A"].width = 40
-        ws.append([])  # row 2 spacer
+        ws.column_dimensions["A"].width = 48
+        ws.append([])
         ws.append([_cell(ws, "No commissioned salesmen for this period.")])
         return
-    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["A"].width = 48
+    ws.column_dimensions["B"].width = 8
 
     lines = [
-        ("SubTotal Invoices", "subtotal_invoices"),
-        ("Total Invoices", "total_invoices"),
-        ("Credits", "credits"),
-        ("Net Commission", "net_commission"),
-        ("Commission", "commission"),
+        ("SubTotal Invoices:", "subtotal_invoices"),
+        ("Total Tariff Charges:", "tariff_charges"),
+        ("Total Freight Charges:", "freight_charges"),
+        ("Total CC Charges:", "cc_charges"),
+        ("Total Invoices: (SubTotal+Tariff+Freight+CC)", "total_invoices"),
+        ("Total Credits:", "credits"),
+        ("Net Commission Amount (Less Freight and CC)", "net_commission"),
+        ("Commission:", "commission"),
     ]
     ws.append([])  # row 2 spacer (block starts on row 3, matching the live layout)
     center = Alignment(horizontal="center")
+    yy = str(year)[-2:] if year else ""
     for s in salesmen:
-        title = f"{s.get('salesman_number', '')} - {s.get('salesman_name', '')}".strip(" -")
-        banner = [_cell(ws, _safe_text(title), font=_GROUP_FONT, fill=_GROUP_FILL)]
-        banner += [_cell(ws, _safe_text(lab), font=_GROUP_FONT, fill=_GROUP_FILL, align=center)
-                   for lab in labels]
-        banner.append(_cell(ws, "YTD", font=_GROUP_FONT, fill=_GROUP_FILL))
+        num = str(s.get("salesman_number") or s.get("salesman") or "").strip()
+        name = str(s.get("salesman_name") or "").strip()
+        title_sm = f"{num} - {name}".strip(" -")
+        banner = [_cell(ws, _safe_text(title_sm), font=_GROUP_FONT, fill=_GROUP_FILL)]
+        banner.append(_cell(ws, "", font=_GROUP_FONT, fill=_GROUP_FILL))
+        for lab in labels:
+            hdr = f"{lab}-{yy}" if yy else lab
+            banner.append(_cell(ws, _safe_text(hdr), font=_GROUP_FONT, fill=_GROUP_FILL, align=center))
+        banner.append(_cell(ws, "YTD Total", font=_GROUP_FONT, fill=_GROUP_FILL, align=center))
         ws.append(banner)
         monthly = s.get("monthly") or []
         ytd = s.get("ytd") or {}
+        pct = float(s.get("commission_pct") or 0.0)
         for label, field in lines:
             line = [_cell(ws, _safe_text(label), font=_TOTAL_FONT)]
+            if field == "commission":
+                line.append(_cell(ws, pct, fmt=_FMT["percent"]))
+            else:
+                line.append(_cell(ws, ""))
             for mi in range(len(labels)):
                 m = monthly[mi] if mi < len(monthly) else {}
                 line.append(_cell(ws, float(m.get(field) or 0.0), fmt=_FMT["money"]))
             line.append(_cell(ws, float(ytd.get(field) or 0.0), fmt=_FMT["money"], font=_TOTAL_FONT))
             ws.append(line)
+        pay = [_cell(ws, _safe_text(f"Total Payable: {title_sm}"), font=_TOTAL_FONT)]
+        pay.append(_cell(ws, ""))
+        for _ in labels:
+            pay.append(_cell(ws, ""))
+        pay.append(_cell(
+            ws,
+            float(ytd.get("total_payable") or ytd.get("commission") or 0.0),
+            fmt=_FMT["money"],
+            font=_TOTAL_FONT,
+        ))
+        ws.append(pay)
         ws.append([])  # blank row between salesmen
-
 
 def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes:
     from openpyxl import Workbook
@@ -330,7 +376,9 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         if not wanted:
             wanted = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
         group_fields = [g for g in wanted if g in known]
-        _stream_grid(ws, metas, rows, group_fields)
+        salesman_bands = (payload.get("report_key") == "salesman"
+                          and tab.get("layout") != "commission_cards")
+        _stream_grid(ws, metas, rows, group_fields, salesman_bands=salesman_bands)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

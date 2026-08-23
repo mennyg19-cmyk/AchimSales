@@ -12,7 +12,7 @@ import threading
 from flask import Blueprint, jsonify, request, session
 
 from webapp.helpers import get_current_user, require_login
-from webapp.user_map import get_salesman_key, is_admin, is_salesman
+from webapp.user_map import get_salesman_key, is_admin, is_salesman, is_developer
 from webapp.db import (
     get_notification_counts, get_notifications,
     dismiss_notification, dismiss_notifications_by_type,
@@ -30,6 +30,7 @@ from webapp.db import (
     get_all_feature_flags, set_feature_flag,
     set_user_dashboard,
     set_user_test_access,
+    set_user_beta_access,
     get_user_salesman_access, set_user_salesman_access,
     create_draft_order, get_draft_orders, get_draft_order,
     update_draft_order, delete_draft_order,
@@ -511,6 +512,58 @@ def api_admin_set_user_test_access():
         return jsonify({"error": "email is required"}), 400
     set_user_test_access(email, bool(enabled))
     return jsonify({"success": True})
+
+
+@api_bp.route("/api/admin/user-beta-access", methods=["POST"])
+@require_login
+def api_admin_set_user_beta_access():
+    user = get_current_user()
+    if not is_admin(user):
+        return jsonify({"error": "forbidden"}), 403
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    enabled = data.get("enabled", False)
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+    set_user_beta_access(email, bool(enabled))
+    return jsonify({"success": True})
+
+
+@api_bp.route("/api/dev/beta-sources", methods=["GET", "POST"])
+@require_login
+def api_dev_beta_sources():
+    """Dev-only: read/write the Beta per-report SQL vs OData switch."""
+    user = get_current_user()
+    if not is_developer(user):
+        return jsonify({"error": "forbidden"}), 403
+    try:
+        from pathlib import Path
+        import importlib.util
+
+        path = Path(__file__).resolve().parents[2] / "v3" / "web" / "beta_sources.py"
+        spec = importlib.util.spec_from_file_location("beta_sources", path)
+        mod = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(mod)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"error": f"beta_sources unavailable: {exc}"}), 500
+
+    if request.method == "GET":
+        return jsonify({"sources": mod.get_sources()})
+
+    data = request.get_json() or {}
+    sources = data.get("sources")
+    if isinstance(sources, dict):
+        return jsonify({"sources": mod.set_sources(sources)})
+    report_key = (data.get("report_key") or "").strip()
+    source = (data.get("source") or "").strip().lower()
+    if not report_key or source not in ("sql", "odata"):
+        return jsonify({"error": "report_key and source (sql|odata) required"}), 400
+    try:
+        mod.set_source(report_key, source)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"sources": mod.get_sources()})
 
 
 # -- Order entry -----------------------------------------------------------

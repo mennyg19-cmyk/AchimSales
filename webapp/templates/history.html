@@ -145,7 +145,7 @@ function retryFromHistory(btn) {
     btn.disabled = true;
     btn.innerHTML = '<i data-feather="loader" style="width:14px;height:14px;"></i> Retrying...';
     if (typeof feather !== 'undefined') feather.replace();
-    window.location.href = '/report/' + encodeURIComponent(reportKey) + '?' + qs.join('&');
+    window.location.href = appUrl('/report/' + encodeURIComponent(reportKey) + '?' + qs.join('&'));
 }
 
 function cancelFromHistory(runId, btn) {

@@ -51,6 +51,20 @@ class JobWorker:
         """True once the background poller thread is started (see start())."""
         return self._poller is not None
 
+    def health(self) -> dict:
+        """Live snapshot of the poller for the admin diagnostic. Lets us tell a
+        worker that never started from one whose poller thread died from one
+        that's wedged with every capacity slot held by a hung handler. Only the
+        background-leader process actually runs a poller; on a follower this
+        reports started=False (which is correct for that process)."""
+        return {
+            "started": self._poller is not None,
+            "poller_alive": bool(self._poller and self._poller.is_alive()),
+            "max_workers": self.max_workers,
+            "free_slots": self._sem._value,  # how many jobs it could claim right now
+            "handler_types": sorted(self.handlers),
+        }
+
     # --- synchronous driving (used by tests + simple call sites) -----------
 
     def process_next(self) -> str | None:
@@ -96,7 +110,16 @@ class JobWorker:
         self._poller.start()
 
     def _loop(self, poll_interval: float) -> None:
+        # Heartbeat so the logs PROVE the poller is actually iterating (an alive
+        # thread that isn't looping looks identical from the outside otherwise).
+        # ~30s cadence at the default 1s poll: quiet enough to leave on in prod.
+        heartbeat_every = max(1, int(30 / poll_interval))
+        iterations = 0
+        log.info("job poller loop entered (max_workers=%d, poll=%.1fs)", self.max_workers, poll_interval)
         while not self._stop.is_set():
+            iterations += 1
+            if iterations % heartbeat_every == 0:
+                log.info("job poller heartbeat: iterations=%d free_slots=%d", iterations, self._sem._value)
             if not self._sem.acquire(timeout=poll_interval):
                 continue
             try:
@@ -105,11 +128,13 @@ class JobWorker:
                     self._sem.release()
                     self._stop.wait(poll_interval)
                     continue
+                log.info("job poller claimed %s (%s)", job.id, job.type)
                 self._executor.submit(self._run_and_release, job)
             except Exception:  # noqa: BLE001 - infra error must not kill the poller
                 log.exception("job poller iteration failed")
                 self._sem.release()
                 self._stop.wait(poll_interval)
+        log.warning("job poller loop exited (stop=%s)", self._stop.is_set())
 
     def _run_and_release(self, job: Job) -> None:
         try:

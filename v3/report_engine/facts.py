@@ -9,7 +9,7 @@ feed identical facts to two builders and the only difference can be the rules.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 Source = Literal["reporting_api", "odata"]
@@ -17,12 +17,11 @@ Source = Literal["reporting_api", "odata"]
 
 @dataclass(frozen=True)
 class OrderLineFact:
-    """One sales-order line from salesline_release (ordered report, dashboard).
+    """One sales-order line (ordered report / customer last order / dashboard).
 
-    Source-shaped. The SP returns authoritative dollar columns
-    (ordered/shipped/cancelled) computed server-side from WHS + packing-slip
-    data, plus the raw qty inputs. It does NOT yet return an explicit
-    qty-cancelled, so the builder derives the qty buckets and flags them.
+    Dollar columns are authoritative from the SP when present. Qty fields depend
+    on which SP fed the row: ``usp_ordered_report`` has reserved + delivery
+    remainder (no shipped qty); ``salesline_release`` has shipped qty.
     """
     source: Source
     company: str
@@ -42,23 +41,29 @@ class OrderLineFact:
     # Quantities are floats (LIVE keeps them numeric; the SP may return
     # fractional units) - never int-truncated before aggregation.
     qty_ordered: float
+    qty_shipped: float
+    qty_cancelled: float
     qty_released: float
-    delivery_remainder: float
+    qty_reserved: float
+    delivery_remainder: float   # "qty left to ship" on usp_ordered_report
     qty_left_to_load: float
     ordered_dollars: float     # authoritative (server-side)
     shipped_dollars: float     # authoritative (server-side)
     cancelled_dollars: float   # authoritative (server-side)
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
+    # usp_ordered_report only (blank on salesline_release).
+    purch_id: str = ""
+    expected_arrival_date: str = ""  # 'YYYY-MM-DD' or ''
 
 
 @dataclass(frozen=True)
 class InvoiceChargeFact:
-    """One invoiced-order-charges row (invoiced + salesman reports).
+    """One invoice row from `rpt.usp_invoiced_report` (invoiced + salesman reports).
 
-    Source-shaped: money split into subtotal + the three charge buckets, with
-    `total` = subtotal + tariff + freight + cc. Salesman LABEL resolution is the
-    builder's job (it owns the live business mapping); the fact carries only the
-    raw `sales_group` so the same fact can feed multiple builders.
+    Source-shaped: SQL returns invoice-level money columns and salesman labels.
+    The SP also sends the salesman's commission rate per row (`commission`); the
+    salesman master is the fallback when a row doesn't carry one.
+
+    commission_pct is a fraction (0.06 = 6%), matching the master + live math.
     """
     source: Source
     invoice_number: str
@@ -70,32 +75,12 @@ class InvoiceChargeFact:
     tariff: float
     freight: float
     cc: float
+    misc: float
     total: float
     sales_group: str
-    is_credit: bool
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
-
-
-@dataclass(frozen=True)
-class InvoiceItemFact:
-    """One invoice LINE (item-level) from the invoice_lines SP (Number 4 report).
-
-    Distinct from InvoiceChargeFact: that one is charge-level (one row per
-    invoice with the subtotal/tariff/freight/cc split); this one is line-level
-    (one row per invoiced item) carrying item, quantity, and line amount.
-    """
-    source: Source
-    invoice_number: str
-    invoice_date: str          # 'YYYY-MM-DD' or ''
-    customer_account: str
-    customer_name: str
-    sales_group: str
-    sales_order_number: str    # blank = free-text line (LIVE excludes these)
-    item_number: str
-    item_name: str
-    qty: float
-    amount: float
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
+    salesman_name: str = ""
+    is_credit: bool = False
+    commission_pct: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -106,7 +91,6 @@ class CustomerFact:
     customer_name: str
     sales_group: str
     last_order_date: str
-    raw: dict = field(default_factory=dict, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -118,4 +102,3 @@ class SalesmanFact:
     full_name: str
     display_name: str
     commission_pct: float
-    raw: dict = field(default_factory=dict, compare=False, repr=False)

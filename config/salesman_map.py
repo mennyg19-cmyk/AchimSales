@@ -75,10 +75,12 @@ def lookup_salesman(sales_group: str) -> tuple[str, str, str]:
 def get_salesman_number(sales_group: str) -> str:
     try:
         from config.salesman_excel import get_salesman_number_xl
-        return get_salesman_number_xl(sales_group)
+        rec_num = get_salesman_number_xl(sales_group)
+        if rec_num and rec_num != "?unassigned":
+            return rec_num
     except Exception:
         log.debug("Excel salesman number lookup failed for '%s'", sales_group, exc_info=True)
-        return _fallback_lookup(sales_group)[0]
+    return _fallback_lookup(sales_group)[0]
 
 
 def get_salesman_full_name(sales_group: str) -> str:

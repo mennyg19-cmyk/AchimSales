@@ -25,7 +25,7 @@ from webapp.report_api import run_report
 from webapp.history import add_record, delete_record, update_record, get_history, get_record
 from webapp.db import (
     add_notification, get_all_users, get_saved_reports,
-    get_user_salesman_access,
+    get_user_salesman_access, normalize_key,
     log_report_start, log_report_end, get_report_runs,
 )
 
@@ -37,6 +37,25 @@ class _ReportCancelled(Exception):
 
 
 reports_bp = Blueprint("reports", __name__)
+
+
+def _match_manager_salesman(requested: str, allowed_keys: set[str]) -> dict | None:
+    """Resolve a requested salesman (key OR display name) to one allowed salesman.
+
+    The report form posts the display name, while access control stores keys, so
+    compare both forms after normalizing. Returns the salesman dict (key/name/
+    display) when exactly one allowed rep matches, else None.
+    """
+    norm = normalize_key(requested or "")
+    if not norm:
+        return None
+    for sm in get_salesmen_list():
+        if sm["key"] not in allowed_keys:
+            continue
+        candidates = (sm["key"], sm.get("display", ""), sm.get("name", ""))
+        if any(normalize_key(c) == norm for c in candidates if c):
+            return sm
+    return None
 
 _progress_state: dict[str, dict] = {}
 _cancel_flags: dict[str, bool] = {}
@@ -361,15 +380,20 @@ def report_run(report_key):
             params["salesman"] = user["salesman_key"]
     elif is_manager(user) and report_cfg.get("salesman_filter"):
         allowed_keys = set(get_user_salesman_access(user.get("email", "")))
-        requested = params.get("salesman", "")
-        if requested and requested in allowed_keys:
-            params["salesman"] = requested
-        elif len(allowed_keys) == 1:
-            params["salesman"] = next(iter(allowed_keys))
-        elif allowed_keys:
-            params["salesman_list"] = list(allowed_keys)
-        else:
+        if not allowed_keys:
             return jsonify({"success": False, "error": "No salesmen assigned to your account"}), 403
+        # The picker sends the display name (e.g. "Moshe Kolko"); allowed_keys are
+        # keys (e.g. "MKolko"). Match either form so a manager's pick actually
+        # scopes instead of silently falling back to every rep.
+        matched = _match_manager_salesman(params.get("salesman", ""), allowed_keys)
+        if matched is None and len(allowed_keys) == 1:
+            matched = _match_manager_salesman(next(iter(allowed_keys)), allowed_keys)
+        if matched is not None:
+            params["salesman"] = matched["display"]
+            params.pop("salesman_list", None)
+        else:
+            params["salesman_list"] = list(allowed_keys)
+            params.pop("salesman", None)
     email = user.get("email", "")
     preset_name = params.pop("preset_name", None)
     display_name = f"{preset_name} ({report_cfg.get('name', report_key)})" if preset_name else report_cfg.get("name", report_key)
@@ -480,11 +504,19 @@ def report_progress(run_id):
                 return jsonify({"step": "fetching", "pct": 30,
                                 "msg": "Report is running..."})
             if status in ("completed", "no_data"):
+                # Filenames only -- enough for multi-file pickers (salesman
+                # master vs individuals). Paths stay server-side.
+                extras = [
+                    {"filename": ef.get("filename")}
+                    for ef in (rec.get("extra_files") or [])
+                    if isinstance(ef, dict) and ef.get("filename")
+                ]
                 return jsonify({"step": "done", "pct": 100,
                                 "msg": "Report complete!",
                                 "result": {"success": True,
                                            "summary": rec.get("summary", {}),
-                                           "filename": rec.get("filename")}})
+                                           "filename": rec.get("filename"),
+                                           "extra_files": extras}})
             if status == "failed":
                 return jsonify({"step": "error", "pct": 100,
                                 "msg": rec.get("error") or "Report failed.",

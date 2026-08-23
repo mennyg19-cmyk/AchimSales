@@ -81,7 +81,7 @@
         qs.push('preset=1');
         qs.push('autorun=1');
         qs.push('preset_name=' + encodeURIComponent(preset.name));
-        window.location.href = url + '?' + qs.join('&');
+        window.location.href = appUrl(url + '?' + qs.join('&'));
     }
 
     document.addEventListener('DOMContentLoaded', function() {

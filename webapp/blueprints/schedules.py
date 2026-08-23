@@ -28,7 +28,6 @@ PARAM_CAPS = {
     "invoiced":          {"period": True, "salesman": True, "customer": True, "status": False, "email": False},
     "salesman":          {"period": False, "salesman": False, "customer": False, "status": False, "email": True},
     "number_4":          {"period": False, "salesman": False, "customer": False, "status": False, "email": False},
-    "amazon_weekly":     {"period": False, "salesman": False, "customer": False, "status": False, "email": True},
     "customer_activity": {"period": False, "salesman": False, "customer": False, "status": False, "email": True},
 }
 

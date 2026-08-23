@@ -32,7 +32,9 @@ class _FakeClient:
         self.configured = configured
 
     def run_report(self, report_id, params):
-        return _FakeResult(self.rows_by_report.get(report_id, []))
+        # Fresh list per call, like the real client (which json-parses new rows
+        # each time); the adapters consume the list to save memory on big runs.
+        return _FakeResult(list(self.rows_by_report.get(report_id, [])))
 
 
 class _FakeSalesmen:
@@ -130,15 +132,16 @@ def test_report_view_renders_filters(tmp_path):
     _login(client, app)
     html = client.get("/reports/ordered").get_data(as_text=True)
     assert 'id="runBtn"' in html
+    assert 'id="emailMeBtn"' in html
     assert 'name="period"' in html  # ordered exposes a period filter
 
 
 def test_run_poll_result_export_flow(tmp_path):
     rows = {
-        "salesline_release": [
+        "ordered_report": [
             {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
              "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-             "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
         ]
     }
     app = _make_app(tmp_path, rows_by_report=rows)
@@ -182,10 +185,10 @@ def test_run_poll_result_export_flow(tmp_path):
 
 
 def test_run_log_records_and_renders(tmp_path):
-    rows = {"salesline_release": [
+    rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
          "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-         "SalesStatus": "Open", "OrderDate": "2026-03-01"}]}
+         "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"}]}
     app = _make_app(tmp_path, rows_by_report=rows)
     client = app.test_client()
     _login(client, app)
@@ -296,12 +299,143 @@ def test_admin_salesman_active_toggle(tmp_path):
     assert rows["redwards"].is_active is False
 
 
+def test_admin_can_update_salesman_email(tmp_path):
+    app = _make_app(tmp_path)
+    _seed_salesman(app)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.put("/api/admin/salesmen/redwards", json={"email": "rep@x.com"},
+                      headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    from web.data.repositories.salesmen import SalesmanRepository
+    rows = {s.key: s for s in SalesmanRepository(app.config["DB"]).list_all()}
+    assert rows["redwards"].email == "rep@x.com"
+
+
 def test_run_requires_csrf(tmp_path):
     app = _make_app(tmp_path, rows_by_report={})
     client = app.test_client()
     _login(client, app)
     resp = client.post("/api/reports/ordered/run", json={})
     assert resp.status_code == 400  # missing CSRF header
+
+
+def test_cancel_job_endpoint_cancels_owned_job(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    # A queued job owned by the admin (enqueued directly so it isn't drained).
+    job_id = app.config["JOB_REPO"].enqueue(JOB_TYPE, owner_user_id=uid, params={})
+    resp = client.post(f"/api/jobs/{job_id}/cancel", headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    assert resp.get_json()["cancelled"] is True
+    assert app.config["JOB_REPO"].get(job_id).status == "cancelled"
+
+
+def test_cannot_cancel_another_users_job(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    job_id = app.config["JOB_REPO"].enqueue(JOB_TYPE, owner_user_id=uid, params={})
+    other = app.test_client()
+    _login(other, app, email="other@x.com", role="admin")
+    assert other.post(f"/api/jobs/{job_id}/cancel",
+                      headers={"X-CSRF-Token": _CSRF}).status_code == 404
+    assert app.config["JOB_REPO"].get(job_id).status == "queued"  # untouched
+
+
+def test_active_report_runs_lists_owners_recent_run(tmp_path):
+    rows = {
+        "ordered_report": [
+            {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+             "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
+        ]
+    }
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+
+    jobs = client.get("/api/reports/active").get_json()["jobs"]
+    mine = [j for j in jobs if j["job_id"] == job_id]
+    assert len(mine) == 1
+    assert mine[0]["report_key"] == "ordered"
+    assert mine[0]["status"] == "success"  # worker drains inline in tests
+    assert mine[0]["title"]
+    assert mine[0]["created_at"]
+    assert "keep_name" in mine[0]
+
+
+def test_keep_report_run_stores_name(tmp_path):
+    rows = {
+        "ordered_report": [
+            {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+             "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
+        ]
+    }
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    resp = client.post(
+        f"/api/reports/runs/{job_id}/keep",
+        json={"name": "Monday morning"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["keep_name"] == "Monday morning" and body["kept"] is True
+    mine = [j for j in client.get("/api/reports/active").get_json()["jobs"]
+            if j["job_id"] == job_id][0]
+    assert mine["keep_name"] == "Monday morning" and mine["kept"] is True
+    assert mine["finished_at"]
+
+
+def test_active_report_runs_is_owner_scoped(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    job_id = app.config["JOB_REPO"].enqueue(
+        JOB_TYPE, owner_user_id=uid, params={"report_key": "ordered"})
+
+    other = app.test_client()
+    _login(other, app, email="other@x.com", role="admin")
+    jobs = other.get("/api/reports/active").get_json()["jobs"]
+    assert all(j["job_id"] != job_id for j in jobs)
+
+
+def test_reporting_api_diagnostics_developer_only(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)  # admin -- privileged, but not a developer
+    assert client.get("/api/reports/diagnostics/reporting-api").status_code == 403
+
+
+def test_reporting_api_diagnostics_reports_state(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    data = client.get("/api/reports/diagnostics/reporting-api").get_json()
+    # No API URL is configured in the test cfg, so the probe short-circuits
+    # without a network call but still reports structure.
+    assert data["reporting_api"]["configured"] is False
+    assert "by_status" in data["jobs"] and "active" in data["jobs"]
+
+
+def test_report_view_renders_cancel_button(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/reports/ordered").get_data(as_text=True)
+    assert 'id="cancelRunBtn"' in html
+    assert "data-cancel-url" in html
 
 
 def test_cannot_read_another_users_job(tmp_path):
@@ -451,9 +585,8 @@ def test_settings_renders_for_admin(tmp_path):
     assert "Appearance" in html and "Profile" in html
 
 
-def test_granted_non_privileged_user_cannot_run_report(tmp_path):
-    """A manager with an explicit report grant may VIEW the report in the list
-    but must NOT be able to run it (scope enforcement pending; fail closed)."""
+def test_granted_non_privileged_user_can_run_scoped_report(tmp_path):
+    """A manager with an explicit report grant can run it (scoped to their keys)."""
     app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
     db = app.config["DB"]
     user = UserRepository(db).upsert("mgr@x.com", display_name="Mgr", role="manager")
@@ -466,12 +599,11 @@ def test_granted_non_privileged_user_cannot_run_report(tmp_path):
     with client.session_transaction() as s:
         s["v3_user"] = {"email": "mgr@x.com", "name": "Mgr", "role": "manager", "is_dev": True}
         s["_csrf_token"] = _CSRF
-    # Visible in the list...
     assert "Ordered" in client.get("/").get_data(as_text=True)
-    # ...but cannot run / view it.
-    assert client.get("/reports/ordered").status_code == 403
-    assert client.post("/api/reports/ordered/run", json={},
-                       headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    assert client.get("/reports/ordered").status_code == 200
+    resp = client.post("/api/reports/ordered/run", json={},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 202
 
 
 def test_revoked_access_blocks_result_read(tmp_path):
@@ -538,17 +670,27 @@ def test_lookup_status_endpoint(tmp_path):
     assert "configured" in status and "status" in status
 
 
-def test_preview_body_shows_sp_params(tmp_path):
+def test_preview_body_shows_sp_params_for_developer(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
-    _login(client, app)
+    _login(client, app, email="dev@x.com", role="developer")
     resp = client.post("/api/reports/ordered/preview-body",
                        json={"period": "ytd", "salesman": "REdwards"},
                        headers={"X-CSRF-Token": _CSRF})
     body = resp.get_json()
-    assert body["report_id"] == "salesline_release"
+    assert body["report_id"] == "ordered_report"
     assert body["body"]["SalesGroup"] == "REdwards"
     assert "CreatedDateTimeFrom" in body["body"]
+
+
+def test_preview_body_forbidden_for_non_developer(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)  # admin -- privileged, but not a developer
+    resp = client.post("/api/reports/ordered/preview-body",
+                       json={"period": "ytd"},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 403
 
 
 def test_preset_create_list_get_delete_and_home(tmp_path):
@@ -572,11 +714,18 @@ def test_preset_create_list_get_delete_and_home(tmp_path):
     one = client.get(f"/api/reports/presets/{pid}").get_json()
     assert one["layout"]["active"] == "summary"
 
+    patched = client.patch(f"/api/reports/presets/{pid}",
+                           json={"name": "March edited", "params": {"period": "yesterday"}},
+                           headers={"X-CSRF-Token": _CSRF})
+    assert patched.status_code == 200
+    assert patched.get_json()["name"] == "March edited"
+    assert patched.get_json()["params"]["period"] == "yesterday"
+
     # Cross-report list (My Presets) + home page shows it
     allp = client.get("/api/saved-reports").get_json()["presets"]
     assert any(p["id"] == pid for p in allp)
     assert "My presets" in client.get("/").get_data(as_text=True)
-    assert "March" in client.get("/").get_data(as_text=True)
+    assert "March edited" in client.get("/").get_data(as_text=True)
 
     # Delete
     assert client.delete(f"/api/reports/presets/{pid}",
@@ -608,10 +757,10 @@ def test_preset_requires_name(tmp_path):
 
 
 def test_email_now_enqueues_and_delivers(tmp_path):
-    rows = {"salesline_release": [
+    rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
          "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-         "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+         "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
     ]}
     app = _make_app(tmp_path, rows_by_report=rows)
     client = app.test_client()
@@ -641,12 +790,17 @@ def test_email_now_rejects_no_target(tmp_path):
 
 
 def test_delivery_job_reauthorizes_owner_and_fails_closed(tmp_path):
-    # A queued delivery owned by a non-privileged user must fail at execution time
-    # (live re-auth), even though the enqueue path normally gates it. This guards
-    # against a role being downgraded between enqueue and run.
+    """A queued delivery fails at execution time when the owner's access has been
+    revoked since enqueue (live re-auth). Guards against mid-flight role changes."""
     app = _make_app(tmp_path, rows_by_report=_ordered_rows())
     db = app.config["DB"]
     rep = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="salesman")
+    # Explicitly deny this user's access to the ordered report
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO user_report_access(user_id, report_key, allowed) VALUES (?, 'ordered', 0)",
+            (rep.id,),
+        )
     from web.delivery.jobs import enqueue_delivery
 
     job_id = enqueue_delivery(app.config["JOB_REPO"], owner_user_id=rep.id, payload={
@@ -688,10 +842,10 @@ def test_sharepoint_folders_forbidden_for_salesman(tmp_path):
 
 
 def _ordered_rows():
-    return {"salesline_release": [
+    return {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
          "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
-         "SalesStatus": "Open", "OrderDate": "2026-03-01"},
+         "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
     ]}
 
 
@@ -714,6 +868,12 @@ def test_schedule_create_run_history_and_delete(tmp_path):
     assert run.status_code == 202
     assert client.get(f"/api/jobs/{run.get_json()['job_id']}").get_json()["status"] == "success"
     assert "success" in client.get(f"/schedules/{sid}/history").get_data(as_text=True).lower()
+
+    recent = client.get("/api/schedules/recent-runs")
+    assert recent.status_code == 200
+    runs = recent.get_json()["runs"]
+    assert runs and runs[0]["status"] == "success"
+    assert runs[0]["schedule_id"] == sid
 
     # toggle + delete
     assert client.post(f"/api/schedules/{sid}/toggle", json={"active": False},
@@ -754,6 +914,27 @@ def test_schedule_is_owner_scoped(tmp_path):
     assert other.delete(f"/api/schedules/{sid}", headers={"X-CSRF-Token": _CSRF}).status_code == 404
 
 
+def test_schedules_page_company_section_admin_only(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    admin_html = admin.get("/schedules").get_data(as_text=True)
+    assert "My schedules" in admin_html
+    assert "Company schedules" in admin_html
+    assert "msWizard" in admin_html
+    assert "Add a schedule" in admin_html
+
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    rep_html = rep.get("/schedules").get_data(as_text=True)
+    assert "My schedules" in rep_html
+    assert "Add a schedule" in rep_html
+    assert "msWizard" in rep_html
+    assert "Company schedules" not in rep_html
+    assert "Keep private" not in rep_html
+    assert "Run as a manager" not in rep_html
+
+
 def test_master_schedule_admin_only(tmp_path):
     app = _make_app(tmp_path)
     rep = app.test_client()
@@ -766,12 +947,292 @@ def test_master_schedule_admin_only(tmp_path):
 
     admin = app.test_client()
     _login(admin, app)
+    redirected = admin.get("/master-schedules")
+    assert redirected.status_code == 302
+    assert redirected.headers["Location"].endswith("/schedules#company")
     created = admin.post("/api/master-schedules", json={
         "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
-        "cadence": {"freq": "daily", "time": "06:00"}},
+        "cadence": {"freq": "daily", "time": "06:00"},
+        "params": {
+            "period": "yesterday",
+            "customers": ["9300", "9301"],
+            "salesman": ["MKolko", "AGrossman"],
+            "status": ["Open order", "Delivered"],
+            "email_to_salesmen": True,
+        }},
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
-    assert "Nightly" in admin.get("/master-schedules").get_data(as_text=True)
+    page = admin.get("/schedules").get_data(as_text=True)
+    assert "Nightly" in page
+    assert "Company schedules" in page
+    assert "Recent run log" in page
+    assert "msWizard" in page
+    assert "Add a schedule" in page
+    assert "data-pane=\"1\"" in page
+    assert 'id="msStatusPicker"' in page
+    assert 'id="msSalesmanPicker"' in page
+    assert 'id="msCustomerPicker"' in page
+    assert "master-schedules/lookups/salesmen" in page
+    assert "master-schedules/lookups/salesmen-emails" in page
+    assert "master-schedules/lookups/customers" in page
+    assert "master-schedules/lookups/status" in page
+    assert f"/master-schedules/{created.get_json()['id']}/history" in page
+
+    from web.data.repositories.schedules import MasterScheduleRepository
+    mid = created.get_json()["id"]
+    saved = MasterScheduleRepository(app.config["DB"]).get(mid)
+    assert saved.params["period"] == "yesterday"
+    assert saved.params["customers"] == ["9300", "9301"]
+    assert saved.params["salesman"] == ["MKolko", "AGrossman"]
+    assert saved.params["status"] == ["Open order", "Delivered"]
+    assert saved.params["email_to_salesmen"] is True
+    assert saved.params["split_by_salesman"] is False
+
+    hist = admin.get(f"/master-schedules/{mid}/history")
+    assert hist.status_code == 200
+    assert "run history" in hist.get_data(as_text=True).lower()
+    assert rep.get(f"/master-schedules/{mid}/history").status_code == 403
+
+
+def test_company_schedules_list_sorted_by_name(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    for name in ("Zebra nightly", "Apple daily"):
+        created = client.post("/api/master-schedules", json={
+            "name": name, "report_key": "ordered", "recipients": "t@x.com",
+            "cadence": {"freq": "daily", "time": "06:00"}, "is_shared": True,
+        }, headers={"X-CSRF-Token": _CSRF})
+        assert created.status_code == 201
+    page = client.get("/schedules").get_data(as_text=True)
+    assert 'id="companySchedulesTable"' in page
+    assert "js-sortable" in page
+    assert page.find("Apple daily") < page.find("Zebra nightly")
+
+
+def test_deleted_company_schedule_is_not_reseeded(tmp_path):
+    from web import _seed_master_schedules
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "Daily Ordered Report", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "00:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    sid = created.get_json()["id"]
+    assert client.delete(
+        f"/api/master-schedules/{sid}", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 200
+    _seed_master_schedules(app, app.config["DB"], [{
+        "name": "Daily Ordered Report",
+        "report_key": "ordered",
+        "params": {"period": "yesterday"},
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "sharepoint_path": "Direct Reports/Ordered Report/Daily",
+    }])
+    repo = MasterScheduleRepository(app.config["DB"])
+    assert "Daily Ordered Report" not in {r.name for r in repo.list_all()}
+
+
+def test_master_schedule_lookups_admin_only(tmp_path):
+    rows = [
+        {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "MKolko"},
+        {"CustomerAccount": "200", "CustomerName": "Beta", "SalesGroup": "AGrossman"},
+    ]
+    app = _make_app(tmp_path)
+    _with_lookups(app, rows)
+
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    assert rep.get("/api/master-schedules/lookups/salesmen").status_code == 403
+    assert rep.get("/api/master-schedules/lookups/salesmen-emails").status_code == 403
+    assert rep.get("/api/master-schedules/lookups/customers").status_code == 403
+
+    admin = app.test_client()
+    _login(admin, app)
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+    SalesmanRepository(app.config["DB"]).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+        SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
+                     display_name="A Grossman", email=""),
+    ])
+    sm = admin.get("/api/master-schedules/lookups/salesmen").get_json()["salesmen"]
+    assert {r["key"] for r in sm} >= {"MKolko", "AGrossman"}
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    assert mgr.get("/api/master-schedules/lookups/salesmen").status_code == 200
+    sm_emails = admin.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
+    assert sm_emails == [{"email": "m@x.com", "key": "MKolko", "name": "MKolko"}]
+    cust = admin.get("/api/master-schedules/lookups/customers").get_json()["customers"]
+    assert {c["key"] for c in cust} == {"100", "200"}
+    st = admin.get("/api/master-schedules/lookups/status").get_json()
+    assert st["cached_row_count"] == 2
+
+
+def test_manager_company_schedule_edit_and_share(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Admin nightly", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    admin_id = created.get_json()["id"]
+
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    page = mgr.get("/schedules").get_data(as_text=True)
+    assert "Company schedules" in page
+    assert "Admin nightly" in page
+    assert "Speak to an admin." in page
+    assert mgr.put(f"/api/master-schedules/{admin_id}", json={
+        "name": "Hacked", "report_key": "ordered", "recipients": "x@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"},
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 403
+
+    own = mgr.post("/api/master-schedules", json={
+        "name": "Mgr shared", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert own.status_code == 201
+    own_id = own.get_json()["id"]
+    assert mgr.put(f"/api/master-schedules/{own_id}", json={
+        "name": "Mgr shared edited", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 200
+
+    private = mgr.post("/api/master-schedules", json={
+        "name": "Mgr private", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}, "is_shared": False,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert private.status_code == 201
+    assert "Mgr private" not in admin.get("/schedules").get_data(as_text=True)
+    mgr_html = mgr.get("/schedules").get_data(as_text=True)
+    assert "Mgr private" in mgr_html
+    assert "Mgr shared edited" in mgr_html
+
+    other = app.test_client()
+    _login(other, app, email="mgr2@x.com", role="manager")
+    assert other.put(f"/api/master-schedules/{own_id}", json={
+        "name": "Nope", "report_key": "ordered", "recipients": "x@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"},
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    other_html = other.get("/schedules").get_data(as_text=True)
+    assert "Mgr shared edited" in other_html
+    assert "Mgr private" not in other_html
+    assert "Speak to an admin." in other_html
+
+
+def test_master_schedule_put_keeps_layout_when_wizard_sends_empty(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Shipped", "report_key": "invoiced", "recipients": "t@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"}, "is_shared": True,
+        "layout": {"order": ["invoices", "credits"]},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    assert admin.put(f"/api/master-schedules/{mid}", json={
+        "name": "Shipped", "report_key": "invoiced", "recipients": "t@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"}, "is_shared": True,
+        "layout": {},
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 200
+    from web.data.repositories.schedules import MasterScheduleRepository
+    with app.app_context():
+        row = MasterScheduleRepository(app.config["DB"]).get(mid)
+    assert row is not None
+    assert row.layout.get("order") == ["invoices", "credits"]
+
+
+def test_master_schedule_normalizes_csv_multi_params(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "CSV multi", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"},
+        "params": {
+            "period": "yesterday",
+            "customers": "9300 9301",
+            "salesman": "MKolko,AGrossman",
+            "status": "Open order,Delivered",
+        }},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    saved = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert saved.params["customers"] == ["9300", "9301"]
+    assert saved.params["salesman"] == ["MKolko", "AGrossman"]
+    assert saved.params["status"] == ["Open order", "Delivered"]
+
+
+def test_master_schedule_persists_unfiltered_salesman_delivery_options(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Split email", "report_key": "ordered",
+        "cadence": {"freq": "daily", "time": "06:00"},
+        "params": {
+            "period": "yesterday",
+            "split_by_salesman": True,
+            "email_salesman_keys": ["MKolko", "AGrossman"],
+        }},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    saved = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert saved.recipients == ""
+    assert saved.params["split_by_salesman"] is True
+    assert saved.params["email_to_salesmen"] is False
+    assert saved.params["email_salesman_keys"] == ["MKolko", "AGrossman"]
+
+
+def test_master_schedule_persists_salesman_report_split(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Monthly Salesmen", "report_key": "salesman",
+        "cadence": {"freq": "monthly", "time": "22:00", "monthdays": [1]},
+        "params": {"split_by_salesman": True},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    saved = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert saved.recipients == ""
+    assert saved.sharepoint_path == ""
+    assert saved.params["split_by_salesman"] is True
+
+
+def test_master_schedule_rejects_in_app_report(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    resp = admin.post("/api/master-schedules", json={
+        "name": "CLO", "report_key": "customer_last_order", "recipients": "t@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
+def test_settings_links_company_schedules_without_master_card(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    html = admin.get("/settings").get_data(as_text=True)
+    assert "Company schedules" in html
+    assert "admin-sched-card" not in html
+    assert "Set up / manage schedules" not in html
+
 
 
 def test_preferences_api_persists_theme(tmp_path):
@@ -856,14 +1317,308 @@ def test_feature_flag_forbidden_for_salesman(tmp_path):
     assert resp.status_code == 403
 
 
+def test_schedule_test_mode_admin_set_and_rejects_empty_enable(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/settings").get_data(as_text=True)
+    assert "Schedule test mode" in html
+    empty = client.post("/api/admin/schedule-test", json={"enabled": True},
+                        headers={"X-CSRF-Token": _CSRF})
+    assert empty.status_code == 400
+    saved = client.post(
+        "/api/admin/schedule-test",
+        json={"enabled": True, "emails": ["menny@x.com", "other@x.com", "bad"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    body = saved.get_json()
+    assert body["enabled"] is True
+    assert body["emails"] == ["menny@x.com", "other@x.com"]
+    banner = client.get("/schedules").get_data(as_text=True)
+    assert "Test mode is on" in banner
+    assert "menny@x.com" in banner
+
+
+def test_schedule_copy_is_inactive_duplicate(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "a@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "filename_template": "{Report}_{Period}",
+        "params": {"period": "yesterday"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    sid = created.get_json()["id"]
+    copied = client.post(f"/api/schedules/{sid}/copy", headers={"X-CSRF-Token": _CSRF})
+    assert copied.status_code == 201
+    copy_id = copied.get_json()["id"]
+    assert copy_id != sid
+    from web.data.repositories.schedules import ScheduleRepository
+    repo = ScheduleRepository(app.config["DB"])
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    original = repo.get(sid, uid)
+    clone = repo.get(copy_id, uid)
+    assert original.is_active is True
+    assert clone.is_active is False
+    assert clone.recipients == "a@x.com"
+    assert clone.filename_template == "{Report}_{Period}"
+    assert clone.params["period"] == "yesterday"
+
+
+def test_master_schedule_copy_is_inactive_unique_name(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "CopySrc Ordered", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "params": {"period": "yesterday", "split_by_salesman": True},
+        "layout": {"order": ["invoices"]},
+        "filename_template": "{Schedule}_{YYYY}-{MM}-{DD}",
+        "sharepoint_path": "Direct Reports/Ordered",
+        "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    sid = created.get_json()["id"]
+    copied = client.post(f"/api/master-schedules/{sid}/copy", headers={"X-CSRF-Token": _CSRF})
+    assert copied.status_code == 201
+    copy_id = copied.get_json()["id"]
+    assert copy_id != sid
+    from web.data.repositories.schedules import MasterScheduleRepository
+    repo = MasterScheduleRepository(app.config["DB"])
+    original = repo.get(sid)
+    clone = repo.get(copy_id)
+    assert original.is_active is True
+    assert clone.is_active is False
+    assert clone.name == "CopySrc Ordered (copy)"
+    assert clone.recipients == "team@x.com"
+    assert clone.sharepoint_path == "Ordered"
+    assert clone.filename_template == "{Schedule}_{YYYY}-{MM}-{DD}"
+    assert clone.params["period"] == "yesterday"
+    assert clone.params["split_by_salesman"] is True
+    assert clone.layout["order"] == ["invoices"]
+    assert clone.is_shared is True
+    assert clone.run_as_user_id == original.run_as_user_id
+    owner = UserRepository(app.config["DB"]).get_by_email("admin@x.com")
+    assert clone.owner_user_id == owner.id
+    again = client.post(f"/api/master-schedules/{sid}/copy", headers={"X-CSRF-Token": _CSRF})
+    assert again.status_code == 201
+    assert repo.get(again.get_json()["id"]).name == "CopySrc Ordered (copy 2)"
+    html = client.get("/schedules").get_data(as_text=True)
+    assert f"/api/master-schedules/{sid}/copy" in html
+
+
+def test_master_schedule_save_strips_direct_reports_prefix(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "Prefixed folder", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "sharepoint_path": "Direct Reports/Direct Reports/Ordered Report/Daily",
+        "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    row = MasterScheduleRepository(app.config["DB"]).get(created.get_json()["id"])
+    assert row.sharepoint_path == "Ordered Report/Daily"
+
+
+def test_master_schedule_copy_forbidden_unless_can_edit(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/master-schedules", json={
+        "name": "Admin nightly copygate", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    admin_id = created.get_json()["id"]
+
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    assert mgr.post(f"/api/master-schedules/{admin_id}/copy",
+                    headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    mgr_html = mgr.get("/schedules").get_data(as_text=True)
+    assert f"/api/master-schedules/{admin_id}/copy" not in mgr_html
+
+    own = mgr.post("/api/master-schedules", json={
+        "name": "Mgr copyable", "report_key": "ordered", "recipients": "m@x.com",
+        "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert own.status_code == 201
+    own_id = own.get_json()["id"]
+    copied = mgr.post(f"/api/master-schedules/{own_id}/copy",
+                      headers={"X-CSRF-Token": _CSRF})
+    assert copied.status_code == 201
+    from web.data.repositories.schedules import MasterScheduleRepository
+    clone = MasterScheduleRepository(app.config["DB"]).get(copied.get_json()["id"])
+    assert clone.name == "Mgr copyable (copy)"
+    assert clone.is_active is False
+    assert f"/api/master-schedules/{own_id}/copy" in mgr.get("/schedules").get_data(as_text=True)
+
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    assert rep.post(f"/api/master-schedules/{admin_id}/copy",
+                    headers={"X-CSRF-Token": _CSRF}).status_code == 403
+
+
+def test_master_run_now_writes_outbox_and_history(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "DailyInvoicedReport", "report_key": "ordered",
+        "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    run = client.post(f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
+    from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.schedules import MASTER, ScheduleRunRepository
+    job = JobRepository(app.config["DB"]).get(run.get_json()["job_id"])
+    assert job is not None and job.status == "success"
+    hist_rows = ScheduleRunRepository(app.config["DB"]).list_for_schedule(mid, MASTER)
+    assert hist_rows and hist_rows[0].status == "success"
+    hist = client.get(f"/master-schedules/{mid}/history").get_data(as_text=True).lower()
+    assert "success" in hist
+    from web.data.repositories.outbox import OutboxRepository
+    rows = OutboxRepository(app.config["DB"]).list_recent()
+    assert rows and "team@x.com" in rows[0].recipients
+    assert "[TEST]" not in rows[0].subject
+    assert list((tmp_path / "outbox").glob("*.eml"))
+    page = client.get("/schedules").get_data(as_text=True)
+    start = page.find('<details class="run-log-panel"')
+    end = page.find(">", start)
+    assert start != -1 and "open" not in page[start:end]
+
+
+def test_master_run_now_test_mode_mails_test_list_only(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    saved = client.post(
+        "/api/admin/schedule-test",
+        json={"enabled": True, "emails": ["menny@x.com"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    created = client.post("/api/master-schedules", json={
+        "name": "DailyInvoicedReport", "report_key": "ordered",
+        "recipients": "customers@x.com",
+        "sharepoint_path": "Direct Reports/Invoiced Report/Daily",
+        "cadence": {"freq": "daily", "time": "05:00"},
+        "params": {"period": "all_time", "email_cc": "cc@x.com"}},
+        headers={"X-CSRF-Token": _CSRF})
+    mid = created.get_json()["id"]
+    run = client.post(f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
+    from web.data.repositories.jobs import JobRepository
+    job = JobRepository(app.config["DB"]).get(run.get_json()["job_id"])
+    assert job is not None and job.status == "success"
+    from web.data.repositories.outbox import OutboxRepository
+    row = OutboxRepository(app.config["DB"]).list_recent()[0]
+    assert row.recipients == "menny@x.com"
+    assert row.subject.startswith("[TEST] ")
+    assert "customers@x.com" not in row.recipients
+    assert not (row.sharepoint_meta or {}).get("saved")
+
+
+def test_clock_tick_drains_personal_and_master_to_outbox(tmp_path):
+    from datetime import datetime, timezone
+    from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.schedules import MasterScheduleRepository, ScheduleRepository
+    from web.data.repositories.users import UserRepository
+    from web.scheduling.tick import enqueue_due
+
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    db = app.config["DB"]
+    ScheduleRepository(db).create(
+        uid, "ordered", params={"period": "all_time"}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="me@x.com")
+    MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={"period": "all_time"}, layout={},
+        cadence={"freq": "daily", "time": "05:00"}, recipients="team@x.com")
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, JobRepository(db), now) == 2
+    app.config["JOB_WORKER"].drain()
+    from web.data.repositories.outbox import OutboxRepository
+    recips = {r.recipients for r in OutboxRepository(db).list_recent()}
+    assert "me@x.com" in recips
+    assert "team@x.com" in recips
+    assert len(list((tmp_path / "outbox").glob("*.eml"))) >= 2
+
+
+def test_save_and_on_do_not_catch_up_todays_missed_slot(tmp_path):
+    from datetime import datetime, timezone
+    from web.data.repositories.jobs import JobRepository
+    from web.data.repositories.schedules import MasterScheduleRepository
+    from web.scheduling.tick import enqueue_due
+
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "Wait for slot", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    db = app.config["DB"]
+    now = datetime.now(timezone.utc)
+    assert enqueue_due(db, JobRepository(db), now) == 0
+
+    client.post(f"/api/master-schedules/{mid}/toggle", json={"active": False},
+                headers={"X-CSRF-Token": _CSRF})
+    client.post(f"/api/master-schedules/{mid}/toggle", json={"active": True},
+                headers={"X-CSRF-Token": _CSRF})
+    assert enqueue_due(db, JobRepository(db), now) == 0
+
+    client.put(f"/api/master-schedules/{mid}", json={
+        "name": "Wait for slot", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "00:00"},
+        "params": {"period": "all_time"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert enqueue_due(db, JobRepository(db), now) == 0
+    row = MasterScheduleRepository(db).get(mid)
+    assert row.last_claimed_at
+    run = client.post(f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
+
+
+def test_schedule_test_mode_forbidden_for_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "rep@x.com", "name": "Rep", "role": "salesman", "is_dev": True}
+        s["_csrf_token"] = _CSRF
+    resp = client.post(
+        "/api/admin/schedule-test", json={"enabled": True, "emails": ["a@x.com"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert resp.status_code == 403
+
+
 def _clo_rows():
     return [
-        {"SalesOrderNumber": "SO3", "CustomerAccount": "100", "customername": "Acme",
-         "SalesGroup": "REdwards", "OrderStatus": "Invoiced", "OrderDate": "2026-03-10",
-         "CustomerRequisition": "PO-9", "LineNumber": "1", "Item": "ITM-A",
-         "ItemDescription": "Widget", "SalesPrice": "2.00", "SalesStatus": "Delivered",
-         "QuantityOrdered": "10", "ReleasedQuantity": "10", "DeliveryRemainder": "0",
-         "QuantityLefttoLoad": "0", "Ordered $": "20.00", "Shipped $": "20.00", "Cancelled $": "0"},
+        {"Order Rank": 1, "Customer Account": "100", "Customer Name": "Acme",
+         "Sales Order Number": "SO3", "PO #": "PO-9", "Order Date": "2026-03-10",
+         "Salesman": "REdwards", "Item #": "ITM-A", "Description": "Widget",
+         "Qty Ordered": 10, "Qty Shipped": 10, "Qty Cancelled": 0,
+         "Sales Price": 2.00, "Total": 20.00},
     ]
 
 
@@ -887,17 +1642,17 @@ def test_customer_last_order_listed_as_built(tmp_path):
 
 
 def test_customer_last_order_view_shows_latest_invoiced(tmp_path):
-    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    app = _make_app(tmp_path, rows_by_report={"customer_last_orders": _clo_rows()})
     client = app.test_client()
     _login(client, app)
     html = client.get("/report/customer-last-order/100").get_data(as_text=True)
-    assert "Last Invoiced Order" in html
+    assert "Last Order" in html
     assert "SO3" in html and "ITM-A" in html
     assert "Acme" in html
 
 
 def test_customer_last_order_recent_invoiced_api(tmp_path):
-    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    app = _make_app(tmp_path, rows_by_report={"customer_last_orders": _clo_rows()})
     client = app.test_client()
     _login(client, app)
     data = client.get("/api/report/customer-last-order/100/recent-invoiced").get_json()
@@ -914,14 +1669,12 @@ def test_customer_last_order_view_redirects_from_standard_viewer(tmp_path):
 
 
 def _clo_real_rows(sales_group):
-    # Real salesline_release shape: per-line SalesStatus, no header OrderStatus.
-    return {"salesline_release": [
-        {"SalesOrderNumber": "SO3", "CustomerAccount": "100", "customername": "Acme",
-         "SalesGroup": sales_group, "SalesStatus": "Invoiced", "OrderDate": "2026-03-10",
-         "CustomerRequisition": "PO-9", "LineNumber": "1", "Item": "ITM-A",
-         "ItemDescription": "Widget", "SalesPrice": "2.00",
-         "QuantityOrdered": "10", "ReleasedQuantity": "10", "DeliveryRemainder": "0",
-         "QuantityLefttoLoad": "0", "Ordered $": "20.00", "Shipped $": "20.00", "Cancelled $": "0"},
+    return {"customer_last_orders": [
+        {"Order Rank": 1, "Customer Account": "100", "Customer Name": "Acme",
+         "Sales Order Number": "SO3", "PO #": "PO-9", "Order Date": "2026-03-10",
+         "Salesman": sales_group, "Item #": "ITM-A", "Description": "Widget",
+         "Qty Ordered": 10, "Qty Shipped": 10, "Qty Cancelled": 0,
+         "Sales Price": 2.00, "Total": 20.00},
     ]}
 
 
@@ -978,7 +1731,7 @@ def test_customer_last_order_salesmen_endpoint_scoped(tmp_path):
 
 
 def test_customer_last_order_forbidden_for_ungranted_salesman(tmp_path):
-    app = _make_app(tmp_path, rows_by_report={"salesline_release": _clo_rows()})
+    app = _make_app(tmp_path, rows_by_report={"customer_last_orders": _clo_rows()})
     client = app.test_client()
     _login(client, app, email="rep@x.com", role="salesman")
     # No per-report grant -> page access denied (fail closed).
@@ -991,7 +1744,7 @@ def test_invoiced_commissions_tab_is_not_blank(tmp_path):
          "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
          "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
     ]
-    app = _make_app(tmp_path, rows_by_report={"invoiced_order_charges": rows})
+    app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
     client = app.test_client()
     _login(client, app)
     job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},
@@ -999,3 +1752,119 @@ def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     payload = client.get(f"/api/reports/result/{job_id}").get_json()
     comm = next(t for t in payload["tabs"] if t["key"] == "commissions")
     assert comm["columns"] and comm["rows"]  # renders as a real table, not blank
+
+
+def test_salesman_invoiced_run_omits_commissions_tab(tmp_path):
+    rows = [
+        {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
+         "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    html = client.get("/reports/invoiced").get_data(as_text=True)
+    assert 'data-hide-commissions="1"' in html
+    job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    payload = client.get(f"/api/reports/result/{job_id}").get_json()
+    assert "commissions" not in {t["key"] for t in payload["tabs"]}
+
+
+def test_salesman_email_now_invoiced_skips_commissions(tmp_path):
+    rows = [
+        {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
+         "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    resp = client.post("/api/reports/invoiced/email-now",
+                       json={"recipients": "rep@x.com", "subject": "Invoiced",
+                             "params": {"year": "2026"}, "layout": {}},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 202
+    job_id = resp.get_json()["job_id"]
+    status = client.get(f"/api/jobs/{job_id}").get_json()
+    assert status["status"] == "success"
+
+
+def test_settings_hub_hides_admin_from_salesman(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    html = client.get("/settings").get_data(as_text=True)
+    assert "container-narrow" in html
+    assert "Customer exclusions" in html
+    assert "Users &amp; access" not in html
+    assert "Database explorer" not in html
+    assert "Global report visibility" not in html
+
+
+def test_settings_hub_admin_has_categories(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/settings").get_data(as_text=True)
+    assert "container-narrow" in html
+    assert "Users &amp; access" in html
+    assert "Global report visibility" in html
+    assert "Scheduled run history" in html
+    assert "Email Distributions" not in html
+    assert "Database explorer" not in html  # admin is not developer
+
+
+def test_report_visibility_api_and_history_pages(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/admin/report-visibility",
+                       json={"report_key": "ordered", "enabled": False},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200 and resp.get_json()["enabled"] is False
+    assert client.get("/admin/schedule-runs").status_code == 200
+    assert client.get("/admin/run-log").status_code == 200
+    sales = app.test_client()
+    _login(sales, app, email="rep@x.com", role="salesman")
+    assert sales.post("/api/admin/report-visibility",
+                      json={"report_key": "ordered", "enabled": True},
+                      headers={"X-CSRF-Token": _CSRF}).status_code == 403
+    assert sales.get("/admin/schedule-runs").status_code == 403
+
+
+def test_settings_exclusion_does_not_need_dashboard(tmp_path):
+    from web.data.repositories.dashboard import DashboardCustomer, DashboardRepository
+    from web.data.repositories.exclusions import ExclusionRepository
+    app = _make_app(tmp_path)
+    DashboardRepository(app.config["DB"]).replace_all([
+        DashboardCustomer("100", "Acme", "", "2026-05-01", 5, 30.0, 2.0, 32.0, 5, "active"),
+    ])
+    admin = app.test_client()
+    _login(admin, app)
+    assert "Acme" in admin.get("/settings").get_data(as_text=True)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    assert client.get("/settings").status_code == 200
+    resp = client.post("/api/settings/exclusions",
+                       json={"customer_account": "100", "excluded": True},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    uid = UserRepository(app.config["DB"]).get_by_email("rep@x.com").id
+    assert "100" in ExclusionRepository(app.config["DB"]).get(uid)
+
+
+def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    assert admin.get("/dev/db-explorer").status_code == 403
+    assert admin.get("/dev/notif-diagnostic").status_code == 403
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    assert dev.get("/dev/db-explorer").status_code == 200
+    tables = dev.get("/api/dev/db/tables?db=precious").get_json()["tables"]
+    assert any(t["name"] == "users" for t in tables)
+    html = dev.get("/settings").get_data(as_text=True)
+    assert "Database explorer" in html and "Beta report data sources" in html
+    assert dev.get("/dev/notif-diagnostic").status_code == 200

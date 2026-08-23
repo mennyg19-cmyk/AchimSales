@@ -163,6 +163,25 @@ def test_inherit_resolves_to_role_default(db, monkeypatch):
     assert authz.can_view_report(sm, "ordered") is True
 
 
+def test_global_report_off_hides_unless_override(db, monkeypatch):
+    monkeypatch.setitem(
+        registry._BY_KEY, "ordered",
+        ReportSpec("ordered", "Ordered", ReportStatus.BUILT, salesman_default=True),
+    )
+    from web.data.repositories.report_config import ReportConfigRepository
+    users = UserRepository(db)
+    users.upsert("sm@b.com", role="salesman")
+    users.upsert("admin@b.com", role="admin")
+    ReportConfigRepository(db).set("ordered", False)
+    authz = Authorization(db)
+    sm = Principal("sm@b.com", "S", "salesman")
+    admin = Principal("admin@b.com", "A", "admin")
+    assert authz.can_view_report(sm, "ordered") is False
+    assert authz.can_view_report(admin, "ordered") is False
+    users.set_report_access(users.get_by_email("sm@b.com").id, "ordered", True)
+    assert authz.can_view_report(sm, "ordered") is True
+
+
 def test_role_revocation_takes_effect_immediately(db):
     """Downgrading a user in the DB must drop privileges even with an old cookie."""
     authz = Authorization(db)
@@ -269,3 +288,108 @@ def test_msal_callback_without_flow_is_rejected(app):
     # No auth flow in session -> safe error, not a crash.
     resp = app.test_client().get("/auth/callback")
     assert resp.status_code == 400
+
+
+# --- impersonation ----------------------------------------------------------
+
+def test_impersonate_start_and_end(app):
+    """A developer can impersonate a user and end the session."""
+    db = app.config["DB"]
+    UserRepository(db).upsert("dev@x.com", role="developer")
+    UserRepository(db).upsert("rep@x.com", role="salesman", display_name="Sales Rep")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "dev@x.com", "name": "Dev", "role": "developer", "is_dev": True}
+        s["_csrf_token"] = "t"
+    # Start impersonation
+    resp = client.post("/impersonate", data={"email": "rep@x.com", "csrf_token": "t"})
+    assert resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["v3_user"]["email"] == "rep@x.com"
+        assert s["v3_user"]["impersonating"] is True
+        assert s["v3_user"]["real_email"] == "dev@x.com"
+        assert "as Dev" in s["v3_user"]["name"]
+    # End impersonation
+    resp = client.post("/impersonate/end", data={"csrf_token": "t"})
+    assert resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["v3_user"]["email"] == "dev@x.com"
+        assert s["v3_user"].get("impersonating") is not True
+
+
+def test_impersonate_denied_for_non_privileged(app):
+    """Non-privileged users cannot impersonate."""
+    db = app.config["DB"]
+    UserRepository(db).upsert("mgr@x.com", role="manager")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "mgr@x.com", "name": "Mgr", "role": "manager", "is_dev": False}
+        s["_csrf_token"] = "t"
+    assert client.get("/impersonate").status_code == 403
+    assert client.post("/impersonate", data={"email": "x@x.com", "csrf_token": "t"}).status_code == 403
+
+
+def test_impersonate_cannot_nest(app):
+    """An impersonating session cannot start another impersonation."""
+    db = app.config["DB"]
+    UserRepository(db).upsert("dev@x.com", role="developer")
+    UserRepository(db).upsert("rep@x.com", role="salesman")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "rep@x.com", "name": "Rep (as Dev)", "role": "salesman",
+                        "is_dev": True, "impersonating": True, "real_email": "dev@x.com",
+                        "real_name": "Dev"}
+        s["_csrf_token"] = "t"
+    assert client.get("/impersonate").status_code == 400
+    assert client.post("/impersonate", data={"email": "x@x.com", "csrf_token": "t"}).status_code == 400
+
+
+def test_beta_login_shows_microsoft_button(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    resp = application.test_client().get("/login")
+    assert resp.status_code == 200
+    assert b"Achim User Login" in resp.data
+    assert b"/legacy/login/start" in resp.data
+    assert b"Developer sign-in" not in resp.data
+
+
+def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer", display_name="Dev")
+    UserRepository(application.config["DB"]).upsert("rep@x.com", role="salesman", display_name="Sales Rep")
+
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "dev@x.com", "name": "Dev", "role": "developer",
+            "salesman_key": None, "_dev": True, "_dev_name": "Dev", "_dev_email": "dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    page = client.get("/dev/role-picker")
+    assert page.status_code == 200
+    assert b"Impersonate User" in page.data
+    assert b"Sales Rep" in page.data
+    resp = client.post("/dev/role-picker", data={"target_email": "rep@x.com", "csrf_token": "t"})
+    assert resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["user"]["email"] == "rep@x.com"
+        assert s["user"]["_dev"] is True
+        assert s["v3_user"]["email"] == "rep@x.com"
+        assert s["v3_user"]["impersonating"] is True
+    again = client.get("/dev/role-picker")
+    assert again.status_code == 200
+    self_resp = client.post("/dev/role-picker", data={"target_email": "__self__", "csrf_token": "t"})
+    assert self_resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["user"]["email"] == "dev@x.com"
+        assert s["v3_user"]["email"] == "dev@x.com"
+        assert not s["v3_user"].get("impersonating")
+

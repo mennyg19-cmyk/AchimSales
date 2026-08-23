@@ -23,6 +23,7 @@
         <div class="header-left">
             <a href="{{ nav.reports }}" class="header-logo">Sales Reports</a>
             {% if new_app_marker and app_env != 'prod' %}<span class="badge badge-salesman" style="margin-left:8px;">v3</span>{% endif %}
+            {% if is_beta %}<span class="badge badge-admin" style="margin-left:8px;">Beta</span>{% endif %}
         </div>
         <div class="header-right">
             {% if user._dev and user.role not in ('admin', 'developer') %}
@@ -33,6 +34,8 @@
             <span class="user-role badge {% if user.role == 'admin' or user.role == 'developer' %}badge-admin{% elif user.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">
                 {{ user.role|title }}
             </span>
+            <button type="button" id="prevRunsBtn" class="btn btn-sm btn-outline" data-no-guard
+                    title="Previously run and kept reports"><span class="prev-runs-full">Previously run</span><span class="prev-runs-short">Runs</span></button>
             <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
                     title="Switch theme (light / dark / monochrome)"
                     data-url="{{ url_for('settings.set_preferences') }}" data-csrf="{{ csrf_token() }}">
@@ -66,7 +69,15 @@
     </main>
 
     {% if user %}
-    <nav class="bottom-nav" data-notifications-url="{{ url_for('dashboard.notifications') }}">
+    <div id="reportJobsBar" class="report-jobs" hidden
+         data-active-url="{{ url_for('reports.active_report_runs') }}"
+         data-report-url="{{ url_for('reports.report_view', report_key='__KEY__') }}"
+         data-keep-url="{{ url_for('reports.keep_report_run', job_id='__ID__') }}"
+         data-csrf="{{ csrf_token() }}"></div>
+    {% endif %}
+
+    {% if user %}
+    <nav class="bottom-nav" {% if nav.notifications and nav.notifications != '#' %}data-notifications-url="{{ nav.notifications }}"{% endif %}>
         <a href="{{ nav.reports }}" class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="file-text"></i>
@@ -74,7 +85,7 @@
             </div>
             <span class="bottom-nav-label">Reports</span>
         </a>
-        {% if dashboard_enabled or user.role in ('admin', 'developer') %}
+        {% if not is_beta and (dashboard_enabled or user.role in ('admin', 'developer')) %}
         <a href="{{ nav.dashboard }}" class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="bar-chart-2"></i>

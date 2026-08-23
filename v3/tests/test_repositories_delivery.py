@@ -105,13 +105,28 @@ def test_master_schedule_crud(db):
                       cadence={"freq": "daily", "time": "06:00"}, recipients="team@x.com")
     assert len(repo.list_all()) == 1
     assert repo.get(mid).name == "Nightly invoiced"
-    assert repo.update(mid, name="Renamed", params={}, layout={},
-                       cadence={"freq": "daily", "time": "06:30"}) is True
-    assert repo.get(mid).name == "Renamed"
+    assert repo.update(mid, name="Renamed", params={"period": "yesterday"}, layout={},
+                       cadence={"freq": "daily", "time": "06:30"},
+                       report_key="ordered") is True
+    row = repo.get(mid)
+    assert row.name == "Renamed"
+    assert row.report_key == "ordered"
+    assert row.params["period"] == "yesterday"
     assert [m.id for m in repo.list_active()] == [mid]
     assert repo.set_active(mid, False) is True
     assert repo.list_active() == []
     assert repo.delete(mid) is True
+
+
+def test_master_schedule_create_can_start_inactive(db):
+    repo = MasterScheduleRepository(db)
+    mid = repo.create("ordered", "Off copy", params={}, layout={},
+                      cadence={"freq": "daily", "time": "08:00"},
+                      sharepoint_path="Direct Reports/Ordered Report/Daily",
+                      is_active=False)
+    row = repo.get(mid)
+    assert row.is_active is False
+    assert repo.list_active() == []
 
 
 # --- outbox ----------------------------------------------------------------

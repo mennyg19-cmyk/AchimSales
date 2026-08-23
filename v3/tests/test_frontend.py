@@ -45,6 +45,8 @@ def test_base_html_renders_shell(tmp_path):
         )
     assert 'class="header-logo"' in html
     assert 'class="bottom-nav"' in html
+    assert 'id="prevRunsBtn"' in html
+    assert 'id="reportJobsBar"' in html
     # Bundled assets, not inline scripts / per-page CSS.
     assert "css/main.css" in html and "js/main.js" in html
     # Logout is a CSRF-protected POST form, not a GET link.
@@ -69,6 +71,59 @@ def test_admin_sees_dashboard_nav(tmp_path):
     html = _render(app, user={"name": "A", "role": "admin", "_dev": False})
     assert "Dashboard" in html          # admin/dev get dashboard even when flag off
     assert "badge-admin" in html
+
+
+def test_beta_base_html_skips_missing_dashboard_endpoints(tmp_path):
+    """Beta does not register dashboard — base.html must not url_for it (was a 500)."""
+    from dataclasses import replace
+
+    from web.data.migrate import migrate
+
+    cfg = replace(_cfg(tmp_path), is_beta=True)
+    app = create_app(cfg)
+    with app.app_context():
+        migrate(app.config["DB"])
+    with app.test_request_context("/"):
+        # Context processor supplies nav/is_beta; do not hardcode them.
+        html = render_template(
+            "base.html",
+            user={"name": "Dev", "role": "developer", "_dev": True},
+            active_tab="reports",
+        )
+    assert "Dashboard" not in html
+    assert "Schedules" in html
+    assert "data-notifications-url" not in html
+    assert "Beta" in html
+
+
+def test_beta_report_view_keeps_schedule_and_run(tmp_path):
+    """Beta registers schedules — report view can offer Schedule this view."""
+    from dataclasses import replace
+
+    from report_engine.registry import get as get_report
+    from web.data.migrate import migrate
+
+    cfg = replace(_cfg(tmp_path), is_beta=True)
+    app = create_app(cfg)
+    with app.app_context():
+        migrate(app.config["DB"])
+    spec = get_report("ordered")
+    assert spec is not None
+    with app.test_request_context("/reports/ordered"):
+        html = render_template(
+            "report_view.html",
+            user={"name": "Dev", "role": "developer", "_dev": True},
+            active_tab="reports",
+            report=spec,
+            filters=(),
+            period_options=(),
+            status_options=(),
+            year_options=[2026],
+            n4_mode_options=(),
+            is_developer=True,
+        )
+    assert "scheduleBtn" in html
+    assert "data-run-url" in html
 
 
 def test_salesman_has_no_dashboard_nav(tmp_path):

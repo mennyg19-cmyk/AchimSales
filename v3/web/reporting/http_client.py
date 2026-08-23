@@ -10,11 +10,51 @@ The `session` is injectable so this is unit-testable without a live API.
 
 from __future__ import annotations
 
+import gzip
+import json
 import logging
+import os
+import time
+from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
+
+
+def _capture_raw_response(report_id: str, params: dict, body: Any) -> None:
+    """Diagnostic tap: record the untouched endpoint response so we can prove
+    what the API actually returned, before any app-side filtering or adapting.
+
+    Off unless RAW_CAPTURE_REPORTS lists this report_id (comma-separated). When
+    on, it logs a per-month invoice-date histogram (the quick proof) and, if
+    RAW_CAPTURE_DIR is set, writes the full raw body to a gzipped JSON file
+    there. Best-effort: a capture failure must never break a report run.
+    """
+    targets = {t.strip() for t in os.environ.get("RAW_CAPTURE_REPORTS", "").split(",") if t.strip()}
+    if report_id not in targets:
+        return
+    try:
+        rows = body.get("rows") if isinstance(body, dict) else None
+        rows = rows if isinstance(rows, list) else []
+        months: Counter = Counter()
+        for row in rows:
+            raw_date = row.get("InvoiceDate") or row.get("Invoice Date") or ""
+            months[str(raw_date)[:7] or "(blank)"] += 1
+        log.info("RAW CAPTURE %s: row_count=%d params=%s months=%s",
+                 report_id, len(rows), params, dict(sorted(months.items())))
+        cap_dir = os.environ.get("RAW_CAPTURE_DIR", "").strip()
+        if cap_dir:
+            os.makedirs(cap_dir, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%f")
+            out_path = os.path.join(cap_dir, f"{report_id}_{stamp}.json.gz")
+            with gzip.open(out_path, "wt", encoding="utf-8") as handle:
+                json.dump({"report_id": report_id, "params": params, "body": body},
+                          handle, default=str)
+            log.info("RAW CAPTURE %s: wrote %s", report_id, out_path)
+    except Exception:  # noqa: BLE001 - a diagnostic must never break a report run
+        log.exception("RAW CAPTURE failed (non-fatal)")
 
 
 class ReportingApiNotConfigured(RuntimeError):
@@ -38,7 +78,7 @@ class ReportResult:
 
 
 class ReportingApiClient:
-    def __init__(self, base_url: str, api_key: str, *, timeout: float = 60.0,
+    def __init__(self, base_url: str, api_key: str, *, timeout: float = 300.0,
                  retries: int = 2, session: _Session | None = None):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key or ""
@@ -66,8 +106,10 @@ class ReportingApiClient:
 
         last_exc: Exception | None = None
         for attempt in range(self.retries + 1):
+            t0 = time.monotonic()
             try:
-                resp = session.post(url, json=params, headers=headers, timeout=self.timeout)
+                resp = session.post(url, json=params, headers=headers,
+                                    timeout=(10, self.timeout))
                 status = resp.status_code
                 if 400 <= status < 500:
                     # Client error (bad params / SP rejection): don't retry.
@@ -76,6 +118,12 @@ class ReportingApiClient:
                     # Transient server error: retry then surface.
                     raise _Transient(f"Reporting API {status} for {report_id}")
                 body = resp.json()
+                # Timing of SUCCESSFUL calls: this is the data that decides a safe
+                # timeout. A wedged proc never reaches here (it times out), so the
+                # max value across real runs is the longest a good call ever takes.
+                log.info("Reporting API OK %s in %.1fs (rows=%s)", report_id,
+                         time.monotonic() - t0, (body or {}).get("row_count"))
+                _capture_raw_response(report_id, params, body)
                 rows = body.get("rows")
                 if not isinstance(rows, list):
                     rows = []

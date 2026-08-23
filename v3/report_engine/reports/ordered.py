@@ -1,22 +1,19 @@
-"""Ordered report builder (salesline_release).
+"""Ordered report builder (rpt.usp_ordered_report).
 
-Format/columns/math follow LIVE (reports/ordered/writer.py); on-screen
-multi-tab architecture follows the test app. Six tabs:
-Summary, By Customer, By Item, By Order, By Salesman, Full Data.
+Six tabs: Summary, By Customer, By Item, By Order, By Salesman, Full Data.
 
-Authoritative vs derived
--------------------------
-The SP returns server-side dollar columns (Ordered/Shipped/Cancelled $) that
-already apply the WHS + packing-slip math; we use those as-is (owner: "the
-$ columns are the god"). It does NOT yet return an explicit qty-cancelled, so
-the qty buckets below are DERIVED on the interim rule and flagged as a stub
-via each tab's ``stub_fields`` until the endpoint adds QtyCancelled::
+Qty columns are the SP's own fields (no QtyShipped column — SP ReleasedQuantity
+is the combined live QtyReleased+QtyShipped)::
 
-    QtyCancelled = QtyOrdered            when status == 'cancelled', else 0
-    QtyShipped   = QtyOrdered - DeliveryRemainder - QtyLeftToLoad - QtyCancelled
-    QtyOpen      = QtyOrdered - QtyShipped - QtyCancelled
-    Released $   = QtyReleased * UnitPrice
-    Open $       = Ordered $ - Shipped $ - Cancelled $   (from authoritative $)
+    QtyOrdered      = QuantityOrdered
+    QtyReserved     = QuantityReserved
+    QtyReleased     = ReleasedQuantity   (Excel/UI header: "QTY Shipping")
+    QtyCancelled    = CancelledQTY
+    QtyLeftToShip   = DeliveryRemainder   ("qty left to ship")
+
+Dollar columns: Ordered/Cancelled $ from the SP; Shipping $ (= Released $)
+is qty_released × price (same combined qty as QTY Shipping). Shipped $ is
+kept only for Open $ / remainder math — not shown on Ordered tabs.
 
 LIVE also drops "ERROR ITEM" lines; we mirror that.
 """
@@ -28,63 +25,77 @@ from typing import Callable, Iterable, Sequence
 
 from report_engine.facts import OrderLineFact
 
-# Columns dependent on the not-yet-available qty-cancelled field. The UI
-# renders these with a "pending API field" marker.
-STUB_FIELDS: tuple[str, ...] = ("QtyShipped", "QtyCancelled", "QtyOpen", "Fulfillment %")
-STUB_NOTE = ("QtyCancelled (and the QtyShipped/QtyOpen/Fulfillment % derived from "
-             "it) are provisional until the salesline_release endpoint returns an "
-             "explicit cancelled quantity. Dollar columns are authoritative.")
+# Only columns the SP still doesn't supply.
+STUB_FIELDS: tuple[str, ...] = ("OrderStatus",)
+STUB_NOTE = ("Order Status is blank until the ordered_report SP provides it. "
+             "PO # comes from CustomerRequisition. Qty columns and "
+             "Ordered/Cancelled $ come straight from the SP; Shipping $ is "
+             "released qty × price.")
 
 _ERROR_ITEM_RE = re.compile(r"ERROR\s*ITEM", re.IGNORECASE)
 
-_QTY: tuple[str, ...] = ("QtyOrdered", "QtyShipped", "QtyCancelled", "QtyReleased", "QtyOpen")
-_DOL: tuple[str, ...] = ("Ordered $", "Shipped $", "Cancelled $", "Released $", "Open $")
+_QTY: tuple[str, ...] = (
+    "QtyOrdered", "QtyReserved", "QtyReleased", "QtyCancelled", "QtyLeftToShip",
+)
+_DOL: tuple[str, ...] = ("Ordered $", "Cancelled $", "Released $", "Open $")
+_DOL_HEADERS: dict[str, str] = {
+    "Ordered $": "Ordered $",
+    "Cancelled $": "Cancelled $",
+    "Released $": "Shipping $",
+    "Open $": "Open $",
+}
 
 
 # --------------------------------------------------------------------------- #
-# Column definitions (LIVE names, LIVE order)
+# Column definitions
 # --------------------------------------------------------------------------- #
 
-# LIVE order (reports/ordered/builder.py FULL_DATA_ORDER). LIVE's DataQualityFlag
-# is a product of its WHS/packing-slip merge pipeline and can't be reproduced
-# from the flat SP - omitted and logged as a known drift in REVIEW-LOG.
 FULL_DATA_COLS = [
-    {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
-    {"field": "CustomerAccount",  "header": "CustomerAccount",  "type": "text"},
-    {"field": "SalesOrderName",   "header": "SalesOrderName",    "type": "text"},
-    {"field": "OrderDate",        "header": "OrderDate",         "type": "date"},
-    {"field": "LineNumber",       "header": "LineNumber",        "type": "int"},
-    {"field": "Item#",            "header": "Item#",             "type": "text"},
-    {"field": "ItemName",         "header": "ItemName",          "type": "text"},
-    {"field": "UnitPrice",        "header": "UnitPrice",         "type": "money"},
-    {"field": "Status",           "header": "Status",            "type": "text"},
-    {"field": "Fulfillment %",    "header": "Fulfillment %",     "type": "percent"},
-    {"field": "QtyOrdered",       "header": "QtyOrdered",        "type": "int"},
-    {"field": "QtyShipped",       "header": "QtyShipped",        "type": "int"},
-    {"field": "QtyCancelled",     "header": "QtyCancelled",      "type": "int"},
-    {"field": "QtyReleased",      "header": "QtyReleased",       "type": "int"},
-    {"field": "QtyOpen",          "header": "QtyOpen",           "type": "int"},
-    {"field": "Ordered $",        "header": "Ordered $",         "type": "money"},
-    {"field": "Shipped $",        "header": "Shipped $",         "type": "money"},
-    {"field": "Cancelled $",      "header": "Cancelled $",       "type": "money"},
-    {"field": "Released $",       "header": "Released $",        "type": "money"},
-    {"field": "Open $",           "header": "Open $",            "type": "money"},
+    {"field": "SalesOrderNumber",    "header": "SalesOrderNumber",    "type": "text"},
+    {"field": "CustomerAccount",     "header": "CustomerAccount",     "type": "text"},
+    {"field": "SalesOrderName",      "header": "SalesOrderName",      "type": "text"},
+    {"field": "OrderDate",           "header": "OrderDate",           "type": "date"},
+    {"field": "purchid",             "header": "purchid",             "type": "text"},
+    {"field": "ExpectedArrivalDate", "header": "ExpectedArrivalDate", "type": "date"},
+    {"field": "LineNumber",          "header": "LineNumber",          "type": "int"},
+    {"field": "Item#",               "header": "Item#",               "type": "text"},
+    {"field": "ItemName",            "header": "ItemName",            "type": "text"},
+    {"field": "UnitPrice",           "header": "UnitPrice",           "type": "money"},
+    {"field": "Status",              "header": "Status",              "type": "text"},
+    {"field": "QtyOrdered",          "header": "QtyOrdered",          "type": "int"},
+    {"field": "QtyReserved",         "header": "QtyReserved",         "type": "int"},
+    {"field": "QtyReleased",         "header": "QTY Shipping",        "type": "int"},
+    {"field": "QtyCancelled",        "header": "QtyCancelled",        "type": "int"},
+    {"field": "QtyLeftToShip",       "header": "Qty left to ship",    "type": "int"},
+    {"field": "Ordered $",           "header": "Ordered $",           "type": "money"},
+    {"field": "Cancelled $",         "header": "Cancelled $",         "type": "money"},
+    {"field": "Released $",          "header": "Shipping $",          "type": "money"},
+    {"field": "Open $",              "header": "Open $",              "type": "money"},
 ]
 
-_AGG_QTY_COLS = [{"field": f, "header": f, "type": "int"} for f in _QTY]
-_AGG_DOL_COLS = [{"field": f, "header": f, "type": "money"} for f in _DOL]
-_FF_COL = {"field": "Fulfillment %", "header": "Fulfillment %", "type": "percent"}
+_AGG_QTY_COLS = [
+    {"field": "QtyOrdered", "header": "QtyOrdered", "type": "int"},
+    {"field": "QtyReserved", "header": "QtyReserved", "type": "int"},
+    {"field": "QtyReleased", "header": "QTY Shipping", "type": "int"},
+    {"field": "QtyCancelled", "header": "QtyCancelled", "type": "int"},
+    {"field": "QtyLeftToShip", "header": "Qty left to ship", "type": "int"},
+]
+_AGG_DOL_COLS = [
+    {"field": f, "header": _DOL_HEADERS[f], "type": "money"} for f in _DOL
+]
 
 BY_CUSTOMER_COLS = [
     {"field": "CustomerAccount", "header": "CustomerAccount", "type": "text"},
     {"field": "CustomerName",    "header": "CustomerName",    "type": "text"},
     {"field": "Salesman",        "header": "Salesman",        "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ITEM_COLS = [
-    {"field": "Item#",    "header": "Item#",    "type": "text"},
-    {"field": "ItemName", "header": "ItemName", "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    {"field": "Item#",               "header": "Item#",               "type": "text"},
+    {"field": "ItemName",            "header": "ItemName",            "type": "text"},
+    {"field": "purchid",             "header": "purchid",             "type": "text"},
+    {"field": "ExpectedArrivalDate", "header": "ExpectedArrivalDate", "type": "date"},
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ORDER_COLS = [
     {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
@@ -95,20 +106,24 @@ BY_ORDER_COLS = [
     {"field": "PO #",             "header": "PO #",             "type": "text"},
     {"field": "OrderStatus",      "header": "Order Status",     "type": "text"},
     {"field": "Status",           "header": "Status",           "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_SALESMAN_COLS = [
     {"field": "Salesman", "header": "Salesman", "type": "text"},
-    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 SUMMARY_COLS = [
     {"field": "Customer Name",            "header": "Customer Name",            "type": "text"},
     {"field": "Salesman",                 "header": "Salesman",                 "type": "text"},
     {"field": "Item Number",              "header": "Item Number",              "type": "text"},
     {"field": "Line Description",         "header": "Line Description",         "type": "text"},
+    {"field": "purchid",                  "header": "purchid",                  "type": "text"},
+    {"field": "ExpectedArrivalDate",      "header": "ExpectedArrivalDate",      "type": "date"},
     {"field": "QtyOrdered",               "header": "QtyOrdered",               "type": "int"},
+    {"field": "QtyReserved",              "header": "QtyReserved",              "type": "int"},
+    {"field": "QtyReleased",              "header": "QTY Shipping",             "type": "int"},
     {"field": "QtyCancelled",             "header": "QtyCancelled",             "type": "int"},
-    {"field": "QtyRemainder",             "header": "QtyRemainder",             "type": "int"},
+    {"field": "QtyLeftToShip",            "header": "Qty left to ship",         "type": "int"},
     {"field": "Net Price",                "header": "Net Price",                "type": "money"},
     {"field": "Extended Price - Ordered", "header": "Extended Price - Ordered", "type": "money"},
     {"field": "Extended Price Remainder", "header": "Extended Price Remainder", "type": "money"},
@@ -119,23 +134,16 @@ SUMMARY_COLS = [
 # Per-line normalization
 # --------------------------------------------------------------------------- #
 
-_CANCELLED = {"canceled", "cancelled"}
-
 
 def classify_line(f: OrderLineFact) -> dict:
-    """One OrderLineFact -> the canonical per-line row (LIVE columns + math).
+    """Legacy line shape for Customer's Last Order (salesline_release).
 
-    Public because the Customer's Last Order report reuses the exact same
-    Qty Shipped / Qty Cancelled classification so its line breakdown matches the
-    Ordered report cell-for-cell (single source of truth for the qty buckets).
+    Kept separate from the Ordered report's SP qty columns so CLO still shows
+    QtyShipped / QtyOpen from the older SP that actually has shipped qty.
     """
     qty_ord = f.qty_ordered
-    # LIVE treats a line as cancelled when the line status OR the order status is
-    # canceled/cancelled (both spellings). Still a stub for QtyCancelled until the
-    # SP returns an explicit cancelled quantity.
-    is_cancelled = f.status.lower() in _CANCELLED or f.order_status.lower() in _CANCELLED
-    qty_cancelled = qty_ord if is_cancelled else 0.0
-    qty_shipped = max(0.0, qty_ord - f.delivery_remainder - f.qty_left_to_load - qty_cancelled)
+    qty_shipped = f.qty_shipped
+    qty_cancelled = f.qty_cancelled
     qty_open = max(0.0, qty_ord - qty_shipped - qty_cancelled)
     return {
         "SalesOrderNumber": f.sales_order_number,
@@ -161,14 +169,43 @@ def classify_line(f: OrderLineFact) -> dict:
         "Shipped $":        f.shipped_dollars,
         "Cancelled $":      f.cancelled_dollars,
         "Released $":       round(f.qty_released * f.unit_price, 2),
-        # Owner rule: Open $ = Ordered - Shipped - Cancelled (authoritative $),
-        # not clamped (a credit/over-ship can legitimately make it negative).
+        "Open $":           round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2),
+    }
+
+
+def _classify_ordered_line(f: OrderLineFact) -> dict:
+    """Ordered report line: SP qty columns + SP dollars."""
+    return {
+        "SalesOrderNumber": f.sales_order_number,
+        "SalesOrderName":   f.sales_order_name,
+        "CustomerAccount":  f.customer_account,
+        "CustomerName":     f.customer_name,
+        "Salesman":         f.sales_group,
+        "OrderDate":        f.order_date,
+        "purchid":          f.purch_id,
+        "ExpectedArrivalDate": f.expected_arrival_date,
+        "PO #":             f.po_number,
+        "LineNumber":       f.line_number,
+        "Item#":            f.item_number,
+        "ItemName":         f.item_name,
+        "UnitPrice":        f.unit_price,
+        "OrderStatus":      f.order_status,
+        "Status":           f.status,
+        "QtyOrdered":       f.qty_ordered,
+        "QtyReserved":      f.qty_reserved,
+        "QtyReleased":      f.qty_released,
+        "QtyCancelled":     f.qty_cancelled,
+        "QtyLeftToShip":    f.delivery_remainder,
+        "Ordered $":        f.ordered_dollars,
+        "Shipped $":        f.shipped_dollars,
+        "Cancelled $":      f.cancelled_dollars,
+        "Released $":       round(f.qty_released * f.unit_price, 2),
         "Open $":           round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2),
     }
 
 
 def _ff_pct(qty_ordered: float, qty_cancelled: float) -> float | None:
-    """Fulfillment ratio, clamped to [0, 1] (matches LIVE _fulfillment_score)."""
+    """Fulfillment ratio for CLO only; Ordered report no longer shows this."""
     if qty_ordered <= 1e-6:
         return None
     return round(min(1.0, max(0.0, (qty_ordered - qty_cancelled) / qty_ordered)), 4)
@@ -206,7 +243,6 @@ def _aggregate(
     rows: list[dict] = []
     for k, b in buckets.items():
         row = dict(leads[k])
-        row["Fulfillment %"] = _ff_pct(b["QtyOrdered"], b["QtyCancelled"])
         row.update({f: b[f] for f in _QTY})
         row.update({f: round(b[f], 2) for f in _DOL})
         rows.append(row)
@@ -239,14 +275,20 @@ def _build_summary(lines: list[dict]) -> dict:
             g = grouped[k] = {
                 "Customer Name": cust, "Salesman": ln["Salesman"],
                 "Item Number": item, "Line Description": ln["ItemName"],
-                "QtyOrdered": 0, "QtyCancelled": 0, "QtyRemainder": 0,
+                "purchid": ln["purchid"],
+                "ExpectedArrivalDate": ln["ExpectedArrivalDate"],
+                "QtyOrdered": 0, "QtyReserved": 0, "QtyReleased": 0,
+                "QtyCancelled": 0, "QtyLeftToShip": 0,
                 "Extended Price - Ordered": 0.0, "Extended Price Remainder": 0.0,
             }
         g["QtyOrdered"] += ln["QtyOrdered"]
+        g["QtyReserved"] += ln["QtyReserved"]
+        g["QtyReleased"] += ln["QtyReleased"]
         g["QtyCancelled"] += ln["QtyCancelled"]
-        g["QtyRemainder"] += ln["QtyOpen"]
+        g["QtyLeftToShip"] += ln["QtyLeftToShip"]
         g["Extended Price - Ordered"] += ln["Ordered $"]
-        g["Extended Price Remainder"] += ln["Open $"]
+        # Dollar "still open" from SP dollars (not inventing a qty×price remainder).
+        g["Extended Price Remainder"] += (ln["Ordered $"] - ln["Shipped $"] - ln["Cancelled $"])
 
     for g in grouped.values():
         qo = g["QtyOrdered"]
@@ -256,7 +298,7 @@ def _build_summary(lines: list[dict]) -> dict:
 
     return _tab(
         "summary", "Summary", SUMMARY_COLS, list(grouped.values()),
-        stub=("QtyCancelled", "QtyRemainder"),
+        stub=(),
         default_layout={
             "group_levels": ["Customer Name"],
             "sort_levels": [{"field": "Customer Name", "dir": "asc"},
@@ -269,8 +311,21 @@ def _build_summary(lines: list[dict]) -> dict:
 # Public entry point
 # --------------------------------------------------------------------------- #
 
-def build(facts: Iterable[OrderLineFact]) -> list[dict]:
-    lines = [ln for ln in (classify_line(f) for f in facts) if not _is_error_item(ln)]
+def _classify_lines(facts: Iterable[OrderLineFact]) -> list[dict]:
+    """Turn facts into Ordered report rows, dropping ERROR ITEM lines."""
+    if not isinstance(facts, list):
+        return [ln for ln in (_classify_ordered_line(f) for f in facts) if not _is_error_item(ln)]
+    lines: list[dict] = []
+    for i in range(len(facts)):
+        line = _classify_ordered_line(facts[i])
+        facts[i] = None
+        if not _is_error_item(line):
+            lines.append(line)
+    return lines
+
+
+def build(facts: Iterable[OrderLineFact], *, skip_by_salesman: bool = False) -> list[dict]:
+    lines = _classify_lines(facts)
 
     by_customer = _aggregate(
         lines,
@@ -282,7 +337,9 @@ def build(facts: Iterable[OrderLineFact]) -> list[dict]:
     by_item = _aggregate(
         lines,
         key=lambda r: (r["Item#"] or "(none)",),
-        lead=lambda r: {"Item#": r["Item#"] or "(none)", "ItemName": r["ItemName"]},
+        lead=lambda r: {"Item#": r["Item#"] or "(none)", "ItemName": r["ItemName"],
+                        "purchid": r["purchid"],
+                        "ExpectedArrivalDate": r["ExpectedArrivalDate"]},
         sort=_by_ordered_desc,
     )
     by_order = _aggregate(
@@ -295,23 +352,25 @@ def build(facts: Iterable[OrderLineFact]) -> list[dict]:
         sort=lambda r: (r["OrderDate"] or ""),
     )
     by_order.sort(key=lambda r: (r["OrderDate"] or ""), reverse=True)
-    by_salesman = _aggregate(
-        lines,
-        key=lambda r: (r["Salesman"] or "(none)",),
-        lead=lambda r: {"Salesman": r["Salesman"] or "(none)"},
-        sort=_by_ordered_desc,
-    )
 
     summary = _build_summary(lines)
     summary["default_group"] = ["Salesman"]
 
-    return [
+    tabs = [
         summary,
         _tab("by_customer", "By Customer", BY_CUSTOMER_COLS, by_customer, stub=STUB_FIELDS,
              default_group=["Salesman"]),
         _tab("by_item", "By Item", BY_ITEM_COLS, by_item, stub=STUB_FIELDS),
         _tab("by_order", "By Order", BY_ORDER_COLS, by_order, stub=STUB_FIELDS,
              default_group=["Salesman"]),
-        _tab("by_salesman", "By Salesman", BY_SALESMAN_COLS, by_salesman, stub=STUB_FIELDS),
-        _tab("full_data", "Full Data", FULL_DATA_COLS, lines, stub=STUB_FIELDS),
     ]
+    if not skip_by_salesman:
+        by_salesman = _aggregate(
+            lines,
+            key=lambda r: (r["Salesman"] or "(none)",),
+            lead=lambda r: {"Salesman": r["Salesman"] or "(none)"},
+            sort=_by_ordered_desc,
+        )
+        tabs.append(_tab("by_salesman", "By Salesman", BY_SALESMAN_COLS, by_salesman, stub=STUB_FIELDS))
+    tabs.append(_tab("full_data", "Full Data", FULL_DATA_COLS, lines, stub=STUB_FIELDS))
+    return tabs

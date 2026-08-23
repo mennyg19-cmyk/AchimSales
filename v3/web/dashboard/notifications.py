@@ -62,3 +62,55 @@ def generate_overdue_notifications(db) -> int:
 
     log.info("overdue notifications created: %d", created)
     return created
+
+
+def diagnose_overdue(db, user) -> dict:
+    """Dry-run of the overdue pipeline for one user (notification diagnostic)."""
+    dash = DashboardRepository(db).all()
+    overdue = [r for r in dash if r.status == STATUS_OVERDUE]
+    notifs = NotificationRepository(db)
+    exclusions = ExclusionRepository(db)
+    if user.role in _PRIVILEGED:
+        allowed = None
+    else:
+        allowed = UserRepository(db).get_salesman_access(user.id)
+    excluded = exclusions.get(user.id)
+    cooldown = notifs.recently_dismissed_accounts(user.id, OVERDUE, COOLDOWN_DAYS)
+    would_create: list[dict] = []
+    would_skip: list[dict] = []
+    scoped = []
+    for r in overdue:
+        if allowed is not None and salesman_key(r.sales_group) not in allowed:
+            continue
+        scoped.append(r)
+        acct = r.customer_account
+        reasons = []
+        if acct in excluded:
+            reasons.append("excluded")
+        if acct in cooldown:
+            reasons.append("dismissed recently")
+        if notifs.has_undismissed_account(user.id, OVERDUE, acct):
+            reasons.append("already notified")
+        item = {"customer_account": acct, "customer_name": r.customer_name,
+                "sales_group": r.sales_group}
+        if reasons:
+            would_skip.append({**item, "reason": ", ".join(reasons)})
+        else:
+            would_create.append(item)
+    active = notifs.list_undismissed(user.id, OVERDUE)
+    return {
+        "matched_customers": len(dash) if allowed is None else len(
+            [r for r in dash if salesman_key(r.sales_group) in (allowed or set())]
+        ),
+        "overdue_in_scope": len(scoped),
+        "would_create": would_create,
+        "would_skip": would_skip,
+        "excluded": sorted(excluded),
+        "cooldown": sorted(cooldown),
+        "active_notifications": [
+            {"id": n.id, "customer_account": n.payload.get("customer_account"),
+             "created_at": n.created_at}
+            for n in active
+        ],
+        "last_refreshed": DashboardRepository(db).last_refreshed(),
+    }

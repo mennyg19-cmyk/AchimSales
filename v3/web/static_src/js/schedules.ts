@@ -1,19 +1,25 @@
-// Schedules management pages (personal + master). Generic, data-driven actions
-// plus edit mode and a SharePoint folder picker for master schedules.
+// Schedules management pages (personal + company). Create uses the shared wizard.
 
-function csrf(): string {
-  const el = document.querySelector<HTMLElement>("[data-csrf]");
-  return el?.getAttribute("data-csrf") || "";
-}
+import { esc, jsonHeaders } from "./http";
+import { bindMasterWizard } from "./master_wizard";
+import { bindSharePointPicker } from "./sharepoint_picker";
 
-function headers(): Record<string, string> {
-  return { "Content-Type": "application/json", "X-CSRF-Token": csrf() };
-}
+type RunLogRow = {
+  id: number;
+  kind: string;
+  title: string;
+  status: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  rows?: number | null;
+  message?: string;
+  history_url: string;
+};
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
   try {
     const res = await fetch(url, {
-      method, headers: headers(),
+      method, headers: jsonHeaders(), credentials: "same-origin",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return res.ok;
@@ -22,9 +28,83 @@ async function act(url: string, method: string, body?: unknown): Promise<boolean
   }
 }
 
-// --------------------------------------------------------------------------
-// Row actions (toggle, run, delete)
-// --------------------------------------------------------------------------
+function badgeClass(status: string): string {
+  if (status === "success") return "badge badge-success";
+  if (status === "failure") return "badge badge-error";
+  return "badge badge-salesman";
+}
+
+function renderRunLog(runs: RunLogRow[]): void {
+  const panel = document.getElementById("runLogPanel");
+  const body = document.getElementById("runLogBody");
+  const count = document.getElementById("runLogCount");
+  if (!panel || !body) return;
+  if (count) {
+    count.textContent = String(runs.length);
+    count.hidden = runs.length === 0;
+  }
+  if (!runs.length) {
+    body.innerHTML = `<p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>`;
+    return;
+  }
+  const rows = runs.map((r) => {
+    const when = r.finished_at || r.started_at || "—";
+    const status = (r.status || "queued").replace(/^./, (c) => c.toUpperCase());
+    const rowCount = r.rows == null ? "—" : String(r.rows);
+    return `<tr>
+      <td class="run-log-when">${esc(when)}</td>
+      <td><span class="mini-flag">${esc(r.kind)}</span> ${esc(r.title)}</td>
+      <td><span class="${badgeClass(r.status)}">${esc(status)}</span></td>
+      <td>${esc(rowCount)}</td>
+      <td class="run-log-msg">${esc(r.message || "—")}</td>
+      <td><a class="btn btn-sm btn-outline" href="${esc(r.history_url)}">History</a></td>
+    </tr>`;
+  }).join("");
+  body.innerHTML = `<div class="table-wrap run-log-table-wrap">
+    <table class="data-table run-log-table">
+      <thead><tr>
+        <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+async function refreshRunLog(): Promise<RunLogRow[]> {
+  const panel = document.getElementById("runLogPanel");
+  const url = panel?.getAttribute("data-recent-url") || "";
+  if (!url) return [];
+  try {
+    const res = await fetch(url, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const data = await res.json().catch(() => ({}));
+    const runs = (data.runs || []) as RunLogRow[];
+    renderRunLog(runs);
+    return runs;
+  } catch {
+    return [];
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function pollRunLog(beforeIds: Set<number>): Promise<void> {
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    await sleep(1500);
+    const runs = await refreshRunLog();
+    const newest = runs[0];
+    if (!newest) continue;
+    const isNew = !beforeIds.has(newest.id);
+    const done = newest.status === "success" || newest.status === "failure";
+    if (isNew && done) return;
+    if (isNew && newest.status === "running") continue;
+  }
+}
 
 function bindRowActions(): void {
   document.querySelectorAll<HTMLButtonElement>(".js-toggle").forEach((b) => {
@@ -37,9 +117,28 @@ function bindRowActions(): void {
     b.addEventListener("click", async () => {
       b.disabled = true;
       b.textContent = "Running…";
+      document.getElementById("runLogPanel")?.setAttribute("open", "");
+      const before = await refreshRunLog();
+      const beforeIds = new Set(before.map((r) => r.id));
       const ok = await act(b.dataset.url!, "POST", {});
       b.textContent = ok ? "Queued" : "Failed";
-      setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
+      if (ok) {
+        await refreshRunLog();
+        void pollRunLog(beforeIds).finally(() => {
+          b.disabled = false;
+          b.textContent = "Run now";
+        });
+      } else {
+        setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
+      }
+    });
+  });
+  document.querySelectorAll<HTMLButtonElement>(".js-copy").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      const ok = await act(b.dataset.url!, "POST", {});
+      if (ok) location.reload();
+      else { b.disabled = false; window.alert("Could not copy this schedule."); }
     });
   });
   document.querySelectorAll<HTMLButtonElement>(".js-delete").forEach((b) => {
@@ -50,310 +149,62 @@ function bindRowActions(): void {
   });
 }
 
-// --------------------------------------------------------------------------
-// Master form (create + edit)
-// --------------------------------------------------------------------------
+function bindSortableTables(): void {
+  document.querySelectorAll<HTMLTableElement>("table.js-sortable").forEach((table) => {
+    const head = table.tHead?.rows[0];
+    const body = table.tBodies[0];
+    if (!head || !body) return;
+    let sortCol = 0;
+    let sortAsc = true;
 
-function masterMsg(text: string, isError: boolean): void {
-  const el = document.getElementById("masterMsg");
-  if (!el) return;
-  el.textContent = text;
-  el.hidden = !text;
-  el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
-}
-
-function syncMasterCadence(): void {
-  const freq = (document.getElementById("mFreq") as HTMLSelectElement | null)?.value || "daily";
-  const wd = document.getElementById("mWeekdays");
-  const md = document.getElementById("mMonthday");
-  if (wd) wd.hidden = freq !== "weekly";
-  if (md) md.hidden = freq !== "monthly";
-}
-
-function masterCadence(form: HTMLFormElement): { ok: boolean; cadence?: any; error?: string } {
-  const freq = (form.elements.namedItem("freq") as HTMLSelectElement).value;
-  const time = (form.elements.namedItem("time") as HTMLInputElement).value || "08:00";
-  const cadence: any = { freq, time };
-  if (freq === "weekly") {
-    const days = [...form.querySelectorAll<HTMLInputElement>('input[name="weekday"]:checked')]
-      .map((c) => Number(c.value));
-    if (!days.length) return { ok: false, error: "Pick at least one day." };
-    cadence.weekdays = days;
-  } else if (freq === "monthly") {
-    cadence.monthday = Number((form.elements.namedItem("monthday") as HTMLSelectElement).value) || 1;
-  }
-  return { ok: true, cadence };
-}
-
-function enterEditMode(row: HTMLTableRowElement): void {
-  const form = document.getElementById("masterCreateForm") as HTMLFormElement | null;
-  if (!form) return;
-
-  const id = row.dataset.id!;
-  const cad = JSON.parse(row.dataset.cadence || "{}");
-
-  (document.getElementById("editingId") as HTMLInputElement).value = id;
-  (form.elements.namedItem("name") as HTMLInputElement).value = row.dataset.name || "";
-  (form.elements.namedItem("report_key") as HTMLSelectElement).value = row.dataset.reportKey || "";
-  (form.elements.namedItem("freq") as HTMLSelectElement).value = cad.freq || "daily";
-  (form.elements.namedItem("time") as HTMLInputElement).value = cad.time || "08:00";
-  (form.elements.namedItem("recipients") as HTMLInputElement).value = row.dataset.recipients || "";
-  (document.getElementById("spPathInput") as HTMLInputElement).value = row.dataset.sharepointPath || "";
-
-  if (cad.freq === "weekly" && cad.weekdays) {
-    form.querySelectorAll<HTMLInputElement>('input[name="weekday"]').forEach((c) => {
-      c.checked = cad.weekdays.includes(Number(c.value));
-    });
-  } else {
-    form.querySelectorAll<HTMLInputElement>('input[name="weekday"]').forEach((c) => { c.checked = false; });
-  }
-  if (cad.freq === "monthly") {
-    (form.elements.namedItem("monthday") as HTMLSelectElement).value = String(cad.monthday ?? 1);
-  }
-
-  syncMasterCadence();
-  document.getElementById("formTitle")!.textContent = "Edit schedule";
-  document.getElementById("formSubmitBtn")!.textContent = "Save";
-  document.getElementById("formCancelBtn")!.hidden = false;
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function exitEditMode(): void {
-  const form = document.getElementById("masterCreateForm") as HTMLFormElement | null;
-  if (!form) return;
-  form.reset();
-  (document.getElementById("editingId") as HTMLInputElement).value = "";
-  (document.getElementById("spPathInput") as HTMLInputElement).value = "";
-  document.getElementById("formTitle")!.textContent = "New master schedule";
-  document.getElementById("formSubmitBtn")!.textContent = "Create";
-  document.getElementById("formCancelBtn")!.hidden = true;
-  syncMasterCadence();
-  masterMsg("", false);
-}
-
-function bindMasterForm(): void {
-  const form = document.getElementById("masterCreateForm") as HTMLFormElement | null;
-  if (!form) return;
-  document.getElementById("mFreq")?.addEventListener("change", syncMasterCadence);
-  syncMasterCadence();
-
-  document.getElementById("formCancelBtn")?.addEventListener("click", exitEditMode);
-
-  document.querySelectorAll<HTMLButtonElement>(".js-edit").forEach((b) => {
-    b.addEventListener("click", () => {
-      const row = b.closest("tr") as HTMLTableRowElement;
-      if (row) enterEditMode(row);
-    });
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = (form.elements.namedItem("name") as HTMLInputElement).value.trim();
-    if (!name) { masterMsg("Name is required.", true); return; }
-    const cad = masterCadence(form);
-    if (!cad.ok) { masterMsg(cad.error!, true); return; }
-    const body = {
-      name, report_key: (form.elements.namedItem("report_key") as HTMLSelectElement).value,
-      cadence: cad.cadence,
-      recipients: (form.elements.namedItem("recipients") as HTMLInputElement).value.trim(),
-      sharepoint_path: (document.getElementById("spPathInput") as HTMLInputElement).value.trim(),
-      params: {}, layout: {},
+    const key = (row: HTMLTableRowElement, col: number): string => {
+      if (col === 0) {
+        return (row.getAttribute("data-name") || row.cells[0]?.textContent || "")
+          .trim().toLowerCase();
+      }
+      return (row.cells[col]?.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
     };
 
-    const editId = (document.getElementById("editingId") as HTMLInputElement).value;
-    masterMsg("Saving…", false);
-
-    if (editId) {
-      const tpl = form.getAttribute("data-update-url-tpl")!;
-      const url = tpl.replace("/0", "/" + editId);
-      const res = await fetch(url, { method: "PUT", headers: headers(), body: JSON.stringify(body) });
-      if (res.ok) location.reload();
-      else {
-        const err = await res.json().catch(() => ({}));
-        masterMsg((err as any).error || "Could not save.", true);
-      }
-    } else {
-      const res = await fetch(form.getAttribute("data-create-url")!, {
-        method: "POST", headers: headers(), body: JSON.stringify(body),
+    const apply = () => {
+      const rows = Array.from(body.rows);
+      rows.sort((a, b) => {
+        const cmp = key(a, sortCol).localeCompare(key(b, sortCol), undefined, {
+          numeric: true, sensitivity: "base",
+        });
+        return sortAsc ? cmp : -cmp;
       });
-      if (res.status === 201) location.reload();
-      else {
-        const err = await res.json().catch(() => ({}));
-        masterMsg((err as any).error || "Could not create.", true);
-      }
-    }
+      rows.forEach((row) => body.appendChild(row));
+      Array.from(head.cells).forEach((th, i) => {
+        if (th.hasAttribute("data-sort-skip")) {
+          th.removeAttribute("aria-sort");
+          return;
+        }
+        th.setAttribute("aria-sort", i === sortCol
+          ? (sortAsc ? "ascending" : "descending") : "none");
+      });
+    };
+
+    Array.from(head.cells).forEach((th, i) => {
+      if (th.hasAttribute("data-sort-skip")) return;
+      th.classList.add("th-sort");
+      th.tabIndex = 0;
+      const go = () => {
+        if (sortCol === i) sortAsc = !sortAsc;
+        else { sortCol = i; sortAsc = true; }
+        apply();
+      };
+      th.addEventListener("click", go);
+      th.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); }
+      });
+    });
+    apply();
   });
 }
-
-// --------------------------------------------------------------------------
-// SharePoint folder picker
-// --------------------------------------------------------------------------
-
-let spResolver: ((path: string | null) => void) | null = null;
-let spCurrentPath = "";
-let spRootLabel = "Direct Reports";
-
-function esc(s: string): string {
-  return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function spOverlay(): HTMLElement | null {
-  return document.getElementById("spPickerOverlay");
-}
-
-function spRenderBreadcrumb(): void {
-  const crumb = document.getElementById("spPickerCrumb");
-  if (!crumb) return;
-  crumb.innerHTML = "";
-
-  const rootBtn = document.createElement("button");
-  rootBtn.type = "button";
-  rootBtn.className = "sp-crumb-link";
-  rootBtn.textContent = spRootLabel;
-  rootBtn.addEventListener("click", () => spLoadPath(""));
-  crumb.appendChild(rootBtn);
-
-  if (!spCurrentPath) return;
-  const parts = spCurrentPath.split("/");
-  let accum = "";
-  parts.forEach((p, i) => {
-    if (!p) return;
-    accum = accum ? accum + "/" + p : p;
-    const sep = document.createElement("span");
-    sep.className = "sp-crumb-sep";
-    sep.textContent = " / ";
-    crumb.appendChild(sep);
-    if (i === parts.length - 1) {
-      const cur = document.createElement("span");
-      cur.className = "sp-crumb-current";
-      cur.textContent = p;
-      crumb.appendChild(cur);
-    } else {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "sp-crumb-link";
-      btn.textContent = p;
-      const target = accum;
-      btn.addEventListener("click", () => spLoadPath(target));
-      crumb.appendChild(btn);
-    }
-  });
-}
-
-function spRenderCurrent(): void {
-  const el = document.getElementById("spPickerCurrentPath");
-  if (!el) return;
-  el.textContent = spCurrentPath
-    ? spRootLabel + " / " + spCurrentPath.replace(/\//g, " / ")
-    : spRootLabel;
-}
-
-function spRenderFolders(folders: { name: string; path: string }[]): void {
-  const body = document.getElementById("spPickerBody");
-  if (!body) return;
-  if (!folders.length) {
-    body.innerHTML = `<div class="sp-picker-empty">No subfolders. You can still select this folder.</div>`;
-    return;
-  }
-  body.innerHTML = "";
-  const ul = document.createElement("ul");
-  ul.className = "sp-picker-list";
-  folders.forEach((f) => {
-    const li = document.createElement("li");
-    li.className = "sp-picker-item";
-    li.innerHTML = `<span class="sp-picker-icon"><i data-feather="folder"></i></span>`
-      + `<span class="sp-picker-name">${esc(f.name)}</span>`
-      + `<span class="sp-picker-chevron"><i data-feather="chevron-right"></i></span>`;
-    li.addEventListener("click", () => spLoadPath(f.path));
-    ul.appendChild(li);
-  });
-  body.appendChild(ul);
-  if ((window as any).feather?.replace) (window as any).feather.replace();
-}
-
-async function spLoadPath(path: string): Promise<void> {
-  spCurrentPath = (path || "").replace(/^\/+|\/+$/g, "");
-  spRenderBreadcrumb();
-  spRenderCurrent();
-  const body = document.getElementById("spPickerBody");
-  if (!body) return;
-  body.innerHTML = `<div class="sp-picker-loading">Loading…</div>`;
-  const form = document.getElementById("masterCreateForm");
-  const url = form?.getAttribute("data-sp-folders-url") || "/api/sharepoint/folders";
-  try {
-    const r = await fetch(url + "?path=" + encodeURIComponent(spCurrentPath),
-      { headers: { Accept: "application/json" } });
-    const json = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      body.innerHTML = `<div class="sp-picker-error">${esc(json.error || "HTTP " + r.status)}</div>`;
-      return;
-    }
-    if (json.error) {
-      body.innerHTML = `<div class="sp-picker-error">${esc(json.error)}</div>`;
-      return;
-    }
-    spRenderFolders(json.folders || []);
-  } catch (e: any) {
-    body.innerHTML = `<div class="sp-picker-error">Could not load folders: ${esc(e.message)}</div>`;
-  }
-}
-
-function spClose(value: string | null): void {
-  const ov = spOverlay();
-  if (ov) ov.style.display = "none";
-  if (spResolver) { const r = spResolver; spResolver = null; r(value); }
-}
-
-async function openSharePointPicker(initialPath: string): Promise<string | null> {
-  const ov = spOverlay();
-  if (!ov) return null;
-
-  const form = document.getElementById("masterCreateForm");
-  const statusUrl = form?.getAttribute("data-sp-status-url") || "/api/sharepoint/status";
-  try {
-    const r = await fetch(statusUrl);
-    const j = await r.json().catch(() => ({}));
-    if (j?.root_path) {
-      const parts = String(j.root_path).split("/").filter(Boolean);
-      spRootLabel = parts.length ? parts[parts.length - 1] : "Direct Reports";
-    }
-  } catch { /* use default */ }
-
-  ov.style.display = "flex";
-  return new Promise((resolve) => {
-    spResolver = resolve;
-    spLoadPath(initialPath);
-  });
-}
-
-function bindSharePointPicker(): void {
-  const browseBtn = document.getElementById("spBrowseBtn");
-  const clearBtn = document.getElementById("spClearBtn");
-  const input = document.getElementById("spPathInput") as HTMLInputElement | null;
-  if (!browseBtn || !input) return;
-
-  browseBtn.addEventListener("click", async () => {
-    const result = await openSharePointPicker(input.value);
-    if (result !== null) input.value = result;
-  });
-
-  clearBtn?.addEventListener("click", () => { input.value = ""; });
-
-  const ov = spOverlay();
-  if (!ov) return;
-  ov.querySelector(".sp-picker-close")?.addEventListener("click", () => spClose(null));
-  ov.querySelector(".sp-picker-cancel")?.addEventListener("click", () => spClose(null));
-  ov.querySelector(".sp-picker-select")?.addEventListener("click", () => spClose(spCurrentPath));
-  ov.addEventListener("click", (e) => { if (e.target === ov) spClose(null); });
-}
-
-// --------------------------------------------------------------------------
-// Init
-// --------------------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", () => {
   bindRowActions();
-  bindMasterForm();
+  bindSortableTables();
+  bindMasterWizard();
   bindSharePointPicker();
 });

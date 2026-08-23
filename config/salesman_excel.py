@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 _XLSX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "salesman_map.xlsx")
 
 REPORT_KEYS = ("ordered", "invoiced", "salesman", "number_4", "customer_activity",
-                "master_salesman", "master_customer_activity", "amazon_weekly",
+                "master_salesman", "master_customer_activity",
                 "customer_aging_report")
 
 _SUBSCRIPTION_COLUMNS = {
@@ -36,7 +36,6 @@ _SUBSCRIPTION_COLUMNS = {
     "Recv_CustomerActivity": "customer_activity",
     "Recv_MasterSalesman": "master_salesman",
     "Recv_MasterCustomerActivity": "master_customer_activity",
-    "Recv_AmazonWeekly": "amazon_weekly",
     "Recv_CustomerAging": "customer_aging_report",
 }
 
@@ -161,9 +160,9 @@ def load_salesman_map(path: str | None = None) -> dict[str, SalesmanRecord]:
 
 
 def lookup_salesman_xl(sales_group: str) -> SalesmanRecord:
-    """Look up salesman by raw sales group string."""
+    mapping = load_salesman_map()
     key = _norm_key(sales_group)
-    return load_salesman_map().get(key, DEFAULT_SALESMAN)
+    return mapping.get(key, DEFAULT_SALESMAN)
 
 
 def get_salesman_email(sales_group: str) -> str:
@@ -208,14 +207,41 @@ def pad_salesman_number(num: str) -> str:
     return s
 
 
-def get_report_subscribers(report_key: str) -> list[tuple[str, str, list[str], list[str]]]:
+def has_report_subscription_column(report_key: str, path: str | None = None) -> bool:
+    """Return whether the salesman spreadsheet explicitly defines this report."""
+    column_name = next(
+        (name for name, key in _SUBSCRIPTION_COLUMNS.items() if key == report_key),
+        None,
+    )
+    if column_name is None:
+        return False
+
+    xlsx = path or _XLSX_PATH
+    if not os.path.isfile(xlsx):
+        return False
+
+    wb = load_workbook(xlsx, read_only=True, data_only=True)
+    try:
+        header_row = next(
+            wb.active.iter_rows(min_row=1, max_row=1, values_only=True),
+            (),
+        )
+        headers = {str(value).strip() for value in header_row if value}
+        return column_name in headers
+    finally:
+        wb.close()
+
+
+def get_report_subscribers(
+    report_key: str, path: str | None = None,
+) -> list[tuple[str, str, list[str], list[str]]]:
     """Return [(display_name, email, cc, bcc)] for everyone subscribed to a report.
 
     Useful for master report distribution where the recipient is not
     necessarily a salesman in the data -- just someone who wants the file.
     """
     result = []
-    for key, rec in load_salesman_map().items():
+    for key, rec in load_salesman_map(path).items():
         if rec.email and rec.subscriptions.get(report_key, False):
             result.append((rec.display_name or key, rec.email, list(rec.cc), list(rec.bcc)))
     return result

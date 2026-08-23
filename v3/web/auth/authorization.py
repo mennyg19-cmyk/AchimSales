@@ -48,6 +48,34 @@ class Authorization:
         u = self._active_user(p)
         return bool(u and self._is_privileged(u))
 
+    def is_manager(self, p: Principal | None) -> bool:
+        u = self._active_user(p)
+        return bool(u and u.role == ROLE_MANAGER)
+
+    def can_see_company_schedules(self, p: Principal | None) -> bool:
+        """Admins, developers, and managers see the shared company list."""
+        return self.is_privileged(p) or self.is_manager(p)
+
+    def user_id(self, p: Principal | None) -> int | None:
+        u = self._active_user(p)
+        return u.id if u else None
+
+    def can_edit_master(self, p: Principal | None, *, owner_user_id: int | None,
+                        run_as_user_id: int | None) -> bool:
+        """Privileged: always. Manager: only if they created it or it runs as them."""
+        if self.is_privileged(p):
+            return True
+        if not self.is_manager(p):
+            return False
+        uid = self.user_id(p)
+        if uid is None:
+            return False
+        return uid == owner_user_id or uid == run_as_user_id
+
+    def may_see_commissions(self, p: Principal | None) -> bool:
+        """Commissions is a company tab. Salesmen never see it; managers and admins do."""
+        return self.is_privileged(p) or self.is_manager(p)
+
     # --- salesman / customer scope -----------------------------------------
 
     def visible_salesman_keys(self, p: Principal) -> set[str] | None:
@@ -82,21 +110,25 @@ class Authorization:
         u = self._active_user(p)
         if u is None:
             return False
-        if self._is_privileged(u):
-            return True
-        # Non-privileged: an explicit per-user override (allow/deny) wins. With no
-        # row the access is "inherit" -> fall back to the legacy role default
-        # (test/webapp report_access.list_accessible_reports): managers see all
-        # reports; salesmen see only salesman-filter reports. This is the per-user
-        # report-settings model the live/legacy app uses; seeded users start at
-        # "inherit" (no rows) and behave per their role.
+        # Company-wide admin reports: salesmen and managers never get them, even
+        # with an explicit allow row.
+        if getattr(spec, "privileged_only", False) and not self._is_privileged(u):
+            return False
         with self.db.precious() as conn:
-            row = conn.execute(
+            override = conn.execute(
                 "SELECT allowed FROM user_report_access WHERE user_id = ? AND report_key = ?",
                 (u.id, report_key),
             ).fetchone()
-        if row is not None:
-            return bool(row["allowed"])
+            glob = conn.execute(
+                "SELECT enabled FROM report_config WHERE report_key = ?", (report_key,),
+            ).fetchone()
+        # Per-user override wins (Live). Else a missing report_config row is on.
+        if override is not None:
+            return bool(override["allowed"])
+        if glob is not None and not glob["enabled"]:
+            return False
+        if self._is_privileged(u):
+            return True
         return self._role_default_report_visible(u.role, spec)
 
     @staticmethod
@@ -112,21 +144,15 @@ class Authorization:
             raise Forbidden(f"Not authorized for report {report_key!r}")
 
     def assert_report_runnable(self, p: Principal, report_key: str) -> None:
-        """Gate the run/result/export path. Re-resolves access live AND, until a
-        per-report scope adapter is signed off, restricts execution to privileged
-        (unrestricted) users - because the builders do not yet filter facts by the
-        principal's salesman scope (REVIEW-LOG: scope enforcement pending). This
-        fails closed: a granted non-privileged user can VIEW the report in the list
-        but cannot run it and pull unscoped data.
+        """Gate the run/result/export path. Re-resolves access live.
+
+        Builders now apply per-salesman scope filtering at execution time, so
+        non-privileged users are no longer blocked. They see only facts whose
+        sales_group matches their visible_salesman_keys (Phase 1 scoping).
         """
         if not report_key:
             raise Forbidden("Missing report")
         self.assert_can_view_report(p, report_key)
-        if not self.is_privileged(p):
-            raise Forbidden(
-                "This report's per-salesman scoping is pending sign-off; "
-                "only admin/developer accounts can run it for now."
-            )
 
     # --- deferred delivery (durable jobs + scheduled runs) ------------------
 
@@ -147,11 +173,11 @@ class Authorization:
                            *, sharepoint: bool) -> set[str] | None:
         """Gate a deferred delivery and return the live salesman scope.
 
-        Fails closed exactly like an interactive run: `assert_report_runnable`
-        (today: privileged-only, because the builders don't yet scope facts) and a
-        live SharePoint-access check. Raises Forbidden otherwise. This is what
-        prevents a queued/scheduled send from delivering data the owner is no
-        longer allowed to see."""
+        Fails closed exactly like an interactive run: verifies the owner is still
+        active and has report access, plus SharePoint permission when applicable.
+        Returns visible_salesman_keys for the builder's scope filter. This prevents
+        a queued/scheduled send from delivering data the owner is no longer allowed
+        to see."""
         if p is None:
             raise Forbidden("Delivery owner is unknown or inactive")
         self.assert_report_runnable(p, report_key)

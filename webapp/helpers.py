@@ -8,7 +8,7 @@ salesmen-list builder so they aren't duplicated in every blueprint.
 import logging
 from functools import wraps
 
-from flask import redirect, session, url_for
+from flask import redirect, request, session, url_for
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +25,12 @@ def require_login(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         if not get_current_user():
-            return redirect(url_for("auth.login"))
+            dest = (request.script_root or "") + (
+                request.full_path if request.full_path != "/?" else "/"
+            )
+            if dest.endswith("?"):
+                dest = dest[:-1]
+            return redirect(url_for("auth.login", next=dest))
         return f(*args, **kwargs)
     return wrapper
 
@@ -80,8 +85,10 @@ def inject_theme() -> dict:
     global_dash = get_feature_flag("dashboard_enabled", True)
     global_orders = get_feature_flag("order_entry_enabled", False)
     global_test = get_feature_flag("test_site_enabled", False)
+    global_beta = get_feature_flag("beta_site_enabled", True)
     user_dash = True
     user_test = False
+    user_beta = False
     try:
         user = get_current_user()
         if user:
@@ -90,12 +97,17 @@ def inject_theme() -> dict:
                 conn = get_db()
                 try:
                     row = conn.execute(
-                        "SELECT dashboard_enabled, test_access_enabled FROM app_users WHERE email = ?",
+                        "SELECT dashboard_enabled, test_access_enabled, beta_access_enabled "
+                        "FROM app_users WHERE email = ?",
                         (email,)
                     ).fetchone()
                     if row is not None:
                         user_dash = bool(row["dashboard_enabled"])
                         user_test = bool(row["test_access_enabled"]) if row["test_access_enabled"] is not None else False
+                        try:
+                            user_beta = bool(row["beta_access_enabled"])
+                        except (IndexError, KeyError):
+                            user_beta = False
                 finally:
                     conn.close()
     except Exception:
@@ -105,4 +117,5 @@ def inject_theme() -> dict:
         "dashboard_enabled": global_dash and user_dash,
         "order_entry_enabled": global_orders,
         "test_site_enabled": global_test and user_test,
+        "beta_site_enabled": global_beta and user_beta,
     }

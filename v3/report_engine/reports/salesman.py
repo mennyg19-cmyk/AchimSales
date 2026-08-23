@@ -1,78 +1,120 @@
-"""Monthly Salesman report builder (pure).
+"""Monthly Salesman YoY builder (pure).
 
-Same source as the invoiced report (`invoiced_order_charges` SP -> InvoiceChargeFact),
-so it reuses `sources.invoiced`. Produces 12 month tabs (Jan-Dec); each tab compares
-the current year to the prior year for every (customer, salesman) pair.
+Source: ``rpt.usp_monthly_salesman_yoy`` (catalog ``monthly_salesman_yoy``).
+Sales basis is Total Invoice (server-side). The SP returns one wide row per
+salesman + customer with Jan–Dec this/last year, YTD, and full-year columns.
 
-Core metric (matches LIVE `reports/salesman/builder.py`):
-    Sales = Total Invoice - CC Charges - Freight Charges   (== SubTotal + Tariff)
-
-Per month tab, per (customer, salesman):
-    Sales <mon> <yr> / <prior>, $/% month diff,
-    Sales <yr> Jan Thru <mon> / <prior>, $/% YTD diff,
-    Sales Year to Date <yr> / <prior> (full-year totals), $/% full-year diff.
-Active rows = any (customer, salesman) with sales in either year.
+This builder only reshapes that dataset into the existing 12 month tabs
+(Jan–Dec) so the viewer/export stay workbook-style. No invoice math here.
 """
 
 from __future__ import annotations
 
 import calendar
-from typing import Iterable, Mapping
+import re
+from typing import Any, Iterable, Sequence
 
-from report_engine.facts import InvoiceChargeFact, SalesmanFact
-from report_engine.lib import salesman_key
+from report_engine.lib import num, salesman_key
 
-_COMPARISON_FIELDS = (
-    "Sales_Current", "Sales_Prior", "Sales_YTD_Current", "Sales_YTD_Prior",
-    "Sales_FullYear_Current", "Sales_FullYear_Prior",
-)
-
+SALESMAN_NAME_COLUMN = "SalesmanName"
+SALESMAN_ID_COLUMN = "SalesmanId"
 
 def _pad_salesman_number(number: str) -> str:
-    """Zero-pad numeric salesman IDs to 4 chars for stable sort (LIVE pad_salesman_number)."""
     s = (number or "").strip()
     return s.zfill(4) if s.isdigit() else s
 
 
-def _resolve(sales_group: str, salesmen: Mapping[str, SalesmanFact]) -> tuple[str, str]:
-    """(label, number) for a SalesGroup. Empty group -> ('', '')."""
-    sm = salesmen.get(salesman_key(sales_group)) if sales_group else None
-    if sm:
-        return (sm.display_name or sm.full_name or sales_group, sm.number)
-    return (sales_group, "")
+def _norm_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
 
 
-def _normalize(fact: InvoiceChargeFact, salesmen: Mapping[str, SalesmanFact]) -> dict | None:
-    """Fact -> {year, month, customer, salesman, sales}; None if date unparseable."""
-    d = fact.invoice_date
-    if not (isinstance(d, str) and len(d) >= 7 and d[4] == "-"):
-        return None
-    try:
-        year = int(d[:4])
-        month = int(d[5:7])
-    except ValueError:
-        return None
-    if not (1 <= month <= 12):  # guard against malformed ISO-like dates
-        return None
-    label, number = _resolve(fact.sales_group, salesmen)
-    return {
-        "year": year,
-        "month": month,
-        "CustomerAccount": fact.customer_account,
-        "CustomerName": fact.customer_name,
-        "Salesman": label,
-        "SalesmanNumber": number,
-        # LIVE: Sales = Total Invoice - CC - Freight.
-        "Sales": round(fact.total - fact.cc - fact.freight, 2),
-    }
+def _lookup(row: dict, *candidates: str) -> Any:
+    """Case/spacing-insensitive column get. Prefer exact, then normalized."""
+    for cand in candidates:
+        if cand in row:
+            return row[cand]
+    wanted = {_norm_key(c) for c in candidates}
+    for key, value in row.items():
+        if _norm_key(str(key)) in wanted:
+            return value
+    return None
+
+
+def _money(row: dict, *candidates: str) -> float:
+    return round(num(_lookup(row, *candidates)), 2)
+
+
+def _month_ty_candidates(month: int) -> tuple[str, ...]:
+    abbr, name = calendar.month_abbr[month], calendar.month_name[month]
+    return (
+        f"{abbr} This Year",
+        f"{name} This Year",
+        f"{abbr}ThisYear",
+        f"{abbr}_This_Year",
+        f"{abbr} TY",
+        f"{abbr}TY",
+    )
+
+
+def _month_ly_candidates(month: int) -> tuple[str, ...]:
+    abbr, name = calendar.month_abbr[month], calendar.month_name[month]
+    return (
+        f"{abbr} Last Year",
+        f"{name} Last Year",
+        f"{abbr}LastYear",
+        f"{abbr}_Last_Year",
+        f"{abbr} LY",
+        f"{abbr}LY",
+        f"{abbr} Prior Year",
+        f"{name} Prior Year",
+    )
+
+
+def _month_sales(row: dict, month: int) -> tuple[float, float]:
+    return (
+        _money(row, *_month_ty_candidates(month)),
+        _money(row, *_month_ly_candidates(month)),
+    )
+
+
+def _ytd_from_months(row: dict, through_month: int) -> tuple[float, float]:
+    """Sum Jan..through from monthly columns (each month tab needs its own YTD)."""
+    ty = ly = 0.0
+    for m in range(1, through_month + 1):
+        a, b = _month_sales(row, m)
+        ty += a
+        ly += b
+    return round(ty, 2), round(ly, 2)
+
+
+def _full_year(row: dict) -> tuple[float, float]:
+    ty = _money(
+        row,
+        "Full Year This Year",
+        "FullYearThisYear",
+        "Full Year TY",
+        "Sales Year to Date Current",  # unlikely; fallback below
+    )
+    ly = _money(
+        row,
+        "Full Year Last Year",
+        "FullYearLastYear",
+        "Full Year LY",
+        "Full Year Prior Year",
+    )
+    if ty == 0.0 and ly == 0.0:
+        # SP may only expose months; sum all twelve.
+        return _ytd_from_months(row, 12)
+    return ty, ly
+
+
+def _pct(diff: float, prior: float) -> float:
+    return (diff / prior) if prior else 0.0
 
 
 def _columns(year: int, month: int) -> list[dict]:
     mon = calendar.month_name[month]
     prior = year - 1
-    # Header text matches LIVE export (reports/salesman/writer.py _build_monthly_headers).
-    # LIVE leads with Sort Number / Cust. # / Customer Name; v3 keeps a Salesman
-    # column too because all salesmen share one tab (owner layout choice #16).
     return [
         {"field": "Sort Number", "header": "Sort Number", "type": "text"},
         {"field": "Salesman", "header": "Salesman", "type": "text"},
@@ -95,86 +137,91 @@ def _columns(year: int, month: int) -> list[dict]:
     ]
 
 
-def _build_month_tab(lines: list[dict], year: int, month: int) -> dict:
-    prior = year - 1
+_TEXT_KEYS = {
+    _norm_key(k) for k in (
+        "SalesmanId", "SalesmanName", "Salesman", "SalesGroup",
+        "CustomerAccount", "CustomerName", "Cust. #", "Customer Name", "Name",
+    )
+}
+
+
+def clean_rows(rows: Iterable[dict]) -> list[dict]:
+    """Keep SP keys; coerce non-label cells to floats when numeric."""
+    out: list[dict] = []
+    for raw in rows:
+        cleaned: dict[str, Any] = {}
+        for key, value in raw.items():
+            header = str(key)
+            if _norm_key(header) in _TEXT_KEYS:
+                cleaned[header] = "" if value is None else value
+            else:
+                cleaned[header] = round(num(value), 2)
+        out.append(cleaned)
+    return out
+
+def filter_rows_by_salesman(rows: list[dict], visible_keys) -> list[dict]:
+    """Scope backstop on SalesmanName (and SalesmanId as secondary)."""
+    if visible_keys is None:
+        return rows
+    allowed = {salesman_key(k) for k in visible_keys}
+    kept: list[dict] = []
+    for row in rows:
+        name = str(_lookup(row, SALESMAN_NAME_COLUMN, "Salesman", "SalesGroup") or "")
+        sid = str(_lookup(row, SALESMAN_ID_COLUMN, "SalesmanNumber") or "")
+        if salesman_key(name) in allowed or salesman_key(sid) in allowed:
+            kept.append(row)
+    return kept
+
+
+def _build_month_tab(rows: Sequence[dict], year: int, month: int) -> dict:
     mon = calendar.month_name[month]
-    buckets: dict[tuple, dict] = {}
-
-    for ln in lines:
-        iyear = ln["year"]
-        if iyear not in (year, prior):
-            continue
-        key = (ln["CustomerAccount"], ln["CustomerName"],
-               ln["SalesmanNumber"], ln["Salesman"])
-        b = buckets.get(key)
-        if b is None:
-            b = {
-                "CustomerAccount": ln["CustomerAccount"],
-                "CustomerName": ln["CustomerName"],
-                "SalesmanNumber": ln["SalesmanNumber"],
-                "Salesman": ln["Salesman"],
-                **{f: 0.0 for f in _COMPARISON_FIELDS},
-            }
-            buckets[key] = b
-        s = ln["Sales"]
-        imonth = ln["month"]
-        if iyear == year:
-            b["Sales_FullYear_Current"] += s
-            if imonth == month:
-                b["Sales_Current"] += s
-            if imonth <= month:
-                b["Sales_YTD_Current"] += s
-        else:
-            b["Sales_FullYear_Prior"] += s
-            if imonth == month:
-                b["Sales_Prior"] += s
-            if imonth <= month:
-                b["Sales_YTD_Prior"] += s
-
-    rows: list[dict] = []
-    for b in buckets.values():
-        for f in _COMPARISON_FIELDS:
-            b[f] = round(b[f], 2)
-        month_diff = round(b["Sales_Current"] - b["Sales_Prior"], 2)
-        ytd_diff = round(b["Sales_YTD_Current"] - b["Sales_YTD_Prior"], 2)
-        full_diff = round(b["Sales_FullYear_Current"] - b["Sales_FullYear_Prior"], 2)
-        sort_number = _pad_salesman_number(b["SalesmanNumber"])
-        rows.append({
+    prior = year - 1
+    out_rows: list[dict] = []
+    for row in rows:
+        cur, prv = _month_sales(row, month)
+        ytd_cur, ytd_prv = _ytd_from_months(row, month)
+        full_cur, full_prv = _full_year(row)
+        month_diff = round(cur - prv, 2)
+        ytd_diff = round(ytd_cur - ytd_prv, 2)
+        full_diff = round(full_cur - full_prv, 2)
+        sid = str(_lookup(row, SALESMAN_ID_COLUMN, "SalesmanNumber") or "").strip()
+        sname = str(_lookup(row, SALESMAN_NAME_COLUMN, "Salesman") or "").strip()
+        acct = str(_lookup(row, "CustomerAccount", "Cust. #", "AccountNum") or "").strip()
+        cname = str(_lookup(row, "CustomerName", "Customer Name", "Name") or "").strip()
+        sort_number = _pad_salesman_number(sid)
+        out_rows.append({
             "Sort Number": sort_number,
-            "Salesman": b["Salesman"],
-            "SalesmanNumber": b["SalesmanNumber"],
-            "Cust. #": b["CustomerAccount"],
-            "Customer Name": b["CustomerName"],
-            f"Sales {mon} {year}": b["Sales_Current"],
-            f"Sales {mon} {prior}": b["Sales_Prior"],
+            "Salesman": sname,
+            "SalesmanNumber": sid,
+            "Cust. #": acct,
+            "Customer Name": cname,
+            f"Sales {mon} {year}": cur,
+            f"Sales {mon} {prior}": prv,
             "$ This Year to Last Year": month_diff,
-            "% This Year to Last Year": (month_diff / b["Sales_Prior"]) if b["Sales_Prior"] else 0.0,
-            f"Sales {year} Jan Thru {mon}": b["Sales_YTD_Current"],
-            f"Sales {prior} Jan Thru {mon}": b["Sales_YTD_Prior"],
+            "% This Year to Last Year": _pct(month_diff, prv),
+            f"Sales {year} Jan Thru {mon}": ytd_cur,
+            f"Sales {prior} Jan Thru {mon}": ytd_prv,
             "$ This Year to Last Year (YTD)": ytd_diff,
-            "% This Year to Last Year (YTD)": (ytd_diff / b["Sales_YTD_Prior"]) if b["Sales_YTD_Prior"] else 0.0,
-            f"Sales Year to Date {year}": b["Sales_FullYear_Current"],
-            f"Sales Year to Date {prior}": b["Sales_FullYear_Prior"],
+            "% This Year to Last Year (YTD)": _pct(ytd_diff, ytd_prv),
+            f"Sales Year to Date {year}": full_cur,
+            f"Sales Year to Date {prior}": full_prv,
             "$ This Year to Last Year (YTD Full Year)": full_diff,
-            "% This Year to Last Year (YTD Full Year)":
-                (full_diff / b["Sales_FullYear_Prior"]) if b["Sales_FullYear_Prior"] else 0.0,
-            "_sort": sort_number or (b["Salesman"] or "").lower(),
+            "% This Year to Last Year (YTD Full Year)": _pct(full_diff, full_prv),
+            "_sort": sort_number or sname.lower(),
         })
 
-    rows.sort(key=lambda r: (r["_sort"], r["Cust. #"] or ""))
-    for r in rows:
+    out_rows.sort(key=lambda r: (r["_sort"], r["Cust. #"] or ""))
+    for r in out_rows:
         r.pop("_sort", None)
 
     return {
         "key": calendar.month_abbr[month].lower(),
         "name": calendar.month_abbr[month],
         "columns": _columns(year, month),
-        "rows": rows,
+        "rows": out_rows,
     }
 
 
-def build(facts: Iterable[InvoiceChargeFact], *,
-          salesmen: Mapping[str, SalesmanFact], year: int) -> list[dict]:
-    """Build 12 month tabs (Jan-Dec) for the given report year."""
-    lines = [n for n in (_normalize(f, salesmen) for f in facts) if n is not None]
-    return [_build_month_tab(lines, year, m) for m in range(1, 13)]
+def build(rows: Sequence[dict], *, year: int) -> list[dict]:
+    """Build 12 month tabs (Jan–Dec) from ``monthly_salesman_yoy`` rows."""
+    return [_build_month_tab(rows, year, m) for m in range(1, 13)]

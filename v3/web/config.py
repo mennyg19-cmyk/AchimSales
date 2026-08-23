@@ -43,6 +43,14 @@ class Config:
     cache_db_path: Path
     litestream_blob_url: str
     new_app_marker: bool
+    reporting_api_timeout: float = 300.0
+    # The dashboard customer mirror is a side feature. When off, its 4-hour cron
+    # and boot-prime never enqueue dashboard.refresh jobs - so a slow/wedged
+    # Reporting API can't tie up worker slots with a refresh nobody asked for.
+    dashboard_refresh_enabled: bool = True
+    # Home app (is_beta): reports-only surface with hybrid SQL/OData sources.
+    # Dashboard stays off. Login is Live's (/legacy/login).
+    is_beta: bool = False
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))
     # Delivery (Phase C) - all optional; absent => email writes .eml to the outbox
@@ -91,6 +99,12 @@ class Config:
                              ("CACHE_DB_PATH", self.cache_db_path)):
                 if _is_unc(p):
                     problems.append(f"{label} must be local disk, not a UNC/SMB share: {p}")
+                elif _is_app_service_home(p):
+                    problems.append(
+                        f"{label} must be on local disk, not the App Service /home share "
+                        f"(it's Azure Files/SMB; SQLite WAL can't share its index across "
+                        f"processes there, so the job worker stops seeing queued jobs): {p}"
+                    )
 
         if problems:
             raise ConfigError(
@@ -107,29 +121,71 @@ def _is_unc(path: Path) -> bool:
     return s.startswith("\\\\") or s.startswith("//")
 
 
-def load_config() -> Config:
+def _is_app_service_home(path: Path) -> bool:
+    """True for the App Service /home mount. That mount is Azure Files (SMB), and
+    SQLite WAL can't coordinate readers/writers across processes on SMB -- the
+    background job worker silently stops seeing jobs the web workers enqueue.
+    Keep precious.db/cache.db on local disk (e.g. /tmp/v3data); Litestream gives
+    precious.db its durability. (This is the bug _is_unc missed: the share shows
+    up as a plain /home path, not a // UNC.)"""
+    return str(path).replace("\\", "/").startswith("/home/")
+
+
+def load_config(*, is_beta: bool = False) -> Config:
     """Build the Config from the environment and validate it.
 
     APP_ENV defaults to "prod" so that a forgotten setting fails CLOSED (an
     unconfigured deploy refuses to boot rather than silently running dev auth).
     Local dev must opt in explicitly with APP_ENV=dev (see .env.example).
+
+    ``is_beta`` selects Beta DB path defaults so /test and the home app don't share one
+    SQLite file when both are mounted in the same process.
     """
     app_env = os.environ.get("APP_ENV", "prod").strip().lower()
+    if is_beta:
+        precious_default = "./.data/beta_precious.db"
+        cache_default = "./.data/beta_cache.db"
+        precious_env = "BETA_PRECIOUS_DB_PATH"
+        cache_env = "BETA_CACHE_DB_PATH"
+    else:
+        precious_default = "./.data/precious.db"
+        cache_default = "./.data/cache.db"
+        precious_env = "PRECIOUS_DB_PATH"
+        cache_env = "CACHE_DB_PATH"
+    # Beta shares Live's session cookie, so it must use Live's signing secret
+    # (FLASK_SECRET_KEY). /test keeps FLASK_SECRET so its cookie stays separate.
+    if is_beta:
+        flask_secret = (
+            os.environ.get("FLASK_SECRET_KEY", "").strip()
+            or os.environ.get("FLASK_SECRET", "").strip()
+        )
+    else:
+        flask_secret = os.environ.get("FLASK_SECRET", "").strip()
     cfg = Config(
         app_env=app_env,
         auth_mode=os.environ.get("AUTH_MODE", "dev").strip().lower(),
-        flask_secret=os.environ.get("FLASK_SECRET", "").strip(),
+        flask_secret=flask_secret,
         tenant_id=os.environ.get("GRAPH_TENANT_ID", "").strip(),
         client_id=os.environ.get("GRAPH_CLIENT_ID", "").strip(),
         client_secret=os.environ.get("GRAPH_CLIENT_SECRET", "").strip(),
         reporting_api_base_url=os.environ.get("REPORTING_API_BASE_URL", "").strip().rstrip("/"),
         reporting_api_key=os.environ.get("REPORTING_API_KEY", "").strip(),
-        precious_db_path=_env_path("PRECIOUS_DB_PATH", "./.data/precious.db"),
-        cache_db_path=_env_path("CACHE_DB_PATH", "./.data/cache.db"),
+        reporting_api_timeout=float(os.environ.get("REPORTING_API_TIMEOUT_SECONDS", "300")),
+        dashboard_refresh_enabled=(
+            False if is_beta else _env_bool("DASHBOARD_REFRESH_ENABLED", True)
+        ),
+        is_beta=is_beta,
+        precious_db_path=_env_path(precious_env, precious_default),
+        cache_db_path=_env_path(cache_env, cache_default),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
         new_app_marker=_env_bool("NEW_APP_MARKER", True),
         outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),
-        email_from=os.environ.get("EMAIL_FROM", "reports@achimonline.com").strip(),
+        # Prefer EMAIL_FROM; fall back to live's EMAIL_FROM_ADDRESS (Azure has that).
+        email_from=(
+            os.environ.get("EMAIL_FROM", "").strip()
+            or os.environ.get("EMAIL_FROM_ADDRESS", "").strip()
+            or "reports@achimonline.com"
+        ),
         smtp_host=os.environ.get("SMTP_HOST", "").strip(),
         smtp_port=int(os.environ.get("SMTP_PORT", "587") or "587"),
         smtp_user=os.environ.get("SMTP_USER", "").strip(),

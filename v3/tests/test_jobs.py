@@ -7,6 +7,7 @@ import pytest
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.jobs import JobRepository
+from web.data.repositories.users import UserRepository
 from web.jobs.scheduler import Scheduler
 from web.jobs.worker import JobContext, JobWorker
 
@@ -106,6 +107,23 @@ def test_background_worker_drains_queue(db):
     assert sorted(processed) == sorted(ids)
 
 
+def test_health_reports_started_and_free_slots(db):
+    # The admin diagnostic relies on this snapshot to tell a never-started worker
+    # from a wedged one. Before start(): not started, all slots free.
+    worker = JobWorker(db, max_workers=2)
+    worker.register("bg", lambda ctx: "")
+    h = worker.health()
+    assert h["started"] is False and h["poller_alive"] is False
+    assert h["free_slots"] == 2 and h["handler_types"] == ["bg"]
+
+    worker.start(poll_interval=0.05)
+    try:
+        assert worker.health()["started"] is True
+        assert worker.health()["poller_alive"] is True
+    finally:
+        worker.stop()
+
+
 def test_orphaned_running_job_is_recovered(db):
     """A job stuck in 'running' (crash) is requeued and can complete."""
     jobs = JobRepository(db)
@@ -121,6 +139,35 @@ def test_orphaned_running_job_is_recovered(db):
     assert jobs.get(jid).status == "success"
 
 
+def test_recovery_increments_attempts(db):
+    """Each crash-recovery bumps the attempt counter so the cap can be enforced."""
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+    assert jobs.get(jid).attempts == 0
+    jobs.claim_next()        # -> running (simulate crash)
+    jobs.recover_orphans()   # -> requeued, attempt counted
+    assert jobs.get(jid).attempts == 1
+
+
+def test_repeatedly_crashing_job_is_failed_not_looped(db):
+    """A job that keeps dying mid-run (e.g. OOM) is failed once retries run out,
+    instead of being requeued forever (the crash loop that took the site down)."""
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+
+    # 1st crash: orphaned -> requeued (one retry used).
+    jobs.claim_next()
+    assert jobs.recover_orphans() == 1
+    assert jobs.get(jid).status == "queued"
+
+    # 2nd crash: retries exhausted -> failed, NOT requeued.
+    jobs.claim_next()
+    assert jobs.recover_orphans() == 0
+    failed = jobs.get(jid)
+    assert failed.status == "failure"
+    assert "ran out of memory" in failed.error
+
+
 def test_recover_orphans_unblocks_dedup(db):
     jobs = JobRepository(db)
     a = jobs.enqueue("echo", dedup_key="k")
@@ -131,12 +178,20 @@ def test_recover_orphans_unblocks_dedup(db):
     assert b == a
 
 
-def test_cancel_is_queued_only(db):
+def test_cancel_works_for_queued_and_running(db):
+    """A user can cancel a run whether it's still queued or already running
+    (e.g. stuck on a slow Reporting API call). A finished job can't be cancelled."""
     jobs = JobRepository(db)
-    jid = jobs.enqueue("echo")
+    queued = jobs.enqueue("echo")
+    assert jobs.cancel(queued) is True
+    assert jobs.get(queued).status == "cancelled"
+
+    running = jobs.enqueue("echo")
     jobs.claim_next()  # -> running
-    assert jobs.cancel(jid) is False  # running jobs cannot be cancelled in v1
-    assert jobs.get(jid).status == "running"
+    assert jobs.get(running).status == "running"
+    assert jobs.cancel(running) is True
+    assert jobs.get(running).status == "cancelled"
+    assert jobs.cancel(running) is False  # already terminal
 
 
 def test_mark_success_does_not_resurrect_cancelled(db):
@@ -145,6 +200,34 @@ def test_mark_success_does_not_resurrect_cancelled(db):
     assert jobs.cancel(jid) is True  # queued -> cancelled
     jobs.mark_success(jid, "x")      # guarded to 'running' -> no-op
     assert jobs.get(jid).status == "cancelled"
+
+
+def test_cancelled_running_job_not_overwritten_when_call_returns(db):
+    """Cancelling a running job sticks: when the slow upstream call finally
+    finishes, mark_success/mark_failure are guarded to 'running' so they can't
+    flip a cancelled job back to success."""
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("echo")
+    jobs.claim_next()  # -> running
+    assert jobs.cancel(jid) is True
+    jobs.mark_success(jid, "late-result")
+    assert jobs.get(jid).status == "cancelled"
+
+
+def test_status_summary_counts_and_active(db):
+    jobs = JobRepository(db)
+    done = jobs.enqueue("echo")
+    jobs.cancel(done)                 # -> cancelled
+    jobs.enqueue("echo")              # stays queued
+    jobs.enqueue("echo")
+    jobs.claim_next()                 # one -> running
+    summary = jobs.status_summary()
+    assert summary["by_status"].get("cancelled") == 1
+    assert summary["by_status"].get("running") == 1
+    assert summary["by_status"].get("queued") == 1
+    # Active = queued + running (the cancelled one is terminal, excluded).
+    assert summary["active_count"] == 2
+    assert {a["status"] for a in summary["active"]} == {"queued", "running"}
 
 
 def test_background_concurrency_is_bounded(db):
@@ -173,6 +256,23 @@ def test_background_concurrency_is_bounded(db):
         worker.stop()
     assert all(jobs.get(j).status == "success" for j in ids)
     assert live["max"] <= 2  # never exceeded max_workers
+
+
+def test_keep_run_stores_name_and_drops_oldest_over_cap(db):
+    uid = UserRepository(db).upsert("a@x.com", display_name="A", role="admin").id
+    jobs = JobRepository(db)
+    ids = []
+    for i in range(3):
+        jid = jobs.enqueue("report.run", owner_user_id=uid, params={"i": i})
+        jobs.claim_next()
+        jobs.mark_success(jid, "ref")
+        ids.append(jid)
+    assert jobs.keep_run(ids[0], uid, kept_until="2099-01-01T00:00:00", name="Alpha", cap=2)
+    assert jobs.keep_run(ids[1], uid, kept_until="2099-01-02T00:00:00", name="Beta", cap=2)
+    assert jobs.keep_run(ids[2], uid, kept_until="2099-01-03T00:00:00", name="Gamma", cap=2)
+    dropped = jobs.get(ids[0])
+    assert dropped.kept_until is None and dropped.keep_name == ""
+    assert jobs.get(ids[2]).keep_name == "Gamma"
 
 
 def test_scheduler_queues_jobs_before_start():

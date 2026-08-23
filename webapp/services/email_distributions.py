@@ -24,7 +24,6 @@ REPORT_KEY_TO_DISPLAY = {
     "invoiced": "Invoiced Report",
     "salesman": "Salesman Report",
     "number_4": "Number 4 Report",
-    "amazon_weekly": "Amazon Weekly",
     "customer_activity": "Customer Activity Report",
     "customer_aging": "Customer Aging Report",
 }
@@ -36,7 +35,6 @@ DEFAULT_PATH_TEMPLATES = {
     "number_4": "Direct Reports/Number 4 Report/Daily/Number_4_Report_{yesterday}.xlsx",
     "customer_activity": "Direct Reports/Salesman Report/Customer Activity/Customer_Activity_{yesterday}.xlsx",
     "customer_aging": "Direct Reports/Customer Aging Report/Daily/Customer_Aging_{yesterday}.xlsx",
-    "amazon_weekly": "Direct Reports/Amazon Weekly/Amazon_Weekly_{yesterday}.xlsx",
 }
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -185,7 +183,6 @@ REPORT_FILE_PREFIXES = {
     "number_4": "Number_4_Report_",
     "customer_activity": "Customer_Activity_",
     "customer_aging": "Customer_Aging_",
-    "amazon_weekly": "Amazon_Weekly_",
 }
 
 
@@ -199,9 +196,13 @@ def _find_latest_in_folder(folder_path: str, prefix: str, yesterday: date) -> tu
     from webapp.services.sharepoint import list_children, download_file_content
     import re
 
+    log.info("Listing folder for fallback: %r", folder_path)
     items = list_children(folder_path)
     if not items:
+        log.info("Folder %r is empty or does not exist", folder_path)
         return None
+
+    log.info("Folder %r has %d items", folder_path, len(items))
 
     y_str = yesterday.isoformat()
     candidates: list[dict] = []
@@ -225,6 +226,9 @@ def _find_latest_in_folder(folder_path: str, prefix: str, yesterday: date) -> tu
                 continue
 
     if not candidates:
+        names = [it.get("name", "") for it in items if it.get("name", "").startswith(prefix)]
+        log.info("No matching files for %s on %s in %r. Files with prefix: %s",
+                 prefix, y_str, folder_path, names[:10])
         return None
 
     candidates.sort(key=lambda c: c.get("lastModifiedDateTime", ""), reverse=True)
@@ -236,6 +240,30 @@ def _find_latest_in_folder(folder_path: str, prefix: str, yesterday: date) -> tu
     return fname, content
 
 
+def _alternate_month_folders(yesterday: date) -> list[str]:
+    """Return likely month-folder names around yesterday's date.
+
+    Generates the month folder for yesterday, today, and the prior month.
+    Useful as fallbacks when the runbook may have placed the file under
+    today's month folder (first-of-month edge cases) or when month boundaries
+    are crossed by catch-up runs.
+    """
+    candidates: set[tuple[int, int]] = set()
+    candidates.add((yesterday.year, yesterday.month))
+
+    today = yesterday + timedelta(days=1)
+    candidates.add((today.year, today.month))
+
+    if yesterday.day <= 5:
+        prev = yesterday.replace(day=1) - timedelta(days=1)
+        candidates.add((prev.year, prev.month))
+
+    out = []
+    for y, m in sorted(candidates):
+        out.append(f"{y:04d}-{m:02d} {MONTH_ABBR[m - 1]}")
+    return out
+
+
 def _download_report_files(
     required_keys: list[dict], today: date
 ) -> tuple[list[tuple[str, bytes]], list[str]]:
@@ -244,10 +272,13 @@ def _download_report_files(
     Returns (attachments, errors) where attachments is list of (filename, bytes)
     and errors is list of human-readable error strings per failed file.
 
-    When the exact template path returns 404 (e.g. after a catch-up run that
-    used a date-range filename), falls back to listing the parent folder and
-    finding the latest file whose name matches the report prefix and covers
-    yesterday's date.
+    Resolution strategy per report:
+      1. Try the exact resolved path.
+      2. Fall back to listing the parent folder and matching by prefix + date.
+      3. If the path contained a month-folder variable, try alternate month
+         folders (yesterday's month, today's month, last month for edge dates).
+      4. Final fallback: scan recent xlsx anywhere under the report's root
+         directory whose name covers yesterday.
     """
     from webapp.services.sharepoint import download_file_by_path
 
@@ -264,33 +295,111 @@ def _download_report_files(
             errors.append(f"{report_key}: no file path template configured")
             continue
 
+        log.info("--- Resolving file for report_key=%r (template=%r) ---", report_key, template)
+
         resolved = _resolve_path_template(template, today)
         filename = resolved.rsplit("/", 1)[-1] if "/" in resolved else resolved
+        prefix = REPORT_FILE_PREFIXES.get(report_key, "")
 
+        # --- attempt 1: exact resolved path ---
         try:
             content = download_file_by_path(resolved)
             attachments.append((filename, content))
-            log.info("Downloaded %s (%d bytes) for distribution", filename, len(content))
+            log.info("[%s] Downloaded by exact path: %s (%d bytes)",
+                     report_key, filename, len(content))
+            continue
         except Exception as e:
-            log.info("Exact path failed for %s ('%s': %s), trying folder fallback...",
-                     report_key, resolved, e)
-            folder_path = resolved.rsplit("/", 1)[0] if "/" in resolved else ""
-            prefix = REPORT_FILE_PREFIXES.get(report_key, "")
-            if folder_path and prefix:
-                try:
-                    result = _find_latest_in_folder(folder_path, prefix, yesterday)
-                    if result:
-                        attachments.append(result)
-                        log.info("Fallback succeeded: %s (%d bytes)", result[0], len(result[1]))
-                        continue
-                except Exception as e2:
-                    log.warning("Folder fallback also failed for %s: %s", report_key, e2)
+            log.info("[%s] Exact path failed (%r): %s", report_key, resolved, e)
 
-            msg = f"{report_key}: file not found at '{resolved}' ({e})"
-            log.warning("Failed to download: %s", msg)
-            errors.append(msg)
+        # --- attempt 2: list the resolved parent folder ---
+        folder_path = resolved.rsplit("/", 1)[0] if "/" in resolved else ""
+        found: tuple[str, bytes] | None = None
+
+        if folder_path and prefix:
+            try:
+                found = _find_latest_in_folder(folder_path, prefix, yesterday)
+            except Exception as e2:
+                log.warning("[%s] Folder fallback failed for %r: %s",
+                            report_key, folder_path, e2)
+
+        # --- attempt 3: alternate month folders ---
+        if not found and prefix and "{month_folder}" in template:
+            for alt_month in _alternate_month_folders(yesterday):
+                alt_template = template.replace("{month_folder}", alt_month)
+                alt_resolved = _resolve_path_template(alt_template, today)
+                alt_folder = alt_resolved.rsplit("/", 1)[0] if "/" in alt_resolved else ""
+                if alt_folder == folder_path:
+                    continue   # already tried this exact folder
+                log.info("[%s] Trying alternate month folder: %r", report_key, alt_folder)
+                try:
+                    found = _find_latest_in_folder(alt_folder, prefix, yesterday)
+                    if found:
+                        break
+                except Exception as e3:
+                    log.warning("[%s] Alternate folder %r failed: %s",
+                                report_key, alt_folder, e3)
+
+        # --- attempt 4: walk the report's daily root for any matching file ---
+        if not found and prefix:
+            # Take everything up to /Daily/ (or /Customer Activity/) as the root
+            root_candidates = []
+            for marker in ("/Daily/", "/Customer Activity/"):
+                if marker in resolved:
+                    root_candidates.append(resolved.split(marker)[0] + marker.rstrip("/"))
+                    break
+            for root in root_candidates:
+                try:
+                    log.info("[%s] Walking root %r for any matching xlsx", report_key, root)
+                    found = _scan_subfolders_for_match(root, prefix, yesterday)
+                    if found:
+                        break
+                except Exception as e4:
+                    log.warning("[%s] Root walk failed at %r: %s", report_key, root, e4)
+
+        if found:
+            attachments.append(found)
+            log.info("[%s] Fallback succeeded: %s (%d bytes)",
+                     report_key, found[0], len(found[1]))
+            continue
+
+        msg = f"{report_key}: file not found at '{resolved}' (also tried folder + alt month + root walk)"
+        log.warning("[%s] Giving up: %s", report_key, msg)
+        errors.append(msg)
 
     return attachments, errors
+
+
+def _scan_subfolders_for_match(root_path: str, prefix: str, yesterday: date) -> tuple[str, bytes] | None:
+    """Walk one level of subfolders under *root_path* and return the first
+    matching file whose name covers *yesterday*. Stops at depth 2 to bound work.
+    """
+    from webapp.services.sharepoint import list_children
+
+    items = list_children(root_path)
+    if not items:
+        return None
+
+    # First check files directly in root
+    direct = _find_latest_in_folder(root_path, prefix, yesterday)
+    if direct:
+        return direct
+
+    # Then check immediate subfolders (e.g. month folders)
+    subfolders = [
+        f"{root_path}/{it['name']}"
+        for it in items
+        if it.get("folder") and it.get("name")
+    ]
+    # Sort so most-recent month folder is checked first (string sort works for YYYY-MM)
+    subfolders.sort(reverse=True)
+    for sub in subfolders[:6]:  # cap to last 6 month folders
+        try:
+            result = _find_latest_in_folder(sub, prefix, yesterday)
+            if result:
+                return result
+        except Exception:
+            log.debug("Skip subfolder %r", sub)
+    return None
 
 
 def send_distribution(dist: dict, today_str: str, force: bool = False) -> dict:
@@ -327,6 +436,12 @@ def send_distribution(dist: dict, today_str: str, force: bool = False) -> dict:
         log_distribution_send(dist_id, today_str, "failed", [], error=error_msg)
         return {"success": False, "error": error_msg, "reports_sent": []}
 
+    log.info("Distribution '%s': downloaded %d/%d required files (%s missing)",
+             name, len(attachments), len(required),
+             "; ".join(download_errors) or "none")
+
+    is_partial = bool(download_errors)
+
     if not attachments:
         detail = "; ".join(download_errors) if download_errors else "No path templates configured"
         error_msg = f"No report files downloaded. {detail}"
@@ -334,9 +449,40 @@ def send_distribution(dist: dict, today_str: str, force: bool = False) -> dict:
         log_distribution_send(dist_id, today_str, "failed", [], error=error_msg)
         return {"success": False, "error": error_msg, "reports_sent": []}
 
+    # Scheduled/auto sends require every configured report; retry next cycle.
+    if is_partial and not force:
+        detail = "; ".join(download_errors)
+        error_msg = (
+            f"Missing {len(download_errors)} of {len(required)} report file(s); "
+            f"will retry. {detail}"
+        )
+        log.warning("Distribution '%s': %s", name, error_msg)
+        log_distribution_send(
+            dist_id, today_str, "failed",
+            [a[0] for a in attachments],
+            error=error_msg,
+        )
+        return {"success": False, "error": error_msg, "reports_sent": []}
+
     subject = dist.get("subject_template", "Daily Reports - {date}").replace("{date}", today_str)
+
+    # Manual force=True may still send a partial bundle with a clear warning.
+    if is_partial:
+        subject = f"[INCOMPLETE] {subject}"
+
     body = dist.get("body_template", "") or f"Attached are your reports for {today_str}."
     body = body.replace("{date}", today_str)
+
+    if is_partial:
+        missing_lines = "\n".join(f"  - {e}" for e in download_errors)
+        body = (
+            f"WARNING: {len(download_errors)} of {len(required)} expected report file(s) "
+            f"could not be located on SharePoint and are NOT attached:\n"
+            f"{missing_lines}\n\n"
+            f"Attached files ({len(attachments)}):\n"
+            + "\n".join(f"  - {a[0]}" for a in attachments)
+            + f"\n\n----- original message -----\n\n{body}"
+        )
 
     try:
         send_multi_attachment_email(
@@ -354,9 +500,25 @@ def send_distribution(dist: dict, today_str: str, force: bool = False) -> dict:
         return {"success": False, "error": error_msg, "reports_sent": filenames}
 
     filenames = [a[0] for a in attachments]
-    log_distribution_send(dist_id, today_str, "sent", filenames)
-    log.info("Distribution '%s' sent to %s with %d files", name, dist["recipients"], len(filenames))
-    return {"success": True, "error": None, "reports_sent": filenames}
+    if is_partial:
+        # 'sent' status keeps the "already sent today" guard happy, but record
+        # the partial warning in the error column so it surfaces in the log UI.
+        log_distribution_send(
+            dist_id, today_str, "sent", filenames,
+            error=f"PARTIAL: {len(download_errors)} file(s) missing -- {'; '.join(download_errors)}",
+        )
+        log.warning("Distribution '%s' sent PARTIAL (%d/%d files) -- missing: %s",
+                    name, len(attachments), len(required), download_errors)
+    else:
+        log_distribution_send(dist_id, today_str, "sent", filenames)
+        log.info("Distribution '%s' sent to %s with %d files",
+                 name, dist["recipients"], len(filenames))
+    return {
+        "success": True,
+        "error": None if not is_partial else f"Partial: {'; '.join(download_errors)}",
+        "reports_sent": filenames,
+        "missing": download_errors,
+    }
 
 
 def check_and_send_distributions():

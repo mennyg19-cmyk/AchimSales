@@ -26,22 +26,25 @@ var HELP = {
 
     "report-number_4": {
         title: "Number 4 Report",
-        body: "Shows a rolling 12-month and year-to-date breakdown of everything sold, organized two ways: by item and by customer.<br><br>" +
-              "There are no options to set — it always runs for the last 12 months and the current year to date.<br><br>" +
-              "Just tap Run and it will generate automatically."
+        body: "Shows a rolling 12-month breakdown of everything sold, with a quantity and dollar column for each month, plus totals, average price, salesman, and book price.<br><br>" +
+              "The only choice is the View: By Customer, By Item, or Both (Both shows two tabs, one organized each way).<br><br>" +
+              "It always covers the last 12 months including the current month."
     },
 
-    "report-amazon_weekly": {
-        title: "Amazon Weekly Report",
-        body: "Shows all Amazon orders from the past 7 days for accounts 9300 and 9301.<br><br>" +
-              "There are no options to change — it always covers the last week for those two accounts.<br><br>" +
-              "Just tap Run."
+    "param-n4-mode": {
+        title: "View",
+        body: "How to organize the rows.<br><br>" +
+              "<b>By Customer</b> — one row per customer + item, customers first.<br>" +
+              "<b>By Item</b> — the same data with items first.<br>" +
+              "<b>Both</b> — two tabs, one of each."
     },
 
     "report-customer_activity": {
         title: "Customer Activity Report",
         body: "Shows when each customer last placed an order, organized by salesman.<br><br>" +
               "Helps you spot customers who haven't ordered in a while.<br><br>" +
+              "Tabs: <strong>All</strong> (every customer with a Salesman column), " +
+              "one tab per salesman, then Unassigned.<br><br>" +
               "There are no options to set — just tap Run."
     },
 

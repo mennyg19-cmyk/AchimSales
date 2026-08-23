@@ -24,8 +24,24 @@ from datetime import datetime, timezone
 
 from web.data.connection import Database
 
+_UNSET = object()
+
 PERSONAL = "personal"
 MASTER = "master"
+_NAME_MAX = 120
+
+
+def next_copy_name(base: str, existing: set[str]) -> str:
+    """`Daily 9am (copy)`, then `(copy 2)` if that name is taken."""
+    stem = (base or "Schedule").strip() or "Schedule"
+    n = 1
+    while True:
+        suffix = " (copy)" if n == 1 else f" (copy {n})"
+        room = max(1, _NAME_MAX - len(suffix))
+        candidate = (stem[:room] + suffix)[:_NAME_MAX]
+        if candidate not in existing:
+            return candidate
+        n += 1
 
 
 def _now() -> str:
@@ -53,15 +69,22 @@ class Schedule:
     start_date: str | None
     end_date: str | None
     created_at: str
+    filename_template: str = ""
+    catch_up_pending: bool = False
+    last_claimed_at: str | None = None
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Schedule":
+        keys = r.keys()
         return cls(
             id=r["id"], owner_user_id=r["owner_user_id"], report_key=r["report_key"],
             params=_loads(r["params_json"]), layout=_loads(r["layout_json"]),
             cadence=_loads(r["cadence"]), recipients=r["recipients"],
             sharepoint_path=r["sharepoint_path"], is_active=bool(r["is_active"]),
             start_date=r["start_date"], end_date=r["end_date"], created_at=r["created_at"],
+            filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
+            catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
+            last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
         )
 
 
@@ -77,15 +100,31 @@ class MasterSchedule:
     sharepoint_path: str
     is_active: bool
     created_at: str
+    filename_template: str = ""
+    owner_user_id: int | None = None
+    is_shared: bool = True
+    run_as_user_id: int | None = None
+    catch_up_pending: bool = False
+    last_claimed_at: str | None = None
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "MasterSchedule":
+        keys = r.keys()
+        owner = r["owner_user_id"] if "owner_user_id" in keys else None
+        run_as = r["run_as_user_id"] if "run_as_user_id" in keys else None
+        shared = r["is_shared"] if "is_shared" in keys else 1
         return cls(
             id=r["id"], report_key=r["report_key"], name=r["name"],
             params=_loads(r["params_json"]), layout=_loads(r["layout_json"]),
             cadence=_loads(r["cadence"]), recipients=r["recipients"],
             sharepoint_path=r["sharepoint_path"], is_active=bool(r["is_active"]),
             created_at=r["created_at"],
+            filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
+            owner_user_id=int(owner) if owner is not None else None,
+            is_shared=bool(shared),
+            run_as_user_id=int(run_as) if run_as is not None else None,
+            catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
+            last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
         )
 
 
@@ -117,31 +156,44 @@ class ScheduleRepository:
     def create(self, owner_user_id: int, report_key: str, *, params: dict,
                layout: dict, cadence: dict, recipients: str = "",
                sharepoint_path: str = "", start_date: str | None = None,
-               end_date: str | None = None) -> int:
+               end_date: str | None = None, filename_template: str = "") -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO schedules(owner_user_id, report_key, params_json, layout_json,"
-                " cadence, recipients, sharepoint_path, start_date, end_date)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " cadence, recipients, sharepoint_path, start_date, end_date, filename_template)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (owner_user_id, report_key, json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
-                 recipients or "", sharepoint_path or "", start_date, end_date),
+                 recipients or "", sharepoint_path or "", start_date, end_date,
+                 (filename_template or "").strip()),
             )
             return cur.lastrowid
 
     def update(self, schedule_id: int, owner_user_id: int, *, params: dict,
                layout: dict, cadence: dict, recipients: str = "",
                sharepoint_path: str = "", start_date: str | None = None,
-               end_date: str | None = None) -> bool:
+               end_date: str | None = None, filename_template: str | None = None) -> bool:
         with self.db.precious() as conn:
-            cur = conn.execute(
-                "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
-                " recipients=?, sharepoint_path=?, start_date=?, end_date=?"
-                " WHERE id=? AND owner_user_id=?",
-                (json.dumps(params or {}), json.dumps(layout or {}),
-                 json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                 start_date, end_date, schedule_id, owner_user_id),
-            )
+            if filename_template is None:
+                cur = conn.execute(
+                    "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
+                    " recipients=?, sharepoint_path=?, start_date=?, end_date=?"
+                    " WHERE id=? AND owner_user_id=?",
+                    (json.dumps(params or {}), json.dumps(layout or {}),
+                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
+                     start_date, end_date, schedule_id, owner_user_id),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
+                    " recipients=?, sharepoint_path=?, start_date=?, end_date=?,"
+                    " filename_template=?"
+                    " WHERE id=? AND owner_user_id=?",
+                    (json.dumps(params or {}), json.dumps(layout or {}),
+                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
+                     start_date, end_date, filename_template.strip(),
+                     schedule_id, owner_user_id),
+                )
             return cur.rowcount == 1
 
     def set_active(self, schedule_id: int, owner_user_id: int, active: bool) -> bool:
@@ -151,6 +203,14 @@ class ScheduleRepository:
                 (1 if active else 0, schedule_id, owner_user_id),
             )
             return cur.rowcount == 1
+
+    def claim_slot(self, schedule_id: int, when_iso: str) -> None:
+        """Mark today's slot taken so a save/On does not catch up a missed send."""
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE schedules SET last_claimed_at=? WHERE id=?",
+                (when_iso, schedule_id),
+            )
 
     def delete(self, schedule_id: int, owner_user_id: int) -> bool:
         with self.db.precious() as conn:
@@ -187,34 +247,129 @@ class ScheduleRepository:
             rows = conn.execute("SELECT * FROM schedules WHERE is_active=1").fetchall()
             return [Schedule.from_row(r) for r in rows]
 
+    def set_catch_up(self, schedule_id: int, pending: bool) -> None:
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE schedules SET catch_up_pending=? WHERE id=?",
+                (1 if pending else 0, schedule_id),
+            )
+
 
 class MasterScheduleRepository:
     def __init__(self, db: Database):
         self.db = db
 
     def create(self, report_key: str, name: str, *, params: dict, layout: dict,
-               cadence: dict, recipients: str = "", sharepoint_path: str = "") -> int:
+               cadence: dict, recipients: str = "", sharepoint_path: str = "",
+               filename_template: str = "", owner_user_id: int | None = None,
+               is_shared: bool = True, run_as_user_id: int | None = None,
+               is_active: bool = True) -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO master_schedules(report_key, name, params_json, layout_json,"
-                " cadence, recipients, sharepoint_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                " cadence, recipients, sharepoint_path, filename_template, is_active,"
+                " owner_user_id, is_shared, run_as_user_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (report_key, name.strip(), json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
-                 recipients or "", sharepoint_path or ""),
+                 recipients or "", sharepoint_path or "",
+                 (filename_template or "").strip(),
+                 1 if is_active else 0,
+                 owner_user_id, 1 if is_shared else 0, run_as_user_id),
             )
             return cur.lastrowid
 
-    def update(self, schedule_id: int, *, name: str, params: dict, layout: dict,
-               cadence: dict, recipients: str = "", sharepoint_path: str = "") -> bool:
+    def unused_copy_name(self, base: str) -> str:
         with self.db.precious() as conn:
+            rows = conn.execute("SELECT name FROM master_schedules").fetchall()
+        return next_copy_name(base, {r["name"] for r in rows})
+
+    def copy(self, src: MasterSchedule, *, owner_user_id: int) -> int:
+        """Inactive duplicate. Unique name so shared copies don't trip the index."""
+        fields = dict(
+            params=dict(src.params or {}), layout=dict(src.layout or {}),
+            cadence=dict(src.cadence or {}), recipients=src.recipients,
+            sharepoint_path=src.sharepoint_path,
+            filename_template=src.filename_template or "",
+            owner_user_id=owner_user_id, is_shared=src.is_shared,
+            run_as_user_id=src.run_as_user_id, is_active=False,
+        )
+        for _ in range(8):
+            name = self.unused_copy_name(src.name)
+            try:
+                return self.create(src.report_key, name, **fields)
+            except sqlite3.IntegrityError:
+                continue
+        raise sqlite3.IntegrityError("Could not find an unused copy name")
+
+    def update(self, schedule_id: int, *, name: str, params: dict, layout: dict,
+               cadence: dict, recipients: str = "", sharepoint_path: str = "",
+               report_key: str | None = None, filename_template: str | None = None,
+               is_shared: bool | None = None, run_as_user_id: int | None | object = _UNSET) -> bool:
+        with self.db.precious() as conn:
+            tmpl = None if filename_template is None else filename_template.strip()
+            sets = ["name=?", "params_json=?", "layout_json=?", "cadence=?",
+                    "recipients=?", "sharepoint_path=?"]
+            vals: list = [name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
+                          json.dumps(cadence or {}), recipients or "", sharepoint_path or ""]
+            if report_key:
+                sets.append("report_key=?")
+                vals.append(report_key.strip())
+            if tmpl is not None:
+                sets.append("filename_template=?")
+                vals.append(tmpl)
+            if is_shared is not None:
+                sets.append("is_shared=?")
+                vals.append(1 if is_shared else 0)
+            if run_as_user_id is not _UNSET:
+                sets.append("run_as_user_id=?")
+                vals.append(run_as_user_id)
+            vals.append(schedule_id)
             cur = conn.execute(
-                "UPDATE master_schedules SET name=?, params_json=?, layout_json=?,"
-                " cadence=?, recipients=?, sharepoint_path=? WHERE id=?",
-                (name.strip(), json.dumps(params or {}), json.dumps(layout or {}),
-                 json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                 schedule_id),
+                f"UPDATE master_schedules SET {', '.join(sets)} WHERE id=?", vals,
             )
             return cur.rowcount == 1
+
+    def enable_split_all_if_plain(self, name: str) -> bool:
+        """Turn on split-all when this schedule has no salesman-delivery flags yet."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT id, params_json FROM master_schedules WHERE name=?", (name,),
+            ).fetchone()
+            if row is None:
+                return False
+            params = _loads(row["params_json"])
+            if not isinstance(params, dict):
+                params = {}
+            if (
+                "split_by_salesman" in params
+                or params.get("email_salesman_keys")
+                or params.get("email_to_salesmen")
+            ):
+                return False
+            params["split_by_salesman"] = True
+            conn.execute(
+                "UPDATE master_schedules SET params_json=? WHERE id=?",
+                (json.dumps(params), row["id"]),
+            )
+            return True
+
+    def fill_layout_if_blank(self, name: str, layout: dict) -> bool:
+        """Stamp a tab layout onto an existing schedule that has none yet."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT id, layout_json FROM master_schedules WHERE name=?", (name,),
+            ).fetchone()
+            if row is None:
+                return False
+            current = _loads(row["layout_json"])
+            if isinstance(current, dict) and current.get("order"):
+                return False
+            conn.execute(
+                "UPDATE master_schedules SET layout_json=? WHERE id=?",
+                (json.dumps(layout or {}), row["id"]),
+            )
+            return True
 
     def set_active(self, schedule_id: int, active: bool) -> bool:
         with self.db.precious() as conn:
@@ -223,6 +378,21 @@ class MasterScheduleRepository:
                 (1 if active else 0, schedule_id),
             )
             return cur.rowcount == 1
+
+    def claim_slot(self, schedule_id: int, when_iso: str) -> None:
+        """Mark today's slot taken so a save/On does not catch up a missed send."""
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE master_schedules SET last_claimed_at=? WHERE id=?",
+                (when_iso, schedule_id),
+            )
+
+    def set_catch_up(self, schedule_id: int, pending: bool) -> None:
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE master_schedules SET catch_up_pending=? WHERE id=?",
+                (1 if pending else 0, schedule_id),
+            )
 
     def delete(self, schedule_id: int) -> bool:
         with self.db.precious() as conn:
@@ -233,6 +403,22 @@ class MasterScheduleRepository:
         with self.db.precious() as conn:
             rows = conn.execute(
                 "SELECT * FROM master_schedules ORDER BY created_at DESC"
+            ).fetchall()
+            return [MasterSchedule.from_row(r) for r in rows]
+
+    def list_shared(self) -> list[MasterSchedule]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM master_schedules WHERE is_shared=1 ORDER BY created_at DESC"
+            ).fetchall()
+            return [MasterSchedule.from_row(r) for r in rows]
+
+    def list_private_for_user(self, user_id: int) -> list[MasterSchedule]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM master_schedules WHERE is_shared=0 AND owner_user_id=?"
+                " ORDER BY created_at DESC",
+                (user_id,),
             ).fetchall()
             return [MasterSchedule.from_row(r) for r in rows]
 
@@ -283,6 +469,14 @@ class ScheduleRunRepository:
                 "SELECT * FROM schedule_runs WHERE schedule_id=? AND schedule_type=?"
                 " ORDER BY id DESC LIMIT ?",
                 (schedule_id, schedule_type, limit),
+            ).fetchall()
+            return [ScheduleRun.from_row(r) for r in rows]
+
+    def list_recent(self, *, limit: int = 40) -> list[ScheduleRun]:
+        """Newest schedule runs first (personal + master), for the Schedules page log."""
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM schedule_runs ORDER BY id DESC LIMIT ?", (limit,),
             ).fetchall()
             return [ScheduleRun.from_row(r) for r in rows]
 

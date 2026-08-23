@@ -8,11 +8,8 @@ gunicorn>=22.0
 azure-identity>=1.15,<2
 azure-mgmt-automation>=1.0.0,<2
 
-# test/ (v2) app additional deps
-SQLAlchemy>=2.0,<3
-pyodbc>=5.1
+# v3 app additional deps
 APScheduler>=3.10,<4
-Jinja2>=3.1
 # tzdata is the cross-platform fallback when the OS doesn't ship the
 # IANA zoneinfo database (matters on slim Docker images, harmless on
 # regular Linux/Azure App Service).

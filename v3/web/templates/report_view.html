@@ -7,6 +7,7 @@
 {% endblock %}
 
 {% block content %}
+<div class="report-top">
 <div class="page-head">
     <a class="back-link" href="{{ url_for('reports.reports_list') }}">
         <i data-feather="arrow-left"></i> Reports
@@ -41,6 +42,16 @@
     <label class="filter-field filter-custom" data-custom hidden>
         <span>To</span>
         <input type="date" name="end_date">
+    </label>
+    {% endif %}
+    {% if 'n4_mode' in filters %}
+    <label class="filter-field">
+        <span>View <button type="button" class="help-btn" data-help="param-n4-mode" data-no-guard aria-label="Help">?</button></span>
+        <select name="mode" id="n4ModeSelect">
+            {% for value, label in n4_mode_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
     </label>
     {% endif %}
     {% if 'status' in filters %}
@@ -79,44 +90,82 @@
     <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
     {% endif %}
     </div>
+    <div class="filter-run-group">
     <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
+    <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn" title="Run this report and email the Excel file to you">Email me</button>
+    </div>
 </form>
 
-<div class="report-toolbar">
-    <button type="button" id="refreshBtn" class="btn btn-outline" disabled title="Re-run, keeping your current layout">Refresh data</button>
-    <button type="button" id="columnsBtn" class="btn btn-outline" disabled>Columns</button>
-    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default layout">Reset view</button>
-    <button type="button" id="exportBtn" class="btn btn-outline" disabled title="Build an Excel file in the background, then download it">Export</button>
-    <button type="button" id="exportsBtn" class="btn btn-outline" title="Your recent background exports">Recent exports</button>
-    <button type="button" id="emailBtn" class="btn btn-outline" disabled title="Email this report (and optionally save to SharePoint)">Email</button>
-    <button type="button" id="scheduleBtn" class="btn btn-outline" disabled title="Schedule recurring delivery of this view">Schedule</button>
-    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a preset">Save view</button>
-    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view">Presets</button>
-    <button type="button" id="previewBtn" class="btn btn-outline" title="Show the body that would be sent to the Reporting API">API preview</button>
-</div>
-
-{% if is_privileged %}
+{% if is_developer %}
 <textarea id="apiPreview" class="api-preview api-preview-editable" hidden rows="12" spellcheck="false"></textarea>
 <div id="apiRunWrap" class="api-run-wrap" hidden>
     <button type="button" id="apiRunBtn" class="btn btn-primary btn-sm">Run with this body</button>
     <span class="muted" style="font-size:12px;">Edit the JSON above, then hit Run to override the form filters.</span>
 </div>
-{% else %}
-<pre id="apiPreview" class="api-preview" hidden></pre>
 {% endif %}
+    </div>
+</div>
+</div>
+
+{# Layout tools stay visible even when Filters & options is collapsed. #}
+<div class="report-layout-toolbar" id="layoutToolbar">
+    <button type="button" id="columnsBtn" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
+    <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
+    <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
+    <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
+    <div class="toolbar-menu" id="moreMenuWrap">
+        <button type="button" id="moreBtn" class="btn btn-outline" aria-haspopup="true" aria-expanded="false" title="More actions">
+            <i data-feather="more-horizontal"></i> <span>More</span>
+        </button>
+        <div id="moreMenu" class="toolbar-dropdown" hidden role="menu">
+            <button type="button" id="scheduleBtn" class="toolbar-dropdown-item" disabled role="menuitem" title="Schedule recurring delivery of this view">
+                <i data-feather="calendar"></i> <span>Schedule</span>
+            </button>
+            {% if is_developer %}
+            <button type="button" id="previewBtn" class="toolbar-dropdown-item" role="menuitem" title="Show the body that would be sent to the Reporting API">
+                <i data-feather="code"></i> <span>API preview</span>
+            </button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="report-status-row">
+    <div id="reportStatus" class="report-status" hidden>
+        <span id="reportStatusText" class="report-status-text"></span>
+        <button type="button" id="cancelRunBtn" class="btn btn-outline btn-sm" hidden title="Stop this run">Cancel</button>
+    </div>
+</div>
+
 <div id="exportsPanel" class="exports-panel" hidden>
     <div class="exports-head">Recent exports</div>
     <div id="exportsList" class="exports-list"></div>
 </div>
-    </div>
-</div>
-
-<div id="reportStatus" class="report-status" hidden></div>
 
 <div id="reportSurface" class="report-surface" hidden>
     <div class="report-tabbar">
         <div id="reportTabs" class="report-tabs"></div>
-        <div id="reportMeta" class="report-meta"></div>
+        <div class="report-tabbar-right">
+            <div id="reportMeta" class="report-meta"></div>
+            <div class="report-result-actions" aria-label="Actions for this result">
+                <button type="button" id="refreshBtn" class="btn btn-outline btn-sm" disabled title="Re-run, keeping your current layout"><i data-feather="refresh-cw"></i> <span>Refresh</span></button>
+                <button type="button" id="keepBtn" class="btn btn-outline btn-sm" disabled title="Keep this run available for 30 days (max 5)"><i data-feather="lock"></i> <span>Keep this run</span></button>
+                <div class="toolbar-menu" id="exportMenuWrap">
+                    <button type="button" id="exportMenuBtn" class="btn btn-outline btn-sm" disabled aria-haspopup="true" aria-expanded="false" title="Download Excel or open recent exports">
+                        <i data-feather="download"></i> <span>Export</span>
+                    </button>
+                    <div id="exportMenu" class="toolbar-dropdown" hidden role="menu">
+                        <button type="button" id="exportBtn" class="toolbar-dropdown-item" role="menuitem" title="Build an Excel file in the background, then download it">
+                            <i data-feather="file-text"></i> <span>Download Excel now</span>
+                        </button>
+                        <button type="button" id="exportsBtn" class="toolbar-dropdown-item" role="menuitem" title="Your recent background exports">
+                            <i data-feather="archive"></i> <span>Recent exports…</span>
+                        </button>
+                    </div>
+                </div>
+                <button type="button" id="emailBtn" class="btn btn-outline btn-sm" disabled title="Email this report (and optionally save to SharePoint)"><i data-feather="mail"></i> <span>Email</span></button>
+            </div>
+        </div>
     </div>
     <div class="report-table-scroll">
         <div id="reportTable"></div>
@@ -125,12 +174,16 @@
 
 <div id="reportRoot"
      data-report-key="{{ report.key }}"
+     data-report-title="{{ report.title }}"
      data-run-url="{{ url_for('reports.run_report', report_key=report.key) }}"
      data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
+     data-active-url="{{ url_for('reports.active_report_runs') }}"
+     data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}"
      data-result-url="{{ url_for('reports.report_result', job_id='__ID__') }}"
      data-export-url="{{ url_for('reports.export_report', report_key=report.key, job_id='__ID__') }}"
      data-export-download-url="{{ url_for('reports.download_export', export_id='__ID__') }}"
      data-exports-url="{{ url_for('reports.list_exports') }}"
+     data-keep-url="{{ url_for('reports.keep_report_run', job_id='__ID__') }}"
      data-salesmen-url="{{ url_for('reports.report_salesmen', report_key=report.key) }}"
      data-customers-url="{{ url_for('reports.report_customers', report_key=report.key) }}"
      data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
@@ -140,9 +193,13 @@
      data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
      data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
+     data-od-status-url="{{ url_for('reports.onedrive_status') }}"
+     data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
      data-schedules-url="{{ url_for('schedules.create_schedule') }}"
      data-schedules-page="{{ url_for('schedules.schedules_page') }}"
      data-csrf="{{ csrf_token() }}"
+     data-user-email="{{ user_email }}"
+     data-hide-commissions="{{ '1' if hide_commissions else '' }}"
      hidden></div>
 
 <div id="emailModal" class="modal-overlay" hidden>
@@ -178,13 +235,22 @@
 <div id="scheduleModal" class="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
         <div class="modal-head">
-            <h2 id="schedTitle">Schedule report</h2>
+            <h2 id="schedTitle">Schedule this report</h2>
             <button type="button" id="schedClose" class="modal-close" aria-label="Close">&times;</button>
         </div>
         <div class="modal-body">
+            <p class="muted" style="font-size:13px;margin:0 0 10px;">Saves your current filters and layout. Date period on the schedule replaces any date filters in the view.</p>
             <label class="modal-field">
-                <span>Recipients</span>
+                <span>Recipients (To)</span>
                 <input type="text" id="schedRecipients" placeholder="name@achimonline.com, other@achimonline.com">
+            </label>
+            <label class="modal-field">
+                <span>CC (optional)</span>
+                <input type="text" id="schedCc" placeholder="cc@achimonline.com">
+            </label>
+            <label class="modal-field">
+                <span>BCC (optional)</span>
+                <input type="text" id="schedBcc" placeholder="bcc@achimonline.com">
             </label>
             <div class="modal-field-row">
                 <label class="modal-field">
@@ -209,15 +275,44 @@
                 </div>
             </div>
             <label class="modal-field" id="schedMonthdayField" hidden>
-                <span>Day of month (1-28)</span>
-                <input type="number" id="schedMonthday" min="1" max="28" value="1">
+                <span>Day of month</span>
+                <select id="schedMonthday">
+                    {% for d in range(1, 29) %}
+                    <option value="{{ d }}">{{ d }}</option>
+                    {% endfor %}
+                    <option value="-1">Last day of month</option>
+                </select>
             </label>
-            <div class="modal-field" id="schedSpSection" hidden>
-                <span>Also save to SharePoint <em id="schedSpStatus" class="lookup-status"></em></span>
-                <div id="schedSpBreadcrumb" class="sp-breadcrumb"></div>
-                <div id="schedSpPicker" class="sp-picker"></div>
-                <div id="schedSpSelected" class="sp-selected"></div>
+            <label class="modal-field">
+                <span>Filename template</span>
+                <input type="text" id="schedFilename" placeholder="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}"
+                       value="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}">
+                <span class="muted" style="font-size:12px;">Tokens:
+                    <button type="button" class="fn-token js-fn-token" data-token="{Report}">Report name</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Schedule}">Schedule name</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{MM}">MM</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Month}">Month</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Period}">Period</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{DD}">DD</button>
+                    <button type="button" class="fn-token js-fn-token" data-token="{Weekday}">Weekday</button>
+                </span>
+                <span class="ms-filename-preview">Will save as <strong id="schedFilenamePreview"></strong></span>
+            </label>
+            <div class="modal-field" id="schedOdSection" hidden>
+                <span>Also save to my OneDrive <em id="schedOdStatus" class="lookup-status"></em></span>
+                <div id="schedOdBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedOdPicker" class="sp-picker"></div>
+                <div id="schedOdSelected" class="sp-selected"></div>
             </div>
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedNoDataRecipients">
+                <span>Email recipients when there is no data</span>
+            </label>
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedNoDataMeOnly">
+                <span>Email only me when there is no data</span>
+            </label>
             <div id="schedMsg" class="modal-msg" hidden></div>
         </div>
         <div class="modal-foot">

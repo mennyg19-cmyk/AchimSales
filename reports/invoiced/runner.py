@@ -163,13 +163,20 @@ class InvoicedReportRunner(BaseReportRunner):
         self, plan: FetchPlan, company_id: str | None,
         customer_filter: list[str] | None,
     ) -> None:
-        """Run a separate Shipped Report for each subscribed salesman (email-only)."""
+        """Run a separate Shipped Report for each subscribed salesman.
+
+        By default files are email-only (temp dir -> email -> delete).
+        With ``--no-email``, files are saved to the normal output directory
+        so they can be reviewed without sending anything.
+        """
         subscribed = _get_subscribed_salesmen()
         if not subscribed:
             log.warning("No salesmen subscribed to '%s' in salesman_map.xlsx", REPORT_KEY)
             return
 
-        log.info("Running Shipped Report for %d subscribed salesmen (email-only)", len(subscribed))
+        save_to_disk = self.no_email
+        mode_label = "files-to-disk" if save_to_disk else "email-only"
+        log.info("Running Shipped Report for %d subscribed salesmen (%s)", len(subscribed), mode_label)
 
         base_url, token, company = self.connect(company_id)
 
@@ -188,7 +195,7 @@ class InvoicedReportRunner(BaseReportRunner):
 
         _, _, _, ytd_credits, ytd_invoices = build_invoiced_views(full_detail)
 
-        tmp_dir = tempfile.mkdtemp(prefix="shipped_sm_all_")
+        tmp_dir = None if save_to_disk else tempfile.mkdtemp(prefix="shipped_sm_all_")
         try:
             for sm_idx, (sm_key, sm_display, sm_email) in enumerate(subscribed):
                 log.info("--- Salesman %d/%d: %s (%s) ---",
@@ -236,19 +243,29 @@ class InvoicedReportRunner(BaseReportRunner):
 
                     test_tag = "_TEST" if self.test_mode else ""
                     filename = f"{period.filename_prefix}Shipped_Report_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
-                    out_path = os.path.join(tmp_dir, filename)
+
+                    if save_to_disk:
+                        out_subfolder = self._resolve_out_subfolder(period, None)
+                        out_path = get_output_path(
+                            "Salesman Report", out_subfolder, filename,
+                            sub_report="Shipped Report",
+                        )
+                    else:
+                        out_path = os.path.join(tmp_dir, filename)
 
                     self._write_period_report(
                         period, sm_detail, sm_ytd_credits, sm_ytd_invoices,
                         period_detail, out_path, "Shipped Report",
                         skip_commissions=True,
                     )
-                    log.info("Saved (temp): %s", out_path)
+                    log.info("Saved: %s", out_path)
 
-                    self._send_or_queue_email(sm_key, out_path, period.label)
+                    if not save_to_disk:
+                        self._send_or_queue_email(sm_key, out_path, period.label)
         finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            log.info("Cleaned up temp dir for shipped email-only files")
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                log.info("Cleaned up temp dir for shipped email-only files")
 
     def _run_standard(
         self, plan: FetchPlan, company_id: str | None,
@@ -267,8 +284,12 @@ class InvoicedReportRunner(BaseReportRunner):
 
         base_url, token, company = self.connect(company_id)
 
-        ytd_start = clamp_start(date(plan.fetch_end.year, 1, 1))
-        effective_start = min(plan.fetch_start, ytd_start)
+        # Shipped (salesman-scoped) reports omit the commissions tab, so they
+        # need only the selected period rather than every invoice since January.
+        effective_start = plan.fetch_start
+        if not is_shipped:
+            ytd_start = clamp_start(date(plan.fetch_end.year, 1, 1))
+            effective_start = min(plan.fetch_start, ytd_start)
         if effective_start < plan.fetch_start:
             log.info("Fetching invoice data: %s to %s (widened from %s for commissions YTD)",
                      effective_start, plan.fetch_end, plan.fetch_start)

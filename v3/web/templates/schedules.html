@@ -1,11 +1,79 @@
 {% extends "base.html" %}
 {% block title %}Schedules{% endblock %}
-{% block container_class %}container-narrow{% endblock %}
+{% block container_class %}{% if not can_see_company %}container-narrow{% endif %}{% endblock %}
 
 {% block content %}
+<div class="page-head page-head-row">
+    <div>
+        <h1 class="page-title">Schedules</h1>
+        <p class="page-subtitle">Recurring deliveries. Set one up here, or from a report with More → Schedule (keeps that view’s layout).</p>
+    </div>
+    <div class="page-head-actions">
+        <button type="button" class="btn btn-primary" id="msStartBtn">
+            <i data-feather="plus" style="width:14px;height:14px;"></i>
+            Add a schedule
+        </button>
+    </div>
+</div>
+
+{% if test_mode_on %}
+<div class="alert alert-warn" role="status">
+    Test mode is on. Company schedule mail goes to {{ test_emails|join(', ') }}. SharePoint is not written. Salesman splits still run, to this list.
+    <a href="{{ url_for('settings.settings_page') }}">Settings</a>
+</div>
+{% endif %}
+
+<details class="run-log-panel" id="runLogPanel"
+         data-recent-url="{{ url_for('schedules.recent_runs') }}">
+    <summary class="run-log-summary">
+        Recent run log
+        <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>
+    </summary>
+    <div id="runLogBody">
+    {% if recent_runs %}
+    <div class="table-wrap run-log-table-wrap">
+        <table class="data-table run-log-table">
+            <thead>
+                <tr>
+                    <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
+                </tr>
+            </thead>
+            <tbody id="runLogRows">
+                {% for r in recent_runs %}
+                <tr>
+                    <td class="run-log-when">{{ r.finished_at or r.started_at or '—' }}</td>
+                    <td>
+                        <span class="mini-flag">{{ r.kind }}</span>
+                        {{ r.title }}
+                    </td>
+                    <td>
+                        <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
+                            {{ r.status|title }}
+                        </span>
+                    </td>
+                    <td>{{ r.rows if r.rows is not none else '—' }}</td>
+                    <td class="run-log-msg">{{ r.message or '—' }}</td>
+                    <td><a class="btn btn-sm btn-outline" href="{{ r.history_url }}">History</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>
+    {% endif %}
+    </div>
+</details>
+
+{% include "master_schedules.html" %}
+
+<section id="personal">
 <div class="page-head">
-    <h1 class="page-title">Schedules</h1>
-    <p class="page-subtitle">Recurring deliveries you've set up. Create one from a report using the “Schedule” button.</p>
+    <h2 class="page-title">My schedules</h2>
+    <p class="page-subtitle">
+        Your own automatic reports. Email anyone and/or save to your OneDrive.
+        Layout starts as the report default — use Schedule from a report page to lock a custom view.
+    </p>
 </div>
 
 {% if schedules %}
@@ -13,13 +81,23 @@
     <table class="data-table">
         <thead>
             <tr>
-                <th>Report</th><th>Cadence</th><th>Recipients</th><th>SharePoint</th>
+                <th>Report</th><th>Cadence</th><th>Recipients</th><th>OneDrive</th>
                 <th>Last run</th><th>Active</th><th>Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for s in schedules %}
-            <tr>
+            {% set is_master = s.kind == 'master' %}
+            <tr {% if is_master %}data-id="{{ s.id }}"
+                data-name="{{ s.name }}"
+                data-report-key="{{ s.report_key }}"
+                data-cadence='{{ s.cadence_raw|tojson }}'
+                data-params='{{ s.params|tojson }}'
+                data-recipients="{{ s.recipients }}"
+                data-sharepoint-path="{{ s.sharepoint_path }}"
+                data-filename-template="{{ s.filename_template or '' }}"
+                data-run-as="{{ s.run_as_user_id or '' }}"
+                data-is-shared="0"{% endif %}>
                 <td>{{ s.report_title }}</td>
                 <td>{{ s.cadence }}</td>
                 <td>{{ s.recipients or '—' }}</td>
@@ -27,17 +105,22 @@
                 <td>{{ s.last_run or 'never' }}</td>
                 <td>
                     <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
-                            data-url="{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}"
+                            data-url="{% if is_master %}{{ url_for('schedules.toggle_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}{% endif %}"
                             data-active="{{ 'false' if s.is_active else 'true' }}">
                         {{ 'On' if s.is_active else 'Off' }}
                     </button>
                 </td>
                 <td class="row-actions">
+                    {% if is_master %}
+                    <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
+                    {% endif %}
                     <button type="button" class="btn btn-sm btn-outline js-run"
-                            data-url="{{ url_for('schedules.run_schedule', schedule_id=s.id) }}">Run now</button>
-                    <a class="btn btn-sm btn-outline" href="{{ url_for('schedules.schedule_history', schedule_id=s.id) }}">History</a>
+                            data-url="{% if is_master %}{{ url_for('schedules.run_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.run_schedule', schedule_id=s.id) }}{% endif %}">Run now</button>
+                    <button type="button" class="btn btn-sm btn-outline js-copy"
+                            data-url="{% if is_master %}{{ url_for('schedules.copy_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.copy_schedule', schedule_id=s.id) }}{% endif %}">Copy</button>
+                    <a class="btn btn-sm btn-outline" href="{% if is_master %}{{ url_for('schedules.master_history', schedule_id=s.id) }}{% else %}{{ url_for('schedules.schedule_history', schedule_id=s.id) }}{% endif %}">History</a>
                     <button type="button" class="btn btn-sm btn-outline js-delete"
-                            data-url="{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}"
+                            data-url="{% if is_master %}{{ url_for('schedules.delete_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}{% endif %}"
                             data-confirm="Delete this schedule?">Delete</button>
                 </td>
             </tr>
@@ -46,11 +129,12 @@
     </table>
 </div>
 {% else %}
-<div class="empty-state">
+<div class="empty-state" id="psEmpty">
     <i data-feather="clock"></i>
-    <p>No schedules yet. Open a report, set your filters, and use the “Schedule” button to create one.</p>
+    <p>No personal schedules yet. Tap <strong>Add a schedule</strong> above, or open a report and use More → Schedule.</p>
 </div>
 {% endif %}
+</section>
 {% endblock %}
 
 {% block scripts %}

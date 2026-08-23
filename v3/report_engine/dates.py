@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from typing import Iterator
 from zoneinfo import ZoneInfo
 
 EASTERN = ZoneInfo("America/New_York")
@@ -88,6 +89,31 @@ def parse_custom_range(start_raw: str, end_raw: str) -> Period:
         start, end = end, start
     start = clamp_start(start)
     return Period(f"{start.isoformat()} to {end.isoformat()}", start, end)
+
+
+def month_chunks(start: date, end: date) -> Iterator[tuple[date, date]]:
+    """Walk [start, end] one calendar month at a time, yielding (from, to) dates.
+
+    Why this exists: a full window (e.g. a whole year of order lines, ~500k rows)
+    is too big for the on-prem Reporting API to return inside its timeout, so one
+    request gets nothing. Splitting the window into month-sized requests keeps each
+    response small enough to come back. The chunks are contiguous and inclusive on
+    both ends using the same day boundaries the daily reports already use, so
+    stitching the pieces back together gives the exact same rows as one big call -
+    nothing dropped, nothing double-counted.
+
+    First chunk runs from `start` to the end of its month; middle chunks are whole
+    months; the last chunk ends on `end`. A window inside a single month yields one
+    chunk. Yields nothing when `end` is before `start`.
+    """
+    current = start
+    while current <= end:
+        if current.month == 12:
+            month_end = date(current.year, 12, 31)
+        else:
+            month_end = date(current.year, current.month + 1, 1) - timedelta(days=1)
+        yield (current, min(month_end, end))
+        current = month_end + timedelta(days=1)
 
 
 def sp_datetime(d: date, *, end_of_day: bool = False) -> str:

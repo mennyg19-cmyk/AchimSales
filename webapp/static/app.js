@@ -433,7 +433,7 @@ function displayResults(data) {
 
     var downloadBtn = document.getElementById('downloadBtn');
     if (data.filename) {
-        downloadBtn.href = '/report/' + REPORT_KEY + '/download';
+        downloadBtn.href = appUrl('/report/' + REPORT_KEY + '/download');
         downloadBtn.style.display = 'inline-flex';
         downloadBtn.textContent = '';
         var ico = document.createElement('i');
@@ -459,7 +459,7 @@ function displayResults(data) {
         wrap.style.marginLeft = '8px';
         data.extra_files.forEach(function(ef) {
             var a = document.createElement('a');
-            a.href = '/report/download-file?path=' + encodeURIComponent(ef.filepath);
+            a.href = appUrl('/report/download-file?path=' + encodeURIComponent(ef.filepath));
             a.className = 'btn btn-primary';
             a.style.display = 'inline-flex';
             a.style.alignItems = 'center';
@@ -661,7 +661,7 @@ function _showReportReadyBanner(notif) {
     banner.addEventListener('click', function () {
         banner.remove();
         dismissReportNotifications();
-        window.location.href = '/history';
+        window.location.href = appUrl('/history');
     });
     document.body.appendChild(banner);
 }

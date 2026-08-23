@@ -6,6 +6,7 @@ Routes: /, /login, /login/start, /dev-login, /auth/callback,
 """
 
 import logging
+from urllib.parse import urlsplit
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
@@ -17,18 +18,47 @@ log = logging.getLogger(__name__)
 
 auth_bp = Blueprint("auth", __name__)
 
+_LOGIN_NEXT_KEY = "login_next"
+
+
+def _safe_next(raw: str | None) -> str | None:
+    """Same-site relative path only (supports /legacy and leftover /beta next)."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not raw.startswith("/") or raw.startswith("//") or raw.startswith("/\\"):
+        return None
+    parts = urlsplit(raw)
+    if parts.scheme or parts.netloc:
+        return None
+    return raw
+
+
+def _remember_next(raw: str | None = None) -> None:
+    nxt = _safe_next(raw if raw is not None else request.args.get("next"))
+    if nxt:
+        session[_LOGIN_NEXT_KEY] = nxt
+
+
+def _redirect_after_login():
+    nxt = _safe_next(session.pop(_LOGIN_NEXT_KEY, None))
+    if nxt:
+        return redirect(nxt)
+    return redirect("/")
+
 
 @auth_bp.route("/")
 def index():
     if get_current_user():
         return redirect(url_for("reports.reports_list"))
-    return redirect(url_for("auth.login"))
+    return redirect("/login")
 
 
 @auth_bp.route("/login")
 def login():
+    _remember_next()
     if get_current_user():
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
     if DEV_BYPASS_AUTH:
         return render_template("login_dev.html")
     return render_template("login.html")
@@ -37,6 +67,7 @@ def login():
 @auth_bp.route("/login/start")
 def login_start():
     """Redirect to Microsoft login."""
+    _remember_next()
     if DEV_BYPASS_AUTH:
         return redirect(url_for("auth.dev_login"))
     try:
@@ -46,14 +77,14 @@ def login_start():
     except Exception:
         log.exception("Failed to build login URL")
         flash("Could not connect to Microsoft login. Please try again.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
 
 @auth_bp.route("/dev-login", methods=["GET", "POST"])
 def dev_login():
     """Dev-only: bypass Microsoft login, pick a role to sign in as."""
     if not DEV_BYPASS_AUTH:
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     if request.method == "POST":
         role = request.form.get("role", "admin")
@@ -74,7 +105,7 @@ def dev_login():
                 "role": "salesman",
                 "salesman_key": sm_key,
             }
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
 
     return render_template("login_dev.html", salesmen=get_salesmen_list())
 
@@ -86,7 +117,7 @@ def auth_callback():
     ms_user = complete_login()
     if not ms_user:
         flash("Login failed. Please try again.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     email = ms_user.get("email", "")
     user_info = get_user(email)
@@ -116,7 +147,7 @@ def auth_callback():
     }
     from webapp.db import get_setting
     session["theme"] = get_setting(email, "theme", "light")
-    return redirect(url_for("reports.reports_list"))
+    return _redirect_after_login()
 
 
 @auth_bp.route("/dev/role-picker", methods=["GET", "POST"])
@@ -125,7 +156,7 @@ def role_picker():
     """Let authenticated developers impersonate any registered user."""
     user = get_current_user()
     if not is_developer(user) and not user.get("_dev"):
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
 
     dev_email = user.get("_dev_email") or user.get("email", "")
     raw_name = user.get("_dev_name") or user.get("name", dev_email)
@@ -146,7 +177,7 @@ def role_picker():
                 "_dev_email": dev_email,
             }
             session["theme"] = get_setting(dev_email, "theme", "light")
-            return redirect(url_for("reports.reports_list"))
+            return _redirect_after_login()
 
         target = get_user_by_email(target_email)
         if not target:
@@ -164,7 +195,7 @@ def role_picker():
             "_dev_email": dev_email,
         }
         session["theme"] = get_setting(target["email"], "theme", "light")
-        return redirect(url_for("reports.reports_list"))
+        return _redirect_after_login()
 
     from webapp.db import get_all_users
     all_users = get_all_users()
@@ -187,7 +218,7 @@ def request_magic_link():
     email = (request.form.get("email") or "").strip().lower()
     if not email or "@" not in email:
         flash("Please enter a valid email address.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     user = get_user(email)
     if user and user.get("role") == "salesman":
@@ -210,7 +241,7 @@ def request_magic_link():
     # Generic response: don't reveal whether the email is registered.
     flash("If that email is registered as an external sales rep, "
           "you'll get a sign-in link in a minute.", "info")
-    return redirect(url_for("auth.login"))
+    return redirect("/login")
 
 
 @auth_bp.route("/login/magic-link/<token>")
@@ -222,13 +253,13 @@ def consume_magic_link(token):
     if not email:
         flash("That sign-in link is invalid or has expired. "
               "Please request a new one.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     user_info = get_user(email)
     if not user_info:
         log.warning("Magic-link token consumed for unknown email %s", email)
         flash("Account not found.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect("/login")
 
     session["user"] = {
         "email": email,
@@ -238,10 +269,10 @@ def consume_magic_link(token):
     }
     session["theme"] = get_setting(email, "theme", "light")
     log.info("Magic-link sign-in: %s", email)
-    return redirect(url_for("reports.reports_list"))
+    return _redirect_after_login()
 
 
 @auth_bp.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("auth.login"))
+    return redirect("/login")

@@ -51,8 +51,11 @@ def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
             ts = datetime.now(timezone.utc).isoformat()
             # version + ts embedded as literals so the version insert lives inside
             # the same BEGIN/COMMIT as the migration body (one atomic unit).
+            # IMMEDIATE takes the write lock up front: a worker that loses the
+            # boot race waits (busy_timeout) instead of deadlocking on a
+            # read->write lock upgrade halfway through the script.
             script = (
-                "BEGIN;\n"
+                "BEGIN IMMEDIATE;\n"
                 + f.read_text(encoding="utf-8")
                 + "\nINSERT INTO schema_migrations(version, applied_at) VALUES "
                 + f"({_sql_literal(version)}, {_sql_literal(ts)});\n"
@@ -62,6 +65,12 @@ def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
                 conn.executescript(script)
             except Exception:
                 conn.rollback()  # discard the partial, uncommitted migration
+                # Gunicorn workers boot in parallel and can race to apply the
+                # same pending migration. The loser fails (duplicate version row
+                # or "table already exists"); if the version is now recorded as
+                # applied, the winner did our work - skip it, don't crash boot.
+                if version in _applied(conn):
+                    continue
                 raise
             newly.append(version)
         return newly
@@ -73,5 +82,12 @@ def migrate(db: Database) -> dict[str, list[str]]:
     """Apply both databases' migrations. Returns {db_name: [applied versions]}."""
     return {
         "precious": apply_migrations(db.precious_path, _MIGRATIONS_ROOT / "precious"),
-        "cache": apply_migrations(db.cache_path, _MIGRATIONS_ROOT / "cache"),
+        "cache": migrate_cache_only(db),
     }
+
+
+def migrate_cache_only(db: Database) -> list[str]:
+    """Re-create the disposable cache schema. cache.db can vanish between boots
+    (it's deletable by design), so the report cache uses this to self-heal when
+    it finds the file fresh and table-less mid-flight."""
+    return apply_migrations(db.cache_path, _MIGRATIONS_ROOT / "cache")

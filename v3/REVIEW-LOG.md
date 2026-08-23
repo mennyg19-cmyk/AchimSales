@@ -334,6 +334,338 @@ You had time and asked me to surface every question across all 5 reports. Here's
   salesman, a column per month, plus a YTD column and a TOTAL row) so it both shows on screen and
   exports to Excel. The richer card data is still in the payload for a nicer card UI later.
 
+### Session: Mon Jun 2 - scoping, impersonation, export retention, drift sign-offs
+
+**28. Remainder formula: user chose Ordered - Released - Shipped - Cancelled.**
+- *Decision:* the Summary tab's "QtyRemainder" subtracts cancelled (live doesn't). User explicitly
+  chose this. builder_version bumped to 2 so old cached reports are invalidated.
+
+**29. Per-salesman report scoping is now live.**
+- *What I had to decide:* how to enforce row-level filtering so a salesman can only see their own
+  data when running a report.
+- *What I chose:* filter facts at the service layer (before the builder sees them) using the
+  user's `visible_salesman_keys`. The cache key includes the scope token so different users never
+  cross-read. Result/export endpoints re-check scope compatibility (a user whose scope shrinks
+  after a run can't view old wider-scoped results).
+- *Why:* central enforcement = one place to audit; the builder stays pure and testable.
+
+**30. Customer re-sync on unknown accounts.**
+- *Decision:* when a user selects a customer not in the local lookup, v3 forces a synchronous
+  resync of the customer SP. If still not found after resync, rejects with an error. This avoids
+  the "run with empty customer filter" footgun.
+
+**31. Production impersonation (developer-only).**
+- *Decision:* privileged users can impersonate any other user to see exactly what they see. Stored
+  in the session as `impersonating=True` + the real identity preserved. Nesting is blocked (400).
+  Ending impersonation restores the original session. Used for support/debugging only.
+
+**32. Export retention overhaul.**
+- *Decision:* exports tagged by type: one-time (7 day TTL), scheduled (30 days), master (never
+  expires). Owner tracked. Admin can browse export history via `/api/admin/exports`.
+- *OneDrive delivery deferred:* requires a new Azure app registration with `Files.ReadWrite.All`;
+  the DBA/admin needs to create that registration before we can wire it.
+
+**33. Drift ledger fully signed off.**
+- All 10 drift decisions in `report_engine/contracts.py` are now signed off. The only remaining
+  open item is `number_4 | salesman_source` (needs confirmation that customer-master salesman
+  matches invoice-line SalesGroup) — tracked in the table below.
+
+### Session: Thu Jun 11 - memory: stop carrying the full SP rows around
+
+**34. Drop the unused `raw` copy from every fact.**
+- *What I had to decide:* you noticed reports were holding more data in memory than needed and
+  asked to keep only the columns each report uses. Looking at the code, every fact (the slim
+  typed row each report builds from) was ALSO carrying `raw` -- a copy of the entire stored
+  procedure row with every column. Nothing in the codebase ever read it.
+- *Options:* (a) keep `raw` "just in case" a future feature wants an original column,
+  (b) delete it everywhere.
+- *Chose (b), deleted it* from all five fact types and the four source adapters that filled it.
+- *Why:* zero readers today, and the cost was real -- on a 216K-row ordered report it roughly
+  doubled the per-row memory. If a future report needs an extra SP column, the right move is to
+  add a named field to the fact (like every existing field), not haul the whole row around.
+  All 290 tests (including report parity) pass unchanged.
+
+**35. Free the raw SP rows before the report builds.**
+- *Decision:* added a `_facts()` helper in the report service that fetches the SP rows, converts
+  them to facts, and lets the raw rows go out of scope immediately -- instead of each report
+  orchestrator keeping the full row list alive while all the tabs build. Peak memory during a
+  report run is now roughly one copy of the data instead of two.
+
+**36a. The report cache now heals itself when cache.db disappears (prod incident 2026-06-11).**
+- *What happened:* cache.db was deleted on the server while the app was running (it had bloated
+  to 655 MB and was suspected corrupt). The app recreated the file on the next write -- but the
+  TABLE inside is only created by migrations at boot, so a finished report run died at the save
+  step with "no such table: report_payload_cache". The owner's report fetched 2.5 minutes of data
+  and then failed at the last moment.
+- *Fix:* cache.db is disposable by design, so the cache treats a missing table as "fresh file,
+  rebuild me": put/get/exists re-apply the cache migrations on the spot and retry once. A wiped
+  cache is now a cache miss, never a failed report. Regression test included.
+
+**36b. Parallel workers no longer crash boot by racing migrations (prod incident 2026-06-11).**
+- *What happened:* after a restart with a brand-new cache.db, both gunicorn workers ran the
+  migration step at the same time. One applied the schema; the other crashed its whole v3
+  bootstrap with "UNIQUE constraint failed: schema_migrations.version", leaving that worker
+  degraded. Writing the regression test surfaced a second race underneath: turning on WAL mode
+  for a brand-new database can fail instantly with "database is locked" when connections race
+  (that step skips SQLite's usual wait-and-retry handler).
+- *Fix:* three layers. (1) A migration loser that finds the version already applied skips it
+  instead of crashing. (2) Migrations take the write lock up front (BEGIN IMMEDIATE) so a loser
+  waits instead of deadlocking mid-script. (3) Opening a connection retries the WAL switch with
+  a short backoff. Regression test boots 4 workers against one fresh DB in parallel.
+
+**36. API preview + "Run with this body" are developer-only now (owner request).**
+- *What you reported:* (a) the "Run with this body" button was floating on top of the "Refresh
+  data" button, (b) these dev tools shouldn't be visible to regular users, (c) the address bar
+  was growing "?period=ytd" style endings that nobody needs.
+- *Fixes:*
+  - The button overlap was a CSS bug: `.api-run-wrap` sets `display:flex`, which silently
+    cancels the HTML `hidden` attribute, so the button rendered even when "closed." One line
+    (`.api-run-wrap[hidden] { display:none }`) fixes it -- same pattern the modals already use.
+  - "API preview" + the editable body + "Run with this body" now render ONLY for the
+    `developer` role (not admin -- developer outranks admin for dev tools, same as
+    impersonation). The preview endpoint is also blocked server-side for non-developers (403),
+    with a regression test.
+  - The page no longer writes your filter choices into the address bar after each run.
+    Inbound links still work (dashboard cards and presets link in with "?period=mtd" etc. and
+    the page still reads those on load) -- it just stops echoing them back.
+
+### Session: Sun Jun 14 - the big report that took the whole site down (OOM crash loop)
+
+Background: a year-to-date Ordered report (~488,000 order lines) ran out of memory on the
+Azure box. When a run uses up the memory, the operating system kills the whole worker process
+instantly - so the job never gets a chance to mark itself "failed." It stays stuck on "running."
+
+**1. Why one bad report knocked the whole site offline (the real bug).**
+- *What was happening:* on every restart, the app's recovery step re-queues any job left stuck
+  on "running" (so work survives a normal restart). But there was no limit. The giant report
+  got re-run, ran out of memory again, got killed again, got re-queued again... forever. That
+  loop kept crashing the container, which took down the live app too.
+- *Options:* (a) never auto-retry a stuck job, (b) retry a fixed number of times then give up,
+  (c) leave it and just make the report smaller.
+- *Chosen (b):* recovery now counts attempts. A stuck job is retried once; if it dies again, it
+  is marked **failed** with a plain-English message ("...most likely ran out of memory. Try a
+  smaller date range or fewer customers, or export instead of viewing on screen.") instead of
+  looping.
+- *Why:* one retry still covers the innocent case (a deploy/restart interrupted a run), but a
+  genuinely too-big report can no longer crash-loop the site. This is the safety net: from now
+  on, *any* report that's too big fails cleanly instead of taking everyone down.
+
+**2. Making the big Ordered report actually fit in memory (no number changes).**
+- *What I found:* the report was holding three full copies of the data at once - the raw rows
+  from the database, the converted "facts," and the final table rows - which is what blew past
+  the memory limit. (A 339k-row report fits fine; ~488k was just over the edge.)
+- *Options:* (a) cap how many detail rows we show on screen, (b) cut the number of copies we
+  hold at the same time, (c) rent a bigger Azure box.
+- *Chosen (b):* as we convert raw rows into facts, and facts into table rows, we now release
+  each item the moment it's converted, so we only ever hold about one copy instead of three.
+  Same data, same order, identical numbers - it just doesn't pile up in memory.
+- *Why I did NOT pick (a):* the Excel export reads the very same on-screen data, and the export
+  format is the live "source of truth" - capping the on-screen detail would silently truncate
+  exports too. So I kept every row and cut the memory a different way.
+- *Why not (c):* you specifically wanted to know if we could avoid paying more; this keeps us
+  on the current box.
+
+**3. Honesty note / what's still true.**
+- A *single* big report now fits comfortably. If two giant reports are run at the exact same
+  moment they could still add up past the limit - but thanks to fix #1 that now just fails the
+  run cleanly instead of crash-looping the site. Running heavy reports one-at-a-time (a real
+  queue) is the separate v3 feature you already flagged; this change is the safety net under it.
+
+### Session: Sun Jun 14 (later) - fetch big reports one month at a time (so they stop timing out)
+
+Background: the YTD Ordered report kept failing because it asks the on-prem Reporting API for a
+whole year of order lines in **one** request. On a busy on-prem SQL box that single query can run
+longer than the 5-minute timeout, and when it does you get **nothing** - it's all-or-nothing. (You
+saw this exactly: "yesterday" returns fine, "last month"/YTD hangs.) Worse, one giant query can
+jam the on-prem server so even small calls stall until it's restarted.
+
+**1. How to make the big report actually go through.**
+- *What I had to decide:* how to stop one huge request from blowing the timeout.
+- *Options:* (a) raise the timeout (just makes you wait longer for the same failure, and ties up
+  the on-prem box even more), (b) split the request by **date** into month-sized pieces, (c) split
+  by **customer** into batches, (d) rent a bigger on-prem SQL box.
+- *Chosen (b):* a big date window is now fetched **one calendar month at a time** and the pieces
+  are stitched back together. Each month is ~40k rows - small enough to come back well inside the
+  timeout. Applies to the three biggest pulls (all use the `salesline_release` procedure): the
+  **Ordered** report (any bounded period - daily/MTD/YTD/last month/custom), **Customer Activity**,
+  and the **dashboard's all-orders** refresh.
+- *Why (b) over (c):* your own evidence ("small date range works, big doesn't") points straight at
+  date/size as the bottleneck. Date chunks also line up cleanly with the boundaries we already use.
+- *Why this changes no numbers:* each month chunk uses the **exact same day boundaries**
+  (00:00:00 -> 23:59:59) that every daily report already uses and the business already trusts. The
+  months are back-to-back with no gap and no overlap, so stitching them together returns the same
+  set of rows as one big call - nothing dropped, nothing counted twice. Verified with tests
+  (`month_chunks` coverage + a parity test that the stitched result equals a single full-window
+  call). All 310 v3 tests pass.
+
+**2. What stays a single call on purpose.**
+- An **all_time / open-ended** Ordered run still does one call, because that path relies on the
+  procedure's own default window; only bounded periods get chunked.
+
+**3. Honesty notes (from the cross-model review).**
+- This fixes the "big query times out" case. If the on-prem API is **fully** wedged (every call,
+  even small ones, hanging - which is the state right now), it still needs a restart; chunking
+  can't get data out of a server that answers nothing. After a restart, chunking should keep the
+  big reports working.
+- All-time pulls (dashboard refresh + Customer Activity) now make ~18 small calls back-to-back
+  (go-live to today) instead of one. That's fine for a background job but means more total calls;
+  worth watching the on-prem load.
+- Row **order** in the raw "Full Data" dump is now grouped month-by-month (chronological). Totals
+  and every calculated number are identical; only the sequence of raw rows can differ from the
+  procedure's single-call order. Flagged for sign-off below (it's display order, not a number).
+
+### Session: Thu Jun 18 - commission rate from the invoiced SP
+
+**What I had to decide:** The DBA told us the invoiced stored procedure now returns the salesman's
+commission rate in a column called `commission`. Should the report read the rate from that column
+(so we stop depending on the separate salesman master), and in what unit?
+- *The options:* (a) keep using the salesman master only; (b) use the SP column only; (c) use the
+  SP column when it's there and fall back to the master when it isn't.
+- *What I chose:* (c). Each invoice row's `commission` rate wins; if a row doesn't carry one (blank
+  or zero), we fall back to the salesman master we already maintain. For the unit, the master stores
+  rates as a fraction (0.06 = 6%) and the live math is `net * rate`, so I keep that convention and
+  added a safety guard: anything greater than 1 is treated as a whole percent and divided by 100
+  (so a `6` becomes `0.06`). A real commission is never ≥ 100%, so a genuine fraction passes through
+  untouched.
+- *Why:* it does what you asked (no separate lookup needed when the SP supplies the rate) without
+  regressing salesmen the SP doesn't cover, and the guard makes the math safe no matter which unit
+  the SP actually uses. I still flagged it PROVISIONAL under NEEDS HUMAN SIGN-OFF because I couldn't
+  confirm the column's unit on a live call (the endpoint isn't reachable right now) - once we
+  capture one real row, we tick it off.
+
+### Session: Sun Jun 21 - "leave the page and come back to my running report" + always-on status
+
+**1. Where do I remember a running report so leaving the page doesn't lose it?**
+- *The options:* (a) remember it only in the browser (localStorage) on the machine that started
+  it; (b) ask the server which of *your* reports are still going.
+- *What I chose:* (b). The job table already knows every run, who owns it, and how far along it is,
+  so I added one read-only endpoint (`/api/reports/active`) that returns *your* report runs that
+  are still going (or finished in the last 10 minutes). It's owner-scoped - you only ever see your
+  own jobs.
+- *Why:* the server is the real source of truth and it works no matter which page or device you're
+  on. localStorage would only work on the one browser that kicked it off and would drift out of
+  sync with the actual job.
+
+**2. How does coming back to the report page show the run again?**
+- *What I chose:* when the report page loads, it asks that endpoint whether you have a run going for
+  *this* report. If yes, it reconnects to the same job and shows its progress (and loads the result
+  the moment it's done) instead of starting a brand-new run. If the run already finished while you
+  were away, it just loads that result.
+- *Why:* matches what you asked - leave, come back, and the report you were running is right there.
+
+**3. The "always-on status bar."**
+- *What I chose:* a small bar that sits just above the bottom menu on every page. It lists your
+  running reports with a live "building 45%" and a colored dot (blue = running, green = ready,
+  red = failed). Click one to jump straight to that report. It hides itself when you have nothing
+  running and nothing recently finished. It refreshes every 5 seconds.
+- *Why:* you wanted to see "where my reports are up to" no matter what page you're on, without
+  babysitting the report screen.
+
+### Session: Fri Jun 26 - point the Ordered report at the new `rpt.usp_ordered_report` SP
+
+You asked for the new Ordered report (built first in the /test-next app) to also be in the /test
+(v3) app, and to switch v3's Ordered report onto the new stored procedure `rpt.usp_ordered_report`.
+The catch: the new SP returns fewer columns than the old `salesline_release` one, so I had to fill
+a few gaps. You signed off on each of these:
+
+**1. The new SP gives no shipped *quantity* - only Shipped dollars. How do we get QtyShipped?**
+- *Options:* (a) derive it from the order math `QtyShipped = QtyOrdered - Cancelled -
+  DeliveryRemainder`; (b) back it out of the dollars `Shipped $ / UnitPrice`.
+- *What you chose:* (a), the order-math identity.
+- *Why:* it uses only fields the SP actually returns and doesn't blow up on $0 prices or price
+  overrides. A nice side effect: QtyOpen comes out equal to DeliveryRemainder.
+
+**2. The new SP has no "Sales Order Name" column.**
+- *What you chose:* show the **customer name** in that column.
+- *Why:* it's the most useful stand-in and what you wanted on screen.
+
+**3. The new SP has no PO # and no header Order Status (only the line-level status).**
+- *What you chose:* leave those two columns **blank for now** and flag them; you'll have the DBA
+  add them to the SP later.
+- *Why:* you'd rather see the report now with two known-empty columns than wait on the SP change.
+  They're badged as "not available yet" so nobody trusts a blank as real.
+
+**4. Two old filters dropped: Company and the shipped-quantity range.**
+- *What I did:* the new SP has no Company parameter and filters shipped by **dollars**, not
+  quantity, so those two old filters no longer translate. I removed them rather than send the SP a
+  parameter it doesn't understand. Multi-customer selection is now post-filtered in the app (the
+  new SP's CustomerAccount is a single exact match), exactly like the Invoiced report already does.
+
+Net result: v3's Ordered report shows the same tabs and columns as before, now fed by the new SP,
+with QtyShipped/QtyOpen/Fulfillment % flagged as derived and PO #/Order Status flagged as blank
+until the SP provides them. The old `salesline_release` SP still powers Customer Activity and
+Customer's Last Order - those were left untouched.
+
+### Session: Wed Jul 8 - Number 4 rebuilt on the new rolling-12 SPs (both apps)
+
+You asked for the Number 4 report to be added to both apps using the DBA's two new handoffs:
+`rpt.usp_customer_item_sales_rolling_12` and `rpt.usp_item_customer_sales_rolling_12`. The two SPs
+return the same finished pivot (a Qty and a $ column for each of the last 12 months, plus totals,
+average price, salesman, and book price) - one ordered customer-first, one item-first.
+
+**1. Two SPs, how many reports?**
+- *Options:* (a) one report, one SP call, reorder columns for the second view; (b) one report, two
+  SP calls; (c) two separate reports in the menu.
+- *What you chose:* ONE "Number 4" in the menu, and instead of the usual filter page it asks one
+  question - By Customer, By Item, or Both. Both = two SP calls, two tabs (your words: option C in
+  the menu sense, with option B's fetching when Both is picked).
+
+**2. The old Number 4 also had two YTD tabs. The new SPs only do rolling-12.**
+- *What you chose:* drop the YTD tabs for now and ask the DBA for a YTD variant of the SP later.
+- *Follow-up for you:* ask the DBA for that YTD variant when convenient.
+
+**3. Decisions I made and logged (small, reversible):**
+- *IncludeCurrentMonth is always sent as true.* The old Number 4's rolling window ended at today,
+  so including the current month keeps the familiar numbers. The SP's own default is false (last
+  12 completed months); if you'd rather have that, it's a one-line change.
+- *Month columns are read from the SP, never hard-coded* (the handoff's own rule). Any column
+  ending in "Qty" is treated as a quantity and any ending in "$" as dollars, for formatting and
+  totals.
+- *Salesman scoping* filters on the SP's "Salesman" column (it carries the sales group code). In
+  the /test-next app the SP is also asked to filter server-side via its SalesGroup parameter; a
+  row-level backstop still applies in both apps.
+
+**4. What the switch made obsolete (removed, not orphaned):**
+- The old in-app pivot builder (rolling-12 + YTD, grouped two ways) - the SPs do the math now.
+- The `invoice_lines` fetch + adapter and the `released_products` Book Price join (Book Price now
+  comes back on the SP row itself), and the customer-master salesman fallback for this report.
+- The old signed-off Number 4 drift decisions (book_price, free_text_exclusion, salesman_source)
+  now describe the SP's job, not the app's: the exclusions (FINV-/FCRD-, blank SalesOrder) are
+  enforced inside the SPs per the handoff.
+
+Numbers are PROVISIONAL until you compare a run against the live Number 4 export.
+
+**5. Review pass fixes (GPT-5.5 readonly review of the Number 4 build):**
+- *Fractional quantity totals (/test-next):* the generic footer-total helper truncates quantity
+  sums to whole numbers, but Number 4 quantities can be fractional (cases vs eaches). The Number 4
+  builder now sums with two decimal places instead.
+- *Presets didn't restore the View choice (v3):* saved presets and deep links now put the
+  By Customer / By Item / Both selection back when reapplied.
+- *Empty tabs lost their headers (v3):* column headers used to be read off the first data row, so
+  a run with zero rows (or one fully filtered by salesman scope) showed a blank tab. Headers now
+  come from the API's own column list, so an empty tab still shows its columns.
+- *Dev API preview showed the wrong SP for By Item (v3, admin-only tool):* the preview panel now
+  shows the item-first SP when By Item is selected; Both previews the first of its two calls.
+- *Left as-is (consistent with the rest of v3):* v3 doesn't push the SalesGroup filter to the SP
+  server-side for scoped users - it fetches and filters rows in the app, like every other v3
+  report. The /test-next app does push it server-side.
+
+### Session: Thu Jul 23 - green test gone; v3 vs rebuild; which branch is prod
+
+**What I had to decide:** you asked to delete the green test app, compare v3 vs
+rebuild, and say which git branch production is on.
+**The options:** (a) hunt for and re-delete `test/` on this tree, (b) only clean
+leftover refs because green is already gone on prod, (c) also pick one of v3 or
+rebuild as "the winner" and delete the other.
+**What I chose:** (b) + keep both apps. Confirmed `test/` is already absent on
+`rebuild-reports`. Cleaned Dockerfile / `.dockerignore` / stale comments that
+still mentioned `/v2` and `test/requirements.txt`. Verdict: **v3 is better for
+use today**; **rebuild is better architecture for later**. Prod code lives on
+**`rebuild-reports`**, not `webapp-cache`.
+**Why:** Deleting v3 now would drop working reports/admin. Deleting rebuild would
+throw away the cleaner SQL-owns-math path. Green was already retired 2026-06-11
+because its mirror jobs hammered the Reporting API.
+
 ---
 
 ## 1. NEEDS HUMAN SIGN-OFF
@@ -343,40 +675,41 @@ You had time and asked me to surface every question across all 5 reports. Here's
 > and are PROVISIONAL until you pick a rule and name yourself as owner. The builders are not
 > finalized until these are signed off.
 
-- [ ] **Pre-build data gate**: confirm the Reporting API / stored procedures expose the fields
-      needed to reproduce root's calculations (especially `ordered` WHS + packing-slip status).
-      If not, the SPs must be extended before web `ordered` numbers can match live. Status: OPEN.
+- [x] **Pre-build data gate**: ~~confirm the Reporting API / stored procedures expose the fields
+      needed to reproduce root's calculations.~~ **RESOLVED**: SP now returns authoritative
+      `ShippedQuantity` and `CancelledQuantity` directly; WHS/packing-slip derivation no longer
+      needed. `QtyOpen` and `Fulfillment %` are the only remaining derived fields.
 
 ### Drift decisions (pick one per item; default = live/root)
 
-| Report | Decision | Question | Default |
-|--------|----------|----------|---------|
-| invoiced | tariff_source | Tariff from sales-LINE (`SL_TariffCharges`) vs header (`SH_TariffCharges`)? | live/root |
-| invoiced | credit_detection | Credits by substring "contains" vs invoice-number prefix? | live/root |
-| ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | live/root |
-| ordered | status_qty_engine | Status/qty via WHS + packing-slip joins (root) vs flat SP rows (web) | live/root |
-| ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling - NOT in v3 yet | live/root |
-| ordered | error_item_filter | Exclude rows flagged "ERROR ITEM" - v3 now filters Item# only (matches live) | live/root |
-| ordered | full_data_columns | v3 omits live's `DataQualityFlag` (needs WHS/packing pipeline the SP lacks); rest of columns match live order | live/root |
-| number_4 | book_price | Book Price column source/derivation | live/root |
-| number_4 | free_text_exclusion | Exclude free-text (no sales-order) invoice lines - v3 now excludes (matches live) | live/root |
-| number_4 | salesman_source | Salesman from customer-master (live) vs invoice-line SalesGroup (v3 now) | live/root |
-| salesman | group_key_cardinality | Grouping grain (one row per SalesGroup vs combined) | live/root |
-| customer_activity | last_order_grain | Last-order grain: sales header vs sales line (v3 takes max order-date per customer; same result) | live/root |
+| Report | Decision | Question | Status |
+|--------|----------|----------|--------|
+| invoiced | tariff_source | Tariff from sales-LINE (`SL_TariffCharges`) vs header (`SH_TariffCharges`)? | **SIGNED OFF**: live/root (DBA grouping charges at order level; deferred until SP revision) |
+| invoiced | credit_detection | Credits by substring "contains" vs invoice-number prefix? | **SIGNED OFF**: live/root (substring-contains confirmed correct) |
+| invoiced | commission_rate_source | Commission % now read from the SP's per-row `commission` column (DBA-confirmed name), preferred over the salesman master; master is the fallback. **Unit assumed a fraction (0.06=6%) with a >1 guard that divides whole percents by 100.** | **PROVISIONAL**: confirm the SP's `commission` unit against a captured live row once connectivity is back (math is 100x-safe either way, but verify). |
+| ordered | summary_remainder | Definition of Summary-tab remainder (ordered - released - shipped?) | **SIGNED OFF: NEW** (Ordered - Released - Shipped - Cancelled; user chose to subtract cancelled) |
+| ordered | status_qty_engine | Status/qty via WHS + packing-slip joins (root) vs flat SP rows (web) | **SIGNED OFF**: live/root (SP now returns authoritative QtyShipped + QtyCancelled) |
+| ordered | amazon_temp_rule | Amazon 9300/9301 temporary-item special handling | **SIGNED OFF**: live/root (SP has correct data; temp rule no longer needed) |
+| ordered | error_item_filter | Exclude rows flagged "ERROR ITEM" - v3 filters Item# only (matches live) | **SIGNED OFF**: live/root (confirmed working) |
+| ordered | full_data_columns | v3 omits live's `DataQualityFlag` (needs WHS/packing pipeline the SP lacks); rest match live | **SIGNED OFF**: live/root (DataQualityFlag omitted by design; SP can't produce it) |
+| number_4 | book_price | Book Price column source/derivation | **SIGNED OFF**: live/root (SalesPrice from released_products, confirmed) |
+| number_4 | free_text_exclusion | Exclude free-text (no sales-order) invoice lines | **SIGNED OFF**: live/root (confirmed working) |
+| number_4 | salesman_source | Salesman from customer-master (live) vs invoice-line SalesGroup (v3 now) | **SIGNED OFF: NEW** (use order line's SalesGroup first; fall back to customer master if empty) |
+| salesman | group_key_cardinality | Grouping grain (one row per SalesGroup vs combined) | **SIGNED OFF**: live/root (one per group, confirmed) |
+| customer_activity | last_order_grain | Last-order grain: sales header vs sales line | **SIGNED OFF**: live/root (max order-date per customer, same result) |
 
 ### Authorization policy decisions (from phase 3 - pick one each)
 
-- [ ] **Report visibility default**: v3 currently FAILS CLOSED - a non-privileged user sees a
-      built report only if they have an explicit allow row. The LIVE app instead has a
-      conditional default-visible set + global-visibility flags + salesman-filter metadata.
-      Decide: keep strict default-deny (you grant per user/role), or have me model live's
-      default-visible set. Until you decide, salesmen see no reports by default.
-- [ ] **Manager semantics**: live treats `manager` as privileged for the report LIST but scoped
-      for salesman DATA. v3 currently treats manager as fully scoped (non-privileged). Confirm
-      which you want.
-- [ ] **Customer scope when sales-group unknown**: live `access.py` ALLOWS a scoped user to
-      proceed when there's no cache row (so D365 is queried); v3 DENIES (safer). Confirm the
-      stricter behavior is acceptable or restore live's allow-on-unknown.
+- [x] **Report visibility default**: ~~v3 currently FAILS CLOSED.~~ **RESOLVED**: v3 now uses
+      the legacy role-default model (Phase 11 / Mon Jun 1 session #3): admin/developer see all;
+      manager sees all; salesman sees only `salesman_default=True` reports by default. Explicit
+      Allow/Deny overrides always win. Per-salesman data scoping is implemented (Phase 1 of this
+      session): builders filter facts to the user's `visible_salesman_keys`.
+- [x] **Manager semantics**: **RESOLVED**: managers see all reports (list) but their DATA is
+      scoped to their `visible_salesman_keys` (same as a salesman). This matches v2 behavior.
+- [x] **Customer scope when sales-group unknown**: **RESOLVED**: v3 resyncs the customer mirror
+      from the SP. If the customer is still not found after resync, it blocks (denies). User
+      confirmed this is the correct behavior.
 
 ### Frontend parity deviations (from phase 8 - confirm or tell me to restore live)
 
@@ -396,24 +729,38 @@ You had time and asked me to surface every question across all 5 reports. Here's
   customer_activity builder will strip explicitly. A parity test will lock this when that
   builder is ported.
 
+- **Month-chunked fetch row order (Sun Jun 14)**: big `salesline_release` pulls are now fetched
+  one month at a time and concatenated, so raw "Full Data" rows come back grouped month-by-month
+  (chronological) instead of in the procedure's single-call order. Every total / calculated number
+  is identical (aggregations are order-independent; verified by parity test). Two display-only
+  notes from the cross-model review, neither a number change: (1) the Ordered report fills a few
+  non-numeric bucket labels (status/date/name) from the first row in a bucket, so those labels
+  could differ if the procedure's per-month order differs from its all-at-once order; (2) Customer
+  Activity's "latest order per customer" breaks ties on date only (first-row-wins), so a customer
+  with two orders on the same latest date could show a different PO/SO depending on row order. The
+  latest date sits within one month chunk, so in practice this matches the prior single-call
+  behavior. Confirm "numbers identical, raw-row display order may vary" is acceptable, or ask me to
+  add a deterministic sort/tie-breaker.
+
 ---
 
 ## 2. OPEN QUESTIONS / BLOCKERS
 
-- **Scheduler/worker ownership vs gunicorn workers (deployment decision)**: the in-process
-  worker + APScheduler assume ONE owning process. "Single B1 instance" is not automatically
-  "single Python process" - if v3 runs gunicorn with multiple worker *processes*, each would start
-  its own scheduler/worker and double-schedule / over-claim. Decision needed: deploy gunicorn with
-  ONE worker process + threads (gthread) on B1, OR gate background startup to one process via an
-  env flag. I'll wire background startup behind an explicit flag in the reporting phase; confirm
-  the single-worker deployment is acceptable.
+- **Scheduler/worker ownership vs gunicorn workers - RESOLVED**: the app runs 2 gunicorn workers
+  (B2 tier). Background ownership is single-leader via an exclusive `flock` (see Phase C/D review).
+  Only the lock-holder runs the job worker + cron scheduler; both workers serve HTTP. Verified in
+  production.
 
 - **Cache-scope leakage - RESOLVED (phase 5)**: the scope token is now produced ONLY by
   `canonical_scope_token()` (order-stable; None->ALL, empty->NONE, never ""), `build_cache_key()`
   rejects an empty token, and `ReportRunner` derives the token internally from the authorization
   result so a route can't pass a raw/unordered token. Tests prove cross-scope isolation
-  (`test_runner_scope_isolates_cache`, `test_cache_key_isolates_scope`). Schema-level enforcement
-  is unnecessary given this single chokepoint, but confirm you're comfortable with the approach.
+  (`test_runner_scope_isolates_cache`, `test_cache_key_isolates_scope`).
+
+- **OneDrive personal delivery (deferred)**: personal schedules delivering to the user's own
+  OneDrive requires app-only credentials with `Files.ReadWrite.All` and the user's drive ID
+  resolution via Graph. The Azure app registration for this hasn't been created yet. Flagged
+  as a future add-on once the Azure admin creates the registration.
 
 ---
 
@@ -512,10 +859,20 @@ GPT-5.5 reviewed the engine foundation + the first rebuilt report against the LI
 | 2. Data layer (precious/cache, migrations, durable jobs, repos) | DONE | 97e1b99 | 31 tests; atomicity + concurrency proven |
 | 3. Auth + single authorization/scope layer | DONE | f8eaae1 | 46 tests; DB-authoritative, fail-closed |
 | 4. Jobs worker + APScheduler | DONE | b9aa4db | 59 tests; restart recovery + bounded concurrency |
-| 5. Reporting infra (client, ONE scope-safe cache, runner, export, durable wiring) | DONE | (this commit) | 80 tests; cache-scope item resolved |
-| 6. report_engine builders (5 reports) | IN PROGRESS | (this commit) | dates+params+invoiced DONE (127 tests); ordered/salesman/number_4/customer_activity pending; calc rules PROVISIONAL pending section-1 sign-off |
-| 7. Blueprints (thin routes, feature parity) | pending | - | needs builders (sign-off) + shell (done) |
-| 8. Frontend shell (pixel-parity base.html, token CSS, esbuild bundle) | DONE | (this commit) | 89 tests; live-faithful shell, GPT-5.5 parity gaps fixed |
+| 5. Reporting infra (client, ONE scope-safe cache, runner, export, durable wiring) | DONE | (prev) | 80 tests; cache-scope item resolved |
+| 6. report_engine builders (5 reports) | DONE | (prev) | All 5 reports built; drift ledger fully signed off |
+| 7. Blueprints (thin routes, feature parity) | DONE | (prev) | Reports, admin, auth, schedules, delivery |
+| 8. Frontend shell (pixel-parity base.html, token CSS, esbuild bundle) | DONE | (prev) | live-faithful shell, GPT-5.5 parity gaps fixed |
+| A. Report viewer parity | DONE | (prev) | Tabulator 6.3 + full interactivity |
+| B. Filters | DONE | (prev) | single-row bar, deep-links, API preview |
+| C. Actions/delivery (presets, email, schedule, cron) | DONE | (prev) | SharePoint delivery, cron tick |
+| D. Other areas (prefs, PWA, flags, admin, help, dashboard, mirror) | DONE | (prev) | 285+ tests |
+| E. Customer's Last Order | DONE | (prev) | in-app report, parity-reviewed |
+| Post-deploy: Remainder formula fix | DONE | 0bd79e6 | builder_version=2, cache cleared |
+| Post-deploy: Per-salesman report scoping | DONE | (pushed) | facts filtered by visible_salesman_keys |
+| Post-deploy: Customer re-sync on unknown | DONE | (pushed) | ensure_customers resync |
+| Post-deploy: Production impersonation | DONE | (pushed) | developer-only session impersonation |
+| Post-deploy: Export retention overhaul | DONE | 0bd79e6 | tiered TTLs (7d/30d/never), admin history |
 
 ### Phase 5 - Reporting infrastructure
 
@@ -1625,3 +1982,35 @@ cache, isn't scheduled yet. Tests: enqueue → build → list → download happy
 - **`prune()` format mismatch (LOW).** Compares against SQLite `datetime('now', ?)`
   on both sides (built_at defaults to `datetime('now')`) instead of a Python ISO
   cutoff, so the TTL reaper deletes the right rows.
+
+### Session: Thu Jul 23 - dumb multi-step master schedule wizard
+
+**1. Master schedule create/edit UX was too dense for a non-technical admin.**
+- *What I had to decide:* keep the one-screen form, or redo it as a guided multi-step flow.
+- *Options:* (a) keep the packed form and add tooltips, (b) modal with tabs, (c) step-by-step wizard on the page.
+- *Chosen (c):* a 5-step wizard on `/master-schedules`: Report → When → Options → Where → Review.
+- *Why:* you asked for an easy multi-step form that is “as dumb as possible.” Big report cards and plain-English labels beat a wall of fields.
+
+**2. Where do report parameters live for master schedules?**
+- *Problem:* the old form always saved `params: {}`, so period/customer/salesman never stuck.
+- *Options:* (a) force admins to open the report viewer first and “schedule from there,” (b) collect the same filters inside the wizard.
+- *Chosen (b):* step 3 shows only the filters that report needs (period, status, salesman, customers, year). Blank = “everything.”
+- *Why:* master schedules are admin-owned and set up once; the wizard has to capture the options itself. Custom date ranges are hidden (a fixed From/To doesn’t make sense on a recurring schedule).
+
+**3. How to make this easier to find on the admin side.**
+- *Options:* (a) leave the tiny Settings link, (b) put a big card on Settings Admin, (c) also put it on the Customer Dashboard.
+- *Chosen (b):* a highlighted “Master schedules” card at the top of Settings → Admin with a primary “Set up / manage schedules” button and a live count.
+- *Why:* “admin dashboard” here means the Settings admin home (same place the old test app put master schedules). The Customer Dashboard is for customer status, not admin tools.
+
+**4. Can Customer's Last Order be a master schedule?**
+- *Chosen:* no. It is an in-app picker report, not a filter→Excel delivery. The API rejects it and the wizard list hides it.
+- *Why:* there is no sensible “run for everyone” parameter set for that screen.
+
+Logged under Phase C follow-up. Tests: master create stores params (customers split to a list), in-app report rejected, Settings card renders, full suite green.
+
+### GPT-5.5 review (master schedule wizard) — blockers fixed
+
+- **BLOCKER: wizard Save called undefined `headers()` after the TS split.** Moved CSRF/JSON headers into shared `http.ts`; wizard imports `jsonHeaders()`.
+- **BLOCKER: SharePoint picker called undefined `esc()`.** Same shared `http.ts` helper; folder rows are now real buttons (keyboard reachable).
+- **SHOULD FIX (partial):** wizard steps get `aria-current`, pane titles are focus targets, save errors use `role=alert` + `aria-live`.
+- **Deferred (non-blocking):** searchable customer/salesman pickers instead of code text boxes; shared filter-constants module with reports.py; full `tsc`/Playwright smoke. Logged for a later pass.

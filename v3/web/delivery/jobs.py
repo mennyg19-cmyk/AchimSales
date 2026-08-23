@@ -38,6 +38,8 @@ def make_delivery_handler(delivery: DeliveryService, authz: Authorization) -> Ha
             layout=p.get("layout") or {}, recipients=p.get("recipients", ""),
             subject=p.get("subject", ""), report_name=p.get("report_name") or p["report_key"],
             sharepoint_path=p.get("sharepoint_path", ""),
+            filename_template=p.get("filename_template") or "",
+            schedule_name=p.get("schedule_name") or "",
         )
         if not outcome.result.ok:
             raise RuntimeError(outcome.result.error or "Delivery failed")

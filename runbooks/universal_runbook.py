@@ -27,10 +27,12 @@ Flow:
 
 Azure Automation Parameters:
   report_name (str, required): Key from report_registry.json, e.g. "ordered",
-                               "invoiced", "amazon_weekly", or "all" to run every report.
+                               "invoiced", or "all" to run every report.
   extra_args  (str, optional): Additional CLI args, e.g. "--period daily".
                                Merged with default_args from the registry.
                                Use "--force" to bypass the Shabbos/Yom Tov guard.
+                               Use "--skip-period ytd" to exclude a period from
+                               nightly all-periods runs (repeatable).
                                Use "--simulate-date 2026-04-02T05:00" to test the
                                guard for any date/time without running real reports.
 
@@ -216,11 +218,12 @@ def _sp_resolve_drive(site_url, token):
 
 
 def _sp_list_children(drive_id, cloud_path, token):
-    import requests
     t = _resolve_token(token)
     p = cloud_path.replace("\\", "/").strip("/")
     url = f"{GRAPH_BASE}/drives/{drive_id}/root:/{p}:/children" if p else f"{GRAPH_BASE}/drives/{drive_id}/root/children"
-    r = requests.get(url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT)
+    r = _graph_request_with_retry(
+        "GET", url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT,
+    )
     if r.status_code == 404:
         return []
     r.raise_for_status()
@@ -228,21 +231,23 @@ def _sp_list_children(drive_id, cloud_path, token):
 
 
 def _sp_download_content(drive_id, item_id, token):
-    import requests
     t = _resolve_token(token)
     url = f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content"
-    r = requests.get(url, headers={"Authorization": f"Bearer {t}"}, timeout=UPLOAD_TIMEOUT)
+    r = _graph_request_with_retry(
+        "GET", url, headers={"Authorization": f"Bearer {t}"}, timeout=UPLOAD_TIMEOUT,
+    )
     r.raise_for_status()
     return r.content
 
 
 def _sp_download_file(drive_id, cloud_path, local_path, token):
     """Download a single file. Returns True on success."""
-    import requests
     t = _resolve_token(token)
     p = cloud_path.replace("\\", "/").strip("/")
     url = f"{GRAPH_BASE}/drives/{drive_id}/root:/{p}"
-    r = requests.get(url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT)
+    r = _graph_request_with_retry(
+        "GET", url, headers={"Authorization": f"Bearer {t}"}, timeout=TIMEOUT,
+    )
     if r.status_code != 200:
         log.warning("Download %s returned %d", p, r.status_code)
         return False
@@ -644,8 +649,8 @@ def _get_last_success_date(log_path, display_name, merged_args=""):
     """
     from datetime import date as _date, datetime as _datetime
 
-    _FLAGS_WITH_VALUE = {"--from", "--to", "--period", "--date", "--subfolder"}
-    _FLAGS_STANDALONE = {"--force", "--test"}
+    _FLAGS_WITH_VALUE = {"--from", "--to", "--period", "--date", "--subfolder", "--skip-period"}
+    _FLAGS_STANDALONE = {"--force", "--test", "--no-email"}
 
     def _base_args(raw: str) -> str:
         tokens = raw.split()
@@ -707,7 +712,7 @@ def _get_last_success_date(log_path, display_name, merged_args=""):
 _CATCHUP_THEN_NORMAL = "__catchup_then_normal__"
 
 
-def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
+def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name, is_all_time=False):
     """If days were missed since last success, widen the date range to cover the gap.
 
     Period-specific behaviour:
@@ -740,6 +745,12 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
         No change (user specified exact range).
     """
     from datetime import date as _date, timedelta
+
+    if is_all_time:
+        log.info("[Catch-up] '%s' is an all-time report -- it always covers "
+                 "everything, so no date range is injected; it just re-runs in full.",
+                 display_name)
+        return argv
 
     tokens = merged_args.split()
 
@@ -832,6 +843,24 @@ def _maybe_inject_catchup_args(argv, merged_args, log_path, display_name):
                      "Running regular scheduled YTD.")
             return argv
 
+    elif period_val == "last_month":
+        # Monthly run on the 1st covers the previous calendar month. If that
+        # fire was skipped (and somehow not rescheduled), the next regular run
+        # is a month later when last_month already points elsewhere. Recover
+        # every calendar month from the month of last_success through the
+        # month that "last_month" means today.
+        first_of_this_month = today.replace(day=1)
+        last_month_end = first_of_this_month - timedelta(days=1)
+        if last_success >= first_of_this_month:
+            log.info("[Catch-up] last_month already succeeded this month -- "
+                     "no catch-up. Running regular scheduled last_month.")
+            return argv
+        catch_from = last_success.replace(day=1).isoformat()
+        catch_to = last_month_end.isoformat()
+        subfolder = "Last Month"
+        log.info("[Catch-up] last_month catch-up: covering missed month(s) "
+                 "--from %s --to %s.", catch_from, catch_to)
+
     else:
         log.info("[Catch-up] Unknown period '%s' -- no catch-up. "
                  "Running regular scheduled run.", period_val)
@@ -861,6 +890,28 @@ def _strip_period(argv):
             continue
         new_argv.append(arg)
     return new_argv
+
+
+def _parse_skip_periods(merged_args: str) -> tuple[set[str], str]:
+    """Extract --skip-period flags from merged_args.
+
+    Returns (set of period names to skip, cleaned args without --skip-period).
+    Supports repeating: ``--skip-period ytd --skip-period mtd``.
+    """
+    tokens = merged_args.split()
+    skip_set: set[str] = set()
+    cleaned: list[str] = []
+    skip_next = False
+    for t in tokens:
+        if skip_next:
+            skip_set.add(t.lower())
+            skip_next = False
+            continue
+        if t == "--skip-period":
+            skip_next = True
+            continue
+        cleaned.append(t)
+    return skip_set, " ".join(cleaned)
 
 
 # ---------------------------------------------------------------------------
@@ -944,6 +995,17 @@ def _execute_runner(entry, argv, display):
         if exit_code != 0:
             error_msg = f"Runner returned exit code {exit_code}"
 
+    except SystemExit as se:
+        # argparse calls sys.exit() on a bad argument, which raises SystemExit
+        # (a BaseException, NOT an Exception). Without this it would sail past
+        # the handler below and kill the whole runbook before the FAILED line
+        # is ever written -- exactly how the Customer Activity crash stayed
+        # invisible for months. Treat a non-zero SystemExit as a failed run.
+        code = se.code if isinstance(se.code, int) else (0 if se.code is None else 1)
+        exit_code = 0 if code == 0 else 1
+        if exit_code:
+            error_msg = f"Runner exited via SystemExit({se.code!r}) -- usually a bad argument.\n{traceback.format_exc()}"
+            log.error("%s exited via SystemExit(%r)", display, se.code)
     except Exception:
         exit_code = 1
         error_msg = traceback.format_exc()
@@ -982,10 +1044,16 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     returned runner_instance (if any), or logs them for the heartbeat.
     """
     display = entry["display_name"]
+    is_all_time = report_key in _ALL_TIME_REPORTS
     _inc_uploaded_urls: list[str] = []
 
     default_args = entry.get("default_args", "") or ""
     merged_args = f"{default_args} {extra_args}".strip()
+
+    skip_periods, merged_args = _parse_skip_periods(merged_args)
+    if skip_periods:
+        log.info("[%s] --skip-period requested: %s", display, ", ".join(sorted(skip_periods)))
+
     argv = merged_args.split() if merged_args else []
 
     log.info("--- Running: %s (key=%s, args=%s) ---", display, report_key, argv or "(none)")
@@ -996,7 +1064,7 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     _log_append(log_path, {"timestamp": _now_stamp(), "report_name": display, "status": "STARTED", "args": merged_args})
     _log_upload(drive_id, token, log_path)
 
-    catchup_result = _maybe_inject_catchup_args(argv, merged_args, log_path, display)
+    catchup_result = _maybe_inject_catchup_args(argv, merged_args, log_path, display, is_all_time)
 
     # Two-pass catch-up: for no-period runs with a gap, run the catch-up
     # daily pass first (missed days), then each period individually to keep
@@ -1009,7 +1077,10 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
     # run each period as a separate invocation so memory is reclaimed between them.
     # This avoids fetching the entire YTD dataset and holding it in RAM while writing
     # all periods (which exceeds the 400 MB sandbox limit for growing datasets).
-    is_no_period_run = (not do_two_pass and "--period" not in merged_args
+    # All-time reports take no --period and must run in a single plain pass;
+    # the per-period split would inject --period and crash their arg parser.
+    is_no_period_run = (not do_two_pass and not is_all_time
+                        and "--period" not in merged_args
                         and "--from" not in merged_args and "--to" not in merged_args
                         and "--date" not in merged_args)
 
@@ -1039,12 +1110,10 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         import gc
         gc.collect()
 
-        # Run each period independently instead of one massive all-periods pass.
-        # This keeps peak memory to the single largest period (YTD) rather than
-        # loading YTD and holding it while also writing Daily/MTD/Last7.
-        _ALL_PERIODS_ORDERED = ["daily", "last_7_days", "mtd", "ytd"]
-        log.info(">>> Running REGULAR SCHEDULED periods individually for '%s' (memory-safe mode)",
-                 display)
+        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd"]
+                                if p not in skip_periods]
+        log.info(">>> Running REGULAR SCHEDULED periods individually for '%s' (memory-safe mode): %s",
+                 display, _ALL_PERIODS_ORDERED)
         for period_name in _ALL_PERIODS_ORDERED:
             period_argv = list(argv) + ["--period", period_name]
             log.info(">>> [%s] Period pass: %s", display, period_name)
@@ -1075,10 +1144,10 @@ def _run_one_report(report_key, entry, extra_args, scripts_local, drive_id, toke
         merged_args_display = merged_args or ""
 
     elif is_no_period_run:
-        # No catch-up needed but still a nightly all-periods run:
-        # split into individual periods for memory safety.
-        _ALL_PERIODS_ORDERED = ["daily", "last_7_days", "mtd", "ytd"]
-        log.info(">>> Running ALL PERIODS individually for '%s' (memory-safe mode)", display)
+        _ALL_PERIODS_ORDERED = [p for p in ["daily", "last_7_days", "mtd"]
+                                if p not in skip_periods]
+        log.info(">>> Running ALL PERIODS individually for '%s' (memory-safe mode): %s",
+                 display, _ALL_PERIODS_ORDERED)
         for period_name in _ALL_PERIODS_ORDERED:
             period_argv = list(argv) + ["--period", period_name]
             log.info(">>> [%s] Period pass: %s", display, period_name)
@@ -1313,21 +1382,30 @@ def _upload_webapp_pickup_from_url(drive_id, token_mgr, uploaded_urls, record_id
         log.exception("Failed to upload webapp pickup from URL")
 
 
-def _classify_guard_action(extra_args):
+def _classify_guard_action(extra_args, is_all_time=False):
     """Decide whether to SKIP or RESCHEDULE when melacha is assur.
 
     Returns ``"skip"`` or ``"reschedule"`` based on the period in *extra_args*.
 
     Rules:
+      - all-time report        -> reschedule (runs once a cycle; skipping it
+                                  would push it a whole cycle, so run it right
+                                  after havdalah instead)
       - daily / yesterday      -> skip  (catch-up on next regular run)
       - no period (nightly)    -> skip  (catch-up on next regular run)
       - mtd (same month)       -> skip  (MTD self-heals within the month)
       - mtd (last day of month)-> reschedule (month-end run would be lost)
       - ytd (same year)        -> skip  (YTD self-heals within the year)
       - last_7_days / weekly   -> reschedule (window shifts, data would be lost)
+      - last_month             -> reschedule (next regular run is next month,
+                                  and by then last_month points at a different
+                                  month — July would be gone)
       - anything else          -> skip  (safe fallback)
     """
     from datetime import timedelta
+
+    if is_all_time:
+        return "reschedule"
 
     tokens = (extra_args or "").split()
     period_val = None
@@ -1340,7 +1418,7 @@ def _classify_guard_action(extra_args):
     if period_val in (None, "daily", "yesterday"):
         return "skip"
 
-    if period_val in ("last_7_days", "this_week"):
+    if period_val in ("last_7_days", "this_week", "last_month"):
         return "reschedule"
 
     if period_val == "mtd":
@@ -1361,9 +1439,21 @@ def _classify_guard_action(extra_args):
 
 
 _KNOWN_REPORT_KEYS = {
-    "ordered", "invoiced", "salesman", "number_4", "amazon_weekly",
+    "ordered", "invoiced", "salesman", "number_4",
     "customer_activity", "customer_aging", "all",
 }
+
+# Reports that always cover everything (no date window / period concept).
+# The catch-up and multi-period machinery must not touch these: a --from/--to
+# either crashes the runner (customer_activity) or silently builds a broken
+# partial workbook (salesman fetches only the injected window instead of the
+# full year), and the daily/last_7_days/mtd split just rebuilds the same
+# full-year output 3-4 times -- wasting hours and, because each period pass
+# uploads then deletes the local files before the deferred emails flush,
+# sending the salesman emails with no attachment. A missed run re-runs in full,
+# and a Shabbos/Yom Tov run reschedules after havdalah rather than waiting a
+# whole cycle for the next regular run.
+_ALL_TIME_REPORTS = {"customer_activity", "salesman"}
 
 
 def _parse_runbook_args():
@@ -1475,7 +1565,7 @@ def main():
 
     if not report_name:
         log.error("No report_name parameter provided. Set the 'report_name' Azure Automation parameter or pass as first CLI arg.")
-        log.error("Available: ordered, invoiced, salesman, number_4, amazon_weekly, customer_activity, all")
+        log.error("Available: ordered, invoiced, salesman, number_4, customer_activity, customer_aging, all")
         return 1
 
     report_name = report_name.strip().lower().replace("-", "_")
@@ -1516,7 +1606,7 @@ def main():
         log.info("Checking Shabbos/Yom Tov date bypass...")
         is_assur, reason, havdalah_dt = _is_melacha_time()
         if is_assur:
-            guard_action = _classify_guard_action(extra_args)
+            guard_action = _classify_guard_action(extra_args, is_all_time=report_name in _ALL_TIME_REPORTS)
             log.info("Today IS assur b'melacha (%s). Guard action: %s", reason, guard_action)
 
             _tid = _get_config("GRAPH_TENANT_ID", ["GRAPH_TENANT_ID", "AZURE_TENANT_ID"])
@@ -1827,5 +1917,31 @@ def main():
     return overall_exit
 
 
+_JOB_ATTEMPTS = 2
+_JOB_RETRY_WAIT_S = 30
+
+
+def run_with_retry(run_fn=main, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAIT_S,
+                   sleeper=time.sleep):
+    """Run the job once more after a wait so a one-off Graph drop is not final."""
+    last_code = 1
+    for attempt in range(1, attempts + 1):
+        try:
+            last_code = int(run_fn() or 0)
+        except Exception:
+            if attempt >= attempts:
+                raise
+            log.exception("Runbook attempt %d/%d failed; retrying in %ss",
+                          attempt, attempts, wait_s)
+            sleeper(wait_s)
+            continue
+        if last_code == 0 or attempt >= attempts:
+            return last_code
+        log.warning("Runbook exited %s (attempt %d/%d); retrying in %ss",
+                    last_code, attempt, attempts, wait_s)
+        sleeper(wait_s)
+    return last_code
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_with_retry())

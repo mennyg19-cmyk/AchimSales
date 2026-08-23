@@ -55,6 +55,28 @@ def _find_all_new_xlsx(directory: str, before: float) -> list[str]:
     return [p for _, p in found]
 
 
+# Multi-file reports write a master ("all reps") workbook plus individuals.
+# Newest-mtime order often makes an individual the primary History download.
+_CANONICAL_XLSX_NEEDLE = {
+    "salesman": "Monthly Salesmen Report",
+    "customer_activity": "Customer_Activity_All_",
+}
+
+
+def _prefer_canonical_xlsx(report_key: str, files: list[str]) -> list[str]:
+    """Put the all-reps workbook first when a run also wrote per-salesman files."""
+    if len(files) <= 1:
+        return files
+    needle = _CANONICAL_XLSX_NEEDLE.get(report_key)
+    if not needle:
+        return files
+    preferred = [p for p in files if needle in os.path.basename(p)]
+    if not preferred:
+        return files
+    rest = [p for p in files if p not in preferred]
+    return preferred + rest
+
+
 def _read_excel_sheets(filepath: str) -> dict[str, list[dict]]:
     """Read an Excel file and return {sheet_name: [row_dicts]} for display."""
     try:
@@ -79,7 +101,6 @@ _REPORT_PRIMARY_MONEY_COL = {
     "invoiced": ["Total Invoice"],
     "ordered": ["SubTotal"],
     "salesman": ["Total Invoice", "SubTotal Invoices"],
-    "amazon_weekly": ["Total Invoice", "SubTotal"],
     "customer_activity": ["Total Invoice", "SubTotal"],
     "customer_aging": ["Balance", "Amount", "Total"],
     "number_4": ["Total Invoice", "SubTotal"],
@@ -201,56 +222,35 @@ def run_number4_report(params: dict) -> dict:
     return _run_class_report(Number4ReportRunner, [], "number_4")
 
 
-def run_amazon_weekly(params: dict) -> dict:
-    """Run the Amazon Weekly Report and return results."""
-    from reports.amazon_weekly.runner import run as amazon_run
-
-    from config.paths import get_direct_reports_root
-    import time
-
-    output_root = get_direct_reports_root()
-    before = time.time()
-
-    try:
-        amazon_run(send_email=False, test_mode=False)
-        all_files = _find_all_new_xlsx(os.path.join(output_root, "Amazon Weekly"), before)
-        if not all_files:
-            return {"success": False, "error": "Report generated but output file not found."}
-
-        filepath = all_files[0]
-        sheets = _read_excel_sheets(filepath)
-        summary = _compute_summary(sheets, "amazon_weekly")
-        result = {
-            "success": True,
-            "filepath": filepath,
-            "filename": os.path.basename(filepath),
-            "sheets": sheets,
-            "summary": summary,
-        }
-        if len(all_files) > 1:
-            result["extra_files"] = [
-                {"filepath": p, "filename": os.path.basename(p)} for p in all_files[1:]
-            ]
-        return result
-    except Exception as e:
-        log.exception("Amazon Weekly failed")
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
-
-
 def run_customer_activity(params: dict) -> dict:
-    """Run the Customer Activity Report and return results."""
+    """Run the Customer Activity Report and return results.
+
+    When a salesman or manager runs this on demand, ``params`` carries a
+    salesman scope so we only generate that rep's file(s) -- never the full
+    all-salesmen set. Admins (no scope, or salesman == 'all') get everything.
+    """
     from reports.customer_activity.runner import run as activity_run
     from config.paths import get_direct_reports_root
     import time
 
+    # Resolve the salesman scope from the request params.
+    salesman_keys: list[str] | None = None
+    if params.get("salesman_list"):
+        salesman_keys = [s for s in params["salesman_list"] if s]
+    else:
+        sk = (params.get("salesman") or "").strip()
+        if sk and sk.lower() != "all":
+            salesman_keys = [sk]
+
     output_root = get_direct_reports_root()
     before = time.time()
 
     try:
-        activity_run(send_email=False, test_mode=False)
+        activity_run(send_email=False, test_mode=False, salesman_keys=salesman_keys)
 
-        all_files = _find_all_new_xlsx(
-            os.path.join(output_root, "Salesman Report"), before
+        all_files = _prefer_canonical_xlsx(
+            "customer_activity",
+            _find_all_new_xlsx(os.path.join(output_root, "Salesman Report"), before),
         )
         if not all_files:
             return {"success": False, "error": "Report generated but output file not found."}
@@ -327,11 +327,15 @@ def _run_class_report(runner_cls, argv: list[str], report_key: str) -> dict:
 
         report_name = runner.report_name
         search_dir = os.path.join(output_root, report_name)
-        all_files = _find_all_new_xlsx(search_dir, before)
+        all_files = _prefer_canonical_xlsx(
+            report_key, _find_all_new_xlsx(search_dir, before),
+        )
 
         if not all_files:
             search_dir = output_root
-            all_files = _find_all_new_xlsx(search_dir, before)
+            all_files = _prefer_canonical_xlsx(
+                report_key, _find_all_new_xlsx(search_dir, before),
+            )
 
         if not all_files:
             return {
@@ -372,7 +376,6 @@ REPORT_RUNNERS = {
     "invoiced": run_invoiced_report,
     "salesman": run_salesman_report,
     "number_4": run_number4_report,
-    "amazon_weekly": run_amazon_weekly,
     "customer_activity": run_customer_activity,
     "customer_aging": run_customer_aging,
 }

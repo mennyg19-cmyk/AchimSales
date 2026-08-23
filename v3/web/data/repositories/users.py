@@ -62,6 +62,17 @@ class UserRepository:
             rows = conn.execute("SELECT * FROM users ORDER BY email").fetchall()
         return [User.from_row(r) for r in rows]
 
+    def all_users(self, *, include_inactive: bool = False) -> list[User]:
+        """All users, optionally including inactive (for impersonation picker)."""
+        with self.db.precious() as conn:
+            if include_inactive:
+                rows = conn.execute("SELECT * FROM users ORDER BY role, email").fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM users WHERE is_active = 1 ORDER BY role, email"
+                ).fetchall()
+        return [User.from_row(r) for r in rows]
+
     def get_by_id(self, user_id: int) -> User | None:
         with self.db.precious() as conn:
             row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()

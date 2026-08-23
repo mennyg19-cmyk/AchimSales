@@ -8,14 +8,15 @@ web.reporting.report_service.
 
 Scope note: the principal's visible-salesman scope is folded into the cache key
 (scope-safe cache) AND the dedup key, so two users with different scope never
-share a cached payload. Per-grantee DATA filtering for non-privileged users is a
-pending business sign-off (REVIEW-LOG); today only unrestricted (admin/dev)
-users can reach a report at all, via the fail-closed Authorization default.
+share a cached payload. Builders filter facts to the user's scope at build time.
+The result endpoint also verifies scope compatibility so a demoted user cannot
+read stale wider-scoped cached data.
 """
 
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime, timedelta, timezone
 
 from flask import (
     Blueprint,
@@ -30,21 +31,27 @@ from flask import (
 )
 
 import io
-from urllib.parse import urlencode
+import os
+import socket
+import time
+from urllib.parse import urlencode, urlparse
 
 from report_engine import registry
 from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
+from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import split_recipients
+from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
 from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
+from web.reporting.report_service import drop_commissions_tab
 
 reports_bp = Blueprint("reports", __name__)
 
@@ -54,7 +61,8 @@ REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "ordered": ("period", "status", "customers", "salesman"),
     "invoiced": ("period", "customers", "salesman"),
     "salesman": ("year",),
-    "number_4": (),
+    "number_4": ("n4_mode",),
+    "item_averages": (),
     "customer_activity": ("salesman",),
 }
 
@@ -67,6 +75,14 @@ PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
     ("last_7_days", "Last 7 Days"),
     ("daily", "Yesterday"),
     ("custom", "Custom Range"),
+)
+
+# Number 4's one question: which rolling-12 view(s) to build. "Both" fetches
+# each view from its own stored procedure and shows two tabs.
+N4_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("both", "Both"),
+    ("by_customer", "By Customer"),
+    ("by_item", "By Item"),
 )
 
 # Sales order status filter (Ordered report). Empty value = all statuses.
@@ -142,6 +158,34 @@ def _owned_job_or_404(job_id: str, uid: int | None):
     return job
 
 
+def _assert_scope_compatible(p, job):
+    """Deny if the user's current scope is narrower than the job's build scope.
+
+    Prevents a demoted user from reading a cached result that contains data
+    they can no longer access (e.g. admin -> salesman demotion).
+    """
+    current_keys = _authz().visible_salesman_keys(p)
+    if current_keys is None:
+        return  # unrestricted user can see everything
+    job_keys = job.params.get("visible_keys")
+    if job_keys is None:
+        abort(403, description="Result scope exceeds your current access; please re-run")
+    normalized_current = {salesman_key(k) for k in current_keys}
+    normalized_job = {salesman_key(k) for k in job_keys}
+    if not normalized_job.issubset(normalized_current):
+        abort(403, description="Result scope exceeds your current access; please re-run")
+
+
+def _selected_customer_accounts(params: dict) -> list[str]:
+    """Extract customer account list from filter params (same format as the UI sends)."""
+    c = (params or {}).get("customers")
+    if isinstance(c, (list, tuple)):
+        return [str(x).strip() for x in c if str(x).strip()]
+    if c:
+        return [s.strip() for s in str(c).split(",") if s.strip()]
+    return []
+
+
 # --- pages ----------------------------------------------------------------- #
 
 @reports_bp.get("/")
@@ -194,7 +238,10 @@ def report_view(report_key: str):
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
-        is_privileged=authz.is_privileged(p),
+        n4_mode_options=N4_MODE_OPTIONS,
+        is_developer=(p.role == ROLE_DEVELOPER),
+        user_email=p.email,
+        hide_commissions=not authz.may_see_commissions(p),
     )
 
 
@@ -219,10 +266,18 @@ def run_report(report_key: str):
     if not isinstance(params, dict):
         params = request.form.to_dict()
 
+    # Validate selected customers: resync if unknown, error if still missing.
+    selected = _selected_customer_accounts(params)
+    if selected:
+        still_unknown = _lookups().ensure_customers(selected)
+        if still_unknown:
+            abort(400, description=f"Unknown customer(s): {', '.join(still_unknown)}")
+
     uid = _user_id(p.email)
     if uid is None:
         abort(403, description="Unknown user")
     visible = authz.visible_salesman_keys(p)
+    params = _params_for_viewer(p, report_key, params)
     job_id = enqueue_report_run(
         _job_repo(), report_key=report_key, identity=p.email,
         visible_salesman_keys=visible, builder_version=spec.builder_version,
@@ -249,19 +304,128 @@ def job_status(job_id: str):
     })
 
 
+@reports_bp.post("/api/jobs/<job_id>/cancel")
+@require_login
+def cancel_job(job_id: str):
+    """Cancel a still-running (or queued) report run the user is watching.
+
+    Owner-checked like the status route. Returns whether the job was active to
+    cancel; if it already finished, we report its current status so the screen
+    can show the result instead of an error.
+    """
+    p = _principal_or_401()
+    job = _owned_job_or_404(job_id, _user_id(p.email))
+    cancelled = _job_repo().cancel(job_id)
+    return jsonify({"cancelled": cancelled,
+                    "status": "cancelled" if cancelled else job.status})
+
+
 @reports_bp.get("/api/reports/result/<job_id>")
 @require_login
 def report_result(job_id: str):
     p = _principal_or_401()
     job = _owned_job_or_404(job_id, _user_id(p.email))
-    # Re-check access live: a revoked grant must not be able to pull old results.
     _authz().assert_report_runnable(p, job.params.get("report_key"))
+    _assert_scope_compatible(p, job)
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
     cached = _cache().get(job.result_ref)
     if cached is None:
         abort(404, description="Result expired; please re-run")
-    return jsonify(cached.payload)
+    payload = cached.payload
+    if not _authz().may_see_commissions(p):
+        payload = drop_commissions_tab(payload)
+    return jsonify(payload)
+
+
+# How long a finished run stays resumable without Keep.
+_RECENT_DONE_SECONDS = 48 * 3600
+_KEEP_SECONDS = 30 * 86400
+_KEEP_CAP = 5
+
+
+def _age_seconds(ts: str | None, now: datetime | None = None) -> int | None:
+    """Seconds since a stored timestamp. Handles both the naive 'YYYY-MM-DD
+    HH:MM:SS' that SQLite writes for created_at and the tz-aware ISO that the
+    job repo writes for finished_at."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    return int((now - dt).total_seconds())
+
+
+def _kept_still_valid(kept_until: str | None, now: datetime) -> bool:
+    if not kept_until:
+        return False
+    try:
+        dt = datetime.fromisoformat(kept_until)
+    except ValueError:
+        return False
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt > now
+
+
+@reports_bp.get("/api/reports/active")
+@require_login
+def active_report_runs():
+    """The current user's report runs that are still going (queued/running) or
+    finished recently / Kept. Drives the always-on status bar and the
+    resume-on-return behaviour. Owner-scoped: only the caller's own jobs."""
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        return jsonify({"jobs": []})
+    titles = {s.key: s.title for s in registry.built_reports()}
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    jobs = []
+    for r in _job_repo().report_runs_for_user(uid, limit=30):
+        status = r["status"]
+        kept_until = r.get("kept_until")
+        if status not in ("queued", "running"):
+            if _kept_still_valid(kept_until, now):
+                pass
+            else:
+                age = _age_seconds(r["finished_at"] or r["created_at"], now)
+                if age is None or age > _RECENT_DONE_SECONDS:
+                    continue
+        rkey = json.loads(r["params_json"] or "{}").get("report_key")
+        jobs.append({
+            "job_id": r["id"], "report_key": rkey,
+            "title": titles.get(rkey, rkey or "Report"),
+            "status": status, "progress": r["progress"] or 0,
+            "age_seconds": _age_seconds(r["created_at"], now),
+            "created_at": r["created_at"],
+            "finished_at": r["finished_at"],
+            "kept_until": kept_until or None,
+            "kept": _kept_still_valid(kept_until, now),
+            "keep_name": (r["keep_name"] or "").strip() if "keep_name" in r.keys() else "",
+        })
+    return jsonify({"jobs": jobs})
+
+
+@reports_bp.post("/api/reports/runs/<job_id>/keep")
+@require_login
+def keep_report_run(job_id: str):
+    """Extend a finished run's resume window to 30 days (cap 5 Kept per user)."""
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    job = _owned_job_or_404(job_id, uid)
+    if job.status != "success":
+        abort(409, description="Only a finished report can be kept")
+    kept_until = (datetime.now(timezone.utc) + timedelta(seconds=_KEEP_SECONDS)).isoformat()
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("name") or "").strip()[:80]
+    ok = _job_repo().keep_run(job_id, uid, kept_until=kept_until, name=name, cap=_KEEP_CAP)
+    if not ok:
+        abort(404, description="Unknown job")
+    return jsonify({"job_id": job_id, "kept_until": kept_until, "kept": True, "keep_name": name})
 
 
 @reports_bp.post("/api/reports/<report_key>/export/<job_id>")
@@ -276,10 +440,10 @@ def export_report(report_key: str, job_id: str):
     spec = _built_spec_or_404(report_key)
     uid = _user_id(p.email)
     job = _owned_job_or_404(job_id, uid)
-    # Authorize against the job's OWN report key (not just the URL) and re-resolve live.
     if job.params.get("report_key") != report_key:
         abort(404, description="Unknown job")
     _authz().assert_report_runnable(p, report_key)
+    _assert_scope_compatible(p, job)
     if job.status != "success":
         abort(409, description="Report is not ready to export")
     if not _cache().exists(job.result_ref):  # cheap presence check (no payload deserialize)
@@ -415,28 +579,36 @@ def customer_last_order_salesmen():
     return jsonify({"salesmen": salesmen})
 
 
-def _clo_facts_or_403(p, account: str):
-    """Resolve the customer authoritatively, enforce scope, then fetch history.
+def _clo_rows_or_403(p, account: str):
+    """Resolve the customer authoritatively, enforce scope, then fetch last orders.
 
-    Returns (facts, customer_dict). Scope is checked against the CUSTOMER MASTER's
-    sales group (LookupService), never the order lines - salesline_release lines
-    can carry a blank SalesGroup, so trusting them would both deny valid customers
-    and skip authorization on empty history. When the master knows the customer we
-    authorize on its group even with zero orders; when it can't resolve the account
-    (unknown, or universe not warm) we fall back to the facts' group and only
-    authorize when there ARE facts (an empty unknown account leaks nothing).
+    Returns (rows, customer_dict). Scope is checked against the CUSTOMER MASTER's
+    sales group (LookupService), never the order lines — blank Salesman on a line
+    must not deny a valid customer or skip authorization on empty history. When the
+    master knows the customer we authorize on its group even with zero orders; when
+    it can't resolve the account we fall back to Salesman on the SP rows and only
+    authorize when there ARE rows (an empty unknown account leaks nothing).
     """
+    from report_engine.lib import first_of, text as _text
+
     info = _lookups().customer(account)
-    facts = _report_service().last_order_facts(account)
+    rows = _report_service().last_order_rows(account)
     if info is not None:
         sales_group, name = info["salesman"], info["name"]
         _authz().assert_can_view_customer(p, sales_group)
     else:
-        sales_group = next((f.sales_group for f in facts if f.sales_group), "")
-        name = next((f.customer_name for f in facts if f.customer_name), "")
-        if facts:
+        sales_group = ""
+        name = ""
+        for r in rows:
+            if not sales_group:
+                sales_group = _text(first_of(r, "Salesman", "SalesGroup"))
+            if not name:
+                name = _text(first_of(r, "Customer Name", "CustomerName", "customername"))
+            if sales_group and name:
+                break
+        if rows:
             _authz().assert_can_view_customer(p, sales_group)
-    return facts, {"account": account, "name": name or account, "sales_group": sales_group}
+    return rows, {"account": account, "name": name or account, "sales_group": sales_group}
 
 
 @reports_bp.get("/api/report/customer-last-order/<account>/recent-invoiced")
@@ -444,11 +616,11 @@ def _clo_facts_or_403(p, account: str):
 def customer_last_order_recent_invoiced(account: str):
     p = _principal_or_401()
     _assert_clo_access(p)
-    facts, _ = _clo_facts_or_403(p, account)
+    rows, _ = _clo_rows_or_403(p, account)
     orders = [
         {"order_number": o.order_number, "order_date": o.order_date,
          "status": o.status, "customer_req": o.customer_req, "order_name": o.order_name}
-        for o in clo.invoiced_orders(facts)[:10]
+        for o in clo.logical_orders(rows)
     ]
     return jsonify({"orders": orders})
 
@@ -460,10 +632,9 @@ def customer_last_order_view(account: str):
     _assert_clo_access(p)
 
     requested = [o.strip() for o in (request.args.get("orders") or "").split(",") if o.strip()]
-    error = None
     try:
-        facts, customer = _clo_facts_or_403(p, account)
-        view = clo.build(facts, requested_orders=requested)
+        rows, customer = _clo_rows_or_403(p, account)
+        view = clo.build(rows, requested_orders=requested)
     except Exception as exc:  # noqa: BLE001 - render a clean error card, never 500
         if getattr(exc, "status_code", None) == 403:
             raise
@@ -471,11 +642,88 @@ def customer_last_order_view(account: str):
         return render_template(
             "customer_last_order_view.html", active_tab="reports",
             customer={"account": account, "name": account, "sales_group": ""},
-            view=None, error=str(exc), provisional_note=clo.PROVISIONAL_NOTE,
+            view=None, error=str(exc),
         )
     return render_template(
         "customer_last_order_view.html", active_tab="reports",
-        customer=customer, view=view, error=None, provisional_note=clo.PROVISIONAL_NOTE,
+        customer=customer, view=view, error=None,
+    )
+
+
+@reports_bp.get("/report/customer-last-order/<account>/export")
+@require_login
+def customer_last_order_export(account: str):
+    """Excel or PDF of the current Last Order view (format=xlsx|pdf)."""
+    from openpyxl import Workbook
+    from web.reporting.last_order_export import last_order_pdf
+
+    p = _principal_or_401()
+    _assert_clo_access(p)
+    fmt = (request.args.get("format") or "xlsx").strip().lower()
+    if fmt not in ("xlsx", "pdf"):
+        abort(400, description="format must be xlsx or pdf")
+    requested = [o.strip() for o in (request.args.get("orders") or "").split(",") if o.strip()]
+    rows, customer = _clo_rows_or_403(p, account)
+    view = clo.build(rows, requested_orders=requested)
+    if not view or not view.primary:
+        abort(404, description="No order data to export")
+
+    primary = view.primary
+    name = customer.get("name") or account
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:40]
+    primary_dict = {
+        "order_number": primary.order_number,
+        "order_date": primary.order_date,
+        "salesman": primary.salesman,
+    }
+    line_dicts = [
+        {
+            "item": ln.item, "description": ln.description,
+            "qty_ordered": ln.qty_ordered, "qty_shipped": ln.qty_shipped,
+            "qty_cancelled": ln.qty_cancelled, "sales_price": ln.sales_price,
+            "total": ln.total,
+        }
+        for ln in (view.lines or [])
+    ]
+    if fmt == "pdf":
+        data = last_order_pdf(
+            customer_name=name, account=account, primary=primary_dict,
+            display_po=view.display_po or "", lines=line_dicts,
+            totals=view.totals or {},
+        )
+        return send_file(
+            io.BytesIO(data), mimetype="application/pdf", as_attachment=True,
+            download_name=f"Last_Order_{safe}.pdf",
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Last Order"
+    ws.append(["Customer", name, "Account", account])
+    ws.append(["Order", primary.order_number, "Date", primary.order_date,
+               "PO", view.display_po or ""])
+    ws.append([])
+    ws.append(["Item #", "Description", "Qty Ordered", "Qty Shipped",
+               "Qty Cancelled", "Sales Price", "Total"])
+    for line in line_dicts:
+        ws.append([
+            line["item"], line["description"],
+            line["qty_ordered"], line["qty_shipped"], line["qty_cancelled"],
+            line["sales_price"], line["total"],
+        ])
+    totals = view.totals or {}
+    ws.append([
+        "TOTALS", "", totals.get("qty_ordered"), totals.get("qty_shipped"),
+        totals.get("qty_cancelled"), "", totals.get("total"),
+    ])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"Last_Order_{safe}.xlsx",
     )
 
 
@@ -495,7 +743,11 @@ def report_salesmen(report_key: str):
     p = _principal_or_401()
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
-    return jsonify({"salesmen": _lookups().salesmen()})
+    visible = _authz().visible_salesman_keys(p)
+    all_sm = _lookups().salesmen()
+    if visible is not None:
+        all_sm = [s for s in all_sm if salesman_key(s["key"]) in visible]
+    return jsonify({"salesmen": all_sm})
 
 
 @reports_bp.get("/api/reports/<report_key>/customers")
@@ -505,7 +757,11 @@ def report_customers(report_key: str):
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
     salesman = (request.args.get("salesman") or "").strip() or None
-    return jsonify({"customers": _lookups().customers(salesman)})
+    visible = _authz().visible_salesman_keys(p)
+    all_custs = _lookups().customers(salesman)
+    if visible is not None:
+        all_custs = [c for c in all_custs if salesman_key(c.get("salesman", "")) in visible]
+    return jsonify({"customers": all_custs})
 
 
 @reports_bp.get("/api/reports/<report_key>/years")
@@ -524,8 +780,11 @@ def preview_body(report_key: str):
 
     Read-only: builds the SP params from the current filters without calling the
     API, so the form can surface a live "this is what we'll ask for" panel.
+    Developer-only -- the panel is a dev tool, not a user-facing feature.
     """
     p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
 
@@ -537,6 +796,10 @@ def preview_body(report_key: str):
     base = (cfg.reporting_api_base_url or "").rstrip("/")
     try:
         report_id = P.report_id_for(report_key)
+        # Number 4's SP depends on the View filter; "both" previews the first
+        # of its two calls (the By Customer SP).
+        if report_key == "number_4" and P.number_4_mode(filters) == "by_item":
+            report_id = P.NUMBER_4_BY_ITEM_SP
         body = P.translate(report_key, filters)
         url = f"{base}/api/reports/{report_id}/run" if base else None
         return jsonify({
@@ -549,6 +812,418 @@ def preview_body(report_key: str):
             "configured": bool(base and cfg.reporting_api_key),
             "warning": str(exc),
         })
+
+
+def _probe_reporting_api(cfg, *, run_live: bool = False) -> dict:
+    """Hit the on-prem Reporting API straight from this request (no worker, no
+    cache, no dedup) so we can prove whether our calls leave the app and reach
+    the endpoint at all. Checks, all with short timeouts so the request can't hang:
+
+      tcp  - open a raw socket to host:port. Proves the Azure Hybrid Connection
+             tunnel reaches the on-prem listener (no HTTP, no stored procedure).
+      http - a GET to the API root. ANY status code means the API process
+             answered and the DBA should see this request land. A connect/read
+             timeout here (with tcp ok) points at the API, not the tunnel.
+      live_query (only when run_live) - POST a real but tiny reference-data SP
+             (customer_master, no date window) with a short read timeout and no
+             retries. This is the ONLY check that proves the stored-proc layer
+             actually executes and returns - reachability can't. It's also a call
+             the DBA can watch land on the SQL box.
+
+    Never returns the API key. host:port is operational info, not a secret.
+    """
+    base = (cfg.reporting_api_base_url or "").rstrip("/")
+    out: dict = {"configured": bool(base and cfg.reporting_api_key),
+                 "host": None, "port": None, "tcp": None, "http": None}
+    if not base:
+        return out
+    parsed = urlparse(base)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    out["host"], out["port"] = host, port
+
+    t0 = time.monotonic()
+    try:
+        with socket.create_connection((host, port), timeout=5):
+            out["tcp"] = {"ok": True, "ms": int((time.monotonic() - t0) * 1000)}
+    except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
+        out["tcp"] = {"ok": False, "ms": int((time.monotonic() - t0) * 1000),
+                      "error": f"{type(exc).__name__}: {exc}"}
+
+    import requests
+    t1 = time.monotonic()
+    try:
+        r = requests.get(f"{base}/", timeout=(5, 10),
+                         headers={"X-API-Key": cfg.reporting_api_key})
+        out["http"] = {"ok": True, "status": r.status_code,
+                       "ms": int((time.monotonic() - t1) * 1000)}
+    except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
+        out["http"] = {"ok": False, "ms": int((time.monotonic() - t1) * 1000),
+                       "error": f"{type(exc).__name__}: {exc}"}
+
+    if run_live:
+        t2 = time.monotonic()
+        try:
+            r = requests.post(
+                f"{base}/api/reports/customer_master/run", json={},
+                headers={"X-API-Key": cfg.reporting_api_key,
+                         "Content-Type": "application/json"},
+                timeout=(5, 25))
+            body = r.json() if r.ok else None
+            out["live_query"] = {
+                "ok": r.ok, "status": r.status_code,
+                "ms": int((time.monotonic() - t2) * 1000),
+                "report_id": "customer_master",
+                "row_count": (body or {}).get("row_count"),
+            }
+        except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
+            out["live_query"] = {"ok": False, "ms": int((time.monotonic() - t2) * 1000),
+                                 "report_id": "customer_master",
+                                 "error": f"{type(exc).__name__}: {exc}"}
+    return out
+
+
+@reports_bp.get("/api/reports/diagnostics/reporting-api")
+@require_login
+def reporting_api_diagnostics():
+    """Admin/developer check: is the Reporting API reachable from the app right
+    now, and is the job worker backed up? Answers 'why aren't our calls hitting
+    the endpoint' without guessing. Developer-only (exposes the API host)."""
+    p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
+    cfg = current_app.config["APP_CONFIG"]
+    from web import is_background_leader_process
+    worker = current_app.config["JOB_WORKER"]
+    run_live = request.args.get("live") in ("1", "true", "yes")
+    return jsonify({
+        "reporting_api": _probe_reporting_api(cfg, run_live=run_live),
+        "jobs": _job_repo().status_summary(),
+        "claim_probe": _claim_probe(current_app.config["DB"]),
+        "me": {"email": p.email, "user_id": _user_id(p.email), "role": p.role},
+        "recent_jobs": _recent_jobs(current_app.config["DB"]),
+        "wiring": _worker_wiring(worker, current_app.config["DB"]),
+        "worker": {
+            "pid": os.getpid(),
+            "is_leader_process": is_background_leader_process(),
+            **worker.health(),
+        },
+    })
+
+
+@reports_bp.get("/api/reports/diagnostics/reconcile-salesman-invoiced")
+def reconcile_salesman_invoiced_diagnostic():
+    """One-shot: monthly_salesman_yoy vs invoiced_report Total Invoice.
+
+    Gated by env DIAG_RECONCILE_KEY (?k=...). When the key is unset, returns 404.
+    Optional ?scope=ty|ly|all (default all). Split ty/ly avoids App Service 230s
+    gateway timeout when both invoiced windows are large.
+    """
+    import hmac
+
+    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
+    provided = (request.args.get("k") or "").strip()
+    if (
+        not expected
+        or not provided
+        or len(expected) != len(provided)
+        or not hmac.compare_digest(expected, provided)
+    ):
+        abort(404)
+
+    service = current_app.config.get("REPORT_SERVICE")
+    client = getattr(service, "client", None) if service is not None else None
+    if client is None or not getattr(client, "configured", False):
+        return jsonify({"ok": False, "error": "Reporting API not configured"}), 503
+
+    year = request.args.get("year", type=int)
+    through = request.args.get("through_month", type=int)
+    scope = (request.args.get("scope") or "all").strip().lower()
+    only_month = request.args.get("month", type=int)
+    if scope not in ("ty", "ly", "all"):
+        return jsonify({"ok": False, "error": "scope must be ty, ly, or all"}), 400
+    try:
+        from web.reporting.reconcile_salesman import reconcile
+        return jsonify(reconcile(
+            client, year=year, through_month=through, scope=scope,
+            only_month=only_month,
+        ))
+    except Exception as exc:  # noqa: BLE001 - surface to the caller for one-shot ops
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@reports_bp.get("/api/reports/diagnostics/reconcile-number4-invoiced")
+def reconcile_number4_invoiced_diagnostic():
+    """One-shot: Number 4 rolling-12 vs invoiced_report (subtotal + Total Invoice).
+
+    Gated by env DIAG_RECONCILE_KEY (?k=...). Optional ?view=by_customer|by_item,
+    ?month=1..12 (index into the rolling window, 1=oldest) for gateway-safe slices.
+    """
+    import hmac
+
+    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
+    provided = (request.args.get("k") or "").strip()
+    if (
+        not expected
+        or not provided
+        or len(expected) != len(provided)
+        or not hmac.compare_digest(expected, provided)
+    ):
+        abort(404)
+
+    service = current_app.config.get("REPORT_SERVICE")
+    client = getattr(service, "client", None) if service is not None else None
+    if client is None or not getattr(client, "configured", False):
+        return jsonify({"ok": False, "error": "Reporting API not configured"}), 503
+
+    view = (request.args.get("view") or "by_customer").strip().lower()
+    if view not in ("by_customer", "by_item"):
+        return jsonify({"ok": False, "error": "view must be by_customer or by_item"}), 400
+    only_month = request.args.get("month", type=int)
+    as_of_raw = (request.args.get("as_of") or "").strip()
+    as_of = None
+    if as_of_raw:
+        try:
+            from datetime import date as _date
+            as_of = _date.fromisoformat(as_of_raw[:10])
+        except ValueError:
+            return jsonify({"ok": False, "error": "as_of must be YYYY-MM-DD"}), 400
+    try:
+        from web.reporting.reconcile_number4 import reconcile
+        return jsonify(reconcile(
+            client, as_of=as_of, view=view, only_month=only_month,
+        ))
+    except Exception as exc:  # noqa: BLE001 - surface to the caller for one-shot ops
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+def _recent_jobs(db, limit: int = 10) -> list[dict]:
+    """Last few jobs with owner + status, so 'Lost track of the job' can be told
+    apart: a 404 on poll is either the job not existing or its owner_user_id not
+    matching the caller. NULL-owner (system) jobs are unreadable through the user
+    API by design - that mismatch shows up plainly here."""
+    with db.precious() as conn:
+        rows = conn.execute(
+            "SELECT id, type, status, owner_user_id, created_at FROM jobs"
+            " ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    return [
+        {"id": r["id"], "type": r["type"], "status": r["status"],
+         "owner_user_id": r["owner_user_id"], "created_at": r["created_at"]}
+        for r in rows
+    ]
+
+
+@reports_bp.get("/api/reports/diagnostics/claim-once")
+@require_login
+def claim_once_diagnostic():
+    """Developer-only: call the REAL worker.repo.claim_next() from this request
+    thread (the poller calls the same method but always gets None). If this
+    claims a job, the poller's failure is thread-specific; if it returns None,
+    the method itself is the problem. Safe: any claimed job is immediately set
+    back to 'queued' so the actual handler never runs and nothing is lost."""
+    p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
+    from datetime import datetime, timezone
+    db = current_app.config["DB"]
+    # Replicate claim_next() step by step so we can see WHICH step bails: does the
+    # SELECT find the row, and does the UPDATE (id + status='queued') actually
+    # match it? Then revert so the job is never really claimed.
+    with db.precious() as conn:
+        sel = conn.execute(
+            "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        out: dict = {"select_found_id": sel["id"] if sel else None}
+        if sel:
+            upd = conn.execute(
+                "UPDATE jobs SET status='running', started_at=? WHERE id=? AND status='queued'",
+                (datetime.now(timezone.utc).isoformat(), sel["id"]),
+            )
+            out["update_rowcount"] = upd.rowcount
+            verify = conn.execute(
+                "SELECT status FROM jobs WHERE id=?", (sel["id"],)
+            ).fetchone()
+            out["status_after_update"] = verify["status"] if verify else None
+            # Revert no matter what so this is a pure read-only probe.
+            conn.execute(
+                "UPDATE jobs SET status='queued', started_at=NULL WHERE id=?", (sel["id"],)
+            )
+            out["reverted"] = True
+    return jsonify(out)
+
+
+@reports_bp.get("/api/reports/diagnostics/precious-repair")
+@require_login
+def precious_repair_diagnostic():
+    """Developer-only. The jobs 'status' index disagrees with the table by id
+    (a queued row found by status doesn't exist by id) - SQLite corruption from
+    the old /home SMB WAL, carried into the restore. ?action=check reports
+    integrity + index-vs-scan counts. ?action=backup dumps every table to a JSON
+    file on /home (insurance before a wipe). ?action=reindex rebuilds indexes from
+    the real table rows. ?action=delete-ghosts removes the stuck queued rows.
+    ?action=rebuild-jobs drops + recreates the corrupt jobs table. All read the
+    same precious.db the worker uses."""
+    p = _principal_or_401()
+    if p.role != ROLE_DEVELOPER:
+        abort(403, description="Developer role required")
+    db = current_app.config["DB"]
+    action = request.args.get("action", "check")
+    out: dict = {"action": action}
+    with db.precious() as conn:
+        if action == "check":
+            out["integrity_check"] = [r[0] for r in conn.execute("PRAGMA integrity_check(30)").fetchall()]
+            out["quick_check"] = [r[0] for r in conn.execute("PRAGMA quick_check(30)").fetchall()]
+            out["jobs_indexes"] = [
+                {"seq": r[0], "name": r[1], "unique": r[2], "origin": r[3], "partial": r[4]}
+                for r in conn.execute("PRAGMA index_list('jobs')").fetchall()
+            ]
+            # status index path vs forced full table scan - if these disagree the
+            # index has ghost entries the table doesn't back.
+            out["queued_via_index"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
+            out["queued_via_table_scan"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs NOT INDEXED WHERE status='queued'").fetchone()[0]
+        elif action == "reindex":
+            conn.execute("REINDEX jobs")
+            out["reindexed"] = True
+            out["queued_via_index"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
+            out["queued_via_table_scan"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs NOT INDEXED WHERE status='queued'").fetchone()[0]
+        elif action == "delete-ghosts":
+            deleted = conn.execute("DELETE FROM jobs WHERE status='queued'").rowcount
+            out["deleted"] = deleted
+            out["queued_remaining"] = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
+        elif action == "backup":
+            # Insurance before any wipe: dump every table's rows to a JSON file on
+            # persistent /home storage. Each table is read independently so the one
+            # corrupt table (jobs) can't abort the backup of the good rows.
+            out["backup"] = _backup_precious(conn)
+        elif action == "rebuild-jobs":
+            # The jobs PK index is malformed (rows missing from it), so per-row
+            # DELETE/REINDEX errors out. The jobs table is pure transient work-queue
+            # history - no business data - so drop the whole table (frees the corrupt
+            # b-trees wholesale, which DROP tolerates) and recreate it empty from its
+            # own captured schema: a fresh PK index plus the status/dedup indexes.
+            schema = [r[0] for r in conn.execute(
+                "SELECT sql FROM sqlite_master WHERE tbl_name='jobs' AND sql IS NOT NULL"
+                " ORDER BY (type='table') DESC").fetchall()]
+            out["captured_schema"] = schema
+            conn.execute("DROP TABLE jobs")
+            for stmt in schema:
+                conn.execute(stmt)
+            out["rebuilt"] = True
+            out["jobs_count"] = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            out["integrity_check"] = [r[0] for r in conn.execute("PRAGMA integrity_check(30)").fetchall()]
+        else:
+            abort(400, description="action must be check, backup, reindex, delete-ghosts, or rebuild-jobs")
+    return jsonify(out)
+
+
+def _backup_precious(conn) -> dict:
+    """Dump every table to a timestamped JSON file under /home (persistent across
+    container recycles). Reads each table on its own so a corrupt table records an
+    error instead of killing the whole backup. Returns the path + per-table counts."""
+    import json
+    from datetime import datetime, timezone
+
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+        " AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()]
+    dump: dict = {"created_at": datetime.now(timezone.utc).isoformat(), "tables": {}}
+    counts: dict = {}
+    errors: dict = {}
+    for table in tables:
+        try:
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            dump["tables"][table] = [dict(r) for r in rows]
+            counts[table] = len(rows)
+        except Exception as exc:  # noqa: BLE001 - one bad table must not lose the rest
+            errors[table] = f"{type(exc).__name__}: {exc}"
+
+    backup_dir = "/home/site/v3data"
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = os.path.join(backup_dir, f"precious-backup-{stamp}.json")
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(dump, fh)
+    os.replace(tmp, path)
+    return {"path": path, "row_counts": counts, "errors": errors}
+
+
+def _worker_wiring(worker, app_db) -> dict:
+    """Is the poller running the code we think, against the DB we think? The
+    poller's claim_next() returns None while an identical inline query in this
+    same process finds the job. Dump the ACTUAL deployed source of claim_next
+    (a stale .pyc on the wwwroot share would differ from the repo) and confirm
+    the worker's repo points at the very same Database object/path as requests."""
+    import inspect
+    repo = worker.repo
+    out: dict = {
+        "worker_db_is_app_db": repo.db is app_db,
+        "worker_db_path": str(getattr(repo.db, "precious_path", None)),
+        "app_db_path": str(getattr(app_db, "precious_path", None)),
+    }
+    try:
+        out["claim_next_source"] = inspect.getsource(type(repo).claim_next)
+    except Exception as exc:  # noqa: BLE001 - best-effort introspection
+        out["claim_next_source_error"] = f"{type(exc).__name__}: {exc}"
+    try:
+        out["claim_next_file"] = inspect.getsourcefile(type(repo).claim_next)
+    except Exception:  # noqa: BLE001
+        out["claim_next_file"] = None
+    return out
+
+
+def _claim_probe(db) -> dict:
+    """The poller's claim_next() returns None even though status_summary() sees
+    'queued' jobs in the SAME file/process. Run the EXACT read claim_next uses
+    and dump the RAW status/created_at of every active row, so we can see what's
+    different about these rows (hidden characters in status, a NULL/odd
+    created_at that breaks ORDER BY, a value that only LOOKS like 'queued')."""
+    with db.precious() as conn:
+        picked = conn.execute(
+            "SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        rows = conn.execute(
+            "SELECT id, status, created_at, typeof(status) AS s_type,"
+            " typeof(created_at) AS ca_type FROM jobs"
+            " WHERE status IN ('queued', 'running') ORDER BY created_at LIMIT 20"
+        ).fetchall()
+        eq_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM jobs WHERE status = 'queued'"
+        ).fetchone()["n"]
+        total = conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()["n"]
+        jmode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    return {
+        "db_file": _db_file_identity(db.precious_path),
+        "journal_mode": jmode,
+        "total_jobs": total,
+        "claim_next_would_pick": picked["id"] if picked else None,
+        "rows_where_status_equals_queued": eq_count,
+        "active_rows": [
+            {"id": r["id"], "status_repr": repr(r["status"]), "status_type": r["s_type"],
+             "created_at_repr": repr(r["created_at"]), "created_at_type": r["ca_type"]}
+            for r in rows
+        ],
+    }
+
+
+def _db_file_identity(path) -> dict:
+    """Inode/size/mtime of the precious.db file (and its -wal). If the leader and
+    a follower report different inodes for the same path, they're literally
+    reading different files - that's the whole bug. If same inode but a big -wal,
+    the data may be sitting in a WAL the poller's connection isn't seeing."""
+    out: dict = {"path": str(path)}
+    for label, p in (("main", path), ("wal", path.with_name(path.name + "-wal"))):
+        try:
+            st = os.stat(p)
+            out[label] = {"inode": st.st_ino, "size": st.st_size, "mtime": int(st.st_mtime)}
+        except OSError:
+            out[label] = None
+    return out
 
 
 # --- saved reports (presets) ----------------------------------------------- #
@@ -612,6 +1287,32 @@ def get_preset(preset_id: int):
     return jsonify(_preset_dict(s))
 
 
+@reports_bp.patch("/api/reports/presets/<int:preset_id>")
+@require_login
+def update_preset(preset_id: int):
+    p = _principal_or_401()
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    existing = _saved_repo().get(preset_id, uid)
+    if existing is None or not _authz().can_view_report(p, existing.report_key):
+        abort(404, description="Unknown preset")
+    body = request.get_json(silent=True) or {}
+    name = body.get("name")
+    if name is not None and not str(name).strip():
+        abort(400, description="A preset name is required")
+    ok = _saved_repo().update(
+        preset_id, uid,
+        name=None if name is None else str(name).strip(),
+        params=body["params"] if "params" in body else None,
+        layout=body["layout"] if "layout" in body else None,
+    )
+    if not ok:
+        abort(400, description="Could not save that view (the name may already be used)")
+    updated = _saved_repo().get(preset_id, uid)
+    return jsonify(_preset_dict(updated) if updated else {"id": preset_id})
+
+
 @reports_bp.delete("/api/reports/presets/<int:preset_id>")
 @require_login
 def delete_preset(preset_id: int):
@@ -650,7 +1351,8 @@ def email_now(report_key: str):
     job_id = enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
         "report_key": report_key, "identity": p.email,
         "visible_keys": _visible_list(authz.visible_salesman_keys(p)),
-        "builder_version": spec.builder_version, "params": body.get("params") or {},
+        "builder_version": spec.builder_version,
+        "params": _params_for_viewer(p, report_key, body.get("params") or {}),
         "layout": body.get("layout") or {}, "recipients": recipients,
         "subject": (body.get("subject") or "").strip(), "report_name": spec.title,
         "sharepoint_path": sharepoint_path,
@@ -683,7 +1385,40 @@ def sharepoint_folders():
     try:
         return jsonify({"path": path, "folders": _sharepoint().list_folders(path)})
     except Exception as exc:  # noqa: BLE001 - surface as a clean error, never 500 the picker
-        return jsonify({"path": path, "folders": [], "error": str(exc)}), 200
+        return jsonify({"path": path, "folders": [], "error": graph_error_message(exc, what="SharePoint")}), 502
+
+
+@reports_bp.get("/api/onedrive/status")
+@require_login
+def onedrive_status():
+    od = current_app.config.get("ONEDRIVE_SERVICE")
+    return jsonify({
+        "enabled": True,
+        "configured": bool(od and od.is_configured()),
+        "root": "OneDrive",
+    })
+
+
+@reports_bp.get("/api/onedrive/folders")
+@require_login
+def onedrive_folders():
+    p = _principal_or_401()
+    od = current_app.config.get("ONEDRIVE_SERVICE")
+    if od is None:
+        abort(503, description="OneDrive is not available.")
+    path = (request.args.get("path") or "").strip()
+    try:
+        return jsonify({"path": path, "folders": od.list_folders(p.email, path)})
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"path": path, "folders": [], "error": graph_error_message(exc, what="OneDrive")}), 502
+
+
+def _params_for_viewer(p, report_key: str, params: dict) -> dict:
+    """Stamp viewer limits that the builder honors (salesmen never get Commissions)."""
+    out = dict(params or {})
+    if report_key == "invoiced" and not _authz().may_see_commissions(p):
+        out["_skip_commissions"] = True
+    return out
 
 
 def _visible_list(keys) -> list | None:

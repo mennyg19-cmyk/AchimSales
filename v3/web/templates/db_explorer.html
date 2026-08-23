@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Database explorer{% endblock %}
+
+{% block content %}
+<div class="page-head" id="dbxRoot"
+     data-tables-url="{{ url_for('devtools.api_list_tables') }}"
+     data-table-url="{{ url_for('devtools.api_get_rows', table='__T__') }}"
+     data-cell-url="{{ url_for('devtools.api_update_cell', table='__T__') }}"
+     data-row-url="{{ url_for('devtools.api_delete_row', table='__T__') }}"
+     data-csrf="{{ csrf_token() }}">
+  <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
+  <h1 class="page-title">Database explorer</h1>
+  <p class="page-subtitle">Edits save immediately. There is no undo.</p>
+</div>
+<p class="dbx-warn">Developer only. Table and column names are checked against the schema; arbitrary SQL is not accepted.</p>
+<div class="dbx-toolbar">
+  <label class="filter-field"><span>Database</span>
+    <select id="dbxDb">
+      <option value="precious">precious (users, jobs, schedules)</option>
+      <option value="cache">cache (exports, dashboard mirror)</option>
+    </select>
+  </label>
+  <input type="search" id="dbxSearch" class="user-search" placeholder="Search this table…" autocomplete="off">
+</div>
+<div class="dbx-layout">
+  <aside class="dbx-tables" id="dbxTables"></aside>
+  <div class="table-scroll" id="dbxGrid"></div>
+</div>
+<p class="flag-desc" id="dbxMsg" hidden></p>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/db_explorer.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

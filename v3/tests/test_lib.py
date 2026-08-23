@@ -36,7 +36,35 @@ def test_date_only_trims():
     assert lib.date_only("2026-04-30") == "2026-04-30"
 
 
+def test_iso_date_parses_rfc_and_common_formats():
+    assert lib.iso_date("Mon, 27 Jul 2026 00:00:00 GMT") == "2026-07-27"
+    assert lib.iso_date("2026-04-30T12:00:00") == "2026-04-30"
+    assert lib.iso_date("04/30/2026") == "2026-04-30"
+    assert lib.iso_date("N/A") == "N/A"
+    assert lib.iso_date(None) == ""
+    # date_only is an alias — never the old [:10] RFC truncation.
+    assert lib.date_only("Mon, 27 Jul 2026 00:00:00 GMT") == "2026-07-27"
+
+
 def test_salesman_key_normalizes():
     assert lib.salesman_key(" M Kolko ") == "mkolko"
     assert lib.salesman_key("H-Kaufman") == "hkaufman"
     assert lib.salesman_key(None) == ""
+
+
+def test_map_release_converts_in_order():
+    rows = [1, 2, 3]
+    assert lib.map_release(rows, lambda n: n * 10) == [10, 20, 30]
+
+
+def test_map_release_frees_the_source_list():
+    # The memory win: each source slot is released as it's converted, so the raw
+    # rows and the converted facts never both sit in memory in full.
+    rows = [{"v": 1}, {"v": 2}]
+    lib.map_release(rows, lambda r: r["v"])
+    assert rows == [None, None]
+
+
+def test_map_release_handles_generators():
+    out = lib.map_release((n for n in range(3)), lambda n: n + 1)
+    assert out == [1, 2, 3]

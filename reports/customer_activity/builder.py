@@ -1,21 +1,30 @@
 """
 Customer Activity Report -- data processing.
 
-Starts from the *customer* table (all customers in D365), joins to
-all-time order headers to find each customer's most recent order.
-Customers with no orders ever still appear with "N/A" for order fields.
+Starts from the *customer* table (all customers in D365), then asks D365 for
+exactly ONE order per customer -- their most recent -- via a `$top=1` ordered
+query run in parallel across customers. Each call returns a single row, so the
+whole report pulls ~one row per customer instead of the entire order history.
 
+The earlier version dragged every order for every customer across the wire
+(358k+ rows since go-live) just to find each customer's latest, which made the
+report take the better part of an hour. Per-customer top-1 lookups (a few
+hundred customers, parallelised) finish in a couple of minutes.
+
+Customers with no orders since D365 go-live get "N/A" for order fields.
 Salesman assignment comes from the customer's SalesGroup, not from orders.
 """
 
 import logging
-from datetime import date
 
 import pandas as pd
 
 from config.salesman_excel import get_salesman_display_name_xl, load_salesman_map
-from core.dates import D365_GO_LIVE, convert_d365_dates_to_eastern, get_today_eastern
-from data.d365_entities import fetch_customers, fetch_sales_order_headers
+from core.columns import rename_columns
+from core.dates import convert_d365_dates_to_eastern
+from core.odata import fetch_top1_per_value
+from data.d365_entities import fetch_customers
+from data.field_maps import SALES_ORDER_HEADER_FIELD_MAP
 
 log = logging.getLogger(__name__)
 
@@ -27,65 +36,88 @@ OUTPUT_COLUMNS = [
     "Sales Order Number",
 ]
 
+_LAST_ORDER_COLUMNS = ["CustomerAccount", "Last Order Date", "PO #", "Sales Order Number"]
+
+# Narrow $select for the per-customer last-order lookup: just what the report shows.
+_LAST_ORDER_SELECT = [
+    "SalesOrderNumber",
+    "OrderCreationDateTime",
+    "InvoiceCustomerAccountNumber",
+    "CustomerRequisitionNumber",
+]
+
+# Customers fan out across this many parallel $top=1 requests. 8 was throttle-clean
+# in testing (~0.14s/customer) while keeping well under D365's request limits.
+_LAST_ORDER_WORKERS = 8
+
 
 def fetch_all_data(
     base_url: str,
     token: str,
     company_id: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch customers and all-time order headers from D365.
+    """Fetch the customer universe and each customer's most recent order.
 
-    Returns (customers_df, headers_df).  headers_df may be empty if no
-    orders exist at all -- that is fine; every customer still appears.
+    Returns ``(customers_df, headers_df)`` where headers_df holds at most one
+    order row per customer (their latest). ``build_customer_activity`` joins it
+    onto the full customer list.
     """
-    today = get_today_eastern()
-    all_time_start = D365_GO_LIVE
-
     customers_df = fetch_customers(base_url, token, company_id=company_id)
     log.info("Customers fetched: %d rows", len(customers_df))
 
-    headers_df = fetch_sales_order_headers(
-        base_url, token, all_time_start, today, company_id=company_id,
+    if customers_df.empty:
+        return customers_df, pd.DataFrame()
+
+    accounts = [
+        a for a in customers_df["CustomerAccount"].astype(str).str.strip()
+        .drop_duplicates().tolist() if a
+    ]
+
+    rows = fetch_top1_per_value(
+        base_url, "SalesOrderHeadersV3", token,
+        filter_field="InvoiceCustomerAccountNumber",
+        values=accounts,
+        order_by="OrderCreationDateTime desc",
+        select=_LAST_ORDER_SELECT,
+        company_id=company_id,
+        max_workers=_LAST_ORDER_WORKERS,
     )
-    log.info("Order headers fetched: %d rows", len(headers_df))
+    headers_df = rename_columns(pd.DataFrame(rows), SALES_ORDER_HEADER_FIELD_MAP) if rows else pd.DataFrame()
+    log.info("Last orders fetched: %d customers with orders", len(headers_df))
 
     return customers_df, headers_df
 
 
-def _build_last_order_lookup(headers_df: pd.DataFrame) -> pd.DataFrame:
-    """From raw order headers, return one row per customer with last-order info."""
-    if headers_df.empty:
-        return pd.DataFrame(columns=["CustomerAccount", "Last Order Date", "PO #", "Sales Order Number"])
+def _latest_order_per_customer(headers_df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse raw order headers to one row per customer: their most recent order.
 
-    h = headers_df.copy()
-    if "OrderDate" in h.columns:
-        h["OrderDate"] = convert_d365_dates_to_eastern(h["OrderDate"])
-    if "CustomerRequisition" not in h.columns:
-        h["CustomerRequisition"] = ""
+    Accepts the raw SalesOrderHeadersV3 shape (CustomerAccount, OrderDate,
+    SalesOrderNumber, CustomerRequisition). Customers with no dated order are
+    dropped here and resurface as "N/A" after the left-join in the caller.
+    """
+    if headers_df is None or headers_df.empty or "OrderDate" not in headers_df.columns:
+        return pd.DataFrame(columns=_LAST_ORDER_COLUMNS)
 
-    h["CustomerAccount"] = h["CustomerAccount"].astype(str).str.strip()
+    df = headers_df.copy()
+    df["CustomerAccount"] = df["CustomerAccount"].astype(str).str.strip()
+    df["OrderDate"] = convert_d365_dates_to_eastern(df["OrderDate"])
+    if "CustomerRequisition" not in df.columns:
+        df["CustomerRequisition"] = ""
+    if "SalesOrderNumber" not in df.columns:
+        df["SalesOrderNumber"] = ""
 
-    rows = []
-    for cust_acct, grp in h.groupby("CustomerAccount", dropna=False):
-        order_dates = grp["OrderDate"].dropna() if "OrderDate" in grp.columns else pd.Series(dtype="datetime64[ns]")
-        last_date = order_dates.max() if not order_dates.empty else pd.NaT
+    dated = df.dropna(subset=["OrderDate"])
+    if dated.empty:
+        return pd.DataFrame(columns=_LAST_ORDER_COLUMNS)
 
-        if pd.notna(last_date):
-            last_rows = grp.loc[grp["OrderDate"] == last_date]
-            last_po = last_rows["CustomerRequisition"].fillna("").astype(str).str.strip().iloc[0]
-            last_so = last_rows["SalesOrderNumber"].astype(str).str.strip().iloc[0]
-        else:
-            last_po = "N/A"
-            last_so = "N/A"
+    latest = dated.loc[dated.groupby("CustomerAccount", dropna=False)["OrderDate"].idxmax()]
 
-        rows.append({
-            "CustomerAccount": str(cust_acct).strip(),
-            "Last Order Date": last_date,
-            "PO #": last_po,
-            "Sales Order Number": last_so,
-        })
-
-    return pd.DataFrame(rows)
+    return pd.DataFrame({
+        "CustomerAccount": latest["CustomerAccount"].values,
+        "Last Order Date": latest["OrderDate"].values,
+        "PO #": latest["CustomerRequisition"].fillna("").astype(str).str.strip().values,
+        "Sales Order Number": latest["SalesOrderNumber"].astype(str).str.strip().values,
+    })
 
 
 def build_customer_activity(
@@ -94,9 +126,10 @@ def build_customer_activity(
 ) -> pd.DataFrame:
     """Build the customer activity DataFrame starting from ALL customers.
 
-    Every customer in customers_df appears in the result.  Order info is
-    left-joined from headers_df; customers with no orders get N/A values.
-    Salesman assignment comes from the customer's SalesGroup field.
+    Every customer in customers_df appears in the result. Raw order headers are
+    reduced to each customer's most recent order and left-joined on; customers
+    with no orders get N/A values. Salesman assignment comes from the customer's
+    SalesGroup field.
     """
     if customers_df.empty:
         log.info("No customers -- returning empty activity report")
@@ -112,9 +145,8 @@ def build_customer_activity(
     if "CustomerName" not in cust.columns:
         cust["CustomerName"] = ""
 
-    last_orders = _build_last_order_lookup(headers_df)
-
-    merged = cust.merge(last_orders, on="CustomerAccount", how="left")
+    last_orders_df = _latest_order_per_customer(headers_df)
+    merged = cust.merge(last_orders_df, on="CustomerAccount", how="left")
 
     merged["PO #"] = merged["PO #"].fillna("N/A")
     merged["Sales Order Number"] = merged["Sales Order Number"].fillna("N/A")

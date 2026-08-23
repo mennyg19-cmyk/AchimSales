@@ -9,6 +9,7 @@ thereafter.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 from report_engine.facts import SalesmanFact
 from report_engine.lib import salesman_key
@@ -33,6 +34,7 @@ class SalesmanRow:
     number: str
     full_name: str
     display_name: str
+    email: str
     is_active: bool
 
 
@@ -64,16 +66,17 @@ class SalesmanRepository:
         """Every salesman (active + inactive) for the admin grid, by number."""
         with self.db.precious() as conn:
             rows = conn.execute(
-                "SELECT key, number, full_name, display_name, is_active FROM salesmen"
+                "SELECT key, number, full_name, display_name, email, is_active FROM salesmen"
                 " ORDER BY number, display_name"
             ).fetchall()
         return [
             SalesmanRow(key=r["key"], number=r["number"], full_name=r["full_name"],
-                        display_name=r["display_name"], is_active=bool(r["is_active"]))
+                        display_name=r["display_name"], email=r["email"] or "",
+                        is_active=bool(r["is_active"]))
             for r in rows
         ]
 
-    _EDITABLE = ("number", "full_name", "display_name", "is_active")
+    _EDITABLE = ("number", "full_name", "display_name", "email", "is_active")
 
     def update(self, key: str, **fields) -> bool:
         """Update editable fields of a salesman. Returns False if the key is unknown."""
@@ -90,6 +93,45 @@ class SalesmanRepository:
         with self.db.precious() as conn:
             cur = conn.execute(f"UPDATE salesmen SET {', '.join(sets)} WHERE key = ?", vals)
             return cur.rowcount > 0
+
+    def get_email(self, key: str) -> str:
+        """Email for a raw or normalized SalesGroup key."""
+        norm = salesman_key(key)
+        if not norm:
+            return ""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT email FROM salesmen WHERE key = ? AND is_active = 1",
+                (norm,),
+            ).fetchone()
+        return (row["email"] or "").strip() if row else ""
+
+    def emails_by_keys(self, keys: Iterable[str]) -> dict[str, str]:
+        """{raw input key -> email}, matching through the normalized DB key."""
+        return {str(k): self.get_email(str(k)) for k in keys}
+
+    def keys_with_email(self) -> list[str]:
+        """Active salesmen who have an email, in D365 SalesGroup form when we have it.
+
+        The table stores a normalized `key`. When `display_name` normalizes to that
+        key it is the original SalesGroup (e.g. REdwards) and we return that so
+        the ordered/invoiced SP filter matches. Otherwise we return `key`.
+        """
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT key, display_name FROM salesmen"
+                " WHERE is_active = 1 AND TRIM(COALESCE(email, '')) != ''"
+                " ORDER BY display_name, key"
+            ).fetchall()
+        out: list[str] = []
+        for row in rows:
+            key = row["key"]
+            display = (row["display_name"] or "").strip()
+            if display and " " not in display and salesman_key(display) == key:
+                out.append(display)
+            else:
+                out.append(key)
+        return out
 
     def upsert_many(self, seeds: list[SalesmanSeed]) -> int:
         """Insert/update salesmen keyed by normalized SalesGroup. Returns count."""

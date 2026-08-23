@@ -4,18 +4,20 @@ This is the single module gunicorn serves:
 
     gunicorn wsgi:application
 
-It wires three apps behind one process via werkzeug's DispatcherMiddleware:
+It wires apps behind one process via werkzeug's DispatcherMiddleware:
 
-    /            -> live Flask app (webapp/)            [production, unchanged]
-    /test-legacy -> v2 rebuild (test/webapp/)           [the old sandbox, kept]
-    /v2          -> v2 rebuild                           [dev alias]
-    /test        -> v3 rebuild (v3/web/) when enabled,   [the new app]
-                    otherwise the v2 app (current behavior preserved)
+    /          -> v3 in beta mode              [site home; hybrid SQL/OData]
+    /legacy    -> live Flask app (webapp/)     [former home; OData]
+    /test      -> v3 app (v3/web/)             [SQL sandbox]
+    /beta      -> 302 to the same path without /beta
+    /test-next -> ground-up rebuild (rebuild/) [preview]
 
-Safety: mounting v3 at /test is gated on V3_MOUNT_ENABLED and wrapped in
-try/except. If v3 is disabled OR fails to boot (e.g. its prod config isn't set
-yet), /test transparently falls back to the v2 app and the live app is never
-affected. Flip V3_MOUNT_ENABLED=1 (with v3's env vars set) to cut /test over.
+The old green v2 sandbox (test/) was retired 2026-06-11 -- unused, and its
+background mirror refresh kept overloading the on-prem Reporting API.
+
+Safety: Beta-as-home is gated on BETA_MOUNT_ENABLED. If Beta fails to boot,
+/ stays the live app so the site is never taken down. /test is gated on
+V3_MOUNT_ENABLED the same way. Rebuild mounts behind REBUILD_MOUNT_ENABLED.
 """
 
 from __future__ import annotations
@@ -37,26 +39,21 @@ log = logging.getLogger("wsgi")
 
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
+from wsgi_dispatch import mount_beta_as_home
+
 
 def _env_bool(name: str) -> bool:
     return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-log.info("Creating live (/) app...")
+log.info("Creating live app...")
 from webapp.app import app as live_app
 
-log.info("Creating v2 app...")
-from test.webapp.app import create_app as _create_v2_app
-
-_v2_app = _create_v2_app()
-
-# v2 is always reachable at its dev alias and the explicit legacy path.
-MOUNTS: dict[str, object] = {
-    "/v2": _v2_app,
-    os.environ.get("LEGACY_URL_PREFIX", "/test-legacy"): _v2_app,
-}
+MOUNTS: dict[str, object] = {}
 
 _TEST_MOUNT = os.environ.get("V3_URL_PREFIX", "/test")
+_BETA_REDIRECT = os.environ.get("BETA_URL_PREFIX", "/beta")
+_LEGACY_MOUNT = os.environ.get("LEGACY_URL_PREFIX", "/legacy")
 
 
 def _write_boot_error(text: str) -> None:
@@ -106,8 +103,8 @@ def _build_v3_app():
     """Create the v3 app (fast, pure wiring). Bootstrap runs async, not here."""
     v3_root = str(_REPO_ROOT / "v3")
     # Insert at the FRONT so v3's top-level packages (web, report_engine) win over
-    # any same-named site-package. Live/v2 import webapp / test.webapp, never these
-    # names, so this can't shadow them.
+    # any same-named site-package. The live app imports webapp, never these names,
+    # so this can't shadow it.
     if v3_root in sys.path:
         sys.path.remove(v3_root)
     sys.path.insert(0, v3_root)
@@ -122,20 +119,124 @@ if _env_bool("V3_MOUNT_ENABLED"):
     try:
         MOUNTS[_TEST_MOUNT] = _build_v3_app()
         log.info("v3 mounted at %s", _TEST_MOUNT)
-    except Exception:  # noqa: BLE001 - never let v3 take down live / /test
+    except Exception:  # noqa: BLE001 - never let v3 take down live
         import traceback
 
-        log.exception("v3 failed to boot; %s falls back to the v2 app", _TEST_MOUNT)
+        log.exception("v3 failed to boot; %s will return 404", _TEST_MOUNT)
         _write_boot_error(traceback.format_exc())
-        MOUNTS[_TEST_MOUNT] = _v2_app
 else:
-    # v3 disabled: preserve the current behavior (v2 serves /test).
-    MOUNTS[_TEST_MOUNT] = _v2_app
-    log.info("V3_MOUNT_ENABLED off; %s served by the v2 app", _TEST_MOUNT)
+    log.info("V3_MOUNT_ENABLED off; %s not mounted", _TEST_MOUNT)
 
-application = DispatcherMiddleware(live_app, MOUNTS)
 
-log.info("WSGI dispatcher ready: live -> /, mounts -> %s", sorted(MOUNTS))
+def _build_rebuild_app():
+    """Create the ground-up rebuild app and run its DB setup off the import path.
+
+    The mount path is checked BEFORE the app is built or any DB setup starts, so
+    a bad slot can't migrate a database or spawn a bootstrap thread for a mount
+    we're going to reject. Like v3, the app build itself is fast (pure wiring)
+    and the slow setup runs in a daemon thread so it can't block Azure's warmup.
+    """
+    import threading
+
+    import rebuild as rebuild_pkg
+
+    config = rebuild_pkg.load_config()
+    mount = config.mount_path
+    if mount in ("", "/", _TEST_MOUNT, _BETA_REDIRECT, _LEGACY_MOUNT):
+        raise ValueError(
+            f"REBUILD_MOUNT_PATH resolved to {mount!r}, which collides with /, /legacy, "
+            f"/test, or /beta. Use a distinct slot like /test-next."
+        )
+
+    app = rebuild_pkg.create_app(config)
+
+    def _run():
+        try:
+            rebuild_pkg.bootstrap_background(app)
+            log.info("rebuild bootstrap_background complete")
+        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
+            log.exception("rebuild bootstrap_background failed (rebuild stays mounted, may be degraded)")
+
+    threading.Thread(target=_run, name="rebuild-bootstrap", daemon=True).start()
+    return app, mount
+
+
+if _env_bool("REBUILD_MOUNT_ENABLED"):
+    try:
+        _rebuild_app, _rebuild_mount = _build_rebuild_app()
+        MOUNTS[_rebuild_mount] = _rebuild_app
+        log.info("rebuild mounted at %s", _rebuild_mount)
+    except Exception:  # noqa: BLE001 - never let the rebuild take down live or /test
+        import traceback
+
+        log.exception("rebuild failed to boot; its slot will return 404")
+        _write_boot_error(traceback.format_exc())
+else:
+    log.info("REBUILD_MOUNT_ENABLED off; rebuild not mounted")
+
+
+def _build_beta_app():
+    """Create the Beta surface: v3 look + reports-only + hybrid SQL/OData sources."""
+    import threading
+
+    v3_root = str(_REPO_ROOT / "v3")
+    if v3_root in sys.path:
+        sys.path.remove(v3_root)
+    sys.path.insert(0, v3_root)
+    import web as v3_web
+
+    cfg = v3_web.load_config(is_beta=True) if hasattr(v3_web, "load_config") else None
+    if cfg is None:
+        from web.config import load_config as _load
+
+        cfg = _load(is_beta=True)
+    app = v3_web.create_app(cfg)
+
+    def _run():
+        try:
+            v3_web.bootstrap_background(app)
+            log.info("beta bootstrap_background complete")
+        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
+            log.exception("beta bootstrap_background failed (beta stays mounted, may be degraded)")
+
+    threading.Thread(target=_run, name="beta-bootstrap", daemon=True).start()
+    return app
+
+
+_beta_app = None
+if _env_bool("BETA_MOUNT_ENABLED"):
+    try:
+        if _LEGACY_MOUNT in ("", "/", _TEST_MOUNT):
+            raise ValueError(
+                f"LEGACY_URL_PREFIX resolved to {_LEGACY_MOUNT!r}, which collides with / or /test"
+            )
+        _beta_app = _build_beta_app()
+        log.info("beta will serve / ; live at %s", _LEGACY_MOUNT)
+    except Exception:  # noqa: BLE001 - never let beta take down live or /test
+        import traceback
+
+        log.exception("beta failed to boot; / stays the live app")
+        _write_boot_error(traceback.format_exc())
+        _beta_app = None
+else:
+    log.info("BETA_MOUNT_ENABLED off; / stays the live app")
+
+if _beta_app is not None:
+    application = mount_beta_as_home(
+        _beta_app,
+        live_app,
+        MOUNTS,
+        legacy=_LEGACY_MOUNT,
+        beta_redirect=_BETA_REDIRECT,
+    )
+    log.info(
+        "WSGI dispatcher ready: beta -> /, live -> %s, extra mounts -> %s, /beta redirects",
+        _LEGACY_MOUNT,
+        sorted(MOUNTS),
+    )
+else:
+    application = DispatcherMiddleware(live_app, MOUNTS)
+    log.info("WSGI dispatcher ready: live -> /, mounts -> %s", sorted(MOUNTS))
 
 
 if __name__ == "__main__":

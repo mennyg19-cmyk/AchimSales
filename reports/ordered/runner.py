@@ -54,6 +54,20 @@ def _resolve_salesman_email(
         return None, [], []
 
 
+def _get_filtered_report_recipients() -> list[str]:
+    """Recipients for --email on customer-filtered Ordered runs.
+
+    Always AMAZON_EMAIL_RECIPIENTS — never salesman-map subscription columns.
+    """
+    from config.settings import get_email_recipients
+    recipients = get_email_recipients()
+    if not recipients:
+        log.warning("Filtered-report email skipped: AMAZON_EMAIL_RECIPIENTS is empty")
+    else:
+        log.info("Filtered-report recipients from AMAZON_EMAIL_RECIPIENTS: %d", len(recipients))
+    return recipients
+
+
 def _get_subscribed_salesmen() -> list[tuple[str, str, str]]:
     """Return [(salesman_key, display_name, email)] for salesmen subscribed to ordered report.
 
@@ -135,6 +149,20 @@ class OrderedReportRunner(BaseReportRunner):
         super().__init__()
         self.pending_salesman_emails: list[dict] = []
         self.defer_salesman_emails: bool = False
+
+    def build_arg_parser(self):
+        parser = super().build_arg_parser()
+        parser.add_argument("--email", action="store_true", default=False,
+                            help="Email customer-filtered files to AMAZON_EMAIL_RECIPIENTS.")
+        return parser
+
+    @property
+    def _send_emails(self) -> bool:
+        """True when email was requested and this is not a no-send mode."""
+        if self.no_email or self.dry_run:
+            return False
+        cli = getattr(self, "_cli_args", None)
+        return bool(getattr(cli, "email", False))
 
     @property
     def _test_email_override(self) -> str | None:
@@ -232,6 +260,12 @@ class OrderedReportRunner(BaseReportRunner):
                 reason = f"No orders found for customer(s) '{customer_label}' in the requested date range"
             log.info("%s. Exiting.", reason)
             if customer_filter and not salesman_list:
+                if self._send_emails:
+                    self._email_filtered_report(
+                        file_path=None,
+                        subject=f"{report_label} \u2013 No orders ({customer_label})",
+                        body=f"{reason}.\n\nPeriod: {plan.fetch_start} to {plan.fetch_end}.",
+                    )
                 return
             for sm in salesman_list:
                 for period in plan.periods:
@@ -279,6 +313,39 @@ class OrderedReportRunner(BaseReportRunner):
             write_report(df, out_path, report_variant="salesman" if salesman_list else "filtered")
             log.info("Saved: %s", out_path)
 
+            if self._send_emails and customer_filter and not salesman_list:
+                self._email_filtered_report(
+                    file_path=out_path,
+                    subject=f"{report_label} \u2013 {period.label} "
+                            f"({period.start_date} to {period.end_date})",
+                    body=f"Attached is the {report_label} for customer(s) {customer_label}.\n\n"
+                         f"Period: {period.start_date} to {period.end_date}.",
+                )
+
+    def _email_filtered_report(self, file_path: str | None, subject: str, body: str) -> None:
+        """Email a customer-filtered report (or no-data notice) via AMAZON_EMAIL_RECIPIENTS.
+
+        ``--test`` reroutes to TEST_EMAIL. Never uses salesman-map subscriptions.
+        """
+        if self.dry_run or self.no_email:
+            log.info("[NO SEND] Skipping filtered-report email (dry-run/no-email)")
+            return
+        test_override = self._test_email_override
+        if test_override:
+            # TEST_EMAIL may hold several addresses joined with ';'
+            recipients = [a.strip() for a in test_override.split(";") if a.strip()]
+        else:
+            recipients = _get_filtered_report_recipients()
+        if not recipients:
+            log.warning("Filtered-report email skipped: no AMAZON_EMAIL_RECIPIENTS configured")
+            return
+        try:
+            send_report_email(file_path=file_path, subject=subject, body=body,
+                              recipients=recipients)
+            log.info("Emailed filtered report to %s", recipients)
+        except Exception:
+            log.exception("Failed to email filtered report")
+
     def _run_for_all_salesmen(
         self, customer_filter: list[str] | None,
         plan: FetchPlan, company_id: str | None,
@@ -286,7 +353,9 @@ class OrderedReportRunner(BaseReportRunner):
     ) -> None:
         """Run a separate filtered report for each subscribed salesman.
 
-        Files are email-only: written to a temp directory, emailed, then deleted.
+        By default files are email-only (temp dir -> email -> delete).
+        With ``--no-email``, files are saved to the normal output directory
+        so they can be reviewed without sending anything.
         """
         subscribed = _get_subscribed_salesmen()
         if not subscribed:
@@ -297,7 +366,9 @@ class OrderedReportRunner(BaseReportRunner):
         report_label = "Open Orders Report" if is_open else REPORT_NAME
         file_prefix = "Open_Orders" if is_open else "Ordered_Report"
 
-        log.info("Running %s for %d subscribed salesmen (email-only)", report_label, len(subscribed))
+        save_to_disk = self.no_email
+        mode_label = "files-to-disk" if save_to_disk else "email-only"
+        log.info("Running %s for %d subscribed salesmen (%s)", report_label, len(subscribed), mode_label)
 
         base_url, token, company = self.connect(company_id)
 
@@ -315,13 +386,14 @@ class OrderedReportRunner(BaseReportRunner):
             if customer_filter and not is_open:
                 reason = f"No orders found for customer(s) '{customer_label}' in the requested date range"
             log.info("%s. Exiting.", reason)
-            for sm_key, _, _ in subscribed:
-                for period in plan.periods:
-                    _send_no_data_email(sm_key, customer_label, period.label, reason,
-                                        test_override=test_override)
+            if not save_to_disk:
+                for sm_key, _, _ in subscribed:
+                    for period in plan.periods:
+                        _send_no_data_email(sm_key, customer_label, period.label, reason,
+                                            test_override=test_override)
             return
 
-        tmp_dir = tempfile.mkdtemp(prefix="ordered_sm_all_")
+        tmp_dir = None if save_to_disk else tempfile.mkdtemp(prefix="ordered_sm_all_")
         try:
             for sm_idx, (sm_key, sm_display, sm_email) in enumerate(subscribed):
                 log.info("--- Salesman %d/%d: %s (%s) ---", sm_idx + 1, len(subscribed), sm_display, sm_email)
@@ -335,8 +407,9 @@ class OrderedReportRunner(BaseReportRunner):
 
                     if df.empty:
                         log.info("No data for %s, period %s: %s", sm_display, period.label, empty_reason)
-                        _send_no_data_email(sm_key, customer_label, period.label, empty_reason or "No data",
-                                            test_override=test_override)
+                        if not save_to_disk:
+                            _send_no_data_email(sm_key, customer_label, period.label, empty_reason or "No data",
+                                                test_override=test_override)
                         continue
 
                     validate_output(df, FULL_DATA_ORDER, REPORT_NAME)
@@ -348,17 +421,23 @@ class OrderedReportRunner(BaseReportRunner):
 
                     test_tag = "_TEST" if self.test_mode else ""
                     filename = f"{period.filename_prefix}{file_prefix}_{period.filename_tag}_{sm_display}{test_tag}.xlsx"
-                    out_path = os.path.join(tmp_dir, filename)
+
+                    if save_to_disk:
+                        out_path = get_output_path(REPORT_NAME, "Salesman", filename)
+                    else:
+                        out_path = os.path.join(tmp_dir, filename)
 
                     log.info("Writing %s (%d rows)", out_path, len(df))
                     write_report(df, out_path, report_variant="salesman")
-                    log.info("Saved (temp): %s", out_path)
+                    log.info("Saved: %s", out_path)
 
-                    self._queue_or_send_salesman_email(
-                        sm_key, out_path, period.label, force_immediate=True)
+                    if not save_to_disk:
+                        self._queue_or_send_salesman_email(
+                            sm_key, out_path, period.label, force_immediate=True)
         finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            log.info("Cleaned up temp dir for salesman email-only files")
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                log.info("Cleaned up temp dir for salesman email-only files")
 
     def _run_unfiltered(
         self, plan: FetchPlan, company_id: str | None,

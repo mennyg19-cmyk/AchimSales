@@ -7,15 +7,16 @@ from Flask so the job worker and the scheduler can both call it.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Iterable
 
 from web.delivery.email import DeliveryResult, EmailService
+from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
 from web.delivery.layout import apply_layout, expand_clones
+from web.delivery.sharepoint import strip_reports_home
 from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
+from web.reporting.report_service import invoiced_skip_commissions
 from web.reporting.runner import ReportRunner
 
 
@@ -23,6 +24,8 @@ from web.reporting.runner import ReportRunner
 class DeliveryOutcome:
     result: DeliveryResult
     row_count: int
+    # Optional per-leg details for fan-out runs (kind, recipients, salesman, …).
+    deliveries: list[dict] | None = None
 
 
 class DeliveryService:
@@ -36,24 +39,53 @@ class DeliveryService:
                         visible_salesman_keys: Iterable[str] | None,
                         builder_version: int, params: dict, layout: dict,
                         recipients: str, subject: str, report_name: str,
-                        sharepoint_path: str = "", body_text: str = "") -> DeliveryOutcome:
+                        sharepoint_path: str = "", body_text: str = "",
+                        filename_template: str = "",
+                        onedrive_user: str = "",
+                        cc_raw: str = "", bcc_raw: str = "",
+                        email_on_empty: bool = True,
+                        empty_recipients_override: str | None = None,
+                        schedule_name: str = "") -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
+        run_params = dict(params or {})
+        if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
+            run_params["_skip_commissions"] = True
         outcome = self.runner.run(
             report_key=report_key, identity=identity,
             visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
-            params=params or {}, builder=builder, force_refresh=True,
+            params=run_params, builder=builder, force_refresh=True,
         )
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
-        xlsx = build_workbook(payload, layout)
-        result = self.email.deliver(
-            subject=subject or report_name, recipients_raw=recipients, body_text=body_text,
-            report_name=report_name, filename=_filename(report_name), xlsx_bytes=xlsx,
-            sharepoint_path=sharepoint_path or None,
-        )
         rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
+        if rows == 0 and not email_on_empty:
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=True,
+                    error="No data — email/folder delivery skipped (no-data checkbox off).",
+                ),
+                row_count=0,
+            )
+        xlsx = build_workbook(payload, layout)
+        filename = resolve_filename_template(
+            filename_template, report_name=report_name, params=params or {},
+            schedule_name=schedule_name,
+        )
+        folder = strip_reports_home(resolve_folder_template(
+            sharepoint_path, report_name=report_name, params=params or {},
+            schedule_name=schedule_name,
+        ))
+        to = recipients
+        cc = cc_raw
+        bcc = bcc_raw
+        if rows == 0 and empty_recipients_override:
+            to = empty_recipients_override
+            cc = ""
+            bcc = ""
+        result = self.email.deliver(
+            subject=subject or report_name, recipients_raw=to, body_text=body_text,
+            report_name=report_name, filename=filename, xlsx_bytes=xlsx,
+            sharepoint_path=folder or None,
+            onedrive_user=(onedrive_user or "").strip() or None,
+            cc_raw=cc or "", bcc_raw=bcc or "",
+        )
         return DeliveryOutcome(result=result, row_count=rows)
-
-
-def _filename(report_name: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", (report_name or "report").strip()).strip("_") or "report"
-    return f"{slug}_{datetime.now(timezone.utc):%Y%m%d}.xlsx"

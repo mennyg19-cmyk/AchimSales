@@ -13,6 +13,8 @@
  * reflects each tab's on-screen view, with live-style formatting + group totals.
  */
 
+import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
+
 declare const Tabulator: any;
 
 interface Column {
@@ -22,14 +24,20 @@ interface Column {
 }
 
 interface CommissionMonth {
+  month: number;
   month_label: string;
   subtotal_invoices: number;
+  tariff_charges: number;
+  freight_charges: number;
+  cc_charges: number;
+  misc_charges: number;
   total_invoices: number;
   credits: number;
   net_commission: number;
   commission: number;
 }
 interface CommissionSalesman {
+  salesman?: string;
   salesman_number: string;
   salesman_name: string;
   commission_pct: number;
@@ -47,6 +55,8 @@ interface Tab {
   salesmen?: CommissionSalesman[];
   grand?: Record<string, number>;
   month_labels?: string[];
+  year?: number;
+  end_month?: number;
 }
 
 interface Payload {
@@ -67,6 +77,7 @@ interface ViewState {
   sorters: { column: string; dir: string }[] | null;
   columnFilters: Record<string, ColFilter>;
   group: string[];
+  widths: Record<string, number>; // field -> user-dragged column width (px)
 }
 
 const root = document.getElementById("reportRoot");
@@ -82,7 +93,10 @@ function $(id: string): HTMLElement | null {
 function setStatus(msg: string, kind: "info" | "error" = "info"): void {
   const el = $("reportStatus");
   if (!el) return;
-  el.textContent = msg;
+  // Write into the text span so the Cancel button living in the same bar isn't
+  // wiped out by setting textContent on the whole status element.
+  const txt = $("reportStatusText");
+  if (txt) txt.textContent = msg; else el.textContent = msg;
   el.className = "report-status report-status-" + kind;
   el.hidden = false;
 }
@@ -106,10 +120,54 @@ function money(precision: number) {
   };
 }
 
-function formatterFor(col: Column): Record<string, unknown> {
+/** Normalize any date-ish cell to YYYY-MM-DD (matches report_engine.lib.iso_date). */
+function isoDate(value: unknown): string {
+  if (value == null || value === "") return "";
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(value.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  const s = String(value).trim();
+  if (!s) return "";
+  const upper = s.toUpperCase();
+  if (upper === "N/A" || upper === "NA" || upper === "NONE" || s === "-") return s;
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const parsed = Date.parse(s);
+  if (!isNaN(parsed)) {
+    const d = new Date(parsed);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return s;
+}
+
+function formatterFor(col: Column, colIndex = -1): Record<string, unknown> {
+  const band = attr("data-report-key") === "salesman" && colIndex >= 4
+    ? Math.min(Math.floor((colIndex - 4) / 4), 2)
+    : -1;
+  const bandColor = band === 0 ? "#0000CC" : band === 1 ? "#008000" : band === 2 ? "#800080" : null;
+
   switch (col.type) {
-    case "money":
-      return money(2);
+    case "money": {
+      if (!bandColor) return money(2);
+      return {
+        sorter: "number",
+        hozAlign: "right",
+        formatter: (cell: any) => {
+          const n = Number(cell.getValue());
+          const text = isFinite(n) && cell.getValue() !== "" && cell.getValue() != null
+            ? n.toLocaleString(undefined, { style: "currency", currency: "USD" })
+            : "";
+          const color = (isFinite(n) && n < 0) ? "#FF0000" : bandColor;
+          return color && text ? `<span style="color:${color}">${text}</span>` : text;
+        },
+      };
+    }
     case "int":
       return {
         formatter: "money",
@@ -123,17 +181,15 @@ function formatterFor(col: Column): Record<string, unknown> {
         hozAlign: "right",
         formatter: (cell: any) => {
           const n = Number(cell.getValue());
-          return isFinite(n) && cell.getValue() !== "" ? (n * 100).toFixed(1) + "%" : "";
+          const text = isFinite(n) && cell.getValue() !== "" ? (n * 100).toFixed(1) + "%" : "";
+          const color = (isFinite(n) && n < 0) ? "#FF0000" : bandColor;
+          return color && text ? `<span style="color:${color}">${text}</span>` : text;
         },
       };
     case "date":
       return {
         sorter: "string",
-        formatter: (cell: any) => {
-          const v = String(cell.getValue() || "");
-          const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          return m ? `${Number(m[2])}/${Number(m[3])}/${m[1]}` : v;
-        },
+        formatter: (cell: any) => isoDate(cell.getValue()),
       };
     default:
       return { sorter: "string" };
@@ -155,10 +211,11 @@ const state: {
   views: Record<string, ViewState>;
   table: any;
   jobId: string | null;
-} = { tabs: {}, order: [], active: null, views: {}, table: null, jobId: null };
+  removed: Set<string>;
+} = { tabs: {}, order: [], active: null, views: {}, table: null, jobId: null, removed: new Set<string>() };
 
 function freshView(): ViewState {
-  return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [] };
+  return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [], widths: {} };
 }
 
 // --------------------------------------------------------------------------
@@ -215,17 +272,18 @@ function buildColumns(tab: Tab): any[] {
       ...tab.columns.filter((c) => !savedSet.has(c.field)),
     ];
   }
-  return ordered.map((c) => ({
+  return ordered.map((c, i) => ({
     title: c.header,
     field: c.field,
     visible: !v.hidden.has(c.field),
     frozen: v.frozen.has(c.field),
+    width: v.widths[c.field],
     titleFormatter: () => columnHeaderEl(tab, c),
     headerMenu: headerMenu(tab),
     bottomCalc: isNumericType(c.type) && c.type !== "percent" ? "sum" : undefined,
     bottomCalcFormatter: c.type === "money" ? "money" : undefined,
     bottomCalcFormatterParams: c.type === "money" ? { symbol: "$", precision: 2, thousand: "," } : undefined,
-    ...formatterFor(c),
+    ...formatterFor(c, i),
   }));
 }
 
@@ -514,6 +572,11 @@ function captureActive(): void {
     const cols = state.table.getColumns();
     v.order = cols.map((c: any) => c.getField()).filter(Boolean);
     v.hidden = new Set(cols.filter((c: any) => !c.isVisible()).map((c: any) => c.getField()));
+    cols.forEach((c: any) => {
+      const field = c.getField();
+      const w = c.getWidth();
+      if (field && w) v.widths[field] = w;
+    });
   } catch {
     /* table not ready */
   }
@@ -559,21 +622,48 @@ function buildTable(tab: Tab): void {
     columns: buildColumns(tab),
     layout: "fitDataTable",
     movableColumns: true,
+    resizableColumns: true, // drag a column border to set its width
     columnCalcs: "both",
-    height: "calc(100vh - 230px)",
+    height: tableHeight(),
     nestedFieldSeparator: false, // fields contain "." (e.g. "Cust. #")
     placeholder: "No data for these filters.",
     initialSort: v.sorters?.map((s) => ({ column: s.column, dir: s.dir })),
     groupBy: v.group.length ? v.group : undefined,
   });
   state.table = table;
+  // Remember a width the moment the user drags it, so it survives a re-run.
+  table.on("columnResized", (column: any) => {
+    const field = column.getField();
+    if (field) view(tab.key).widths[field] = column.getWidth();
+  });
   table.on("tableBuilt", () => {
     // A build from a previous tab can fire late; ignore it if we've moved on.
     if (state.table !== table || state.active !== tab.key) return;
     if (v.group.length) table.setGroupBy(v.group);
     applyColumnFilters(); // replay any saved per-column filters
+    requestAnimationFrame(fitTableHeight); // size once the grid is laid out
   });
   renderMeta(tab);
+}
+
+// The grid should fill the screen from where it starts down to the bottom,
+// with its own vertical scrollbar -- never push the whole page taller. The
+// start point moves when the filters panel opens/closes, so this recomputes.
+function tableHeight(): number {
+  const host = $("reportTable");
+  const top = host ? host.getBoundingClientRect().top : 230;
+  const bottomGap = 16; // breathing room under the grid
+  // The bottom nav is fixed over the viewport, so the grid (and its horizontal
+  // scrollbar) must stop above it -- otherwise the bottom row hides behind the
+  // nav and you'd have to scroll the whole page to reach the side-scrollbar.
+  const nav = document.querySelector(".bottom-nav");
+  const floor = nav ? nav.getBoundingClientRect().top : window.innerHeight;
+  return Math.max(220, Math.round(floor - top - bottomGap));
+}
+
+function fitTableHeight(): void {
+  if (!state.table) return;
+  try { state.table.setHeight(tableHeight()); } catch { /* table gone */ }
 }
 
 function n(v: unknown): number {
@@ -584,54 +674,126 @@ function fmtMoney(v: unknown): string {
   return n(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+function monthHeaderLabel(month: number, year: number | undefined): string {
+  const abbr = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1] || `M${month}`;
+  if (!year) return abbr;
+  return `${abbr}-${String(year).slice(-2)}`;
+}
+
 function renderCommissionCards(tab: Tab, host: HTMLElement): void {
-  const labels = tab.month_labels || [];
-  const wrap = document.createElement("div");
-  wrap.className = "commission-cards";
-
-  (tab.salesmen || []).forEach((s) => {
-    const card = document.createElement("div");
-    card.className = "commission-card";
-
-    const head = document.createElement("div");
-    head.className = "commission-card-head";
-    const title = document.createElement("div");
-    title.className = "commission-card-title";
-    title.textContent = `${s.salesman_number} - ${s.salesman_name}`;
-    const payable = document.createElement("div");
-    payable.className = "commission-card-payable";
-    payable.innerHTML = `<span>Total payable</span><strong>${fmtMoney(s.ytd.total_payable ?? s.ytd.commission)}</strong>`;
-    head.appendChild(title);
-    head.appendChild(payable);
-    card.appendChild(head);
-
-    const sub = document.createElement("div");
-    sub.className = "commission-card-sub";
-    sub.textContent = `Commission ${(n(s.commission_pct) * 100).toFixed(1)}%`;
-    card.appendChild(sub);
-
-    const table = document.createElement("table");
-    table.className = "commission-month-table";
-    table.innerHTML =
-      "<thead><tr><th>Month</th><th>Net commission</th><th>Commission</th></tr></thead>";
-    const tbody = document.createElement("tbody");
-    s.monthly.forEach((m) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${m.month_label}</td><td>${fmtMoney(m.net_commission)}</td><td>${fmtMoney(m.commission)}</td>`;
-      tbody.appendChild(tr);
-    });
-    const tfoot = document.createElement("tfoot");
-    tfoot.innerHTML = `<tr><td>YTD</td><td>${fmtMoney(s.ytd.net_commission)}</td><td>${fmtMoney(s.ytd.commission)}</td></tr>`;
-    table.appendChild(tbody);
-    table.appendChild(tfoot);
-    card.appendChild(table);
-    wrap.appendChild(card);
-  });
-
-  if (!wrap.childElementCount) {
+  // Live Excel layout: metrics as rows, months as columns, no future months.
+  // Data already stops at end_month from the builder.
+  const salesmen = tab.salesmen || [];
+  if (!salesmen.length) {
     host.innerHTML = '<div class="empty-state">No commissions for this period.</div>';
     return;
   }
+
+  const wrap = document.createElement("div");
+  wrap.className = "commission-live";
+  wrap.style.height = `${tableHeight()}px`;
+
+  const title = document.createElement("div");
+  title.className = "commission-live-title";
+  title.textContent = tab.year
+    ? `Commissions Summary (${tab.year})`
+    : "Commissions Summary";
+  wrap.appendChild(title);
+
+  const metricRows: { label: string; field: string; kind: "money" | "net" | "comm" | "pay" }[] = [
+    { label: "SubTotal Invoices:", field: "subtotal_invoices", kind: "money" },
+    { label: "Total Tariff Charges:", field: "tariff_charges", kind: "money" },
+    { label: "Total Freight Charges:", field: "freight_charges", kind: "money" },
+    { label: "Total CC Charges:", field: "cc_charges", kind: "money" },
+    { label: "Total Invoices: (SubTotal+Tariff+Freight+CC)", field: "total_invoices", kind: "money" },
+    { label: "Total Credits:", field: "credits", kind: "money" },
+    { label: "Net Commission Amount (Less Freight and CC)", field: "net_commission", kind: "net" },
+    { label: "Commission:", field: "commission", kind: "comm" },
+  ];
+
+  salesmen.forEach((s) => {
+    const months = s.monthly || [];
+    const num = String(s.salesman_number || s.salesman || "").trim();
+    const name = String(s.salesman_name || "").trim();
+    const titleText = `${num} - ${name}`.replace(/^ - | - $/g, "").trim() || name || num;
+
+    const block = document.createElement("div");
+    block.className = "commission-live-block";
+
+    const table = document.createElement("table");
+    table.className = "commission-live-table";
+
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    const thName = document.createElement("th");
+    thName.className = "comm-label";
+    thName.textContent = titleText;
+    hr.appendChild(thName);
+    const thPct = document.createElement("th");
+    thPct.className = "comm-pct";
+    thPct.textContent = "";
+    hr.appendChild(thPct);
+    months.forEach((m) => {
+      const th = document.createElement("th");
+      th.textContent = monthHeaderLabel(m.month || 0, tab.year);
+      hr.appendChild(th);
+    });
+    const thYtd = document.createElement("th");
+    thYtd.textContent = "YTD Total";
+    hr.appendChild(thYtd);
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    metricRows.forEach((mr) => {
+      const tr = document.createElement("tr");
+      if (mr.kind === "net") tr.className = "comm-row-net";
+      if (mr.kind === "comm") tr.className = "comm-row-comm";
+      const tdLab = document.createElement("td");
+      tdLab.className = "comm-label";
+      tdLab.textContent = mr.label;
+      tr.appendChild(tdLab);
+      const tdPct = document.createElement("td");
+      tdPct.className = "comm-pct";
+      if (mr.kind === "comm") {
+        tdPct.textContent = `${(n(s.commission_pct) * 100).toFixed(2)}%`;
+      }
+      tr.appendChild(tdPct);
+      months.forEach((m) => {
+        const td = document.createElement("td");
+        const val = (m as unknown as Record<string, unknown>)[mr.field];
+        td.textContent = fmtMoney(val);
+        tr.appendChild(td);
+      });
+      const tdYtd = document.createElement("td");
+      tdYtd.textContent = fmtMoney(s.ytd?.[mr.field]);
+      tr.appendChild(tdYtd);
+      tbody.appendChild(tr);
+    });
+
+    const pay = document.createElement("tr");
+    pay.className = "comm-row-pay";
+    const payLab = document.createElement("td");
+    payLab.className = "comm-label";
+    payLab.colSpan = 2;
+    payLab.textContent = `Total Payable: ${titleText}`;
+    pay.appendChild(payLab);
+    months.forEach(() => {
+      const td = document.createElement("td");
+      td.textContent = "";
+      pay.appendChild(td);
+    });
+    const payYtd = document.createElement("td");
+    payYtd.textContent = fmtMoney(s.ytd?.total_payable ?? s.ytd?.commission);
+    pay.appendChild(payYtd);
+    tbody.appendChild(pay);
+
+    table.appendChild(tbody);
+    block.appendChild(table);
+    wrap.appendChild(block);
+  });
+
   host.appendChild(wrap);
 }
 
@@ -701,8 +863,8 @@ function openTabMenuAt(key: string, x: number, y: number): void {
     menu.appendChild(b);
   };
   mk("Duplicate tab", () => duplicateTab(key));
-  if ((tab as any)._isDuplicate) {
-    mk("Delete tab", () => deleteTab(key), true);
+  if (state.order.length > 1) {
+    mk((tab as any)._isDuplicate ? "Delete tab" : "Remove tab", () => deleteTab(key), true);
   }
   document.body.appendChild(menu);
   tabMenuEl = menu;
@@ -729,7 +891,10 @@ function duplicateTab(key: string): void {
 }
 
 function deleteTab(key: string): void {
-  if (!(state.tabs[key] as any)?._isDuplicate) return;
+  if (state.order.length <= 1) return;
+  const tab = state.tabs[key];
+  if (!tab) return;
+  if (!(tab as any)._isDuplicate) state.removed.add(key);
   const idx = state.order.indexOf(key);
   delete state.tabs[key];
   delete state.views[key];
@@ -1009,8 +1174,12 @@ function loadPayload(payload: Payload, render = true): void {
   state.tabs = {};
   state.order = [];
   state.views = {};
+  state.removed = new Set();
   (state.tabs as any).__generated_at__ = payload.generated_at;
-  payload.tabs.forEach((tab) => {
+  const tabs = attr("data-hide-commissions") === "1"
+    ? payload.tabs.filter((t) => t.key !== "commissions")
+    : payload.tabs;
+  tabs.forEach((tab) => {
     state.tabs[tab.key] = tab;
     state.order.push(tab.key);
     const v = freshView();
@@ -1023,12 +1192,15 @@ function loadPayload(payload: Payload, render = true): void {
   setToolbarEnabled(true);
   if (render) {
     renderTabs();
+    // Show + collapse the panels FIRST so the grid is built into its final
+    // on-screen position; otherwise its height is measured while hidden and
+    // comes out way too tall.
+    showReportSurface();
+    setControlsCollapsed(true);
     if (state.active) {
       buildTable(state.tabs[state.active]);
       syncColumnsButton(state.tabs[state.active]);
     }
-    showReportSurface();
-    setControlsCollapsed(true);
   }
 }
 
@@ -1041,6 +1213,7 @@ function loadPayloadPreserving(payload: Payload): void {
   const prevViews = state.views;
   const prevActive = state.active;
   const prevOrder = [...state.order];
+  const prevRemoved = new Set(state.removed);
   const duplicates = state.order
     .filter((k) => (state.tabs[k] as any)?._isDuplicate)
     .map((k) => ({
@@ -1051,6 +1224,7 @@ function loadPayloadPreserving(payload: Payload): void {
     }));
 
   loadPayload(payload, false); // resets to the fresh server tabs (no render yet)
+  state.removed = prevRemoved;
 
   // Re-create duplicates from their refreshed base tab, preserving their views.
   duplicates.forEach((d) => {
@@ -1070,19 +1244,22 @@ function loadPayloadPreserving(payload: Payload): void {
     if (state.tabs[k] && !(state.tabs[k] as any)._isDuplicate) state.views[k] = prevViews[k];
   });
 
-  // Restore order: previous keys that still exist, then any newly-added tabs.
+  // Restore order: previous keys that still exist, then any newly-added tabs
+  // the user did not explicitly remove (e.g. Audit that only appears some days).
   const restored = prevOrder.filter((k) => state.tabs[k]);
-  state.order.forEach((k) => { if (!restored.includes(k)) restored.push(k); });
+  state.order.forEach((k) => {
+    if (!restored.includes(k) && !state.removed.has(k)) restored.push(k);
+  });
   state.order = restored;
 
   state.active = prevActive && state.tabs[prevActive] ? prevActive : state.order[0] || null;
   renderTabs();
+  showReportSurface();
+  setControlsCollapsed(true);
   if (state.active) {
     buildTable(state.tabs[state.active]);
     syncColumnsButton(state.tabs[state.active]);
   }
-  showReportSurface();
-  setControlsCollapsed(true);
 }
 
 function cloneView(v: ViewState): ViewState {
@@ -1093,18 +1270,66 @@ function cloneView(v: ViewState): ViewState {
     sorters: v.sorters ? v.sorters.map((s) => ({ ...s })) : null,
     columnFilters: JSON.parse(JSON.stringify(v.columnFilters || {})),
     group: [...v.group],
+    widths: { ...(v.widths || {}) },
   };
 }
 
-async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Promise<void> {
+// The in-flight run's job id (so Cancel knows what to stop), and a flag the
+// poll loop checks so a cancel stops the screen waiting right away.
+let activeRunJobId: string | null = null;
+let runAborted = false;
+
+function showCancel(visible: boolean): void {
+  const btn = $("cancelRunBtn") as HTMLButtonElement | null;
+  if (btn) { btn.hidden = !visible; btn.disabled = false; }
+}
+
+async function cancelRun(): Promise<void> {
+  const jobId = activeRunJobId;
+  runAborted = true;        // the poll loop bails on its next tick
+  showCancel(false);
+  if (!jobId) { clearStatus(); return; }
+  setStatus("Cancelling…");
+  try {
+    await fetch(attr("data-cancel-url").replace("__ID__", jobId), {
+      method: "POST", headers: csrfHeaders(),
+    });
+  } catch {
+    // Even if the cancel request fails, we've already stopped watching the job.
+  }
+  setStatus("Run cancelled.");
+}
+
+async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?: number } = {}): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
   const resultUrl = attr("data-result-url").replace("__ID__", jobId);
-  const started = Date.now();
+  // Count from when the job really started (passed in when reconnecting to a
+  // run from a prior visit) so the timer doesn't reset to zero on return.
+  const started = Date.now() - (opts.elapsedMs || 0);
+
+  // One failed check-in (a brief gateway blip while the server is busy) must not
+  // kill a run that's still going on the server. Only give up after several
+  // failures in a row; any good response resets the count.
+  const maxConsecutiveErrors = 5;
+  let consecutiveErrors = 0;
 
   for (let i = 0; i < 600; i++) {
-    const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error("Lost track of the job (it may have expired) — try running again.");
-    const job = await res.json();
+    if (runAborted) return; // user cancelled; cancelRun() owns the status line
+    let job: { status?: string; progress?: number; error?: unknown };
+    try {
+      const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      job = await res.json();
+      consecutiveErrors = 0;
+    } catch {
+      consecutiveErrors++;
+      if (consecutiveErrors >= maxConsecutiveErrors) {
+        throw new Error("Lost track of the job (it may have expired) — try running again.");
+      }
+      setStatus(`Building report… reconnecting (${fmtElapsed(Date.now() - started)})`);
+      await new Promise((r) => setTimeout(r, 1000));
+      continue;
+    }
     if (job.status === "success") {
       const r = await fetch(resultUrl, { headers: { Accept: "application/json" } });
       if (!r.ok) throw new Error("The report finished but the result couldn't be loaded — re-run to refresh it.");
@@ -1118,6 +1343,9 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean } = {}): Pro
     }
     if (job.status === "failure") throw new Error(friendlyError(job.error));
     if (job.status === "cancelled") throw new Error("The run was cancelled.");
+    // Only offer Cancel once the job is actually running on the server; a
+    // queued job hasn't started, so there's nothing to stop yet.
+    showCancel(job.status === "running");
     setStatus(`Building report… ${job.progress || 0}% (${fmtElapsed(Date.now() - started)})`);
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -1131,10 +1359,21 @@ function friendlyError(raw: unknown): string {
   return s.split("\n")[0].slice(0, 300);
 }
 
+/** Is a report already on screen (so a new run keeps the user's layout)? */
+function isReportShown(): boolean {
+  return !!state.active && !($("reportSurface")?.hidden ?? true);
+}
+
 async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<string, unknown> } = {}): Promise<void> {
-  if (opts.preserveLayout) captureActive();
+  if (opts.preserveLayout) {
+    captureActive();
+    // Empty the old rows right away so the user isn't staring at stale data
+    // while the new run builds; the columns/format stay put and refill on success.
+    try { state.table?.clearData(); } catch { /* table not ready */ }
+  }
   setToolbarEnabled(false);
   setStatus(opts.preserveLayout ? "Refreshing data…" : "Starting…");
+  runAborted = false;
   try {
     const params = opts.overrideParams ?? collectParams();
     const res = await fetch(attr("data-run-url"), {
@@ -1144,22 +1383,126 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
     });
     if (!res.ok) throw new Error(`Could not start the report (HTTP ${res.status}).`);
     const { job_id } = await res.json();
+    activeRunJobId = job_id;
     await poll(job_id, opts);
   } catch (err) {
-    setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
+    if (!runAborted) setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
   } finally {
+    showCancel(false);
+    activeRunJobId = null;
     const runBtn = $("runBtn") as HTMLButtonElement | null;
     if (runBtn) runBtn.disabled = false;
   }
 }
 
+/** Reconnect to a job that's already on the server (started in a prior visit),
+ *  reusing the same poll loop -- it shows progress for a running job and loads
+ *  the result for one that already finished. */
+async function resumeJob(jobId: string, elapsedMs = 0): Promise<void> {
+  setToolbarEnabled(false);
+  setStatus("Reconnecting to your report…");
+  runAborted = false;
+  activeRunJobId = jobId;
+  try {
+    await poll(jobId, { elapsedMs });
+  } catch (err) {
+    if (!runAborted) setStatus(err instanceof Error ? err.message : "Something went wrong.", "error");
+  } finally {
+    showCancel(false);
+    activeRunJobId = null;
+    const runBtn = $("runBtn") as HTMLButtonElement | null;
+    if (runBtn) runBtn.disabled = false;
+  }
+}
+
+/** On page load, pick up a report this user was running (or just finished) for
+ *  THIS report and show it, so leaving and coming back doesn't lose the run.
+ *  Returns true if it found and resumed one. */
+async function resumeInFlight(): Promise<boolean> {
+  const url = attr("data-active-url");
+  const key = attr("data-report-key");
+  if (!url || !key) return false;
+  const wanted = new URLSearchParams(window.location.search).get("job");
+  let jobs: { job_id: string; report_key: string | null; status: string; age_seconds: number | null }[];
+  try {
+    const data = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
+    jobs = (data && data.jobs) || [];
+  } catch {
+    return false;
+  }
+  const mine = wanted
+    ? jobs.find((j) => j.job_id === wanted && j.report_key === key)
+    : jobs.find((j) => j.report_key === key &&
+      (j.status === "running" || j.status === "queued" || j.status === "success"));
+  if (!mine) return false;
+  state.jobId = mine.job_id;
+  await resumeJob(mine.job_id, (mine.age_seconds || 0) * 1000);
+  return true;
+}
+
 function setToolbarEnabled(hasData: boolean): void {
-  (["refreshBtn", "resetBtn", "exportBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn"] as const).forEach((id) => {
+  (["refreshBtn", "resetBtn", "keepBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn", "exportMenuBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
   const runBtn = $("runBtn") as HTMLButtonElement | null;
   if (runBtn) runBtn.disabled = false;
+}
+
+// --------------------------------------------------------------------------
+// Export / More dropdown menus
+// --------------------------------------------------------------------------
+
+function closeExportMenu(): void {
+  const menu = $("exportMenu");
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $("exportMenuBtn")?.setAttribute("aria-expanded", "false");
+  document.removeEventListener("click", onExportMenuOutside, true);
+}
+
+function onExportMenuOutside(e: MouseEvent): void {
+  const wrap = $("exportMenuWrap");
+  if (wrap && !wrap.contains(e.target as Node)) closeExportMenu();
+}
+
+function toggleExportMenu(e: MouseEvent): void {
+  e.stopPropagation();
+  const menu = $("exportMenu");
+  const btn = $("exportMenuBtn") as HTMLButtonElement | null;
+  if (!menu || !btn || btn.disabled) return;
+  const opening = menu.hidden;
+  closeMoreMenu();
+  if (!opening) { closeExportMenu(); return; }
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  setTimeout(() => document.addEventListener("click", onExportMenuOutside, true), 0);
+}
+
+function closeMoreMenu(): void {
+  const menu = $("moreMenu");
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $("moreBtn")?.setAttribute("aria-expanded", "false");
+  document.removeEventListener("click", onMoreMenuOutside, true);
+}
+
+function onMoreMenuOutside(e: MouseEvent): void {
+  const wrap = $("moreMenuWrap");
+  if (wrap && !wrap.contains(e.target as Node)) closeMoreMenu();
+}
+
+function toggleMoreMenu(e: MouseEvent): void {
+  e.stopPropagation();
+  const menu = $("moreMenu");
+  const btn = $("moreBtn");
+  if (!menu || !btn) return;
+  const opening = menu.hidden;
+  closeExportMenu();
+  if (!opening) { closeMoreMenu(); return; }
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+  setTimeout(() => document.addEventListener("click", onMoreMenuOutside, true), 0);
 }
 
 // --------------------------------------------------------------------------
@@ -1178,6 +1521,9 @@ function setControlsCollapsed(collapsed: boolean): void {
   c.classList.toggle("collapsed", collapsed);
   $("controlsToggle")?.setAttribute("aria-expanded", String(!collapsed));
   if (collapsed) updateControlsSummary();
+  // The grid's top edge just moved; regrow/shrink it to the new free space
+  // once the panel has finished folding.
+  setTimeout(fitTableHeight, 60);
 }
 
 function updateControlsSummary(): void {
@@ -1451,12 +1797,16 @@ async function initLookups(): Promise<void> {
   pollLookupStatus();
 }
 
-// --- bookmarkable deep-links --------------------------------------------- //
+// --- inbound deep-links ---------------------------------------------------- //
+// Other pages (dashboard cards, preset links) link in with query params; we
+// read them once on load to seed the filters. We deliberately do NOT write
+// filter state back into the URL -- the report runs on the page, so the
+// address bar stays clean.
 
 function applyDeepLink(): void {
   const q = new URLSearchParams(window.location.search);
   if (![...q.keys()].length) return;
-  (["period", "status", "year"] as const).forEach((name) => {
+  (["period", "status", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
     if (el && q.has(name)) el.value = q.get(name) || "";
   });
@@ -1469,16 +1819,6 @@ function applyDeepLink(): void {
   if (ed && q.has("end_date")) ed.value = q.get("end_date") || "";
   const custs = q.get("customers");
   if (custs) custs.split(",").forEach((c) => { const k = c.trim(); if (k) selectedCustomers.set(k, k); });
-}
-
-function updateDeepLink(): void {
-  const params = collectParams();
-  const q = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => {
-    q.set(k, Array.isArray(v) ? v.join(",") : String(v));
-  });
-  const url = `${window.location.pathname}?${q.toString()}`;
-  window.history.replaceState(null, "", url);
 }
 
 // --- live API preview ----------------------------------------------------- //
@@ -1537,6 +1877,7 @@ function serializeView(v: ViewState): unknown {
   return {
     hidden: [...v.hidden], frozen: [...v.frozen], order: v.order,
     sorters: v.sorters, columnFilters: v.columnFilters, group: v.group,
+    widths: v.widths,
   };
 }
 
@@ -1555,7 +1896,7 @@ function deserializeView(o: any): ViewState {
   return {
     hidden: new Set<string>(o?.hidden || []), frozen: new Set<string>(o?.frozen || []),
     order: o?.order || null, sorters: o?.sorters || null,
-    columnFilters, group: o?.group || [],
+    columnFilters, group: o?.group || [], widths: o?.widths || {},
   };
 }
 
@@ -1573,11 +1914,24 @@ function serializeLayout(): SavedLayout {
 }
 
 function applyLayout(layout: SavedLayout | null): void {
-  if (!layout || !layout.views) return;
-  Object.keys(layout.views).forEach((k) => {
-    if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
-  });
+  if (!layout) return;
+  if (layout.views) {
+    Object.keys(layout.views).forEach((k) => {
+      if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
+    });
+  }
   if (layout.active && state.tabs[layout.active]) state.active = layout.active;
+  if (Array.isArray(layout.order) && layout.order.length) {
+    const wanted = layout.order.filter((k) => state.tabs[k]);
+    if (wanted.length) {
+      Object.keys(state.tabs).forEach((k) => {
+        if (!wanted.includes(k) && !(state.tabs[k] as any)._isDuplicate) {
+          state.removed.add(k);
+        }
+      });
+      state.order = wanted;
+    }
+  }
   renderTabs();
   if (state.active) { buildTable(state.tabs[state.active]); syncColumnsButton(state.tabs[state.active]); }
 }
@@ -1604,7 +1958,7 @@ async function saveView(): Promise<void> {
 }
 
 function applyParamsObject(params: Record<string, unknown>): void {
-  (["period", "status", "year"] as const).forEach((name) => {
+  (["period", "status", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
     if (el && params[name] != null) el.value = String(params[name]);
   });
@@ -1647,7 +2001,7 @@ async function togglePresetsPanel(): Promise<void> {
   panel.id = "presetsPanel";
   panel.className = "presets-panel";
   if (!presets.length) {
-    panel.innerHTML = '<div class="presets-empty">No saved views yet. Use “Save view”.</div>';
+    panel.innerHTML = '<div class="presets-empty">No saved views yet. Use “Save this view”.</div>';
   } else {
     presets.forEach((p) => {
       const row = document.createElement("div");
@@ -1656,7 +2010,30 @@ async function togglePresetsPanel(): Promise<void> {
       open.type = "button";
       open.className = "presets-open";
       open.textContent = p.name;
-      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p); });
+      open.title = "Apply this view’s filters (does not run the report)";
+      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p, { run: false }); });
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "presets-edit";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const name = window.prompt("Rename this view:", p.name);
+        if (name == null) return;
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        try {
+          const res = await fetch(presetUrl(p.id), {
+            method: "PATCH", headers: csrfHeaders(),
+            body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
+          });
+          if (!res.ok) throw new Error();
+          closePresetsPanel();
+          setStatus(`Updated “${trimmed}”.`);
+        } catch {
+          setStatus("Could not update this view. The name may already be used.", "error");
+        }
+      });
       const del = document.createElement("button");
       del.type = "button";
       del.className = "presets-del";
@@ -1667,7 +2044,7 @@ async function togglePresetsPanel(): Promise<void> {
         await fetch(presetUrl(p.id), { method: "DELETE", headers: csrfHeaders() });
         row.remove();
       });
-      row.append(open, del);
+      row.append(open, edit, del);
       panel.appendChild(row);
     });
   }
@@ -1675,11 +2052,10 @@ async function togglePresetsPanel(): Promise<void> {
   setTimeout(() => document.addEventListener("click", onPresetsOutside, true), 0);
 }
 
-function loadPreset(preset: { params?: Record<string, unknown>; layout?: SavedLayout }): void {
+function loadPreset(preset: { params?: Record<string, unknown>; layout?: SavedLayout }, opts?: { run?: boolean }): void {
   applyParamsObject(preset.params || {});
   pendingLayout = preset.layout || null;
-  updateDeepLink();
-  run();
+  if (opts?.run !== false) run();
 }
 
 async function autoOpenPresetIfRequested(): Promise<void> {
@@ -1699,11 +2075,17 @@ async function autoOpenPresetIfRequested(): Promise<void> {
 
 // A SharePoint folder picker bound to a set of element ids. Used by both the
 // email and schedule modals; each instance tracks its own selected path.
-interface SpPickerEls { section: string; breadcrumb: string; picker: string; selected: string; status: string; }
+interface SpPickerEls {
+  section: string; breadcrumb: string; picker: string; selected: string; status: string;
+  statusAttr?: string; foldersAttr?: string; rootLabel?: string;
+}
 
 function makeSpPicker(els: SpPickerEls) {
   let cur = "";
   let selected: string | null = null;
+  const statusAttr = els.statusAttr || "data-sp-status-url";
+  const foldersAttr = els.foldersAttr || "data-sp-folders-url";
+  const rootLabel = els.rootLabel || "Root";
 
   async function init(): Promise<void> {
     const section = $(els.section);
@@ -1712,7 +2094,7 @@ function makeSpPicker(els: SpPickerEls) {
     cur = "";
     const sel = $(els.selected);
     if (sel) sel.textContent = "";
-    const st = await getJSON<{ enabled: boolean; configured: boolean }>(attr("data-sp-status-url"));
+    const st = await getJSON<{ enabled: boolean; configured: boolean }>(attr(statusAttr));
     if (!st || !st.enabled) { section.hidden = true; return; }
     section.hidden = false;
     const status = $(els.status);
@@ -1722,7 +2104,7 @@ function makeSpPicker(els: SpPickerEls) {
 
   async function load(path: string): Promise<void> {
     cur = path;
-    const url = attr("data-sp-folders-url") + "?path=" + encodeURIComponent(path);
+    const url = attr(foldersAttr) + "?path=" + encodeURIComponent(path);
     const data = await getJSON<{ folders: { name: string; path: string }[] }>(url);
     renderBreadcrumb(path);
     renderFolders((data && data.folders) || []);
@@ -1740,7 +2122,7 @@ function makeSpPicker(els: SpPickerEls) {
       b.addEventListener("click", () => load(target));
       return b;
     };
-    bc.appendChild(crumb("Root", ""));
+    bc.appendChild(crumb(rootLabel, ""));
     let acc = "";
     (path ? path.split("/") : []).forEach((p) => {
       acc = acc ? `${acc}/${p}` : p;
@@ -1754,7 +2136,7 @@ function makeSpPicker(els: SpPickerEls) {
     use.addEventListener("click", () => {
       selected = cur;
       const sel = $(els.selected);
-      if (sel) sel.textContent = `Will save to: ${cur || "Direct Reports (root)"}`;
+      if (sel) sel.textContent = `Will save to: ${cur || rootLabel}`;
     });
     bc.appendChild(use);
   }
@@ -1803,6 +2185,22 @@ function closeEmailModal(): void {
   if (modal) modal.hidden = true;
 }
 
+async function postEmailNow(recipients: string, subject: string, sharepointPath: string): Promise<string> {
+  const res = await fetch(attr("data-email-url"), {
+    method: "POST", headers: csrfHeaders(),
+    body: JSON.stringify({
+      recipients, subject, sharepoint_path: sharepointPath,
+      params: collectParams(), layout: serializeLayout(),
+    }),
+  });
+  if (res.status !== 202) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error((e as any).error || "Could not queue the email.");
+  }
+  const { job_id } = await res.json();
+  return job_id as string;
+}
+
 async function sendEmail(): Promise<void> {
   const recipients = (($("emailRecipients") as HTMLInputElement)).value.trim();
   const subject = (($("emailSubject") as HTMLInputElement)).value.trim();
@@ -1814,23 +2212,45 @@ async function sendEmail(): Promise<void> {
   if (sendBtn) sendBtn.disabled = true;
   emailMsg("Sending…", false);
   try {
-    const res = await fetch(attr("data-email-url"), {
-      method: "POST", headers: csrfHeaders(),
-      body: JSON.stringify({
-        recipients, subject, sharepoint_path: emailSp.path() || "",
-        params: collectParams(), layout: serializeLayout(),
-      }),
-    });
-    if (res.status !== 202) {
-      const e = await res.json().catch(() => ({}));
-      throw new Error((e as any).error || "Could not queue the email.");
-    }
-    const { job_id } = await res.json();
-    await pollEmailJob(job_id);
+    const jobId = await postEmailNow(recipients, subject, emailSp.path() || "");
+    await pollEmailJob(jobId);
   } catch (e) {
     emailMsg((e as Error).message || "Could not send.", true);
   } finally {
     if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+async function emailMe(): Promise<void> {
+  const me = attr("data-user-email").trim();
+  if (!me) {
+    setStatus("This account has no email address.", "error");
+    return;
+  }
+  const btn = $("emailMeBtn") as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  setStatus("Emailing you…");
+  try {
+    const jobId = await postEmailNow(me, attr("data-report-title") || "Report", "");
+    const jobUrl = attr("data-job-url").replace("__ID__", jobId);
+    for (let i = 0; i < 60; i++) {
+      const j = await getJSON<{ status: string; error: string }>(jobUrl);
+      if (!j) break;
+      if (j.status === "success") {
+        setStatus("Sent to " + me + ".");
+        return;
+      }
+      if (j.status === "failure" || j.status === "cancelled") {
+        setStatus(j.error || "Could not send the email.", "error");
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    setStatus("Still sending — check your inbox shortly.");
+  } catch (e) {
+    setStatus((e as Error).message || "Could not send.", "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1855,8 +2275,11 @@ async function pollEmailJob(jobId: string): Promise<void> {
 
 // -- schedule modal ---------------------------------------------------------
 
-const scheduleSp = makeSpPicker({ section: "schedSpSection", breadcrumb: "schedSpBreadcrumb",
-  picker: "schedSpPicker", selected: "schedSpSelected", status: "schedSpStatus" });
+const scheduleOd = makeSpPicker({
+  section: "schedOdSection", breadcrumb: "schedOdBreadcrumb",
+  picker: "schedOdPicker", selected: "schedOdSelected", status: "schedOdStatus",
+  statusAttr: "data-od-status-url", foldersAttr: "data-od-folders-url", rootLabel: "OneDrive",
+});
 
 function schedMsg(text: string, isError: boolean): void {
   const el = $("schedMsg");
@@ -1874,14 +2297,60 @@ function syncCadenceFields(): void {
   if (md) md.hidden = freq !== "monthly";
 }
 
+async function keepCurrentRun(): Promise<void> {
+  const jobId = state.jobId;
+  if (!jobId) {
+    setStatus("Run a report first, then Keep it.", "error");
+    return;
+  }
+  const name = window.prompt("Name this kept run (optional):", "");
+  if (name === null) return;
+  const url = attr("data-keep-url").replace(/__ID__/g, jobId);
+  try {
+    const res = await fetch(url, {
+      method: "POST", headers: csrfHeaders(),
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const until = String(data.kept_until || "").slice(0, 10);
+    const label = String(data.keep_name || "").trim();
+    setStatus(label
+      ? `Kept as “${label}” until ${until} (30 days, max 5 Kept).`
+      : `Kept until ${until} (30 days, max 5 Kept).`);
+  } catch {
+    setStatus("Could not Keep this run.", "error");
+  }
+}
+
 function openScheduleModal(): void {
   const modal = $("scheduleModal");
   if (!modal) return;
   (($("schedRecipients") as HTMLInputElement)).value = "";
+  const cc = $("schedCc") as HTMLInputElement | null;
+  const bcc = $("schedBcc") as HTMLInputElement | null;
+  if (cc) cc.value = "";
+  if (bcc) bcc.value = "";
+  const noRec = $("schedNoDataRecipients") as HTMLInputElement | null;
+  const noMe = $("schedNoDataMeOnly") as HTMLInputElement | null;
+  if (noRec) noRec.checked = false;
+  if (noMe) noMe.checked = false;
+  const fn = $("schedFilename") as HTMLInputElement | null;
+  if (fn && !fn.value) fn.value = DEFAULT_FILENAME_TEMPLATE;
+  updateSchedFilenamePreview();
   schedMsg("", false);
   syncCadenceFields();
   modal.hidden = false;
-  scheduleSp.init();
+  scheduleOd.init();
+}
+
+function updateSchedFilenamePreview(): void {
+  const input = $("schedFilename") as HTMLInputElement | null;
+  const prev = $("schedFilenamePreview");
+  if (!input || !prev) return;
+  const report = attr("data-report-title") || attr("data-report-key") || "Report";
+  const period = String((document.querySelector('[name="period"]') as HTMLSelectElement | null)?.value || "");
+  prev.textContent = previewFilename(input.value, { report, schedule: report, period });
 }
 
 function closeScheduleModal(): void {
@@ -1899,15 +2368,23 @@ function collectCadence(): { ok: boolean; cadence?: any; error?: string } {
     if (!days.length) return { ok: false, error: "Pick at least one day of the week." };
     cadence.weekdays = days;
   } else if (freq === "monthly") {
-    cadence.monthday = Number(($("schedMonthday") as HTMLInputElement).value) || 1;
+    cadence.monthday = Number(($("schedMonthday") as HTMLSelectElement).value);
   }
   return { ok: true, cadence };
 }
 
+function collectScheduleRecipients(): { to: string; cc: string; bcc: string } {
+  return {
+    to: (($("schedRecipients") as HTMLInputElement)).value.trim(),
+    cc: (($("schedCc") as HTMLInputElement | null)?.value || "").trim(),
+    bcc: (($("schedBcc") as HTMLInputElement | null)?.value || "").trim(),
+  };
+}
+
 async function saveSchedule(): Promise<void> {
-  const recipients = (($("schedRecipients") as HTMLInputElement)).value.trim();
-  if (!recipients && !scheduleSp.path()) {
-    schedMsg("Enter recipients or pick a SharePoint folder.", true);
+  const { to, cc, bcc } = collectScheduleRecipients();
+  if (!to && !cc && !bcc && !scheduleOd.path()) {
+    schedMsg("Enter recipients or pick a OneDrive folder.", true);
     return;
   }
   const cad = collectCadence();
@@ -1915,13 +2392,21 @@ async function saveSchedule(): Promise<void> {
   const btn = $("schedSave") as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
   schedMsg("Saving…", false);
+  const params: Record<string, unknown> = {
+    ...collectParams(),
+    email_cc: cc,
+    email_bcc: bcc,
+    email_on_no_data: !!($("schedNoDataRecipients") as HTMLInputElement | null)?.checked,
+    email_on_no_data_me_only: !!($("schedNoDataMeOnly") as HTMLInputElement | null)?.checked,
+  };
   try {
     const res = await fetch(attr("data-schedules-url"), {
       method: "POST", headers: csrfHeaders(),
       body: JSON.stringify({
-        report_key: attr("data-report-key"), recipients,
-        sharepoint_path: scheduleSp.path() || "", cadence: cad.cadence,
-        params: collectParams(), layout: serializeLayout(),
+        report_key: attr("data-report-key"), recipients: to,
+        sharepoint_path: scheduleOd.path() || "", cadence: cad.cadence,
+        filename_template: (($("schedFilename") as HTMLInputElement | null)?.value || "").trim(),
+        params, layout: serializeLayout(),
       }),
     });
     if (res.status !== 201) {
@@ -1946,7 +2431,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("controlsToggle")?.addEventListener("click", () => {
     setControlsCollapsed(!$("reportControls")?.classList.contains("collapsed"));
   });
-  $("runBtn")?.addEventListener("click", () => { updateDeepLink(); run(); });
+  $("runBtn")?.addEventListener("click", () => run({ preserveLayout: isReportShown() }));
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(fitTableHeight, 120);
+  });
   $("apiRunBtn")?.addEventListener("click", () => {
     const panel = $("apiPreview") as HTMLTextAreaElement | null;
     if (!panel) return;
@@ -1957,32 +2447,66 @@ document.addEventListener("DOMContentLoaded", async () => {
       setStatus("Invalid JSON in the API preview. Fix it and try again.", "error");
     }
   });
+  $("cancelRunBtn")?.addEventListener("click", cancelRun);
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
-  $("exportBtn")?.addEventListener("click", exportExcel);
-  $("exportsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleExportsPanel(); });
-  $("columnsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); toggleColumnsPanel(); });
+  $("exportMenuBtn")?.addEventListener("click", toggleExportMenu);
+  $("exportBtn")?.addEventListener("click", () => { closeExportMenu(); exportExcel(); });
+  $("keepBtn")?.addEventListener("click", keepCurrentRun);
+  $("exportsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeExportMenu();
+    toggleExportsPanel();
+  });
+  $("columnsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeExportMenu();
+    closeMoreMenu();
+    toggleColumnsPanel();
+  });
   $("saveViewBtn")?.addEventListener("click", saveView);
-  $("presetsBtn")?.addEventListener("click", (e) => { e.stopPropagation(); togglePresetsPanel(); });
+  $("presetsBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeExportMenu();
+    closeMoreMenu();
+    togglePresetsPanel();
+  });
+  $("moreBtn")?.addEventListener("click", toggleMoreMenu);
   $("emailBtn")?.addEventListener("click", openEmailModal);
+  $("emailMeBtn")?.addEventListener("click", () => { void emailMe(); });
   $("emailClose")?.addEventListener("click", closeEmailModal);
   $("emailCancel")?.addEventListener("click", closeEmailModal);
   $("emailSend")?.addEventListener("click", sendEmail);
   $("emailModal")?.addEventListener("click", (e) => { if (e.target === $("emailModal")) closeEmailModal(); });
-  $("scheduleBtn")?.addEventListener("click", openScheduleModal);
+  $("scheduleBtn")?.addEventListener("click", () => { closeMoreMenu(); openScheduleModal(); });
   $("schedClose")?.addEventListener("click", closeScheduleModal);
   $("schedCancel")?.addEventListener("click", closeScheduleModal);
   $("schedFreq")?.addEventListener("change", syncCadenceFields);
   $("schedSave")?.addEventListener("click", saveSchedule);
+  $("schedFilename")?.addEventListener("input", updateSchedFilenamePreview);
+  document.querySelectorAll<HTMLButtonElement>(".js-fn-token").forEach((b) => {
+    b.addEventListener("click", () => {
+      const input = $("schedFilename") as HTMLInputElement | null;
+      if (!input) return;
+      input.value = (input.value || "") + (b.dataset.token || "");
+      updateSchedFilenamePreview();
+      input.focus();
+    });
+  });
   $("scheduleModal")?.addEventListener("click", (e) => { if (e.target === $("scheduleModal")) closeScheduleModal(); });
-  $("previewBtn")?.addEventListener("click", showApiPreview);
+  $("previewBtn")?.addEventListener("click", () => { closeMoreMenu(); showApiPreview(); });
   $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
   $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);
   setToolbarEnabled(false);
   loadExports();  // pick up any in-flight exports started before a navigation/reload
   await initLookups();
-  await autoOpenPresetIfRequested();
-  if (autoRunRequested) { autoRunRequested = false; run(); }
+  // If this user was already running (or just finished) this report, reconnect
+  // to it instead of starting fresh -- leaving the page and coming back keeps it.
+  const resumed = await resumeInFlight();
+  if (!resumed) {
+    await autoOpenPresetIfRequested();
+    if (autoRunRequested) { autoRunRequested = false; run(); }
+  }
 });
 
 export {};

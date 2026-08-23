@@ -97,15 +97,6 @@ REPORTS_CONFIG = {
         "has_status": False,
         "icon": "bar-chart-2",
     },
-    "amazon_weekly": {
-        "name": "Amazon Weekly",
-        "description": "Amazon (customers 9300, 9301) orders for the last 7 days",
-        "salesman_filter": False,
-        "customer_filter": False,
-        "has_period": False,
-        "has_status": False,
-        "icon": "shopping-cart",
-    },
     "customer_activity": {
         "name": "Customer Activity",
         "description": "All customers with last order info, split by salesman",

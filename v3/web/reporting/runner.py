@@ -12,8 +12,9 @@ from typing import Any, Callable, Iterable
 
 from web.reporting.cache import ReportCache, build_cache_key, canonical_scope_token
 
-# A builder takes the resolved params and returns a payload dict {tabs: [...]}.
-Builder = Callable[[dict[str, Any]], dict]
+# A builder takes (params, visible_salesman_keys) and returns {tabs: [...]}.
+# visible_salesman_keys is None for unrestricted (privileged) users.
+Builder = Callable[[dict[str, Any], set[str] | None], dict]
 
 
 @dataclass
@@ -44,7 +45,7 @@ class ReportRunner:
             if cached and (fresh_within_seconds is None or cached.age_seconds() <= fresh_within_seconds):
                 return RunOutcome(cached.payload, cache_key, from_cache=True)
 
-        payload = builder(params)
+        payload = builder(params, visible_salesman_keys)
         if not isinstance(payload, dict):
             raise TypeError("report builder must return a dict payload")
         self.cache.put(cache_key, report_key, payload)

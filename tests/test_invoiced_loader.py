@@ -1,9 +1,14 @@
 """Unit tests for the Invoiced Report loader / aggregator logic."""
 
+from datetime import date
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
 
 from reports.invoiced.aggregator import build_invoiced_views, build_reversal_audit
+from reports.invoiced.runner import InvoicedReportRunner
 
 
 class TestBuildInvoicedViews:
@@ -36,3 +41,19 @@ class TestBuildReversalAudit:
     def test_empty_input(self):
         audit = build_reversal_audit(pd.DataFrame())
         assert isinstance(audit, pd.DataFrame)
+
+
+def test_salesman_report_fetches_only_the_selected_period():
+    runner = InvoicedReportRunner()
+    plan = SimpleNamespace(
+        fetch_start=date(2026, 7, 13),
+        fetch_end=date(2026, 7, 14),
+        periods=[],
+    )
+    with (
+        patch.object(runner, "connect", return_value=("url", "token", "company")),
+        patch("reports.invoiced.runner.fetch_invoice_detail", return_value=pd.DataFrame()) as fetch_detail,
+    ):
+        runner._run_standard(plan, None, ["MKolko"], None)
+
+    assert fetch_detail.call_args.args[2:4] == (plan.fetch_start, plan.fetch_end)

@@ -225,3 +225,91 @@ def fetch_odata_batched(
         except Exception:
             pass
     return result
+
+
+def _fetch_top1(
+    base_url: str,
+    entity_name: str,
+    token,
+    filter_field: str,
+    value: str,
+    select: list[str] | None,
+    order_by: str,
+    company_id: str | None,
+) -> dict | None:
+    """Fetch the single top row (by order_by) where filter_field == value."""
+    if not getattr(_thread_local, "session", None):
+        _thread_local.session = build_retry_session()
+    safe = str(value).replace("'", "''")
+    filter_expr = f"{filter_field} eq '{safe}'"
+    if company_id:
+        filter_expr += f" and dataAreaId eq '{company_id}'"
+    query = {"$filter": filter_expr, "$orderby": order_by, "$top": "1"}
+    if select:
+        query["$select"] = ",".join(select)
+    url = f"{base_url.rstrip('/')}/{entity_name}?{urlencode(query)}"
+    headers = {
+        "Authorization": f"Bearer {resolve_token(token)}",
+        "OData-MaxVersion": "4.0",
+        "OData-Version": "4.0",
+        "Accept": "application/json",
+    }
+    resp = _thread_local.session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    rows = resp.json().get("value", [])
+    return rows[0] if rows else None
+
+
+def fetch_top1_per_value(
+    base_url: str,
+    entity_name: str,
+    token,
+    *,
+    filter_field: str,
+    values: list[str],
+    order_by: str,
+    select: list[str] | None = None,
+    company_id: str | None = None,
+    max_workers: int = MAX_WORKERS,
+) -> list[dict]:
+    """For each value, fetch ONE row -- the top match by ``order_by``.
+
+    Runs a `$top=1` query per value in parallel, so the server returns a single
+    winning row per value instead of the caller dragging the whole table across
+    and reducing it locally. Used for "latest order per customer": one tiny
+    response each, not the entire order history. Values with no match are
+    skipped (they surface as "no order" upstream). Order independent.
+    """
+    vals = [v for v in dict.fromkeys(str(x).strip() for x in values) if v]
+    if not vals:
+        return []
+
+    log.info("Fetching top-1 %s for %d %s values (%d workers)",
+             entity_name, len(vals), filter_field, max_workers)
+
+    out: list[dict] = []
+    failures = 0
+    done = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_fetch_top1, base_url, entity_name, token,
+                            filter_field, v, select, order_by, company_id): v
+            for v in vals
+        }
+        for future in as_completed(futures):
+            done += 1
+            try:
+                row = future.result()
+                if row is not None:
+                    out.append(row)
+            except Exception:
+                failures += 1
+                log.debug("top-1 %s failed for %s=%s", entity_name, filter_field,
+                          futures[future], exc_info=True)
+            if done % 200 == 0:
+                log.info("  top-1 %s: %d/%d done", entity_name, done, len(vals))
+
+    if failures:
+        log.warning("top-1 %s: %d/%d lookups failed", entity_name, failures, len(vals))
+    log.info("top-1 %s: %d rows for %d values", entity_name, len(out), len(vals))
+    return out

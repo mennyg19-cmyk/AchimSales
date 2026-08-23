@@ -103,11 +103,11 @@ def validate_d365_config() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Email (Amazon Weekly report)
+# Email (customer-filtered Ordered --email; env var names kept for Azure)
 # ---------------------------------------------------------------------------
 
 def get_email_recipients() -> list[str]:
-    """Comma- or semicolon-separated list of email addresses for Amazon Weekly report. Empty = no email."""
+    """Addresses from AMAZON_EMAIL_RECIPIENTS. Empty = no filtered-run email."""
     raw = get_config("AMAZON_EMAIL_RECIPIENTS", ["AMAZON_EMAIL_RECIPIENTS"], default="")
     if not raw or not str(raw).strip():
         return []
@@ -136,6 +136,14 @@ def get_smtp_password() -> str:
 def get_graph_email_from() -> str:
     """When using Graph to send mail: the mailbox to send from (UPN, e.g. reports@company.com). Empty = do not use Graph for email."""
     return get_config("AMAZON_EMAIL_FROM", ["EMAIL_FROM_ADDRESS", "AMAZON_EMAIL_FROM", "GRAPH_EMAIL_FROM"], default="").strip()
+
+
+def get_alert_recipients() -> list[str]:
+    """Semicolon-separated list of addresses that receive operational alerts (failures, digests)."""
+    raw = get_config("ALERT_RECIPIENTS", ["ALERT_RECIPIENTS"], default="")
+    if not raw or not str(raw).strip():
+        return []
+    return [a.strip() for a in str(raw).replace(",", ";").split(";") if a.strip()]
 
 
 def get_test_email() -> str:

@@ -17,10 +17,30 @@ with the salesman/invoiced adapters under a dedicated parity test.)
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 # Sentinels the Reporting API / stored procedures hand back for "no value".
 _BLANKS = (None, "", "NULL")
+
+
+def map_release(rows: Iterable[Any], convert: Callable[[Any], Any]) -> list:
+    """Convert each item with `convert`, freeing each source item as we go.
+
+    A full-year report can be ~500k rows. Holding the raw SP-row list AND the
+    converted-fact list in memory at the same time doubles peak usage and pushes
+    the small Azure worker over its limit (the out-of-memory crash). Nulling each
+    source slot right after converting it keeps memory near a single copy. Order
+    is preserved. The input list is consumed (left full of None); callers always
+    pass a fresh per-request list, so that's safe. Non-list inputs (e.g. a
+    generator in a test) fall back to a plain conversion.
+    """
+    if not isinstance(rows, list):
+        return [convert(r) for r in rows]
+    out = []
+    for i, r in enumerate(rows):
+        out.append(convert(r))
+        rows[i] = None
+    return out
 
 
 def num(value: Any) -> float:
@@ -59,26 +79,23 @@ def first_of(raw: Mapping[str, Any], *keys: str) -> Any:
 
 
 def date_only(value: Any) -> str:
-    """Trim 'YYYY-MM-DDTHH:MM:SS' (or ' ' separator) to 'YYYY-MM-DD'.
-
-    Only safe for values already in ISO order. For SP fields that can also be
-    RFC-1123 ('Thu, 30 Apr 2026 ...'), use iso_date() instead.
-    """
-    s = text(value)
-    return s[:10] if len(s) >= 10 else s
+    """Deprecated name — use iso_date. Kept as an alias so old call sites stay safe."""
+    return iso_date(value)
 
 
-# Date shapes the Reporting API has been observed to return for invoice dates.
+# Date shapes the Reporting API has been observed to return for invoice/order dates.
 _RFC1123_FMTS = ("%a, %d %b %Y %H:%M:%S %Z", "%a, %d %b %Y %H:%M:%S")
 
 
 def iso_date(value: Any) -> str:
-    """Robustly coerce an SP date to day-precision 'YYYY-MM-DD'.
+    """Coerce any date-ish value to day-precision 'YYYY-MM-DD'.
 
-    Handles ISO ('2026-04-30T..' / '2026-04-30 ..' / '2026-04-30'), RFC-1123
-    ('Thu, 30 Apr 2026 00:00:00 GMT'), and date/datetime objects. Returns ''
-    for blanks; returns the raw string unchanged when nothing parses (so a bad
-    value is visible rather than silently dropped).
+    Single helper for every business date on the site (adapters, builders,
+    templates, Excel). Handles ISO ('2026-04-30T..' / '2026-04-30 ..' /
+    '2026-04-30'), RFC-1123 ('Thu, 30 Apr 2026 00:00:00 GMT'), common
+    slash/dash forms, and date/datetime objects. Returns '' for blanks;
+    returns the raw string unchanged when nothing parses (so a bad value is
+    visible rather than silently dropped). Keeps N/A-style placeholders as-is.
 
     Carries only the calendar date (no time/tz): an SP 'midnight UTC' value
     must not shift to the previous day when rendered in Eastern time.
@@ -92,6 +109,11 @@ def iso_date(value: Any) -> str:
     if isinstance(value, _date):
         return value.isoformat()
     s = str(value).strip()
+    if not s:
+        return ""
+    # SP / builder placeholders (Customer Activity keeps these on purpose).
+    if s.upper() in ("N/A", "NA", "NONE", "-"):
+        return s
     if len(s) >= 10 and s[4] == "-" and s[7] == "-":
         try:
             return _datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
@@ -100,9 +122,23 @@ def iso_date(value: Any) -> str:
                 return _datetime.strptime(s[:10], "%Y-%m-%d").date().isoformat()
             except ValueError:
                 pass
+    try:
+        from email.utils import parsedate_to_datetime
+
+        parsed = parsedate_to_datetime(s)
+        if parsed is not None:
+            return parsed.date().isoformat()
+    except (TypeError, ValueError, IndexError):
+        pass
     for fmt in _RFC1123_FMTS:
         try:
             return _datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    head = s.replace("T", " ").split(" ")[0]
+    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y/%m/%d", "%d/%m/%Y"):
+        try:
+            return _datetime.strptime(head, fmt).date().isoformat()
         except ValueError:
             continue
     return s
@@ -111,3 +147,15 @@ def iso_date(value: Any) -> str:
 def salesman_key(sales_group: str | None) -> str:
     """Normalize a SalesGroup to the salesmen.key form (lowercase alphanumeric)."""
     return re.sub(r"[^a-z0-9]+", "", (sales_group or "").strip().lower())
+
+
+def filter_facts_by_scope(facts, visible_keys):
+    """Filter facts to those whose sales_group is in the caller's scope.
+
+    visible_keys=None means unrestricted (privileged user) — returns all facts.
+    An empty set means the user has no access — returns nothing.
+    """
+    if visible_keys is None:
+        return list(facts)
+    normalized = {salesman_key(k) for k in visible_keys}
+    return [f for f in facts if salesman_key(getattr(f, "sales_group", "")) in normalized]

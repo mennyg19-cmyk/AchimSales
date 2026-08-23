@@ -23,6 +23,7 @@ from web.delivery.layout import apply_layout, expand_clones
 from web.jobs.worker import Handler, JobContext
 from web.reporting.cache import ReportCache
 from web.reporting.export import build_workbook
+from web.reporting.report_service import drop_commissions_tab
 
 EXPORT_JOB_TYPE = "report.export"
 
@@ -123,13 +124,18 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
 
         layout = p.get("layout") if isinstance(p.get("layout"), dict) else None
         payload = cached.payload
+        if not authz.may_see_commissions(principal):
+            payload = drop_commissions_tab(payload)
         if layout:
             payload = apply_layout(expand_clones(payload, layout), layout)
         ctx.set_progress(55)
 
         data = build_workbook(payload, layout)
+        export_type = p.get("export_type", "one_time")
+        owner = principal.email if principal else ""
         exports.put(ctx.job.id, p["report_key"],
-                    _safe_filename(p.get("report_name"), run_params), data)
+                    _safe_filename(p.get("report_name"), run_params), data,
+                    export_type=export_type, owner_email=owner)
         ctx.set_progress(100)
         return ctx.job.id  # result_ref == export id == download key
 

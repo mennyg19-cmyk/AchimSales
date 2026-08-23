@@ -92,10 +92,26 @@ def _resolved_year(params: dict) -> int:
 # --- per-report translators ------------------------------------------------
 
 def translate_ordered(p: dict) -> dict[str, Any]:
-    """ordered -> salesline_release."""
+    """ordered -> rpt.usp_ordered_report.
+
+    Maps the viewer's filters to the new SP's parameter names. The SP ignores any
+    param passed as null/omitted. Two old salesline_release filters are dropped
+    because the new SP doesn't have them: Company (no such param) and the
+    shipped-quantity range (the new SP filters shipped by DOLLARS, not quantity -
+    see ShippedDollarsMin/Max). The new SP's CustomerAccount is a single
+    exact-match value, so only a single-customer selection is pushed down;
+    multi-select is post-filtered by the orchestrator (same as invoiced).
+    """
     out = _date_range(p, "CreatedDateTimeFrom", "CreatedDateTimeTo")
-    if v := _csv(p.get("customers")):
-        out["CustomerAccount"] = v
+    customers = p.get("customers")
+    if isinstance(customers, (list, tuple, set)):
+        cust = [str(c).strip() for c in customers if str(c).strip()]
+    elif customers:
+        cust = [str(customers).strip()]
+    else:
+        cust = []
+    if len(cust) == 1:
+        out["CustomerAccount"] = cust[0]
     if v := _csv(p.get("salesman")):
         out["SalesGroup"] = v
     if v := _csv(p.get("status")):
@@ -104,15 +120,13 @@ def translate_ordered(p: dict) -> dict[str, Any]:
         out["SalesOrderNumber"] = v
     if v := _csv(p.get("item")):
         out["Item"] = v
-    if v := _csv(p.get("company")):
-        out["Company"] = v
     return out
 
 
 def translate_invoiced(p: dict) -> dict[str, Any]:
-    """invoiced -> invoiced_order_charges.
+    """invoiced -> invoiced_report.
 
-    The SP's InvoiceAccount is a single exact-match value, so only a
+    The new SP's CustomerAccount is a single exact-match value, so only a
     single-customer selection is pushed down; multi-select is post-filtered
     by the caller.
     """
@@ -125,57 +139,123 @@ def translate_invoiced(p: dict) -> dict[str, Any]:
     else:
         cust = []
     if len(cust) == 1:
-        out["InvoiceAccount"] = cust[0]
+        out["CustomerAccount"] = cust[0]
     if v := _csv(p.get("salesman")):
-        out["SalesGroup"] = v
+        out["Salesman"] = v
     return out
 
 
 def translate_salesman(p: dict) -> dict[str, Any]:
-    """salesman -> invoiced_order_charges over prior+current full years.
+    """salesman -> rpt.usp_monthly_salesman_yoy (catalog monthly_salesman_yoy).
 
-    The Monthly Salesman report compares each month to the same month last
-    year, so it needs Jan 1 (prior year) .. Dec 31 (selected year).
+    Sales basis is Total Invoice, computed in SQL from rpt.vw_Invoiced_Report.
     """
     year = _resolved_year(p)
-    return {
-        "InvoiceDateFrom": sp_datetime(date(year - 1, 1, 1), end_of_day=False),
-        "InvoiceDateTo": sp_datetime(date(year, 12, 31), end_of_day=True),
-    }
+    today = today_eastern()
+    through = 12
+    raw_through = p.get("through_month") if p.get("through_month") not in (None, "") else p.get("ThroughMonth")
+    try:
+        if raw_through not in (None, ""):
+            through = max(1, min(12, int(raw_through)))
+        elif year == today.year:
+            through = today.month
+    except (TypeError, ValueError):
+        through = today.month if year == today.year else 12
+
+    out: dict[str, Any] = {"ReportYear": year, "ThroughMonth": through}
+    if sid := _csv(p.get("salesman_id") or p.get("SalesmanId")):
+        out["SalesmanId"] = sid
+    if sname := _csv(p.get("salesman") or p.get("SalesmanName")):
+        out["SalesmanName"] = sname
+    if acct := _csv(p.get("customer_account") or p.get("CustomerAccount") or p.get("customers")):
+        # Single account only; multi-select is post-filtered if needed later.
+        if "," not in acct:
+            out["CustomerAccount"] = acct
+    if cname := _csv(p.get("customer_name") or p.get("CustomerName")):
+        out["CustomerName"] = cname
+    return out
+
+
+
+# Number 4's two rolling-12 SPs: same rows, one ordered customer-first and one
+# item-first. The mode filter (By Customer / By Item / Both) decides which get
+# called; "both" calls each and shows two tabs (owner directive, 2026-07-08).
+NUMBER_4_BY_CUSTOMER_SP = "customer_item_sales_rolling_12"
+NUMBER_4_BY_ITEM_SP = "item_customer_sales_rolling_12"
+_NUMBER_4_MODES = ("both", "by_customer", "by_item")
+
+
+def number_4_mode(p: dict | None) -> str:
+    mode = str((p or {}).get("mode") or "").strip().lower()
+    return mode if mode in _NUMBER_4_MODES else "both"
 
 
 def translate_number_4(p: dict) -> dict[str, Any]:
-    """number_4 -> invoice_lines over a rolling 13-month window.
+    """number_4 -> the rolling-12 SPs (customer_item / item_customer).
 
-    One fetch powers both the rolling-12 and YTD pivots.
+    The SPs pivot server-side (a Qty and $ column per month) and take AsOfDate +
+    IncludeCurrentMonth instead of a date range. IncludeCurrentMonth is always
+    true: the old Number 4's rolling window ended at today, so keeping the
+    current month keeps the familiar numbers.
     """
-    today = today_eastern()
-    start = date(today.year - 1, today.month, 1)
     return {
-        "InvoiceDateFrom": sp_datetime(start, end_of_day=False),
-        "InvoiceDateTo": sp_datetime(today, end_of_day=True),
+        "AsOfDate": today_eastern().isoformat(),
+        "IncludeCurrentMonth": True,
     }
+
+
+def translate_item_averages(p: dict) -> dict[str, Any]:
+    """item_averages -> same window as Number 4 By Item (rolling 12)."""
+    return translate_number_4(p)
 
 
 def translate_customer_activity(p: dict) -> dict[str, Any]:
-    """customer_activity -> salesline_release over all-time (go-live..today).
+    """customer_activity -> rpt.usp_customer_activity."""
+    try:
+        order_count = int(p.get("order_count") or 1)
+    except (TypeError, ValueError):
+        order_count = 1
+    out: dict[str, Any] = {"OrderCount": min(100, max(1, order_count))}
+    if as_of_date := _csv(p.get("as_of_date")):
+        out["AsOfDate"] = as_of_date
+    for form_key, parameter in (
+        ("salesman", "Salesman"),
+        ("customer_account", "CustomerAccount"),
+        ("customer_name", "CustomerName"),
+    ):
+        if value := _csv(p.get(form_key)):
+            out[parameter] = value
+    return out
 
-    The builder finds each customer's most recent order, so it needs the
-    full history; salesman fan-out happens in the builder, not the SP.
-    """
-    return {
-        "CreatedDateTimeFrom": sp_datetime(D365_GO_LIVE, end_of_day=False),
-        "CreatedDateTimeTo": sp_datetime(today_eastern(), end_of_day=True),
-    }
+
+def translate_customer_last_orders(p: dict) -> dict[str, Any]:
+    """customer_last_order page -> customer_last_orders (rpt.usp_customer_last_orders)."""
+    try:
+        order_count = int(p.get("order_count") or 10)
+    except (TypeError, ValueError):
+        order_count = 10
+    out: dict[str, Any] = {"OrderCount": min(100, max(1, order_count))}
+    if acct := _csv(p.get("customer_account") or p.get("CustomerAccount")):
+        out["CustomerAccount"] = acct
+    if as_of_date := _csv(p.get("as_of_date")):
+        out["AsOfDate"] = as_of_date
+    return out
 
 
 # (report_id, translator) keyed by in-app report key. Single source of truth.
 REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
-    "ordered": ("salesline_release", translate_ordered),
-    "invoiced": ("invoiced_order_charges", translate_invoiced),
-    "salesman": ("invoiced_order_charges", translate_salesman),
-    "number_4": ("invoice_lines", translate_number_4),
-    "customer_activity": ("salesline_release", translate_customer_activity),
+    "ordered": ("ordered_report", translate_ordered),
+    "invoiced": ("invoiced_report", translate_invoiced),
+    "salesman": ("monthly_salesman_yoy", translate_salesman),
+
+    # number_4 runs one or two SPs depending on the mode filter; the primary
+    # (By Customer) is listed here for the dev API preview. The orchestrator
+    # picks the actual SP(s) via NUMBER_4_BY_CUSTOMER_SP / NUMBER_4_BY_ITEM_SP.
+    "number_4": (NUMBER_4_BY_CUSTOMER_SP, translate_number_4),
+    "item_averages": (NUMBER_4_BY_ITEM_SP, translate_item_averages),
+    "customer_activity": ("customer_activity", translate_customer_activity),
+    # In-app page key stays customer_last_order; catalog/SP id is plural.
+    "customer_last_order": ("customer_last_orders", translate_customer_last_orders),
 }
 
 

@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="page-head">
-    <a class="back-link" href="{{ url_for('schedules.schedules_page') }}">
+    <a class="back-link" href="{{ url_for('schedules.schedules_page') }}{% if schedule_type == 'master' %}#company{% endif %}">
         <i data-feather="arrow-left"></i> Schedules
     </a>
     <h1 class="page-title">{{ report_title }} — run history</h1>
@@ -12,31 +12,63 @@
 </div>
 
 {% if runs %}
-<div class="table-wrap">
-    <table class="data-table">
-        <thead>
-            <tr><th>Started</th><th>Finished</th><th>Status</th><th>Rows</th><th>Details</th></tr>
-        </thead>
-        <tbody>
-            {% for r in runs %}
-            <tr>
-                <td>{{ r.started_at or '—' }}</td>
-                <td>{{ r.finished_at or '—' }}</td>
-                <td>
-                    <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
-                        {{ r.status|title }}
-                    </span>
-                </td>
-                <td>{{ r.rows if r.rows is not none else '—' }}</td>
-                <td>
-                    {% if r.debug_log %}<div class="run-debug">{{ r.debug_log }}</div>{% endif %}
-                    {% if r.output_meta.get('sharepoint_url') %}<div class="run-sp">SharePoint saved</div>{% endif %}
-                    {% if r.output_meta.get('recipients') %}<div class="run-rcpt">To: {{ r.output_meta['recipients']|join(', ') }}</div>{% endif %}
-                </td>
-            </tr>
+<div class="run-history-list">
+    {% for r in runs %}
+    {% set meta = r.output_meta or {} %}
+    <article class="run-history-card {% if r.status == 'failure' %}is-failure{% elif r.status == 'success' %}is-success{% endif %}">
+        <header class="run-history-head">
+            <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
+                {{ r.status|title }}
+            </span>
+            <span class="run-history-when">{{ r.started_at or '—' }}{% if r.finished_at %} → {{ r.finished_at }}{% endif %}</span>
+            <span class="run-history-rows">{{ r.rows if r.rows is not none else '—' }} rows</span>
+        </header>
+        <p class="run-history-summary">{{ r.debug_log or meta.get('summary') or '—' }}</p>
+        <dl class="run-history-meta">
+            {% if meta.get('recipients') %}
+            <div><dt>Recipients</dt><dd>{{ meta['recipients']|join(', ') }}</dd></div>
+            {% endif %}
+            {% if meta.get('send_channel') %}
+            <div><dt>Email channel</dt><dd>{{ meta['send_channel'] }}{% if meta.get('sent_smtp') %} (delivered){% elif meta.get('recipients') %} (outbox only){% endif %}</dd></div>
+            {% endif %}
+            {% if meta.get('eml') %}
+            <div><dt>Outbox file</dt><dd>{{ meta['eml'] }}</dd></div>
+            {% endif %}
+            {% if meta.get('outbox_id') is not none %}
+            <div><dt>Outbox id</dt><dd>{{ meta['outbox_id'] }}</dd></div>
+            {% endif %}
+            {% if meta.get('sharepoint_saved') %}
+            <div><dt>SharePoint</dt><dd>{% if meta.get('sharepoint_url') %}<a href="{{ meta['sharepoint_url'] }}" target="_blank" rel="noopener">Saved</a>{% else %}Saved{% endif %}</dd></div>
+            {% elif meta.get('sharepoint_error') %}
+            <div><dt>SharePoint</dt><dd class="run-debug">{{ meta['sharepoint_error'] }}</dd></div>
+            {% endif %}
+            {% if meta.get('error') and r.status == 'failure' %}
+            <div><dt>Error</dt><dd class="run-debug">{{ meta['error'] }}</dd></div>
+            {% endif %}
+        </dl>
+        {% if meta.get('deliveries') %}
+        <h3 class="run-history-subhead">Delivery legs</h3>
+        <ul class="run-delivery-legs">
+            {% for d in meta['deliveries'] %}
+            <li class="{% if d.get('ok') %}leg-ok{% elif d.get('skipped') %}leg-skip{% else %}leg-fail{% endif %}">
+                <strong>{% if d.get('kind') == 'full' %}Full workbook{% else %}Split {{ d.get('salesman') }}{% endif %}</strong>
+                —
+                {% if d.get('skipped') %}
+                skipped ({{ d.get('error') or 'no email' }})
+                {% elif d.get('ok') %}
+                {{ (d.get('recipients') or [])|join(', ') or 'SharePoint only' }}
+                via {{ d.get('send_channel') or ('sent' if d.get('sent') else 'outbox') }}
+                {% if d.get('sharepoint_saved') %} + SharePoint{% endif %}
+                ({{ d.get('rows') or 0 }} rows)
+                {% else %}
+                failed: {{ d.get('error') or 'delivery failed' }}
+                {% endif %}
+            </li>
             {% endfor %}
-        </tbody>
-    </table>
+        </ul>
+        {% endif %}
+    </article>
+    {% endfor %}
 </div>
 {% else %}
 <div class="empty-state">

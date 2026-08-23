@@ -153,7 +153,7 @@ def test_runner_caches_then_serves_from_cache(db):
     runner = ReportRunner(ReportCache(db))
     calls = {"n": 0}
 
-    def builder(params):
+    def builder(params, visible_keys):
         calls["n"] += 1
         return {"tabs": [{"name": "T", "rows": [{"x": params["x"]}]}]}
 
@@ -169,10 +169,10 @@ def test_runner_scope_isolates_cache(db):
     """Two scoped users with the same params never share a cached payload."""
     runner = ReportRunner(ReportCache(db))
 
-    def builder_a(params):
+    def builder_a(params, visible_keys):
         return {"tabs": [{"name": "T", "rows": [{"who": "a"}]}]}
 
-    def builder_b(params):
+    def builder_b(params, visible_keys):
         return {"tabs": [{"name": "T", "rows": [{"who": "b"}]}]}
 
     out_a = runner.run(report_key="ordered", identity="shared", visible_salesman_keys={"mkolko"},
@@ -187,7 +187,7 @@ def test_runner_force_refresh_rebuilds(db):
     runner = ReportRunner(ReportCache(db))
     calls = {"n": 0}
 
-    def builder(params):
+    def builder(params, visible_keys):
         calls["n"] += 1
         return {"tabs": []}
 
@@ -202,7 +202,7 @@ def test_runner_rejects_non_dict_payload(db):
     runner = ReportRunner(ReportCache(db))
     with pytest.raises(TypeError):
         runner.run(report_key="ordered", identity="u", visible_salesman_keys=None,
-                   builder_version=1, params={}, builder=lambda p: ["not", "a", "dict"])
+                   builder_version=1, params={}, builder=lambda p, v: ["not", "a", "dict"])
 
 
 def test_cache_prune_removes_old_rows(db):
@@ -212,6 +212,27 @@ def test_cache_prune_removes_old_rows(db):
     cache.put(key, "ordered", {"tabs": []})
     assert cache.prune(older_than_seconds=-1) == 1  # cutoff in the future -> prunes all
     assert cache.get(key) is None
+
+
+def test_cache_self_heals_when_cache_db_wiped_mid_flight(db, tmp_path):
+    """Regression (2026-06-11): cache.db was deleted while the app was running;
+    the fresh file had no schema and a finished report run died at the save step
+    with 'no such table: report_payload_cache'. put/get/exists must re-create
+    the schema and carry on instead of failing the run."""
+    cache = ReportCache(db)
+    key = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                          builder_version=1, params={})
+
+    # Simulate the wipe: replace cache.db with a brand-new, schema-less file.
+    db.cache_path.unlink()
+    db.cache_path.touch()
+
+    cache.put(key, "ordered", {"tabs": [{"name": "T", "rows": [{"v": 1}]}]})
+    assert cache.get(key).payload["tabs"][0]["rows"] == [{"v": 1}]
+
+    db.cache_path.unlink()
+    assert cache.get(key) is None       # heals on read too, returns a clean miss
+    assert cache.exists(key) is False
 
 
 def test_cache_quarantines_corrupt_json(db):
@@ -237,7 +258,7 @@ def test_report_run_enqueues_and_worker_populates_cache(db):
     job_repo = JobRepository(db)
     worker = JobWorker(db)
     worker.register("report.run", make_report_run_handler(
-        runner, builder_resolver=lambda key: (lambda params: {"tabs": [{"name": key, "rows": []}]})
+        runner, builder_resolver=lambda key: (lambda params, vk: {"tabs": [{"name": key, "rows": []}]})
     ))
 
     jid = enqueue_report_run(

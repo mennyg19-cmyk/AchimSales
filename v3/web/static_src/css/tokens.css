@@ -56,6 +56,7 @@ body.dark-theme .badge-salesman { background: var(--primary-light); color: #60a5
 body.dark-theme .btn-outline { border-color: var(--border); color: var(--text-muted); }
 body.dark-theme .alert-success { background: var(--success-light); color: #4ade80; border-color: #166534; }
 body.dark-theme .alert-error { background: var(--error-light); color: #f87171; border-color: #7f1d1d; }
+body.dark-theme .alert-warn { background: var(--warning-light); color: #fbbf24; border-color: #854d0e; }
 
 /* Monochrome ("graphite") theme: a calm grayscale palette. The brand/primary
    goes charcoal instead of blue and all surfaces are neutral zinc; errors keep

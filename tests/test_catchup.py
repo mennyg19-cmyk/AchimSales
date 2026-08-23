@@ -183,3 +183,39 @@ class TestCatchup:
         )
         # No prior success → either None or unchanged args
         assert result is None or isinstance(result, list)
+
+    def test_last_month_gap_injects_missed_months(self):
+        """Aug 1 skipped → Sep 1 must recover July (not only August)."""
+        import universal_runbook as rb
+
+        rb._SIMULATED_NOW = datetime(2026, 9, 1, 5, 0, tzinfo=EASTERN)
+        log_path = _make_run_log([{
+            "timestamp": "2026-07-01 05:00:00",
+            "report_name": "Invoiced Report",
+            "status": "SUCCESS", "args": "--period last_month",
+        }])
+
+        result = rb._maybe_inject_catchup_args(
+            ["--period", "last_month"], "--period last_month",
+            log_path, "Invoiced Report",
+        )
+        assert "--from" in result and "--to" in result
+        assert result[result.index("--from") + 1] == "2026-07-01"
+        assert result[result.index("--to") + 1] == "2026-08-31"
+
+
+class TestClassifyGuardAction:
+
+    def test_last_month_reschedules_after_havdalah(self):
+        """Monthly last_month must not fall through to skip (Aug 2026 bug)."""
+        import universal_runbook as rb
+        assert rb._classify_guard_action("--period last_month") == "reschedule"
+
+    def test_daily_still_skips(self):
+        import universal_runbook as rb
+        assert rb._classify_guard_action("--period daily") == "skip"
+        assert rb._classify_guard_action("--period yesterday") == "skip"
+
+    def test_last_7_days_reschedules(self):
+        import universal_runbook as rb
+        assert rb._classify_guard_action("--period last_7_days") == "reschedule"

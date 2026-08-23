@@ -1,0 +1,150 @@
+---
+description: How to spawn subagents -- mechanics, model roster, family diversity, attribution, and the debate-to-consensus loop. Read BEFORE spawning any subagent.
+---
+
+# Subagents (single source of truth)
+
+If a model slug ever changes, change **`_meta/model-roster.json`** first, then run `python lib/model-roster.py sync`. Other protocols **name the job**; JSON + this file pick the slug.
+
+## Mechanics
+
+Use the **Task tool**: `subagent_type` = `"generalPurpose"` (writes files) or `"explore"` (read-only); **`model` set explicitly every time**; `run_in_background: true` when parallelizing (spawn them in one message). The prompt must carry ALL context -- subagents cannot see your chat.
+
+### Pass context by reference, not by pasting
+
+**Never paste whole documents (inventory, build history, debate log, proposals) into a prompt.** Pass the FILE PATHS plus a short orientation (what each file is, why it matters to this task). Pasting the same documents into every spawn is the single biggest token waste in multi-agent work.
+
+This only works if the subagent actually reads them, so every prompt that passes paths MUST include both of these, verbatim or equivalent:
+
+1. **"REQUIRED READING: read each of these files IN FULL, top to bottom, before doing anything else. Do not skim, do not stop at headings, do not rely on this prompt's summary -- the files are the source of truth and this prompt is only an orientation."**
+2. **A proof-of-read requirement**: the subagent's deliverable must open with a 3-5 line summary of each required file in its own words (e.g. item counts, route count, the key constraints it found). A deliverable without the proof-of-read block, or with counts that don't match the files, means the subagent skimmed -- reject it and re-spawn.
+
+Exception: small task-specific snippets (an error message, a 10-line spec, the open-points list for a debate round) are cheaper to inline than to write to a file -- inline those.
+
+### Replies are summaries, not deliverables
+
+The subagent's final message lands in YOUR context -- don't pay for the deliverable twice. Every spawn prompt must say: **"Write your deliverable to [file path]. Your final reply must be ≤10 lines: the file path(s) written, the proof-of-read block, and headline findings/counts only. Do NOT repeat the deliverable's content in your reply. Follow ponytail anti-slop (no sycophancy, no stock vocab, no hedging stacks)."** You read the file if you need the detail.
+
+### CodeGraph in subagents (A+B hybrid)
+
+CodeGraph results are **deterministic** -- same query, same index, same output for any model. Multi-model audits need different *judgments*, not six copies of the same graph read.
+
+Every subagent prompt for codebase exploration must say:
+
+1. **Check CodeGraph first:** `codegraph status` (CLI — subagents usually have **no MCP**). If healthy, use CLI for structural lookups. **Do not use Grep, SemanticSearch, or Read-tree scans for structure.**
+2. **If subagent has no MCP and no CLI in its sandbox:** read parent's graph-backbone digest files (proof-of-read required). List exact `codegraph` queries needed; **parent runs them via shell CLI** and updates the digest — never substitute grep.
+3. **Parent responsibility:** before spawning, run baseline graph scan (`codegraph explore` / `codegraph files`) and write digests. Parent uses **CLI** when MCP is missing in parent session too — not Grep.
+
+Review/audit subagents: same rule -- try codegraph on the phase diff's symbols first; Read only for non-indexed or stale-banner files.
+
+## Roster (snapshot -- the tool's accepted list is the real source of truth)
+
+**Canonical machine data:** `_meta/model-roster.json`. Run `python lib/model-roster.py sync` after editing slugs; `check` runs in CI.
+
+<!-- MODEL_ROSTER:BEGIN -->
+| Slug | Family / role |
+|---|---|
+| `composer-2.5-fast` | Composer (Cheapest; broad sweeps/audits) |
+| `gpt-5.6-sol-medium` | GPT Sol (Flagship judgment — hard gates only) |
+| `gpt-5.6-terra-medium` | GPT Terra (Everyday default (GPT primary family)) |
+| `gpt-5.2-codex` | GPT/Codex (Code-focused implementation) |
+| `gemini-3.1-pro` | Gemini (Design/UX eye) |
+| `cursor-grok-4.5-high-fast` | Grok (Cheap/fast/hotfix/scripts) |
+| `claude-4.6-sonnet-medium-thinking` | Claude Sonnet (Everyday Claude + routine Loop B/C) |
+| `claude-fable-5-thinking-medium` | Claude Fable (Deep judgment — hard gates (replaces Opus)) |
+<!-- MODEL_ROSTER:END -->
+
+Families: **Composer, GPT, Codex, Gemini, Grok, Claude (Sonnet+Fable)**. "Use more models" = reach across families.
+
+### Tiers
+
+<!-- MODEL_TIERS:BEGIN -->
+| Tier | Slugs | Use for |
+|---|---|---|
+| **Premier** | `gpt-5.6-sol-medium`, `claude-fable-5-thinking-medium` | Production merge, rebuild architecture/debate, trust-boundary, go-live parity |
+| **Everyday** | `gpt-5.6-terra-medium`, `claude-4.6-sonnet-medium-thinking`, `gpt-5.2-codex` | Default build, mini-grill, routine phase review, plan-review of medium plans |
+| **Cheap** | `cursor-grok-4.5-high-fast`, `composer-2.5-fast` | Hotfix, sweeps, long cost-sensitive loops, scripts |
+
+GPT-5.6: **Sol** > **Terra** > **Luna** (if spawnable). Task currently accepts Sol/Terra at **medium** only. Fable replaces Opus; **medium only**.
+
+**Recommended Cursor UI default (human):** `gpt-5.6-terra-medium` (GPT Terra). GPT is the primary family for Everyday work. Sonnet is the deliberate second family for dual-pass review. **Do not use Auto** as the main agent — Auto can silent-route mid-protocol and defeat Job routing.
+<!-- MODEL_TIERS:END -->
+
+## Wrong parent model → spawn (mandatory)
+
+Protocols name a **required job/tier**. The parent must not run that job itself when it is the wrong model.
+
+1. **Detect parent model** when possible (cloud `cursor-cloud` `run-info`, system/run metadata, or an explicit user statement). If detection fails → treat parent as **unknown**.
+2. **Auto / unknown / Composer / Luna alone** on a judgment job → **spawn** the Job table slug. Do not self-run premier or review loops.
+3. **Match rule:**
+   - Required **premier** → parent may self-run only if it *is* Sol or Fable (correct family for that step). Otherwise **spawn**.
+   - Required **everyday** → parent may self-run if it is Everyday or Premier. If parent is Cheap/Auto/unknown → **spawn** Terra (or the Job table slug).
+   - Required **cheap** → parent may self-run on any tier (don't force a down-spawn).
+4. Spawn with Task + **`model` set to the Job table slug**. Orchestrate, merge artifacts, enforce gates — don't silently substitute yourself for the assigned model.
+5. Record on the artifact: `Model: <slug>` and `Runner: spawn | parent`.
+
+**Yes, this is possible** in Cursor: Task subagents accept an explicit `model`. That is how wrong-parent correction works.
+
+## Default picks (Rule Preference)
+
+<!-- MODEL_JOBS:BEGIN -->
+| Job | Slug(s) |
+|---|---|
+| **UI default / parent chat** | `gpt-5.6-terra-medium` |
+| **Implementation (add / fix / refactor)** | `gpt-5.6-terra-medium`; `claude-4.6-sonnet-medium-thinking`; `gpt-5.2-codex` |
+| **Spec / mini-grill** | `gpt-5.6-terra-medium` |
+| **Full grill / deep plan-review / architecture** | `claude-fable-5-thinking-medium`; `gpt-5.6-sol-medium` |
+| **Routine phase review Loop A** | `gpt-5.6-terra-medium` |
+| **Routine phase review Loop B** | `claude-4.6-sonnet-medium-thinking` |
+| **Routine phase review Loop C** | `claude-4.6-sonnet-medium-thinking` |
+| **Production merge / go-live Loop A** | `gpt-5.6-sol-medium` |
+| **Production merge / go-live Loop B** | `claude-fable-5-thinking-medium` |
+| **Production merge / go-live Loop C** | `claude-fable-5-thinking-medium` |
+| **Trust-boundary / security** | `claude-fable-5-thinking-medium`; `gpt-5.6-sol-medium` |
+| **Rebuild premier pair / debate** | `claude-fable-5-thinking-medium`; `gpt-5.6-sol-medium` |
+| **Rebuild area auditors (Phase 0)** | `gpt-5.6-terra-medium`; `claude-4.6-sonnet-medium-thinking` |
+| **Hotfix** | `cursor-grok-4.5-high-fast`; `gpt-5.6-terra-medium`; `claude-4.6-sonnet-medium-thinking` |
+| **Broad / cheap inventory sweep** | `composer-2.5-fast`; `cursor-grok-4.5-high-fast` |
+| **Long autonomous / cost-sensitive** | `cursor-grok-4.5-high-fast`; `gpt-5.6-terra-medium` |
+| **Redesign proposals (default)** | `gemini-3.1-pro`; `gpt-5.6-terra-medium`; `cursor-grok-4.5-high-fast` |
+| **UI polish (after direction chosen)** | `gpt-5.6-terra-medium`; `gemini-3.1-pro` |
+| **Shell / deploy / scripts** | `cursor-grok-4.5-high-fast`; `gpt-5.2-codex` |
+| **Structure facts** | CodeGraph — not a model contest |
+
+**Routing rule:** hard-to-reverse judgment → Premier (Sol/Fable); everyday build + routine gates → Terra/Sonnet; cheap/wide/long → Grok or Composer-fast; design competition → Gemini + Everyday (+ Premier if user asks); facts → CodeGraph. **Harden with Spec gate + expectation checklists** so Everyday can replace Premier on thumbtack work.
+<!-- MODEL_JOBS:END -->
+
+## When to use multiple models (Rule Preference)
+
+- **Multi-family required:** rebuild and redesign protocols (audits, proposals, debate, final parity review); production-merge correctness loops.
+- **Routine phase reviews:** two Everyday families (Terra + Sonnet) — not Sol+Fable unless user says **"use more models"** or the phase is production/go-live.
+- **Single subagent default:** normal features, fixes, hotfixes -- unless the user says **"use more models."**
+- When multi-model IS required: N subagents = N different families; never the same slug twice per job.
+
+## Three Hard Rules
+
+1. **Never silently fall back to your own model.** A rejected slug returns the valid list -- pick another valid slug and retry. NEVER drop `model` and run on yourself: that turns multi-model coverage into single-model blind spots without anyone noticing.
+2. **Same job × N subagents = N different families** (when multi-model is required per above). Two Fable/Sonnet variants ≠ two families.
+3. **The orchestrator records the assigned model on every artifact** (header line `Model: <slug>`). Self-labels and filenames prove nothing about what actually ran.
+
+## Multi-Model Debate to Consensus
+
+Use when 2+ subagents return competing proposals for the SAME decision that must converge into one answer (e.g. rebuild architecture proposals). **Never let a single converger silently pick a winner.** Debate real trade-offs (architecture, structure, stack, data model) -- never relitigate fixed things (which features to keep is non-negotiable; debate resolves HOW, never WHAT).
+
+- **Same-models exception**: this is the ONE place you deliberately reuse models -- each model defends its OWN proposal every round (the author must answer). Attribution still applies.
+- **Each round**: (1) extract the open points of disagreement; (2) re-spawn each side with the **full running debate context** -- both original proposals, the entire DEBATE-LOG so far, the RESOLVED points with their agreed answers (so settled ground can't reopen), the current open-points list, and the canonical inventory/audit. Pass the proposals/log/inventory **as file paths with the required-reading + proof-of-read instructions above**; inline only the short open-points list. Subagents are stateless; without the full log they repeat themselves and never converge. (You may compress RESOLVED to a tight summary; open-point exchanges must be read in full.) (3) Each side must, per open point, do exactly one of: **DEFEND** with concrete cited reasons, **CONCEDE**, or **PROPOSE A THIRD OPTION**, ending with its RESOLVED and OPEN lists. (4) Close points where both sides land on the same answer; append the round to DEBATE-LOG.md.
+- **End states**: *Consensus* (open list empty -- the goal) or *stalemate* (a full round with no movement, or ~3-4 rounds hit). On stalemate the orchestrator resolves each remaining point: canonical audit/inventory wins on any contradiction; otherwise the stronger-reasoned option, recorded; genuine product judgment calls go to the user, never decided silently.
+- **Record everything** in DEBATE-LOG.md: per round, who defended/conceded/proposed, what closed, what stayed open, final consensus or tie-break with reasons, model attribution per round. The converged plan must reflect the consensus -- not one model's pick -- and must not contradict the canonical audit/inventory.
+
+## Pre-Spawn Checklist
+
+- [ ] `model` set explicitly on every Task call?
+- [ ] Job table slug matches the protocol stage (Premier only when required)?
+- [ ] Wrong/unknown/Auto parent → spawned instead of self-running judgment work?
+- [ ] Multi-subagent job on different families, no repeats?
+- [ ] Rejected slug → picked another valid one (not your own model)?
+- [ ] Prompt self-contained (paths + orientation; subagent can't see this chat)?
+- [ ] Documents passed as paths with the REQUIRED READING + proof-of-read instructions (not pasted)?
+- [ ] Deliverable checked for the proof-of-read block before accepting it?
+- [ ] Orchestrator-assigned model recorded on each deliverable?
+- [ ] Competing proposals → debate-to-consensus loop, not a silent pick?

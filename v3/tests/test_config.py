@@ -56,6 +56,20 @@ def test_prod_rejects_unc_db_path():
         _cfg(precious_db_path=Path(r"\\fileserver\share\precious.db")).validate()
 
 
+def test_prod_rejects_home_share_db_path():
+    # /home on App Service is Azure Files (SMB); SQLite WAL breaks the job worker
+    # there. This is the exact regression that stalled the queue in June 2026.
+    with pytest.raises(ConfigError, match="/home share"):
+        _cfg(precious_db_path=Path("/home/site/v3data/precious.db")).validate()
+
+
+def test_prod_accepts_local_tmp_db_path():
+    _cfg(
+        precious_db_path=Path("/tmp/v3data/precious.db"),
+        cache_db_path=Path("/tmp/v3data/cache.db"),
+    ).validate()  # should not raise
+
+
 def test_valid_prod_config_passes():
     _cfg().validate()  # should not raise
 

@@ -16,20 +16,25 @@ SCHEDULE_RUN_JOB_TYPE = "schedule.run"
 
 def enqueue_schedule_run(job_repo: JobRepository, *, schedule_id: int,
                          schedule_type: str = PERSONAL,
-                         owner_user_id: int | None = None) -> str:
+                         owner_user_id: int | None = None,
+                         ignore_sabbath: bool = False) -> str:
     # Dedup so a cron tick that fires twice (coalesced) or overlaps a "Run now"
     # collapses to a single in-flight run per schedule.
     return job_repo.enqueue(
         SCHEDULE_RUN_JOB_TYPE, owner_user_id=owner_user_id,
         dedup_key=f"schedrun:{schedule_type}:{schedule_id}",
-        params={"schedule_id": schedule_id, "schedule_type": schedule_type},
+        params={"schedule_id": schedule_id, "schedule_type": schedule_type,
+                "ignore_sabbath": bool(ignore_sabbath)},
     )
 
 
 def make_schedule_run_handler(runner: ScheduleRunner) -> Handler:
     def handler(ctx: JobContext) -> str:
         p = ctx.job.params
-        run_id = runner.run(p["schedule_id"], p.get("schedule_type", PERSONAL))
+        run_id = runner.run(
+            p["schedule_id"], p.get("schedule_type", PERSONAL),
+            ignore_sabbath=bool(p.get("ignore_sabbath")),
+        )
         return f"run:{run_id}"
 
     return handler

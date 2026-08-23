@@ -1,0 +1,441 @@
+# Testing Strategy
+
+Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
+
+A cheaper model can use this file as a guide to run the full test suite without deep context.
+
+---
+
+<!-- Entries are added below as features are built. Each entry follows this format:
+
+## [Feature/Module Name]
+
+**What to test:**
+- ...
+
+**Expected behavior:**
+- ...
+
+**Edge cases:**
+- ...
+
+**Test file:** `tests/test_feature_name.py` (or equivalent)
+-->
+
+## Invoiced salesman from the reporting API (not Excel)
+
+**What to test:**
+- Invoiced adapter keeps the SP `SalesGroup` / `salesman` fields as sent.
+- When `salesman` is a numeric code (or missing), the customer dropdown source (`customer_master`) supplies SalesGroup.
+- A known SalesGroup from the SP does not trigger a customer_master fetch.
+- `salesman_map.xlsx` is not used to stamp numbers onto invoiced rows.
+
+**Expected behavior:**
+- `salesman=029` + customer 100 assigned to REdwards → Salesman column is REdwards.
+- `SalesGroup=REdwards` on the invoice stays REdwards even if the customer master says someone else.
+
+**Edge cases:**
+- Numeric salesman with no matching customer keeps the code from the SP.
+
+**Test file:** `v3/tests/test_report_invoiced.py`, `v3/tests/test_report_service.py`
+
+## Home-site schedule failure mail
+
+**What to test:**
+- A failed company schedule emails the test-email list even when test mode is off.
+- If sending that notice throws, the original schedule error still raises.
+
+**Expected behavior:**
+- Subject is `[FAIL] {schedule name}`. Body names company/personal, report, and error.
+- Recipients are `settings.test_emails()`, not the schedule's customer list.
+
+**Edge cases:**
+- Empty test list: no send, original failure still recorded.
+- Fake delivery with no `email.send_notice` (older tests) must not crash.
+
+**Test file:** `v3/tests/test_scheduling.py`
+
+## Home is Beta; Live at /legacy
+
+**What to test:**
+- `/` is the Beta (v3 is_beta) app; `/legacy` is the old Live app.
+- `/beta` and `/beta/reports` 302 to `/` and `/reports`.
+- `/login` is the home (Beta) sign-in page. `/login/start` 307s to Live for Microsoft.
+- `/dev/role-picker` is the home app (developers). `/auth/callback` still hits Live.
+- `/auth/callback` hits Live with no `/legacy` SCRIPT_NAME (Entra URI unchanged).
+- `/test` still strips to the v3 sandbox.
+- Live login `next` accepts `/legacy/...` and leftover `/beta/...`.
+- Entra redirect URI is `https://host/auth/callback` even when Live's SCRIPT_NAME is `/legacy`.
+- Logged-out home users go to `/login?next=/`. No 403 for missing Beta Access.
+
+**Expected behavior:**
+- Dummy WSGI apps behind `mount_beta_as_home` see the paths above.
+- `live_login_redirect("/")` is `/login?next=/`.
+
+**Edge cases:**
+- If `BETA_MOUNT_ENABLED` is off or Beta fails to boot, `/` stays Live (not covered by the dummy dispatch tests).
+
+**Test files:** `tests/test_wsgi_dispatch.py`, `tests/test_beta_sources.py`
+
+## Login page and developer role picker on home
+
+**What to test:**
+- Logged-out `/login` is the home Microsoft / External Rep page, not `/legacy/login`.
+- `/login/start` still 307s to Live so Entra keeps working.
+- A developer session can open `/dev/role-picker`, pick a user, then open the picker again.
+
+**Expected behavior:**
+- Home login shows "Achim User Login".
+- Role picker lists users; View as Selected User then View as Admin (yourself) both 302 home.
+
+**Test files:** `v3/tests/test_auth.py`, `tests/test_wsgi_dispatch.py`
+
+## Company schedules table sorts by name
+
+**What to test:**
+- Company list HTML has Apple before Zebra when those two rows exist.
+- Table is marked `js-sortable` so column headers can be clicked.
+
+**Expected behavior:**
+- Company schedules open sorted by name. Click a header to sort that column.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
+## Deleted company schedules stay deleted
+
+**What to test:**
+- Boot seed does not re-insert a company schedule after it was deleted.
+- Beta seed no longer includes `Daily 9am` (customer 48999/917/2267).
+- Migration `0010` deletes a leftover shared `Daily 9am` row.
+
+**Expected behavior:**
+- Delete on company schedules is remembered across deploys/recycles.
+- Recreating the same name later is allowed (the skip list is cleared on create).
+
+**Test files:** `v3/tests/test_schedule_seed.py`, `v3/tests/test_blueprints.py`
+
+## Schedules run log starts collapsed
+
+**What to test:**
+- After a schedule has run, `/schedules` still renders the Recent run log without the `open` attribute.
+
+**Expected behavior:**
+- The log is closed on page load. Run now still opens it so you can watch that job.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
+## Company schedule Copy
+
+**What to test:**
+- Copying a company schedule returns 201, a new id, `is_active=False`, and name `{original} (copy)`.
+- A second copy of the same source is `{original} (copy 2)`.
+- Params, layout, cadence, recipients, SharePoint, filename, share flag, and run-as match the source. Owner is the copier.
+- A manager cannot copy a company row they cannot edit (403, no Copy button). They can copy a row they own.
+- A salesman cannot copy company schedules (403).
+- Personal Copy still leaves the duplicate inactive.
+
+**Expected behavior:**
+- Copy on a company row you can edit. The copy stays Off until someone turns it on.
+- Shared names stay unique so the copy does not collide with the Azure seed index.
+
+**Edge cases:**
+- Copying a 120-character name still fits in the name column (`next_copy_name` truncates the stem).
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_schedule_seed.py`
+
+## Shabbos / Yom Tov schedule skip (Beta clock)
+
+**What to test:**
+- Hebcal candle→havdalah window is restricted (Shabbos, or named Yom Tov). Weekday-name candle memo is still Shabbos.
+- Check fails open on a malformed Hebcal payload.
+- Clock tick during a restricted window records `skipped` and sets `catch_up_pending`; no delivery job.
+- After the window, the tick enqueues the owed catch-up once.
+- Manual Run now sets `ignore_sabbath` so it still sends.
+
+**Expected behavior:**
+- Company and personal clock runs skip Shabbos/Yom Tov (Brooklyn, 18-min candles) and catch up after havdalah, like the live runbook.
+- Run now is a deliberate send and does not skip.
+
+**Test files:** `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`
+
+## Scheduled Excel matches on-screen tabs
+
+**What to test:**
+- A layout `order` list drops server tabs not on that list (Commissions off Salesmen Shipped).
+- Empty/missing `order` keeps every tab (old schedules unchanged).
+- Saving a company schedule from the wizard with `layout: {}` does not wipe a stored tab order.
+
+**Expected behavior:**
+- Right-click → Remove tab, then save/schedule, emails a workbook without that sheet.
+- Daily 9am Salesmen Shipped ships without Commissions.
+
+**Edge cases:**
+- Optional invoiced tabs (Audit, Totals by Salesman) listed in order but absent from a given run are skipped, not an error.
+
+**Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_blueprints.py`
+
+## Email me + hide Commissions from salesmen
+
+**What to test:**
+- Report page has Email me next to Run report.
+- Email me POSTs email-now to the signed-in user's address (existing Email modal still works for other people).
+- Salesman invoiced run/result/export/email has no `commissions` tab. Admin/manager still have it.
+- Page for a salesman sets `data-hide-commissions=1`.
+
+**Expected behavior:**
+- One click emails the current filters as Excel to the user. No recipient modal.
+- A salesman never sees Commissions on screen or in a file they generate.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`
+
+## Schedule workbook filenames
+
+**What to test:**
+- Blank `filename_template` uses the schedule name plus Eastern date and time, not just the report type.
+- Two company schedules on the same report get different filenames.
+- Missing schedule name falls back to the report title slug.
+
+**Expected behavior:**
+- `Daily 9am` and `DailyOrderReport` no longer both become `Ordered_YYYYMMDD.xlsx`.
+- Custom templates still expand tokens as written.
+
+**Test file:** `v3/tests/test_filename_template.py`
+
+## Save and On wait for the next scheduled time
+
+**What to test:**
+- Turning a company or personal schedule On after today's time has passed does not enqueue a run.
+- Saving an edit on an active schedule does not enqueue a run.
+- Creating a schedule whose time already passed today does not enqueue a run.
+- A schedule that was already On still catch-up-fires if the slot was missed (app down).
+- Turning On before the slot still fires at that time. Run now still sends immediately.
+
+**Expected behavior:**
+- Save / On wait for the next cadence. Only Run now or the clock at the scheduled time send.
+
+**Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
+
+## SharePoint folder paths and date tokens
+
+**What to test:**
+- Stored paths do not start with `Direct Reports` (that folder is already the drive home). Saving `Direct Reports/Ordered` stores `Ordered`. Nested `Direct Reports/Direct Reports/...` is stripped.
+- Folder templates expand the same date tokens as filenames, but keep `/` and spaces (`{Month} {YYYY}` → `August 2026`).
+- Customer Activity seed path is `Salesman Report/Customer Activity/{Month} {YYYY}`.
+- Migration 0011 strips existing prefixes and sets that Customer Activity month folder when the path is still the old static one.
+
+**Expected behavior:**
+- Files land in `Direct Reports/<schedule path>/`, not `Direct Reports/Direct Reports/...`.
+- Monthly Customer Activity creates `.../Customer Activity/August 2026` (run date, Eastern).
+- Other monthly jobs stay on their current folders until someone adds tokens in the wizard.
+
+**Test files:** `v3/tests/test_filename_template.py`, `v3/tests/test_delivery.py`, `v3/tests/test_schedule_seed.py`, `v3/tests/test_blueprints.py`
+
+## Schedule test mode persistence
+
+**What to test:**
+- Shared master schedule names cannot be inserted twice (`IntegrityError`).
+- Re-seeding the Azure import does not duplicate rows.
+
+**Expected behavior:**
+- Beta `app_settings` (test mode + emails) survive App Service recycle via Litestream replica `LITESTREAM_AZURE_BETA_PATH`.
+
+**Test file:** `v3/tests/test_schedule_seed.py`
+
+## Beta settings hub
+
+**What to test:**
+- Salesman `/settings` is `container-narrow`, has You (profile, theme, exclusions), no admin/developer blocks.
+- Admin has People, Reports, Delivery, History; not Database explorer.
+- Developer has explorer, notification diagnostic, beta sources.
+- `POST /api/admin/report-visibility` hides a report unless a per-user allow override exists.
+- Exclusions save without the dashboard blueprint (Beta).
+- `/admin/schedule-runs` and `/admin/run-log` are admin-only.
+- DB explorer lists precious tables; salesman/admin get 403. No arbitrary SQL.
+
+**Expected behavior:**
+- Settings is ~800px, accordion on phone, stacked categories.
+- Live Email Distributions is not on Beta.
+
+**Edge cases:**
+- Globally disabled report + explicit allow still visible.
+- Unknown `report_config` row means enabled.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_auth.py`
+
+---
+
+## Previously run list + Keep name + OneDrive root URL
+
+**What to test:**
+- `onedrive_children_url` at root is `…/drive/root/children`, never `root::/children`. Nested folders keep `root:/{path}:/children`.
+- `keep_run` stores `keep_name` and clears name when a Keep overflows the cap of 5 (test uses cap 2).
+- `POST /api/reports/runs/<id>/keep` with `{name}` returns that name; `/api/reports/active` includes `keep_name`, `created_at`, `finished_at`.
+- Logged-in `base.html` has Previously run (`#prevRunsBtn`) and the jobs bar.
+
+**Expected behavior:**
+- Header Previously run opens the floating list. Keep this run prompts for a name. Chips show Eastern date/time.
+- OneDrive Browse at the drive root no longer 400s from a bad Graph path.
+
+**Edge cases:**
+- Empty keep name is allowed; UI falls back to the report title. Name is trimmed to 80 chars.
+
+**Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_jobs.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
+---
+
+## Invoiced one-day SQL window (Daily / yesterday)
+
+**What to test:**
+- `translate_invoiced` sends `InvoiceDateFrom` at 00:00:00 and `InvoiceDateTo` at 23:59:59.
+- `daily` and `yesterday` produce the same window.
+- A one-day custom range keeps that day's invoices after the YTD fetch + slice.
+
+**Expected behavior:**
+- Scheduled Daily Invoiced is not an empty workbook when that day has invoices.
+
+**Edge cases:**
+- Same calendar day From/To must not collapse to midnight–midnight.
+
+**Test files:** `v3/tests/test_params.py`, `v3/tests/test_report_service.py`, `v3/tests/test_dates.py`
+
+---
+
+## Schedule test mode
+
+**What to test:**
+- Admin can save several test emails and turn test mode on; cannot turn on with an empty list.
+- Salesman cannot POST the API.
+- Company schedule Run now in test mode emails only the test list, `[TEST]` subject, no SharePoint.
+- Split schedules still fan out in test mode; every file goes to the test list with the salesman in the subject/filename.
+- Personal schedules ignore test mode.
+- Test mode on with no emails fails the run instead of sending to stored recipients.
+
+**Expected behavior:**
+- Settings shows the toggle and address chips.
+- `/schedules` shows a banner listing the test addresses while On.
+
+**Edge cases:**
+- Invalid addresses are dropped; salesman-split jobs still fan out, but every file (full + each salesman) goes to the test list. Salesmen are not emailed.
+
+**Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
+
+---
+
+## Beta import of Live Azure runbook schedules
+
+**What to test:**
+- Beta boot inserts Live Azure job names as company master schedules with `is_active=0`.
+- Re-seed does not duplicate existing names.
+- `amazon_weekly` is not imported.
+
+**Expected behavior:**
+- Company schedules list on `/schedules` (home) shows the Live jobs as Off.
+- The minute poller does not fire them until someone turns a row On.
+
+**Edge cases:**
+- A name you already created on Beta is left as-is (not overwritten).
+
+**Test file:** `v3/tests/test_schedule_seed.py`
+
+---
+
+## Salesman-all fan-out (Beta)
+
+**What to test:**
+- 9am Salesmen Ordered / Shipped seed with `split_by_salesman`.
+- Existing plain rows get that flag on re-seed.
+- `split_by_salesman` with no key list fans out to active salesmen who have an email.
+- Salesman-filtered Ordered omits the By Salesman tab; unscoped Ordered keeps it.
+- Monthly combined SharePoint job stays `Salesman Report/Monthly` with no split. A second seed (`Monthly 1st 12am Monthly Salesmen` / `Monthly Salesmen Report`) is split-only, no folder.
+
+**Expected behavior:**
+- One combined file (folder/recipients) plus one file per salesman with an email.
+- Per-rep Ordered files match live `--salesman all` (no By Salesman sheet).
+- Monthly SharePoint job is unchanged. The extra monthly split schedule emails each salesman and does not write SharePoint.
+
+**Test files:** `v3/tests/test_schedule_seed.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_report_service.py`, `v3/tests/test_salesmen_seed.py`
+
+## Salesman-scoped invoiced fetch
+
+**What to test:**
+- A one-day salesman-scoped invoiced report requests only its selected date range.
+- Beta: salesman filter, `_skip_commissions`, or a layout `order` without `commissions` skips the YTD pull and omits the Commissions tab.
+- Unscoped Invoiced still YTD-fetches for commissions.
+
+**Expected behavior:**
+- Salesman-scoped / shipped reports do not fetch year-to-date data because their output omits the commissions tab.
+- Daily 9am Salesmen Shipped (layout without commissions) fetches only the selected period.
+
+**Edge cases:**
+- An unscoped report keeps the existing year-to-date query for its commissions tab.
+- Empty/missing layout `order` still fetches YTD (old schedules).
+
+**Test files:** `tests/test_invoiced_loader.py`, `v3/tests/test_report_service.py`, `v3/tests/test_report_invoiced.py`, `v3/tests/test_delivery.py`
+
+---
+
+## v3 master schedule split-email MVP
+
+**What to test:**
+- Admins and managers see company schedules on `/schedules`; salesmen see My schedules plus the shared Add wizard, never the company list.
+- Managers can create/share; they edit only rows they created or that run as them. Other shared rows are read-only with an admin note.
+- Private master rows stay off the company list and show under My schedules for the owner.
+- A manager-owned master run is scoped to that manager’s salesman keys. Unscoped (no owner/run-as, or privileged owner) stays unrestricted.
+- Master schedule params persist salesman delivery flags (`split_by_salesman`, `email_to_salesmen`, `email_salesman_keys`).
+- Master schedule delivery sends the full workbook to typed recipients/SharePoint and split salesman-filtered files to `salesmen.email`.
+
+**Expected behavior:**
+- `/master-schedules` redirects managers and admins to `/schedules#company`; salesmen get 403. API create/update stay company-viewer gated; salesmen still 403 on create.
+- Salesman split emails use raw SalesGroup values for report params and normalized keys only for email lookup.
+
+**Edge cases:**
+- A master schedule with only salesman email targets can be saved.
+- Missing salesman email is recorded as a failed requested delivery.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_salesmen_seed.py`.
+
+---
+
+## Cancel a running report job
+
+**What to test:**
+- A queued job can be cancelled (it never starts).
+- A running job can be cancelled (the user can stop a run stuck on a slow Reporting API call).
+- A finished job (success/failure/already-cancelled) cannot be cancelled.
+- The cancel endpoint is owner-scoped: one user cannot cancel another user's job.
+- Cancelling does not get clobbered: when the slow upstream call finally returns, the late `mark_success`/`mark_failure` is a no-op because it's guarded to `status='running'`.
+- The report view renders the Cancel button and its endpoint URL.
+
+**Expected behavior:**
+- `JobRepository.cancel` returns True and sets status to `cancelled` for queued OR running jobs; False for terminal jobs.
+- `POST /api/jobs/<id>/cancel` returns `{cancelled, status}`; 404 for a job the caller doesn't own.
+- On screen: clicking Cancel stops the poll loop within ~1s, shows "Run cancelled.", and the Run button is re-enabled.
+
+**Edge cases:**
+- The worker thread for a running job stays blocked until the upstream call ends; cancellation only stops the screen waiting and prevents the result from being shown/stored — it does not force-kill the in-flight HTTP request.
+
+**Test files:** `v3/tests/test_jobs.py` (repo behavior), `v3/tests/test_blueprints.py` (endpoint + template).
+
+---
+
+## Scheduling (rebuild): cadence, Shabbos skip, deliveries, management UI
+
+**What to test:**
+- Cadence: a daily/weekly/monthly schedule is "due" only at/after its time, only on its day, and at most once per Eastern day (the `last_run_at` guard). Bad cadence (weekly with no day, unknown frequency) is rejected with a clear message.
+- Shabbos/Yom Tov: inside a candle->havdalah window is restricted (Shabbos, or the named Yom Tov); outside is not. The check fails OPEN on any error, including a malformed-but-successful Hebcal response (a calendar hiccup must never block every send).
+- Deliveries: a `self` schedule scopes to the owner's allowed salesmen and addresses owner + extras; an unmapped owner produces no delivery; a privileged owner scopes to "all". A `master` schedule produces one send per salesman number, each scoped to ONLY that salesman, addressed to the people mapped to that salesman plus extras; a salesman with no recipients at all is skipped.
+- Poller: a due schedule is queued at most once per day (it's stamped as run the moment the durable job is queued, so a timed-out/failed job can't re-fire it that day).
+- Catch-up after Shabbos: a run skipped for Shabbos flags `catch_up_pending` (and stamps the day so the cadence doesn't also fire it); once Hebcal says it's no longer restricted, the poller queues the catch-up under a separate dedup key; the run handler clears the flag when it actually runs.
+- Failure alerts: a run where every attempted delivery failed (and wasn't cancelled) emails the owner a heads-up and, for a private schedule, creates one in-app notification tied to that schedule. A manual "Run now" queues a job with `manual:true` and ignores the Shabbos skip; running it dismisses the matching notification. A person can't dismiss someone else's notification (403).
+- Authorization: only admins reach `/admin/schedules`; a regular owner can manage their own self-schedule but NOT a master schedule and NOT someone else's; every state-changing POST carries CSRF.
+
+**Expected behavior:**
+- `cadence.due_now/normalize/describe` behave as above; `sabbath.melacha_assur` returns `(bool, reason)` and never raises.
+- `run.expand_deliveries` returns the correct scoped deliveries; `run_schedule` writes a `schedule.run` audit line per delivery (sent/failed/skipped) and stamps the schedule.
+- Routes return 200 for allowed pages, 403 for disallowed management, 302 (redirect + flash) for bad input instead of 500.
+
+**Edge cases:**
+- A wide master schedule runs its salesmen sequentially inside one worker job capped at `max_job_seconds`; very large ones may need splitting (noted in DECISION-LOG).
+- A failed or refused (unconfigured mailer) send is still audited and still consumes the day's run.
+
+**Test files:** `rebuild/tests/test_scheduling.py` (cadence, sabbath, deliveries), `rebuild/tests/test_schedule_routes.py` (authz, CSRF, once-a-day, catch-up after Shabbos, whole-run failure notify, manual run-now + ignore-Shabbos, notification ownership), `rebuild/tests/test_email.py` (failure-notice composition, escaping, audited-when-off).

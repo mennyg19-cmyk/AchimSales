@@ -1,115 +1,393 @@
-{% extends "base.html" %}
-{% block title %}Master schedules{% endblock %}
+{# Shared 5-step wizard. Company list is managers/admins only. #}
+<div id="msWizard" class="ms-wizard" hidden
+     data-create-url="{{ url_for('schedules.create_master') }}"
+     data-personal-create-url="{{ url_for('schedules.create_schedule') }}"
+     data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
+     data-can-company="{{ '1' if can_see_company else '' }}"
+     data-privileged="{{ '1' if is_privileged else '' }}"
+     data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
+     data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
+     data-od-status-url="{{ url_for('reports.onedrive_status') }}"
+     {% if can_see_company %}
+     data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
+     data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
+     data-salesmen-url="{{ url_for('schedules.master_lookup_salesmen') }}"
+     data-salesmen-emails-url="{{ url_for('schedules.master_lookup_salesmen_emails') }}"
+     data-customers-url="{{ url_for('schedules.master_lookup_customers') }}"
+     data-lookup-status-url="{{ url_for('schedules.master_lookup_status') }}"
+     {% else %}
+     data-salesmen-url-tpl="{{ url_for('reports.report_salesmen', report_key='__KEY__') }}"
+     data-customers-url-tpl="{{ url_for('reports.report_customers', report_key='__KEY__') }}"
+     data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
+     {% endif %}
+     data-report-filters='{{ report_filters|tojson }}'
+     data-csrf="{{ csrf_token() }}">
+    <input type="hidden" id="editingId" value="">
 
-{% block content %}
-<div class="page-head">
-    <a class="back-link" href="{{ url_for('settings.settings_page') }}">
-        <i data-feather="arrow-left"></i> Settings
-    </a>
-    <h1 class="page-title">Master schedules</h1>
-    <p class="page-subtitle">Shared, admin-owned recurring deliveries. These run unrestricted (full data).</p>
-</div>
-
-<div class="ms-panel">
-    <div class="ms-panel-head">
-        <h2 id="formTitle" class="ms-panel-title">New master schedule</h2>
+    <div class="ms-wizard-head">
+        <h2 id="formTitle" class="ms-wizard-title">Add a schedule</h2>
+        <p class="ms-wizard-hint">Answer a few simple questions. You can go back anytime.</p>
+        <ol class="ms-steps" aria-label="Steps">
+            <li class="ms-step is-active" data-step="1"><span class="ms-step-num">1</span> Report</li>
+            <li class="ms-step" data-step="2"><span class="ms-step-num">2</span> When</li>
+            <li class="ms-step" data-step="3"><span class="ms-step-num">3</span> Options</li>
+            <li class="ms-step" data-step="4"><span class="ms-step-num">4</span> Where</li>
+            <li class="ms-step" data-step="5"><span class="ms-step-num">5</span> Review</li>
+        </ol>
     </div>
-    <form id="masterCreateForm" class="ms-form"
-          data-create-url="{{ url_for('schedules.create_master') }}"
-          data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
-          data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
-          data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
-          data-csrf="{{ csrf_token() }}">
-        <input type="hidden" name="editing_id" id="editingId" value="">
-        <div class="ms-fields">
-            <label class="ms-field"><span>Name</span><input type="text" name="name" required></label>
-            <label class="ms-field"><span>Report</span>
-                <select name="report_key">
-                    {% for r in built_reports %}<option value="{{ r.key }}">{{ r.title }}</option>{% endfor %}
-                </select>
+
+    <form id="masterCreateForm" class="ms-wizard-body" novalidate>
+        <section class="ms-pane" data-pane="1">
+            <h3 class="ms-pane-title" tabindex="-1">Which report should go out automatically?</h3>
+            <p class="ms-pane-help">Pick one report. Each schedule sends one report.</p>
+            <div class="ms-report-grid" role="radiogroup" aria-label="Report">
+                {% for r in built_reports %}
+                <label class="ms-report-card">
+                    <input type="radio" name="report_key" value="{{ r.key }}" required>
+                    <span class="ms-report-name">{{ r.title }}</span>
+                </label>
+                {% endfor %}
+            </div>
+            {% if can_see_company %}
+            <label class="ms-field ms-field-block">
+                <span>Give this schedule a name</span>
+                <input type="text" name="name" id="msName" maxlength="120"
+                       placeholder="e.g. Daily Ordered Report" required>
             </label>
-            <label class="ms-field"><span>Frequency</span>
-                <select name="freq" id="mFreq">
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                </select>
-            </label>
-            <label class="ms-field"><span>Time</span><input type="time" name="time" value="08:00"></label>
-            <div class="ms-field" id="mWeekdays" hidden><span>Days</span>
-                <div class="sched-weekdays">
+            <p class="ms-pane-help">A short name so you can find it later in the list below.</p>
+            {% else %}
+            <input type="hidden" name="name" id="msName" value="">
+            {% endif %}
+        </section>
+
+        <section class="ms-pane" data-pane="2" hidden>
+            <h3 class="ms-pane-title" tabindex="-1">How often should it run?</h3>
+            <div class="ms-choice-row" role="radiogroup" aria-label="How often">
+                <label class="ms-choice"><input type="radio" name="freq" value="daily" checked> Every day</label>
+                <label class="ms-choice"><input type="radio" name="freq" value="weekly"> Every week</label>
+                <label class="ms-choice"><input type="radio" name="freq" value="monthly"> Every month</label>
+            </div>
+
+            <div class="ms-field ms-field-block" id="mWeekdays" hidden>
+                <span>Which days?</span>
+                <div class="sched-day-grid" role="group" aria-label="Weekdays">
                     {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
-                    <label class="sched-day"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
+                    <label class="sched-day-chip"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
                     {% endfor %}
                 </div>
             </div>
-            <label class="ms-field" id="mMonthday" hidden><span>Day of month</span>
-                <select name="monthday">
-                    {% for d in range(1, 29) %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-                    <option value="-1">Last day</option>
-                </select>
-            </label>
-            <label class="ms-field"><span>Recipients</span>
-                <input type="email" name="recipients" placeholder="team@achimonline.com" multiple></label>
-            <label class="ms-field ms-field-sp"><span>SharePoint folder</span>
-                <div class="sp-input-row">
-                    <input type="text" name="sharepoint_path" id="spPathInput" placeholder="(none)" readonly>
-                    <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
-                    <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear">&times;</button>
+
+            <div class="ms-field ms-field-block" id="mMonthday" hidden>
+                <span>Which days of the month?</span>
+                <div class="sched-day-grid sched-month-grid" role="group" aria-label="Days of month">
+                    {% for d in range(1, 29) %}
+                    <label class="sched-day-chip"><input type="checkbox" name="monthday" value="{{ d }}"> {{ d }}</label>
+                    {% endfor %}
+                    <label class="sched-day-chip sched-day-chip-wide">
+                        <input type="checkbox" name="monthday" value="-1"> Last day
+                    </label>
                 </div>
+                <span class="ms-field-hint">Tap one or more. Days 1–28 and last day only.</span>
+            </div>
+
+            <label class="ms-field ms-field-block">
+                <span>What time? (Eastern time)</span>
+                <input type="time" name="time" value="08:00" required>
             </label>
-        </div>
-        <div class="ms-actions">
-            <button type="submit" class="btn btn-primary" id="formSubmitBtn">Create</button>
-            <button type="button" class="btn btn-outline" id="formCancelBtn" hidden>Cancel</button>
-            <span id="masterMsg" class="ms-msg" hidden></span>
+            <p class="ms-pane-help">Eastern time is New York time — the same clock the office uses.</p>
+        </section>
+
+        <section class="ms-pane" data-pane="3" hidden>
+            <h3 class="ms-pane-title" tabindex="-1">Any report options?</h3>
+            <p class="ms-pane-help" id="msParamsIntro">
+                Leave things blank when you want “everything” (all customers, all salesmen).
+            </p>
+            <div id="msParamsNone" class="ms-params-none" hidden>
+                <p>This report does not need any extra choices. Tap Next.</p>
+            </div>
+            <div id="msParamsFields" class="ms-params-fields">
+                <label class="ms-field ms-field-block" data-param="period" hidden>
+                    <span>Time period for the report</span>
+                    <select name="period" id="msPeriod">
+                        <option value="">— pick one —</option>
+                        {% for value, label in period_options %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <div class="ms-field ms-field-block" data-param="status" hidden>
+                    <span>Order status (optional — pick one or more)</span>
+                    <select id="msStatusSource" hidden>
+                        {% for value, label in status_options %}
+                        {% if value %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <div id="msStatusPicker" class="customer-picker" data-placeholder="Search statuses…"></div>
+                    <div id="msStatusPills" class="customer-pills" aria-live="polite"></div>
+                    <span class="ms-field-hint">Leave empty for all statuses.</span>
+                </div>
+                <div class="ms-field ms-field-block" data-param="salesman" hidden>
+                    <span>Salesmen (optional — pick one or more)</span>
+                    <div id="msSalesmanPicker" class="customer-picker" data-placeholder="Search salesmen…"></div>
+                    <div id="msSalesmanPills" class="customer-pills" aria-live="polite"></div>
+                    <span class="ms-field-hint" id="msSalesmanHint">Loading salesmen…</span>
+                </div>
+                <div class="ms-field ms-field-block" data-param="customers" hidden>
+                    <span>Customers (optional — pick one or more)</span>
+                    <div id="msCustomerPicker" class="customer-picker" data-placeholder="Search customers…"></div>
+                    <div id="msCustomerPills" class="customer-pills" aria-live="polite"></div>
+                    <span class="ms-field-hint" id="msCustomerHint">Leave empty for all customers.</span>
+                </div>
+                <label class="ms-field ms-field-block" data-param="year" hidden>
+                    <span>Year (optional)</span>
+                    <select name="year" id="msYear">
+                        <option value="">Current year (recommended)</option>
+                        {% for y in year_options %}
+                        <option value="{{ y }}">{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <label class="ms-field ms-field-block" id="msSavedViewBox">
+                <span>Saved view (optional)</span>
+                <select id="msSavedView">
+                    <option value="">Current filters — no saved view</option>
+                </select>
+                <span class="ms-field-hint">Views you saved for this report. Applying one fills the filters and column layout.</span>
+            </label>
+            {% if can_see_company %}
+            <div class="ms-field ms-field-block" id="msShareBox">
+                <span>Who can see this schedule?</span>
+                <div class="ms-choice-row" role="radiogroup" aria-label="Sharing">
+                    <label class="ms-choice"><input type="radio" name="is_shared" value="0" checked> Keep private</label>
+                    <label class="ms-choice"><input type="radio" name="is_shared" value="1"> Share with admins and managers</label>
+                </div>
+                <p class="ms-pane-help">Sharing does not change whose data the report uses.</p>
+            </div>
+            {% endif %}
+            {% if is_privileged %}
+            <label class="ms-field ms-field-block" id="msRunAsBox">
+                <span>Run as a manager (optional)</span>
+                <select name="run_as_user_id" id="msRunAs">
+                    <option value="">Company-wide (unscoped)</option>
+                    {% for m in managers %}
+                    <option value="{{ m.id }}">{{ m.name }}</option>
+                    {% endfor %}
+                </select>
+                <span class="ms-field-hint">Leave blank for full company data. Pick a manager to use that person’s book.</span>
+            </label>
+            {% endif %}
+            <label class="ms-choice" id="msNoDataMeRow">
+                <input type="checkbox" id="msNoDataMe" name="email_on_no_data_me_only">
+                Email test email addresses when there is no data
+            </label>
+        </section>
+
+        <section class="ms-pane ms-where" data-pane="4" hidden>
+            <h3 class="ms-pane-title" tabindex="-1">Where should it go?</h3>
+            <p class="ms-pane-help" id="msWhereHelp">
+                First name the file. Then pick Email and/or Save to Cloud.
+            </p>
+            <label class="ms-field ms-field-block">
+                <span>Filename template</span>
+                <input type="text" name="filename_template" id="msFilename"
+                       placeholder="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}" value="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}">
+                <span class="ms-field-hint">Insert:
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{Report}">Report name</button>
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{Schedule}">Schedule name</button>
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{MM}">MM</button>
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{Month}">Month</button>
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{Period}">Period</button>
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{DD}">DD</button>
+                    <button type="button" class="fn-token js-ms-fn-token" data-token="{Weekday}">Weekday</button>
+                </span>
+                <span class="ms-filename-preview">Will save as <strong id="msFilenamePreview"></strong></span>
+            </label>
+
+            <div class="ms-dest-toggles" role="group" aria-label="Where to send">
+                <label class="ms-choice"><input type="checkbox" id="msWantEmail"> Email</label>
+                <label class="ms-choice"><input type="checkbox" id="msWantCloud"> Save to Cloud</label>
+            </div>
+
+            <div id="msEmailPanel" class="ms-dest-panel" hidden>
+                <label class="ms-field ms-field-block">
+                    <span>Email addresses</span>
+                    <input type="text" name="recipients" id="msRecipients"
+                           placeholder="name@achimonline.com, other@achimonline.com">
+                </label>
+                <div class="ms-field-row">
+                    <label class="ms-field ms-field-block">
+                        <span>CC (optional)</span>
+                        <input type="text" name="email_cc" id="msCc" placeholder="cc@achimonline.com">
+                    </label>
+                    <label class="ms-field ms-field-block">
+                        <span>BCC (optional)</span>
+                        <input type="text" name="email_bcc" id="msBcc" placeholder="bcc@achimonline.com">
+                    </label>
+                </div>
+                <p class="ms-pane-help">Separate multiple addresses with commas.</p>
+                <label class="ms-choice">
+                    <input type="checkbox" id="msNoDataAll" name="email_on_no_data">
+                    Email recipients when there is no data
+                </label>
+                {% if can_see_company %}
+                <div id="msSalesmanDelivery" class="ms-field ms-field-block" hidden>
+                    <span>Salesman split emails</span>
+                    <div id="msFilteredSalesmanEmail" hidden>
+                        <label class="ms-choice">
+                            <input type="checkbox" id="msEmailToSalesmen" name="email_to_salesmen">
+                            Email the selected salesmen their own files
+                        </label>
+                        <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
+                    </div>
+                    <div id="msUnfilteredSalesmanSplit" hidden>
+                        <label class="ms-choice">
+                            <input type="checkbox" id="msSplitBySalesman" name="split_by_salesman">
+                            Split by salesman and email selected salesmen
+                        </label>
+                        <div id="msEmailSalesmanPicker" class="customer-picker" data-placeholder="Search salesmen to email…"></div>
+                        <div id="msEmailSalesmanPills" class="customer-pills" aria-live="polite"></div>
+                        <span class="ms-field-hint" id="msEmailSalesmanHint">
+                            Only salesmen with emails in Users &amp; access appear here.
+                        </span>
+                        <p class="ms-pane-help">The addresses above and SharePoint still get the full combined workbook.</p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <div id="msCloudPanel" class="ms-dest-panel" hidden>
+                <div class="ms-dest-toggles" role="group" aria-label="Cloud destination">
+                    <label class="ms-choice"><input type="checkbox" id="msWantOnedrive"> OneDrive</label>
+                    {% if has_sharepoint %}
+                    <label class="ms-choice"><input type="checkbox" id="msWantSharepoint"> SharePoint</label>
+                    {% endif %}
+                </div>
+                <div class="ms-field ms-field-block" id="msOdSection" hidden>
+                    <span>OneDrive folder <em id="msOdStatus" class="lookup-status"></em></span>
+                    <div id="msOdBreadcrumb" class="sp-breadcrumb"></div>
+                    <div id="msOdPicker" class="sp-picker"></div>
+                    <div id="msOdSelected" class="sp-selected"></div>
+                </div>
+                {% if has_sharepoint %}
+                <label class="ms-field ms-field-block ms-field-sp" id="msSpSection" hidden>
+                    <span>SharePoint folder</span>
+                    <div class="sp-input-row">
+                        <input type="text" name="sharepoint_path" id="spPathInput"
+                               placeholder="Salesman Report/Customer Activity/{Month} {YYYY}">
+                        <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
+                        <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear">&times;</button>
+                    </div>
+                    <span class="ms-field-hint">Direct Reports is already the home. Don’t type it. Insert:
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{Month} {YYYY}">Month year</button>
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{Month}">Month</button>
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{YYYY}">YYYY</button>
+                        <button type="button" class="fn-token js-ms-sp-token" data-token="{MM}">MM</button>
+                    </span>
+                    <span class="ms-filename-preview">Will save in <strong id="msFolderPreview"></strong></span>
+                </label>
+                <p class="ms-pane-help">Optional. The Excel file is saved in this folder each time the schedule runs. Tokens become a real subfolder (August 2026).</p>
+                {% else %}
+                <input type="hidden" name="sharepoint_path" id="spPathInput" value="">
+                {% endif %}
+            </div>
+        </section>
+
+        <section class="ms-pane" data-pane="5" hidden>
+            <h3 class="ms-pane-title" tabindex="-1">Does this look right?</h3>
+            <p class="ms-pane-help">Check the summary, then save. You can edit it later from the list.</p>
+            <dl class="ms-review" id="msReview"></dl>
+        </section>
+
+
+        <div class="ms-wizard-foot">
+            <button type="button" class="btn btn-outline" id="msCancelBtn">Cancel</button>
+            <div class="ms-wizard-nav">
+                <button type="button" class="btn btn-outline" id="msBackBtn" hidden>Back</button>
+                <button type="button" class="btn btn-primary" id="msNextBtn">Next</button>
+                <button type="submit" class="btn btn-primary" id="formSubmitBtn" hidden>Save schedule</button>
+            </div>
+            <span id="masterMsg" class="ms-msg" role="status" aria-live="polite" hidden></span>
         </div>
     </form>
 </div>
 
-{% if schedules %}
+{% if can_see_company %}
+<section id="company" class="company-schedules-section">
+<div class="page-head">
+    <h2 class="page-title">Company schedules</h2>
+    <p class="page-subtitle">
+        Shared automatic reports. Sharing is who can see the schedule — not a data upgrade.
+        A manager’s shared schedule still runs in that manager’s book.
+    </p>
+</div>
+
+{% if master_schedules %}
 <div class="ms-table-wrap" data-csrf="{{ csrf_token() }}">
-    <table class="data-table">
+    <table class="data-table js-sortable" id="companySchedulesTable">
         <thead>
             <tr>
-                <th>Name</th>
+                <th aria-sort="ascending">Name</th>
                 <th>Report</th>
-                <th>Cadence</th>
+                <th>When</th>
+                <th>Options</th>
                 <th>Recipients</th>
                 <th>SharePoint</th>
                 <th>Last run</th>
                 <th>Active</th>
-                <th>Actions</th>
+                <th data-sort-skip>Actions</th>
             </tr>
         </thead>
         <tbody>
-            {% for s in schedules %}
+            {% for s in master_schedules %}
             <tr data-id="{{ s.id }}"
                 data-name="{{ s.name }}"
                 data-report-key="{{ s.report_key }}"
                 data-cadence='{{ s.cadence_raw|tojson }}'
+                data-params='{{ s.params|tojson }}'
                 data-recipients="{{ s.recipients }}"
-                data-sharepoint-path="{{ s.sharepoint_path }}">
+                data-sharepoint-path="{{ s.sharepoint_path }}"
+                data-filename-template="{{ s.filename_template or '' }}"
+                data-run-as="{{ s.run_as_user_id or '' }}"
+                data-is-shared="1">
                 <td>{{ s.name }}</td>
                 <td>{{ s.report_title }}</td>
                 <td>{{ s.cadence }}</td>
+                <td class="td-truncate">{{ s.params_label }}</td>
                 <td class="td-truncate">{{ s.recipients or '—' }}</td>
                 <td class="td-truncate">{{ s.sharepoint_path or '—' }}</td>
                 <td>{{ s.last_run or 'never' }}</td>
                 <td>
+                    {% if s.can_edit %}
                     <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
                             data-url="{{ url_for('schedules.toggle_master', schedule_id=s.id) }}"
                             data-active="{{ 'false' if s.is_active else 'true' }}">
                         {{ 'On' if s.is_active else 'Off' }}
                     </button>
+                    {% else %}
+                    {{ 'On' if s.is_active else 'Off' }}
+                    {% endif %}
                 </td>
                 <td class="row-actions">
+                    {% if s.can_edit %}
                     <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
+                    <button type="button" class="btn btn-sm btn-outline js-copy"
+                            data-url="{{ url_for('schedules.copy_master', schedule_id=s.id) }}">Copy</button>
+                    {% else %}
+                    <span class="ms-field-hint">You can’t edit this schedule. Speak to an admin.</span>
+                    {% endif %}
                     <button type="button" class="btn btn-sm btn-outline js-run"
                             data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Run now</button>
+                    <a class="btn btn-sm btn-outline"
+                       href="{{ url_for('schedules.master_history', schedule_id=s.id) }}">History</a>
+                    {% if s.can_edit %}
                     <button type="button" class="btn btn-sm btn-outline js-delete"
                             data-url="{{ url_for('schedules.delete_master', schedule_id=s.id) }}"
                             data-confirm="Delete this master schedule?">Delete</button>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -117,9 +395,15 @@
     </table>
 </div>
 {% else %}
-<div class="empty-state"><i data-feather="clock"></i><p>No master schedules yet.</p></div>
+<div class="empty-state" id="msEmpty">
+    <i data-feather="clock"></i>
+    <p>No company schedules yet. Tap <strong>Add a schedule</strong> and choose Share with admins and managers.</p>
+</div>
+{% endif %}
+</section>
 {% endif %}
 
+{% if has_sharepoint %}
 <div id="spPickerOverlay" class="sp-picker-overlay" style="display:none">
     <div class="sp-picker-modal" role="dialog" aria-modal="true" aria-label="Choose SharePoint folder">
         <div class="sp-picker-header">
@@ -140,8 +424,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/schedules.js') }}?v={{ asset_v }}"></script>
-{% endblock %}
+{% endif %}

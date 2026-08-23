@@ -21,6 +21,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from report_engine.lib import iso_date
+
 _NUMERIC_TYPES = {"money", "int", "percent"}
 
 
@@ -31,7 +33,9 @@ def expand_clones(payload: dict, layout: dict | None) -> dict:
     different filter/sort/group view; those don't exist in the server payload.
     ``serializeLayout`` reports them as ``clones: [{key, baseKey, name}]`` plus
     the on-screen ``order``. We deep-copy each clone's base tab so ``apply_layout``
-    can then apply the clone's own per-tab view by key. No-op without clones/order.
+    can then apply the clone's own per-tab view by key. A non-empty ``order``
+    is also the include-list: tabs not on screen are dropped from the file.
+    No-op without clones/order (empty order keeps every server tab).
     """
     if not isinstance(layout, dict):
         return payload
@@ -57,8 +61,10 @@ def expand_clones(payload: dict, layout: dict | None) -> dict:
         tabs.append(new)
         by_key[key] = new
     if order:
-        pos = {k: i for i, k in enumerate(order)}
-        tabs.sort(key=lambda t: pos.get(t.get("key"), len(order)))
+        # On-screen tab list is the source of truth: omit a tab (e.g. Commissions)
+        # and it stays out of the emailed workbook. Unknown keys are skipped so
+        # optional tabs (Audit, Totals by Salesman) can be listed safely.
+        tabs = [by_key[k] for k in order if k in by_key]
     return {**payload, "tabs": tabs}
 
 
@@ -162,9 +168,9 @@ def _match(raw: Any, op: str, v: Any, v2: Any, col_type: Any) -> bool:
         }.get(op, True)
 
     if col_type == "date":
-        d = str(raw or "")[:10]
-        a = str(v or "")[:10]
-        b = str(v2 or "")[:10]
+        d = iso_date(raw)
+        a = iso_date(v)
+        b = iso_date(v2)
         if op == "on":
             return d == a
         if op == "before":
