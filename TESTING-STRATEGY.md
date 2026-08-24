@@ -26,7 +26,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **What to test:**
 - Year filter becomes FromDate Jan 1 / ToDate Dec 31 for all three catalog keys.
-- Summary sorts by sales amount; blank NYC amount stays blank.
+- Summary sorts by sales amount. NYC sales amount appears on the first row only, even if the SP repeats it.
 - Detail Excel serial dates become YYYY-MM-DD; negative amounts stay negative.
 - Report is built, not on the Settings SQL/OData list, and not a salesman default.
 

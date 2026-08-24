@@ -95,6 +95,15 @@ def clean_summary(rows: Iterable[Mapping]) -> list[dict]:
                 "NYCSalesAmount", "NycSalesAmount"),
         })
     out.sort(key=lambda r: (-float(r["Sales amount"] or 0), r["State"]))
+    # Sample workbook: NYC total is a single cell on the first Summary row.
+    # The SP repeats that total on every state row.
+    nyc_amount = next(
+        (r["New York City Sales amount"] for r in out
+         if r["New York City Sales amount"] != ""),
+        "",
+    )
+    for i, row in enumerate(out):
+        row["New York City Sales amount"] = nyc_amount if i == 0 else ""
     return out
 
 

@@ -22,6 +22,21 @@ def test_summary_sorts_by_amount_and_keeps_blank_nyc():
     assert summary["rows"][1]["New York City Sales amount"] == ""
 
 
+def test_summary_shows_nyc_amount_on_first_row_only():
+    tabs = rpt.build(
+        summary=[
+            {"State": "New York", "SalesAmount": 100,
+             "NewYorkCitySalesAmount": 50},
+            {"State": "New Jersey", "Sales amount": 200,
+             "New York City Sales amount": 50},
+        ],
+        nyc=[],
+        detail=[],
+    )
+    amounts = [r["New York City Sales amount"] for r in tabs[0]["rows"]]
+    assert amounts == [50.0, ""]
+
+
 def test_detail_coerces_excel_serial_date_and_aliases():
     tabs = rpt.build(
         summary=[],
