@@ -228,6 +228,31 @@ def translate_customer_activity(p: dict) -> dict[str, Any]:
     return out
 
 
+SALES_BY_STATE_SUMMARY_SP = "sales_by_state_summary"
+SALES_BY_STATE_NYC_SP = "sales_by_state_new_york_city"
+SALES_BY_STATE_DETAIL_SP = "sales_by_state_detail"
+
+
+def translate_sales_by_state(p: dict) -> dict[str, Any]:
+    """sales_by_state -> the three sales-by-state SPs (same FromDate/ToDate).
+
+    The catalog wants calendar dates (YYYY-MM-DD), not datetime. A year filter
+    becomes Jan 1..Dec 31 of that year. A custom period still wins if both
+    start and end are set.
+    """
+    start, end = _resolve_window(p)
+    if not (start and end):
+        year = _resolved_year(p)
+        start, end = date(year, 1, 1), date(year, 12, 31)
+    out: dict[str, Any] = {
+        "FromDate": start.isoformat(),
+        "ToDate": end.isoformat(),
+    }
+    if company := _csv(p.get("company") or p.get("Company")):
+        out["Company"] = company
+    return out
+
+
 def translate_customer_last_orders(p: dict) -> dict[str, Any]:
     """customer_last_order page -> customer_last_orders (rpt.usp_customer_last_orders)."""
     try:
@@ -256,6 +281,8 @@ REPORT_ID_MAP: dict[str, tuple[str, Translator]] = {
     "customer_activity": ("customer_activity", translate_customer_activity),
     # In-app page key stays customer_last_order; catalog/SP id is plural.
     "customer_last_order": ("customer_last_orders", translate_customer_last_orders),
+    # Three SPs share this translator; the orchestrator calls all three.
+    "sales_by_state": (SALES_BY_STATE_SUMMARY_SP, translate_sales_by_state),
 }
 
 

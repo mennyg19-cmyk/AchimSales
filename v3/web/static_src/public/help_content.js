@@ -48,6 +48,22 @@ var HELP = {
               "There are no options to set — just tap Run."
     },
 
+    "report-item_averages": {
+        title: "Item Averages",
+        body: "Company-wide quantity averages from the Number 4 By Item view.<br><br>" +
+              "One row per item with 12-month quantity, average per month, and average per week."
+    },
+
+    "report-sales_by_state": {
+        title: "Sales by State",
+        body: "Shows invoiced sales by ship-to state for the year you pick.<br><br>" +
+              "<strong>Summary</strong> — one row per state with sales dollars. New York City dollars sit in their own column when the state has them.<br>" +
+              "<strong>New York City</strong> — invoice lines classified as New York City.<br>" +
+              "<strong>Detail</strong> — every known-state invoice in the year, with ship-to address.<br><br>" +
+              "Keep negative amounts. Unknown locations are not mixed into a state row.<br><br>" +
+              "Pick the year and tap Run."
+    },
+
     "report-customer_aging": {
         title: "Customer Aging Report",
         body: "Shows how much each customer owes and how old the balances are.<br><br>" +
@@ -102,8 +118,9 @@ var HELP = {
 
     "param-year": {
         title: "Report Year",
-        body: "Pick the year you want the Salesman Report to cover.<br><br>" +
-              "It defaults to this year. The report will compare the year you pick against the previous year, showing month-by-month sales numbers."
+        body: "Pick the calendar year the report covers. It defaults to this year.<br><br>" +
+              "On Sales by State that is the invoice year (January 1 through December 31).<br><br>" +
+              "On the Salesman Report it also compares that year to the previous year, month by month."
     },
 
     "param-save-preset": {

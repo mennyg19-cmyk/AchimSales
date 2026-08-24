@@ -22,6 +22,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Sales by State (SQL only)
+
+**What to test:**
+- Year filter becomes FromDate Jan 1 / ToDate Dec 31 for all three catalog keys.
+- Summary sorts by sales amount; blank NYC amount stays blank.
+- Detail Excel serial dates become YYYY-MM-DD; negative amounts stay negative.
+- Report is built, not on the Settings SQL/OData list, and not a salesman default.
+
+**Expected behavior:**
+- Admin reports list shows Sales by State. Salesman inherit list does not.
+- `get_source("sales_by_state")` is sql.
+
+**Edge cases:**
+- Custom period dates override the year window when both start and end are set.
+
+**Test file:** `v3/tests/test_report_sales_by_state.py`, `v3/tests/test_params.py`, `v3/tests/test_report_service.py`, `v3/tests/test_blueprints.py`
+
 ## Invoiced salesman from the reporting API (not Excel)
 
 **What to test:**

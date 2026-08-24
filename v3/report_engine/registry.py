@@ -54,6 +54,7 @@ REGISTRY: tuple[ReportSpec, ...] = (
         "item_averages", "Item Averages", ReportStatus.BUILT,
         privileged_only=True,
     ),
+    ReportSpec("sales_by_state", "Sales by State", ReportStatus.BUILT),
     ReportSpec("customer_aging", "Customer Aging", ReportStatus.BACKLOG, salesman_default=True),
 )
 

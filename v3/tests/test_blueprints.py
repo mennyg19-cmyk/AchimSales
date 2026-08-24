@@ -112,6 +112,7 @@ def test_reports_list_shows_built_reports_for_admin(tmp_path):
     _login(client, app)
     html = client.get("/").get_data(as_text=True)
     assert "Ordered" in html and "Invoiced" in html and "Customer Activity" in html
+    assert "Sales by State" in html
     assert "Coming soon" in html  # backlog section
 
 
@@ -124,6 +125,7 @@ def test_salesman_inherit_shows_salesman_default_reports(tmp_path):
     html = client.get("/").get_data(as_text=True)
     assert "Ordered" in html and "Invoiced" in html and "Customer Activity" in html
     assert "Number 4" not in html  # non-salesman-default: inherit-hidden until allowed
+    assert "Sales by State" not in html
 
 
 def test_report_view_renders_filters(tmp_path):
@@ -1867,4 +1869,5 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
     assert any(t["name"] == "users" for t in tables)
     html = dev.get("/settings").get_data(as_text=True)
     assert "Database explorer" in html and "Beta report data sources" in html
+    assert "sales_by_state" not in html
     assert dev.get("/dev/notif-diagnostic").status_code == 200

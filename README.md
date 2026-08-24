@@ -14,6 +14,7 @@ from the CLI.
 | Salesman Report | `python run.py salesman` | Direct Reports/Salesman Report/{period}/ |
 | Number 4 Report | `python run.py number_4` | Direct Reports/Number 4 Report/{sub}/{period}/ |
 | Customer Activity | `python run.py customer_activity` | Direct Reports/Customer Activity/ |
+| Sales by State | home site only (SQL) | — |
 
 ## CLI Usage
 
@@ -67,14 +68,14 @@ python run.py ordered
 
 | Mount | Code | Role |
 |-------|------|------|
-| `/` | `v3/` (`is_beta`) | Site home — reports; hybrid SQL/OData per report |
+| `/` | `v3/` (`is_beta`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
 | `/legacy` | `webapp/` | Former Live — OData, Excel-first, email distributions |
 | `/test` | `v3/` | SQL sandbox — direct link only |
 | `/beta` | — | Redirects to `/` (old bookmarks) |
 | `/test-next` | `rebuild/` | Rebuild preview — retire after home is stable |
 
 Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
-Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings).
+Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings). Sales by State is SQL only and is not in that list.
 
 On the home site, **Previously run** (header) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.

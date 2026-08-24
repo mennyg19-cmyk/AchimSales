@@ -86,6 +86,9 @@ def get_sources() -> dict[str, Source]:
 
 
 def get_source(report_key: str) -> Source:
+    """SQL/OData toggle for hybrid reports. Unknown keys are SQL-only."""
+    if report_key not in _ALL_KEYS:
+        return "sql"
     return get_sources().get(report_key, "odata")
 
 

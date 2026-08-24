@@ -35,6 +35,7 @@ from report_engine.reports import item_averages as rpt_item_averages
 from report_engine.reports import number_4 as rpt_number_4
 from report_engine.reports import ordered as rpt_ordered
 from report_engine.reports import salesman as rpt_salesman
+from report_engine.reports import sales_by_state as rpt_sales_by_state
 from report_engine.sources import customer_master as src_customers
 from report_engine.sources import invoiced as src_invoiced
 from report_engine.sources import ordered as src_ordered
@@ -133,6 +134,7 @@ class ReportService:
                 if cfg is not None and getattr(cfg, "is_beta", False):
                     from web.beta_sources import get_source
 
+                    # Reports not on the hybrid map (Sales by State) stay SQL.
                     use_odata = get_source(report_key) == "odata"
             if use_odata:
                 from web.reporting.odata_bridge import build_odata_payload
@@ -493,6 +495,18 @@ def _orch_customer_activity(svc: ReportService, params: dict, visible_keys) -> d
     return svc._payload("customer_activity", rpt_customer_activity.build(rows), len(rows))
 
 
+def _orch_sales_by_state(svc: ReportService, params: dict, visible_keys) -> dict:
+    """Three SQL catalog calls (summary / NYC / detail) with the same dates."""
+    _ = visible_keys  # company-wide; the SPs have no salesman filter
+    sp = P.translate("sales_by_state", params)
+    tabs = rpt_sales_by_state.build(
+        summary=svc._rows(P.SALES_BY_STATE_SUMMARY_SP, sp),
+        nyc=svc._rows(P.SALES_BY_STATE_NYC_SP, sp),
+        detail=svc._rows(P.SALES_BY_STATE_DETAIL_SP, sp),
+    )
+    return svc._payload("sales_by_state", tabs, sum(len(t["rows"]) for t in tabs))
+
+
 _ORCHESTRATORS: dict[str, Callable[[ReportService, dict, set | None], dict]] = {
     "ordered": _orch_ordered,
     "invoiced": _orch_invoiced,
@@ -500,4 +514,5 @@ _ORCHESTRATORS: dict[str, Callable[[ReportService, dict, set | None], dict]] = {
     "number_4": _orch_number_4,
     "item_averages": _orch_item_averages,
     "customer_activity": _orch_customer_activity,
+    "sales_by_state": _orch_sales_by_state,
 }

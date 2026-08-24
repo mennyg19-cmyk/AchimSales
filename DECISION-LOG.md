@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-24 Sales by State on the home site (SQL only)
+**What you asked for:** Add the Sales by State report to the home site (former Beta). Use the SQL API only — no OData, no data-origin selector on Settings. The Excel file is the look; the Word doc is the DBA handoff.
+**What I chose:** One report, three tabs (Summary, New York City, Detail) matching the workbook. Year filter → FromDate/ToDate for the three catalog keys. Left Unknown / filtered / other-transaction SPs out because they are not in the sample file. Not shown to salesmen by default.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-21 Invoiced salesman from endpoints, not Excel
 **What I had to decide:** After the 029 stamp, whether to keep using salesman_map.xlsx / the hardcoded map for invoiced salesman codes.
 **What I chose:** Do not use the Excel map for invoiced salesman identity. Use the invoiced report row; if that is missing or just a number, use the same customer/salesman data as the report dropdowns. Live OData invoiced uses CustomersV3.SalesGroup the same way, with no Excel overlay.

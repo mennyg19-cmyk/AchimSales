@@ -477,6 +477,7 @@ _MASTER_REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "salesman": ("year", "salesman"),
     "number_4": (),
     "customer_activity": ("salesman",),
+    "sales_by_state": ("year",),
 }
 
 _PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
