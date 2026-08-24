@@ -77,7 +77,7 @@ python run.py ordered
 Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
 Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings). Sales by State is SQL only and is not in that list.
 
-On the home site, **Previously run** (header) opens recent and kept runs. **Keep this run**
+On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
 On the home site, **Settings** is the control panel (same ~800px width as Live): You,

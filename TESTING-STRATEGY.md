@@ -287,10 +287,11 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `onedrive_children_url` at root is `…/drive/root/children`, never `root::/children`. Nested folders keep `root:/{path}:/children`.
 - `keep_run` stores `keep_name` and clears name when a Keep overflows the cap of 5 (test uses cap 2).
 - `POST /api/reports/runs/<id>/keep` with `{name}` returns that name; `/api/reports/active` includes `keep_name`, `created_at`, `finished_at`.
-- Logged-in `base.html` has Previously run (`#prevRunsBtn`) and the jobs bar.
+- Logged-in `base.html` has Recent Reports (`#prevRunsBtn`, styled as a link) and the jobs bar.
 
 **Expected behavior:**
-- Header Previously run opens the floating list. Keep this run prompts for a name. Chips show Eastern date/time.
+- Header Recent Reports opens the floating list. Keep this run prompts for a name. Chips show Eastern date/time.
+- Exporting Excel opens the Recent exports panel. The status line's "Recent exports" words open it again.
 - OneDrive Browse at the drive root no longer 400s from a bad Graph path.
 
 **Edge cases:**

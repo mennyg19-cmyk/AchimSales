@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-08-24 Recent Reports link; export panel from the status line
+**What you asked for:** The "building in the background — see Recent exports" message pointed at a place you could not find. Recent Reports should be a hyperlink.
+**What I chose:** Header label is **Recent Reports**, styled as a text link (same button, same jobs panel). Starting an Excel export opens the Recent exports list and the status line's **Recent exports** words open it too.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-24 Sales by State on the home site (SQL only)
 **What you asked for:** Add the Sales by State report to the home site (former Beta). Use the SQL API only — no OData, no data-origin selector on Settings. The Excel file is the look; the Word doc is the DBA handoff.
 **What I chose:** One report, three tabs (Summary, New York City, Detail) matching the workbook. Year filter → FromDate/ToDate for the three catalog keys. Left Unknown / filtered / other-transaction SPs out because they are not in the sample file. Not shown to salesmen by default.

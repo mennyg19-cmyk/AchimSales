@@ -279,7 +279,7 @@ function formatJobWhen(iso: string | null | undefined): string {
  * report runs. Tap it to open a small panel listing each run and how far along
  * it is; tap a row to jump to that report -- if it's still running the report
  * page reconnects to it, if it just finished it loads the result.
- * Header "Previously run" opens the same list. The pill shrinks to an icon.
+ * Header "Recent Reports" opens the same list. The pill shrinks to an icon.
  */
 function initReportJobsBar(): void {
   const bar = document.getElementById("reportJobsBar");
@@ -352,7 +352,7 @@ function initReportJobsBar(): void {
     const head = document.createElement("div");
     head.className = "report-jobs-panel-head";
     const headTitle = document.createElement("span");
-    headTitle.textContent = "Previously run";
+    headTitle.textContent = "Recent Reports";
     head.appendChild(headTitle);
     const minBtn = document.createElement("button");
     minBtn.type = "button";
@@ -424,7 +424,7 @@ function initReportJobsBar(): void {
     fab.type = "button";
     fab.className = "report-jobs-fab";
     fab.dataset.noGuard = "1";
-    fab.title = minimized ? "Previously run reports" : "Hide or show previously run reports";
+    fab.title = minimized ? "Recent Reports" : "Hide or show Recent Reports";
     if (running > 0) {
       const spin = document.createElement("span");
       spin.className = "report-jobs-spinner";
@@ -434,7 +434,7 @@ function initReportJobsBar(): void {
       const fabLabel = document.createElement("span");
       fabLabel.textContent = running > 0
         ? `${running} running`
-        : !jobs.length ? "Previously run"
+        : !jobs.length ? "Recent Reports"
           : anyFailed ? "Report failed" : "Reports ready";
       fab.appendChild(fabLabel);
     } else {

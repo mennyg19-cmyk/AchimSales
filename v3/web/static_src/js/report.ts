@@ -1003,8 +1003,8 @@ async function exportExcel(): Promise<void> {
     });
     if (!res.ok) throw new Error(exportErrorFor(res.status));
     const { export_id } = await res.json();
-    setStatus("Your Excel file is building in the background \u2014 see Recent exports.");
-    loadExports();                 // surface it immediately as "building"
+    showExportsPanel();
+    setExportBuildingStatus();
     pollExport(export_id, true);   // auto-download when ready (if still on this page)
   } catch (err) {
     setStatus(err instanceof Error ? err.message : "Could not start the export.", "error");
@@ -1144,11 +1144,36 @@ function renderExports(rows: ExportRow[]): void {
   });
 }
 
+function showExportsPanel(): void {
+  const panel = $("exportsPanel");
+  if (!panel) return;
+  panel.hidden = false;
+  loadExports();
+  panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function setExportBuildingStatus(): void {
+  const el = $("reportStatus");
+  const txt = $("reportStatusText");
+  if (!el || !txt) return;
+  txt.replaceChildren();
+  txt.append("Your Excel file is building in the background \u2014 ");
+  const link = document.createElement("button");
+  link.type = "button";
+  link.className = "status-link";
+  link.textContent = "Recent exports";
+  link.addEventListener("click", () => showExportsPanel());
+  txt.append(link);
+  txt.append(".");
+  el.className = "report-status report-status-info";
+  el.hidden = false;
+}
+
 function toggleExportsPanel(): void {
   const panel = $("exportsPanel");
   if (!panel) return;
-  panel.hidden = !panel.hidden;
-  if (!panel.hidden) loadExports();
+  if (panel.hidden) showExportsPanel();
+  else panel.hidden = true;
 }
 
 // --------------------------------------------------------------------------

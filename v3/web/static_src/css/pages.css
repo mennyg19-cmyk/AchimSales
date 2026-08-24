@@ -267,6 +267,13 @@
 .report-status[hidden] { display: none !important; }
 .report-status-info { background: var(--primary-light); color: var(--primary); }
 .report-status-error { background: var(--error-light); color: var(--error); }
+.status-link {
+    background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+    color: inherit; font: inherit; font-weight: 700; text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.status-link:hover { opacity: 0.85; }
+.status-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* -- Report surface: folder tabs joined to the grid as one card -- */
 .report-surface {
