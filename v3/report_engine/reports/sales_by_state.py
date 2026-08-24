@@ -4,7 +4,7 @@ Source: three Reporting API catalog keys from the DBA handoff:
 
   sales_by_state_summary
   sales_by_state_new_york_city
-  sales_by_state_detail
+  sales_by_state_filtered
 
 Tabs match the sample workbook: Summary, New York City, Detail. The SP does
 the classification; this module only renames columns, formats dates/money,
@@ -20,7 +20,7 @@ from report_engine.lib import first_of, iso_date, num, text
 
 SUMMARY_SP = "sales_by_state_summary"
 NYC_SP = "sales_by_state_new_york_city"
-DETAIL_SP = "sales_by_state_detail"
+DETAIL_SP = "sales_by_state_filtered"
 
 _SUMMARY_COLS = [
     {"field": "State", "header": "State", "type": "text"},

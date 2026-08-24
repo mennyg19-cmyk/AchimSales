@@ -44,6 +44,8 @@ def test_beta_runbook_seed_inserts_disabled_company_schedules(tmp_path: Path):
     assert shipped.params.get("split_by_salesman") is True
     ordered_sm = next(r for r in rows if r.name == "Daily 9am Salesmen Ordered")
     assert ordered_sm.params.get("split_by_salesman") is True
+    assert "by_salesman" not in (ordered_sm.layout.get("order") or [])
+    assert "full_data" in (ordered_sm.layout.get("order") or [])
     combined = next(r for r in rows if r.name == "Monthly 1st 12am Monthly Salesman")
     assert combined.sharepoint_path == "Salesman Report/Monthly"
     assert not combined.params.get("split_by_salesman")
@@ -111,6 +113,8 @@ def test_existing_salesmen_schedule_gets_split_all_on_reseed(tmp_path: Path):
     row = next(r for r in repo.list_all() if r.name == "Daily 9am Salesmen Ordered")
     assert row.params.get("split_by_salesman") is True
     assert row.params.get("period") == "yesterday"
+    assert "full_data" in (row.layout.get("order") or [])
+    assert "by_salesman" not in (row.layout.get("order") or [])
 
 
 def test_seed_does_not_restore_deleted_company_schedule(tmp_path: Path):

@@ -204,8 +204,10 @@ def schedules_page():
         spec = registry.get(s.report_key)
         items.append({
             "id": s.id, "report_key": s.report_key,
+            "name": spec.title if spec else s.report_key,
             "report_title": spec.title if spec else s.report_key,
-            "cadence": C.describe(s.cadence), "recipients": s.recipients,
+            "cadence": C.describe(s.cadence), "cadence_raw": s.cadence or {},
+            "params": s.params or {}, "recipients": s.recipients,
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, PERSONAL),
             "filename_template": getattr(s, "filename_template", "") or "",

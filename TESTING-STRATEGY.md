@@ -26,6 +26,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **What to test:**
 - Year filter becomes FromDate Jan 1 / ToDate Dec 31 for all three catalog keys.
+- Third catalog key is `sales_by_state_filtered` (not `sales_by_state_detail`).
 - Summary sorts by sales amount. NYC sales amount appears on the first row only, even if the SP repeats it.
 - Detail Excel serial dates become YYYY-MM-DD; negative amounts stay negative.
 - Report is built, not on the Settings SQL/OData list, and not a salesman default.
@@ -38,6 +39,24 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Custom period dates override the year window when both start and end are set.
 
 **Test file:** `v3/tests/test_report_sales_by_state.py`, `v3/tests/test_params.py`, `v3/tests/test_report_service.py`, `v3/tests/test_blueprints.py`
+
+## Meeting fixes (tabs, views, groups, empty split, Ordered %, personal Edit)
+
+**What to test:**
+- Viewer source has Rename tab, Edit+Delete saved views, subgroup + group pills, clone restore in applyLayout.
+- Personal schedules page has Edit and `data-kind="personal"`.
+- Split delivery: `email_on_empty=False`; 0-row salesman gets a No Data Found text mail, no xlsx.
+- Ordered Full Data has Fulfillment % (1.0 / 0.0 on the fixture); skip_by_salesman has no Salesman default_group.
+- Daily 9am Salesmen Ordered seed layout omits `by_salesman`.
+
+**Expected behavior:**
+- Company copy still honours the “email when no data” checkbox.
+- Save this view with the same name as the view being edited overwrites it.
+
+**Edge cases:**
+- Whole report has rows but one salesman has none → that salesman gets the text mail only.
+
+**Test file:** `v3/tests/test_frontend.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_delivery.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_schedule_seed.py`, `v3/tests/test_reporting.py`
 
 ## Invoiced salesman from the reporting API (not Excel)
 

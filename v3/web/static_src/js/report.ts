@@ -180,8 +180,12 @@ function formatterFor(col: Column, colIndex = -1): Record<string, unknown> {
         sorter: "number",
         hozAlign: "right",
         formatter: (cell: any) => {
-          const n = Number(cell.getValue());
-          const text = isFinite(n) && cell.getValue() !== "" ? (n * 100).toFixed(1) + "%" : "";
+          const raw = cell.getValue();
+          const n = Number(raw);
+          const text = isFinite(n) && raw !== "" && raw != null ? (n * 100).toFixed(1) + "%" : "";
+          if (col.field === "Fulfillment %" && isFinite(n) && raw !== "" && raw != null) {
+            try { cell.getElement().style.backgroundColor = fulfillmentFillCss(n); } catch { /* cell gone */ }
+          }
           const color = (isFinite(n) && n < 0) ? "#FF0000" : bandColor;
           return color && text ? `<span style="color:${color}">${text}</span>` : text;
         },
@@ -200,6 +204,23 @@ function isNumericType(t?: string): boolean {
   return t === "money" || t === "int" || t === "percent";
 }
 
+/** Red (0) → yellow (0.5) → green (1). Same RGB as the old Ordered Excel writer. */
+function fulfillmentFillCss(score: number): string {
+  const s = Math.max(0, Math.min(1, score));
+  const red = [255, 199, 206], yellow = [255, 235, 156], green = [198, 239, 206];
+  let rgb: number[];
+  if (s <= 0) rgb = red;
+  else if (s >= 1) rgb = green;
+  else if (s < 0.5) {
+    const t = s * 2;
+    rgb = red.map((x, i) => Math.round(x + (yellow[i] - x) * t));
+  } else {
+    const t = (s - 0.5) * 2;
+    rgb = yellow.map((x, i) => Math.round(x + (green[i] - x) * t));
+  }
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+
 // --------------------------------------------------------------------------
 // State
 // --------------------------------------------------------------------------
@@ -207,15 +228,23 @@ function isNumericType(t?: string): boolean {
 const state: {
   tabs: Record<string, Tab>;
   order: string[];
+  catalogOrder: string[];
   active: string | null;
   views: Record<string, ViewState>;
   table: any;
   jobId: string | null;
   removed: Set<string>;
-} = { tabs: {}, order: [], active: null, views: {}, table: null, jobId: null, removed: new Set<string>() };
+} = { tabs: {}, order: [], catalogOrder: [], active: null, views: {}, table: null, jobId: null, removed: new Set<string>() };
 
 function freshView(): ViewState {
   return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [], widths: {} };
+}
+
+function addGroupField(tab: Tab, field: string): void {
+  const g = view(tab.key).group;
+  if (!field || g.includes(field)) return;
+  g.push(field);
+  rebuild(tab);
 }
 
 // --------------------------------------------------------------------------
@@ -244,15 +273,20 @@ function headerMenu(tab: Tab): any[] {
     {
       label: "Group by this column",
       action: (_e: any, column: any) => {
-        view(tab.key).group = [column.getField()];
-        state.table?.setGroupBy(column.getField());
+        addGroupField(tab, column.getField());
+      },
+    },
+    {
+      label: "Add subgroup",
+      action: (_e: any, column: any) => {
+        addGroupField(tab, column.getField());
       },
     },
     {
       label: "Clear grouping",
       action: () => {
         view(tab.key).group = [];
-        state.table?.setGroupBy(false);
+        rebuild(tab);
       },
     },
   ];
@@ -596,6 +630,32 @@ function renderMeta(tab: Tab): void {
   meta.hidden = false;
 }
 
+function renderGroupPills(tab: Tab): void {
+  const host = $("groupPills");
+  if (!host) return;
+  host.innerHTML = "";
+  const g = tab.layout === "commission_cards" ? [] : view(tab.key).group;
+  if (!g.length) { host.hidden = true; return; }
+  host.hidden = false;
+  g.forEach((field) => {
+    const pill = document.createElement("span");
+    pill.className = "group-pill";
+    const lab = document.createElement("span");
+    lab.textContent = tab.columns.find((c) => c.field === field)?.header || field;
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "group-pill-x";
+    x.textContent = "\u00d7";
+    x.title = "Remove this group";
+    x.addEventListener("click", () => {
+      view(tab.key).group = view(tab.key).group.filter((f) => f !== field);
+      rebuild(tab);
+    });
+    pill.append(lab, x);
+    host.appendChild(pill);
+  });
+}
+
 function rebuild(tab: Tab): void {
   buildTable(tab);
 }
@@ -613,6 +673,7 @@ function buildTable(tab: Tab): void {
   if (tab.layout === "commission_cards") {
     renderCommissionCards(tab, host);
     renderMeta(tab);
+    renderGroupPills(tab);
     return;
   }
 
@@ -644,6 +705,7 @@ function buildTable(tab: Tab): void {
     requestAnimationFrame(fitTableHeight); // size once the grid is laid out
   });
   renderMeta(tab);
+  renderGroupPills(tab);
 }
 
 // The grid should fill the screen from where it starts down to the bottom,
@@ -863,6 +925,7 @@ function openTabMenuAt(key: string, x: number, y: number): void {
     menu.appendChild(b);
   };
   mk("Duplicate tab", () => duplicateTab(key));
+  if ((tab as any)._isDuplicate) mk("Rename tab", () => renameTab(key));
   if (state.order.length > 1) {
     mk((tab as any)._isDuplicate ? "Delete tab" : "Remove tab", () => deleteTab(key), true);
   }
@@ -890,16 +953,52 @@ function duplicateTab(key: string): void {
   activateTab(newKey);
 }
 
+function renameTab(key: string): void {
+  const tab = state.tabs[key];
+  if (!tab || !(tab as any)._isDuplicate) return;
+  const name = window.prompt("Rename this tab:", tab.name);
+  if (name == null) return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  tab.name = trimmed;
+  renderTabs();
+}
+
 function deleteTab(key: string): void {
   if (state.order.length <= 1) return;
   const tab = state.tabs[key];
   if (!tab) return;
-  if (!(tab as any)._isDuplicate) state.removed.add(key);
+  const isDup = !!(tab as any)._isDuplicate;
+  if (isDup) {
+    delete state.tabs[key];
+    delete state.views[key];
+  } else {
+    state.removed.add(key);
+  }
   const idx = state.order.indexOf(key);
-  delete state.tabs[key];
-  delete state.views[key];
   state.order.splice(idx, 1);
-  activateTab(state.order[Math.max(0, idx - 1)] || state.order[0]);
+  if (state.active === key) {
+    activateTab(state.order[Math.max(0, idx - 1)] || state.order[0]);
+  } else {
+    renderTabs();
+  }
+}
+
+function restoreTab(key: string): void {
+  const tab = state.tabs[key];
+  if (!tab || state.order.includes(key)) return;
+  state.removed.delete(key);
+  const cat = state.catalogOrder;
+  const want = cat.indexOf(key);
+  let insertAt = state.order.length;
+  if (want >= 0) {
+    for (let i = 0; i < state.order.length; i++) {
+      const oi = cat.indexOf(state.order[i]);
+      if (oi === -1 || oi > want) { insertAt = i; break; }
+    }
+  }
+  state.order.splice(insertAt, 0, key);
+  renderTabs();
 }
 
 // --------------------------------------------------------------------------
@@ -929,11 +1028,43 @@ function toggleColumnsPanel(): void {
   const rect = anchor?.getBoundingClientRect();
   if (rect) { panel.style.top = rect.bottom + 6 + "px"; panel.style.left = rect.left + "px"; }
 
+  const originalKeys = Object.keys(state.tabs).filter((k) => !(state.tabs[k] as any)._isDuplicate);
+  if (originalKeys.length) {
+    const heading = document.createElement("div");
+    heading.className = "columns-panel-heading";
+    heading.textContent = "Tabs";
+    panel.appendChild(heading);
+    originalKeys.forEach((key) => {
+      const t = state.tabs[key];
+      const label = document.createElement("label");
+      label.className = "columns-panel-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.dataset.kind = "tab";
+      cb.checked = state.order.includes(key);
+      cb.addEventListener("change", () => {
+        if (cb.checked) restoreTab(key);
+        else if (state.order.length > 1) deleteTab(key);
+        else cb.checked = true;
+      });
+      label.appendChild(cb);
+      const span = document.createElement("span");
+      span.textContent = t.name;
+      label.appendChild(span);
+      panel.appendChild(label);
+    });
+    const colHeading = document.createElement("div");
+    colHeading.className = "columns-panel-heading";
+    colHeading.textContent = "Columns";
+    panel.appendChild(colHeading);
+  }
+
   tab.columns.forEach((c) => {
     const label = document.createElement("label");
     label.className = "columns-panel-item";
     const cb = document.createElement("input");
     cb.type = "checkbox";
+    cb.dataset.kind = "column";
     cb.checked = !v.hidden.has(c.field);
     cb.addEventListener("change", () => {
       if (cb.checked) { v.hidden.delete(c.field); state.table?.showColumn(c.field); }
@@ -951,7 +1082,7 @@ function toggleColumnsPanel(): void {
   restore.addEventListener("click", () => {
     v.hidden.clear();
     tab.columns.forEach((c) => state.table?.showColumn(c.field));
-    panel.querySelectorAll("input").forEach((i) => ((i as HTMLInputElement).checked = true));
+    panel.querySelectorAll<HTMLInputElement>("input[data-kind=column]").forEach((i) => { i.checked = true; });
   });
   panel.appendChild(restore);
   document.body.appendChild(panel);
@@ -1198,6 +1329,7 @@ function collectParams(): Record<string, unknown> {
 function loadPayload(payload: Payload, render = true): void {
   state.tabs = {};
   state.order = [];
+  state.catalogOrder = [];
   state.views = {};
   state.removed = new Set();
   (state.tabs as any).__generated_at__ = payload.generated_at;
@@ -1207,6 +1339,7 @@ function loadPayload(payload: Payload, render = true): void {
   tabs.forEach((tab) => {
     state.tabs[tab.key] = tab;
     state.order.push(tab.key);
+    state.catalogOrder.push(tab.key);
     const v = freshView();
     if (Array.isArray((tab as any).default_group) && (tab as any).default_group.length) {
       v.group = [...(tab as any).default_group];
@@ -1595,6 +1728,8 @@ let lookupPollTimer: number | null = null;
 let pendingSalesman: string | null = null; // deep-link salesman, applied after options load
 let previewTimer: number | null = null;
 let pendingLayout: SavedLayout | null = null; // preset layout to apply after the next run
+let editingPresetId: number | string | null = null;
+let editingPresetName: string | null = null;
 let autoRunRequested = false;                 // ?preset=<id> deep-link wants an auto-run
 
 function hasFilter(id: string): boolean {
@@ -1940,6 +2075,20 @@ function serializeLayout(): SavedLayout {
 
 function applyLayout(layout: SavedLayout | null): void {
   if (!layout) return;
+  if (Array.isArray(layout.clones)) {
+    layout.clones.forEach((c) => {
+      if (!c?.key || !c?.baseKey || state.tabs[c.key]) return;
+      const base = state.tabs[c.baseKey];
+      if (!base) return;
+      const clone: Tab = JSON.parse(JSON.stringify(base));
+      clone.key = c.key;
+      clone.name = c.name || `${base.name} (copy)`;
+      (clone as any)._isDuplicate = true;
+      (clone as any)._baseKey = c.baseKey;
+      state.tabs[c.key] = clone;
+      if (!state.views[c.key]) state.views[c.key] = freshView();
+    });
+  }
   if (layout.views) {
     Object.keys(layout.views).forEach((k) => {
       if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
@@ -1968,15 +2117,33 @@ function presetUrl(id: number | string): string {
 const csrfHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": attr("data-csrf") });
 
 async function saveView(): Promise<void> {
-  const name = window.prompt("Save this view as:");
-  if (!name || !name.trim()) return;
+  const suggested = editingPresetName || "";
+  const name = window.prompt(
+    editingPresetId
+      ? "Save this view as (same name overwrites this view):"
+      : "Save this view as:",
+    suggested,
+  );
+  if (name == null || !name.trim()) return;
+  const trimmed = name.trim();
+  const overwrite = !!(editingPresetId && trimmed === editingPresetName);
   try {
-    const res = await fetch(attr("data-presets-url"), {
-      method: "POST", headers: csrfHeaders(),
-      body: JSON.stringify({ name: name.trim(), params: collectParams(), layout: serializeLayout() }),
-    });
+    const res = overwrite
+      ? await fetch(presetUrl(editingPresetId!), {
+          method: "PATCH", headers: csrfHeaders(),
+          body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
+        })
+      : await fetch(attr("data-presets-url"), {
+          method: "POST", headers: csrfHeaders(),
+          body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
+        });
     if (!res.ok) throw new Error();
-    setStatus(`Saved “${name.trim()}”.`);
+    if (overwrite) setStatus(`Updated “${trimmed}”.`);
+    else {
+      editingPresetId = null;
+      editingPresetName = trimmed;
+      setStatus(`Saved “${trimmed}”.`);
+    }
   } catch {
     setStatus("Could not save this view. Please try again.", "error");
   }
@@ -2041,28 +2208,17 @@ async function togglePresetsPanel(): Promise<void> {
       edit.type = "button";
       edit.className = "presets-edit";
       edit.textContent = "Edit";
-      edit.addEventListener("click", async (ev) => {
+      edit.title = "Open this view’s filters and layout, then save";
+      edit.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        const name = window.prompt("Rename this view:", p.name);
-        if (name == null) return;
-        const trimmed = name.trim();
-        if (!trimmed) return;
-        try {
-          const res = await fetch(presetUrl(p.id), {
-            method: "PATCH", headers: csrfHeaders(),
-            body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
-          });
-          if (!res.ok) throw new Error();
-          closePresetsPanel();
-          setStatus(`Updated “${trimmed}”.`);
-        } catch {
-          setStatus("Could not update this view. The name may already be used.", "error");
-        }
+        closePresetsPanel();
+        loadPreset(p, { run: !isReportShown(), edit: true });
+        setStatus(`Editing “${p.name}”. Change filters or layout, then Save this view.`);
       });
       const del = document.createElement("button");
       del.type = "button";
       del.className = "presets-del";
-      del.textContent = "✕";
+      del.textContent = "Delete";
       del.title = "Delete this view";
       del.addEventListener("click", async () => {
         if (!window.confirm(`Delete “${p.name}”?`)) return;
@@ -2077,10 +2233,27 @@ async function togglePresetsPanel(): Promise<void> {
   setTimeout(() => document.addEventListener("click", onPresetsOutside, true), 0);
 }
 
-function loadPreset(preset: { params?: Record<string, unknown>; layout?: SavedLayout }, opts?: { run?: boolean }): void {
+function loadPreset(preset: {
+  id?: number | string; name?: string;
+  params?: Record<string, unknown>; layout?: SavedLayout;
+}, opts?: { run?: boolean; edit?: boolean }): void {
   applyParamsObject(preset.params || {});
   pendingLayout = preset.layout || null;
-  if (opts?.run !== false) run();
+  if (opts?.edit) {
+    editingPresetId = preset.id ?? null;
+    editingPresetName = preset.name || null;
+  } else {
+    editingPresetId = null;
+    editingPresetName = null;
+  }
+  if (opts?.run === false) {
+    if (isReportShown() && pendingLayout) {
+      applyLayout(pendingLayout);
+      pendingLayout = null;
+    }
+    return;
+  }
+  run();
 }
 
 async function autoOpenPresetIfRequested(): Promise<void> {

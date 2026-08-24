@@ -3,6 +3,7 @@
      data-create-url="{{ url_for('schedules.create_master') }}"
      data-personal-create-url="{{ url_for('schedules.create_schedule') }}"
      data-update-url-tpl="{{ url_for('schedules.update_master', schedule_id=0) }}"
+     data-personal-update-url-tpl="{{ url_for('schedules.update_schedule', schedule_id=0) }}"
      data-can-company="{{ '1' if can_see_company else '' }}"
      data-privileged="{{ '1' if is_privileged else '' }}"
      data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
@@ -23,6 +24,7 @@
      data-report-filters='{{ report_filters|tojson }}'
      data-csrf="{{ csrf_token() }}">
     <input type="hidden" id="editingId" value="">
+    <input type="hidden" id="editingKind" value="">
 
     <div class="ms-wizard-head">
         <h2 id="formTitle" class="ms-wizard-title">Add a schedule</h2>

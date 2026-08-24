@@ -14,6 +14,7 @@ def test_report_id_map_is_complete():
     assert P.report_id_for("customer_activity") == "customer_activity"
     assert P.report_id_for("customer_last_order") == "customer_last_orders"
     assert P.report_id_for("sales_by_state") == "sales_by_state_summary"
+    assert P.SALES_BY_STATE_DETAIL_SP == "sales_by_state_filtered"
 
 
 def test_unknown_report_raises():

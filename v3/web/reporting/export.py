@@ -78,6 +78,34 @@ _FONT_BAND_GREEN = Font(color="008000")
 _FONT_BAND_PURPLE = Font(color="800080")
 _FONT_BAND_RED = Font(color="FF0000")
 _BAND_FONTS = (_FONT_BAND_BLUE, _FONT_BAND_GREEN, _FONT_BAND_PURPLE)
+_FILL_LIGHT_GREY = PatternFill("solid", fgColor="E8E8E8")
+
+
+def _fulfillment_fill(score: Any) -> PatternFill | None:
+    """Red (0) → yellow (0.5) → green (1). Same RGB as the old Ordered writer."""
+    try:
+        s = float(score)
+        if s < 0 or s != s:
+            return _FILL_LIGHT_GREY
+    except (TypeError, ValueError):
+        return None
+    s = max(0.0, min(1.0, s))
+    red, yellow, green = (255, 199, 206), (255, 235, 156), (198, 239, 206)
+    if s <= 0:
+        r, g, b = red
+    elif s >= 1:
+        r, g, b = green
+    elif s < 0.5:
+        t = s * 2
+        r = int(red[0] + (yellow[0] - red[0]) * t)
+        g = int(red[1] + (yellow[1] - red[1]) * t)
+        b = int(red[2] + (yellow[2] - red[2]) * t)
+    else:
+        t = (s - 0.5) * 2
+        r = int(yellow[0] + (green[0] - yellow[0]) * t)
+        g = int(yellow[1] + (green[1] - yellow[1]) * t)
+        b = int(yellow[2] + (green[2] - yellow[2]) * t)
+    return PatternFill("solid", fgColor=f"{r:02X}{g:02X}{b:02X}")
 
 
 def _safe_text(value: Any) -> str:
@@ -209,11 +237,12 @@ def _data_cells(ws, metas, row: dict, acc: dict[str, float],
     for idx, (_header, field, ctype) in enumerate(metas):
         value, fmt = _coerce(row.get(field), ctype)
         font = None
+        fill = _fulfillment_fill(row.get(field)) if field == "Fulfillment %" else None
         if salesman_bands and idx >= 4:
             band = _BAND_FONTS[min((idx - 4) // 4, 2)]
             n = _num(row.get(field))
             font = _FONT_BAND_RED if n is not None and n < 0 else band
-        cells.append(_cell(ws, value, fmt=fmt, font=font))
+        cells.append(_cell(ws, value, fmt=fmt, font=font, fill=fill))
         if ctype in _SUMMABLE_TYPES:
             x = _num(row.get(field))
             if x is not None:

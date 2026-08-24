@@ -230,7 +230,7 @@ def translate_customer_activity(p: dict) -> dict[str, Any]:
 
 SALES_BY_STATE_SUMMARY_SP = "sales_by_state_summary"
 SALES_BY_STATE_NYC_SP = "sales_by_state_new_york_city"
-SALES_BY_STATE_DETAIL_SP = "sales_by_state_detail"
+SALES_BY_STATE_DETAIL_SP = "sales_by_state_filtered"
 
 
 def translate_sales_by_state(p: dict) -> dict[str, Any]:

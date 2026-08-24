@@ -62,6 +62,7 @@ FULL_DATA_COLS = [
     {"field": "ItemName",            "header": "ItemName",            "type": "text"},
     {"field": "UnitPrice",           "header": "UnitPrice",           "type": "money"},
     {"field": "Status",              "header": "Status",              "type": "text"},
+    {"field": "Fulfillment %",       "header": "Fulfillment %",       "type": "percent"},
     {"field": "QtyOrdered",          "header": "QtyOrdered",          "type": "int"},
     {"field": "QtyReserved",         "header": "QtyReserved",         "type": "int"},
     {"field": "QtyReleased",         "header": "QTY Shipping",        "type": "int"},
@@ -191,6 +192,7 @@ def _classify_ordered_line(f: OrderLineFact) -> dict:
         "UnitPrice":        f.unit_price,
         "OrderStatus":      f.order_status,
         "Status":           f.status,
+        "Fulfillment %":    _ff_pct(f.qty_ordered, f.qty_cancelled),
         "QtyOrdered":       f.qty_ordered,
         "QtyReserved":      f.qty_reserved,
         "QtyReleased":      f.qty_released,
@@ -205,7 +207,7 @@ def _classify_ordered_line(f: OrderLineFact) -> dict:
 
 
 def _ff_pct(qty_ordered: float, qty_cancelled: float) -> float | None:
-    """Fulfillment ratio for CLO only; Ordered report no longer shows this."""
+    """(QtyOrdered - QtyCancelled) / QtyOrdered, clipped 0–1. Same as live Ordered."""
     if qty_ordered <= 1e-6:
         return None
     return round(min(1.0, max(0.0, (qty_ordered - qty_cancelled) / qty_ordered)), 4)
@@ -354,15 +356,16 @@ def build(facts: Iterable[OrderLineFact], *, skip_by_salesman: bool = False) -> 
     by_order.sort(key=lambda r: (r["OrderDate"] or ""), reverse=True)
 
     summary = _build_summary(lines)
-    summary["default_group"] = ["Salesman"]
+    salesman_group = [] if skip_by_salesman else ["Salesman"]
+    summary["default_group"] = salesman_group
 
     tabs = [
         summary,
         _tab("by_customer", "By Customer", BY_CUSTOMER_COLS, by_customer, stub=STUB_FIELDS,
-             default_group=["Salesman"]),
+             default_group=salesman_group),
         _tab("by_item", "By Item", BY_ITEM_COLS, by_item, stub=STUB_FIELDS),
         _tab("by_order", "By Order", BY_ORDER_COLS, by_order, stub=STUB_FIELDS,
-             default_group=["Salesman"]),
+             default_group=salesman_group),
     ]
     if not skip_by_salesman:
         by_salesman = _aggregate(

@@ -937,6 +937,21 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     assert "Run as a manager" not in rep_html
 
 
+def test_personal_schedule_row_has_edit(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app, email="rep@x.com", role="salesman")
+    created = c.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "a@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    html = c.get("/schedules").get_data(as_text=True)
+    assert "js-edit" in html
+    assert 'data-kind="personal"' in html
+    assert "data-personal-update-url-tpl" in html
+
+
 def test_master_schedule_admin_only(tmp_path):
     app = _make_app(tmp_path)
     rep = app.test_client()

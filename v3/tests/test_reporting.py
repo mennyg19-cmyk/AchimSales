@@ -384,3 +384,22 @@ def test_export_group_by_hidden_column_still_groups():
     wb = openpyxl.load_workbook(io.BytesIO(build_workbook(shaped, layout)))
     col_a = [c.value for c in wb["T"]["A"]]
     assert any(str(v).startswith("Cust: A") for v in col_a)   # still grouped by hidden col
+
+
+def test_export_fulfillment_percent_is_heatmap_filled():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "full_data", "name": "Full Data",
+        "columns": [
+            {"field": "Item#", "header": "Item#", "type": "text"},
+            {"field": "Fulfillment %", "header": "Fulfillment %", "type": "percent"},
+        ],
+        "rows": [{"Item#": "A", "Fulfillment %": 1.0}, {"Item#": "B", "Fulfillment %": 0.0}],
+    }]}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, None)))
+    ws = wb["Full Data"]
+    green = ws["B2"].fill.fgColor.rgb
+    red = ws["B3"].fill.fgColor.rgb
+    assert "C6EFCE" in green.upper() or "C6EFCE" in str(green).upper()
+    assert "FFC7CE" in red.upper() or "FFC7CE" in str(red).upper()

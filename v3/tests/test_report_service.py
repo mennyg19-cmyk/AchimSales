@@ -512,7 +512,7 @@ def test_sales_by_state_calls_three_catalog_keys():
     svc = _svc({
         "sales_by_state_summary": summary,
         "sales_by_state_new_york_city": nyc,
-        "sales_by_state_detail": detail,
+        "sales_by_state_filtered": detail,
     })
     out = svc.builder_for("sales_by_state")({"year": "2025"}, None)
     assert out["report_key"] == "sales_by_state"
@@ -521,7 +521,7 @@ def test_sales_by_state_calls_three_catalog_keys():
     assert svc.client.calls == [
         "sales_by_state_summary",
         "sales_by_state_new_york_city",
-        "sales_by_state_detail",
+        "sales_by_state_filtered",
     ]
     assert svc.client.params_calls[0][1] == {
         "FromDate": "2025-01-01", "ToDate": "2025-12-31",
