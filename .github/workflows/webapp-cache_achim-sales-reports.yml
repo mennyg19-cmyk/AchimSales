@@ -4,11 +4,18 @@
 
 name: Build and deploy Python app to Azure Web App - achim-sales-reports
 
+# Production slot. webapp-cache is the usual deploy branch; cursor/** is so
+# Cloud Agents can ship the same way when they push their working branch.
 on:
   push:
     branches:
       - webapp-cache
+      - "cursor/**"
   workflow_dispatch:
+
+concurrency:
+  group: deploy-achim-sales-reports
+  cancel-in-progress: false
 
 jobs:
   build:

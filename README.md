@@ -47,7 +47,13 @@ universal_runbook.py ordered --period daily
 
 ### Web App (on-demand)
 
-The Flask app in `webapp/` is deployed to Azure App Service via `deploy.ps1`.
+The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimonline.com).
+
+**Production branch is `webapp-cache`.** GitHub Action
+`.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
+push, and also deploys `cursor/**` Cloud Agent branches to the same production
+slot. Manual zip deploy is still `deploy.ps1`.
+
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
 ```powershell
@@ -206,7 +212,7 @@ Standing choices when rules disagree (also used by agents):
 
 | Topic | Choice |
 |-------|--------|
-| After a requested product change | **Commit + push + `.\deploy.ps1`** unless told not to. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
+| After a requested product change | **Commit + push.** `webapp-cache` and `cursor/**` pushes deploy via GitHub Action. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
 
 ## D365 Entity Reference

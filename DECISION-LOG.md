@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-25 Azure GitHub Action also deploys cursor/** branches
+**What you asked for:** Let a Cloud Agent deploy, the same way a push to `webapp-cache` does.
+**What I chose:** Keep one production Action. Trigger it on `webapp-cache` and `cursor/**`, plus the existing manual `workflow_dispatch`. Queue overlapping deploys (`concurrency`, do not cancel). Same production slot as today.
+**Why:** GitHub runs the workflow file from the branch that was pushed, so this file has to list Cloud Agent branches or their pushes never start a deploy. There is no staging slot in the current Action. `deploy.ps1` stays as a fallback when Actions cannot run.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-25 Number 4: YTD tabs, By Item qty-only, group by item
 **What I had to decide:** How to add rolling-12 + YTD tabs for each Number 4 version, drop money from By Item, and group by item, without a YTD stored procedure.
 **Options I considered:** Wait for DBA YTD SPs; fetch invoice lines and pivot in the app (old path); derive YTD from the rolling-12 pivot (prior-year months dropped, totals recalculated).
