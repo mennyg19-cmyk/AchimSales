@@ -22,6 +22,27 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Number 4: YTD tabs, By Item no money, group by item
+
+**What to test:**
+- Both mode builds four tabs (By Customer 12 months + YTD, By Item 12 months + YTD).
+- By Item tabs have no money columns; By Customer still has month $ / Total $ / Avg Price / Book Price.
+- YTD keeps current-year months only and recalculates Total Qty / Total $ / Avg Price.
+- YTD drops rows with no current-year qty or dollars.
+- Every tab sets `default_group` to Item #.
+- Excel By Item headers are quantity-only.
+- OData extra_files dicts are read as paths; Item/Customer sheet names do not collide.
+
+**Expected behavior:**
+- Mode By Item → two qty-only tabs. Mode By Customer → two tabs with dollars. Both → four tabs.
+- Grouping starts on Item # until the user changes it.
+
+**Edge cases:**
+- Empty view still keeps headers.
+- Prior-year-only rows appear on 12 Months and vanish on YTD.
+
+**Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_odata_number4.py`, `tests/test_number_4.py`
+
 ## Invoiced salesman from the reporting API (not Excel)
 
 **What to test:**

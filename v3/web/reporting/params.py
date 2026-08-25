@@ -179,7 +179,7 @@ def translate_salesman(p: dict) -> dict[str, Any]:
 
 # Number 4's two rolling-12 SPs: same rows, one ordered customer-first and one
 # item-first. The mode filter (By Customer / By Item / Both) decides which get
-# called; "both" calls each and shows two tabs (owner directive, 2026-07-08).
+# called; each view becomes a 12-month tab plus a YTD tab.
 NUMBER_4_BY_CUSTOMER_SP = "customer_item_sales_rolling_12"
 NUMBER_4_BY_ITEM_SP = "item_customer_sales_rolling_12"
 _NUMBER_4_MODES = ("both", "by_customer", "by_item")

@@ -2,7 +2,7 @@
 Number 4 Report - By Item Excel writer (streaming / write_only mode).
 
 Writes sections per item with customer rows, TOTALS per item, and GRAND TOTALS.
-Two sheets: "12 Months" and "Year to Date".
+Two sheets: "12 Months" and "Year to Date". Quantity only — no dollar columns.
 """
 
 import logging
@@ -59,24 +59,22 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols):
     headers = ["Item #", "Item Name", "Customer #", "Customer Name"]
     for lbl_q, _ in month_labels:
         headers.append(lbl_q)
-    headers.extend(["Total Qty", "Total $", "Avg Price", "Salesman", "Book Price"])
+    headers.extend(["Total Qty", "Salesman"])
     n_month = len(qty_cols)
 
     qty_set = set(range(4, 4 + n_month)) | {4 + n_month}
-    currency_set = {4 + n_month + 1, 4 + n_month + 2, 4 + n_month + 4}
+    currency_set: set[int] = set()
 
     ws.append(styled_row(ws, headers, qty_set, currency_set, fill=FILL_HEADER, bold=True))
 
     grand_qty = {qc: 0.0 for qc in qty_cols}
     grand_total_qty = 0.0
-    grand_total_dol = 0.0
 
     for item_key, grp in agg_df.groupby(["Item_#", "Item_Name"], sort=True):
-        item_id, item_name = item_key
+        _item_id, item_name = item_key
 
         item_qty = {qc: 0.0 for qc in qty_cols}
         item_total_qty = 0.0
-        item_total_dol = 0.0
 
         for _, r in grp.iterrows():
             vals = [r["Item_#"], r["Item_Name"], r.get("CustomerAccount", ""), r.get("CustomerName", "")]
@@ -85,14 +83,9 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols):
                 vals.append(v)
                 item_qty[qc] += v
             tq = float(r["Total_Qty"])
-            td = float(r["Total_$"])
             item_total_qty += tq
-            item_total_dol += td
             vals.append(tq)
-            vals.append(td)
-            vals.append(float(r["Avg_Price"]) if pd.notna(r["Avg_Price"]) else None)
             vals.append(r.get("Salesman", ""))
-            vals.append(float(r["BookPrice"]) if pd.notna(r.get("BookPrice")) else None)
             ws.append(styled_row(ws, vals, qty_set, currency_set))
 
         tot_vals = ["TOTALS:", item_name, "", ""]
@@ -100,12 +93,8 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols):
             tot_vals.append(item_qty[qc])
             grand_qty[qc] += item_qty[qc]
         tot_vals.append(item_total_qty)
-        tot_vals.append(item_total_dol)
-        tot_vals.append(item_total_dol / item_total_qty if item_total_qty else None)
         tot_vals.append("")
-        tot_vals.append(None)
         grand_total_qty += item_total_qty
-        grand_total_dol += item_total_dol
         ws.append(styled_row(ws, tot_vals, qty_set, currency_set, fill=FILL_TOTALS, bold=True))
         ws.append([])
 
@@ -113,8 +102,5 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols):
     for qc in qty_cols:
         grand_vals.append(grand_qty[qc])
     grand_vals.append(grand_total_qty)
-    grand_vals.append(grand_total_dol)
-    grand_vals.append(grand_total_dol / grand_total_qty if grand_total_qty else None)
     grand_vals.append("")
-    grand_vals.append(None)
     ws.append(styled_row(ws, grand_vals, qty_set, currency_set, fill=FILL_GRAND, bold=True))

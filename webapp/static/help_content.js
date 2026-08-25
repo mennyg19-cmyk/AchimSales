@@ -27,8 +27,8 @@ var HELP = {
     "report-number_4": {
         title: "Number 4 Report",
         body: "Shows a rolling 12-month and year-to-date breakdown of everything sold, organized two ways: by item and by customer.<br><br>" +
-              "There are no options to set — it always runs for the last 12 months and the current year to date.<br><br>" +
-              "Just tap Run and it will generate automatically."
+              "By Item is quantities only (no dollar columns). By Customer includes monthly dollars, totals, average price, and book price.<br><br>" +
+              "There are no options to set — it always runs for the last 12 months and the current year to date."
     },
 
     "report-customer_activity": {

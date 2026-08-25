@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-25 Number 4: YTD tabs, By Item qty-only, group by item
+**What I had to decide:** How to add rolling-12 + YTD tabs for each Number 4 version, drop money from By Item, and group by item, without a YTD stored procedure.
+**Options I considered:** Wait for DBA YTD SPs; fetch invoice lines and pivot in the app (old path); derive YTD from the rolling-12 pivot (prior-year months dropped, totals recalculated).
+**What I chose:** Derive YTD from the rolling-12 SP result. By Item strips every money column (month $, Total $, Avg Price, Book Price). All Number 4 tabs default-group by Item #. Excel By Item writer matches (qty only; it already had 12 Months + YTD sheets).
+**Why:** YTD months are always inside the rolling-12 window, so the numbers stay on the same basis as the SP (exclusions, merchandise $). No extra SP call. Builder version 3 so old cached payloads are not reused.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-21 Invoiced salesman from endpoints, not Excel
 **What I had to decide:** After the 029 stamp, whether to keep using salesman_map.xlsx / the hardcoded map for invoiced salesman codes.
 **What I chose:** Do not use the Excel map for invoiced salesman identity. Use the invoiced report row; if that is missing or just a number, use the same customer/salesman data as the report dropdowns. Live OData invoiced uses CustomersV3.SalesGroup the same way, with no Excel overlay.

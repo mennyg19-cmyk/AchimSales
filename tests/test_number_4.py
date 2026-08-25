@@ -161,3 +161,34 @@ class TestBuildMonthLabels:
         labels = build_month_labels(months)
         assert labels[0] == ("Jan-26 Qty", "Jan-26 $")
         assert labels[1] == ("Feb-26 Qty", "Feb-26 $")
+
+
+class TestWriteByItemNoMoney:
+
+    def test_headers_are_quantity_only(self, tmp_path):
+        from openpyxl import load_workbook
+
+        from reports.number_4.writer_item import write_by_item
+
+        agg = pd.DataFrame([{
+            "Item_#": "A", "Item_Name": "Widget",
+            "CustomerAccount": "100", "CustomerName": "Acme",
+            "Salesman": "S", "2026-03": 5.0, "Total_Qty": 5.0,
+            "Total_$": 50.0, "Avg_Price": 10.0, "BookPrice": 12.0,
+        }])
+        labels = [("Mar-26 Qty", "Mar-26 $")]
+        out = tmp_path / "n4_item.xlsx"
+        write_by_item(agg, labels, ["2026-03"], agg, labels, ["2026-03"], str(out))
+        wb = load_workbook(out, read_only=True)
+        try:
+            headers = [c.value for c in next(wb["12 Months"].iter_rows(max_row=1))]
+        finally:
+            wb.close()
+        assert headers == [
+            "Item #", "Item Name", "Customer #", "Customer Name",
+            "Mar-26 Qty", "Total Qty", "Salesman",
+        ]
+        assert "Total $" not in headers
+        assert "Avg Price" not in headers
+        assert "Book Price" not in headers
+        assert not any(h and str(h).endswith("$") for h in headers)

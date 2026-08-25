@@ -78,7 +78,7 @@ PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
 )
 
 # Number 4's one question: which rolling-12 view(s) to build. "Both" fetches
-# each view from its own stored procedure and shows two tabs.
+# each view from its own stored procedure; each view shows 12-month + YTD tabs.
 N4_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
     ("both", "Both"),
     ("by_customer", "By Customer"),

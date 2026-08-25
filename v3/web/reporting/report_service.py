@@ -14,7 +14,8 @@ Multi-source reports own their extra fetches here (not in the builder):
       the output will not include Commissions (salesman-scoped / shipped, or a
       saved layout that dropped that tab),
     * salesman     -> monthly_salesman_yoy (wide YoY pivot; no invoice facts),
-    * number_4     -> one or two rolling-12 SPs, picked by the mode filter,
+    * number_4     -> one or two rolling-12 SPs, picked by the mode filter
+      (each view becomes a 12-month tab plus a YTD tab derived from it),
     * customer_activity -> dedicated customer_activity SP (All + salesman tabs).
 The builders stay pure and source-agnostic; this is where I/O lives.
 """
@@ -445,12 +446,11 @@ def _orch_salesman(svc: ReportService, params: dict, visible_keys) -> dict:
 
 
 def _orch_number_4(svc: ReportService, params: dict, visible_keys) -> dict:
-    """Number 4 = the finished rolling-12 pivots straight from the SPs.
+    """Number 4 = rolling-12 pivots from the SPs, plus a YTD slice of each.
 
     The mode filter decides which view(s) to fetch: By Customer, By Item, or
-    Both (two SP calls, two tabs). The SPs do all the math (monthly pivots,
-    totals, Book Price join), so there's no fact adapter -- rows are cleaned,
-    scope-filtered on the Salesman column, and passed through.
+    Both (two SP calls). Each view becomes two tabs (12 months and YTD). The
+    SPs do the rolling-12 math; YTD is the current-year months of that pivot.
     """
     sp = P.translate("number_4", params)
     mode = P.number_4_mode(params)

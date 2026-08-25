@@ -29,20 +29,21 @@ def build_odata_payload(
 
     filepath = result.get("filepath") or ""
     extra_files = result.get("extra_files") or []
-    paths = [filepath] + [p for p in extra_files if p]
-    paths = [p for p in paths if p and Path(p).is_file()]
+    paths = [p for p in [filepath, *_extra_file_paths(extra_files)] if p and Path(p).is_file()]
     if not paths:
         raise RuntimeError(f"Live OData run for {report_key} produced no Excel file")
 
     tabs = []
     for path in paths:
-        tabs.extend(_workbook_to_tabs(path))
+        tabs.extend(_workbook_to_tabs(path, report_key=report_key, source_path=path))
 
     if visible_keys is not None:
         tabs = [_scope_tab(tab, visible_keys) for tab in tabs]
 
     if report_key == "ordered":
         tabs = [_attach_ordered_default_group(tab) for tab in tabs]
+    elif report_key == "number_4":
+        tabs = [_attach_number4_defaults(tab) for tab in tabs]
 
     row_count = sum(len(t.get("rows") or []) for t in tabs)
     return {
@@ -63,6 +64,19 @@ _ORDERED_DEFAULT_GROUP_NAMES = {
 }
 
 
+def _extra_file_paths(extra_files) -> list[str]:
+    """History stores extra_files as {filepath, filename} dicts, not bare paths."""
+    paths: list[str] = []
+    for item in extra_files or []:
+        if isinstance(item, str) and item:
+            paths.append(item)
+        elif isinstance(item, dict):
+            p = item.get("filepath") or item.get("path") or ""
+            if p:
+                paths.append(p)
+    return paths
+
+
 def _attach_ordered_default_group(tab: dict) -> dict:
     key = str(tab.get("key") or "").strip().lower()
     name = str(tab.get("name") or "").strip().lower()
@@ -73,7 +87,33 @@ def _attach_ordered_default_group(tab: dict) -> dict:
     return tab
 
 
-def _workbook_to_tabs(path: str) -> list[dict]:
+def _number4_version_label(path: str) -> str:
+    name = Path(path).name.lower()
+    if "item" in name:
+        return "By Item"
+    if "customer" in name:
+        return "By Customer"
+    return ""
+
+
+def _is_summary_row(row: dict) -> bool:
+    for value in row.values():
+        text = str(value or "").strip()
+        if text.startswith("TOTALS") or text.startswith("GRAND TOTALS"):
+            return True
+    return False
+
+
+def _attach_number4_defaults(tab: dict) -> dict:
+    """Group by item; drop Excel TOTALS rows so the grid grouping is clean."""
+    out = dict(tab)
+    out["default_group"] = ["Item #"]
+    rows = [r for r in (tab.get("rows") or []) if not _is_summary_row(r)]
+    out["rows"] = rows
+    return out
+
+
+def _workbook_to_tabs(path: str, *, report_key: str = "", source_path: str = "") -> list[dict]:
     from openpyxl import load_workbook
 
     wb = load_workbook(path, read_only=True, data_only=True)
@@ -102,10 +142,14 @@ def _workbook_to_tabs(path: str) -> list[dict]:
                         val = val.isoformat()
                     row[col] = val
                 data_rows.append(row)
-            key = _slug(sheet.title)
+            title = sheet.title
+            prefix = _number4_version_label(source_path or path) if report_key == "number_4" else ""
+            if prefix:
+                title = f"{prefix} ({sheet.title})"
+            key = _slug(title)
             tabs.append({
                 "key": key,
-                "name": sheet.title,
+                "name": title,
                 "columns": [c for c in columns if c],
                 "rows": data_rows,
             })

@@ -278,19 +278,20 @@ _N4_ROWS = {"customer_item_sales_rolling_12": [_N4_CUSTOMER_ROW],
             "item_customer_sales_rolling_12": [_N4_ITEM_ROW]}
 
 
-def test_number_4_both_mode_calls_both_sps_and_builds_two_tabs():
+def test_number_4_both_mode_calls_both_sps_and_builds_four_tabs():
     svc = _svc(_N4_ROWS)
     out = svc.builder_for("number_4")({"mode": "both"}, None)
-    assert [t["key"] for t in out["tabs"]] == ["by_customer", "by_item"]
+    assert [t["key"] for t in out["tabs"]] == [
+        "by_customer", "by_customer_ytd", "by_item", "by_item_ytd"]
     assert svc.client.calls == [
         "customer_item_sales_rolling_12", "item_customer_sales_rolling_12"]
-    assert out["row_count"] == 2  # one row in each view
+    assert out["row_count"] == 2  # one row in each view (YTD is a slice)
 
 
 def test_number_4_single_mode_calls_only_its_sp():
     svc = _svc(_N4_ROWS)
     out = svc.builder_for("number_4")({"mode": "by_item"}, None)
-    assert [t["key"] for t in out["tabs"]] == ["by_item"]
+    assert [t["key"] for t in out["tabs"]] == ["by_item", "by_item_ytd"]
     assert svc.client.calls == ["item_customer_sales_rolling_12"]
 
 
