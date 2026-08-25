@@ -625,6 +625,8 @@ function closeWizard(): void {
   updateMsFilenamePreview();
   updateMsFolderPreview();
   (document.getElementById("editingId") as HTMLInputElement).value = "";
+  const kindClear = document.getElementById("editingKind") as HTMLInputElement | null;
+  if (kindClear) kindClear.value = "";
   (document.getElementById("spPathInput") as HTMLInputElement).value = "";
   document.getElementById("formTitle")!.textContent = "Add a schedule";
   document.getElementById("formSubmitBtn")!.textContent = "Save schedule";
@@ -644,6 +646,8 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   const params = JSON.parse(row.dataset.params || "{}");
 
   (document.getElementById("editingId") as HTMLInputElement).value = id;
+  const kindEl = document.getElementById("editingKind") as HTMLInputElement | null;
+  if (kindEl) kindEl.value = row.dataset.kind || "master";
   (form.elements.namedItem("name") as HTMLInputElement).value = row.dataset.name || "";
   const fn = document.getElementById("msFilename") as HTMLInputElement | null;
   if (fn) fn.value = row.dataset.filenameTemplate || DEFAULT_FILENAME_TEMPLATE;
@@ -847,7 +851,12 @@ export function bindMasterWizard(): void {
       params,
       layout: pendingLayout,
     };
-    if (canSeeCompany()) {
+    const editId = (document.getElementById("editingId") as HTMLInputElement).value;
+    const editingKind = (document.getElementById("editingKind") as HTMLInputElement | null)?.value || "";
+    if (editingKind === "personal") {
+      body.onedrive_path = odPath;
+      body.sharepoint_path = odPath || spPath;
+    } else if (canSeeCompany()) {
       body.is_shared = shared;
       body.sharepoint_path = spPath;
       body.onedrive_path = shared ? "" : odPath;
@@ -856,8 +865,6 @@ export function bindMasterWizard(): void {
       body.onedrive_path = odPath;
       body.sharepoint_path = odPath;
     }
-
-    const editId = (document.getElementById("editingId") as HTMLInputElement).value;
     masterMsg("Saving…", false);
     const submitBtn = document.getElementById("formSubmitBtn") as HTMLButtonElement;
     submitBtn.disabled = true;
@@ -865,7 +872,9 @@ export function bindMasterWizard(): void {
     try {
       let res: Response;
       if (editId) {
-        const tpl = wiz.getAttribute("data-update-url-tpl")!;
+        const tpl = editingKind === "personal"
+          ? (wiz.getAttribute("data-personal-update-url-tpl") || "")
+          : wiz.getAttribute("data-update-url-tpl")!;
         const url = tpl.replace("/0", "/" + editId);
         res = await fetch(url, { method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body) });
       } else {

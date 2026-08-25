@@ -43,6 +43,42 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_odata_number4.py`, `tests/test_number_4.py`
 
+## Sales by State (SQL only)
+
+**What to test:**
+- Year filter becomes FromDate Jan 1 / ToDate Dec 31 for all three catalog keys.
+- Third catalog key is `sales_by_state_filtered` (not `sales_by_state_detail`).
+- Summary sorts by sales amount. NYC sales amount appears on the first row only, even if the SP repeats it.
+- Detail Excel serial dates become YYYY-MM-DD; negative amounts stay negative.
+- Report is built, not on the Settings SQL/OData list, and not a salesman default.
+
+**Expected behavior:**
+- Admin reports list shows Sales by State. Salesman inherit list does not.
+- `get_source("sales_by_state")` is sql.
+
+**Edge cases:**
+- Custom period dates override the year window when both start and end are set.
+
+**Test file:** `v3/tests/test_report_sales_by_state.py`, `v3/tests/test_params.py`, `v3/tests/test_report_service.py`, `v3/tests/test_blueprints.py`
+
+## Meeting fixes (tabs, views, groups, empty split, Ordered %, personal Edit)
+
+**What to test:**
+- Viewer source has Rename tab, Edit+Delete saved views, subgroup + group pills, clone restore in applyLayout.
+- Personal schedules page has Edit and `data-kind="personal"`.
+- Split delivery: `email_on_empty=False`; 0-row salesman gets a No Data Found text mail, no xlsx.
+- Ordered Full Data has Fulfillment % (1.0 / 0.0 on the fixture); skip_by_salesman has no Salesman default_group.
+- Daily 9am Salesmen Ordered seed layout omits `by_salesman`.
+
+**Expected behavior:**
+- Company copy still honours the “email when no data” checkbox.
+- Save this view with the same name as the view being edited overwrites it.
+
+**Edge cases:**
+- Whole report has rows but one salesman has none → that salesman gets the text mail only.
+
+**Test file:** `v3/tests/test_frontend.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_delivery.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_schedule_seed.py`, `v3/tests/test_reporting.py`
+
 ## Invoiced salesman from the reporting API (not Excel)
 
 **What to test:**
@@ -291,10 +327,11 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `onedrive_children_url` at root is `…/drive/root/children`, never `root::/children`. Nested folders keep `root:/{path}:/children`.
 - `keep_run` stores `keep_name` and clears name when a Keep overflows the cap of 5 (test uses cap 2).
 - `POST /api/reports/runs/<id>/keep` with `{name}` returns that name; `/api/reports/active` includes `keep_name`, `created_at`, `finished_at`.
-- Logged-in `base.html` has Previously run (`#prevRunsBtn`) and the jobs bar.
+- Logged-in `base.html` has Recent Reports (`#prevRunsBtn`, styled as a link) and the jobs bar.
 
 **Expected behavior:**
-- Header Previously run opens the floating list. Keep this run prompts for a name. Chips show Eastern date/time.
+- Header Recent Reports opens the floating list. Keep this run prompts for a name. Chips show Eastern date/time.
+- Exporting Excel opens the Recent exports panel. The status line's "Recent exports" words open it again.
 - OneDrive Browse at the drive root no longer 400s from a bad Graph path.
 
 **Edge cases:**

@@ -267,6 +267,13 @@
 .report-status[hidden] { display: none !important; }
 .report-status-info { background: var(--primary-light); color: var(--primary); }
 .report-status-error { background: var(--error-light); color: var(--error); }
+.status-link {
+    background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+    color: inherit; font: inherit; font-weight: 700; text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.status-link:hover { opacity: 0.85; }
+.status-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 /* -- Report surface: folder tabs joined to the grid as one card -- */
 .report-surface {
@@ -403,9 +410,25 @@
 .tab-context-item:hover { background: var(--bg); }
 .tab-context-item.danger { color: var(--error); }
 .columns-panel { max-height: 320px; overflow-y: auto; }
+.columns-panel-heading {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-muted); padding: 8px 8px 4px;
+}
 .columns-panel-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 13px; color: var(--text); cursor: pointer; }
 .columns-panel-item:hover { background: var(--bg); border-radius: 6px; }
 .columns-panel-restore { margin-top: 6px; width: 100%; }
+
+.group-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+.group-pill {
+    display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 10px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+    font-size: 12px; color: var(--text);
+}
+.group-pill-x {
+    border: none; background: none; color: var(--text-muted); cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 4px;
+}
+.group-pill-x:hover { color: var(--error); background: var(--error-light); }
 
 /* -- Saved-view (presets) panel -- */
 .presets-panel {
@@ -426,7 +449,7 @@
 .presets-edit:hover { background: var(--primary-light); }
 .presets-del {
     flex: 0 0 auto; border: none; background: none; color: var(--text-muted);
-    font-size: 13px; cursor: pointer; padding: 6px 8px; border-radius: 6px;
+    font-size: 12px; font-weight: 600; cursor: pointer; padding: 6px 8px; border-radius: 6px;
 }
 .presets-del:hover { color: var(--error); background: var(--error-light); }
 .presets-empty { padding: 10px; color: var(--text-muted); font-size: 13px; }

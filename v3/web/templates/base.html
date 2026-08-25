@@ -34,8 +34,8 @@
             <span class="user-role badge {% if user.role == 'admin' or user.role == 'developer' %}badge-admin{% elif user.role == 'manager' %}badge-manager{% else %}badge-salesman{% endif %}">
                 {{ user.role|title }}
             </span>
-            <button type="button" id="prevRunsBtn" class="btn btn-sm btn-outline" data-no-guard
-                    title="Previously run and kept reports"><span class="prev-runs-full">Previously run</span><span class="prev-runs-short">Runs</span></button>
+            <button type="button" id="prevRunsBtn" class="header-text-link" data-no-guard
+                    title="Recent and kept report runs"><span class="prev-runs-full">Recent Reports</span><span class="prev-runs-short">Recent</span></button>
             <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
                     title="Switch theme (light / dark / monochrome)"
                     data-url="{{ url_for('settings.set_preferences') }}" data-csrf="{{ csrf_token() }}">

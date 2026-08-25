@@ -13,6 +13,8 @@ def test_report_id_map_is_complete():
     assert P.report_id_for("number_4") == "customer_item_sales_rolling_12"
     assert P.report_id_for("customer_activity") == "customer_activity"
     assert P.report_id_for("customer_last_order") == "customer_last_orders"
+    assert P.report_id_for("sales_by_state") == "sales_by_state_summary"
+    assert P.SALES_BY_STATE_DETAIL_SP == "sales_by_state_filtered"
 
 
 def test_unknown_report_raises():
@@ -151,3 +153,15 @@ def test_customer_last_orders_maps_account_and_default_count():
     })
     assert out2["OrderCount"] == 3
     assert out2["AsOfDate"] == "2026-04-01"
+
+
+def test_sales_by_state_year_becomes_from_to_dates():
+    out = P.translate("sales_by_state", {"year": "2025"})
+    assert out == {"FromDate": "2025-01-01", "ToDate": "2025-12-31"}
+    custom = P.translate("sales_by_state", {
+        "period": "custom", "start_date": "2025-03-01", "end_date": "2025-03-31",
+    })
+    assert custom["FromDate"] == "2025-03-01"
+    assert custom["ToDate"] == "2025-03-31"
+    with_co = P.translate("sales_by_state", {"year": 2025, "Company": "achm"})
+    assert with_co["Company"] == "achm"

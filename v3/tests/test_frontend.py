@@ -46,6 +46,8 @@ def test_base_html_renders_shell(tmp_path):
     assert 'class="header-logo"' in html
     assert 'class="bottom-nav"' in html
     assert 'id="prevRunsBtn"' in html
+    assert "Recent Reports" in html
+    assert "header-text-link" in html
     assert 'id="reportJobsBar"' in html
     # Bundled assets, not inline scripts / per-page CSS.
     assert "css/main.css" in html and "js/main.js" in html
@@ -152,3 +154,17 @@ def test_test_site_nav_is_gated_off_by_default(tmp_path):
     app = create_app(_cfg(tmp_path))
     html = _render(app, user={"name": "A", "role": "admin", "_dev": False})
     assert "Test Site" not in html
+
+
+def test_report_viewer_meeting_ux():
+    src = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert "Rename tab" in src
+    assert 'textContent = "Delete"' in src
+    assert "Add subgroup" in src
+    assert "groupPills" in src
+    assert "Save this view as (same name overwrites this view)" in src
+    assert "layout.clones" in src
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert ".group-pill" in css
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert 'id="groupPills"' in html

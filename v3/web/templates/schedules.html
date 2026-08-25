@@ -88,16 +88,17 @@
         <tbody>
             {% for s in schedules %}
             {% set is_master = s.kind == 'master' %}
-            <tr {% if is_master %}data-id="{{ s.id }}"
-                data-name="{{ s.name }}"
+            <tr data-id="{{ s.id }}"
+                data-kind="{{ s.kind }}"
+                data-name="{{ s.name or s.report_title }}"
                 data-report-key="{{ s.report_key }}"
-                data-cadence='{{ s.cadence_raw|tojson }}'
-                data-params='{{ s.params|tojson }}'
+                data-cadence='{{ (s.cadence_raw or {})|tojson }}'
+                data-params='{{ (s.params or {})|tojson }}'
                 data-recipients="{{ s.recipients }}"
                 data-sharepoint-path="{{ s.sharepoint_path }}"
                 data-filename-template="{{ s.filename_template or '' }}"
                 data-run-as="{{ s.run_as_user_id or '' }}"
-                data-is-shared="0"{% endif %}>
+                data-is-shared="0">
                 <td>{{ s.report_title }}</td>
                 <td>{{ s.cadence }}</td>
                 <td>{{ s.recipients or '—' }}</td>
@@ -111,9 +112,7 @@
                     </button>
                 </td>
                 <td class="row-actions">
-                    {% if is_master %}
                     <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
-                    {% endif %}
                     <button type="button" class="btn btn-sm btn-outline js-run"
                             data-url="{% if is_master %}{{ url_for('schedules.run_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.run_schedule', schedule_id=s.id) }}{% endif %}">Run now</button>
                     <button type="button" class="btn btn-sm btn-outline js-copy"

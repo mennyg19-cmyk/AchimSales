@@ -156,6 +156,18 @@ def test_email_writes_eml_and_logs_outbox(email):
     assert row and row.status == "outbox" and row.attachment_meta["filename"] == "ordered.xlsx"
 
 
+def test_email_text_only_has_no_attachment(email):
+    svc, cfg, db = email
+    res = svc.deliver(subject="Ordered Report - No Data Found (yesterday)",
+                      recipients_raw="a@x.com",
+                      body_text="Your requested Ordered Report for period 'yesterday' returned no results.",
+                      report_name="Ordered Report", filename="", xlsx_bytes=None)
+    assert res.ok
+    raw = (cfg.outbox_dir / res.eml_name).read_bytes()
+    assert b"vnd.openxmlformats-officedocument" not in raw
+    assert b"No Data Found" in raw or b"returned no results" in raw
+
+
 def test_email_sends_via_graph_when_configured(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)

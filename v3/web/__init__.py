@@ -598,6 +598,10 @@ _INVOICED_WITHOUT_COMMISSIONS = {
         "audit_reversals", "totals_by_salesman",
     ],
 }
+# Per-rep Ordered files: drop By Salesman (the file is already one salesman).
+_ORDERED_SALESMAN_FILE = {
+    "order": ["summary", "by_customer", "by_item", "by_order", "full_data"],
+}
 
 
 _AZURE_SCHEDULES: list[dict] = [
@@ -635,6 +639,7 @@ _AZURE_SCHEDULES: list[dict] = [
         "params": _SALESMEN_ALL,
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Salesman Report/Daily",
+        "layout": _ORDERED_SALESMAN_FILE,
     },
     {
         "name": "Daily Salesmen Shipped (9am)",
@@ -721,6 +726,7 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
         "params": _SALESMEN_ALL,
         "cadence": {"freq": "daily", "time": "09:00"},
         "sharepoint_path": "Salesman Report/Daily",
+        "layout": _ORDERED_SALESMAN_FILE,
     },
     {
         "name": "Daily 9am Salesmen Shipped",

@@ -13,6 +13,21 @@
 **Why:** YTD months are always inside the rolling-12 window, so the numbers stay on the same basis as the SP (exclusions, merchandise $). No extra SP call. Builder version 3 so old cached payloads are not reused.
 **Status:** DECIDED — shipping this change.
 
+## 2026-08-24 Meeting: tabs, views, groups, empty split mail, Ordered %, personal Edit, Sales by State sheet 3
+**What you asked for:** After the user meeting — restore removed tabs like columns; rename copied tabs; Edit/Delete on saved views (not Edit+✕); Edit opens the whole view then Save / Save as; nested groups with delete-able pills; home-page presets apply the full view; empty salesman splits must not send a workbook (text “No Data Found” like the old runbook); Daily 9am salesman Ordered grouping like Daily shipped; bring back Ordered Fulfillment % (green→red); edit personal schedules; Sales by State third sheet from `sales_by_state_filtered`.
+**What I chose:** Removed original tabs stay in memory and come back from the Columns dropdown. Copied tabs get Rename. Edit loads filters+layout (and runs if the grid is empty); Save with the same name overwrites, a new name creates another view. “Group by this column” / “Add subgroup” append; pills remove one level. `applyLayout` recreates cloned tabs so a home-page preset matches the saved view. Split legs never send empty Excel; they send the old runbook no-data text. The no-data checkbox is for the company copy only. Per-rep Ordered files drop Salesman grouping and use a tab-order layout like shipped dropping commissions. Fulfillment % is `(QtyOrdered - QtyCancelled) / QtyOrdered` on Full Data, colored in the grid and Excel. Personal rows get Edit and PUT `/api/schedules/<id>`. Sheet 3 catalog key is `sales_by_state_filtered` (overrides the earlier “detail only” choice). Test mode stays On.
+**Status:** DECIDED — deployed `0db0f60` to `achim-sales-reports` (RuntimeSuccessful).
+
+## 2026-08-24 Recent Reports link; export panel from the status line
+**What you asked for:** The "building in the background — see Recent exports" message pointed at a place you could not find. Recent Reports should be a hyperlink.
+**What I chose:** Header label is **Recent Reports**, styled as a text link (same button, same jobs panel). Starting an Excel export opens the Recent exports list and the status line's **Recent exports** words open it too.
+**Status:** DECIDED — shipping this change.
+
+## 2026-08-24 Sales by State on the home site (SQL only)
+**What you asked for:** Add the Sales by State report to the home site (former Beta). Use the SQL API only — no OData, no data-origin selector on Settings. The Excel file is the look; the Word doc is the DBA handoff.
+**What I chose:** One report, three tabs (Summary, New York City, Detail) matching the workbook. Year filter → FromDate/ToDate for the three catalog keys. Left Unknown / filtered / other-transaction SPs out because they are not in the sample file. Not shown to salesmen by default.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-21 Invoiced salesman from endpoints, not Excel
 **What I had to decide:** After the 029 stamp, whether to keep using salesman_map.xlsx / the hardcoded map for invoiced salesman codes.
 **What I chose:** Do not use the Excel map for invoiced salesman identity. Use the invoiced report row; if that is missing or just a number, use the same customer/salesman data as the report dropdowns. Live OData invoiced uses CustomersV3.SalesGroup the same way, with no Excel overlay.

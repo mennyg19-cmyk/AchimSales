@@ -57,7 +57,9 @@ def test_full_data_uses_sp_qty_columns():
     assert so1["QtyLeftToShip"] == 20
     assert "QtyShipped" not in so1
     assert "QtyOpen" not in so1
-    assert "Fulfillment %" not in so1
+    assert so1["Fulfillment %"] == 1.0
+    ff = next(c for c in full["columns"] if c["field"] == "Fulfillment %")
+    assert ff["type"] == "percent"
     rel_col = next(c for c in full["columns"] if c["field"] == "QtyReleased")
     assert rel_col["header"] == "QTY Shipping"
     assert not any(c["field"] == "QtyShipped" for c in full["columns"])
@@ -74,6 +76,7 @@ def test_full_data_uses_sp_qty_columns():
     so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
     assert so2["QtyCancelled"] == 4
     assert so2["QtyLeftToShip"] == 0
+    assert so2["Fulfillment %"] == 0.0
     assert so2["purchid"] == ""
     assert so2["ExpectedArrivalDate"] == ""
 
@@ -148,6 +151,12 @@ def test_tab_order_matches_live():
 def test_salesman_variant_drops_by_salesman_tab():
     keys = [t["key"] for t in B.build(S.to_facts_ordered_report(_rows()), skip_by_salesman=True)]
     assert keys == ["summary", "by_customer", "by_item", "by_order", "full_data"]
+
+
+def test_salesman_variant_does_not_group_by_salesman():
+    tabs = B.build(S.to_facts_ordered_report(_rows()), skip_by_salesman=True)
+    for t in tabs:
+        assert not t.get("default_group")
 
 
 def test_full_data_preserves_source_row_order():

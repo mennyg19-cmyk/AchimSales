@@ -252,6 +252,10 @@ class ScheduleRunner:
         sched_name = getattr(sched, "name", "") or report_name
 
         if sched.recipients or sched.sharepoint_path:
+            no_data_all = bool(params.get("email_on_no_data"))
+            no_data_me = bool(params.get("email_on_no_data_me_only"))
+            test_empty = self.settings.test_emails()
+            empty_to_test = no_data_me and not no_data_all and bool(test_empty)
             full = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                 builder_version=builder_version, params=_report_params(params),
@@ -263,6 +267,11 @@ class ScheduleRunner:
                 filename_template=getattr(sched, "filename_template", "") or "",
                 onedrive_user="" if test_to else onedrive_user,
                 schedule_name=sched_name,
+                email_on_empty=no_data_all or empty_to_test,
+                empty_recipients_override=(
+                    None if test_to
+                    else ("; ".join(test_empty) if empty_to_test else None)
+                ),
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -290,7 +299,20 @@ class ScheduleRunner:
                 report_name=f"{report_name} - {key}", sharepoint_path="",
                 filename_template=getattr(sched, "filename_template", "") or "",
                 schedule_name=f"{sched_name} - {key}",
+                email_on_empty=False,
             )
+            if outcome.row_count == 0:
+                notice_fn = getattr(self.delivery, "send_no_data_notice", None)
+                if callable(notice_fn):
+                    period_label = str(split_params.get("period") or "this run")
+                    nsubj, nbody = _no_data_email(
+                        report_name, period_label, key,
+                        customers=_as_str_list(split_params.get("customers")),
+                    )
+                    outcome = notice_fn(
+                        recipients=test_recips if test_to else email,
+                        subject=nsubj, body_text=nbody, report_name=report_name,
+                    )
             outcomes.append(outcome)
             deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))
 
@@ -374,6 +396,22 @@ def _with_viewer_limits(authz, sched, schedule_type: str, params: dict | None) -
     if principal is not None and not authz.may_see_commissions(principal):
         out["_skip_commissions"] = True
     return out
+
+
+def _no_data_email(report_name: str, period_label: str, salesman: str,
+                   customers: list[str] | None = None) -> tuple[str, str]:
+    """Subject + body matching the old Ordered runbook no-data mail."""
+    filter_parts = [f"Salesman: {salesman}"]
+    if customers:
+        filter_parts.append("Customer(s): " + ", ".join(customers))
+    subject = f"{report_name} - No Data Found ({period_label})"
+    body = (
+        f"Your requested {report_name} for period '{period_label}' returned no results.\n\n"
+        f"Filters applied: {', '.join(filter_parts)}\n\n"
+        "Reason: No data for this salesman in the selected period.\n\n"
+        "Please verify the customer account and salesman combination and try again."
+    )
+    return subject, body
 
 
 def _report_params(params: dict | None) -> dict:

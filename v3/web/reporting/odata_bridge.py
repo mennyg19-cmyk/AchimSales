@@ -40,7 +40,7 @@ def build_odata_payload(
     if visible_keys is not None:
         tabs = [_scope_tab(tab, visible_keys) for tab in tabs]
 
-    if report_key == "ordered":
+    if report_key == "ordered" and not params.get("salesman"):
         tabs = [_attach_ordered_default_group(tab) for tab in tabs]
     elif report_key == "number_4":
         tabs = [_attach_number4_defaults(tab) for tab in tabs]

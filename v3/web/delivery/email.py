@@ -125,7 +125,7 @@ class EmailService:
         )
 
     def deliver(self, *, subject: str, recipients_raw: str, body_text: str,
-                report_name: str, filename: str, xlsx_bytes: bytes,
+                report_name: str, filename: str = "", xlsx_bytes: bytes | None = None,
                 sharepoint_path: str | None = None,
                 onedrive_user: str | None = None,
                 cc_raw: str = "", bcc_raw: str = "") -> DeliveryResult:
@@ -198,9 +198,8 @@ class EmailService:
             msg["Bcc"] = ", ".join(bcc)
         msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
         msg.set_content(body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n")
-        if xlsx_bytes:
-            msg.add_attachment(xlsx_bytes, maintype="application", subtype=_XLSX_MIME,
-                               filename=filename)
+        if filename and xlsx_bytes:
+            msg.add_attachment(xlsx_bytes, maintype="application", subtype=_XLSX_MIME, filename=filename)
         return msg
 
     def _write_eml(self, msg: EmailMessage, report_name: str) -> str:
@@ -245,7 +244,7 @@ class EmailService:
             )
 
     def _maybe_folder(self, path, filename, xlsx_bytes, *, onedrive_user: str | None):
-        if not path:
+        if not path or not xlsx_bytes:
             return False, None, None
         try:
             if onedrive_user:

@@ -502,3 +502,28 @@ def test_ensure_customers_resyncs_then_finds():
     assert lk.customer("100") is not None
     # Truly unknown customer remains unknown after resync
     assert lk.ensure_customers(["999"]) == ["999"]
+
+
+def test_sales_by_state_calls_three_catalog_keys():
+    summary = [{"State": "New Jersey", "SalesAmount": 200,
+                "NewYorkCitySalesAmount": 50}]
+    nyc = [{"Invoice": "INV1", "Amount": 10, "State": "New York"}]
+    detail = [{"Invoice": "INV1", "InvoiceDate": "2025-01-06", "Amount": 10,
+               "State": "Alabama"}]
+    svc = _svc({
+        "sales_by_state_summary": summary,
+        "sales_by_state_new_york_city": nyc,
+        "sales_by_state_filtered": detail,
+    })
+    out = svc.builder_for("sales_by_state")({"year": "2025"}, None)
+    assert out["report_key"] == "sales_by_state"
+    assert [t["name"] for t in out["tabs"]] == ["Summary", "New York City", "Detail"]
+    assert out["row_count"] == 3
+    assert svc.client.calls == [
+        "sales_by_state_summary",
+        "sales_by_state_new_york_city",
+        "sales_by_state_filtered",
+    ]
+    assert svc.client.params_calls[0][1] == {
+        "FromDate": "2025-01-01", "ToDate": "2025-12-31",
+    }
