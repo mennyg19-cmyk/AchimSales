@@ -1884,5 +1884,7 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
     assert any(t["name"] == "users" for t in tables)
     html = dev.get("/settings").get_data(as_text=True)
     assert "Database explorer" in html and "Beta report data sources" in html
-    assert "sales_by_state" not in html
+    # SQL-only: not on the Beta source selector. Global visibility still lists it.
+    assert 'class="beta-source-select" data-key="sales_by_state"' not in html
+    assert 'class="vis-toggle" data-key="sales_by_state"' in html
     assert dev.get("/dev/notif-diagnostic").status_code == 200

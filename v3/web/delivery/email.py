@@ -47,8 +47,8 @@ def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_-]+", "_", (s or "").strip())[:40] or "msg"
 
 
-def _graph_attachable(xlsx_bytes: bytes) -> bool:
-    return len(xlsx_bytes) < MAX_GRAPH_ATTACH_BYTES
+def _graph_attachable(xlsx_bytes: bytes | None) -> bool:
+    return bool(xlsx_bytes) and len(xlsx_bytes) < MAX_GRAPH_ATTACH_BYTES
 
 
 def _is_size_rejection(exc: GraphMailError) -> bool:
@@ -63,9 +63,11 @@ def _is_size_rejection(exc: GraphMailError) -> bool:
 
 
 def _email_body(body_text: str, report_name: str, filename: str,
-                xlsx_bytes: bytes, attach: bytes | None, folder_url: str | None) -> str:
+                xlsx_bytes: bytes | None, attach: bytes | None, folder_url: str | None) -> str:
     if attach is not None:
         return body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n"
+    if not xlsx_bytes:
+        return (body_text or report_name).rstrip() + "\n"
     mb = len(xlsx_bytes) / (1024 * 1024)
     lines = [
         (body_text or report_name).rstrip(),
