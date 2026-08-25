@@ -735,6 +735,29 @@ def test_preset_create_list_get_delete_and_home(tmp_path):
     assert client.get("/api/reports/ordered/presets").get_json()["presets"] == []
 
 
+def test_home_preset_url_keeps_salesman_and_open_status(tmp_path):
+    """A saved Ordered view for one salesman + Open must deep-link those filters."""
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/reports/ordered/presets",
+                          json={"name": "Heshy Open Orders",
+                                "params": {"period": "all_time", "salesman": "HGoldberg",
+                                           "status": "Open order"},
+                                "layout": {}},
+                          headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    pid = created.get_json()["id"]
+    saved = client.get(f"/api/reports/presets/{pid}").get_json()
+    assert saved["params"]["salesman"] == "HGoldberg"
+    assert saved["params"]["status"] == "Open order"
+    html = client.get("/").get_data(as_text=True)
+    assert "Heshy Open Orders" in html
+    assert "salesman=HGoldberg" in html
+    assert "Open+order" in html or "Open%20order" in html
+    assert f"preset={pid}" in html
+
+
 def test_preset_is_owner_scoped(tmp_path):
     app = _make_app(tmp_path)
     owner = app.test_client()

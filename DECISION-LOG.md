@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-25 Preset salesman/status must ride along even if the dropdown is empty
+**What you asked for:** Heshy Open Orders should only run open orders for Heshy. The preset did not keep those filters.
+**What I chose:** Keep the saved salesman on `pendingSalesman` until the dropdown actually has that option. `collectParams` sends that value even when the list is still loading. Status “Open” maps to “Open order”. Home-card URLs still include salesman and status.
+**Why:** Lookups often return empty on first paint. Setting `<select>.value` to Heshy with no matching option silently resets to All, and the auto-run went out unfiltered.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-25 Home presets and saved views must run, not replay the last job
 **What you asked for:** Opening Heshy Open Orders (or any home preset / saved view) after already running a report still showed the previous run.
 **What I chose:** `?preset=` skips reconnecting the last job for that report (unless `?job=` is also on the URL). Clicking a saved view’s name runs it. Edit still loads filters/layout without running when the grid already has data.

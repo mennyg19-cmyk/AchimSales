@@ -1323,6 +1323,9 @@ function collectParams(): Record<string, unknown> {
   // an array so the server pushes a CSV of accounts to the SP.
   const customers = [...selectedCustomers.keys()];
   if (customers.length) out.customers = customers;
+  // Lookups may still be empty when a preset auto-runs, so the <select> has
+  // no matching <option> and FormData omits salesman. Keep the saved value.
+  if (!out.salesman && pendingSalesman) out.salesman = pendingSalesman;
   return out;
 }
 
@@ -1755,7 +1758,7 @@ async function loadSalesmen(): Promise<void> {
   if (!sel) return;
   const data = await getJSON<{ salesmen: LookupRow[] }>(attr("data-salesmen-url"));
   const rows = data?.salesmen || [];
-  const current = sel.value;
+  const keep = pendingSalesman || sel.value;
   sel.innerHTML = '<option value="">All salesmen</option>';
   rows.forEach((r) => {
     const o = document.createElement("option");
@@ -1763,7 +1766,40 @@ async function loadSalesmen(): Promise<void> {
     o.textContent = r.name;
     sel.appendChild(o);
   });
-  if (current && rows.some((r) => r.key === current)) sel.value = current;
+  if (keep) applySalesman(keep);
+}
+
+/** Match a saved salesman value to a dropdown option (key or display name). */
+function resolveSalesmanOption(sel: HTMLSelectElement, val: string): string | null {
+  const want = val.trim().toLowerCase();
+  if (!want) return null;
+  const opts = [...sel.options].filter((o) => o.value);
+  const byKey = opts.find((o) => o.value.toLowerCase() === want);
+  if (byKey) return byKey.value;
+  const byName = opts.find((o) => (o.textContent || "").trim().toLowerCase() === want);
+  if (byName) return byName.value;
+  const byPrefix = opts.find((o) => {
+    const name = (o.textContent || "").trim().toLowerCase();
+    return name.startsWith(want + " ") || name.startsWith(want + ",");
+  });
+  return byPrefix ? byPrefix.value : null;
+}
+
+function applySalesman(val: string): void {
+  const sel = $("salesmanSelect") as HTMLSelectElement | null;
+  const raw = String(val ?? "").trim();
+  if (!raw) {
+    if (sel) sel.value = "";
+    pendingSalesman = null;
+    return;
+  }
+  pendingSalesman = raw;
+  if (!sel) return;
+  const matched = resolveSalesmanOption(sel, raw);
+  if (matched) {
+    sel.value = matched;
+    pendingSalesman = null;
+  }
 }
 
 async function loadCustomers(): Promise<void> {
@@ -1941,14 +1977,10 @@ async function initLookups(): Promise<void> {
   if (!hasFilter("salesmanSelect") && !hasFilter("customerPicker")) return;
   if (hasFilter("salesmanSelect")) {
     await loadSalesmen();
-    // Apply a deep-linked salesman now that its <option> exists (setting .value
-    // before load is silently dropped). Don't clear deep-linked customers here.
-    const sel = $("salesmanSelect") as HTMLSelectElement | null;
-    if (sel && pendingSalesman != null) {
-      sel.value = pendingSalesman;
-      pendingSalesman = null;
-    }
-    sel?.addEventListener("change", () => {
+    // Apply a deep-linked / preset salesman once options exist. Do not clear
+    // pendingSalesman if the list is still empty — collectParams needs it.
+    if (pendingSalesman != null) applySalesman(pendingSalesman);
+    ($("salesmanSelect") as HTMLSelectElement | null)?.addEventListener("change", () => {
       selectedCustomers.clear();
       loadCustomers();
       refreshPreviewIfOpen();
@@ -2154,20 +2186,23 @@ async function saveView(): Promise<void> {
 }
 
 function applyParamsObject(params: Record<string, unknown>): void {
-  (["period", "status", "year", "mode"] as const).forEach((name) => {
+  (["period", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
     if (el && params[name] != null) el.value = String(params[name]);
   });
+  const statusEl = document.querySelector<HTMLSelectElement>('[name="status"]');
+  if (statusEl && params.status != null) {
+    const raw = String(params.status);
+    const aliases: Record<string, string> = { open: "Open order" };
+    const mapped = aliases[raw.trim().toLowerCase()] || raw;
+    if ([...statusEl.options].some((o) => o.value === mapped)) statusEl.value = mapped;
+    else statusEl.value = raw;
+  }
   const sd = document.querySelector<HTMLInputElement>('[name="start_date"]');
   const ed = document.querySelector<HTMLInputElement>('[name="end_date"]');
   if (sd && params.start_date != null) sd.value = String(params.start_date);
   if (ed && params.end_date != null) ed.value = String(params.end_date);
-  const sel = $("salesmanSelect") as HTMLSelectElement | null;
-  if (params.salesman != null) {
-    const val = String(params.salesman);
-    if (sel && [...sel.options].some((o) => o.value === val)) sel.value = val;
-    else pendingSalesman = val;
-  }
+  if (params.salesman != null) applySalesman(String(params.salesman));
   selectedCustomers.clear();
   const custs = params.customers;
   const list = Array.isArray(custs) ? custs : (custs ? String(custs).split(",") : []);

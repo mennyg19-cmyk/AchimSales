@@ -168,6 +168,8 @@ def test_report_viewer_meeting_ux():
     assert 'q.get("preset") && !wanted) return false' in resume
     assert 'closePresetsPanel(); loadPreset(p); });' in src
     assert "Apply this view’s filters (does not run the report)" not in src
+    assert "if (!out.salesman && pendingSalesman) out.salesman = pendingSalesman;" in src
+    assert "function applySalesman(" in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".group-pill" in css
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")

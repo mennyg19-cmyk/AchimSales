@@ -71,6 +71,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Daily 9am Salesmen Ordered seed layout omits `by_salesman`.
 - Home `?preset=` does not resume the last job for that report (`resumeInFlight` returns false unless `?job=` is also set).
 - Saved-views name click calls `loadPreset(p)` (runs). Edit still uses `run: !isReportShown()`.
+- A preset with salesman/status keeps those values on the home-card URL and in GET `/api/reports/presets/<id>`.
+- Auto-run still sends salesman when the dropdown has not loaded yet (`pendingSalesman` is included in collectParams).
 
 **Expected behavior:**
 - Company copy still honours the “email when no data” checkbox.
