@@ -15,7 +15,7 @@ re-enqueued until the next eligible day.
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 try:  # zoneinfo is stdlib on 3.9+, but guard so imports never explode
     from zoneinfo import ZoneInfo
@@ -23,6 +23,8 @@ try:  # zoneinfo is stdlib on 3.9+, but guard so imports never explode
     _EASTERN = ZoneInfo("America/New_York")
 except Exception:  # pragma: no cover - fallback to UTC if tzdata missing
     _EASTERN = timezone.utc
+
+EASTERN = _EASTERN
 
 VALID_FREQ = ("daily", "weekly", "monthly")
 
@@ -91,6 +93,39 @@ def due_now(cadence: dict | None, last_run_iso: str | None,
     if not _day_matches(c, now):
         return False
     return not _ran_today(last_run_iso, now)
+
+
+def clock_ready(cadence: dict | None, last_run_iso: str | None,
+                now_utc: datetime | None = None) -> bool:
+    """True if today's scheduled HH:MM has passed and this schedule has not run today.
+
+    Ignores weekday/monthday so a Shabbos makeup can fire on a Monday at the
+    same clock time.
+    """
+    c = cadence or {}
+    if c.get("freq") not in VALID_FREQ:
+        return False
+    now = (now_utc or datetime.now(timezone.utc)).astimezone(_EASTERN)
+    hh, mm = _parse_time(c.get("time", "08:00"))
+    if now.time() < time(hh, mm):
+        return False
+    return not _ran_today(last_run_iso, now)
+
+
+def day_matches_date(cadence: dict | None, day: date) -> bool:
+    """True if this cadence would fire on this calendar date (Eastern)."""
+    noon = datetime(day.year, day.month, day.day, 12, 0, tzinfo=_EASTERN)
+    return _day_matches(cadence or {}, noon)
+
+
+def next_matching_date(cadence: dict | None, start: date) -> date:
+    """First date on or after start whose cadence day matches."""
+    day = start
+    for _ in range(400):
+        if day_matches_date(cadence, day):
+            return day
+        day += timedelta(days=1)
+    return start
 
 
 # -- internals --------------------------------------------------------------

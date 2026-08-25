@@ -5,14 +5,16 @@ never delivers inline - it only enqueues durable ``schedule.run`` jobs, which th
 worker drains. ``schedule.run`` enqueue is deduped per (type, id), and cadence's
 once-per-day guard means a minute-by-minute tick can't double-fire a schedule.
 
-Clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn) and flag a catch-up that
-fires after havdalah. A manual Run now ignores that skip.
+Clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send waits for
+the next scheduled HH:MM — skip-class periods use the next regular slot;
+reschedule-class periods use the next weekday so a Friday 10pm skip runs
+Monday 10pm, not motzei Shabbos. A manual Run now ignores that skip.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from web.data.repositories.jobs import JobRepository
 from web.data.repositories.schedules import (
@@ -23,6 +25,7 @@ from web.data.repositories.schedules import (
     ScheduleRunRepository,
 )
 from web.scheduling import cadence as C
+from web.scheduling.catchup import classify_action, makeup_due
 from web.scheduling.jobs import enqueue_schedule_run
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 
@@ -92,34 +95,53 @@ def make_tick(db, job_repo: JobRepository):
 def _consider(job_repo, runs, repo, sched, schedule_type: str, now: datetime,
               assur: bool, reason: str, *, owner_user_id: int | None) -> int:
     skip = skip_sabbath_enabled(getattr(sched, "params", None))
-    if getattr(sched, "catch_up_pending", False) and not assur:
-        repo.set_catch_up(sched.id, False)
-        enqueue_schedule_run(
-            job_repo, schedule_id=sched.id, schedule_type=schedule_type,
-            owner_user_id=owner_user_id,
-        )
-        return 1
     last = C.later_iso(
         runs.last_run_at(sched.id, schedule_type),
         getattr(sched, "last_claimed_at", None),
     )
-    if not C.due_now(sched.cadence, last, now):
-        return 0
-    if skip and assur:
-        run_id = runs.start(sched.id, schedule_type)
+    due = C.due_now(sched.cadence, last, now)
+    if skip and due and assur:
+        run_id = runs.start(sched.id, schedule_type, started_at=now.isoformat())
         runs.finish(
             run_id, status="skipped",
-            debug_log=f"Skipped ({reason or 'Shabbos'}); will run after Shabbos",
+            debug_log=f"Skipped ({reason or 'Shabbos'}); will run at the next scheduled time",
         )
-        repo.set_catch_up(sched.id, True)
-        log.info("schedule %s:%s skipped (%s); catch-up after havdalah",
+        repo.set_catch_up(sched.id, True, for_date=C.eastern_date_iso(now))
+        log.info("schedule %s:%s skipped (%s); owed at next scheduled time",
                  schedule_type, sched.id, reason or "Shabbos")
         return 0
-    if getattr(sched, "catch_up_pending", False):
+
+    pending = bool(getattr(sched, "catch_up_pending", False))
+    skipped_iso = getattr(sched, "catch_up_for_date", None)
+    action = "skip"
+    if pending and skipped_iso:
+        try:
+            skipped = date.fromisoformat(str(skipped_iso)[:10])
+            action = classify_action(
+                getattr(sched, "params", None), sched.report_key, skipped, sched.cadence,
+            )
+        except ValueError:
+            action = "reschedule"
+
+    makeup = pending and makeup_due(
+        sched.cadence, last, now, action=action, assur=assur,
+    )
+    regular = due and not (skip and assur)
+    if pending:
+        weekday = now.astimezone(C.EASTERN).weekday() if now.tzinfo else now.weekday()
+        # Never send the owed run on Saturday night (motzei Shabbos).
+        # Reschedule-class waits until Monday; skip-class may use Sunday.
+        if weekday == 5 or (action == "reschedule" and weekday >= 5):
+            regular = False
+    if not makeup and not regular:
+        return 0
+    if pending:
         repo.set_catch_up(sched.id, False)
     enqueue_schedule_run(
         job_repo, schedule_id=sched.id, schedule_type=schedule_type,
         owner_user_id=owner_user_id,
+        catch_up_for_date=skipped_iso if pending else None,
+        include_regular=regular,
     )
     return 1
 

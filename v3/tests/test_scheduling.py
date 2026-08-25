@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -497,9 +498,16 @@ def test_tick_skips_shabbos_and_catches_up_after(tmp_path, monkeypatch):
     assert MasterScheduleRepository(db).get(mid).catch_up_pending is True
 
     monkeypatch.setattr(tick_mod, "melacha_assur", lambda _now=None: (False, ""))
-    assert enqueue_due(db, job_repo, now) == 1
+    assert enqueue_due(db, job_repo, now) == 0
+    assert job_repo.claim_next() is None
+    assert MasterScheduleRepository(db).get(mid).catch_up_pending is True
+    assert MasterScheduleRepository(db).get(mid).catch_up_for_date == "2026-06-01"
+
+    nxt = datetime(2026, 6, 2, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, job_repo, nxt) == 1
     job = job_repo.claim_next()
     assert job is not None and job.params["schedule_id"] == mid
+    assert job.params["catch_up_for_date"] == "2026-06-01"
     assert MasterScheduleRepository(db).get(mid).catch_up_pending is False
 
 
@@ -522,6 +530,87 @@ def test_tick_run_now_style_enqueue_still_works_when_restricted(tmp_path, monkey
                          ignore_sabbath=True)
     job = job_repo.claim_next()
     assert job is not None and job.params["ignore_sabbath"] is True
+
+
+def test_tick_mtd_friday_skip_waits_until_monday_same_clock(tmp_path, monkeypatch):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling import tick as tick_mod
+    from web.scheduling.tick import enqueue_due
+
+    eastern = ZoneInfo("America/New_York")
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "MTD 10pm", params={"period": "mtd"}, layout={},
+        cadence={"freq": "daily", "time": "22:00"}, recipients="team@x.com")
+    job_repo = JobRepository(db)
+    monkeypatch.setattr(tick_mod, "melacha_assur", lambda _now=None: (True, "Shabbos"))
+    friday = datetime(2026, 1, 30, 22, 5, tzinfo=eastern)
+    assert enqueue_due(db, job_repo, friday) == 0
+    row = MasterScheduleRepository(db).get(mid)
+    assert row.catch_up_pending is True and row.catch_up_for_date == "2026-01-30"
+
+    monkeypatch.setattr(tick_mod, "melacha_assur", lambda _now=None: (False, ""))
+    saturday_night = datetime(2026, 1, 31, 22, 5, tzinfo=eastern)
+    assert enqueue_due(db, job_repo, saturday_night) == 0
+    sunday = datetime(2026, 2, 1, 22, 5, tzinfo=eastern)
+    assert enqueue_due(db, job_repo, sunday) == 0
+    monday = datetime(2026, 2, 2, 22, 5, tzinfo=eastern)
+    assert enqueue_due(db, job_repo, monday) == 1
+    job = job_repo.claim_next()
+    assert job is not None
+    assert job.params["catch_up_for_date"] == "2026-01-30"
+    assert job.params["include_regular"] is True
+
+
+def test_runner_mtd_catch_up_sends_skipped_day_and_month_end(tmp_path, monkeypatch):
+    from web.scheduling import runner as runner_mod
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    monkeypatch.setattr(runner_mod, "melacha_assur", lambda _now=None: (False, ""))
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "MTD 10pm", params={"period": "mtd"}, layout={},
+        cadence={"freq": "daily", "time": "22:00"}, recipients="team@x.com")
+    monkeypatch.setattr(runner_mod.C, "eastern_date_iso", lambda _now=None: "2026-02-02")
+    runner.run(mid, MASTER, catch_up_for_date="2026-01-30", include_regular=True)
+    periods = [(c["params"].get("period"), c["params"].get("end_date")) for c in delivery.calls]
+    assert periods == [
+        ("custom", "2026-01-30"),
+        ("custom", "2026-01-31"),
+        ("mtd", None),
+    ]
+    assert "2026-01-30" in delivery.calls[0]["schedule_name"]
+    assert "2026-01-31" in delivery.calls[1]["schedule_name"]
+
+
+def test_clock_ready_ignores_weekday():
+    cad = {"freq": "weekly", "time": "22:00", "weekdays": [4]}  # Friday
+    monday_clock = datetime(2026, 2, 3, 3, 5, tzinfo=timezone.utc)  # Mon 22:05 EST
+    assert C.clock_ready(cad, "2026-01-30T22:05:00-05:00", monday_clock) is True
+    assert C.due_now(cad, "2026-01-30T22:05:00-05:00", monday_clock) is False
+
+
+def test_next_matching_date_skips_to_next_friday():
+    cad = {"freq": "weekly", "time": "22:00", "weekdays": [4]}
+    assert C.next_matching_date(cad, date(2026, 1, 31)) == date(2026, 2, 6)
 
 
 def test_already_on_overdue_schedule_still_catch_up_fires(tmp_path):

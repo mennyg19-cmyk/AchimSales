@@ -148,15 +148,18 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Hebcal candle→havdalah window is restricted (Shabbos, or named Yom Tov). Weekday-name candle memo is still Shabbos.
 - Check fails open on a malformed Hebcal payload.
-- Clock tick during a restricted window records `skipped` and sets `catch_up_pending`; no delivery job.
-- After the window, the tick enqueues the owed catch-up once.
+- Clock tick during a restricted window records `skipped` and sets `catch_up_pending` + `catch_up_for_date`; no delivery job.
+- Skip-class periods (yesterday/daily, mid-month MTD, mid-year YTD) wait for the next regular HH:MM. They do not fire Saturday night after havdalah.
+- Reschedule-class periods (last_7_days, last_month, month-end MTD, year-end YTD, salesman/customer_activity) wait until the next Monday–Friday at the same HH:MM.
+- MTD skipped on Friday the 30th: Monday 10pm run covers MTD through the 30th, and if that makeup is next month, a second pass through month-end.
 - Manual Run now sets `ignore_sabbath` so it still sends.
 
 **Expected behavior:**
-- Company and personal clock runs skip Shabbos/Yom Tov (Brooklyn, 18-min candles) and catch up after havdalah, like the live runbook.
+- Company and personal clock runs skip Shabbos/Yom Tov (Brooklyn, 18-min candles) and make up at the scheduled clock time, not motzei Shabbos.
+- Date windows follow the period: widen yesterday/last_7_days; MTD self-heals in-month; cross-month MTD sends the skipped window plus month-end if needed.
 - Run now is a deliberate send and does not skip.
 
-**Test files:** `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`
+**Test files:** `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_catchup.py`
 
 ## Scheduled Excel matches on-screen tabs
 

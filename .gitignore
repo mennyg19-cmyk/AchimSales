@@ -17,6 +17,7 @@ logs/*.err
 logs/run_log-*.csv
 .git-commit-msg.tmp
 tests/output/
+.scratch/
 
 # CodeGraph local index (rebuildable via `codegraph init`)
 .codegraph/

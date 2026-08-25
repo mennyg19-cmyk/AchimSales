@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-25 Shabbos makeup at the scheduled clock, not havdalah
+**What I had to decide:** Home-site schedules skipped Shabbos then fired as soon as havdalah passed. The owed send should keep the schedule's clock time, and the date window should follow the period (MTD on Friday the 30th → Monday 10pm covering that MTD, plus month-end if the makeup is next month).
+**Options I considered:** Keep motzei-Shabbos fire (current); wait for the next regular cadence day (loses last_month / month-end MTD); wait for the next same HH:MM that is not restricted, using Monday–Friday for periods that cannot wait for the next cadence.
+**What I chose:** Skip-class (yesterday/daily, in-month MTD, in-year YTD) waits for the next regular slot at that HH:MM and never Saturday night. Reschedule-class (last_7_days, last_month, month-end MTD, year-end YTD, all-time reports) waits until the next weekday at that HH:MM. MTD that crosses a month runs the skipped day's MTD, then through month-end if those dates differ. Branch is `webapp-cache` (Beta is already `/`).
+**Why:** Matches "not right after Shabbos" and the Friday-30th-10pm → Monday-10pm example. Live Azure still reschedules after havdalah; this change is home-site only.
+**Status:** DECIDED — shipping on the home-site clock.
+
 ## 2026-08-21 Invoiced salesman from endpoints, not Excel
 **What I had to decide:** After the 029 stamp, whether to keep using salesman_map.xlsx / the hardcoded map for invoiced salesman codes.
 **What I chose:** Do not use the Excel map for invoiced salesman identity. Use the invoiced report row; if that is missing or just a number, use the same customer/salesman data as the report dropdowns. Live OData invoiced uses CustomersV3.SalesGroup the same way, with no Excel overlay.
