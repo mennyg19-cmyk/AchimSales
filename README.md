@@ -40,6 +40,13 @@ it waits 30 seconds and runs again before Azure marks it Failed.
 Home-site company schedules do the same: one extra full delivery, then `[FAIL]`
 mail to the test-email list.
 
+Home-site clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send
+waits for the next scheduled HH:MM, not motzei Shabbos. Yesterday/daily and
+in-month MTD wait for the next regular slot and widen the date range. last_7_days,
+last_month, month-end MTD, and all-time reports wait until the next weekday at
+that same clock (Friday 10pm skip → Monday 10pm). Month-end MTD also sends a
+catch-up through the last day of the skipped month when the makeup is next month.
+
 ```
 universal_runbook.py ordered --period daily
 # Amazon ordered schedule (customers 9300/9301):

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from report_engine import registry
 from web.auth.authorization import Authorization
@@ -28,6 +28,8 @@ from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
+from web.scheduling import cadence as C
+from web.scheduling.catchup import eastern_date_of, run_param_windows
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 
 log = logging.getLogger(__name__)
@@ -52,7 +54,8 @@ class ScheduleRunner:
         self.settings = settings or AppSettingsRepository(user_repo.db)
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
-            *, ignore_sabbath: bool = False) -> int:
+            *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
+            include_regular: bool = True) -> int:
         sched = self._load(schedule_id, schedule_type)
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
@@ -64,13 +67,18 @@ class ScheduleRunner:
                 if assur:
                     self.run_repo.finish(
                         run_id, status="skipped",
-                        debug_log=f"Skipped ({reason or 'Shabbos'}); will run after Shabbos",
+                        debug_log=(
+                            f"Skipped ({reason or 'Shabbos'}); "
+                            "will run at the next scheduled time"
+                        ),
                     )
-                    self._set_catch_up(schedule_id, schedule_type, True)
+                    self._set_catch_up(
+                        schedule_id, schedule_type, True, for_date=C.eastern_date_iso(),
+                    )
                     return run_id
             identity, scope = self._scope(sched, schedule_type)
             spec = registry.get(sched.report_key)
-            params = _with_viewer_limits(self.authz, sched, schedule_type, sched.params)
+            base_params = _with_viewer_limits(self.authz, sched, schedule_type, sched.params)
             # Re-authorize the owner live (personal schedules only; masters are
             # admin-owned + unrestricted). A run that the owner can no longer
             # perform - report access pulled, account disabled, SharePoint revoked
@@ -87,58 +95,37 @@ class ScheduleRunner:
             if test_to is not None:
                 subject = f"[TEST] {subject}"
             od_user = "" if test_to else _onedrive_user(sched, schedule_type, identity)
-            for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
-                try:
-                    if schedule_type == MASTER and self._salesman_targets(params):
-                        outcome = self._run_master_fanout(
-                            sched=sched, identity=identity, scope=scope,
-                            builder_version=spec.builder_version if spec else 1,
-                            subject=subject, report_name=report_name,
-                            onedrive_user=od_user, test_to=test_to,
-                            params=params,
-                        )
-                    else:
-                        no_data_all = bool(params.get("email_on_no_data"))
-                        no_data_me = bool(params.get("email_on_no_data_me_only"))
-                        test_empty = self.settings.test_emails()
-                        empty_to_test = no_data_me and not no_data_all and bool(test_empty)
-                        outcome = self.delivery.run_and_deliver(
-                            report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                            builder_version=spec.builder_version if spec else 1,
-                            params=_report_params(params), layout=sched.layout,
-                            recipients="; ".join(test_to) if test_to else sched.recipients,
-                            subject=subject, report_name=report_name,
-                            sharepoint_path="" if test_to else sched.sharepoint_path,
-                            filename_template=getattr(sched, "filename_template", "") or "",
-                            onedrive_user=od_user,
-                            cc_raw="" if test_to else str(params.get("email_cc") or ""),
-                            bcc_raw="" if test_to else str(params.get("email_bcc") or ""),
-                            email_on_empty=no_data_all or empty_to_test,
-                            empty_recipients_override=(
-                                None if test_to
-                                else ("; ".join(test_empty) if empty_to_test else None)
-                            ),
-                            schedule_name=getattr(sched, "name", "") or report_name,
-                        )
-                    if not outcome.result.ok:
-                        raise RuntimeError(outcome.result.error or "delivery failed")
-                    meta = _output_meta(outcome)
-                    summary = _summary_message(outcome, ok=True)
-                    self.run_repo.finish(
-                        run_id, status="success",
-                        rows=outcome.row_count, output_meta=meta, debug_log=summary,
-                    )
-                    self._set_catch_up(schedule_id, schedule_type, False)
-                    break
-                except Exception:
-                    if attempt >= _TRANSIENT_ATTEMPTS:
-                        raise
-                    log.warning(
-                        "schedule %s:%s attempt %d/%d failed; retrying in %ss",
-                        schedule_type, schedule_id, attempt, _TRANSIENT_ATTEMPTS,
-                        _TRANSIENT_RETRY_WAIT_S, exc_info=True,
-                    )
-                    time.sleep(_TRANSIENT_RETRY_WAIT_S)
+            today = date.fromisoformat(C.eastern_date_iso())
+            windows = run_param_windows(
+                base_params, sched.report_key,
+                skipped_iso=catch_up_for_date,
+                today=today,
+                last_success=eastern_date_of(
+                    self.run_repo.last_success_at(schedule_id, schedule_type),
+                ),
+                include_regular=include_regular,
+            )
+            outcomes: list[DeliveryOutcome] = []
+            for window in windows:
+                window_subject, window_name = _window_labels(
+                    subject, getattr(sched, "name", "") or report_name, window,
+                )
+                outcome = self._deliver_window(
+                    sched=sched, schedule_type=schedule_type, schedule_id=schedule_id,
+                    identity=identity, scope=scope, spec=spec, params=window,
+                    subject=window_subject, report_name=report_name,
+                    od_user=od_user, test_to=test_to, schedule_name=window_name,
+                )
+                outcomes.append(outcome)
+            combined = _combine_outcomes(outcomes)
+            meta = _output_meta(combined)
+            summary = _summary_message(combined, ok=True)
+            self.run_repo.finish(
+                run_id, status="success",
+                rows=combined.row_count, output_meta=meta, debug_log=summary,
+            )
+            if catch_up_for_date:
+                self._set_catch_up(schedule_id, schedule_type, False)
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
             log.exception("schedule run failed (%s:%s)", schedule_type, schedule_id)
             existing = self.run_repo.get(run_id)
@@ -156,11 +143,67 @@ class ScheduleRunner:
             return self.master_repo.get(schedule_id)
         return self.schedule_repo.get_any(schedule_id)
 
-    def _set_catch_up(self, schedule_id: int, schedule_type: str, pending: bool) -> None:
+    def _set_catch_up(self, schedule_id: int, schedule_type: str, pending: bool,
+                      for_date: str | None = None) -> None:
         if schedule_type == MASTER:
-            self.master_repo.set_catch_up(schedule_id, pending)
+            self.master_repo.set_catch_up(schedule_id, pending, for_date)
         else:
-            self.schedule_repo.set_catch_up(schedule_id, pending)
+            self.schedule_repo.set_catch_up(schedule_id, pending, for_date)
+
+    def _deliver_window(self, *, sched, schedule_type: str, schedule_id: int,
+                        identity: str, scope, spec, params: dict,
+                        subject: str, report_name: str, od_user: str,
+                        test_to: list[str] | None, schedule_name: str) -> DeliveryOutcome:
+        builder_version = spec.builder_version if spec else 1
+        last_error: Exception | None = None
+        for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
+            try:
+                if schedule_type == MASTER and self._salesman_targets(params):
+                    outcome = self._run_master_fanout(
+                        sched=sched, identity=identity, scope=scope,
+                        builder_version=builder_version,
+                        subject=subject, report_name=report_name,
+                        onedrive_user=od_user, test_to=test_to,
+                        params=params, schedule_name=schedule_name,
+                    )
+                else:
+                    no_data_all = bool(params.get("email_on_no_data"))
+                    no_data_me = bool(params.get("email_on_no_data_me_only"))
+                    test_empty = self.settings.test_emails()
+                    empty_to_test = no_data_me and not no_data_all and bool(test_empty)
+                    outcome = self.delivery.run_and_deliver(
+                        report_key=sched.report_key, identity=identity,
+                        visible_salesman_keys=scope,
+                        builder_version=builder_version,
+                        params=_report_params(params), layout=sched.layout,
+                        recipients="; ".join(test_to) if test_to else sched.recipients,
+                        subject=subject, report_name=report_name,
+                        sharepoint_path="" if test_to else sched.sharepoint_path,
+                        filename_template=getattr(sched, "filename_template", "") or "",
+                        onedrive_user=od_user,
+                        cc_raw="" if test_to else str(params.get("email_cc") or ""),
+                        bcc_raw="" if test_to else str(params.get("email_bcc") or ""),
+                        email_on_empty=no_data_all or empty_to_test,
+                        empty_recipients_override=(
+                            None if test_to
+                            else ("; ".join(test_empty) if empty_to_test else None)
+                        ),
+                        schedule_name=schedule_name,
+                    )
+                if not outcome.result.ok:
+                    raise RuntimeError(outcome.result.error or "delivery failed")
+                return outcome
+            except Exception as exc:
+                last_error = exc
+                if attempt >= _TRANSIENT_ATTEMPTS:
+                    raise
+                log.warning(
+                    "schedule %s:%s attempt %d/%d failed; retrying in %ss",
+                    schedule_type, schedule_id, attempt, _TRANSIENT_ATTEMPTS,
+                    _TRANSIENT_RETRY_WAIT_S, exc_info=True,
+                )
+                time.sleep(_TRANSIENT_RETRY_WAIT_S)
+        raise last_error or RuntimeError("delivery failed")
 
     def _scope(self, sched, schedule_type: str):
         """Return (identity, visible_salesman_keys) for the delivery build."""
@@ -243,13 +286,14 @@ class ScheduleRunner:
                            subject: str, report_name: str,
                            onedrive_user: str = "",
                            test_to: list[str] | None = None,
-                           params: dict | None = None) -> DeliveryOutcome:
+                           params: dict | None = None,
+                           schedule_name: str = "") -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
         deliveries: list[dict] = []
         skip_notes: list[str] = []
         params = params if params is not None else (sched.params or {})
         test_recips = "; ".join(test_to) if test_to else ""
-        sched_name = getattr(sched, "name", "") or report_name
+        sched_name = schedule_name or getattr(sched, "name", "") or report_name
 
         if sched.recipients or sched.sharepoint_path:
             no_data_all = bool(params.get("email_on_no_data"))
@@ -475,6 +519,47 @@ def _output_meta(outcome: DeliveryOutcome) -> dict:
     if outcome.deliveries:
         meta["deliveries"] = outcome.deliveries
     return meta
+
+
+def _window_labels(subject: str, schedule_name: str, window: dict) -> tuple[str, str]:
+    """Keep two catch-up workbooks from sharing one filename/subject."""
+    end = str(window.get("end_date") or "").strip()
+    if str(window.get("period") or "") != "custom" or not end:
+        return subject, schedule_name
+    return f"{subject} through {end}", f"{schedule_name} {end}"
+
+
+def _combine_outcomes(outcomes: list[DeliveryOutcome]) -> DeliveryOutcome:
+    if len(outcomes) == 1:
+        return outcomes[0]
+    deliveries: list[dict] = []
+    for outcome in outcomes:
+        if outcome.deliveries:
+            deliveries.extend(outcome.deliveries)
+        else:
+            deliveries.append(_delivery_leg(outcome, kind="full"))
+    ok = all(o.result.ok for o in outcomes)
+    notes = [o.result.error for o in outcomes if o.result.error]
+    recipients = [email for o in outcomes for email in o.result.recipients]
+    eml_names = [o.result.eml_name for o in outcomes if o.result.eml_name]
+    channels = [o.result.send_channel for o in outcomes if o.result.send_channel]
+    result = DeliveryResult(
+        ok=ok,
+        error="; ".join(notes),
+        recipients=recipients,
+        eml_name=", ".join(eml_names),
+        sent_via_smtp=any(o.result.sent_via_smtp for o in outcomes),
+        send_channel=channels[0] if len(set(channels)) == 1 else ("mixed" if channels else ""),
+        sharepoint_saved=any(o.result.sharepoint_saved for o in outcomes),
+        sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
+        sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
+        outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
+    )
+    return DeliveryOutcome(
+        result=result,
+        row_count=sum(o.row_count for o in outcomes),
+        deliveries=deliveries,
+    )
 
 
 def _summary_message(outcome: DeliveryOutcome, *, ok: bool) -> str:

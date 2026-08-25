@@ -71,6 +71,7 @@ class Schedule:
     created_at: str
     filename_template: str = ""
     catch_up_pending: bool = False
+    catch_up_for_date: str | None = None
     last_claimed_at: str | None = None
 
     @classmethod
@@ -84,6 +85,7 @@ class Schedule:
             start_date=r["start_date"], end_date=r["end_date"], created_at=r["created_at"],
             filename_template=(r["filename_template"] if "filename_template" in keys else "") or "",
             catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
+            catch_up_for_date=(r["catch_up_for_date"] if "catch_up_for_date" in keys else None),
             last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
         )
 
@@ -105,6 +107,7 @@ class MasterSchedule:
     is_shared: bool = True
     run_as_user_id: int | None = None
     catch_up_pending: bool = False
+    catch_up_for_date: str | None = None
     last_claimed_at: str | None = None
 
     @classmethod
@@ -124,6 +127,7 @@ class MasterSchedule:
             is_shared=bool(shared),
             run_as_user_id=int(run_as) if run_as is not None else None,
             catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
+            catch_up_for_date=(r["catch_up_for_date"] if "catch_up_for_date" in keys else None),
             last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
         )
 
@@ -146,6 +150,32 @@ class ScheduleRun:
             id=r["id"], schedule_id=r["schedule_id"], schedule_type=r["schedule_type"],
             status=r["status"], started_at=r["started_at"], finished_at=r["finished_at"],
             rows=r["rows"], output_meta=_loads(r["output_meta"]), debug_log=r["debug_log"],
+        )
+
+
+def _set_catch_up(db: Database, table: str, schedule_id: int, pending: bool,
+                  for_date: str | None) -> None:
+    if table not in ("schedules", "master_schedules"):
+        raise ValueError(f"unknown schedule table {table!r}")
+    with db.precious() as conn:
+        if not pending:
+            conn.execute(
+                f"UPDATE {table} SET catch_up_pending=0, catch_up_for_date=NULL WHERE id=?",
+                (schedule_id,),
+            )
+            return
+        row = conn.execute(
+            f"SELECT catch_up_for_date FROM {table} WHERE id=?", (schedule_id,),
+        ).fetchone()
+        existing = None
+        if row is not None and "catch_up_for_date" in row.keys():
+            existing = row["catch_up_for_date"]
+        kept = existing
+        if for_date:
+            kept = min(x for x in (existing, for_date) if x) if existing else for_date
+        conn.execute(
+            f"UPDATE {table} SET catch_up_pending=1, catch_up_for_date=? WHERE id=?",
+            (kept, schedule_id),
         )
 
 
@@ -247,12 +277,9 @@ class ScheduleRepository:
             rows = conn.execute("SELECT * FROM schedules WHERE is_active=1").fetchall()
             return [Schedule.from_row(r) for r in rows]
 
-    def set_catch_up(self, schedule_id: int, pending: bool) -> None:
-        with self.db.precious() as conn:
-            conn.execute(
-                "UPDATE schedules SET catch_up_pending=? WHERE id=?",
-                (1 if pending else 0, schedule_id),
-            )
+    def set_catch_up(self, schedule_id: int, pending: bool,
+                     for_date: str | None = None) -> None:
+        _set_catch_up(self.db, "schedules", schedule_id, pending, for_date)
 
 
 class MasterScheduleRepository:
@@ -387,12 +414,9 @@ class MasterScheduleRepository:
                 (when_iso, schedule_id),
             )
 
-    def set_catch_up(self, schedule_id: int, pending: bool) -> None:
-        with self.db.precious() as conn:
-            conn.execute(
-                "UPDATE master_schedules SET catch_up_pending=? WHERE id=?",
-                (1 if pending else 0, schedule_id),
-            )
+    def set_catch_up(self, schedule_id: int, pending: bool,
+                     for_date: str | None = None) -> None:
+        _set_catch_up(self.db, "master_schedules", schedule_id, pending, for_date)
 
     def delete(self, schedule_id: int) -> bool:
         with self.db.precious() as conn:
@@ -439,12 +463,13 @@ class ScheduleRunRepository:
     def __init__(self, db: Database):
         self.db = db
 
-    def start(self, schedule_id: int | None, schedule_type: str = PERSONAL) -> int:
+    def start(self, schedule_id: int | None, schedule_type: str = PERSONAL,
+              started_at: str | None = None) -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO schedule_runs(schedule_id, schedule_type, status, started_at)"
                 " VALUES (?, ?, 'running', ?)",
-                (schedule_id, schedule_type, _now()),
+                (schedule_id, schedule_type, started_at or _now()),
             )
             return cur.lastrowid
 
@@ -486,6 +511,16 @@ class ScheduleRunRepository:
             row = conn.execute(
                 "SELECT MAX(started_at) AS t FROM schedule_runs"
                 " WHERE schedule_id=? AND schedule_type=?",
+                (schedule_id, schedule_type),
+            ).fetchone()
+            return row["t"] if row else None
+
+    def last_success_at(self, schedule_id: int, schedule_type: str = PERSONAL) -> str | None:
+        """Most recent successful started_at (skips/failures do not count)."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT MAX(started_at) AS t FROM schedule_runs"
+                " WHERE schedule_id=? AND schedule_type=? AND status='success'",
                 (schedule_id, schedule_type),
             ).fetchone()
             return row["t"] if row else None

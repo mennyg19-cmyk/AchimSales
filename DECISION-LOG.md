@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-25 Merge remaining branches onto production
+**What you asked for:** Merge the leftover Sales by State / meeting-fix work and the Shabbos makeup-clock work into the production site.
+**What I chose:** Merge both onto `webapp-cache` (keep Number 4 builder 3, empty salesman split = no xlsx, catch-up at scheduled HH:MM). Production is `webapp-cache`; Azure deploys that branch and `cursor/**`.
+**Why:** Those two commits were the only remaining unique work after branch cleanup. They never landed on `webapp-cache` because the remote branch names were deleted first.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-25 Azure GitHub Action also deploys cursor/** branches
 **What you asked for:** Let a Cloud Agent deploy, the same way a push to `webapp-cache` does.
 **What I chose:** Keep one production Action. Trigger it on `webapp-cache` and `cursor/**`, plus the existing manual `workflow_dispatch`. Queue overlapping deploys (`concurrency`, do not cancel). Same production slot as today.
@@ -12,6 +18,13 @@
 **What I chose:** Derive YTD from the rolling-12 SP result. By Item strips every money column (month $, Total $, Avg Price, Book Price). All Number 4 tabs default-group by Item #. Excel By Item writer matches (qty only; it already had 12 Months + YTD sheets).
 **Why:** YTD months are always inside the rolling-12 window, so the numbers stay on the same basis as the SP (exclusions, merchandise $). No extra SP call. Builder version 3 so old cached payloads are not reused.
 **Status:** DECIDED — shipping this change.
+
+## 2026-08-25 Shabbos makeup at the scheduled clock, not havdalah
+**What I had to decide:** Home-site schedules skipped Shabbos then fired as soon as havdalah passed. The owed send should keep the schedule's clock time, and the date window should follow the period (MTD on Friday the 30th → Monday 10pm covering that MTD, plus month-end if the makeup is next month).
+**Options I considered:** Keep motzei-Shabbos fire (current); wait for the next regular cadence day (loses last_month / month-end MTD); wait for the next same HH:MM that is not restricted, using Monday–Friday for periods that cannot wait for the next cadence.
+**What I chose:** Skip-class (yesterday/daily, in-month MTD, in-year YTD) waits for the next regular slot at that HH:MM and never Saturday night. Reschedule-class (last_7_days, last_month, month-end MTD, year-end YTD, all-time reports) waits until the next weekday at that HH:MM. MTD that crosses a month runs the skipped day's MTD, then through month-end if those dates differ. Branch is `webapp-cache` (Beta is already `/`).
+**Why:** Matches "not right after Shabbos" and the Friday-30th-10pm → Monday-10pm example. Live Azure still reschedules after havdalah; this change is home-site only.
+**Status:** DECIDED — shipping on the home-site clock.
 
 ## 2026-08-24 Meeting: tabs, views, groups, empty split mail, Ordered %, personal Edit, Sales by State sheet 3
 **What you asked for:** After the user meeting — restore removed tabs like columns; rename copied tabs; Edit/Delete on saved views (not Edit+✕); Edit opens the whole view then Save / Save as; nested groups with delete-able pills; home-page presets apply the full view; empty salesman splits must not send a workbook (text “No Data Found” like the old runbook); Daily 9am salesman Ordered grouping like Daily shipped; bring back Ordered Fulfillment % (green→red); edit personal schedules; Sales by State third sheet from `sales_by_state_filtered`.
