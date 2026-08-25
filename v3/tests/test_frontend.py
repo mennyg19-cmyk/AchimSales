@@ -164,6 +164,10 @@ def test_report_viewer_meeting_ux():
     assert "groupPills" in src
     assert "Save this view as (same name overwrites this view)" in src
     assert "layout.clones" in src
+    resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
+    assert 'q.get("preset") && !wanted) return false' in resume
+    assert 'closePresetsPanel(); loadPreset(p); });' in src
+    assert "Apply this view’s filters (does not run the report)" not in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".group-pill" in css
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")

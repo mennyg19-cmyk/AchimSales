@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-25 Home presets and saved views must run, not replay the last job
+**What you asked for:** Opening Heshy Open Orders (or any home preset / saved view) after already running a report still showed the previous run.
+**What I chose:** `?preset=` skips reconnecting the last job for that report (unless `?job=` is also on the URL). Clicking a saved view’s name runs it. Edit still loads filters/layout without running when the grid already has data.
+**Why:** Coming-back resume was winning over the home-page preset, so the new filters and layout never applied. Saved-view name click only changed the form, so an already-shown grid looked unchanged.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-25 Merge remaining branches onto production
 **What you asked for:** Merge the leftover Sales by State / meeting-fix work and the Shabbos makeup-clock work into the production site.
 **What I chose:** Merge both onto `webapp-cache` (keep Number 4 builder 3, empty salesman split = no xlsx, catch-up at scheduled HH:MM). Production is `webapp-cache`; Azure deploys that branch and `cursor/**`.

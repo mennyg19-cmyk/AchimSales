@@ -69,13 +69,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Split delivery: `email_on_empty=False`; 0-row salesman gets a No Data Found text mail, no xlsx.
 - Ordered Full Data has Fulfillment % (1.0 / 0.0 on the fixture); skip_by_salesman has no Salesman default_group.
 - Daily 9am Salesmen Ordered seed layout omits `by_salesman`.
+- Home `?preset=` does not resume the last job for that report (`resumeInFlight` returns false unless `?job=` is also set).
+- Saved-views name click calls `loadPreset(p)` (runs). Edit still uses `run: !isReportShown()`.
 
 **Expected behavior:**
 - Company copy still honours the “email when no data” checkbox.
 - Save this view with the same name as the view being edited overwrites it.
+- Home preset cards and Saved views → name start a new run with that view’s filters and layout.
 
 **Edge cases:**
 - Whole report has rows but one salesman has none → that salesman gets the text mail only.
+- Coming back to a report with no `?preset=` still reconnects the last job.
 
 **Test file:** `v3/tests/test_frontend.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_delivery.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_schedule_seed.py`, `v3/tests/test_reporting.py`
 

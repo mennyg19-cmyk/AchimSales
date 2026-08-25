@@ -1575,12 +1575,16 @@ async function resumeJob(jobId: string, elapsedMs = 0): Promise<void> {
 
 /** On page load, pick up a report this user was running (or just finished) for
  *  THIS report and show it, so leaving and coming back doesn't lose the run.
+ *  A home-page preset (?preset=) must start a new run instead of replaying
+ *  the last job for this report. ?job= still wins when both are present.
  *  Returns true if it found and resumed one. */
 async function resumeInFlight(): Promise<boolean> {
   const url = attr("data-active-url");
   const key = attr("data-report-key");
   if (!url || !key) return false;
-  const wanted = new URLSearchParams(window.location.search).get("job");
+  const q = new URLSearchParams(window.location.search);
+  const wanted = q.get("job");
+  if (q.get("preset") && !wanted) return false;
   let jobs: { job_id: string; report_key: string | null; status: string; age_seconds: number | null }[];
   try {
     const data = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
@@ -2202,8 +2206,8 @@ async function togglePresetsPanel(): Promise<void> {
       open.type = "button";
       open.className = "presets-open";
       open.textContent = p.name;
-      open.title = "Apply this view’s filters (does not run the report)";
-      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p, { run: false }); });
+      open.title = "Run this saved view";
+      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p); });
       const edit = document.createElement("button");
       edit.type = "button";
       edit.className = "presets-edit";
