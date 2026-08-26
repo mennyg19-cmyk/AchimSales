@@ -20,7 +20,10 @@ def _profile() -> tuple[str, str]:
         raise SystemExit("PUBLISH_PROFILE is empty")
     root = ET.fromstring(raw)
     user = password = ""
-    for node in root.iter("publishProfile"):
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag != "publishProfile":
+            continue
         method = (node.get("publishMethod") or "").lower()
         if method not in {"msdeploy", "zipdeploy"}:
             continue

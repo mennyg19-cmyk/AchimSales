@@ -93,4 +93,4 @@ jobs:
           PUBLISH_PROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}
         run: |
           sleep 20
-          python3 .github/scripts/kudu_enqueue_test_schedules.py
+          python3 tools/kudu_enqueue_test_schedules.py
