@@ -2,7 +2,8 @@
 
 Boot upserts these so every environment gets the same named views. Daily
 company Ordered schedules (yesterday, not a salesman split, not Open-only)
-use Daily Ordered. Heshy's open-orders schedule uses Heshy Open Orders.
+use Daily Ordered. Heshy's open-orders schedule uses Heshy Open Orders
+(all-time Open orders).
 """
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ CANONICAL = (
         "report_key": "ordered",
         "name": HESHY_OPEN_VIEW,
         "params": {
-            "period": "yesterday",
+            "period": "all_time",
             "salesman": "Hkaufman",
             "status": "Open order",
         },
@@ -131,13 +132,23 @@ def stamp_company_views_on_schedules(db) -> None:
     masters = MasterScheduleRepository(db)
     for sched in masters.list_all():
         if is_heshy_open_orders(sched):
-            _stamp(masters, sched, HESHY_OPEN_VIEW, HESHY_OPEN_LAYOUT)
+            if _stamp(masters, sched, HESHY_OPEN_VIEW, HESHY_OPEN_LAYOUT):
+                _ensure_all_time(masters, sched)
         elif is_daily_company_ordered(sched):
             _stamp(masters, sched, DAILY_ORDERED_VIEW, DAILY_ORDERED_LAYOUT)
 
 
-def _stamp(masters: MasterScheduleRepository, sched, view_name: str, layout: dict) -> None:
+def _stamp(masters: MasterScheduleRepository, sched, view_name: str, layout: dict) -> bool:
     name = (getattr(sched, "view_name", None) or "").strip()
     if name and name not in (DEFAULT_VIEW_NAME, CUSTOM_VIEW_NAME, view_name):
-        return
+        return False
     masters.set_view(sched.id, view_name, layout)
+    return True
+
+
+def _ensure_all_time(masters: MasterScheduleRepository, sched) -> None:
+    params = dict(getattr(sched, "params", None) or {})
+    if params.get("period") == "all_time":
+        return
+    params["period"] = "all_time"
+    masters.replace_params(sched.id, params)

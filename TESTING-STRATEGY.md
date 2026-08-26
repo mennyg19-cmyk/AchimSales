@@ -57,7 +57,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `company_views` upsert rejects Default/Custom; GET presets includes `company`.
 - Managers/admins PUT a company view; salesmen GET (`can_edit` false) and 403 on PUT.
 - Home page shows a Company views section with `?cview=` links.
-- Boot stamps daily company Ordered schedules with Daily Ordered (salesman then customer). Salesman-split and already-named views are left alone. Heshy open-orders (Hkaufman + Open) gets Heshy Open Orders (Full Data only, hide LineNumber, sort customer then order, group by order).
+- Boot stamps daily company Ordered schedules with Daily Ordered (salesman then customer). Salesman-split and already-named views are left alone. Heshy open-orders (Hkaufman + Open) gets Heshy Open Orders (Full Data only, hide LineNumber, sort customer then order, group by order) and period All Time.
 - Send with that view name uses the live company layout even if the schedule snapshot is stale.
 - Excel nested groups write banners/totals per level. Sort-then-group keeps customer clusters and does not add a customer total when the only group field is order number.
 - Ordered Full Data has CustomerName and ShipDate. Missing SP Ship Date stays blank and still builds.

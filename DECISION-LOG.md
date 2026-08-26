@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-26 Heshy Open Orders is all-time
+**What you asked for:** The Daily Open Orders Report for Heshy should include all-time orders, not just yesterday.
+**What I chose:** Period is `all_time` on the seed, the Heshy Open Orders company view, and existing matching schedules at boot (so today's live row updates). Status stays Open; salesman stays Hkaufman. Dates are omitted to the SP.
+**Why:** Yesterday's CreatedDateTime window hid older open orders.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Test send of Daily Ordered and Heshy Open Orders
 **What you asked for:** Run a test of the Daily Ordered report and the Heshy Open Orders schedule so you can see the mail.
 **What I chose:** Agents cannot sign in to the site (Entra). A commit message with `[send-test-schedules]` puts `send-test-schedules.flag` in the zip. `startup.sh` enqueues DailyOrderReport and Daily Open Orders Report on boot, same as Run now. Test mode still mails the Settings test list with `[TEST]` and writes to `Direct Reports/Test`. Kudu SCM from GitHub runners does not resolve.

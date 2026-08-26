@@ -740,7 +740,7 @@ _LIVE_RUNBOOK_SCHEDULES: list[dict] = [
     {
         "name": "Daily Open Orders Report",
         "report_key": "ordered",
-        "params": {"period": "yesterday", "salesman": ["Hkaufman"], "status": ["Open order"]},
+        "params": {"period": "all_time", "salesman": ["Hkaufman"], "status": ["Open order"]},
         "cadence": {"freq": "daily", "time": "11:00"},
         "sharepoint_path": "Ordered Report/Daily",
     },

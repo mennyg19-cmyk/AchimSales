@@ -94,8 +94,11 @@ def test_seed_stamps_matching_schedules_and_skips_other_views(tmp_path):
     assert masters.get(split_id).view_name == "Default"
     assert masters.get(hesny_id).view_name == HESHY_OPEN_VIEW
     assert masters.get(hesny_id).layout["order"] == ["full_data"]
+    assert masters.get(hesny_id).params["period"] == "all_time"
+    assert masters.get(hesny_id).params["salesman"] == ["Hkaufman"]
     assert masters.get(custom_id).view_name == "March"
 
     views = {v.name: v for v in CompanyViewRepository(db).list_for_report("ordered")}
     assert DAILY_ORDERED_VIEW in views and HESHY_OPEN_VIEW in views
     assert views[HESHY_OPEN_VIEW].layout["views"]["full_data"]["hidden"] == ["LineNumber"]
+    assert views[HESHY_OPEN_VIEW].params["period"] == "all_time"

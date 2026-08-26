@@ -417,6 +417,14 @@ class MasterScheduleRepository:
             )
             return cur.rowcount == 1
 
+    def replace_params(self, schedule_id: int, params: dict) -> bool:
+        with self.db.precious() as conn:
+            cur = conn.execute(
+                "UPDATE master_schedules SET params_json=? WHERE id=?",
+                (json.dumps(params or {}), schedule_id),
+            )
+            return cur.rowcount == 1
+
     def set_active(self, schedule_id: int, active: bool) -> bool:
         with self.db.precious() as conn:
             cur = conn.execute(

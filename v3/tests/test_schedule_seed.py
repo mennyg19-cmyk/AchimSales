@@ -38,6 +38,9 @@ def test_beta_runbook_seed_inserts_disabled_company_schedules(tmp_path: Path):
     amazon = next(r for r in rows if r.name == "Amazon Monthly Ordered")
     assert amazon.cadence["monthdays"] == [-1]
     assert amazon.params["period"] == "mtd"
+    hesny = next(r for r in rows if r.name == "Daily Open Orders Report")
+    assert hesny.params["period"] == "all_time"
+    assert hesny.params["salesman"] == ["Hkaufman"]
     shipped = next(r for r in rows if r.name == "Daily 9am Salesmen Shipped")
     assert "commissions" not in (shipped.layout.get("order") or [])
     assert "invoices" in (shipped.layout.get("order") or [])
