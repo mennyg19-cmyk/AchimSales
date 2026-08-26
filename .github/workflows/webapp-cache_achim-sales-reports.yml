@@ -51,6 +51,12 @@ jobs:
           source antenv/bin/activate
           pip install -r requirements.txt
 
+      # Cloud agents cannot Entra-login to click Run now. startup.sh enqueues
+      # DailyOrderReport + Daily Open Orders Report when this flag is in the zip.
+      - name: Flag test send for startup
+        if: contains(github.event.head_commit.message, '[send-test-schedules]')
+        run: echo 1 > send-test-schedules.flag
+
       # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment. Hence, we exclude the antenv virtual environment directory from the deployment artifact to reduce the payload size.
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
@@ -83,14 +89,3 @@ jobs:
           app-name: 'achim-sales-reports'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}
-
-      # Cloud agents cannot Entra-login to click Run now. A commit message
-      # containing [send-test-schedules] enqueues DailyOrderReport + Daily Open
-      # Orders Report after this deploy, same as Run now (test mode still applies).
-      - name: Enqueue Daily Ordered and Heshy Open Orders
-        if: contains(github.event.head_commit.message, '[send-test-schedules]')
-        env:
-          PUBLISH_PROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}
-        run: |
-          sleep 20
-          python3 tools/kudu_enqueue_test_schedules.py

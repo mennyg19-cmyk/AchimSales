@@ -35,6 +35,17 @@ LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
 
 GUNICORN_CMD="gunicorn --config=${ROOT}/gunicorn.conf.py --bind=0.0.0.0:${PORT} --workers=${WORKERS} --worker-class=gthread --threads=${THREADS} --timeout=${TIMEOUT} --access-logfile=- --error-logfile=- wsgi:application"
 
+# Commit message [send-test-schedules] drops send-test-schedules.flag in the zip.
+# Runs on the box (Kudu SCM is unreachable from GitHub runners). Same as Run now.
+_enqueue_test_schedules() {
+  MARKER="${ROOT}/send-test-schedules.flag"
+  if [ -f "${MARKER}" ]; then
+    echo "startup: enqueue DailyOrderReport + Daily Open Orders Report"
+    python3 "${ROOT}/tools/enqueue_named_master_schedules.py" || echo "startup: schedule enqueue failed"
+    rm -f "${MARKER}"
+  fi
+}
+
 # 1. Defensive dependency install (Oryx usually already did this on deploy).
 pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
 
@@ -111,11 +122,13 @@ if [ -x "${LS_BIN}" ] && [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${R
         ;;
     esac
   fi
+  _enqueue_test_schedules
   echo "startup: launching gunicorn under litestream replicate"
   exec "${LS_BIN}" replicate -config "${ROOT}/litestream.yml" -exec "${GUNICORN_CMD}"
 fi
 
 # 3. Fallback: no Litestream -> launch gunicorn directly (still --config, so the
 #    leader gate is active either way).
+_enqueue_test_schedules
 echo "startup: litestream not active; launching gunicorn directly"
 exec ${GUNICORN_CMD}

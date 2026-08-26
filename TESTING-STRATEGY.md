@@ -25,7 +25,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Deploy hook: [send-test-schedules]
 
 **What to test:**
-- A production deploy whose commit message contains `[send-test-schedules]` enqueues `DailyOrderReport` and `Daily Open Orders Report` after the Azure zip deploy.
+- A production deploy whose commit message contains `[send-test-schedules]` drops `send-test-schedules.flag` in the zip. `startup.sh` enqueues `DailyOrderReport` and `Daily Open Orders Report` on boot.
 - A normal deploy without that marker does not enqueue.
 
 **Expected behavior:**
