@@ -11,10 +11,9 @@ is the combined live QtyReleased+QtyShipped)::
     QtyCancelled    = CancelledQTY
     QtyLeftToShip   = DeliveryRemainder   ("qty left to ship")
 
-Dollar columns: Ordered/Shipped/Cancelled $ from the SP. Shipping $ uses
-SP ShippingDollars when present, else released qty × price. Summary Extended
-Price Remainder is ShippingDollars; if that column is missing it falls back
-to Ordered $ − Shipped $ − Cancelled $. Shipped $ is not shown on Ordered tabs.
+Dollar columns: Ordered/Shipped/Cancelled $ from the SP. Shipping $ and
+Summary Extended Price Remainder are ShippingDollars with no fallback math.
+Open $ stays Ordered $ − Shipped $ − Cancelled $. Shipped $ is not shown.
 
 LIVE also drops "ERROR ITEM" lines; we mirror that.
 """
@@ -31,7 +30,7 @@ STUB_FIELDS: tuple[str, ...] = ("OrderStatus",)
 STUB_NOTE = ("Order Status is blank until the ordered_report SP provides it. "
              "PO # comes from CustomerRequisition. Qty columns and "
              "Ordered/Cancelled $ come straight from the SP; Shipping $ is "
-             "ShippingDollars when the SP sends it, else released qty × price.")
+             "ShippingDollars only.")
 
 _ERROR_ITEM_RE = re.compile(r"ERROR\s*ITEM", re.IGNORECASE)
 
@@ -181,12 +180,7 @@ def classify_line(f: OrderLineFact) -> dict:
 def _classify_ordered_line(f: OrderLineFact) -> dict:
     """Ordered report line: SP qty columns + SP dollars."""
     open_dollars = round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2)
-    shipping = (
-        round(f.shipping_dollars, 2)
-        if f.shipping_dollars is not None
-        else round(f.qty_released * f.unit_price, 2)
-    )
-    remainder = round(f.shipping_dollars, 2) if f.shipping_dollars is not None else open_dollars
+    shipping = round(f.shipping_dollars, 2)
     return {
         "SalesOrderNumber": f.sales_order_number,
         "SalesOrderName":   f.sales_order_name,
@@ -215,7 +209,7 @@ def _classify_ordered_line(f: OrderLineFact) -> dict:
         "Cancelled $":      f.cancelled_dollars,
         "Released $":       shipping,
         "Open $":           open_dollars,
-        "Extended Price Remainder": remainder,
+        "Extended Price Remainder": shipping,
     }
 
 

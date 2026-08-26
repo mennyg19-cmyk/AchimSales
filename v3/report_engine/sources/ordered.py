@@ -40,13 +40,6 @@ def _optional_ship_date(raw: Mapping) -> str:
 _SHIPPING_DOLLAR_KEYS = ("ShippingDollars", "Shipping $", "ShippingAmount")
 
 
-def _optional_shipping_dollars(raw: Mapping) -> float | None:
-    value = first_of(raw, *_SHIPPING_DOLLAR_KEYS)
-    if value is None:
-        return None
-    return round(num(value), 2)
-
-
 def to_fact(raw: Mapping) -> OrderLineFact:
     return OrderLineFact(
         source="reporting_api",
@@ -121,7 +114,7 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
         expected_arrival_date=iso_date(first_of(
             raw, "ExpectedArrivalDate", "expectedarrivaldate", "ExpectedArrival")),
         ship_date=_optional_ship_date(raw),
-        shipping_dollars=_optional_shipping_dollars(raw),
+        shipping_dollars=round(num(first_of(raw, *_SHIPPING_DOLLAR_KEYS)), 2),
     )
 
 

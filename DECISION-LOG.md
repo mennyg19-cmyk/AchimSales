@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-26 Shipping $ and remainder have no fallback math
+**What you asked for:** Shipping $ and Extended Price Remainder should only show ShippingDollars from the SP. No fallback calculations.
+**What I chose:** Both columns are `ShippingDollars` only. Missing/blank is $0, same as other SP dollar fields. Open $ stays Ordered $ − Shipped $ − Cancelled $. Ordered builder_version 7.
+**Why:** Qty × price and Open $ math were invented numbers, not the SP.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Ordered remainder is ShippingDollars
 **What you asked for:** PO # is CustomerRequisition. Ship Date is ShippingDateRequested. Summary Extended Price Remainder is ShippingDollars.
 **What I chose:** Map those three SP columns. Shipping $ on the other Ordered tabs also uses ShippingDollars when present (else released qty × price). Open $ stays Ordered $ − Shipped $ − Cancelled $. If ShippingDollars is missing, Summary remainder keeps that Open $ math so the report does not go to $0. Ordered builder_version 6.

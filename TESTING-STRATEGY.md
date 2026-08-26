@@ -25,15 +25,15 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Ordered Summary remainder from SP dollar amount
 
 **What to test:**
-- Missing `ShippingDollars` still uses Ordered $ − Shipped $ − Cancelled $ (SO1 Summary remainder 45.80).
-- When the SP sends `ShippingDollars`, Summary Extended Price Remainder and Full Data Shipping $ use that value. Open $ stays the old math.
+- Missing `ShippingDollars` shows $0 for Shipping $ and Summary remainder (no qty × price, no Open $ math).
+- When the SP sends `ShippingDollars`, Summary Extended Price Remainder and Full Data Shipping $ use that value. Open $ stays Ordered − Shipped − Cancelled.
 - `CustomerRequisition` maps to PO #. `ShippingDateRequested` maps to Ship Date.
 
 **Expected behavior:**
-- Summary remainder is ShippingDollars, summed by customer + item.
+- Summary remainder and Shipping $ are ShippingDollars only, summed by customer + item.
 
 **Edge cases:**
-- Blank/absent ShippingDollars or ShippingDateRequested does not fail the build.
+- Blank/absent ShippingDollars is 0. Blank ShippingDateRequested does not fail the build.
 
 **Test file:** `v3/tests/test_report_ordered.py`
 

@@ -45,7 +45,7 @@ def test_adapter_maps_sp_qty_columns_without_deriving_shipped():
     assert f.purch_id == "PO-7788"
     assert f.expected_arrival_date == "2026-03-15"
     assert f.ship_date == ""
-    assert f.shipping_dollars is None
+    assert f.shipping_dollars == 0.0
 
 
 def test_full_data_uses_sp_qty_columns():
@@ -69,7 +69,7 @@ def test_full_data_uses_sp_qty_columns():
     ship_col = next(c for c in full["columns"] if c["field"] == "Released $")
     assert ship_col["header"] == "Shipping $"
     assert so1["Open $"] == 45.80  # 68.70 - 22.90 - 0
-    assert so1["Released $"] == 22.90  # 10 * 2.29
+    assert so1["Released $"] == 0.0  # no ShippingDollars on the row
     assert so1["purchid"] == "PO-7788"
     assert so1["ExpectedArrivalDate"] == "2026-03-15"
     assert so1["CustomerName"] == "Acme"
@@ -142,8 +142,7 @@ def test_summary_uses_sp_left_to_ship():
     assert a["Net Price"] == 2.29
     assert a["QtyLeftToShip"] == 20
     assert a["QtyReserved"] == 5
-    # Fallback when the SP has no ShippingDollars: Ordered $ − Shipped $ − Cancelled $.
-    assert a["Extended Price Remainder"] == 45.80
+    assert a["Extended Price Remainder"] == 0.0  # no ShippingDollars on the row
     assert a["purchid"] == "PO-7788"
     assert a["ExpectedArrivalDate"] == "2026-03-15"
 
@@ -243,4 +242,5 @@ def test_summary_remainder_uses_sp_shipping_dollars():
     assert so1["Released $"] == 12.34
     assert so1["Open $"] == 45.80
     so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
+    assert so2["Released $"] == 0.0
     assert so2["Open $"] == 0.0

@@ -54,8 +54,7 @@ class OrderLineFact:
     purch_id: str = ""
     expected_arrival_date: str = ""  # 'YYYY-MM-DD' or ''
     ship_date: str = ""              # 'YYYY-MM-DD' or '' when the SP has no Ship Date yet
-    # None = SP has not sent ShippingDollars yet; builder falls back.
-    shipping_dollars: float | None = None
+    shipping_dollars: float = 0.0  # usp_ordered_report ShippingDollars; 0 if absent
 
 
 @dataclass(frozen=True)
