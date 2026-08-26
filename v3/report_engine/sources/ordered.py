@@ -37,6 +37,23 @@ def _optional_ship_date(raw: Mapping) -> str:
     return iso_date(first_of(raw, *_SHIP_DATE_KEYS))
 
 
+_REMAINDER_DOLLAR_KEYS = (
+    "DeliveryRemainderDollarAmount",
+    "Delivery Remainder Dollar Amount",
+    "delivery remainder dollar amount",
+    "DeliveryRemainderAmount",
+    "DeliveryRemainderDollars",
+    "DeliveryRemainder $",
+)
+
+
+def _optional_remainder_dollars(raw: Mapping) -> float | None:
+    value = first_of(raw, *_REMAINDER_DOLLAR_KEYS)
+    if value is None:
+        return None
+    return round(num(value), 2)
+
+
 def to_fact(raw: Mapping) -> OrderLineFact:
     return OrderLineFact(
         source="reporting_api",
@@ -111,6 +128,7 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
         expected_arrival_date=iso_date(first_of(
             raw, "ExpectedArrivalDate", "expectedarrivaldate", "ExpectedArrival")),
         ship_date=_optional_ship_date(raw),
+        delivery_remainder_dollars=_optional_remainder_dollars(raw),
     )
 
 

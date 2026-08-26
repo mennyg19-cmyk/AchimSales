@@ -45,6 +45,7 @@ def test_adapter_maps_sp_qty_columns_without_deriving_shipped():
     assert f.purch_id == "PO-7788"
     assert f.expected_arrival_date == "2026-03-15"
     assert f.ship_date == ""
+    assert f.delivery_remainder_dollars is None
 
 
 def test_full_data_uses_sp_qty_columns():
@@ -141,7 +142,7 @@ def test_summary_uses_sp_left_to_ship():
     assert a["Net Price"] == 2.29
     assert a["QtyLeftToShip"] == 20
     assert a["QtyReserved"] == 5
-    # Extended remainder from SP dollars: 68.70 - 22.90 - 0
+    # Fallback when the SP has no remainder-dollar column: Ordered $ − Shipped $ − Cancelled $.
     assert a["Extended Price Remainder"] == 45.80
     assert a["purchid"] == "PO-7788"
     assert a["ExpectedArrivalDate"] == "2026-03-15"
@@ -226,3 +227,20 @@ def test_heshy_layout_keeps_full_data_only_hides_line_and_tolerates_missing_ship
     assert "ShipDate" in fields
     names = [r["CustomerName"] for r in shaped["tabs"][0]["rows"]]
     assert names == sorted(names)
+
+
+def test_summary_remainder_uses_sp_delivery_remainder_dollars():
+    with_amt = dict(_rows()[0], DeliveryRemainderDollarAmount="12.34")
+    f = S.to_fact_ordered_report(with_amt)
+    assert f.delivery_remainder_dollars == 12.34
+    spaced = dict(_rows()[0], **{"delivery remainder dollar amount": "9.50"})
+    assert S.to_fact_ordered_report(spaced).delivery_remainder_dollars == 9.50
+    tabs = B.build(S.to_facts_ordered_report([with_amt, _rows()[1]]))
+    summary = next(t for t in tabs if t["key"] == "summary")
+    a = next(r for r in summary["rows"] if r["Item Number"] == "ITM-A")
+    assert a["Extended Price Remainder"] == 12.34
+    full = next(t for t in tabs if t["key"] == "full_data")
+    so1 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO1")
+    assert so1["Open $"] == 12.34
+    so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
+    assert so2["Open $"] == 0.0

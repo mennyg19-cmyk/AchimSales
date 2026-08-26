@@ -12,8 +12,9 @@ is the combined live QtyReleased+QtyShipped)::
     QtyLeftToShip   = DeliveryRemainder   ("qty left to ship")
 
 Dollar columns: Ordered/Cancelled $ from the SP; Shipping $ (= Released $)
-is qty_released × price (same combined qty as QTY Shipping). Shipped $ is
-kept only for Open $ / remainder math — not shown on Ordered tabs.
+is qty_released × price (same combined qty as QTY Shipping). Extended Price
+Remainder / Open $ use the SP delivery remainder dollar amount when present,
+else Ordered $ − Shipped $ − Cancelled $. Shipped $ is not shown on Ordered tabs.
 
 LIVE also drops "ERROR ITEM" lines; we mirror that.
 """
@@ -206,8 +207,14 @@ def _classify_ordered_line(f: OrderLineFact) -> dict:
         "Shipped $":        f.shipped_dollars,
         "Cancelled $":      f.cancelled_dollars,
         "Released $":       round(f.qty_released * f.unit_price, 2),
-        "Open $":           round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2),
+        "Open $":           _open_dollars(f),
     }
+
+
+def _open_dollars(f: OrderLineFact) -> float:
+    if f.delivery_remainder_dollars is not None:
+        return round(f.delivery_remainder_dollars, 2)
+    return round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2)
 
 
 def _ff_pct(qty_ordered: float, qty_cancelled: float) -> float | None:
@@ -294,8 +301,7 @@ def _build_summary(lines: list[dict]) -> dict:
         g["QtyCancelled"] += ln["QtyCancelled"]
         g["QtyLeftToShip"] += ln["QtyLeftToShip"]
         g["Extended Price - Ordered"] += ln["Ordered $"]
-        # Dollar "still open" from SP dollars (not inventing a qty×price remainder).
-        g["Extended Price Remainder"] += (ln["Ordered $"] - ln["Shipped $"] - ln["Cancelled $"])
+        g["Extended Price Remainder"] += ln["Open $"]
 
     for g in grouped.values():
         qo = g["QtyOrdered"]

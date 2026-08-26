@@ -22,6 +22,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Ordered Summary remainder from SP dollar amount
+
+**What to test:**
+- Missing `DeliveryRemainderDollarAmount` still uses Ordered $ − Shipped $ − Cancelled $ (SO1 Summary remainder 45.80).
+- When the SP sends `DeliveryRemainderDollarAmount` or `delivery remainder dollar amount`, Summary Extended Price Remainder and Full Data Open $ use that value.
+
+**Expected behavior:**
+- Summary remainder is the SP delivery remainder dollar amount, summed by customer + item.
+
+**Edge cases:**
+- Blank/absent column does not fail the build.
+
+**Test file:** `v3/tests/test_report_ordered.py`
+
 ## Company views (Daily Ordered / Heshy Open Orders)
 
 **What to test:**

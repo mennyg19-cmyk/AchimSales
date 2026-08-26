@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-26 Ordered remainder dollars come from the SP
+**What you asked for:** Summary Extended Price Remainder should come from the stored procedure column “delivery remainder dollar amount,” not from Ordered $ − Shipped $ − Cancelled $.
+**What I chose:** Map that SP field (DeliveryRemainderDollarAmount and a few name variants) onto the Ordered line. Summary Extended Price Remainder and Open $ on the other Ordered tabs use it when present. If the column is missing, keep the old Ordered $ − Shipped $ − Cancelled $ math so the report does not go to $0 before the SP change lands. Ordered builder_version 5.
+**Why:** Same remainder dollars everywhere. Blank/missing must not wipe the column.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Company views for Daily Ordered and Heshy Open Orders
 **What you asked for:** A Daily Ordered view grouped by salesman then customer on By Customer, applied to every daily company Ordered send. A Heshy Open Orders view with Full Data only, sorted by customer, grouped by order (order totals, no customer total), no LineNumber. Ship Date on Ordered in general without failing if the SP does not send it yet. Company-wide views. Test sends of yesterday Ordered and the open-orders report.
 **What I had to decide:** Whether to change By Customer’s default group for every Ordered use; whether Excel grouping could stay single-level; whether named company views live at send or stay as schedule snapshots.
