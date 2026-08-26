@@ -87,7 +87,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Viewer source has Rename tab, Edit+Delete saved views, subgroup + group pills, clone restore in applyLayout.
 - Personal schedules page has Edit and `data-kind="personal"`.
 - Split delivery: `email_on_empty=False`; 0-row salesman gets a No Data Found text mail, no xlsx.
-- Ordered Full Data has Fulfillment % (1.0 / 0.0 on the fixture); skip_by_salesman has no Salesman default_group.
+- Ordered Full Data, By Customer, By Item, By Order, and By Salesman have Fulfillment % `(QtyOrdered - QtyCancelled) / QtyOrdered`; Summary does not. Grid and Excel color red→yellow→green. skip_by_salesman has no Salesman default_group.
 - Daily 9am Salesmen Ordered seed layout omits `by_salesman`.
 - Home `?preset=` does not resume the last job for that report (`resumeInFlight` returns false unless `?job=` is also set).
 - Saved-views name click calls `loadPreset(p)` (runs). Edit still uses `run: !isReportShown()`.

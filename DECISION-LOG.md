@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-26 Ordered Fulfillment % on the rolled-up tabs
+**What you asked for:** Put fulfillment percentages back on the Ordered report, colored like the old runbooks.
+**What I had to decide:** Old runbooks had Fulfillment % on By Customer, By Item, By Order, By Salesman, and Full Data (red→yellow→green). Summary (customer + item) did not. v3 only had the column on Full Data.
+**What I chose:** Same five tabs as the old writer. Formula stays `(QtyOrdered - QtyCancelled) / QtyOrdered` on the summed qty for rolled-up rows. Grid and Excel already color `Fulfillment %`. Summary stays without it. Ordered builder_version 3 so cached v2 payloads are not reused.
+**Why:** Matches the old workbook. Summary never had that column.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Oversized schedule mail gets a download button
 **What you asked for:** The Daily 5am Number 4 mail said the 13.4 MB workbook was too large to attach, and told you to download it from SharePoint or export it from the app — with no link. Test-mode files must not land in the live Daily/YTD folders.
 **What I had to decide:** Test mode used to skip SharePoint entirely. Graph then refuses anything over ~3 MB, so the body had no URL. Whether to write test runs into the real Daily folder, skip SharePoint (no link), or dump into a separate test folder.

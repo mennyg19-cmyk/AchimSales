@@ -113,6 +113,21 @@ def test_by_customer_aggregates_dollars_and_qtys():
     assert r["QtyCancelled"] == 4
     assert r["QtyReserved"] == 5
     assert r["QtyLeftToShip"] == 20
+    assert r["Fulfillment %"] == 0.8824  # (34 - 4) / 34
+
+
+def test_rolled_up_tabs_have_fulfillment_percent_summary_does_not():
+    tabs = {t["key"]: t for t in B.build(S.to_facts_ordered_report(_rows()))}
+    for key in ("by_customer", "by_item", "by_order", "by_salesman", "full_data"):
+        cols = tabs[key]["columns"]
+        assert any(c["field"] == "Fulfillment %" and c["type"] == "percent" for c in cols)
+    assert not any(c["field"] == "Fulfillment %" for c in tabs["summary"]["columns"])
+
+    by_order = tabs["by_order"]["rows"]
+    assert next(r for r in by_order if r["SalesOrderNumber"] == "SO1")["Fulfillment %"] == 1.0
+    assert next(r for r in by_order if r["SalesOrderNumber"] == "SO2")["Fulfillment %"] == 0.0
+    assert next(r for r in tabs["by_item"]["rows"] if r["Item#"] == "ITM-A")["Fulfillment %"] == 1.0
+    assert next(r for r in tabs["by_item"]["rows"] if r["Item#"] == "ITM-B")["Fulfillment %"] == 0.0
 
 
 def test_summary_uses_sp_left_to_ship():

@@ -41,7 +41,9 @@ class ReportSpec:
 # as builders land. customer_aging stays BACKLOG until built - it must never
 # appear as a working report (this is the "no fake stub" guarantee).
 REGISTRY: tuple[ReportSpec, ...] = (
-    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=2, salesman_default=True),
+    # v3: Fulfillment % on By Customer / By Item / By Order / By Salesman
+    # (plus Full Data). Cached v2 payloads must not be reused.
+    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=3, salesman_default=True),
     ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
     # v3: YTD tabs derived from the rolling-12 pivot; By Item drops money;

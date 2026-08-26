@@ -84,19 +84,20 @@ _AGG_QTY_COLS = [
 _AGG_DOL_COLS = [
     {"field": f, "header": _DOL_HEADERS[f], "type": "money"} for f in _DOL
 ]
+_FF_COL = {"field": "Fulfillment %", "header": "Fulfillment %", "type": "percent"}
 
 BY_CUSTOMER_COLS = [
     {"field": "CustomerAccount", "header": "CustomerAccount", "type": "text"},
     {"field": "CustomerName",    "header": "CustomerName",    "type": "text"},
     {"field": "Salesman",        "header": "Salesman",        "type": "text"},
-    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ITEM_COLS = [
     {"field": "Item#",               "header": "Item#",               "type": "text"},
     {"field": "ItemName",            "header": "ItemName",            "type": "text"},
     {"field": "purchid",             "header": "purchid",             "type": "text"},
     {"field": "ExpectedArrivalDate", "header": "ExpectedArrivalDate", "type": "date"},
-    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_ORDER_COLS = [
     {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
@@ -107,11 +108,11 @@ BY_ORDER_COLS = [
     {"field": "PO #",             "header": "PO #",             "type": "text"},
     {"field": "OrderStatus",      "header": "Order Status",     "type": "text"},
     {"field": "Status",           "header": "Status",           "type": "text"},
-    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 BY_SALESMAN_COLS = [
     {"field": "Salesman", "header": "Salesman", "type": "text"},
-    *_AGG_QTY_COLS, *_AGG_DOL_COLS,
+    _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 SUMMARY_COLS = [
     {"field": "Customer Name",            "header": "Customer Name",            "type": "text"},
@@ -247,6 +248,7 @@ def _aggregate(
         row = dict(leads[k])
         row.update({f: b[f] for f in _QTY})
         row.update({f: round(b[f], 2) for f in _DOL})
+        row["Fulfillment %"] = _ff_pct(b["QtyOrdered"], b["QtyCancelled"])
         rows.append(row)
     rows.sort(key=sort)
     return rows
