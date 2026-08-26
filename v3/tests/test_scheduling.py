@@ -112,6 +112,46 @@ def test_runner_personal_records_success(stack):
     assert OutboxRepository(db).list_recent()
 
 
+def test_runner_default_view_uses_company_layout_when_schedule_layout_empty(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.report_defaults import ReportDefaultRepository
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+    ReportDefaultRepository(db).upsert(
+        "ordered", params={}, layout={"active": "by_item", "views": {"by_item": {"hidden": ["x"]}}},
+        updated_by=uid)
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="a@x.com", view_name="Default")
+    runner.run(sid, PERSONAL)
+    assert delivery.calls[0]["layout"]["active"] == "by_item"
+
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Seeded", params={}, layout={"order": ["summary"]},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="b@x.com",
+        view_name="Default")
+    runner.run(mid, MASTER)
+    seeded = [c for c in delivery.calls if c.get("recipients") == "b@x.com"][0]
+    assert seeded["layout"]["order"] == ["summary"]
+
+
 def test_runner_master_runs_unrestricted(stack):
     db, runner = stack
     mid = MasterScheduleRepository(db).create("ordered", "Nightly", params={}, layout={},

@@ -22,6 +22,26 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Default view per report
+
+**What to test:**
+- GET default-view returns empty Default until someone saves it; PUT stores layout + params.
+- Managers/admins can PUT; salesmen can GET (`can_edit` false) and get 403 on PUT.
+- Preset list includes `default` plus personal presets. Personal views cannot be named Default.
+- New schedule with `view_name=Default` (or empty layout) shows Default on `/schedules`.
+- Report-page snapshot (layout with views/order, no view_name) shows Custom.
+- Send with Default + empty layout uses the company Default. Default + stored snapshot keeps the snapshot.
+
+**Expected behavior:**
+- Wizard first option is Default. Schedules tables have a View column.
+- Saved views always lists Default; Edit is managers/admins only; Default cannot be deleted.
+
+**Edge cases:**
+- Switching a named view to Default on edit clears the snapshot.
+- Staying on Default during edit does not wipe a seeded snapshot.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_repositories_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_frontend.py`
+
 ## Oversized Graph email: download button
 
 **What to test:**

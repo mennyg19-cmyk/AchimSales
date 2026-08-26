@@ -73,6 +73,7 @@ class Schedule:
     catch_up_pending: bool = False
     catch_up_for_date: str | None = None
     last_claimed_at: str | None = None
+    view_name: str = "Default"
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Schedule":
@@ -87,6 +88,7 @@ class Schedule:
             catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
             catch_up_for_date=(r["catch_up_for_date"] if "catch_up_for_date" in keys else None),
             last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
+            view_name=(r["view_name"] if "view_name" in keys else "") or "Default",
         )
 
 
@@ -109,6 +111,7 @@ class MasterSchedule:
     catch_up_pending: bool = False
     catch_up_for_date: str | None = None
     last_claimed_at: str | None = None
+    view_name: str = "Default"
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "MasterSchedule":
@@ -129,6 +132,7 @@ class MasterSchedule:
             catch_up_pending=bool(r["catch_up_pending"]) if "catch_up_pending" in keys else False,
             catch_up_for_date=(r["catch_up_for_date"] if "catch_up_for_date" in keys else None),
             last_claimed_at=(r["last_claimed_at"] if "last_claimed_at" in keys else None),
+            view_name=(r["view_name"] if "view_name" in keys else "") or "Default",
         )
 
 
@@ -186,44 +190,44 @@ class ScheduleRepository:
     def create(self, owner_user_id: int, report_key: str, *, params: dict,
                layout: dict, cadence: dict, recipients: str = "",
                sharepoint_path: str = "", start_date: str | None = None,
-               end_date: str | None = None, filename_template: str = "") -> int:
+               end_date: str | None = None, filename_template: str = "",
+               view_name: str = "Default") -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO schedules(owner_user_id, report_key, params_json, layout_json,"
-                " cadence, recipients, sharepoint_path, start_date, end_date, filename_template)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " cadence, recipients, sharepoint_path, start_date, end_date,"
+                " filename_template, view_name)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (owner_user_id, report_key, json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
                  recipients or "", sharepoint_path or "", start_date, end_date,
-                 (filename_template or "").strip()),
+                 (filename_template or "").strip(),
+                 (view_name or "Default").strip() or "Default"),
             )
             return cur.lastrowid
 
     def update(self, schedule_id: int, owner_user_id: int, *, params: dict,
                layout: dict, cadence: dict, recipients: str = "",
                sharepoint_path: str = "", start_date: str | None = None,
-               end_date: str | None = None, filename_template: str | None = None) -> bool:
+               end_date: str | None = None, filename_template: str | None = None,
+               view_name: str | None = None) -> bool:
         with self.db.precious() as conn:
-            if filename_template is None:
-                cur = conn.execute(
-                    "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
-                    " recipients=?, sharepoint_path=?, start_date=?, end_date=?"
-                    " WHERE id=? AND owner_user_id=?",
-                    (json.dumps(params or {}), json.dumps(layout or {}),
-                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                     start_date, end_date, schedule_id, owner_user_id),
-                )
-            else:
-                cur = conn.execute(
-                    "UPDATE schedules SET params_json=?, layout_json=?, cadence=?,"
-                    " recipients=?, sharepoint_path=?, start_date=?, end_date=?,"
-                    " filename_template=?"
-                    " WHERE id=? AND owner_user_id=?",
-                    (json.dumps(params or {}), json.dumps(layout or {}),
-                     json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
-                     start_date, end_date, filename_template.strip(),
-                     schedule_id, owner_user_id),
-                )
+            sets = ["params_json=?", "layout_json=?", "cadence=?",
+                    "recipients=?", "sharepoint_path=?", "start_date=?", "end_date=?"]
+            vals: list = [json.dumps(params or {}), json.dumps(layout or {}),
+                          json.dumps(cadence or {}), recipients or "", sharepoint_path or "",
+                          start_date, end_date]
+            if filename_template is not None:
+                sets.append("filename_template=?")
+                vals.append(filename_template.strip())
+            if view_name is not None:
+                sets.append("view_name=?")
+                vals.append(view_name.strip() or "Default")
+            vals.extend([schedule_id, owner_user_id])
+            cur = conn.execute(
+                f"UPDATE schedules SET {', '.join(sets)} WHERE id=? AND owner_user_id=?",
+                vals,
+            )
             return cur.rowcount == 1
 
     def set_active(self, schedule_id: int, owner_user_id: int, active: bool) -> bool:
@@ -290,19 +294,20 @@ class MasterScheduleRepository:
                cadence: dict, recipients: str = "", sharepoint_path: str = "",
                filename_template: str = "", owner_user_id: int | None = None,
                is_shared: bool = True, run_as_user_id: int | None = None,
-               is_active: bool = True) -> int:
+               is_active: bool = True, view_name: str = "Default") -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO master_schedules(report_key, name, params_json, layout_json,"
                 " cadence, recipients, sharepoint_path, filename_template, is_active,"
-                " owner_user_id, is_shared, run_as_user_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " owner_user_id, is_shared, run_as_user_id, view_name)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (report_key, name.strip(), json.dumps(params or {}),
                  json.dumps(layout or {}), json.dumps(cadence or {}),
                  recipients or "", sharepoint_path or "",
                  (filename_template or "").strip(),
                  1 if is_active else 0,
-                 owner_user_id, 1 if is_shared else 0, run_as_user_id),
+                 owner_user_id, 1 if is_shared else 0, run_as_user_id,
+                 (view_name or "Default").strip() or "Default"),
             )
             return cur.lastrowid
 
@@ -320,6 +325,7 @@ class MasterScheduleRepository:
             filename_template=src.filename_template or "",
             owner_user_id=owner_user_id, is_shared=src.is_shared,
             run_as_user_id=src.run_as_user_id, is_active=False,
+            view_name=getattr(src, "view_name", None) or "Default",
         )
         for _ in range(8):
             name = self.unused_copy_name(src.name)
@@ -332,7 +338,8 @@ class MasterScheduleRepository:
     def update(self, schedule_id: int, *, name: str, params: dict, layout: dict,
                cadence: dict, recipients: str = "", sharepoint_path: str = "",
                report_key: str | None = None, filename_template: str | None = None,
-               is_shared: bool | None = None, run_as_user_id: int | None | object = _UNSET) -> bool:
+               is_shared: bool | None = None, run_as_user_id: int | None | object = _UNSET,
+               view_name: str | None = None) -> bool:
         with self.db.precious() as conn:
             tmpl = None if filename_template is None else filename_template.strip()
             sets = ["name=?", "params_json=?", "layout_json=?", "cadence=?",
@@ -351,6 +358,9 @@ class MasterScheduleRepository:
             if run_as_user_id is not _UNSET:
                 sets.append("run_as_user_id=?")
                 vals.append(run_as_user_id)
+            if view_name is not None:
+                sets.append("view_name=?")
+                vals.append(view_name.strip() or "Default")
             vals.append(schedule_id)
             cur = conn.execute(
                 f"UPDATE master_schedules SET {', '.join(sets)} WHERE id=?", vals,

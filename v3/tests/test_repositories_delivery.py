@@ -7,6 +7,14 @@ import pytest
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.outbox import OutboxRepository
+from web.data.repositories.report_defaults import (
+    CUSTOM_VIEW_NAME,
+    DEFAULT_VIEW_NAME,
+    ReportDefaultRepository,
+    resolve_send_layout,
+    view_and_layout_for_create,
+    view_and_layout_for_update,
+)
 from web.data.repositories.saved_reports import SavedReportRepository
 from web.data.repositories.schedules import (
     MASTER,
@@ -140,3 +148,36 @@ def test_outbox_enqueue_and_mark(db):
     repo.mark(mid, "sent")
     assert repo.get(mid).status == "sent"
     assert len(repo.list_recent()) == 1
+
+
+def test_report_default_upsert_and_get(db, user_id):
+    repo = ReportDefaultRepository(db)
+    assert repo.get("ordered") is None
+    assert repo.get_layout("ordered") == {}
+    saved = repo.upsert("ordered", params={"period": "mtd"},
+                        layout={"active": "by_item"}, updated_by=user_id)
+    assert saved.params["period"] == "mtd"
+    assert repo.get_layout("ordered")["active"] == "by_item"
+    repo.upsert("ordered", params={}, layout={"order": ["summary"]}, updated_by=user_id)
+    assert repo.get("ordered").layout["order"] == ["summary"]
+
+
+def test_view_and_layout_helpers():
+    assert view_and_layout_for_create({}) == (DEFAULT_VIEW_NAME, {})
+    assert view_and_layout_for_create({"view_name": "Default", "layout": {"order": ["x"]}}) == (
+        DEFAULT_VIEW_NAME, {})
+    name, layout = view_and_layout_for_create(
+        {"layout": {"order": ["summary"], "views": {"summary": {}}}})
+    assert name == CUSTOM_VIEW_NAME and layout["order"] == ["summary"]
+    name, layout = view_and_layout_for_create(
+        {"view_name": "March", "layout": {"active": "a"}})
+    assert name == "March" and layout["active"] == "a"
+
+    kept = {"order": ["seed"]}
+    assert view_and_layout_for_update(
+        {"view_name": "Default", "layout": {}}, "Default", kept)[1] == kept
+    assert view_and_layout_for_update(
+        {"view_name": "Default"}, "March", kept) == (DEFAULT_VIEW_NAME, {})
+    assert resolve_send_layout("Default", {}, {"active": "def"}) == {"active": "def"}
+    assert resolve_send_layout("Default", {"order": ["x"]}, {"active": "def"}) == {"order": ["x"]}
+    assert resolve_send_layout("March", {"active": "m"}, {"active": "def"}) == {"active": "m"}

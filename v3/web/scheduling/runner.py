@@ -17,6 +17,10 @@ from report_engine import registry
 from web.auth.authorization import Authorization
 from web.auth.principal import Principal
 from web.data.repositories.app_settings import AppSettingsRepository
+from web.data.repositories.report_defaults import (
+    ReportDefaultRepository,
+    resolve_send_layout,
+)
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -60,6 +64,14 @@ class ScheduleRunner:
         self.authz = authz
         self.delivery = delivery
         self.settings = settings or AppSettingsRepository(user_repo.db)
+        self.defaults = ReportDefaultRepository(user_repo.db)
+
+    def _layout_for(self, sched) -> dict:
+        return resolve_send_layout(
+            getattr(sched, "view_name", None),
+            sched.layout,
+            self.defaults.get_layout(sched.report_key),
+        )
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
@@ -183,7 +195,7 @@ class ScheduleRunner:
                         report_key=sched.report_key, identity=identity,
                         visible_salesman_keys=scope,
                         builder_version=builder_version,
-                        params=_report_params(params), layout=sched.layout,
+                        params=_report_params(params), layout=self._layout_for(sched),
                         recipients="; ".join(test_to) if test_to else sched.recipients,
                         subject=subject, report_name=report_name,
                         sharepoint_path=_sharepoint_for_test(test_to, sched.sharepoint_path),
@@ -311,7 +323,7 @@ class ScheduleRunner:
             full = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                 builder_version=builder_version, params=_report_params(params),
-                layout=sched.layout,
+                layout=self._layout_for(sched),
                 recipients=test_recips if test_to else sched.recipients,
                 subject=subject,
                 report_name=report_name,
@@ -345,7 +357,7 @@ class ScheduleRunner:
             split_params["salesman"] = [key]
             outcome = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                builder_version=builder_version, params=split_params, layout=sched.layout,
+                builder_version=builder_version, params=split_params, layout=self._layout_for(sched),
                 recipients=test_recips if test_to else email,
                 subject=f"{subject} - {key}",
                 report_name=f"{report_name} - {key}", sharepoint_path="",

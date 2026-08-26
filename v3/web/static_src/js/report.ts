@@ -1499,7 +1499,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
       clearStatus();
       if (opts.preserveLayout) loadPayloadPreserving(payload);
       else loadPayload(payload);
-      if (pendingLayout) { applyLayout(pendingLayout); pendingLayout = null; }
+      applyPendingOrDefaultLayout();
       return;
     }
     if (job.status === "failure") throw new Error(friendlyError(job.error));
@@ -1738,6 +1738,9 @@ let pendingLayout: SavedLayout | null = null; // preset layout to apply after th
 let editingPresetId: number | string | null = null;
 let editingPresetName: string | null = null;
 let autoRunRequested = false;                 // ?preset=<id> deep-link wants an auto-run
+const DEFAULT_VIEW_ID = "default";
+let companyDefaultLayout: SavedLayout | null = null;
+let companyDefaultParams: Record<string, unknown> = {};
 
 function hasFilter(id: string): boolean {
   return !!$(id);
@@ -2153,6 +2156,27 @@ function presetUrl(id: number | string): string {
 const csrfHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": attr("data-csrf") });
 
 async function saveView(): Promise<void> {
+  if (isDefaultViewId(editingPresetId) || editingPresetName === "Default") {
+    if (attr("data-can-edit-default") !== "1") {
+      setStatus("Only managers and admins can change the Default view.", "error");
+      return;
+    }
+    try {
+      const layout = serializeLayout();
+      const params = collectParams();
+      const res = await fetch(attr("data-default-url"), {
+        method: "PUT", headers: csrfHeaders(),
+        body: JSON.stringify({ params, layout }),
+      });
+      if (!res.ok) throw new Error();
+      companyDefaultLayout = layout;
+      companyDefaultParams = params;
+      setStatus("Updated Default.");
+    } catch {
+      setStatus("Could not save Default. Please try again.", "error");
+    }
+    return;
+  }
   const suggested = editingPresetName || "";
   const name = window.prompt(
     editingPresetId
@@ -2224,48 +2248,105 @@ function onPresetsOutside(e: MouseEvent): void {
   }
 }
 
+function layoutIsUsable(layout: SavedLayout | null | undefined): layout is SavedLayout {
+  if (!layout) return false;
+  const views = layout.views && typeof layout.views === "object" ? Object.keys(layout.views).length : 0;
+  return views > 0 || (!!layout.order && layout.order.length > 0)
+    || (!!layout.clones && layout.clones.length > 0);
+}
+
+function isDefaultViewId(id: unknown): boolean {
+  return id === DEFAULT_VIEW_ID || id === "Default";
+}
+
+function applyPendingOrDefaultLayout(): void {
+  if (pendingLayout) {
+    applyLayout(pendingLayout);
+    pendingLayout = null;
+    return;
+  }
+  if (layoutIsUsable(companyDefaultLayout)) applyLayout(companyDefaultLayout);
+}
+
+async function loadCompanyDefault(): Promise<void> {
+  const url = attr("data-default-url");
+  if (!url) return;
+  const data = await getJSON<{ params?: Record<string, unknown>; layout?: SavedLayout }>(url);
+  if (!data) return;
+  companyDefaultParams = data.params || {};
+  companyDefaultLayout = data.layout || null;
+}
+
+function appendPresetRow(
+  panel: HTMLElement,
+  preset: { id?: number | string; name: string; params?: Record<string, unknown>; layout?: SavedLayout; can_edit?: boolean },
+  opts: { canDelete: boolean; canEdit: boolean },
+): void {
+  const row = document.createElement("div");
+  row.className = "presets-row";
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "presets-open";
+  open.textContent = preset.name;
+  open.title = isDefaultViewId(preset.id) ? "Run the Default view" : "Run this saved view";
+  open.addEventListener("click", () => { closePresetsPanel(); loadPreset(preset); });
+  row.appendChild(open);
+  if (opts.canEdit) {
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "presets-edit";
+    edit.textContent = "Edit";
+    edit.title = "Open this view’s filters and layout, then save";
+    edit.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      closePresetsPanel();
+      loadPreset(preset, { run: !isReportShown(), edit: true });
+      setStatus(`Editing “${preset.name}”. Change filters or layout, then Save this view.`);
+    });
+    row.appendChild(edit);
+  }
+  if (opts.canDelete) {
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "presets-del";
+    del.textContent = "Delete";
+    del.title = "Delete this view";
+    del.addEventListener("click", async () => {
+      if (!window.confirm(`Delete “${preset.name}”?`)) return;
+      await fetch(presetUrl(preset.id!), { method: "DELETE", headers: csrfHeaders() });
+      row.remove();
+    });
+    row.appendChild(del);
+  }
+  panel.appendChild(row);
+}
+
 async function togglePresetsPanel(): Promise<void> {
   if ($("presetsPanel")) { closePresetsPanel(); return; }
-  const data = await getJSON<{ presets: any[] }>(attr("data-presets-url"));
+  const data = await getJSON<{
+    default?: { name?: string; params?: Record<string, unknown>; layout?: SavedLayout; can_edit?: boolean };
+    presets: any[];
+  }>(attr("data-presets-url"));
   const presets = data?.presets || [];
   const panel = document.createElement("div");
   panel.id = "presetsPanel";
   panel.className = "presets-panel";
+  const canEditDefault = attr("data-can-edit-default") === "1" || !!data?.default?.can_edit;
+  appendPresetRow(panel, {
+    id: DEFAULT_VIEW_ID,
+    name: "Default",
+    params: data?.default?.params || companyDefaultParams,
+    layout: data?.default?.layout || companyDefaultLayout || undefined,
+    can_edit: canEditDefault,
+  }, { canDelete: false, canEdit: canEditDefault });
   if (!presets.length) {
-    panel.innerHTML = '<div class="presets-empty">No saved views yet. Use “Save this view”.</div>';
+    const empty = document.createElement("div");
+    empty.className = "presets-empty";
+    empty.textContent = "No other saved views yet. Use “Save this view”.";
+    panel.appendChild(empty);
   } else {
     presets.forEach((p) => {
-      const row = document.createElement("div");
-      row.className = "presets-row";
-      const open = document.createElement("button");
-      open.type = "button";
-      open.className = "presets-open";
-      open.textContent = p.name;
-      open.title = "Run this saved view";
-      open.addEventListener("click", () => { closePresetsPanel(); loadPreset(p); });
-      const edit = document.createElement("button");
-      edit.type = "button";
-      edit.className = "presets-edit";
-      edit.textContent = "Edit";
-      edit.title = "Open this view’s filters and layout, then save";
-      edit.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        closePresetsPanel();
-        loadPreset(p, { run: !isReportShown(), edit: true });
-        setStatus(`Editing “${p.name}”. Change filters or layout, then Save this view.`);
-      });
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "presets-del";
-      del.textContent = "Delete";
-      del.title = "Delete this view";
-      del.addEventListener("click", async () => {
-        if (!window.confirm(`Delete “${p.name}”?`)) return;
-        await fetch(presetUrl(p.id), { method: "DELETE", headers: csrfHeaders() });
-        row.remove();
-      });
-      row.append(open, edit, del);
-      panel.appendChild(row);
+      appendPresetRow(panel, p, { canDelete: true, canEdit: true });
     });
   }
   ($("presetsBtn") as HTMLElement)?.insertAdjacentElement("afterend", panel);
@@ -2277,9 +2358,9 @@ function loadPreset(preset: {
   params?: Record<string, unknown>; layout?: SavedLayout;
 }, opts?: { run?: boolean; edit?: boolean }): void {
   applyParamsObject(preset.params || {});
-  pendingLayout = preset.layout || null;
+  pendingLayout = preset.layout || (isDefaultViewId(preset.id) ? companyDefaultLayout : null);
   if (opts?.edit) {
-    editingPresetId = preset.id ?? null;
+    editingPresetId = isDefaultViewId(preset.id) ? DEFAULT_VIEW_ID : (preset.id ?? null);
     editingPresetName = preset.name || null;
   } else {
     editingPresetId = null;
@@ -2298,6 +2379,13 @@ function loadPreset(preset: {
 async function autoOpenPresetIfRequested(): Promise<void> {
   const id = new URLSearchParams(window.location.search).get("preset");
   if (!id) return;
+  if (id === DEFAULT_VIEW_ID) {
+    await loadCompanyDefault();
+    applyParamsObject(companyDefaultParams);
+    pendingLayout = companyDefaultLayout;
+    autoRunRequested = true;
+    return;
+  }
   const preset = await getJSON<any>(presetUrl(id));
   // Apply the preset's saved filters too (don't rely on the home-page URL also
   // duplicating them into the query string) and then its layout.
@@ -2643,7 +2731,7 @@ async function saveSchedule(): Promise<void> {
         report_key: attr("data-report-key"), recipients: to,
         sharepoint_path: scheduleOd.path() || "", cadence: cad.cadence,
         filename_template: (($("schedFilename") as HTMLInputElement | null)?.value || "").trim(),
-        params, layout: serializeLayout(),
+        params, layout: serializeLayout(), view_name: "Custom",
       }),
     });
     if (res.status !== 201) {
@@ -2736,7 +2824,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);
   setToolbarEnabled(false);
   loadExports();  // pick up any in-flight exports started before a navigation/reload
-  await initLookups();
+  await Promise.all([initLookups(), loadCompanyDefault()]);
   // If this user was already running (or just finished) this report, reconnect
   // to it instead of starting fresh -- leaving the page and coming back keeps it.
   const resumed = await resumeInFlight();

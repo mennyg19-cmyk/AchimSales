@@ -43,6 +43,11 @@ from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
 from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
+from web.data.repositories.report_defaults import (
+    DEFAULT_VIEW_NAME,
+    ReportDefault,
+    ReportDefaultRepository,
+)
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import split_recipients
@@ -122,6 +127,10 @@ def _saved_repo() -> SavedReportRepository:
     return SavedReportRepository(current_app.config["DB"])
 
 
+def _defaults_repo() -> ReportDefaultRepository:
+    return ReportDefaultRepository(current_app.config["DB"])
+
+
 def _sharepoint():
     return current_app.config["SHAREPOINT_SERVICE"]
 
@@ -129,6 +138,18 @@ def _sharepoint():
 def _preset_dict(s: SavedReport) -> dict:
     return {"id": s.id, "report_key": s.report_key, "name": s.name,
             "params": s.params, "layout": s.layout, "created_at": s.created_at}
+
+
+def _default_dict(report_key: str, p, row: ReportDefault | None) -> dict:
+    return {
+        "id": "default",
+        "name": DEFAULT_VIEW_NAME,
+        "report_key": report_key,
+        "params": dict(row.params) if row else {},
+        "layout": dict(row.layout) if row else {},
+        "can_edit": _authz().can_see_company_schedules(p),
+        "updated_at": row.updated_at if row else None,
+    }
 
 
 def _principal_or_401():
@@ -243,6 +264,7 @@ def report_view(report_key: str):
         is_developer=(p.role == ROLE_DEVELOPER),
         user_email=p.email,
         hide_commissions=not authz.may_see_commissions(p),
+        can_edit_default=authz.can_see_company_schedules(p),
     )
 
 
@@ -1254,7 +1276,10 @@ def report_presets(report_key: str):
         abort(403, description="Unknown user")
     items = [_preset_dict(s) for s in _saved_repo().list_for_user(uid)
              if s.report_key == report_key]
-    return jsonify({"presets": items})
+    return jsonify({
+        "default": _default_dict(report_key, p, _defaults_repo().get(report_key)),
+        "presets": items,
+    })
 
 
 @reports_bp.post("/api/reports/<report_key>/presets")
@@ -1270,6 +1295,8 @@ def create_preset(report_key: str):
     name = (body.get("name") or "").strip()
     if not name:
         abort(400, description="A preset name is required")
+    if name.lower() == "default":
+        abort(400, description="Default is the company view. Edit it from Saved views.")
     pid = _saved_repo().create(uid, report_key, name,
                                body.get("params") or {}, body.get("layout") or {})
     return jsonify({"id": pid, "name": name}), 201
@@ -1302,6 +1329,8 @@ def update_preset(preset_id: int):
     name = body.get("name")
     if name is not None and not str(name).strip():
         abort(400, description="A preset name is required")
+    if name is not None and str(name).strip().lower() == "default":
+        abort(400, description="Default is the company view. Edit it from Saved views.")
     ok = _saved_repo().update(
         preset_id, uid,
         name=None if name is None else str(name).strip(),
@@ -1324,6 +1353,36 @@ def delete_preset(preset_id: int):
     if not _saved_repo().delete(preset_id, uid):
         abort(404, description="Unknown preset")
     return jsonify({"deleted": True})
+
+
+@reports_bp.get("/api/reports/<report_key>/default-view")
+@require_login
+def get_default_view(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    return jsonify(_default_dict(report_key, p, _defaults_repo().get(report_key)))
+
+
+@reports_bp.put("/api/reports/<report_key>/default-view")
+@require_login
+def put_default_view(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    if not _authz().can_see_company_schedules(p):
+        abort(403, description="Only managers and admins can change Default.")
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    body = request.get_json(silent=True) or {}
+    row = _defaults_repo().upsert(
+        report_key,
+        params=body.get("params") if isinstance(body.get("params"), dict) else {},
+        layout=body.get("layout") if isinstance(body.get("layout"), dict) else {},
+        updated_by=uid,
+    )
+    return jsonify(_default_dict(report_key, p, row))
 
 
 # --- delivery: email now + SharePoint picker -------------------------------- #

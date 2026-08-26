@@ -781,6 +781,82 @@ def test_preset_requires_name(tmp_path):
     assert resp.status_code == 400
 
 
+def test_preset_cannot_use_the_name_default(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/reports/ordered/presets",
+                       json={"name": "Default", "params": {}, "layout": {}},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+
+
+def test_default_view_get_put_and_presets_include_it(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    empty = client.get("/api/reports/ordered/default-view").get_json()
+    assert empty["name"] == "Default"
+    assert empty["layout"] == {}
+    assert empty["can_edit"] is True
+    saved = client.put(
+        "/api/reports/ordered/default-view",
+        json={"params": {"period": "yesterday"},
+              "layout": {"active": "summary", "views": {"summary": {"hidden": ["x"]}}}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    assert saved.get_json()["params"]["period"] == "yesterday"
+    assert saved.get_json()["layout"]["active"] == "summary"
+    listed = client.get("/api/reports/ordered/presets").get_json()
+    assert listed["default"]["layout"]["active"] == "summary"
+    assert listed["presets"] == []
+
+
+def test_salesman_cannot_edit_default_view(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    got = client.get("/api/reports/ordered/default-view")
+    assert got.status_code == 200
+    assert got.get_json()["can_edit"] is False
+    put = client.put(
+        "/api/reports/ordered/default-view",
+        json={"params": {}, "layout": {"active": "x"}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert put.status_code == 403
+
+
+def test_schedule_create_default_view_shows_on_page(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "a@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}, "params": {},
+        "layout": {}, "view_name": "Default"},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    html = client.get("/schedules").get_data(as_text=True)
+    assert "<th>View</th>" in html
+    assert 'data-view-name="Default"' in html
+
+
+def test_schedule_from_layout_snapshot_is_custom(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "a@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "layout": {"order": ["summary"], "views": {"summary": {"hidden": []}}}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    html = client.get("/schedules").get_data(as_text=True)
+    assert 'data-view-name="Custom"' in html
+
+
 def test_email_now_enqueues_and_delivers(tmp_path):
     rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
@@ -1570,7 +1646,9 @@ def test_master_run_now_test_mode_mails_test_list_only(tmp_path):
     assert row.recipients == "menny@x.com"
     assert row.subject.startswith("[TEST] ")
     assert "customers@x.com" not in row.recipients
-    assert not (row.sharepoint_meta or {}).get("saved")
+    meta = row.sharepoint_meta or {}
+    assert meta.get("saved") is True
+    assert meta.get("path") == "Test"
 
 
 def test_clock_tick_drains_personal_and_master_to_outbox(tmp_path):

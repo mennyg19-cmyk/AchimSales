@@ -153,11 +153,11 @@
                 </label>
             </div>
             <label class="ms-field ms-field-block" id="msSavedViewBox">
-                <span>Saved view (optional)</span>
+                <span>View</span>
                 <select id="msSavedView">
-                    <option value="">Current filters — no saved view</option>
+                    <option value="default">Default</option>
                 </select>
-                <span class="ms-field-hint">Views you saved for this report. Applying one fills the filters and column layout.</span>
+                <span class="ms-field-hint">Default is this report’s standard layout. Pick a saved view to lock that one in.</span>
             </label>
             {% if can_see_company %}
             <div class="ms-field ms-field-block" id="msShareBox">
@@ -334,6 +334,7 @@
             <tr>
                 <th aria-sort="ascending">Name</th>
                 <th>Report</th>
+                <th>View</th>
                 <th>When</th>
                 <th>Options</th>
                 <th>Recipients</th>
@@ -354,9 +355,11 @@
                 data-sharepoint-path="{{ s.sharepoint_path }}"
                 data-filename-template="{{ s.filename_template or '' }}"
                 data-run-as="{{ s.run_as_user_id or '' }}"
-                data-is-shared="1">
+                data-is-shared="1"
+                data-view-name="{{ s.view_name or 'Default' }}">
                 <td>{{ s.name }}</td>
                 <td>{{ s.report_title }}</td>
+                <td>{{ s.view_name or 'Default' }}</td>
                 <td>{{ s.cadence }}</td>
                 <td class="td-truncate">{{ s.params_label }}</td>
                 <td class="td-truncate">{{ s.recipients or '—' }}</td>

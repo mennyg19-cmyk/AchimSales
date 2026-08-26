@@ -157,11 +157,20 @@ async function loadSavedViews(reportKey: string): Promise<void> {
   const sel = document.getElementById("msSavedView") as HTMLSelectElement | null;
   if (!sel) return;
   const current = sel.value;
-  sel.innerHTML = '<option value="">Current filters — no saved view</option>';
-  if (!reportKey) return;
-  const data = await getJSON<{ presets: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[] }>(
+  sel.innerHTML = '<option value="default">Default</option>';
+  if (!reportKey) {
+    sel.value = "default";
+    return;
+  }
+  const data = await getJSON<{
+    default?: { layout?: Record<string, unknown> };
+    presets: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[];
+  }>(
     `/api/reports/${encodeURIComponent(reportKey)}/presets`,
   );
+  const defLayout = (data?.default?.layout && typeof data.default.layout === "object")
+    ? data.default.layout : {};
+  sel.options[0].dataset.preset = JSON.stringify({ params: {}, layout: defLayout });
   (data?.presets || []).forEach((p) => {
     const opt = document.createElement("option");
     opt.value = String(p.id);
@@ -169,13 +178,21 @@ async function loadSavedViews(reportKey: string): Promise<void> {
     opt.dataset.preset = JSON.stringify(p);
     sel.appendChild(opt);
   });
+  if (current === "custom" && ![...sel.options].some((o) => o.value === "custom")) {
+    const custom = document.createElement("option");
+    custom.value = "custom";
+    custom.textContent = "Custom";
+    sel.appendChild(custom);
+  }
   if ([...sel.options].some((o) => o.value === current)) sel.value = current;
+  else sel.value = "default";
 }
 
 function applySavedViewFromSelect(): void {
   const sel = document.getElementById("msSavedView") as HTMLSelectElement | null;
   const form = masterForm();
-  if (!sel || !form || !sel.value) {
+  if (!sel || !form || sel.value === "custom") return;
+  if (!sel.value || sel.value === "default") {
     pendingLayout = {};
     return;
   }
@@ -196,6 +213,37 @@ function applySavedViewFromSelect(): void {
   pendingLayout = (preset.layout && typeof preset.layout === "object") ? preset.layout : {};
   syncParamsVisibility(form);
   syncDeliveryOptionsVisibility(form);
+}
+
+function restoreSavedViewSelect(viewName: string): void {
+  const sel = document.getElementById("msSavedView") as HTMLSelectElement | null;
+  if (!sel) return;
+  const wanted = viewName.trim() || "Default";
+  if (wanted === "Default") {
+    sel.value = "default";
+    pendingLayout = {};
+    return;
+  }
+  const byText = [...sel.options].find((o) => (o.textContent || "").trim() === wanted);
+  if (byText) {
+    sel.value = byText.value;
+    return;
+  }
+  let custom = sel.querySelector<HTMLOptionElement>('option[value="custom"]');
+  if (!custom) {
+    custom = document.createElement("option");
+    custom.value = "custom";
+    sel.appendChild(custom);
+  }
+  custom.textContent = wanted === "Custom" ? "Custom" : wanted;
+  sel.value = "custom";
+}
+
+function selectedViewName(): string {
+  const sel = document.getElementById("msSavedView") as HTMLSelectElement | null;
+  if (!sel || !sel.value || sel.value === "default") return "Default";
+  if (sel.value === "custom") return (sel.selectedOptions[0]?.textContent || "Custom").trim() || "Custom";
+  return (sel.selectedOptions[0]?.textContent || "Custom").trim() || "Custom";
 }
 
 function suggestName(form: HTMLFormElement): void {
@@ -328,6 +376,7 @@ function fillReview(form: HTMLFormElement): void {
   const rows: [string, string][] = [
     ["Name", (form.elements.namedItem("name") as HTMLInputElement).value.trim() || selectedReportTitle(form)],
     ["Report", selectedReportTitle(form)],
+    ["View", selectedViewName()],
     ["When", when],
     ["Options", paramBits.length ? paramBits.join(", ") : "defaults (everything)"],
     ["Email", recipients || "—"],
@@ -732,7 +781,8 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   showStep(1);
   syncParamsVisibility(form);
   await ensureLookups();
-  void loadSavedViews(selectedReportKey(form));
+  await loadSavedViews(selectedReportKey(form));
+  restoreSavedViewSelect(row.dataset.viewName || "Default");
   updateMsFilenamePreview();
   updateMsFolderPreview();
 }
@@ -850,6 +900,7 @@ export function bindMasterWizard(): void {
       filename_template: (document.getElementById("msFilename") as HTMLInputElement | null)?.value.trim() || "",
       params,
       layout: pendingLayout,
+      view_name: selectedViewName(),
     };
     const editId = (document.getElementById("editingId") as HTMLInputElement).value;
     const editingKind = (document.getElementById("editingKind") as HTMLInputElement | null)?.value || "";

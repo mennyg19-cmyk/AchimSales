@@ -15,6 +15,11 @@ from web.auth.decorators import require_login
 from web.auth.principal import ROLE_MANAGER
 from web.auth.session import current_principal
 from web.delivery.email import split_recipients
+from web.data.repositories.report_defaults import (
+    normalize_view_name,
+    view_and_layout_for_create,
+    view_and_layout_for_update,
+)
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -124,18 +129,6 @@ def _parse_cadence(body: dict) -> dict:
         abort(400, description=str(exc))
 
 
-def _layout_for_update(body: dict, existing: dict | None) -> dict:
-    """Keep the saved tab/column view when the editor doesn't send one.
-
-    The schedules wizard always posts `layout: {}`. Treating that as a wipe
-    would put Commissions (and every other dropped tab) back on the next send.
-    """
-    incoming = body.get("layout")
-    if isinstance(incoming, dict) and incoming:
-        return incoming
-    return existing or {}
-
-
 def _check_sharepoint(p, body: dict) -> str:
     """Master schedules only: company SharePoint path (requires SP access)."""
     from web.delivery.sharepoint import strip_reports_home
@@ -212,6 +205,7 @@ def schedules_page():
             "last_run": _runs().last_run_at(s.id, PERSONAL),
             "filename_template": getattr(s, "filename_template", "") or "",
             "kind": "personal",
+            "view_name": normalize_view_name(getattr(s, "view_name", None)),
         })
     for s in _master().list_private_for_user(uid):
         spec = registry.get(s.report_key)
@@ -224,6 +218,7 @@ def schedules_page():
             "last_run": _runs().last_run_at(s.id, MASTER),
             "filename_template": getattr(s, "filename_template", "") or "",
             "kind": "master", "run_as_user_id": s.run_as_user_id,
+            "view_name": normalize_view_name(getattr(s, "view_name", None)),
         })
     personal_reports = [
         {"key": s.key, "title": s.title}
@@ -334,12 +329,14 @@ def create_schedule():
     cadence = _parse_cadence(body)
     folder = _check_personal_folder(body)
     recipients = _clean_recipients(body, sharepoint_path=folder, folder_label="OneDrive folder")
+    view_name, layout = view_and_layout_for_create(body)
     sid = _repo().create(
         _uid(p.email), report_key, params=body.get("params") or {},
-        layout=body.get("layout") or {}, cadence=cadence,
+        layout=layout, cadence=cadence,
         recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
         filename_template=(body.get("filename_template") or "").strip(),
+        view_name=view_name,
     )
     created = _repo().get(sid, _uid(p.email))
     if created:
@@ -358,12 +355,15 @@ def update_schedule(schedule_id: int):
     existing = _repo().get(schedule_id, _uid(p.email))
     if existing is None:
         abort(404, description="Unknown schedule")
+    view_name, layout = view_and_layout_for_update(
+        body, getattr(existing, "view_name", None), existing.layout)
     ok = _repo().update(
         schedule_id, _uid(p.email), params=body.get("params") or {},
-        layout=_layout_for_update(body, existing.layout), cadence=cadence,
+        layout=layout, cadence=cadence,
         recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
         filename_template=(body.get("filename_template") or "").strip(),
+        view_name=view_name,
     )
     if not ok:
         abort(404, description="Unknown schedule")
@@ -427,6 +427,7 @@ def copy_schedule(schedule_id: int):
         recipients=src.recipients, sharepoint_path=src.sharepoint_path,
         start_date=src.start_date, end_date=src.end_date,
         filename_template=getattr(src, "filename_template", "") or "",
+        view_name=normalize_view_name(getattr(src, "view_name", None)),
     )
     # Leave the copy inactive so it doesn't double-fire until edited.
     _repo().set_active(sid, uid, False)
@@ -657,6 +658,7 @@ def _master_page_context(p, uid: int) -> dict:
             "is_shared": True,
             "owner_user_id": s.owner_user_id,
             "run_as_user_id": s.run_as_user_id,
+            "view_name": normalize_view_name(getattr(s, "view_name", None)),
         })
     items.sort(key=lambda row: (row["name"] or "").casefold())
     built = [
@@ -751,13 +753,15 @@ def create_master():
         body, sharepoint_path=sp, has_salesman_delivery=_has_salesman_delivery(params),
         folder_label="folder",
     )
+    view_name, layout = view_and_layout_for_create(body)
     mid = _master().create(
-        report_key, name, params=params, layout=body.get("layout") or {},
+        report_key, name, params=params, layout=layout,
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
         filename_template=(body.get("filename_template") or "").strip(),
         owner_user_id=_uid(p.email),
         is_shared=_parse_is_shared(body),
         run_as_user_id=_parse_run_as(p, body),
+        view_name=view_name,
     )
     _settings().unskip_seed_name(name)
     created = _master().get(mid)
@@ -807,12 +811,15 @@ def update_master(schedule_id: int):
         body, sharepoint_path=sp, has_salesman_delivery=_has_salesman_delivery(params),
         folder_label="folder",
     )
+    view_name, layout = view_and_layout_for_update(
+        body, getattr(existing, "view_name", None), existing.layout)
     kwargs = dict(
-        name=name, params=params, layout=_layout_for_update(body, existing.layout),
+        name=name, params=params, layout=layout,
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
         filename_template=(body.get("filename_template") or "").strip(),
         is_shared=_parse_is_shared(body),
         run_as_user_id=_parse_run_as(p, body) if _authz().is_privileged(p) else existing.run_as_user_id,
+        view_name=view_name,
     )
     if report_key:
         kwargs["report_key"] = report_key

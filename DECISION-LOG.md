@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-26 Default view per report
+**What you asked for:** A Default view for every report matching how it looks now, a way to edit those defaults, the schedule wizard showing Default as the view, and the schedules page showing which view each row uses.
+**What I had to decide:** Company-wide vs per-user Default; whether editing Default rewrites existing scheduled files; who can edit.
+**What I chose:** One Default per report, shared. Managers and admins edit it from Saved views (Edit, then Save this view). Schedules that use Default with an empty layout pick up the new Default on the next send. Schedules that already have a locked layout (seeded tab lists, or Schedule from a report page) keep that snapshot and still show Default or Custom on the list. Wizard starts on Default. Report-page Schedule saves as Custom.
+**Why:** Company schedules need one shared starting layout. Wiping seeded “no commissions” files when someone edits Ordered Default would change production workbooks.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Azure Actions concurrency group renamed
 **What you asked for:** Ghost GitHub runs cannot be cancelled or deleted. That made it look like Actions could no longer deploy the site.
 **What I chose:** Rename the Azure workflow concurrency group from `deploy-achim-sales-reports` to `deploy-achim-sales-reports-v2`. Keep one-at-a-time deploys (`cancel-in-progress: false`). `deploy.ps1` stays the backup when Actions is wedged.

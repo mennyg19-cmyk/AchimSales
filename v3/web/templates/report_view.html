@@ -191,6 +191,8 @@
      data-preview-url="{{ url_for('reports.preview_body', report_key=report.key) }}"
      data-presets-url="{{ url_for('reports.report_presets', report_key=report.key) }}"
      data-preset-url="{{ url_for('reports.get_preset', preset_id=0) }}"
+     data-default-url="{{ url_for('reports.get_default_view', report_key=report.key) }}"
+     data-can-edit-default="{{ '1' if can_edit_default else '' }}"
      data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
      data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
