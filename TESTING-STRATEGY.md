@@ -22,6 +22,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Deploy hook: [send-test-schedules]
+
+**What to test:**
+- A production deploy whose commit message contains `[send-test-schedules]` enqueues `DailyOrderReport` and `Daily Open Orders Report` after the Azure zip deploy.
+- A normal deploy without that marker does not enqueue.
+
+**Expected behavior:**
+- Same as Schedules → Run now on those two company rows. Test mode still applies.
+
+**Edge cases:**
+- Missing schedule name fails the enqueue step (deploy already succeeded).
+
+**Test file:** none (live Kudu; unit tests cannot reach App Service)
+
 ## Ordered Summary remainder from SP dollar amount
 
 **What to test:**

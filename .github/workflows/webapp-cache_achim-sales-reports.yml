@@ -83,3 +83,14 @@ jobs:
           app-name: 'achim-sales-reports'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}
+
+      # Cloud agents cannot Entra-login to click Run now. A commit message
+      # containing [send-test-schedules] enqueues DailyOrderReport + Daily Open
+      # Orders Report after this deploy, same as Run now (test mode still applies).
+      - name: Enqueue Daily Ordered and Heshy Open Orders
+        if: contains(github.event.head_commit.message, '[send-test-schedules]')
+        env:
+          PUBLISH_PROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}
+        run: |
+          sleep 20
+          python3 .github/scripts/kudu_enqueue_test_schedules.py

@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-26 Test send of Daily Ordered and Heshy Open Orders
+**What you asked for:** Run a test of the Daily Ordered report and the Heshy Open Orders schedule so you can see the mail.
+**What I chose:** Agents cannot sign in to the site (Entra). After deploy, a commit message with `[send-test-schedules]` uses the existing Azure publish profile to enqueue those two company schedules through Kudu, same as Run now. Test mode still mails the Settings test list with `[TEST]` and writes to `Direct Reports/Test`.
+**Why:** Unauthenticated `/api/master-schedules/.../run` is refused. This is the only unattended path that hits the live job worker.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Shipping $ and remainder have no fallback math
 **What you asked for:** Shipping $ and Extended Price Remainder should only show ShippingDollars from the SP. No fallback calculations.
 **What I chose:** Both columns are `ShippingDollars` only. Missing/blank is $0, same as other SP dollar fields. Open $ stays Ordered $ − Shipped $ − Cancelled $. Ordered builder_version 7.
