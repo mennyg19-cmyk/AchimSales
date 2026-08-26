@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-26 Azure Actions concurrency group renamed
+**What you asked for:** Ghost GitHub runs cannot be cancelled or deleted. That made it look like Actions could no longer deploy the site.
+**What I chose:** Rename the Azure workflow concurrency group from `deploy-achim-sales-reports` to `deploy-achim-sales-reports-v2`. Keep one-at-a-time deploys (`cancel-in-progress: false`). `deploy.ps1` stays the backup when Actions is wedged.
+**Why:** Those four runs are stuck with no jobs. GitHub will not cancel or delete them. The old group may keep every new Azure deploy waiting behind them. A new group name is a fresh lock. Pages ghosts do not use this group.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Ordered Fulfillment % on the rolled-up tabs
 **What you asked for:** Put fulfillment percentages back on the Ordered report, colored like the old runbooks.
 **What I had to decide:** Old runbooks had Fulfillment % on By Customer, By Item, By Order, By Salesman, and Full Data (red→yellow→green). Summary (customer + item) did not. v3 only had the column on Full Data.

@@ -13,8 +13,10 @@ on:
       - "cursor/**"
   workflow_dispatch:
 
+# Name bumped so the 2026-08-26 ghost "queued" runs (cannot cancel or delete)
+# do not hold this lock forever. Still one production deploy at a time.
 concurrency:
-  group: deploy-achim-sales-reports
+  group: deploy-achim-sales-reports-v2
   cancel-in-progress: false
 
 jobs:
