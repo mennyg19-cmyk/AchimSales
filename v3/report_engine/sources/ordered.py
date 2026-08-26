@@ -10,8 +10,8 @@ Two stored procedures feed OrderLineFact:
     powers the Ordered report. Qty columns are taken as the SP sends them
     (ordered / reserved / released / cancelled / delivery remainder). No
     QtyShipped derivation. SalesOrderName maps to customer name. PO # comes from
-    CustomerRequisition. Also maps purchid + ExpectedArrivalDate. Header
-    OrderStatus stays blank until the SP provides it.
+    CustomerRequisition. Also maps purchid, ExpectedArrivalDate, ShippingDateRequested,
+    and ShippingDollars. Header OrderStatus stays blank until the SP provides it.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ _ORDER_DATE_KEYS = ("OrderDate", "OrderCreationDateTime", "CreatedDateTime")
 # Ordered Full Data shows Ship Date when the SP starts sending it. Any of these
 # names is enough; missing/blank stays "" and must not fail the build.
 _SHIP_DATE_KEYS = (
-    "ShipDate", "ShippingDate", "RequestedShippingDate", "ConfirmedShipDate",
-    "DlvDate", "ShippingDateRequested", "ReceiptDateRequested", "shipdate",
+    "ShippingDateRequested", "ShipDate", "ShippingDate", "RequestedShippingDate",
+    "ConfirmedShipDate", "DlvDate", "ReceiptDateRequested", "shipdate",
 )
 
 
@@ -37,18 +37,11 @@ def _optional_ship_date(raw: Mapping) -> str:
     return iso_date(first_of(raw, *_SHIP_DATE_KEYS))
 
 
-_REMAINDER_DOLLAR_KEYS = (
-    "DeliveryRemainderDollarAmount",
-    "Delivery Remainder Dollar Amount",
-    "delivery remainder dollar amount",
-    "DeliveryRemainderAmount",
-    "DeliveryRemainderDollars",
-    "DeliveryRemainder $",
-)
+_SHIPPING_DOLLAR_KEYS = ("ShippingDollars", "Shipping $", "ShippingAmount")
 
 
-def _optional_remainder_dollars(raw: Mapping) -> float | None:
-    value = first_of(raw, *_REMAINDER_DOLLAR_KEYS)
+def _optional_shipping_dollars(raw: Mapping) -> float | None:
+    value = first_of(raw, *_SHIPPING_DOLLAR_KEYS)
     if value is None:
         return None
     return round(num(value), 2)
@@ -121,14 +114,14 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
         qty_reserved=num(first_of(raw, "QuantityReserved", "QtyReserved")),
         delivery_remainder=num(first_of(raw, "DeliveryRemainder", "QuantityRemainder", "QtyRemainder")),
         qty_left_to_load=0.0,
-        ordered_dollars=round(num(first_of(raw, "Ordered $", "OrderedDollars", "OrderedAmount")), 2),
-        shipped_dollars=round(num(first_of(raw, "Shipped $", "ShippedDollars", "ShippedAmount")), 2),
-        cancelled_dollars=round(num(first_of(raw, "Cancelled $", "CancelledDollars", "CancelledAmount")), 2),
+        ordered_dollars=round(num(first_of(raw, "OrderedDollars", "Ordered $", "OrderedAmount")), 2),
+        shipped_dollars=round(num(first_of(raw, "ShippedDollars", "Shipped $", "ShippedAmount")), 2),
+        cancelled_dollars=round(num(first_of(raw, "CancelledDollars", "Cancelled $", "CancelledAmount")), 2),
         purch_id=text(first_of(raw, "purchid", "PurchId", "PurchID")),
         expected_arrival_date=iso_date(first_of(
             raw, "ExpectedArrivalDate", "expectedarrivaldate", "ExpectedArrival")),
         ship_date=_optional_ship_date(raw),
-        delivery_remainder_dollars=_optional_remainder_dollars(raw),
+        shipping_dollars=_optional_shipping_dollars(raw),
     )
 
 

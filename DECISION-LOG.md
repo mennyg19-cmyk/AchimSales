@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-26 Ordered remainder is ShippingDollars
+**What you asked for:** PO # is CustomerRequisition. Ship Date is ShippingDateRequested. Summary Extended Price Remainder is ShippingDollars.
+**What I chose:** Map those three SP columns. Shipping $ on the other Ordered tabs also uses ShippingDollars when present (else released qty × price). Open $ stays Ordered $ − Shipped $ − Cancelled $. If ShippingDollars is missing, Summary remainder keeps that Open $ math so the report does not go to $0. Ordered builder_version 6.
+**Why:** Matches the ordered_report catalog. Remainder is the shipping-dollar column, not a separate delivery-remainder dollar field.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Ordered remainder dollars come from the SP
 **What you asked for:** Summary Extended Price Remainder should come from the stored procedure column “delivery remainder dollar amount,” not from Ordered $ − Shipped $ − Cancelled $.
 **What I chose:** Map that SP field (DeliveryRemainderDollarAmount and a few name variants) onto the Ordered line. Summary Extended Price Remainder and Open $ on the other Ordered tabs use it when present. If the column is missing, keep the old Ordered $ − Shipped $ − Cancelled $ math so the report does not go to $0 before the SP change lands. Ordered builder_version 5.

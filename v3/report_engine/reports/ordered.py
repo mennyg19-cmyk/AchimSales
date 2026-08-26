@@ -11,10 +11,10 @@ is the combined live QtyReleased+QtyShipped)::
     QtyCancelled    = CancelledQTY
     QtyLeftToShip   = DeliveryRemainder   ("qty left to ship")
 
-Dollar columns: Ordered/Cancelled $ from the SP; Shipping $ (= Released $)
-is qty_released × price (same combined qty as QTY Shipping). Extended Price
-Remainder / Open $ use the SP delivery remainder dollar amount when present,
-else Ordered $ − Shipped $ − Cancelled $. Shipped $ is not shown on Ordered tabs.
+Dollar columns: Ordered/Shipped/Cancelled $ from the SP. Shipping $ uses
+SP ShippingDollars when present, else released qty × price. Summary Extended
+Price Remainder is ShippingDollars; if that column is missing it falls back
+to Ordered $ − Shipped $ − Cancelled $. Shipped $ is not shown on Ordered tabs.
 
 LIVE also drops "ERROR ITEM" lines; we mirror that.
 """
@@ -31,7 +31,7 @@ STUB_FIELDS: tuple[str, ...] = ("OrderStatus",)
 STUB_NOTE = ("Order Status is blank until the ordered_report SP provides it. "
              "PO # comes from CustomerRequisition. Qty columns and "
              "Ordered/Cancelled $ come straight from the SP; Shipping $ is "
-             "released qty × price.")
+             "ShippingDollars when the SP sends it, else released qty × price.")
 
 _ERROR_ITEM_RE = re.compile(r"ERROR\s*ITEM", re.IGNORECASE)
 
@@ -180,6 +180,13 @@ def classify_line(f: OrderLineFact) -> dict:
 
 def _classify_ordered_line(f: OrderLineFact) -> dict:
     """Ordered report line: SP qty columns + SP dollars."""
+    open_dollars = round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2)
+    shipping = (
+        round(f.shipping_dollars, 2)
+        if f.shipping_dollars is not None
+        else round(f.qty_released * f.unit_price, 2)
+    )
+    remainder = round(f.shipping_dollars, 2) if f.shipping_dollars is not None else open_dollars
     return {
         "SalesOrderNumber": f.sales_order_number,
         "SalesOrderName":   f.sales_order_name,
@@ -206,15 +213,10 @@ def _classify_ordered_line(f: OrderLineFact) -> dict:
         "Ordered $":        f.ordered_dollars,
         "Shipped $":        f.shipped_dollars,
         "Cancelled $":      f.cancelled_dollars,
-        "Released $":       round(f.qty_released * f.unit_price, 2),
-        "Open $":           _open_dollars(f),
+        "Released $":       shipping,
+        "Open $":           open_dollars,
+        "Extended Price Remainder": remainder,
     }
-
-
-def _open_dollars(f: OrderLineFact) -> float:
-    if f.delivery_remainder_dollars is not None:
-        return round(f.delivery_remainder_dollars, 2)
-    return round(f.ordered_dollars - f.shipped_dollars - f.cancelled_dollars, 2)
 
 
 def _ff_pct(qty_ordered: float, qty_cancelled: float) -> float | None:
@@ -301,7 +303,7 @@ def _build_summary(lines: list[dict]) -> dict:
         g["QtyCancelled"] += ln["QtyCancelled"]
         g["QtyLeftToShip"] += ln["QtyLeftToShip"]
         g["Extended Price - Ordered"] += ln["Ordered $"]
-        g["Extended Price Remainder"] += ln["Open $"]
+        g["Extended Price Remainder"] += ln["Extended Price Remainder"]
 
     for g in grouped.values():
         qo = g["QtyOrdered"]

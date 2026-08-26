@@ -43,7 +43,7 @@ class ReportSpec:
 REGISTRY: tuple[ReportSpec, ...] = (
     # v3: Fulfillment % on By Customer / By Item / By Order / By Salesman
     # (plus Full Data). Cached v2 payloads must not be reused.
-    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=5, salesman_default=True),
+    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=6, salesman_default=True),
     ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
     # v3: YTD tabs derived from the rolling-12 pivot; By Item drops money;
