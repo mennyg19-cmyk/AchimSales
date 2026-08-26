@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-26 Oversized schedule mail gets a download button
+**What you asked for:** The Daily 5am Number 4 mail said the 13.4 MB workbook was too large to attach, and told you to download it from SharePoint or export it from the app — with no link. Test-mode files must not land in the live Daily/YTD folders.
+**What I had to decide:** Test mode used to skip SharePoint entirely. Graph then refuses anything over ~3 MB, so the body had no URL. Whether to write test runs into the real Daily folder, skip SharePoint (no link), or dump into a separate test folder.
+**What I chose:** Test mode still emails only the test list. If the schedule has a SharePoint path, the file goes to `Direct Reports/Test`, never to the live folder. Oversized Graph mail (no live folder, or Email me) also lands in `Test`. The mail includes an Outlook-safe blue **Download workbook** button plus the raw URL in the plain-text part. A failed Test-folder upload does not fail the email. Split salesman files stay email-only.
+**Why:** You need a clickable download in the inbox, and test dumps must not mix with production Daily/YTD. Graph wraps mail as HTML, so a `<pre>` of the old text could never render a button.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-25 Preset salesman/status must ride along even if the dropdown is empty
 **What you asked for:** Heshy Open Orders should only run open orders for Heshy. The preset did not keep those filters.
 **What I chose:** Keep the saved salesman on `pendingSalesman` until the dropdown actually has that option. `collectParams` sends that value even when the list is still loading. Status “Open” maps to “Open order”. Home-card URLs still include salesman and status.

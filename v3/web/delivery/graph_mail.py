@@ -7,6 +7,7 @@ on the App Service. Stdlib HTTP + msal (already a v3 dep).
 from __future__ import annotations
 
 import base64
+import html
 import json
 import logging
 import urllib.error
@@ -64,9 +65,16 @@ class GraphMailer:
         xlsx_bytes: bytes | None = None,
         cc: list[str] | None = None,
         bcc: list[str] | None = None,
+        body_html: str | None = None,
     ) -> None:
-        safe_body = (body_text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        html_body = "<pre style='font-family:inherit;white-space:pre-wrap'>" + safe_body + "</pre>"
+        if body_html:
+            html_body = body_html
+        else:
+            safe_body = html.escape(body_text or "")
+            html_body = (
+                "<pre style='font-family:inherit;white-space:pre-wrap'>"
+                + safe_body + "</pre>"
+            )
         message = {
             "subject": subject,
             "body": {"contentType": "HTML", "content": html_body},

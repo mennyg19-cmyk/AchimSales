@@ -5,7 +5,9 @@ attempt to the ``outbox`` table.
 
 Graph sendMail rejects workbooks over ~3 MB (YTD Ordered is the usual case).
 Those go out as a link-only email after the file is uploaded to SharePoint /
-OneDrive. A 413/size rejection also retries once without the attachment.
+OneDrive, with an HTML download button. Test-mode dumps go to Direct Reports/Test,
+never the live Daily/YTD folder. A 413/size rejection also retries once without
+the attachment.
 
 When neither Graph nor SMTP is configured the ``.eml`` + outbox row are the
 delivery record — nothing is silently dropped, but nothing reaches an inbox
@@ -14,6 +16,7 @@ either (that was the Friday “success with no email” failure mode).
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 from dataclasses import dataclass, field
@@ -24,7 +27,7 @@ from uuid import uuid4
 from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
 from web.delivery.graph_mail import GraphMailError, GraphMailer
-from web.delivery.sharepoint import SharePointService
+from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.delivery.onedrive import OneDriveService
 
 log = logging.getLogger(__name__)
@@ -36,6 +39,9 @@ _XLSX_MIME = "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # ~33%. Keep the raw workbook under 2.5 MB or Graph rejects the send (the
 # "Microsoft Graph rejected the send (HTTP 413/400)" failure on YTD Ordered).
 MAX_GRAPH_ATTACH_BYTES = 2_500_000
+
+# Same blue as the app header / primary buttons (tokens.css --primary).
+_BTN_BG = "#2563eb"
 
 
 def split_recipients(raw: str) -> list[str]:
@@ -62,24 +68,61 @@ def _is_size_rejection(exc: GraphMailError) -> bool:
     ))
 
 
-def _email_body(body_text: str, report_name: str, filename: str,
-                xlsx_bytes: bytes | None, attach: bytes | None, folder_url: str | None) -> str:
-    if attach is not None:
-        return body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n"
-    if not xlsx_bytes:
-        return (body_text or report_name).rstrip() + "\n"
+def _oversize_notice(filename: str, xlsx_bytes: bytes) -> str:
     mb = len(xlsx_bytes) / (1024 * 1024)
-    lines = [
-        (body_text or report_name).rstrip(),
-        "",
+    return (
         f"The workbook {filename} is {mb:.1f} MB — too large to attach to email "
-        "(Microsoft Graph rejects messages over ~3 MB).",
-    ]
-    if folder_url:
-        lines.append(f"Download it here: {folder_url}")
-    else:
-        lines.append("Download it from SharePoint or export it from the app.")
-    return "\n".join(lines) + "\n"
+        "(Microsoft Graph rejects messages over ~3 MB)."
+    )
+
+
+def _download_email_html(intro: str, filename: str, xlsx_bytes: bytes, file_url: str) -> str:
+    """Outlook-safe HTML: table cell + <a>, not CSS buttons (those get stripped)."""
+    mb = len(xlsx_bytes) / (1024 * 1024)
+    intro_html = html.escape(intro).replace("\n", "<br>")
+    name_html = html.escape(filename)
+    href = html.escape(file_url, quote=True)
+    url_html = html.escape(file_url)
+    return (
+        '<div style="font-family:Segoe UI,Calibri,Arial,sans-serif;font-size:15px;'
+        'line-height:1.5;color:#1e293b;">'
+        f'<p style="margin:0 0 16px;">{intro_html}</p>'
+        f'<p style="margin:0 0 20px;">The workbook <strong>{name_html}</strong> is '
+        f"{mb:.1f} MB — too large to attach to email "
+        "(Microsoft Graph rejects messages over ~3 MB).</p>"
+        '<table role="presentation" cellspacing="0" cellpadding="0" border="0" '
+        'style="margin:0 0 16px;">'
+        f'<tr><td align="center" bgcolor="{_BTN_BG}" style="border-radius:6px;'
+        f'background-color:{_BTN_BG};">'
+        f'<a href="{href}" target="_blank" '
+        'style="display:inline-block;padding:12px 22px;'
+        "font-family:Segoe UI,Calibri,Arial,sans-serif;font-size:15px;font-weight:600;"
+        'color:#ffffff;text-decoration:none;">Download workbook</a>'
+        "</td></tr></table>"
+        '<p style="margin:0;font-size:13px;color:#64748b;">'
+        "If the button does not open, copy this link:<br>"
+        f'<a href="{href}" style="color:{_BTN_BG};word-break:break-all;">{url_html}</a></p>'
+        "</div>"
+    )
+
+
+def _email_bodies(
+    body_text: str, report_name: str, filename: str,
+    xlsx_bytes: bytes | None, attach: bytes | None, file_url: str | None,
+) -> tuple[str, str | None]:
+    """Plain text plus optional HTML (download button when the file is too big)."""
+    if attach is not None:
+        text = body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n"
+        return text, None
+    if not xlsx_bytes:
+        return (body_text or report_name).rstrip() + "\n", None
+    intro = (body_text or report_name).rstrip()
+    notice = _oversize_notice(filename, xlsx_bytes)
+    if file_url:
+        text = f"{intro}\n\n{notice}\nDownload it here: {file_url}\n"
+        return text, _download_email_html(intro, filename, xlsx_bytes, file_url)
+    text = f"{intro}\n\n{notice}\nDownload it from SharePoint or export it from the app.\n"
+    return text, None
 
 
 @dataclass
@@ -138,15 +181,27 @@ class EmailService:
         if not recipients and not folder_path:
             return DeliveryResult(ok=False, error="No valid recipients.")
 
+        attach = xlsx_bytes if _graph_attachable(xlsx_bytes) else None
+        # Oversized Graph mail needs a file URL. Test mode must not write the
+        # live Daily/YTD folder — use Test under Direct Reports instead.
+        # A failed fallback upload must not fail the email.
+        upload_path = folder_path
+        if not upload_path and attach is None and xlsx_bytes and filename and (
+                recipients or cc or bcc):
+            upload_path = TEST_SHAREPOINT_FOLDER
+
         # Upload first so a link-only email (YTD / other large workbooks) can
         # include the SharePoint or OneDrive URL instead of a rejected Graph send.
         sp_saved, sp_url, sp_err = self._maybe_folder(
-            folder_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
+            upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
+        record_path = folder_path or (upload_path if sp_saved else None)
+        if not folder_path:
+            sp_err = None if not sp_saved else sp_err
 
-        attach = xlsx_bytes if _graph_attachable(xlsx_bytes) else None
-        body = _email_body(body_text, report_name, filename, xlsx_bytes, attach, sp_url)
+        body, body_html = _email_bodies(
+            body_text, report_name, filename, xlsx_bytes, attach, sp_url)
         msg = self._compose(subject, recipients, body, report_name, filename, attach,
-                            cc=cc, bcc=bcc)
+                            cc=cc, bcc=bcc, body_html=body_html)
         eml_name = self._write_eml(msg, report_name)
 
         sent = False
@@ -157,14 +212,14 @@ class EmailService:
                 try:
                     self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
-                        filename, attach,
+                        filename, attach, body_html=body_html,
                     )
                     sent = True
                     channel = "graph"
                 except GraphMailError as exc:
                     log.exception("Graph send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        channel="", sp_path=folder_path, sp_saved=sp_saved,
+                                        channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
                                         error=f"Graph failed: {exc}")
             elif self.cfg.smtp_host:
@@ -175,21 +230,21 @@ class EmailService:
                 except Exception as exc:  # noqa: BLE001 - record, never crash the run
                     log.exception("SMTP send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        channel="", sp_path=folder_path, sp_saved=sp_saved,
+                                        channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
                                         error=f"SMTP failed: {exc}")
             else:
                 channel = "outbox"
 
         result = self._record(subject, recipients, filename, eml_name, sent=sent,
-                              channel=channel, sp_path=folder_path, sp_saved=sp_saved,
+                              channel=channel, sp_path=record_path, sp_saved=sp_saved,
                               sp_url=sp_url, sp_error=sp_err)
         return result
 
     # -- internals ----------------------------------------------------------
 
     def _compose(self, subject, recipients, body_text, report_name, filename, xlsx_bytes,
-                 cc=None, bcc=None):
+                 cc=None, bcc=None, body_html=None):
         msg = EmailMessage()
         msg["Subject"] = subject or report_name
         msg["From"] = self.cfg.email_from
@@ -200,6 +255,8 @@ class EmailService:
             msg["Bcc"] = ", ".join(bcc)
         msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
         msg.set_content(body_text or f"{report_name}\n\nSee the attached workbook: {filename}\n")
+        if body_html:
+            msg.add_alternative(body_html, subtype="html")
         if filename and xlsx_bytes:
             msg.add_attachment(xlsx_bytes, maintype="application", subtype=_XLSX_MIME, filename=filename)
         return msg
@@ -223,13 +280,14 @@ class EmailService:
                 s.login(self.cfg.smtp_user, self.cfg.smtp_password)
             s.send_message(msg, from_addr=self.cfg.email_from, to_addrs=recipients)
 
-    def _graph_send(self, graph, recipients, cc, bcc, subject, body, filename, attach):
+    def _graph_send(self, graph, recipients, cc, bcc, subject, body, filename, attach,
+                    body_html=None):
         to = recipients or [self.cfg.email_from]
         try:
             graph.send(
                 sender=self.cfg.email_from, to=to, subject=subject, body_text=body,
-                filename=filename if attach else "", xlsx_bytes=attach,
-                cc=cc or None, bcc=bcc or None,
+                body_html=body_html, filename=filename if attach else "",
+                xlsx_bytes=attach, cc=cc or None, bcc=bcc or None,
             )
         except GraphMailError as exc:
             if attach is None or not _is_size_rejection(exc):
@@ -242,7 +300,8 @@ class EmailService:
             )
             graph.send(
                 sender=self.cfg.email_from, to=to, subject=subject, body_text=retry_body,
-                filename="", xlsx_bytes=None, cc=cc or None, bcc=bcc or None,
+                body_html=None, filename="", xlsx_bytes=None,
+                cc=cc or None, bcc=bcc or None,
             )
 
     def _maybe_folder(self, path, filename, xlsx_bytes, *, onedrive_user: str | None):

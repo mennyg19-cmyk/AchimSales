@@ -22,6 +22,26 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Oversized Graph email: download button
+
+**What to test:**
+- Workbooks at/over `MAX_GRAPH_ATTACH_BYTES` are not attached; Graph `xlsx_bytes` is None.
+- With a live SharePoint path (test mode off), the file URL is in the plain-text body and in HTML (`Download workbook` button, brand `#2563eb`).
+- With no path, the file uploads to `Test` under Direct Reports and the button/link use that URL.
+- Company test mode with a live folder (e.g. Invoiced Report/Daily) passes `sharepoint_path=Test`, never the live path. Split legs stay `sharepoint_path=""`.
+- If the Test-folder upload fails, the email still sends; delivery is not marked failed.
+
+**Expected behavior:**
+- Outlook shows a blue Download workbook button that opens the SharePoint file in `Direct Reports/Test` (test mode) or the live folder (test mode off).
+- Plain-text clients still get `Download it here: <url>`.
+- Live Daily/YTD/Monthly folders are never written while test mode is on.
+
+**Edge cases:**
+- Requested live SharePoint path that fails still fails the whole delivery (unchanged).
+- Graph 413 on a small attachment still retries once without the file.
+
+**Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`
+
 ## Number 4: YTD tabs, By Item no money, group by item
 
 **What to test:**
@@ -372,7 +392,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Admin can save several test emails and turn test mode on; cannot turn on with an empty list.
 - Salesman cannot POST the API.
-- Company schedule Run now in test mode emails only the test list, `[TEST]` subject, no SharePoint.
+- Company schedule Run now in test mode emails only the test list, `[TEST]` subject, SharePoint dumps to `Test` (not the live Daily/YTD folder).
 - Split schedules still fan out in test mode; every file goes to the test list with the salesman in the subject/filename.
 - Personal schedules ignore test mode.
 - Test mode on with no emails fails the run instead of sending to stored recipients.

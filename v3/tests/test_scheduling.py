@@ -23,7 +23,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult, EmailService
 from web.delivery.service import DeliveryOutcome, DeliveryService
-from web.delivery.sharepoint import SharePointService
+from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.scheduling import cadence as C
 from web.scheduling.runner import ScheduleRunner
 from web.reporting.cache import ReportCache
@@ -382,7 +382,7 @@ def test_runner_master_test_mode_redirects_and_skips_sharepoint(tmp_path):
     assert len(delivery.calls) == 1
     call = delivery.calls[0]
     assert call["recipients"] == "menny@x.com; other@x.com"
-    assert call["sharepoint_path"] == ""
+    assert call["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
     assert call["onedrive_user"] == ""
     assert call["cc_raw"] == ""
     assert call["subject"].startswith("[TEST] ")
@@ -476,7 +476,8 @@ def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
     runner.run(mid, MASTER)
     assert len(delivery.calls) == 3
     assert all(c["recipients"] == "menny@x.com" for c in delivery.calls)
-    assert all(c["sharepoint_path"] == "" for c in delivery.calls)
+    assert delivery.calls[0]["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
+    assert all(c["sharepoint_path"] == "" for c in delivery.calls[1:])
     assert delivery.calls[0]["subject"].startswith("[TEST] ")
     assert delivery.calls[0]["params"] == {}
     assert [c["params"].get("salesman") for c in delivery.calls[1:]] == [["MKolko"], ["AGrossman"]]

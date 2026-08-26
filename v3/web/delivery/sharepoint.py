@@ -25,6 +25,10 @@ TIMEOUT = 30
 UPLOAD_TIMEOUT = 120
 REPORTS_SUBFOLDER = "Direct Reports"
 
+# Company test-mode uploads land here (under Direct Reports). Never write
+# test runs into live Daily / YTD / Monthly folders.
+TEST_SHAREPOINT_FOLDER = "Test"
+
 
 def strip_reports_home(path: str) -> str:
     """Drop a duplicated Direct Reports prefix. That folder is already the drive root."""

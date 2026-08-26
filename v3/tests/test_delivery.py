@@ -13,7 +13,7 @@ from web.delivery.graph_mail import GraphMailError
 from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.service import DeliveryService
 from web.delivery.onedrive import onedrive_children_url
-from web.delivery.sharepoint import SharePointService
+from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 
 
 def _cfg(tmp_path, **over) -> Config:
@@ -240,7 +240,60 @@ def test_graph_omits_attachment_when_workbook_too_large(tmp_path):
     assert graph.calls[0]["filename"] == ""
     assert "too large" in graph.calls[0]["body_text"].lower()
     assert "mock://Ordered/YTD/Ordered_Report_YTD.xlsx" in graph.calls[0]["body_text"]
+    html = graph.calls[0]["body_html"]
+    assert "Download workbook" in html
+    assert "mock://Ordered/YTD/Ordered_Report_YTD.xlsx" in html
+    assert "#2563eb" in html
     assert res.sharepoint_saved is True
+
+
+def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    folders = []
+
+    def up(folder, name, content):
+        folders.append(folder)
+        return {"webUrl": f"https://achim.sharepoint.com/{folder}/{name}",
+                "name": name, "id": "1"}
+
+    svc.sharepoint.upload_file = up  # type: ignore[method-assign]
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(
+        subject="Daily 5am Number 4", recipients_raw="a@x.com", body_text="",
+        report_name="Number 4", filename="Daily_5am_Number_4.xlsx",
+        xlsx_bytes=big, sharepoint_path="",
+    )
+    assert res.ok and res.send_channel == "graph"
+    assert folders == [TEST_SHAREPOINT_FOLDER]
+    url = "https://achim.sharepoint.com/Test/Daily_5am_Number_4.xlsx"
+    assert url in graph.calls[0]["body_text"]
+    html = graph.calls[0]["body_html"]
+    assert "Download workbook" in html
+    assert url in html
+    assert graph.calls[0]["xlsx_bytes"] is None
+    assert res.sharepoint_saved is True
+    assert res.sharepoint_url == url
+
+
+def test_graph_oversize_fallback_upload_failure_still_sends_email(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+
+    def boom(*a, **k):
+        raise RuntimeError("graph 500")
+
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="",
+        report_name="Ordered", filename="big.xlsx", xlsx_bytes=big,
+    )
+    assert res.ok and res.send_channel == "graph"
+    assert graph.calls[0]["xlsx_bytes"] is None
+    assert "Download it from SharePoint" in graph.calls[0]["body_text"]
+    assert graph.calls[0]["body_html"] is None
+    assert res.sharepoint_saved is False
 
 
 def test_graph_retries_without_attachment_after_413(tmp_path):

@@ -28,6 +28,7 @@ from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
+from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
@@ -38,6 +39,13 @@ log = logging.getLogger(__name__)
 # last word. [FAIL] mail goes out only after this is exhausted.
 _TRANSIENT_ATTEMPTS = 2
 _TRANSIENT_RETRY_WAIT_S = 30
+
+
+def _sharepoint_for_test(test_to, live_path: str) -> str:
+    """Test mode writes to Test, never to the live Daily/YTD folder."""
+    if not test_to:
+        return live_path or ""
+    return TEST_SHAREPOINT_FOLDER if live_path else ""
 
 
 class ScheduleRunner:
@@ -178,7 +186,7 @@ class ScheduleRunner:
                         params=_report_params(params), layout=sched.layout,
                         recipients="; ".join(test_to) if test_to else sched.recipients,
                         subject=subject, report_name=report_name,
-                        sharepoint_path="" if test_to else sched.sharepoint_path,
+                        sharepoint_path=_sharepoint_for_test(test_to, sched.sharepoint_path),
                         filename_template=getattr(sched, "filename_template", "") or "",
                         onedrive_user=od_user,
                         cc_raw="" if test_to else str(params.get("email_cc") or ""),
@@ -307,7 +315,7 @@ class ScheduleRunner:
                 recipients=test_recips if test_to else sched.recipients,
                 subject=subject,
                 report_name=report_name,
-                sharepoint_path="" if test_to else sched.sharepoint_path,
+                sharepoint_path=_sharepoint_for_test(test_to, sched.sharepoint_path),
                 filename_template=getattr(sched, "filename_template", "") or "",
                 onedrive_user="" if test_to else onedrive_user,
                 schedule_name=sched_name,
