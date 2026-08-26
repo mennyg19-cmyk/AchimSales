@@ -22,6 +22,27 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Company views (Daily Ordered / Heshy Open Orders)
+
+**What to test:**
+- `company_views` upsert rejects Default/Custom; GET presets includes `company`.
+- Managers/admins PUT a company view; salesmen GET (`can_edit` false) and 403 on PUT.
+- Home page shows a Company views section with `?cview=` links.
+- Boot stamps daily company Ordered schedules with Daily Ordered (salesman then customer). Salesman-split and already-named views are left alone. Heshy open-orders (Hkaufman + Open) gets Heshy Open Orders (Full Data only, hide LineNumber, sort customer then order, group by order).
+- Send with that view name uses the live company layout even if the schedule snapshot is stale.
+- Excel nested groups write banners/totals per level. Sort-then-group keeps customer clusters and does not add a customer total when the only group field is order number.
+- Ordered Full Data has CustomerName and ShipDate. Missing SP Ship Date stays blank and still builds.
+
+**Expected behavior:**
+- Saved views lists Default, then company views, then personal. Wizard has a Company views optgroup. Schedules View column shows the stamped names.
+- Daily Ordered emails group By Customer by salesman then customer. Heshy’s file is one Full Data sheet, customers together, totals per order, no LineNumber.
+
+**Edge cases:**
+- Layout `order` listing ShipDate when the column is absent does not fail (`apply_layout` skips unknown fields).
+- Nested Excel groups still honour hidden group fields (existing single-group tests).
+
+**Test files:** `v3/tests/test_company_views.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_reporting.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_frontend.py`
+
 ## Default view per report
 
 **What to test:**

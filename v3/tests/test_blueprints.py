@@ -811,6 +811,7 @@ def test_default_view_get_put_and_presets_include_it(tmp_path):
     listed = client.get("/api/reports/ordered/presets").get_json()
     assert listed["default"]["layout"]["active"] == "summary"
     assert listed["presets"] == []
+    assert listed["company"] == []
 
 
 def test_salesman_cannot_edit_default_view(tmp_path):
@@ -823,6 +824,58 @@ def test_salesman_cannot_edit_default_view(tmp_path):
     put = client.put(
         "/api/reports/ordered/default-view",
         json={"params": {}, "layout": {"active": "x"}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert put.status_code == 403
+
+
+def test_company_views_list_put_and_home_cards(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    empty = client.get("/api/reports/ordered/presets").get_json()
+    assert empty["company"] == []
+    saved = client.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Daily Ordered", "params": {"period": "yesterday"},
+              "layout": {"active": "by_customer",
+                         "views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    body = saved.get_json()
+    assert body["name"] == "Daily Ordered" and body["kind"] == "company"
+    listed = client.get("/api/reports/ordered/presets").get_json()
+    assert listed["company"][0]["name"] == "Daily Ordered"
+    one = client.get(f"/api/reports/ordered/company-views/{body['id']}").get_json()
+    assert one["layout"]["active"] == "by_customer"
+    home = client.get("/").get_data(as_text=True)
+    assert "Company views" in home and "Daily Ordered" in home
+    reserved = client.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Default", "params": {}, "layout": {}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert reserved.status_code == 400
+
+
+def test_salesman_cannot_edit_company_view(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    saved = admin.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Heshy Open Orders", "params": {}, "layout": {"order": ["full_data"]}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    listed = rep.get("/api/reports/ordered/presets").get_json()
+    assert listed["company"][0]["can_edit"] is False
+    put = rep.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Heshy Open Orders", "params": {}, "layout": {"order": ["summary"]}},
         headers={"X-CSRF-Token": _CSRF},
     )
     assert put.status_code == 403

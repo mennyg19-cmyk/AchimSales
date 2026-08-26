@@ -39,6 +39,22 @@
 </div>
 {% endif %}
 
+{% if company_views %}
+<h2 class="section-title">Company views</h2>
+<div class="report-grid">
+    {% for s in company_views %}
+    <a class="report-card" href="{{ s.url }}">
+        <div class="report-card-icon"><i data-feather="globe"></i></div>
+        <div class="report-card-body">
+            <div class="report-card-title">{{ s.name }}</div>
+            <div class="report-card-meta">{{ s.report_title }} &middot; company view</div>
+        </div>
+        <i data-feather="chevron-right" class="report-card-arrow"></i>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
 {% if presets %}
 <h2 class="section-title">My presets</h2>
 <div class="report-grid">

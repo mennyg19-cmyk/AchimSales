@@ -64,9 +64,10 @@ slot. Manual zip deploy is still `deploy.ps1`.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
-Each report has a company **Default** view (the current tab/column layout).
-Managers and admins edit it from Saved views. New schedules use Default;
-the schedules page shows Default or the saved-view name.
+Each report has a company **Default** view (the current tab/column layout)
+plus named **company views** everyone can pick (Daily Ordered, Heshy Open Orders).
+Managers and admins edit them from Saved views. New schedules use Default;
+the schedules page shows Default, the company-view name, or Custom.
 
 ```powershell
 .\deploy.ps1              # build zip and deploy to Azure

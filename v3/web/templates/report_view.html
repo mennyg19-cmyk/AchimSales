@@ -192,6 +192,8 @@
      data-presets-url="{{ url_for('reports.report_presets', report_key=report.key) }}"
      data-preset-url="{{ url_for('reports.get_preset', preset_id=0) }}"
      data-default-url="{{ url_for('reports.get_default_view', report_key=report.key) }}"
+     data-company-view-url="{{ url_for('reports.get_company_view', report_key=report.key, view_id=0) }}"
+     data-company-views-url="{{ url_for('reports.put_company_view', report_key=report.key) }}"
      data-can-edit-default="{{ '1' if can_edit_default else '' }}"
      data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"

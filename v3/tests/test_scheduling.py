@@ -152,6 +152,41 @@ def test_runner_default_view_uses_company_layout_when_schedule_layout_empty(tmp_
     assert seeded["layout"]["order"] == ["summary"]
 
 
+def test_runner_company_named_view_uses_live_layout(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.company_views import CompanyViewRepository
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin")
+    live = {"active": "by_customer", "views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}
+    CompanyViewRepository(db).upsert(
+        "ordered", "Daily Ordered", params={"period": "yesterday"},
+        layout=live, updated_by=None)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "DailyOrderReport", params={"period": "yesterday"},
+        layout={"order": ["old"]}, cadence={"freq": "daily", "time": "00:00"},
+        recipients="a@x.com", view_name="Daily Ordered")
+    runner.run(mid, MASTER)
+    assert delivery.calls[0]["layout"]["views"]["by_customer"]["group"] == [
+        "Salesman", "CustomerName"]
+
+
 def test_runner_master_runs_unrestricted(stack):
     db, runner = stack
     mid = MasterScheduleRepository(db).create("ordered", "Nightly", params={}, layout={},

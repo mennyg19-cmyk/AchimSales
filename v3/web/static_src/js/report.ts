@@ -1587,7 +1587,7 @@ async function resumeInFlight(): Promise<boolean> {
   if (!url || !key) return false;
   const q = new URLSearchParams(window.location.search);
   const wanted = q.get("job");
-  if (q.get("preset") && !wanted) return false;
+  if ((q.get("preset") || q.get("cview")) && !wanted) return false;
   let jobs: { job_id: string; report_key: string | null; status: string; age_seconds: number | null }[];
   try {
     const data = await fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
@@ -1739,6 +1739,7 @@ let editingPresetId: number | string | null = null;
 let editingPresetName: string | null = null;
 let autoRunRequested = false;                 // ?preset=<id> deep-link wants an auto-run
 const DEFAULT_VIEW_ID = "default";
+const COMPANY_VIEW_PREFIX = "c-";
 let companyDefaultLayout: SavedLayout | null = null;
 let companyDefaultParams: Record<string, unknown> = {};
 
@@ -2155,6 +2156,10 @@ function presetUrl(id: number | string): string {
 
 const csrfHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": attr("data-csrf") });
 
+function companyViewGetUrl(id: number | string): string {
+  return attr("data-company-view-url").replace(/\/0$/, `/${id}`);
+}
+
 async function saveView(): Promise<void> {
   if (isDefaultViewId(editingPresetId) || editingPresetName === "Default") {
     if (attr("data-can-edit-default") !== "1") {
@@ -2174,6 +2179,25 @@ async function saveView(): Promise<void> {
       setStatus("Updated Default.");
     } catch {
       setStatus("Could not save Default. Please try again.", "error");
+    }
+    return;
+  }
+  if (isCompanyViewId(editingPresetId) && editingPresetName) {
+    if (attr("data-can-edit-default") !== "1") {
+      setStatus("Only managers and admins can change company views.", "error");
+      return;
+    }
+    try {
+      const res = await fetch(attr("data-company-views-url"), {
+        method: "PUT", headers: csrfHeaders(),
+        body: JSON.stringify({
+          name: editingPresetName, params: collectParams(), layout: serializeLayout(),
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setStatus(`Updated “${editingPresetName}”.`);
+    } catch {
+      setStatus("Could not save this company view. Please try again.", "error");
     }
     return;
   }
@@ -2259,6 +2283,10 @@ function isDefaultViewId(id: unknown): boolean {
   return id === DEFAULT_VIEW_ID || id === "Default";
 }
 
+function isCompanyViewId(id: unknown): boolean {
+  return typeof id === "string" && id.startsWith(COMPANY_VIEW_PREFIX);
+}
+
 function applyPendingOrDefaultLayout(): void {
   if (pendingLayout) {
     applyLayout(pendingLayout);
@@ -2288,9 +2316,17 @@ function appendPresetRow(
   open.type = "button";
   open.className = "presets-open";
   open.textContent = preset.name;
-  open.title = isDefaultViewId(preset.id) ? "Run the Default view" : "Run this saved view";
+  open.title = isDefaultViewId(preset.id)
+    ? "Run the Default view"
+    : (isCompanyViewId(preset.id) ? "Run this company view" : "Run this saved view");
   open.addEventListener("click", () => { closePresetsPanel(); loadPreset(preset); });
   row.appendChild(open);
+  if (isCompanyViewId(preset.id)) {
+    const tag = document.createElement("span");
+    tag.className = "presets-kind";
+    tag.textContent = "company";
+    row.appendChild(tag);
+  }
   if (opts.canEdit) {
     const edit = document.createElement("button");
     edit.type = "button";
@@ -2325,8 +2361,10 @@ async function togglePresetsPanel(): Promise<void> {
   if ($("presetsPanel")) { closePresetsPanel(); return; }
   const data = await getJSON<{
     default?: { name?: string; params?: Record<string, unknown>; layout?: SavedLayout; can_edit?: boolean };
+    company?: any[];
     presets: any[];
   }>(attr("data-presets-url"));
+  const company = data?.company || [];
   const presets = data?.presets || [];
   const panel = document.createElement("div");
   panel.id = "presetsPanel";
@@ -2339,12 +2377,29 @@ async function togglePresetsPanel(): Promise<void> {
     layout: data?.default?.layout || companyDefaultLayout || undefined,
     can_edit: canEditDefault,
   }, { canDelete: false, canEdit: canEditDefault });
+  if (company.length) {
+    const head = document.createElement("div");
+    head.className = "presets-section";
+    head.textContent = "Company views";
+    panel.appendChild(head);
+    company.forEach((p) => {
+      appendPresetRow(panel, { ...p, id: `${COMPANY_VIEW_PREFIX}${p.id}` }, {
+        canDelete: false, canEdit: !!p.can_edit,
+      });
+    });
+  }
   if (!presets.length) {
-    const empty = document.createElement("div");
-    empty.className = "presets-empty";
-    empty.textContent = "No other saved views yet. Use “Save this view”.";
-    panel.appendChild(empty);
+    if (!company.length) {
+      const empty = document.createElement("div");
+      empty.className = "presets-empty";
+      empty.textContent = "No other saved views yet. Use “Save this view”.";
+      panel.appendChild(empty);
+    }
   } else {
+    const head = document.createElement("div");
+    head.className = "presets-section";
+    head.textContent = "My views";
+    panel.appendChild(head);
     presets.forEach((p) => {
       appendPresetRow(panel, p, { canDelete: true, canEdit: true });
     });
@@ -2377,7 +2432,16 @@ function loadPreset(preset: {
 }
 
 async function autoOpenPresetIfRequested(): Promise<void> {
-  const id = new URLSearchParams(window.location.search).get("preset");
+  const q = new URLSearchParams(window.location.search);
+  const cview = q.get("cview");
+  if (cview) {
+    const view = await getJSON<any>(companyViewGetUrl(cview));
+    if (view?.params) applyParamsObject(view.params);
+    if (view?.layout) pendingLayout = view.layout;
+    autoRunRequested = true;
+    return;
+  }
+  const id = q.get("preset");
   if (!id) return;
   if (id === DEFAULT_VIEW_ID) {
     await loadCompanyDefault();

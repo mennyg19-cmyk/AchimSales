@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-26 Company views for Daily Ordered and Heshy Open Orders
+**What you asked for:** A Daily Ordered view grouped by salesman then customer on By Customer, applied to every daily company Ordered send. A Heshy Open Orders view with Full Data only, sorted by customer, grouped by order (order totals, no customer total), no LineNumber. Ship Date on Ordered in general without failing if the SP does not send it yet. Company-wide views. Test sends of yesterday Ordered and the open-orders report.
+**What I had to decide:** Whether to change By Customer’s default group for every Ordered use; whether Excel grouping could stay single-level; whether named company views live at send or stay as schedule snapshots.
+**What I chose:** Named company views in `company_views`, shared like Default. Daily Ordered is salesman then customer on By Customer only — the builder’s default group stays salesman-only. Heshy Open Orders is Full Data only: sort customer then order number, group on order number. Excel nested groups + sorter-aware sort so a second group and a customer sort both survive the file. Send uses the live company view when the schedule’s View name matches. Ship Date is always on Full Data; blank if the SP has no column. Ordered builder_version 4. Boot seeds the two views and stamps matching daily company schedules (not salesman-split files).
+**Why:** One named view per job, visible to everyone, editable by managers. Changing the global By Customer default would regroup salesman-split files and anyone still on Default.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Default view per report
 **What you asked for:** A Default view for every report matching how it looks now, a way to edit those defaults, the schedule wizard showing Default as the view, and the schedules page showing which view each row uses.
 **What I had to decide:** Company-wide vs per-user Default; whether editing Default rewrites existing scheduled files; who can edit.

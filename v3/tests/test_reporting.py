@@ -348,6 +348,76 @@ def test_export_grouped_adds_subtotals_and_grand_total():
     assert grand[1].value == 22                                     # 10 + 5 + 7
 
 
+def test_export_nested_groups_subtotals_each_level():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "CustomerName", "header": "CustomerName", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "CustomerName": "Zed", "Amt": 1},
+            {"Salesman": "A", "CustomerName": "Zed", "Amt": 2},
+            {"Salesman": "A", "CustomerName": "Ann", "Amt": 3},
+            {"Salesman": "B", "CustomerName": "Zed", "Amt": 4},
+        ],
+    }]}
+    layout = {"views": {"t": {"group": ["Salesman", "CustomerName"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    col_a = [c.value for c in wb["T"]["A"]]
+    assert col_a.index("Salesman: A") < col_a.index("CustomerName: Ann")
+    assert col_a.index("CustomerName: Ann") < col_a.index("Total \u2014 Ann")
+    assert col_a.index("Total \u2014 Ann") < col_a.index("CustomerName: Zed")
+    assert col_a.index("Total \u2014 Zed") < col_a.index("Total \u2014 A")
+    assert col_a.index("Total \u2014 A") < col_a.index("Salesman: B")
+    assert "Grand total" in col_a
+    ann = next(row for row in wb["T"].iter_rows() if row[0].value == "Total \u2014 Ann")
+    assert ann[2].value == 3
+    salesman_a = next(row for row in wb["T"].iter_rows() if row[0].value == "Total \u2014 A")
+    assert salesman_a[2].value == 6
+    grand = next(row for row in wb["T"].iter_rows() if row[0].value == "Grand total")
+    assert grand[2].value == 10
+
+
+def test_export_sorts_then_groups_without_customer_totals():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "CustomerName", "header": "CustomerName", "type": "text"},
+            {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"CustomerName": "Beta", "SalesOrderNumber": "SO2", "Amt": 1},
+            {"CustomerName": "Acme", "SalesOrderNumber": "SO9", "Amt": 2},
+            {"CustomerName": "Acme", "SalesOrderNumber": "SO1", "Amt": 3},
+            {"CustomerName": "Acme", "SalesOrderNumber": "SO1", "Amt": 4},
+        ],
+    }]}
+    layout = {"views": {"t": {
+        "group": ["SalesOrderNumber"],
+        "sorters": [
+            {"column": "CustomerName", "dir": "asc"},
+            {"column": "SalesOrderNumber", "dir": "asc"},
+        ],
+    }}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    col_a = [str(c.value) for c in wb["T"]["A"]]
+    assert not any(v.startswith("CustomerName:") for v in col_a)
+    so1 = col_a.index("SalesOrderNumber: SO1")
+    so9 = col_a.index("SalesOrderNumber: SO9")
+    so2 = col_a.index("SalesOrderNumber: SO2")
+    assert so1 < so9 < so2
+    order_total = next(row for row in wb["T"].iter_rows()
+                       if row[0].value == "Total \u2014 SO1")
+    assert order_total[2].value == 7
+
+
 def test_export_percent_columns_not_summed_in_totals():
     openpyxl = pytest.importorskip("openpyxl")
     from web.reporting.export import build_workbook

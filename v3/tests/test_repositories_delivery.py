@@ -181,3 +181,6 @@ def test_view_and_layout_helpers():
     assert resolve_send_layout("Default", {}, {"active": "def"}) == {"active": "def"}
     assert resolve_send_layout("Default", {"order": ["x"]}, {"active": "def"}) == {"order": ["x"]}
     assert resolve_send_layout("March", {"active": "m"}, {"active": "def"}) == {"active": "m"}
+    live = {"views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}
+    assert resolve_send_layout("Daily Ordered", {"active": "old"}, {"active": "def"}, live) == live
+    assert resolve_send_layout("Daily Ordered", {"active": "old"}, {"active": "def"}, {}) == {"active": "old"}

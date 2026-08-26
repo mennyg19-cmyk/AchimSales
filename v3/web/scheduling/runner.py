@@ -17,8 +17,11 @@ from report_engine import registry
 from web.auth.authorization import Authorization
 from web.auth.principal import Principal
 from web.data.repositories.app_settings import AppSettingsRepository
+from web.data.repositories.company_views import CompanyViewRepository
 from web.data.repositories.report_defaults import (
+    DEFAULT_VIEW_NAME,
     ReportDefaultRepository,
+    normalize_view_name,
     resolve_send_layout,
 )
 from web.data.repositories.schedules import (
@@ -65,12 +68,18 @@ class ScheduleRunner:
         self.delivery = delivery
         self.settings = settings or AppSettingsRepository(user_repo.db)
         self.defaults = ReportDefaultRepository(user_repo.db)
+        self.company_views = CompanyViewRepository(user_repo.db)
 
     def _layout_for(self, sched) -> dict:
+        name = getattr(sched, "view_name", None)
+        named = {}
+        if name and normalize_view_name(name) != DEFAULT_VIEW_NAME:
+            named = self.company_views.get_layout(sched.report_key, name)
         return resolve_send_layout(
-            getattr(sched, "view_name", None),
+            name,
             sched.layout,
             self.defaults.get_layout(sched.report_key),
+            named,
         )
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,

@@ -377,6 +377,7 @@ def bootstrap_background(app: Flask) -> None:
         _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     else:
         _seed_master_schedules(app, db, _AZURE_SCHEDULES)
+    _seed_company_views(app, db)
 
     # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
     # must run in exactly ONE process. Under gunicorn we have multiple workers, so
@@ -830,3 +831,12 @@ def _seed_master_schedules(app: Flask, db, rows: list[dict] | None = None,
             app.logger.info("seeded %d master schedules (%s) from Azure config", added, state)
     except Exception:  # noqa: BLE001 - seeding must never block boot
         app.logger.exception("master schedule seed failed")
+
+
+def _seed_company_views(app: Flask, db) -> None:
+    try:
+        from web.scheduling.company_layouts import seed_canonical_company_views
+
+        seed_canonical_company_views(db)
+    except Exception:  # noqa: BLE001 - seeding must never block boot
+        app.logger.exception("company view seed failed")

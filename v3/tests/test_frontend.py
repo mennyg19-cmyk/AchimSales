@@ -165,10 +165,12 @@ def test_report_viewer_meeting_ux():
     assert "Save this view as (same name overwrites this view)" in src
     assert "layout.clones" in src
     resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
-    assert 'q.get("preset") && !wanted) return false' in resume
+    assert '(q.get("preset") || q.get("cview")) && !wanted) return false' in resume
     assert 'closePresetsPanel(); loadPreset(preset); });' in src
     assert "Updated Default." in src
     assert "Only managers and admins can change the Default view." in src
+    assert "Only managers and admins can change company views." in src
+    assert "Company views" in src
     assert "Apply this view’s filters (does not run the report)" not in src
     assert "if (!out.salesman && pendingSalesman) out.salesman = pendingSalesman;" in src
     assert "function applySalesman(" in src
@@ -179,11 +181,13 @@ def test_report_viewer_meeting_ux():
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="groupPills"' in html
     assert "data-default-url" in html
+    assert "data-company-view-url" in html
     wizard = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert 'option value="default">Default</option>' in wizard
     assert "Current filters — no saved view" not in wizard
     wiz_js = (_SRC / "js" / "master_wizard.ts").read_text(encoding="utf-8")
     assert 'view_name: selectedViewName()' in wiz_js
+    assert 'group.label = "Company views"' in wiz_js
     sched = (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in sched
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")

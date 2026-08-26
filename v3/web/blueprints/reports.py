@@ -43,6 +43,7 @@ from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
 from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
+from web.data.repositories.company_views import CompanyView, CompanyViewRepository
 from web.data.repositories.report_defaults import (
     DEFAULT_VIEW_NAME,
     ReportDefault,
@@ -131,8 +132,21 @@ def _defaults_repo() -> ReportDefaultRepository:
     return ReportDefaultRepository(current_app.config["DB"])
 
 
+def _company_views_repo() -> CompanyViewRepository:
+    return CompanyViewRepository(current_app.config["DB"])
+
+
 def _sharepoint():
     return current_app.config["SHAREPOINT_SERVICE"]
+
+
+def _company_view_dict(v: CompanyView, p) -> dict:
+    return {
+        "id": v.id, "report_key": v.report_key, "name": v.name,
+        "params": v.params, "layout": v.layout, "kind": "company",
+        "can_edit": _authz().can_see_company_schedules(p),
+        "updated_at": v.updated_at,
+    }
 
 
 def _preset_dict(s: SavedReport) -> dict:
@@ -220,6 +234,7 @@ def reports_list():
     return render_template(
         "reports_list.html", active_tab="reports",
         built_reports=built, backlog_reports=backlog, presets=_my_presets(p),
+        company_views=_company_view_cards(p),
     )
 
 
@@ -242,6 +257,26 @@ def _my_presets(p) -> list[dict]:
             "id": s.id, "name": s.name, "report_key": s.report_key,
             "report_title": titles.get(s.report_key, s.report_key),
             "url": url_for("reports.report_view", report_key=s.report_key) + "?" + urlencode(q),
+        })
+    return out
+
+
+def _company_view_cards(p) -> list[dict]:
+    """Company-wide views as home-page cards (deep-link Open URLs)."""
+    authz = _authz()
+    titles = {s.key: s.title for s in registry.built_reports()}
+    out: list[dict] = []
+    for v in _company_views_repo().list_all():
+        if not authz.can_view_report(p, v.report_key):
+            continue
+        q: dict = {}
+        for k, val in (v.params or {}).items():
+            q[k] = ",".join(map(str, val)) if isinstance(val, (list, tuple)) else str(val)
+        q["cview"] = v.id
+        out.append({
+            "id": v.id, "name": v.name, "report_key": v.report_key,
+            "report_title": titles.get(v.report_key, v.report_key),
+            "url": url_for("reports.report_view", report_key=v.report_key) + "?" + urlencode(q),
         })
     return out
 
@@ -1276,8 +1311,10 @@ def report_presets(report_key: str):
         abort(403, description="Unknown user")
     items = [_preset_dict(s) for s in _saved_repo().list_for_user(uid)
              if s.report_key == report_key]
+    company = [_company_view_dict(v, p) for v in _company_views_repo().list_for_report(report_key)]
     return jsonify({
         "default": _default_dict(report_key, p, _defaults_repo().get(report_key)),
+        "company": company,
         "presets": items,
     })
 
@@ -1383,6 +1420,45 @@ def put_default_view(report_key: str):
         updated_by=uid,
     )
     return jsonify(_default_dict(report_key, p, row))
+
+
+@reports_bp.get("/api/reports/<report_key>/company-views/<int:view_id>")
+@require_login
+def get_company_view(report_key: str, view_id: int):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    row = _company_views_repo().get(view_id)
+    if row is None or row.report_key != report_key:
+        abort(404, description="Unknown company view")
+    return jsonify(_company_view_dict(row, p))
+
+
+@reports_bp.put("/api/reports/<report_key>/company-views")
+@require_login
+def put_company_view(report_key: str):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    if not _authz().can_see_company_schedules(p):
+        abort(403, description="Only managers and admins can change company views.")
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        abort(400, description="A view name is required")
+    try:
+        row = _company_views_repo().upsert(
+            report_key, name,
+            params=body.get("params") if isinstance(body.get("params"), dict) else {},
+            layout=body.get("layout") if isinstance(body.get("layout"), dict) else {},
+            updated_by=uid,
+        )
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    return jsonify(_company_view_dict(row, p))
 
 
 # --- delivery: email now + SharePoint picker -------------------------------- #

@@ -273,8 +273,68 @@ def _banner_cells(ws, ncol: int, text: str) -> list[WriteOnlyCell]:
     return cells
 
 
+def _sort_rows_for_groups(rows: list, group_fields: list[str],
+                          sorters: list | None) -> list:
+    """Sort by saved sorters first, then any group fields not already in that list.
+
+    Excel grouping uses itertools.groupby, which needs consecutive keys. A
+    salesman+customer group must stay sorted by both fields. An order group
+    after a customer sort must keep that customer order — re-sorting by the
+    group field alone would scatter the rows.
+    """
+    specs: list[tuple[str, bool]] = []
+    seen: set[str] = set()
+    for spec in sorters or []:
+        if not isinstance(spec, dict):
+            continue
+        col = spec.get("column")
+        if not col or col in seen:
+            continue
+        specs.append((str(col), (spec.get("dir") or "asc").lower() != "desc"))
+        seen.add(str(col))
+    for field in group_fields:
+        if field not in seen:
+            specs.append((field, True))
+            seen.add(field)
+    ordered = list(rows)
+    for col, ascending in reversed(specs):
+        ordered.sort(key=lambda row, c=col: _group_sort_key(row.get(c)),
+                     reverse=not ascending)
+    return ordered
+
+
+def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
+                  *, salesman_bands: bool, parent_acc: dict[str, float] | None = None
+                  ) -> dict[str, float]:
+    """Nested group banners + per-level totals. Innermost level writes data rows."""
+    gf = group_fields[0]
+    rest = group_fields[1:]
+    glabel = next((h for h, f, _t in metas if f == gf), gf)
+    ncol = len(metas)
+    level: dict[str, float] = {}
+    for _key, grp_iter in groupby(rows, key=lambda x: _group_sort_key(x.get(gf))):
+        grp = list(grp_iter)
+        gval = grp[0].get(gf)
+        label = gval if gval not in (None, "") else "(blank)"
+        ws.append(_banner_cells(ws, ncol, f"{glabel}: {label}"))
+        sub: dict[str, float] = {}
+        if rest:
+            _emit_grouped(ws, metas, grp, rest, salesman_bands=salesman_bands,
+                          parent_acc=sub)
+        else:
+            for row in grp:
+                ws.append(_data_cells(ws, metas, row, sub, salesman_bands=salesman_bands))
+        ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}"))
+        for k, val in sub.items():
+            level[k] = level.get(k, 0.0) + val
+    if parent_acc is not None:
+        for k, val in level.items():
+            parent_acc[k] = parent_acc.get(k, 0.0) + val
+    return level
+
+
 def _stream_grid(ws, metas, rows: list, group_fields: list[str],
-                 *, salesman_bands: bool = False) -> None:
+                 *, salesman_bands: bool = False, sorters: list | None = None) -> None:
     if not metas:
         return
     ncol = len(metas)
@@ -287,21 +347,9 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
     ws.append(_header_cells(ws, metas))
 
     if group_fields:
-        gf = group_fields[0]
-        glabel = next((h for h, f, _t in metas if f == gf), gf)
-        ordered = sorted(rows, key=lambda x: _group_sort_key(x.get(gf)))
-        grand: dict[str, float] = {}
-        for _key, grp_iter in groupby(ordered, key=lambda x: _group_sort_key(x.get(gf))):
-            grp = list(grp_iter)
-            gval = grp[0].get(gf)
-            label = gval if gval not in (None, "") else "(blank)"
-            ws.append(_banner_cells(ws, ncol, f"{glabel}: {label}"))
-            sub: dict[str, float] = {}
-            for row in grp:
-                ws.append(_data_cells(ws, metas, row, sub, salesman_bands=salesman_bands))
-            ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}"))
-            for k, val in sub.items():
-                grand[k] = grand.get(k, 0.0) + val
+        ordered = _sort_rows_for_groups(rows, group_fields, sorters)
+        grand = _emit_grouped(ws, metas, ordered, group_fields,
+                              salesman_bands=salesman_bands)
         if rows:
             ws.append(_total_cells(ws, metas, grand, "Grand total"))
     else:
@@ -407,7 +455,8 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         group_fields = [g for g in wanted if g in known]
         salesman_bands = (payload.get("report_key") == "salesman"
                           and tab.get("layout") != "commission_cards")
-        _stream_grid(ws, metas, rows, group_fields, salesman_bands=salesman_bands)
+        _stream_grid(ws, metas, rows, group_fields, salesman_bands=salesman_bands,
+                     sorters=v.get("sorters") if isinstance(v.get("sorters"), list) else None)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

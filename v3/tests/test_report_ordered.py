@@ -44,6 +44,7 @@ def test_adapter_maps_sp_qty_columns_without_deriving_shipped():
     assert f.po_number == "PO-1001" and f.order_status == ""
     assert f.purch_id == "PO-7788"
     assert f.expected_arrival_date == "2026-03-15"
+    assert f.ship_date == ""
 
 
 def test_full_data_uses_sp_qty_columns():
@@ -70,8 +71,12 @@ def test_full_data_uses_sp_qty_columns():
     assert so1["Released $"] == 22.90  # 10 * 2.29
     assert so1["purchid"] == "PO-7788"
     assert so1["ExpectedArrivalDate"] == "2026-03-15"
+    assert so1["CustomerName"] == "Acme"
+    assert so1["ShipDate"] == ""
     assert any(c["field"] == "purchid" for c in full["columns"])
     assert any(c["field"] == "ExpectedArrivalDate" for c in full["columns"])
+    assert any(c["field"] == "CustomerName" for c in full["columns"])
+    assert any(c["field"] == "ShipDate" and c["type"] == "date" for c in full["columns"])
 
     so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
     assert so2["QtyCancelled"] == 4
@@ -194,3 +199,30 @@ def test_po_maps_from_customer_requisition_in_by_order():
     assert so1["OrderStatus"] == ""
     so2 = next(r for r in by_order["rows"] if r["SalesOrderNumber"] == "SO2")
     assert so2["PO #"] == "PO-1002"
+
+
+def test_ship_date_maps_when_present_and_stays_blank_when_missing():
+    with_date = dict(_rows()[0], ShipDate="2026-04-02T00:00:00")
+    f = S.to_fact_ordered_report(with_date)
+    assert f.ship_date == "2026-04-02"
+    tabs = B.build(S.to_facts_ordered_report([with_date, _rows()[1]]))
+    full = next(t for t in tabs if t["key"] == "full_data")
+    so1 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO1")
+    so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
+    assert so1["ShipDate"] == "2026-04-02"
+    assert so2["ShipDate"] == ""
+
+
+def test_heshy_layout_keeps_full_data_only_hides_line_and_tolerates_missing_ship_date():
+    from web.delivery.layout import apply_layout, expand_clones
+    from web.scheduling.company_layouts import HESHY_OPEN_LAYOUT
+
+    payload = {"tabs": B.build(S.to_facts_ordered_report(_rows()))}
+    shaped = apply_layout(expand_clones(payload, HESHY_OPEN_LAYOUT), HESHY_OPEN_LAYOUT)
+    assert [t["key"] for t in shaped["tabs"]] == ["full_data"]
+    fields = [c["field"] for c in shaped["tabs"][0]["columns"]]
+    assert "LineNumber" not in fields
+    assert "CustomerName" in fields
+    assert "ShipDate" in fields
+    names = [r["CustomerName"] for r in shaped["tabs"][0]["rows"]]
+    assert names == sorted(names)

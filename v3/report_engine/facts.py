@@ -53,6 +53,7 @@ class OrderLineFact:
     # usp_ordered_report only (blank on salesline_release).
     purch_id: str = ""
     expected_arrival_date: str = ""  # 'YYYY-MM-DD' or ''
+    ship_date: str = ""              # 'YYYY-MM-DD' or '' when the SP has no Ship Date yet
 
 
 @dataclass(frozen=True)

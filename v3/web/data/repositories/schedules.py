@@ -408,6 +408,15 @@ class MasterScheduleRepository:
             )
             return True
 
+    def set_view(self, schedule_id: int, view_name: str, layout: dict) -> bool:
+        with self.db.precious() as conn:
+            cur = conn.execute(
+                "UPDATE master_schedules SET view_name=?, layout_json=? WHERE id=?",
+                ((view_name or "Default").strip() or "Default",
+                 json.dumps(layout or {}), schedule_id),
+            )
+            return cur.rowcount == 1
+
     def set_active(self, schedule_id: int, active: bool) -> bool:
         with self.db.precious() as conn:
             cur = conn.execute(

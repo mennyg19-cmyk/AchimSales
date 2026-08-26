@@ -164,6 +164,7 @@ async function loadSavedViews(reportKey: string): Promise<void> {
   }
   const data = await getJSON<{
     default?: { layout?: Record<string, unknown> };
+    company?: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[];
     presets: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[];
   }>(
     `/api/reports/${encodeURIComponent(reportKey)}/presets`,
@@ -171,6 +172,19 @@ async function loadSavedViews(reportKey: string): Promise<void> {
   const defLayout = (data?.default?.layout && typeof data.default.layout === "object")
     ? data.default.layout : {};
   sel.options[0].dataset.preset = JSON.stringify({ params: {}, layout: defLayout });
+  const company = data?.company || [];
+  if (company.length) {
+    const group = document.createElement("optgroup");
+    group.label = "Company views";
+    company.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = `c-${p.id}`;
+      opt.textContent = p.name;
+      opt.dataset.preset = JSON.stringify(p);
+      group.appendChild(opt);
+    });
+    sel.appendChild(group);
+  }
   (data?.presets || []).forEach((p) => {
     const opt = document.createElement("option");
     opt.value = String(p.id);
