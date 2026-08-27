@@ -12,7 +12,7 @@
         <p class="login-subtitle">Choose how you want to sign in:</p>
 
         <form method="POST" action="{{ url_for('auth.dev_login') }}" style="margin-bottom: 16px;">
-            {% include "_form_protect.html" %}
+            {% csrf_token %}
             <input type="hidden" name="role" value="admin">
             <button type="submit" class="btn btn-primary btn-lg btn-block" style="margin-bottom: 12px;">
                 Sign in as Admin
@@ -20,7 +20,7 @@
         </form>
 
         <form method="POST" action="{{ url_for('auth.dev_login') }}">
-            {% include "_form_protect.html" %}
+            {% csrf_token %}
             <input type="hidden" name="role" value="salesman">
             <label class="form-label" for="salesmanKey" style="text-align: left;">Sign in as Salesman:</label>
             <select name="salesman_key" id="salesmanKey" class="form-input form-select" style="margin-bottom: 12px;">

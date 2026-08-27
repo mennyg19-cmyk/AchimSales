@@ -1,6 +1,6 @@
 """Legacy mutating requests require a per-session CSRF token."""
 
-from flask import Flask
+from flask import Flask, render_template_string
 
 from webapp.csrf import _SESSION_KEY, init_csrf
 
@@ -70,3 +70,31 @@ def test_entra_callback_post_is_exempt():
     app.register_blueprint(bp)
     init_csrf(app)
     assert app.test_client().post("/auth/callback").status_code == 200
+
+
+def test_csrf_token_tag_renders_hidden_input():
+    app = Flask(__name__)
+    app.secret_key = "test-secret"
+    init_csrf(app)
+
+    @app.get("/form")
+    def form():
+        return render_template_string('<form method="POST">{% csrf_token %}</form>')
+
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess[_SESSION_KEY] = "known-token"
+    html = client.get("/form").get_data(as_text=True)
+    assert 'name="csrf_token"' in html
+    assert 'value="known-token"' in html
+    assert "<form method=\"POST\">" in html
+
+
+def test_login_forms_use_csrf_token_tag():
+    from pathlib import Path
+
+    templates = Path(__file__).resolve().parents[1] / "webapp" / "templates"
+    for name in ("login.html", "login_dev.html", "role_picker.html"):
+        text = (templates / name).read_text(encoding="utf-8")
+        assert "{% csrf_token %}" in text
+        assert "_form_protect.html" not in text

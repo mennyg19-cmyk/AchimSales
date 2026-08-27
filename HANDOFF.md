@@ -12,7 +12,7 @@ Last updated: 2026-08-27
 - Session/DB authz: v3 developer routes and login use `Authorization` (not cookie role). Disabled users are signed out. Live→v3 salesman grants replace on copy. Legacy session role is re-read from `app_users`.
 - Customer/order access fails closed when the book is unknown. Managers need a matching grant (order-detail no longer skips that check). Address/price/generate-po APIs and `/api/customers` use the same scope. Last-order picker and order-entry names are escaped. Number 4 `make_cell` and salesman `_excel_val` prefix `=+-@`.
 - Leftover XSS: email-distribution chips/logs, order-entry matrix labels, settings beta-source keys, db-explorer errors. Ordered summary and Invoiced data/commission cells prefix formula leaders.
-- Legacy CSRF on POST/PUT/PATCH/DELETE (Entra callback exempt). Feather served locally; unused Chart.js CDN removed. Google Maps stays on Google's CDN.
+- Legacy CSRF on POST/PUT/PATCH/DELETE (Entra callback exempt). Forms use `{% csrf_token %}` so Semgrep's Django rule matches; fetch still uses the meta token. Feather served locally; unused Chart.js CDN removed. Google Maps stays on Google's CDN.
 
 ## What's in progress
 

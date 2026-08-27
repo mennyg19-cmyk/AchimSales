@@ -78,7 +78,7 @@
             The link expires in 15 minutes.
         </p>
         <form method="POST" action="{{ url_for('auth.request_magic_link') }}" class="login-magic-form">
-            {% include "_form_protect.html" %}
+            {% csrf_token %}
             <input type="email" name="email" required autofocus
                    placeholder="you@company.com"
                    class="form-input login-magic-input">

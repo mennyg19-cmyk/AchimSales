@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Semgrep: Django `{% csrf_token %}` on Flask forms
+**What I had to decide:** CI Semgrep `django-no-csrf-token` went red after adding CSRF because `{% include "_form_protect.html" %}` and `form_protect()` are not the Django tag the rule looks for.
+**Options I considered:** (1) `# nosemgrep` on the four form tags. (2) Paste a raw `{% csrf_token %}` that Jinja would reject. (3) Register a Jinja extension that implements `{% csrf_token %}` and still writes `name="csrf_token"`.
+**What I chose:** Option 3. `form_protect()` stays on the `<meta name="csrf-token">` used by the fetch wrapper. `_form_protect.html` is gone.
+**Why:** The rule wants the literal tag in the form. A real tag is stronger than a suppress comment, and the validator already reads `csrf_token`.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Review: legacy CSRF and local Feather
 **What I had to decide:** How to add CSRF without boiling every fetch caller, and whether to SRI-pin CDNs or vendor them.
 **Options I considered:** (1) Flask-WTF. (2) Copy v3's per-session token and wrap `window.fetch`. (3) Add integrity hashes on unpkg/jsdelivr.

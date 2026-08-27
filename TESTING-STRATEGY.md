@@ -114,6 +114,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - POST with matching `X-CSRF-Token` or form `csrf_token` is 200.
 - Mismatched token is 400. GET is not checked.
 - POST `/auth/callback` is exempt (Entra).
+- `{% csrf_token %}` renders a hidden `csrf_token` input. Login/dev/role-picker templates use that tag (not an include), so Semgrep's Django form rule matches.
 
 **Expected behavior:**
 - Fetch wrapper and HTML forms send the session token. Microsoft login callback still works without it.
