@@ -3,7 +3,7 @@
 ## 2026-08-27 Semgrep: Django `{% csrf_token %}` on Flask forms
 **What I had to decide:** CI Semgrep `django-no-csrf-token` stayed red after a real Jinja `{% csrf_token %}` tag, and `Markup()` on that tag's renderer tripped `explicit-unescape-with-markup`.
 **Options I considered:** (1) Revert form tokens and rely on the JS injector so baseline findings stay old. (2) `nosemgrep` on the POST forms plus keep the tag. (3) Keep fighting the generic `pattern-not-inside`.
-**What I chose:** Keep `{% csrf_token %}` (no-JS POSTs still send a token). `nosemgrep` on those form tags — the Django rule does not treat the tag as a match in generic HTML. Render the hidden input via `__html__` instead of `Markup()`.
+**What I chose:** Keep `{% csrf_token %}` (no-JS POSTs still send a token). `nosemgrep` on those form tags — the Django rule does not treat the tag as a match in generic HTML. The hidden input is template text plus `|e` on the token (`Markup()` and `__html__` each trip a Semgrep XSS rule).
 **Why:** Server CSRF is real; the scan rule is Django-shaped. Hiding the token to please baseline would break no-JS login.
 **Status:** DECIDED — shipping this change.
 
