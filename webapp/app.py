@@ -16,7 +16,7 @@ if _SCRIPTS_DIR not in sys.path:
 
 from flask import Flask
 
-from webapp.config import FLASK_SECRET
+from webapp.config import FLASK_SECRET, reject_production_dev_bypass
 from webapp.db import init_db, cleanup_stale_running_reports
 from webapp.helpers import inject_theme
 
@@ -96,6 +96,7 @@ def _cleanup_old_reports(max_age_days: int = 7):
 
 def create_app() -> Flask:
     """Application factory."""
+    reject_production_dev_bypass()
     application = Flask(
         __name__,
         template_folder=os.path.join(os.path.dirname(__file__), "templates"),

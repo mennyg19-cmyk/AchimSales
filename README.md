@@ -59,7 +59,7 @@ The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimo
 
 **Production branch is `webapp-cache`.** GitHub Action
 `.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
-push, and also deploys `cursor/**` Cloud Agent branches to the same production
+push. Cloud Agent `cursor/**` branches do not deploy to the Azure Production
 slot. Manual zip deploy is still `deploy.ps1`.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
@@ -225,7 +225,7 @@ Standing choices when rules disagree (also used by agents):
 
 | Topic | Choice |
 |-------|--------|
-| After a requested product change | **Commit + push.** `webapp-cache` and `cursor/**` pushes deploy via GitHub Action. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
+| After a requested product change | **Commit + push.** Production deploys only from `webapp-cache`. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
 
 ## D365 Entity Reference

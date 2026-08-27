@@ -50,6 +50,41 @@ def test_healthz_is_minimal(client):
     assert body == {"status": "ok"}
 
 
+def test_readyz_ok_in_dev(client):
+    resp = client.get("/readyz")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"status": "ok"}
+
+
+def test_readyz_503_when_prod_db_missing(tmp_path):
+    cfg = Config(
+        app_env="prod",
+        auth_mode="msal",
+        flask_secret="test-secret",
+        tenant_id="t",
+        client_id="c",
+        client_secret="s",
+        reporting_api_base_url="https://api.example",
+        reporting_api_key="k",
+        precious_db_path=tmp_path / "precious.db",
+        cache_db_path=tmp_path / "cache.db",
+        litestream_blob_url="",
+        new_app_marker=True,
+        litestream_azure_account_name="acct",
+        litestream_azure_account_key="key",
+        litestream_azure_container="container",
+    )
+    application = create_app(cfg)
+    (tmp_path / "precious.db").unlink(missing_ok=True)
+    client = application.test_client()
+    live = client.get("/healthz")
+    ready = client.get("/readyz")
+    assert live.status_code == 200
+    assert live.get_json() == {"status": "ok"}
+    assert ready.status_code == 503
+    assert ready.get_json() == {"status": "not_ready"}
+
+
 def test_csrf_blocks_write_without_token(app_with_write_route):
     client = app_with_write_route.test_client()
     resp = client.post("/_test/write")

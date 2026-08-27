@@ -20,6 +20,9 @@ def _cfg(**over):
         precious_db_path=Path("./.data/precious.db"),
         cache_db_path=Path("./.data/cache.db"),
         litestream_blob_url="abs://container/precious",
+        litestream_azure_account_name="acct",
+        litestream_azure_account_key="key",
+        litestream_azure_container="container",
         new_app_marker=True,
     )
     base.update(over)
@@ -46,9 +49,24 @@ def test_prod_rejects_missing_msal_creds():
         _cfg(client_secret="").validate()
 
 
-def test_prod_rejects_missing_litestream():
-    with pytest.raises(ConfigError, match="LITESTREAM_BLOB_URL"):
-        _cfg(litestream_blob_url="").validate()
+def test_prod_rejects_missing_litestream_azure_key():
+    with pytest.raises(ConfigError, match="LITESTREAM_AZURE_ACCOUNT_KEY"):
+        _cfg(litestream_azure_account_key="").validate()
+
+
+def test_prod_rejects_missing_litestream_account_name():
+    with pytest.raises(ConfigError, match="LITESTREAM_AZURE_ACCOUNT_NAME"):
+        _cfg(litestream_azure_account_name="").validate()
+
+
+def test_prod_blob_url_alone_is_not_enough():
+    with pytest.raises(ConfigError, match="LITESTREAM_AZURE"):
+        _cfg(
+            litestream_blob_url="abs://container/precious",
+            litestream_azure_account_key="",
+            litestream_azure_account_name="",
+            litestream_azure_container="",
+        ).validate()
 
 
 def test_prod_rejects_unc_db_path():

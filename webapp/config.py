@@ -39,6 +39,36 @@ WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT_OUTPUT_DIR = os.path.join(WEBAPP_DIR, "_report_output")
 os.makedirs(REPORT_OUTPUT_DIR, exist_ok=True)
 
-DEV_BYPASS_AUTH = os.environ.get("DEV_BYPASS_AUTH", "").lower() in ("1", "true", "yes")
+
+def _is_dev_app_env() -> bool:
+    return os.environ.get("APP_ENV", "prod").strip().lower() == "dev"
+
+
+def _on_azure() -> bool:
+    return bool(os.environ.get("WEBSITE_SITE_NAME") or os.environ.get("WEBSITE_INSTANCE_ID"))
+
+
+def _dev_bypass_requested() -> bool:
+    return os.environ.get("DEV_BYPASS_AUTH", "").strip().lower() in ("1", "true", "yes")
+
+
+def reject_production_dev_bypass() -> None:
+    """Refuse boot when DEV_BYPASS_AUTH is set outside local APP_ENV=dev."""
+    if not _dev_bypass_requested():
+        return
+    if _on_azure() or not _is_dev_app_env():
+        raise RuntimeError(
+            "DEV_BYPASS_AUTH is forbidden unless APP_ENV=dev (and never on Azure)"
+        )
+
+
+def dev_bypass_auth() -> bool:
+    """True only for local APP_ENV=dev with DEV_BYPASS_AUTH set."""
+    if not _dev_bypass_requested():
+        return False
+    if _on_azure() or not _is_dev_app_env():
+        return False
+    return True
+
 
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")

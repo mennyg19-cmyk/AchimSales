@@ -6,6 +6,26 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## P0 security containment
+
+**What to test:**
+- OData tabs without a salesman column raise for scoped users; matching keys are kept; unrestricted users still see unscoped tabs.
+- Prod config rejects missing Litestream Azure account/key/container.
+- `/healthz` stays liveness-only; `/readyz` is 503 when prod precious.db is missing.
+- `DEV_BYPASS_AUTH` raises unless `APP_ENV=dev`, and never on Azure.
+
+**Expected behavior:**
+- Scoped OData cannot return company-wide By Item (or any unscopeable tab).
+- Production boot refuses empty durable state and auth bypass.
+
+**Edge cases:**
+- Empty tabs do not require a salesman column.
+- Azure `WEBSITE_SITE_NAME` blocks bypass even if `APP_ENV=dev`.
+
+**Test files:** `v3/tests/test_odata_scope.py`, `v3/tests/test_config.py`, `v3/tests/test_smoke.py`, `tests/test_dev_bypass_auth.py`
+
+---
+
 <!-- Entries are added below as features are built. Each entry follows this format:
 
 ## [Feature/Module Name]

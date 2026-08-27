@@ -11,7 +11,30 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from report_engine.lib import salesman_key
+
 log = logging.getLogger(__name__)
+
+
+class UnscopedODataError(RuntimeError):
+    """Scoped user would have received a tab with no salesman filter."""
+
+
+def apply_visible_scope(tabs: list[dict], visible_keys: set[str] | None) -> list[dict]:
+    """Filter OData tabs for a scoped user, or refuse the whole report."""
+    if visible_keys is None:
+        return tabs
+    unscoped = [
+        str(tab.get("name") or tab.get("key") or "sheet")
+        for tab in tabs
+        if (tab.get("rows") or []) and _scope_column(tab) is None
+    ]
+    if unscoped:
+        raise UnscopedODataError(
+            "OData report refused for a scoped user; tabs without a "
+            "salesman column: " + ", ".join(unscoped)
+        )
+    return [_scope_tab(tab, visible_keys) for tab in tabs]
 
 
 def build_odata_payload(
@@ -37,8 +60,7 @@ def build_odata_payload(
     for path in paths:
         tabs.extend(_workbook_to_tabs(path, report_key=report_key, source_path=path))
 
-    if visible_keys is not None:
-        tabs = [_scope_tab(tab, visible_keys) for tab in tabs]
+    tabs = apply_visible_scope(tabs, visible_keys)
 
     if report_key == "ordered" and not params.get("salesman"):
         tabs = [_attach_ordered_default_group(tab) for tab in tabs]
@@ -165,21 +187,34 @@ def _slug(title: str) -> str:
     return out.strip("_") or "sheet"
 
 
+_SCOPE_COLS = ("Salesman", "SalesGroup", "SalesmanNumber", "Sales Group", "sales_group")
+
+
+def _scope_column(tab: dict) -> str | None:
+    columns = tab.get("columns") or []
+    col = next((c for c in _SCOPE_COLS if c in columns), None)
+    if col is not None:
+        return col
+    rows = tab.get("rows") or []
+    if not rows:
+        return None
+    sample = rows[0]
+    return next((c for c in _SCOPE_COLS if c in sample), None)
+
+
 def _scope_tab(tab: dict, visible_keys: set[str]) -> dict:
-    """Best-effort salesman scope on OData sheets (column name varies)."""
+    """Keep only rows whose salesman key is in scope. Caller must fail closed first."""
     rows = tab.get("rows") or []
     if not rows:
         return tab
-    scope_cols = ("Salesman", "SalesGroup", "SalesmanNumber", "Sales Group", "sales_group")
-    col = next((c for c in scope_cols if c in (tab.get("columns") or [])), None)
+    col = _scope_column(tab)
     if col is None:
-        # Try first row keys
-        sample = rows[0]
-        col = next((c for c in scope_cols if c in sample), None)
-    if col is None:
-        return tab
-    allowed = {str(k).strip() for k in visible_keys}
-    filtered = [r for r in rows if str(r.get(col, "")).strip() in allowed]
+        raise UnscopedODataError(
+            f"OData tab {tab.get('name')!r} has no salesman column; "
+            "refusing to return unscoped rows"
+        )
+    allowed = {salesman_key(k) for k in visible_keys}
+    filtered = [r for r in rows if salesman_key(str(r.get(col, ""))) in allowed]
     out = dict(tab)
     out["rows"] = filtered
     return out

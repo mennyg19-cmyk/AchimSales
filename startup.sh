@@ -5,20 +5,17 @@
 #
 # Responsibilities, in order:
 #   1. (Defensive) pip install the deployed requirements.
-#   2. Best-effort Litestream: restore precious.db from Azure Blob on a cold
-#      instance, then run gunicorn UNDER `litestream replicate` so every write is
-#      streamed offsite. This is the durability story for precious.db (rule 5).
+#   2. Litestream restore + replicate (required when APP_ENV=prod).
 #   3. Launch gunicorn with --config=gunicorn.conf.py so the leader-election
 #      post_fork hook runs (exactly ONE worker owns the email-distribution loop
 #      AND the v3 job worker + scheduler -- no duplicate sends).
 #
-# CRITICAL: this process also serves the site home (Beta) at "/" via the
-# dispatcher, so every Litestream step is FAIL-OPEN. If the binary can't be
-# fetched, the config is wrong, or a restore fails, we log it and fall back to
-# launching gunicorn directly. Litestream must never cause an outage.
+# CRITICAL: in APP_ENV=prod this process must not serve an empty precious.db.
+# Restore failure or missing Litestream settings abort boot. Local APP_ENV=dev
+# still falls back to gunicorn without Litestream.
 #
-# NOTE: no `set -e` on purpose -- a non-zero from a best-effort step must not
-# abort the boot.
+# NOTE: no `set -e` on purpose -- a non-zero from a best-effort seed step must
+# not abort the boot. Prod Litestream failures use explicit `exit 1`.
 set -u
 
 ROOT="/home/site/wwwroot"
@@ -30,6 +27,7 @@ THREADS="${GUNICORN_THREADS:-8}"
 # "could not build" in the browser. Override via the GUNICORN_TIMEOUT app setting.
 TIMEOUT="${GUNICORN_TIMEOUT:-230}"
 PORT="${PORT:-8000}"
+APP_ENV="${APP_ENV:-prod}"
 LS_BIN="/home/bin/litestream"
 LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
 
@@ -80,7 +78,7 @@ case "${PRECIOUS}" in
     ;;
 esac
 
-# 2. Litestream (only when a key + config are present).
+# 2. Litestream (required in prod).
 if [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${ROOT}/litestream.yml" ]; then
   if [ ! -x "${LS_BIN}" ]; then
     echo "startup: fetching litestream ${LS_VERSION}"
@@ -88,18 +86,36 @@ if [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${ROOT}/litestream.yml" ]
     if curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/${LS_VERSION}/litestream-${LS_VERSION}-linux-amd64.tar.gz" -o /tmp/litestream.tgz; then
       tar -xzf /tmp/litestream.tgz -C /home/bin litestream || echo "startup: litestream extract failed"
     else
-      echo "startup: litestream download failed (continuing without it)"
+      echo "startup: litestream download failed"
     fi
+  fi
+fi
+
+if [ "${APP_ENV}" = "prod" ]; then
+  if [ ! -x "${LS_BIN}" ] || [ -z "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] || [ ! -f "${ROOT}/litestream.yml" ]; then
+    echo "startup: Litestream is required when APP_ENV=prod; refusing boot"
+    exit 1
   fi
 fi
 
 if [ -x "${LS_BIN}" ] && [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${ROOT}/litestream.yml" ]; then
   mkdir -p "$(dirname "${PRECIOUS}")" 2>/dev/null || true
+  FAIL_MARKER="$(dirname "${PRECIOUS}")/.litestream-restore-failed"
+  rm -f "${FAIL_MARKER}" 2>/dev/null || true
   # Restore only when there's no local DB AND a replica exists (never clobber a
   # live local DB). On the persistent /home path this is normally a no-op; after
   # the one-time seed above the local DB already exists, so this also no-ops.
   "${LS_BIN}" restore -config "${ROOT}/litestream.yml" -if-replica-exists -if-db-not-exists "${PRECIOUS}" \
-    || echo "startup: litestream restore skipped/failed (continuing)"
+    || echo "startup: litestream restore skipped/failed"
+  if [ ! -f "${PRECIOUS}" ]; then
+    echo "startup: precious.db missing after restore"
+    if [ "${APP_ENV}" = "prod" ]; then
+      mkdir -p "$(dirname "${FAIL_MARKER}")" 2>/dev/null || true
+      touch "${FAIL_MARKER}" 2>/dev/null || true
+      echo "startup: refusing prod boot with empty durable state"
+      exit 1
+    fi
+  fi
   BETA_PRECIOUS="${BETA_PRECIOUS_DB_PATH:-}"
   if [ -n "${BETA_PRECIOUS}" ]; then
     case "${BETA_PRECIOUS}" in
@@ -107,7 +123,11 @@ if [ -x "${LS_BIN}" ] && [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${R
       *)
         mkdir -p "$(dirname "${BETA_PRECIOUS}")" 2>/dev/null || true
         "${LS_BIN}" restore -config "${ROOT}/litestream.yml" -if-replica-exists -if-db-not-exists "${BETA_PRECIOUS}" \
-          || echo "startup: beta litestream restore skipped/failed (continuing)"
+          || echo "startup: beta litestream restore skipped/failed"
+        if [ "${APP_ENV}" = "prod" ] && [ ! -f "${BETA_PRECIOUS}" ]; then
+          echo "startup: beta precious.db missing after restore; refusing boot"
+          exit 1
+        fi
         ;;
     esac
   fi
@@ -115,7 +135,10 @@ if [ -x "${LS_BIN}" ] && [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${R
   exec "${LS_BIN}" replicate -config "${ROOT}/litestream.yml" -exec "${GUNICORN_CMD}"
 fi
 
-# 3. Fallback: no Litestream -> launch gunicorn directly (still --config, so the
-#    leader gate is active either way).
+# 3. Fallback: no Litestream. Dev only.
+if [ "${APP_ENV}" = "prod" ]; then
+  echo "startup: litestream not active; refusing prod boot"
+  exit 1
+fi
 echo "startup: litestream not active; launching gunicorn directly"
 exec ${GUNICORN_CMD}

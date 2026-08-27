@@ -10,6 +10,16 @@ permissions:
   contents: read
 
 jobs:
+  tracked-secrets:
+    name: Forbid tracked session exports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check index
+        run: bash tools/check-no-tracked-secrets.sh
+
   gitleaks:
     name: Secrets scan (gitleaks)
     runs-on: ubuntu-latest

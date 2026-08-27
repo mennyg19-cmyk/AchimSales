@@ -1,4 +1,7 @@
 .env
+.env.*
+!.env.example
+!v3/.env.example
 *.db
 *.db-shm
 *.db-wal
@@ -18,6 +21,11 @@ logs/run_log-*.csv
 .git-commit-msg.tmp
 tests/output/
 .scratch/
+.scratch/**/*cookie*
+*parity-cookies.env
+
+node_modules/
+.data/
 
 # CodeGraph local index (rebuildable via `codegraph init`)
 .codegraph/

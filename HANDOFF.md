@@ -1,53 +1,39 @@
 # Session Handoff
 
+Last updated: 2026-08-27
+
+**Status:** P0 containment implemented on `cursor/p0-security-containment-adb6`. Single-site cleanup and deletions not started.
+
 ## What's done
 
-- Audited production revision `330d1bc` on `webapp-cache`; it matched `origin/webapp-cache`.
-- Ran five independent `gpt-5.6-sol-high` passes: functionality, security, UI/UX, architecture, and operations.
-- Consolidated all accepted findings into `REPOSITORY-REVIEW.md`.
-- Added the owner's required end state: one root web app only, based on the current `/` site; remove its Beta pill and retire/archive all old web generations.
-- Added the required junk-cleanup inventory, deletion-confirmation gate, refactor order, and release gate.
-- Verified `.scratch/parity-cookies.env` is tracked since `f286ce2` without reading or replaying its values.
-- Current working branch: `cursor/repository-review-handoff-edd4`.
+- Cherry-picked `REPOSITORY-REVIEW.md` + review handoff onto this branch.
+- **P0.1** Untracked `.scratch/parity-cookies.env`. Tightened `.gitignore`. Added `tools/check-no-tracked-secrets.sh` (paths only). Values not printed or replayed.
+- **P0.2** Azure Production workflow deploys only `webapp-cache`. README Rule Preference updated.
+- **P0.3** Scoped OData fails the whole report if any non-empty tab has no salesman column.
+- **P0.4** Prod config requires Litestream Azure account/key/container. `startup.sh` refuses prod boot when Litestream is missing or precious.db is absent after restore. `/healthz` liveness; `/readyz` readiness.
+- **P0.5** `DEV_BYPASS_AUTH` only works with `APP_ENV=dev` and never on Azure. `create_app` refuses otherwise.
 
 ## What's in progress
 
-- Documentation handoff only.
-- No product code, route, database, deployment, or cleanup deletion has been changed.
-- `REPOSITORY-REVIEW.md` and this handoff are ready to commit and push.
+- Session revoke and git-history purge are **BLOCKED** (need Azure Flask secret rotation + coordinated history rewrite).
+- No archive tag, deletion inventory, or legacy migration yet.
 
 ## What's next
 
-1. Read `REPOSITORY-REVIEW.md` in full.
-2. Revoke the two tracked production sessions and purge `.scratch/parity-cookies.env` from Git history.
-3. Remove `cursor/**` from direct Production deployment.
-4. Disable hybrid OData for scoped users until every tab is provably scoped.
-5. Fix Litestream validation/restore readiness and reject Production `DEV_BYPASS_AUTH`.
-6. Create and push an archive tag at the final pre-deletion commit.
-7. Inventory every proposed deletion under `cleanup-protocol.mdc`; present exact paths and get approval before deleting.
-8. Migrate Entra callback, external magic links, user authority, required legacy features, and active OData dependencies into the root v3 app.
-9. Prove `/` runs without `webapp/`, `/test`, or `rebuild/`, then unmount and delete the approved old site code.
-10. Remove the Beta pill and rename preview-only concepts while preserving current root behavior.
-11. Delete approved stale tests, reports, summaries, plans, build/test output, generated artifacts, logs, and dead code.
-12. Complete security, scheduling/delivery, CI/readiness, accessibility, parity, and production review gates in `REPOSITORY-REVIEW.md`.
+1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie must leave git history.
+2. Archive tag at the final pre-deletion commit.
+3. Deletion inventory + approval (`cleanup-protocol.mdc`).
+4. Migrate Entra / magic links / user authority / OData into root v3.
+5. Prove `/` without `webapp/`, `/test`, `rebuild/`; then unmount and delete approved paths.
+6. Remove Beta pill; remaining review gates.
 
 ## Open decisions
 
-- Whether old `/beta` bookmarks should redirect to `/` or return 404/410.
-- Which legacy-only email distribution, Azure history, dashboard, or OData features must survive in the root app.
-- Whether CLI/Azure Automation report generation will remain long term. It is active today and must not be deleted as junk.
-- Whether **Run now** should become a confirmed **Send now** action.
-- Whether Shabbos/Holiday calendar failure should delay mail or retain the current fail-open send policy.
-- Commission-rate unit/effective-date rules and whether customer display names are guaranteed unique.
+Unchanged from the repository review (beta bookmarks, leftover legacy features, CLI/runbooks, Run now vs Send now, Shabbos fail-open, commission/name rules).
 
 ## Gotchas
 
-- Do not print or replay `.scratch/parity-cookies.env`.
-- Do not delete `webapp/` before replacing the root app's login/session/user/OData dependencies.
-- Do not delete `reports/`, `core/`, `data/`, `runbooks/`, or their active tests while Azure Automation/CLI still use them.
-- Do not delete tests merely because there are many; remove only tests whose production subject is deleted.
-- `static_dist` is required until CI builds frontend assets into the deploy artifact.
-- The cleanup protocol requires an exact deletion report and explicit approval before deletion.
-- Current `/` is implemented as v3 `is_beta=True`; flipping it to false would change auth, cookie, dashboard, source, and schedule behavior.
-- CodeGraph is unavailable in this environment; targeted Read/Glob/ripgrep fallback was used.
-- Local pytest/frontend dependencies are absent, so the 792 discovered tests were inspected but not executed.
+- Do not print or replay cookie values. History of `webapp-cache` still contains the old blob until rewritten.
+- Do not delete `webapp/` before login/OData are native in v3.
+- Do not delete `reports/`, `core/`, `data/`, `runbooks/` while Azure Automation uses them.
+- Prod Litestream is now fail-closed. Empty replica + empty local disk will refuse boot instead of serving an empty user DB.

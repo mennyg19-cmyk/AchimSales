@@ -1,19 +1,38 @@
-"""Health / readiness endpoint.
+"""Health / readiness endpoints.
 
-Rule 9 / security: returns the MINIMUM needed for a load balancer or Azure health
-probe. It must NOT leak auth mode, secrets, paths, or any operational detail
+Rule 9 / security: liveness returns the MINIMUM needed for a load balancer.
+It must NOT leak auth mode, secrets, paths, or any operational detail
 (the live `/healthz` leaked config - we do not repeat that).
+
+`/healthz` is liveness (process up). `/readyz` is readiness (precious.db present
+in prod, and startup did not mark a failed Litestream restore).
 """
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, url_for
+from pathlib import Path
+
+from flask import Blueprint, current_app, jsonify, url_for
 
 health_bp = Blueprint("health", __name__)
 
 
 @health_bp.get("/healthz")
 def healthz():
+    return {"status": "ok"}, 200
+
+
+@health_bp.get("/readyz")
+def readyz():
+    cfg = current_app.config.get("APP_CONFIG")
+    if cfg is None:
+        return {"status": "not_ready"}, 503
+    if getattr(cfg, "is_prod", False):
+        if not Path(cfg.precious_db_path).is_file():
+            return {"status": "not_ready"}, 503
+        marker = Path(cfg.precious_db_path).with_name(".litestream-restore-failed")
+        if marker.is_file():
+            return {"status": "not_ready"}, 503
     return {"status": "ok"}, 200
 
 

@@ -1,5 +1,29 @@
 # Decision Log
 
+## 2026-08-27 P0: stop cursor/** Production deploys
+**What I had to decide:** Keep Cloud Agent branches deploying Production (README Rule Preference from 2026-08-25) or follow the repository review.
+**What I chose:** Production deploys only from `webapp-cache`. `cursor/**` no longer triggers the Azure workflow.
+**Why:** Review P0.2. Agent branches were shipping unreviewed code to the live slot.
+**Status:** DECIDED — shipping this change.
+
+## 2026-08-27 P0: Litestream fail-closed in prod
+**What I had to decide:** Keep startup.sh fail-open (never take the site down) or refuse boot when restore leaves precious.db missing.
+**What I chose:** `APP_ENV=prod` (default) requires Litestream Azure settings and a precious.db file after restore. `/healthz` stays liveness; `/readyz` is 503 when the db is missing or the restore-failed marker is present. Local `APP_ENV=dev` still boots without Litestream.
+**Why:** Review P0.4. An empty database with a green health check is worse than a recycle loop.
+**Status:** DECIDED — shipping this change.
+
+## 2026-08-27 P0: cookie file untracked; history rewrite blocked
+**What I had to decide:** Whether to rewrite git history of `webapp-cache` in this change.
+**What I chose:** Untrack `.scratch/parity-cookies.env`, tighten gitignore, add a filename-only scan. Do not print values. Do not force-push production history.
+**Why:** History purge needs a coordinated force-push of every branch that contains `f286ce2`. Session revoke needs rotating `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure (cookie-signed sessions).
+**Status:** BLOCKED — owner must rotate Flask secrets in Azure and approve history rewrite.
+
+## 2026-08-27 P0: OData fail-closed for scoped users
+**What I had to decide:** Disable all OData for salesmen, or fail the report when any tab cannot prove salesman scope.
+**What I chose:** Fail the whole OData payload if any non-empty tab has no salesman column. Filter remaining tabs with `salesman_key`. Unrestricted users unchanged.
+**Why:** Review P0.3. Post-aggregation By Item has no salesman column, so returning it unfiltered leaks company-wide rows.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Shipping $ and remainder have no fallback math
 **What you asked for:** Shipping $ and Extended Price Remainder should only show ShippingDollars from the SP. No fallback calculations.
 **What I chose:** Both columns are `ShippingDollars` only. Missing/blank is $0, same as other SP dollar fields. Open $ stays Ordered $ − Shipped $ − Cancelled $. Ordered builder_version 7.

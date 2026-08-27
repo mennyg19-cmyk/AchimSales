@@ -1,8 +1,7 @@
 # Litestream replication for v3's precious.db -> Azure Blob.
 #
-# Loaded by startup.sh ONLY when LITESTREAM_AZURE_ACCOUNT_KEY is present; the
-# launch is fail-open, so a misconfiguration here never blocks gunicorn (which
-# also serves the LIVE production app via the dispatcher).
+# Loaded by startup.sh when LITESTREAM_AZURE_ACCOUNT_KEY is present.
+# APP_ENV=prod refuses to boot if restore leaves precious.db missing.
 #
 # All values come from app settings (env). ${VAR} is expanded by Litestream.
 # /test and /beta each have their own local sqlite file under /tmp (wiped on

@@ -64,6 +64,9 @@ class Config:
     smtp_starttls: bool = True
     sp_site_url: str = ""
     sp_drive_root: str = "D365 F&O"
+    litestream_azure_account_name: str = ""
+    litestream_azure_account_key: str = ""
+    litestream_azure_container: str = ""
 
     @property
     def is_prod(self) -> bool:
@@ -91,10 +94,13 @@ class Config:
                 problems.append("GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET required for AUTH_MODE=msal")
             if not (self.reporting_api_base_url and self.reporting_api_key):
                 problems.append("REPORTING_API_BASE_URL and REPORTING_API_KEY required in prod")
-            # Rule 5: precious.db on local disk MUST be replicated by Litestream in
-            # prod, and must never live on a UNC/SMB share (Azure Files).
-            if not self.litestream_blob_url:
-                problems.append("LITESTREAM_BLOB_URL required in prod (precious.db durability)")
+            # startup.sh / litestream.yml use the Azure account settings, not BLOB_URL.
+            if not self.litestream_azure_account_key:
+                problems.append("LITESTREAM_AZURE_ACCOUNT_KEY required in prod (precious.db durability)")
+            if not self.litestream_azure_account_name:
+                problems.append("LITESTREAM_AZURE_ACCOUNT_NAME required in prod")
+            if not self.litestream_azure_container:
+                problems.append("LITESTREAM_AZURE_CONTAINER required in prod")
             for label, p in (("PRECIOUS_DB_PATH", self.precious_db_path),
                              ("CACHE_DB_PATH", self.cache_db_path)):
                 if _is_unc(p):
@@ -178,6 +184,9 @@ def load_config(*, is_beta: bool = False) -> Config:
         precious_db_path=_env_path(precious_env, precious_default),
         cache_db_path=_env_path(cache_env, cache_default),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
+        litestream_azure_account_name=os.environ.get("LITESTREAM_AZURE_ACCOUNT_NAME", "").strip(),
+        litestream_azure_account_key=os.environ.get("LITESTREAM_AZURE_ACCOUNT_KEY", "").strip(),
+        litestream_azure_container=os.environ.get("LITESTREAM_AZURE_CONTAINER", "").strip(),
         new_app_marker=_env_bool("NEW_APP_MARKER", True),
         outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),
         # Prefer EMAIL_FROM; fall back to live's EMAIL_FROM_ADDRESS (Azure has that).

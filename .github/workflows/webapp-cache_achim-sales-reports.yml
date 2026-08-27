@@ -4,13 +4,12 @@
 
 name: Build and deploy Python app to Azure Web App - achim-sales-reports
 
-# Production slot. webapp-cache is the usual deploy branch; cursor/** is so
-# Cloud Agents can ship the same way when they push their working branch.
+# Production slot. Only the reviewed production branch deploys here.
+# Cloud Agent cursor/** branches must not ship straight to Azure Production.
 on:
   push:
     branches:
       - webapp-cache
-      - "cursor/**"
   workflow_dispatch:
 
 # Name bumped so the 2026-08-26 ghost "queued" runs (cannot cancel or delete)
@@ -27,6 +26,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Forbid tracked session exports
+        run: bash tools/check-no-tracked-secrets.sh
 
       - name: Set up Python version
         uses: actions/setup-python@v5
