@@ -64,7 +64,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Edge cases:**
 - Empty IP skips IP throttle.
-- Local dev without PUBLIC_BASE_URL keeps Flask `_external=True` URLs.
+- Local dev without PUBLIC_BASE_URL emails `http://127.0.0.1:5001/...` (never the request Host).
 
 **Test files:** `tests/test_magic_link.py`, `tests/test_magic_link_origin.py`, `tests/test_excel_formula.py`
 

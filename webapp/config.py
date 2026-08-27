@@ -77,10 +77,10 @@ _DEFAULT_PUBLIC_ORIGIN = "https://reports.achimonline.com"
 
 
 def magic_link_public_origin() -> str:
-    """Host used in emailed magic-link URLs. Ignores the request Host header."""
+    """Host used in emailed magic-link URLs. Never taken from the request Host header."""
     explicit = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
     if explicit:
         return explicit
     if _on_azure():
         return _DEFAULT_PUBLIC_ORIGIN
-    return ""
+    return "http://127.0.0.1:5001"

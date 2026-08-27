@@ -13,8 +13,8 @@ def test_explicit_public_base_url_wins(monkeypatch):
     assert magic_link_public_origin() == "https://example.test"
 
 
-def test_local_dev_has_no_forced_origin(monkeypatch):
+def test_local_dev_uses_loopback_origin(monkeypatch):
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
     monkeypatch.delenv("WEBSITE_SITE_NAME", raising=False)
     monkeypatch.delenv("WEBSITE_INSTANCE_ID", raising=False)
-    assert magic_link_public_origin() == ""
+    assert magic_link_public_origin() == "http://127.0.0.1:5001"

@@ -215,10 +215,7 @@ def _client_ip() -> str:
 
 def _magic_link_url(token: str) -> str:
     path = url_for("auth.consume_magic_link", token=token)
-    origin = magic_link_public_origin()
-    if origin:
-        return origin + path
-    return url_for("auth.consume_magic_link", token=token, _external=True)
+    return magic_link_public_origin().rstrip("/") + path
 
 
 @auth_bp.route("/login/magic-link", methods=["POST"])
