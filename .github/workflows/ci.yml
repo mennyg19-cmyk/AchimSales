@@ -40,4 +40,4 @@ jobs:
       - name: Run webapp bypass tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -m pytest tests/test_dev_bypass_auth.py tests/test_download_file_auth.py tests/test_security_headers.py --noconftest -q --tb=short
+        run: python -m pytest tests/test_dev_bypass_auth.py tests/test_download_file_auth.py tests/test_security_headers.py tests/test_magic_link.py tests/test_magic_link_origin.py tests/test_excel_formula.py --noconftest -q --tb=short

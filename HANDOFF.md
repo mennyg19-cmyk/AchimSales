@@ -16,7 +16,7 @@ Last updated: 2026-08-27
 ## What's in progress
 
 - Session revoke and git-history purge are **BLOCKED** (need Azure Flask secret rotation + coordinated history rewrite).
-- Remaining review security after P0: download-file ownership, precious-repair GET mutations, browser headers.
+- Remaining review security: download-file, precious-repair GET, headers, magic-link claim/throttle/host, history XSS, notif-diag escape, Excel formula prefix on shared writers.
 - No archive tag, deletion inventory, or legacy migration yet.
 
 ## What's next

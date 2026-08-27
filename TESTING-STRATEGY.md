@@ -47,6 +47,29 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Magic links, history XSS, Excel formula prefix
+
+**What to test:**
+- A second magic-link token for the same email consumes the first.
+- Consuming a token twice returns None the second time.
+- A sixth token create in 15 minutes returns None.
+- 40 attempts from one IP trip the IP limit; another IP is unaffected.
+- On Azure, emailed links use PUBLIC_BASE_URL or https://reports.achimonline.com.
+- Strings starting with `= + - @` get a leading apostrophe; numbers are unchanged.
+
+**Expected behavior:**
+- Only the latest unconsumed magic link works. Claim is one UPDATE.
+- Consume refuses login if the account is no longer an external salesman (covered in auth; token is still spent).
+- History sheet cells are HTML-escaped. Notif diagnostic interpolations use `esc()`.
+
+**Edge cases:**
+- Empty IP skips IP throttle.
+- Local dev without PUBLIC_BASE_URL keeps Flask `_external=True` URLs.
+
+**Test files:** `tests/test_magic_link.py`, `tests/test_magic_link_origin.py`, `tests/test_excel_formula.py`
+
+---
+
 <!-- Entries are added below as features are built. Each entry follows this format:
 
 ## [Feature/Module Name]

@@ -66,6 +66,11 @@
 <script>
 var HISTORY_SHEETS = {{ sheets|tojson }};
 
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function showHistorySheet(name, btn) {
     document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
     if (btn) btn.classList.add('active');
@@ -80,7 +85,7 @@ function showHistorySheet(name, btn) {
 
     var cols = Object.keys(rows[0]);
     var html = '<table class="data-table"><thead><tr>';
-    cols.forEach(function(c) { html += '<th>' + c + '</th>'; });
+    cols.forEach(function(c) { html += '<th>' + escapeHtml(c) + '</th>'; });
     html += '</tr></thead><tbody>';
     var max = Math.min(rows.length, 500);
     for (var i = 0; i < max; i++) {
@@ -88,7 +93,8 @@ function showHistorySheet(name, btn) {
         cols.forEach(function(c) {
             var v = rows[i][c];
             var isNum = typeof v === 'number';
-            html += '<td class="' + (isNum ? 'num' : '') + '">' + (v === null || v === '' ? '' : v) + '</td>';
+            var display = (v === null || v === '') ? '' : (isNum ? v : escapeHtml(v));
+            html += '<td class="' + (isNum ? 'num' : '') + '">' + display + '</td>';
         });
         html += '</tr>';
     }

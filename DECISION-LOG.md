@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Review: magic links, XSS, formula prefix
+**What I had to decide:** Throttle numbers, magic-link URL host, and how far to take Excel formula neutralization.
+**What I chose:** 5 tokens per email / 15 min; 40 POSTs per client IP / 15 min. New token marks older unconsumed tokens consumed. Consume is one UPDATE. Login re-checks salesman + is_external. Emailed URLs use PUBLIC_BASE_URL, or https://reports.achimonline.com on Azure, never the request Host. History cells and notif-diag strings are escaped. Legacy streaming/DataFrame Excel paths prefix `=+-@` leaders.
+**Why:** Review items 9–11 and 14–18. Azure shares a proxy address, so IP cap is spray protection (40), not a per-desk lock. Number 4 / salesman writers that skip `strip_datetime_tz` / `make_streaming_cell` are still unpaid.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Review: download-file, GET repair, headers
 **What I had to decide:** How far to go on remaining review security items after P0 CI went green.
 **What I chose:** (1) `download-file` only serves an .xlsx that is under Direct Reports *and* in the current user's history, using `commonpath` instead of `startswith`. (2) `precious-repair` GET is check-only; mutating actions require POST+CSRF. (3) Add CSP/frame/nosniff/referrer/permissions headers; HSTS on Azure/prod. CSP still allows current CDNs and `'unsafe-inline'`.

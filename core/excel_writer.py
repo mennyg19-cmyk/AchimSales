@@ -17,6 +17,14 @@ from core.excel_styles import FMT_CURRENCY
 log = logging.getLogger(__name__)
 
 STREAMING_ROW_THRESHOLD = 2000
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r", "\n")
+
+
+def neutralize_excel_value(value):
+    """Prefix formula-leading strings so Excel treats them as text."""
+    if isinstance(value, str) and value[:1] in _FORMULA_TRIGGERS:
+        return "'" + value
+    return value
 
 
 def autosize_columns(ws, max_width: int = 60, min_width: int = 10, max_rows: int | None = None) -> None:
@@ -65,7 +73,7 @@ def format_money_columns(ws, money_keywords: set[str] | None = None, header_row:
 
 def make_streaming_cell(ws, value, fill=None, font=None, border=None, fmt=None) -> WriteOnlyCell:
     """Create a WriteOnlyCell with optional styling."""
-    cell = WriteOnlyCell(ws, value=value)
+    cell = WriteOnlyCell(ws, value=neutralize_excel_value(value))
     if fill:
         cell.fill = fill
     if font:
@@ -86,4 +94,7 @@ def strip_datetime_tz(df: pd.DataFrame) -> pd.DataFrame:
                     df[col] = df[col].dt.tz_localize(None)
         except Exception:
             log.debug("Could not strip timezone from column %s", col, exc_info=True)
+    for col in df.columns:
+        if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
+            df[col] = df[col].map(neutralize_excel_value)
     return df

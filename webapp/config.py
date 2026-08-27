@@ -72,3 +72,15 @@ def dev_bypass_auth() -> bool:
 
 
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
+_DEFAULT_PUBLIC_ORIGIN = "https://reports.achimonline.com"
+
+
+def magic_link_public_origin() -> str:
+    """Host used in emailed magic-link URLs. Ignores the request Host header."""
+    explicit = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    if _on_azure():
+        return _DEFAULT_PUBLIC_ORIGIN
+    return ""

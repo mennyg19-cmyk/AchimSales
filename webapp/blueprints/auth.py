@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
-from webapp.config import dev_bypass_auth
+from webapp.config import dev_bypass_auth, magic_link_public_origin
 from webapp.helpers import get_current_user, get_salesmen_list, require_login
 from webapp.user_map import get_user, is_developer
 
@@ -208,6 +208,19 @@ def role_picker():
                            grouped_users=grouped, dev_email=dev_email)
 
 
+def _client_ip() -> str:
+    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    return forwarded or (request.remote_addr or "")
+
+
+def _magic_link_url(token: str) -> str:
+    path = url_for("auth.consume_magic_link", token=token)
+    origin = magic_link_public_origin()
+    if origin:
+        return origin + path
+    return url_for("auth.consume_magic_link", token=token, _external=True)
+
+
 @auth_bp.route("/login/magic-link", methods=["POST"])
 def request_magic_link():
     """Email an external sales rep a one-time sign-in link.
@@ -220,19 +233,25 @@ def request_magic_link():
         flash("Please enter a valid email address.", "error")
         return redirect("/login")
 
-    user = get_user(email)
-    if user and user.get("role") == "salesman":
-        from webapp.db import get_user_by_email, create_magic_link_token
-        from webapp.services.magic_link import send_magic_link_email, MagicLinkError
+    from webapp.db import (
+        create_magic_link_token,
+        get_user_by_email,
+        magic_link_ip_rate_limited,
+        record_magic_link_attempt,
+    )
+    from webapp.services.magic_link import MagicLinkError, send_magic_link_email
 
+    ip = _client_ip()
+    if not magic_link_ip_rate_limited(ip):
+        record_magic_link_attempt(email, ip)
+        user = get_user(email)
         row = get_user_by_email(email) or {}
-        if row.get("is_external"):
+        if user and user.get("role") == "salesman" and row.get("is_external"):
             try:
-                token = create_magic_link_token(email)
-                link_url = url_for("auth.consume_magic_link",
-                                   token=token, _external=True)
-                send_magic_link_email(email, link_url)
-                log.info("Magic-link sent to %s", email)
+                token = create_magic_link_token(email, request_ip=ip)
+                if token:
+                    send_magic_link_email(email, _magic_link_url(token))
+                    log.info("Magic-link sent to %s", email)
             except MagicLinkError:
                 log.exception("Magic-link send failed for %s", email)
             except Exception:
@@ -247,7 +266,7 @@ def request_magic_link():
 @auth_bp.route("/login/magic-link/<token>")
 def consume_magic_link(token):
     """Consume a one-time login token and sign the user in."""
-    from webapp.db import consume_magic_link_token, get_setting
+    from webapp.db import consume_magic_link_token, get_setting, get_user_by_email
 
     email = consume_magic_link_token(token)
     if not email:
@@ -255,17 +274,19 @@ def consume_magic_link(token):
               "Please request a new one.", "error")
         return redirect("/login")
 
-    user_info = get_user(email)
-    if not user_info:
-        log.warning("Magic-link token consumed for unknown email %s", email)
-        flash("Account not found.", "error")
+    row = get_user_by_email(email) or {}
+    if row.get("role") != "salesman" or not row.get("is_external"):
+        log.warning("Magic-link refused for %s (role=%s external=%s)",
+                    email, row.get("role"), row.get("is_external"))
+        flash("That sign-in link is invalid or has expired. "
+              "Please request a new one.", "error")
         return redirect("/login")
 
     session["user"] = {
         "email": email,
-        "name": user_info.get("display_name") or email,
-        "role": user_info["role"],
-        "salesman_key": user_info.get("salesman_key"),
+        "name": row.get("display_name") or email,
+        "role": row["role"],
+        "salesman_key": row.get("salesman_key"),
     }
     session["theme"] = get_setting(email, "theme", "light")
     log.info("Magic-link sign-in: %s", email)

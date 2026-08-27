@@ -132,7 +132,15 @@ CREATE TABLE IF NOT EXISTS magic_link_tokens (
     email         TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     expires_at    TEXT NOT NULL,
-    consumed_at   TEXT
+    consumed_at   TEXT,
+    request_ip    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS magic_link_attempts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT NOT NULL,
+    ip            TEXT NOT NULL,
+    created_at    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS report_runs (
@@ -376,6 +384,10 @@ def init_db():
         hist_cols = [r[1] for r in conn.execute("PRAGMA table_info(history)").fetchall()]
         if hist_cols and "extra_files" not in hist_cols:
             conn.execute("ALTER TABLE history ADD COLUMN extra_files TEXT DEFAULT '[]'")
+            conn.commit()
+        token_cols = [r[1] for r in conn.execute("PRAGMA table_info(magic_link_tokens)").fetchall()]
+        if token_cols and "request_ip" not in token_cols:
+            conn.execute("ALTER TABLE magic_link_tokens ADD COLUMN request_ip TEXT")
             conn.commit()
         user_count = conn.execute("SELECT COUNT(*) FROM app_users").fetchone()[0]
         print(f"[db] init_db: app_users table has {user_count} rows after schema init", flush=True)
@@ -1231,31 +1243,48 @@ _USER_EMAIL_REFS: list[tuple[str, str]] = [
 ]
 
 
-def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
-    """Generate a fresh one-time login token for *email*. Returns the token.
+_MAGIC_LINK_WINDOW_MIN = 15
+_MAGIC_LINK_MAX_PER_EMAIL = 5
+_MAGIC_LINK_MAX_PER_IP = 40
 
-    The token is URL-safe and 32 random bytes (~43 chars base64), opaque to
-    the user. We also clean out any expired tokens for the same email so
-    the table doesn't grow forever.
+
+def create_magic_link_token(email: str, ttl_minutes: int = 15,
+                            request_ip: str | None = None) -> str | None:
+    """Generate a fresh one-time login token for *email*.
+
+    Returns the token, or None if this email already requested too many
+    links in the window. A new token marks any earlier unconsumed token
+    for the same email as consumed, so only the latest link works.
     """
     import secrets
     from datetime import datetime, timedelta, timezone
 
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(minutes=_MAGIC_LINK_WINDOW_MIN)).isoformat()
     expires = now + timedelta(minutes=ttl_minutes)
     email_norm = email.lower().strip()
+    ip = (request_ip or "").strip()
+    now_s = now.isoformat()
 
     conn = get_db()
     try:
+        n_email = conn.execute(
+            "SELECT COUNT(*) FROM magic_link_tokens WHERE email = ? AND created_at >= ?",
+            (email_norm, cutoff),
+        ).fetchone()[0]
+        if n_email >= _MAGIC_LINK_MAX_PER_EMAIL:
+            return None
         conn.execute(
-            "DELETE FROM magic_link_tokens WHERE email = ? AND (expires_at < ? OR consumed_at IS NOT NULL)",
-            (email_norm, now.isoformat()),
+            "UPDATE magic_link_tokens SET consumed_at = ? "
+            "WHERE email = ? AND consumed_at IS NULL",
+            (now_s, email_norm),
         )
         conn.execute(
-            """INSERT INTO magic_link_tokens (token, email, created_at, expires_at)
-               VALUES (?, ?, ?, ?)""",
-            (token, email_norm, now.isoformat(), expires.isoformat()),
+            """INSERT INTO magic_link_tokens
+               (token, email, created_at, expires_at, request_ip)
+               VALUES (?, ?, ?, ?, ?)""",
+            (token, email_norm, now_s, expires.isoformat(), ip or None),
         )
         conn.commit()
     finally:
@@ -1264,7 +1293,7 @@ def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
 
 
 def consume_magic_link_token(token: str) -> str | None:
-    """Validate a token and mark it consumed. Returns the email if valid,
+    """Atomically claim a token. Returns the email if this call won the claim,
     None if the token is unknown, expired, or already used.
     """
     from datetime import datetime, timezone
@@ -1275,23 +1304,53 @@ def consume_magic_link_token(token: str) -> str | None:
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     try:
+        cur = conn.execute(
+            """UPDATE magic_link_tokens
+               SET consumed_at = ?
+               WHERE token = ? AND consumed_at IS NULL AND expires_at >= ?""",
+            (now, token, now),
+        )
+        if cur.rowcount != 1:
+            conn.commit()
+            return None
         row = conn.execute(
-            """SELECT email, expires_at, consumed_at FROM magic_link_tokens
-               WHERE token = ?""",
-            (token,),
+            "SELECT email FROM magic_link_tokens WHERE token = ?", (token,),
         ).fetchone()
-        if not row:
-            return None
-        if row["consumed_at"]:
-            return None
-        if row["expires_at"] < now:
-            return None
+        conn.commit()
+        return row["email"] if row else None
+    finally:
+        conn.close()
+
+
+def record_magic_link_attempt(email: str, request_ip: str) -> None:
+    from datetime import datetime, timezone
+
+    conn = get_db()
+    try:
         conn.execute(
-            "UPDATE magic_link_tokens SET consumed_at = ? WHERE token = ?",
-            (now, token),
+            "INSERT INTO magic_link_attempts (email, ip, created_at) VALUES (?, ?, ?)",
+            (email.lower().strip(), (request_ip or "").strip(),
+             datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
-        return row["email"]
+    finally:
+        conn.close()
+
+
+def magic_link_ip_rate_limited(request_ip: str) -> bool:
+    from datetime import datetime, timedelta, timezone
+
+    ip = (request_ip or "").strip()
+    if not ip:
+        return False
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=_MAGIC_LINK_WINDOW_MIN)).isoformat()
+    conn = get_db()
+    try:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM magic_link_attempts WHERE ip = ? AND created_at >= ?",
+            (ip, cutoff),
+        ).fetchone()[0]
+        return n >= _MAGIC_LINK_MAX_PER_IP
     finally:
         conn.close()
 

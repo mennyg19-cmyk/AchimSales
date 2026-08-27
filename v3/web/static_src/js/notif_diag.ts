@@ -1,3 +1,5 @@
+import { esc } from "./http";
+
 function root(): HTMLElement | null {
   return document.getElementById("ndRoot");
 }
@@ -32,14 +34,14 @@ async function load(email: string, run = false): Promise<void> {
   const skipped = (data.would_skip || []) as { customer_account: string; reason: string }[];
   out.innerHTML = `
     <section class="settings-card">
-      <p><strong>${u.email || ""}</strong> · ${u.role || ""} · active ${u.is_active ? "yes" : "no"} · dashboard ${u.dashboard_enabled ? "on" : "off"}</p>
-      <p class="flag-desc">Mirror refreshed ${data.last_refreshed || "never"} · ${data.matched_customers || 0} customers in scope · ${data.overdue_in_scope || 0} overdue</p>
+      <p><strong>${esc(u.email || "")}</strong> · ${esc(u.role || "")} · active ${u.is_active ? "yes" : "no"} · dashboard ${u.dashboard_enabled ? "on" : "off"}</p>
+      <p class="flag-desc">Mirror refreshed ${esc(String(data.last_refreshed || "never"))} · ${esc(String(data.matched_customers || 0))} customers in scope · ${esc(String(data.overdue_in_scope || 0))} overdue</p>
       <h3 class="settings-subhead">Would create (${created.length})</h3>
-      <ul>${created.map((c) => `<li>${c.customer_account} — ${c.customer_name}</li>`).join("") || "<li>None</li>"}</ul>
+      <ul>${created.map((c) => `<li>${esc(c.customer_account)} — ${esc(c.customer_name)}</li>`).join("") || "<li>None</li>"}</ul>
       <h3 class="settings-subhead">Would skip (${skipped.length})</h3>
-      <ul>${skipped.map((c) => `<li>${c.customer_account} — ${c.reason}</li>`).join("") || "<li>None</li>"}</ul>
+      <ul>${skipped.map((c) => `<li>${esc(c.customer_account)} — ${esc(c.reason)}</li>`).join("") || "<li>None</li>"}</ul>
       <h3 class="settings-subhead">Excluded</h3>
-      <p>${(data.excluded || []).join(", ") || "None"}</p>
+      <p>${(data.excluded || []).map((x: string) => esc(x)).join(", ") || "None"}</p>
       <h3 class="settings-subhead">Active alerts</h3>
       <p>${(data.active_notifications || []).length}</p>
     </section>`;
