@@ -27,6 +27,19 @@ function wizardRoot(): HTMLElement | null {
   return document.getElementById("msWizard");
 }
 
+/** Set a <select> only to a real option. daily and yesterday are the same period. */
+function setSelectValue(el: HTMLSelectElement, raw: string): void {
+  const wanted = String(raw);
+  const values = [...el.options].map((o) => o.value);
+  if (values.includes(wanted)) {
+    el.value = wanted;
+    return;
+  }
+  const aliases: Record<string, string> = { yesterday: "daily", daily: "yesterday" };
+  const mapped = aliases[wanted.trim().toLowerCase()] || "";
+  if (mapped && values.includes(mapped)) el.value = mapped;
+}
+
 function canSeeCompany(): boolean {
   return wizardRoot()?.getAttribute("data-can-company") === "1";
 }
@@ -215,7 +228,7 @@ function applySavedViewFromSelect(): void {
   const preset = JSON.parse(raw) as { params?: Record<string, unknown>; layout?: Record<string, unknown> };
   const params = preset.params || {};
   const periodEl = form.elements.namedItem("period") as HTMLSelectElement | null;
-  if (periodEl) periodEl.value = String(params.period || "");
+  if (periodEl) setSelectValue(periodEl, String(params.period || ""));
   const yearEl = form.elements.namedItem("year") as HTMLSelectElement | null;
   if (yearEl) yearEl.value = params.year != null ? String(params.year) : "";
   ensurePickers();
@@ -735,7 +748,7 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
     c.checked = monthdays.includes(Number(c.value));
   });
 
-  (form.elements.namedItem("period") as HTMLSelectElement).value = params.period || "";
+  setSelectValue(form.elements.namedItem("period") as HTMLSelectElement, String(params.period || ""));
   ensurePickers();
   statusPicker?.setSelected(asStringList(params.status));
   pendingSalesmen = asStringList(params.salesman);

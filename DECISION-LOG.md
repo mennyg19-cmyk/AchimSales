@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Daily Ordered view fills Yesterday and does not crash
+**What you asked for:** Clicking Daily Ordered threw `Cannot read properties of undefined (reading '_isDuplicate')` and left Period blank instead of Yesterday.
+**What I chose:** Map `yesterday` ↔ `daily` when filling a period dropdown so only a real option is selected. Store `generated_at` on `state.generatedAt`, not on `state.tabs`. Skip non-tab keys when applying a layout.
+**Why:** Company views and home-card URLs store `period=yesterday`. The report dropdown's Yesterday option is `daily`. Assigning `yesterday` blanks the select. The crash is `generated_at` missing from the payload, so `__generated_at__` on `tabs` is `undefined` and layout apply reads `_isDuplicate` on it.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 No second mail after a successful send today
 **What you asked for:** Why did you get both a failure mail and a success mail (and doubles) today.
 **What I chose:** A restart that requeues a schedule job skips delivery if that schedule already succeeded today (Eastern). The deploy test-send hook also skips those two company rows if they already succeeded today. Run now still sends. This deploy does not re-send those reports.

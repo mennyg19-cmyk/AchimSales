@@ -22,6 +22,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Daily Ordered view period + layout crash
+
+**What to test:**
+- Report viewer maps `yesterday` to the `daily` dropdown option and does not write `__generated_at__` onto `state.tabs`.
+- Master wizard maps `daily` ↔ `yesterday` the same way.
+- Backend still accepts both `daily` and `yesterday` (`test_dates.py`).
+
+**Expected behavior:**
+- Opening Daily Ordered selects Yesterday and applies the company layout without `_isDuplicate` on undefined.
+
+**Edge cases:**
+- Payload with no `generated_at` (current API).
+- Home-card URL `?period=yesterday&cview=…` plus view params that also say yesterday.
+
+**Test file:** `v3/tests/test_frontend.py`
+
 ## No second mail after a successful send today
 
 **What to test:**

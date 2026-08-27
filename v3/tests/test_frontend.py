@@ -176,6 +176,11 @@ def test_report_viewer_meeting_ux():
     assert "function applySalesman(" in src
     assert "fulfillmentFillCss" in src
     assert 'col.field === "Fulfillment %"' in src
+    assert "function setSelectValue(" in src
+    assert 'yesterday: "daily"' in src
+    assert "state.generatedAt" in src
+    assert "(state.tabs as any).__generated_at__" not in src
+    assert "if (!isTab(tab)) return;" in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".group-pill" in css
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
@@ -188,6 +193,8 @@ def test_report_viewer_meeting_ux():
     wiz_js = (_SRC / "js" / "master_wizard.ts").read_text(encoding="utf-8")
     assert 'view_name: selectedViewName()' in wiz_js
     assert 'group.label = "Company views"' in wiz_js
+    assert "function setSelectValue(" in wiz_js
+    assert 'yesterday: "daily"' in wiz_js
     sched = (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in sched
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
