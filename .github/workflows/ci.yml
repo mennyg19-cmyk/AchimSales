@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - webapp-cache
+      - "cursor/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tracked-secrets:
+    name: Forbid tracked session exports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check index
+        run: bash tools/check-no-tracked-secrets.sh
+
+  p0-tests:
+    name: P0 tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install test dependencies
+        run: pip install -r v3/requirements.txt
+      - name: Run containment tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python -m pytest \
+            v3/tests/test_odata_scope.py \
+            v3/tests/test_config.py \
+            v3/tests/test_smoke.py \
+            tests/test_dev_bypass_auth.py \
+            -q --tb=short
