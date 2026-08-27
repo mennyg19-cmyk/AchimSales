@@ -18,6 +18,7 @@ from flask import (
 )
 
 from webapp.helpers import get_current_user, get_salesmen_list, require_login
+from webapp.services.access import user_can_access_customer
 from webapp.user_map import (
     get_available_reports, get_salesman_key, is_admin, is_manager, is_salesman,
 )
@@ -116,27 +117,6 @@ def customer_last_order_pick():
     )
 
 
-def _check_customer_access_for_last_order(user, account, cust_info):
-    """Salesman can only see their own book; manager only assigned books.
-
-    Returns True if access is allowed. Flashes + returns False otherwise.
-    """
-    from webapp.db import normalize_key
-
-    if is_admin(user):
-        return True
-    cust_sg = (cust_info.get("sales_group") or "").strip()
-    norm_cust = normalize_key(cust_sg)
-    if is_manager(user):
-        allowed = {normalize_key(k) for k in get_user_salesman_access(user.get("email", ""))}
-        if norm_cust in allowed:
-            return True
-    elif get_salesman_key(user):
-        if normalize_key(get_salesman_key(user)) == norm_cust:
-            return True
-    return False
-
-
 def _common_po_prefix(pos: list[str]) -> str:
     """Return the longest shared prefix across the given POs, stripped of
     trailing dashes/underscores. Falls back to the first PO when nothing
@@ -215,7 +195,7 @@ def api_customer_last_order_recent_invoiced(account):
     except Exception:
         log.exception("customer info fetch failed for %s", account)
 
-    if not _check_customer_access_for_last_order(user, account, cust_info):
+    if not user_can_access_customer(user, account, sales_group=cust_info.get("sales_group")):
         return jsonify({"error": "forbidden"}), 403
 
     try:
@@ -258,7 +238,7 @@ def customer_last_order_view(account):
     except Exception:
         log.exception("Failed to fetch customer info for %s", account)
 
-    if not _check_customer_access_for_last_order(user, account, cust_info):
+    if not user_can_access_customer(user, account, sales_group=cust_info.get("sales_group")):
         flash("You do not have access to this customer.", "error")
         return redirect(url_for("reports.customer_last_order_pick"))
 

@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Review: customer access fail-closed
+**What I had to decide:** Missing dashboard_cache / missing salesman_key used to grant access. Managers skipped order-detail checks because they have no salesman key.
+**Options I considered:** (1) Keep fail-open on cache misses so last-order works when the cache is empty. (2) Deny when the book is unknown; last-order may pass a D365 sales_group. (3) Treat managers as admin.
+**What I chose:** Deny when the book/account is unknown. Admins still pass. Managers need a grant matching the customer's sales group. Last-order can pass D365 sales_group; a blank group falls back to cache. Address, price, and generate-po APIs use the same helper. `/api/customers` lists only books the user may see (managers: grants; salesmen: own key; no key: empty).
+**Why:** Review items 6–8. Fail-open on missing data was the hole. Number 4 / salesman Excel prefix and last-order / order-entry innerHTML are leftover items 10–11 in this same change.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Review: session role vs DB authorization
 **What I had to decide:** Whether developer tools should stay reachable during impersonation, and what to do with a disabled account that still has a cookie.
 **Options I considered:** (1) Check the impersonator's real_email so db-explorer works while viewing as a salesman. (2) Check the current identity only, matching today's v3 `p.role` gates. (3) Demote disabled users to salesman in the cookie vs sign them out.

@@ -10,11 +10,12 @@ Last updated: 2026-08-27
 - **P0.1–P0.5** as before (cookies untracked, no cursor Production deploys, OData fail-closed, Litestream readiness, no prod DEV_BYPASS_AUTH).
 - Review follow-up: download-file owner check, precious-repair GET-only check, security headers, magic-link claim/throttle/fixed origin, history XSS, notif-diag escape, shared Excel formula prefix.
 - Session/DB authz: v3 developer routes and login use `Authorization` (not cookie role). Disabled users are signed out. Live→v3 salesman grants replace on copy. Legacy session role is re-read from `app_users`.
+- Customer/order access fails closed when the book is unknown. Managers need a matching grant (order-detail no longer skips that check). Address/price/generate-po APIs and `/api/customers` use the same scope. Last-order picker and order-entry names are escaped. Number 4 `make_cell` and salesman `_excel_val` prefix `=+-@`.
 
 ## What's in progress
 
 - Session revoke and git-history purge are **BLOCKED** (need Azure Flask secret rotation + coordinated history rewrite).
-- Remaining review security after session/DB authz: leftover innerHTML sinks, Number 4 / salesman formula writers, legacy CSRF, CDN SRI, leftover legacy customer/order fail-open.
+- Remaining review security: leftover innerHTML sinks, other CLI Excel writers, legacy CSRF, CDN SRI.
 - No archive tag, deletion inventory, or legacy migration yet.
 
 ## What's next

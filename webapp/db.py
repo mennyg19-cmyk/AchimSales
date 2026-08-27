@@ -690,7 +690,7 @@ def get_cached_customer_list(salesman_key: str | None = None) -> list[dict]:
             rows = [r for r in rows if normalize_key(r["sales_group"] or "") == norm]
         else:
             rows = conn.execute(
-                """SELECT customer_account, customer_name, last_order_date
+                """SELECT customer_account, customer_name, last_order_date, sales_group
                    FROM dashboard_cache ORDER BY customer_name"""
             ).fetchall()
         return [dict(r) for r in rows]

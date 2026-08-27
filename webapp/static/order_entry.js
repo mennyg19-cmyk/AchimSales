@@ -109,9 +109,9 @@ var OE = (function () {
         var dd = document.getElementById('customerDropdown');
         if (!matches.length) { dd.style.display = 'none'; return; }
         dd.innerHTML = matches.map(function (c) {
-            return '<div class="oe-dropdown-item" data-account="' + c.account + '" data-name="' + c.name + '">'
-                 + '<span class="oe-dd-primary">' + c.name + '</span>'
-                 + '<span class="oe-dd-secondary">' + c.account + '</span>'
+            return '<div class="oe-dropdown-item" data-account="' + _escHtml(c.account) + '" data-name="' + _escHtml(c.name) + '">'
+                 + '<span class="oe-dd-primary">' + _escHtml(c.name) + '</span>'
+                 + '<span class="oe-dd-secondary">' + _escHtml(c.account) + '</span>'
                  + '</div>';
         }).join('');
         dd.style.display = 'block';
@@ -400,8 +400,9 @@ var OE = (function () {
     }
 
     function _escHtml(s) {
-        if (!s) return '';
-        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return String(s == null ? '' : s)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
     }
 
     function _renderItemDropdown(items, dropdownId, clickHandler) {
@@ -657,11 +658,11 @@ var OE = (function () {
             html += '<div class="oe-line-card" data-id="' + l.id + '">'
                   + '<div class="oe-line-card-body">'
                   + '<div class="oe-line-card-top">'
-                  + '<span class="oe-line-item-name">' + (l.item_name || l.item_number) + '</span>'
+                  + '<span class="oe-line-item-name">' + _escHtml(l.item_name || l.item_number) + '</span>'
                   + '<span class="oe-line-ext">' + _formatCurrency(ext) + '</span>'
                   + '</div>'
                   + '<div class="oe-line-card-meta">'
-                  + '<span>' + l.item_number + '</span>'
+                  + '<span>' + _escHtml(l.item_number) + '</span>'
                   + '<span>Qty: ' + l.qty + '</span>'
                   + '<span>@ ' + _formatCurrency(price) + '</span>'
                   + (l.update_customer_price ? '<span class="oe-line-flag">Price update</span>' : '')

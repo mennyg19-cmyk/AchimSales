@@ -537,8 +537,11 @@ def fetch_customers_for_api(salesman_key: str | None = None) -> list[dict]:
         df = df[df["_norm_sg"] == norm].drop(columns=["_norm_sg"])
 
     customers = [
-        {"account": str(row.get("CustomerAccount", "")),
-         "name": str(row.get("CustomerName", ""))}
+        {
+            "account": str(row.get("CustomerAccount", "")),
+            "name": str(row.get("CustomerName", "")),
+            "sales_group": str(row.get("SalesGroup", "") or "") if "SalesGroup" in df.columns else "",
+        }
         for _, row in df.iterrows()
     ]
     customers.sort(key=lambda c: c["name"])

@@ -4,6 +4,7 @@ Shared styles and formatting for Number 4 Report writers (By Item and By Custome
 Uses WriteOnlyCell for streaming write_only mode.
 """
 
+from core.excel_writer import neutralize_excel_value
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -20,7 +21,7 @@ FMT_CURRENCY = "$#,##0.00"
 
 def make_cell(ws, value, *, fill=None, bold=False, fmt=None):
     """Create a styled WriteOnlyCell for streaming writes."""
-    cell = WriteOnlyCell(ws, value=value)
+    cell = WriteOnlyCell(ws, value=neutralize_excel_value(value))
     cell.border = BORDER
     if fill:
         cell.fill = fill

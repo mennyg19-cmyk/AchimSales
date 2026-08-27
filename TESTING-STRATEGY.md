@@ -70,6 +70,29 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Customer access fail-closed
+
+**What to test:**
+- Missing dashboard_cache or missing salesman_key is a deny (admin still allowed).
+- A salesman matches only their book's sales_group.
+- A manager needs a grant for that sales_group and a known book.
+- Blank D365 sales_group falls back to cache; a real D365 group can authorize with an empty cache.
+- `visible_salesman_keys`: admin unrestricted, manager grants only, salesman own key, salesman without a key is empty.
+- Number 4 `make_cell` and salesman `_excel_val` prefix formula leaders.
+
+**Expected behavior:**
+- Order-detail and customer-detail do not skip grant checks for managers.
+- `/api/customer-addresses`, `/api/customer-price`, and generate-po 403 when the user cannot see the account.
+- `/api/customers` does not return the full book to managers or keyless salesmen.
+
+**Edge cases:**
+- Last-order may pass D365 `sales_group` when cache is empty.
+- Manager `?salesman=` for a key they do not hold returns an empty list.
+
+**Test files:** `tests/test_customer_access.py`, `tests/test_excel_formula.py`
+
+---
+
 ## Session role vs DB authorization
 
 **What to test:**

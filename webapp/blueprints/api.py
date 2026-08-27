@@ -12,8 +12,10 @@ import threading
 from flask import Blueprint, jsonify, request, session
 
 from webapp.helpers import get_current_user, require_login
-from webapp.user_map import get_salesman_key, is_admin, is_salesman, is_developer
+from webapp.services.access import user_can_access_customer, visible_salesman_keys
+from webapp.user_map import get_salesman_key, is_admin, is_developer
 from webapp.db import (
+    normalize_key,
     get_notification_counts, get_notifications,
     dismiss_notification, dismiss_notifications_by_type,
     dismiss_all_notifications,
@@ -55,23 +57,31 @@ api_bp = Blueprint("api", __name__)
 @require_login
 def api_customers():
     user = get_current_user()
-    salesman_key = None
-    if is_salesman(user):
-        salesman_key = user.get("salesman_key")
-    elif is_admin(user) and request.args.get("salesman"):
-        salesman_key = request.args.get("salesman")
+    keys = visible_salesman_keys(user, request.args.get("salesman"))
+    if keys is not None and not keys:
+        return jsonify([])
 
+    salesman_key = next(iter(keys)) if keys is not None and len(keys) == 1 else None
     cached = get_cached_customer_list(salesman_key)
+    if keys is not None and len(keys) > 1:
+        cached = [
+            c for c in cached
+            if normalize_key(c.get("sales_group") or "") in keys
+        ]
     if cached:
-        customers = [
+        return jsonify([
             {"account": c["customer_account"], "name": c["customer_name"]}
             for c in cached
-        ]
-        return jsonify(customers)
+        ])
 
     try:
         customers = fetch_customers_for_api(salesman_key)
-        return jsonify(customers)
+        if keys is not None and len(keys) > 1:
+            customers = [
+                c for c in customers
+                if normalize_key(c.get("sales_group") or "") in keys
+            ]
+        return jsonify([{"account": c["account"], "name": c["name"]} for c in customers])
     except Exception:
         log.exception("Failed to fetch customers")
         return jsonify([]), 500
@@ -717,6 +727,8 @@ def api_scan_upc(upc):
 @api_bp.route("/api/customer-addresses/<path:account>")
 @require_login
 def api_get_addresses(account):
+    if not user_can_access_customer(get_current_user(), account):
+        return jsonify({"error": "forbidden"}), 403
     addresses = get_customer_addresses(account)
     return jsonify({"addresses": addresses})
 
@@ -724,6 +736,8 @@ def api_get_addresses(account):
 @api_bp.route("/api/customer-addresses/<path:account>", methods=["POST"])
 @require_login
 def api_add_address(account):
+    if not user_can_access_customer(get_current_user(), account):
+        return jsonify({"error": "forbidden"}), 403
     data = request.get_json() or {}
     address_id = (data.get("address_id") or "").strip()[:5]
     label = (data.get("label") or "").strip()
@@ -755,6 +769,8 @@ def api_add_address(account):
 @api_bp.route("/api/customer-price/<path:account>/<item_number>")
 @require_login
 def api_customer_price(account, item_number):
+    if not user_can_access_customer(get_current_user(), account):
+        return jsonify({"error": "forbidden"}), 403
     qty = request.args.get("qty", 1.0, type=float)
     result = fetch_customer_price(account, item_number, qty)
     return jsonify(result)
@@ -771,6 +787,8 @@ def api_ship_methods():
 @require_login
 def api_generate_po(account):
     """Auto-generate an easy-to-remember PO number for a customer."""
+    if not user_can_access_customer(get_current_user(), account):
+        return jsonify({"error": "forbidden"}), 403
     from datetime import datetime
     import random
     initials = "".join(

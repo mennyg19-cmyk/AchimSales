@@ -51,6 +51,11 @@
 
     var allCustomers = [];
 
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     function render(filterTerm) {
         var term = (filterTerm || "").trim().toLowerCase();
         var rows = allCustomers;
@@ -76,8 +81,8 @@
             var c = rows[i];
             var url = appUrl("/report/customer-last-order/" + encodeURIComponent(c.account));
             html += '<a href="' + url + '" class="customer-pick-row">' +
-                    '<span class="customer-pick-acct">' + c.account + '</span>' +
-                    '<span class="customer-pick-name">' + (c.name || "") + '</span>' +
+                    '<span class="customer-pick-acct">' + escapeHtml(c.account) + '</span>' +
+                    '<span class="customer-pick-name">' + escapeHtml(c.name || "") + '</span>' +
                     '</a>';
         }
         if (rows.length > max) {

@@ -15,7 +15,7 @@ from webapp.db import (
     get_excluded_customers, get_notifications, get_feature_flag, get_db,
     get_user_salesman_access, normalize_key,
 )
-from webapp.services.access import validate_odata_param, check_customer_access, check_order_access
+from webapp.services.access import validate_odata_param, user_can_access_customer
 from webapp.services.d365 import (
     fetch_customer_orders, fetch_order_with_lines,
 )
@@ -84,9 +84,9 @@ def customer_detail(account):
         return redirect(url_for("dashboard.dashboard"))
 
     user = get_current_user()
-    salesman_key = get_salesman_key(user)
-    user_is_admin = is_admin(user)
-    user_is_manager = is_manager(user)
+    if not user_can_access_customer(user, account):
+        flash("You do not have access to this customer.", "error")
+        return redirect(url_for("dashboard.dashboard"))
 
     cached = None
     conn = get_db()
@@ -98,11 +98,6 @@ def customer_detail(account):
             cached = dict(row)
     finally:
         conn.close()
-
-    if not check_customer_access(salesman_key, account, is_admin=user_is_admin):
-        if not user_is_manager:
-            flash("You do not have access to this customer.", "error")
-            return redirect(url_for("dashboard.dashboard"))
 
     cust_info = {"account": account, "name": account}
     orders = []
@@ -118,18 +113,6 @@ def customer_detail(account):
             "avg_gap_days": cached.get("avg_gap_days"),
             "overdue_threshold": cached.get("overdue_threshold"),
         }
-
-    if salesman_key and not user_is_admin:
-        if normalize_key(salesman_key) != normalize_key(cust_info.get("sales_group", "")):
-            flash("You do not have access to this customer.", "error")
-            return redirect(url_for("dashboard.dashboard"))
-
-    if user_is_manager:
-        allowed_keys = get_user_salesman_access(user.get("email", ""))
-        norm_allowed = {normalize_key(k) for k in allowed_keys}
-        if normalize_key(cust_info.get("sales_group", "")) not in norm_allowed:
-            flash("You do not have access to this customer.", "error")
-            return redirect(url_for("dashboard.dashboard"))
 
     try:
         from core.dates import D365_GO_LIVE, get_today_eastern
@@ -175,9 +158,6 @@ def order_detail(order_number):
         return redirect(url_for("dashboard.dashboard"))
 
     user = get_current_user()
-    salesman_key = get_salesman_key(user)
-    user_is_admin = is_admin(user)
-    user_is_manager = is_manager(user)
 
     header = {"order_number": order_number}
     lines = []
@@ -186,25 +166,9 @@ def order_detail(order_number):
     try:
         header, _basic_lines, customer_account = fetch_order_with_lines(order_number)
 
-        if customer_account and not check_order_access(salesman_key, customer_account, is_admin=user_is_admin):
-            if user_is_manager:
-                allowed_keys = get_user_salesman_access(user.get("email", ""))
-                norm_allowed = {normalize_key(k) for k in allowed_keys}
-                conn = get_db()
-                try:
-                    row = conn.execute(
-                        "SELECT sales_group FROM dashboard_cache WHERE customer_account = ?",
-                        (customer_account,),
-                    ).fetchone()
-                    cust_group = normalize_key(row["sales_group"] or "") if row else ""
-                finally:
-                    conn.close()
-                if cust_group not in norm_allowed:
-                    flash("You do not have access to this order.", "error")
-                    return redirect(url_for("dashboard.dashboard"))
-            else:
-                flash("You do not have access to this order.", "error")
-                return redirect(url_for("dashboard.dashboard"))
+        if not user_can_access_customer(user, customer_account):
+            flash("You do not have access to this order.", "error")
+            return redirect(url_for("dashboard.dashboard"))
 
         from webapp.services.d365 import fetch_order_lines_with_qty_breakdown
         try:
