@@ -14,7 +14,7 @@ jobs:
     name: Forbid tracked session exports
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Check index
@@ -25,12 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Required for organization-owned repositories; not required for personal accounts.
@@ -40,15 +40,25 @@ jobs:
     name: Static scan (semgrep)
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep:latest
+      # digest of semgrep/semgrep:latest, 2026-08-25
+      image: semgrep/semgrep@sha256:f1f7b71861c7b28b6e0f661225a2c4f58a484f5d0f182465c6d6b3b22f972ade
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Whole-repo p/default --error is ~130 pre-existing hits (CDN SRI, Django csrf_token on Flask forms).
+      # PRs fail only on findings new vs the production base. Other events scan without failing the job.
       - name: Run semgrep (language-agnostic defaults)
-        run: semgrep scan --config p/default --error
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            semgrep scan --config p/default --error --baseline-commit "$BASE_SHA"
+          else
+            semgrep scan --config p/default
+          fi
 
   zizmor:
     name: GitHub Actions lint (zizmor)
@@ -59,8 +69,8 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7

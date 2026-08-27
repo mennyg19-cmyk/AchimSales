@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 CI: pin Actions + baseline Semgrep
+**What I had to decide:** Fix 130 blocking Semgrep hits (CDN SRI + Django csrf_token on Flask forms) and zizmor unpinned-action / persist-credentials findings on this PR by rewriting templates, or by tightening CI.
+**What I chose:** Pin every `uses:` to a commit SHA, set `persist-credentials: false` on checkout, pin the Semgrep image digest. On pull_request, Semgrep `--error` only for findings new vs the PR base. Full-repo `--error` stays unpaid debt, not this P0.
+**Why:** Those 130 hits are pre-existing on `webapp-cache`. Boiling SRI/CSRF across `webapp/templates` is not P0 containment. Unpinned tags were failing Code Scanning.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 P0: stop cursor/** Production deploys
 **What I had to decide:** Keep Cloud Agent branches deploying Production (README Rule Preference from 2026-08-25) or follow the repository review.
 **What I chose:** Production deploys only from `webapp-cache`. `cursor/**` no longer triggers the Azure workflow.

@@ -16,6 +16,7 @@ Last updated: 2026-08-27
 ## What's in progress
 
 - Session revoke and git-history purge are **BLOCKED** (need Azure Flask secret rotation + coordinated history rewrite).
+- PR Guardrails: pin Actions SHAs + Semgrep baseline vs PR base (pre-existing 130 findings must not fail P0).
 - No archive tag, deletion inventory, or legacy migration yet.
 
 ## What's next
