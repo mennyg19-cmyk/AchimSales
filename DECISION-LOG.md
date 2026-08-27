@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Junk cleanup after inventory approval
+**What I had to decide:** "Do it all, clean it all up" vs still not deleting `webapp/` / `rebuild/` while `/` imports them.
+**Options I considered:** (1) Delete every old app generation. (2) Only untrack `.scratch/`. (3) All inventory junk, keep running apps and mounts.
+**What I chose:** Tag `archive/pre-cleanup-2026-08-27` at `b14d725`, then untrack `.scratch/`, delete `logs/run_log.csv`, `v3/REVIEW-LOG.md`, and rebuild audit/proposal/history docs. Leave `webapp/`, `rebuild/` app, dispatcher mounts, Beta pill, `tools/parity/`, and `static_dist` maps.
+**Why:** Rollback tag first as requested. Removing `webapp/` would take down `/` today. Clutter is not the live site.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Deletion inventory (no deletes)
 **What I had to decide:** Whether to untrack `.scratch/` and drop review logs in the same pass as the inventory.
 **Options I considered:** (1) Untrack `.scratch/` now because `.gitignore` already lists it. (2) Inventory only; wait for explicit approval of the exact list.

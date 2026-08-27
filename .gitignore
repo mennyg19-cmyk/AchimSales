@@ -17,6 +17,7 @@ _history_backup/
 
 *.log
 logs/*.err
+logs/*.csv
 logs/run_log-*.csv
 .git-commit-msg.tmp
 tests/output/

@@ -6,8 +6,9 @@ internals: one shared report engine, a single authorization layer, durable jobs,
 a tokenized CSS system, and Litestream-backed SQLite tuned for a single Azure
 App Service B1 instance.
 
-> Status: **in active rebuild.** Not yet wired to production. See
-> [`REVIEW-LOG.md`](REVIEW-LOG.md) for what needs human sign-off and current progress.
+> Status: production home at `/` (this tree). Human sign-off and leftover
+> decisions: repo-root [`DECISION-LOG.md`](../DECISION-LOG.md) and
+> [`REPOSITORY-REVIEW.md`](../REPOSITORY-REVIEW.md).
 
 ## Authoritative documents
 

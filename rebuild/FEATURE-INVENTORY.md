@@ -5,12 +5,9 @@ the Phase 0 audits. This is the master index + route manifest + to-fix +
 sign-off list. The per-control DETAIL lives in the committed audit files; this
 file ties them together and is what the build todos come from.
 
-Audit sources (read these for detail):
-- `rebuild/rebuild-audit/A-frontend.inventory.md` — 14 screens, 223 control IDs (A1–A16)
-- `rebuild/rebuild-audit/B-reports-engine.inventory.md` — ~31 routes, 7 tabs, 69 columns (B1–B7)
-- `rebuild/rebuild-audit/C-platform.inventory.md` — 42 platform IDs (C1–C10)
-- `rebuild/rebuild-audit/*.structure.md` — to-fix lists FA1–7, FB1–8, FC1–10
-- `rebuild/BUILD-HISTORY.md` — 50 past bugs/pain points (BH1–50), each with a prevention step
+Audit sources were removed from git in the 2026-08-27 junk cleanup (still on tag
+`archive/pre-cleanup-2026-08-27`): `rebuild/rebuild-audit/*`, `BUILD-HISTORY.md`.
+This file remains the master index for harvesting leftover rebuild features.
 
 Frame (non-negotiable): old app = **WHAT, not HOW**. Not a port, not a pixel
 copy. Every in-scope feature below is preserved; the structure is rebuilt clean.
