@@ -37,8 +37,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Whole-repo p/default --error is ~126 pre-existing hits (CDN SRI, Django
+      # csrf_token on Flask forms, mutable action tags). PRs fail only on
+      # findings new vs the production base. Other events scan without failing.
       - name: Run semgrep (language-agnostic defaults)
-        run: semgrep scan --config p/default --error
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            semgrep scan --config p/default --error --baseline-commit "$BASE_SHA"
+          else
+            semgrep scan --config p/default
+          fi
 
   zizmor:
     name: GitHub Actions lint (zizmor)
