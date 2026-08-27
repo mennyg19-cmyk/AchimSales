@@ -133,7 +133,7 @@ def stamp_company_views_on_schedules(db) -> None:
     for sched in masters.list_all():
         if is_heshy_open_orders(sched):
             if _stamp(masters, sched, HESHY_OPEN_VIEW, HESHY_OPEN_LAYOUT):
-                _ensure_all_time(masters, sched)
+                _ensure_heshy_params(masters, sched)
         elif is_daily_company_ordered(sched):
             _stamp(masters, sched, DAILY_ORDERED_VIEW, DAILY_ORDERED_LAYOUT)
 
@@ -146,9 +146,34 @@ def _stamp(masters: MasterScheduleRepository, sched, view_name: str, layout: dic
     return True
 
 
-def _ensure_all_time(masters: MasterScheduleRepository, sched) -> None:
+_HESHY_SALESMAN = ["Hkaufman"]
+_HESHY_STATUS = ["Open order"]
+_VIEW_FILTER_KEYS = ("period", "start_date", "end_date", "salesman", "status", "customers")
+
+
+def overlay_view_params(schedule_params: dict | None, view_params: dict | None) -> dict:
+    """Named company-view filters win at send (layout already does this)."""
+    out = dict(schedule_params or {})
+    overlay = view_params if isinstance(view_params, dict) else {}
+    for key in _VIEW_FILTER_KEYS:
+        val = overlay.get(key)
+        if val in (None, "", [], {}):
+            continue
+        out[key] = val
+    return out
+
+
+def _ensure_heshy_params(masters: MasterScheduleRepository, sched) -> None:
     params = dict(getattr(sched, "params", None) or {})
-    if params.get("period") == "all_time":
-        return
-    params["period"] = "all_time"
-    masters.replace_params(sched.id, params)
+    changed = False
+    if params.get("period") != "all_time":
+        params["period"] = "all_time"
+        changed = True
+    if {s.lower() for s in _salesman_list(params)} != {"hkaufman"}:
+        params["salesman"] = list(_HESHY_SALESMAN)
+        changed = True
+    if {s.lower() for s in _status_list(params)} != {"open order"}:
+        params["status"] = list(_HESHY_STATUS)
+        changed = True
+    if changed:
+        masters.replace_params(sched.id, params)

@@ -22,6 +22,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Heshy Open Orders is Hkaufman + Open only
+
+**What to test:**
+- Ordered with salesman Hkaufman and status Open order keeps Open and "Open order" rows for that salesman and drops other salesmen and Invoiced/Delivered/Cancelled.
+- `overlay_view_params` lets the named company view's period/salesman/status replace the schedule's.
+- Boot stamp still leaves salesman Hkaufman and status Open order on Daily Open Orders Report.
+
+**Expected behavior:**
+- Workbook is Hkaufman open lines only. All-time dates stay.
+
+**Edge cases:**
+- SP returns mixed salesmen/statuses (post-filter still keeps the right rows).
+- Status "Open" matches filter "Open order".
+
+**Test file:** `v3/tests/test_report_service.py`, `v3/tests/test_company_views.py`
+
 ## Ordered all_time is month-chunked
 
 **What to test:**

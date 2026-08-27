@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Heshy Open Orders is Hkaufman + Open only
+**What you asked for:** Open Orders should only be open orders for Hkaufman, not a giant all-company file.
+**What I chose:** Keep all-time dates. At send, the Heshy Open Orders company view's salesman/status/period overlay the schedule. After the SP returns, drop any row that is not Hkaufman or not Open / Open order. Boot still writes those filters onto the matching company schedule.
+**Why:** Master schedules are unscoped. Salesman and status were pushed to the SP but never applied again. If the SP ignored them, or the live view layout was used without the view's filters, all-time pulled every order.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Ordered all_time is month-chunked
 **What you asked for:** All the ordered reports failed this morning.
 **What I chose:** Fetch Ordered `all_time` / blank the same way as YTD: one SP call per month from D365 go-live (2025-01-03) through today. `translate_ordered` still omits dates; the orchestrator adds each month's `CreatedDateTimeFrom/To`. The `[send-test-schedules]` flag now stores the commit SHA and is consumed once on the persistent disk so an App Service recycle of the same zip does not re-enqueue. This deploy also sends Daily Ordered and Heshy Open Orders so the missed midnight run goes out and all-time is proven on the chunked path.

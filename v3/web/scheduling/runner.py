@@ -19,6 +19,7 @@ from web.auth.principal import Principal
 from web.data.repositories.app_settings import AppSettingsRepository
 from web.data.repositories.company_views import CompanyViewRepository
 from web.data.repositories.report_defaults import (
+    CUSTOM_VIEW_NAME,
     DEFAULT_VIEW_NAME,
     ReportDefaultRepository,
     normalize_view_name,
@@ -38,6 +39,7 @@ from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
+from web.scheduling.company_layouts import overlay_view_params
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 
 log = logging.getLogger(__name__)
@@ -82,6 +84,14 @@ class ScheduleRunner:
             named,
         )
 
+    def _params_for(self, sched, params: dict | None) -> dict:
+        name = getattr(sched, "view_name", None)
+        if not name or normalize_view_name(name) in (DEFAULT_VIEW_NAME, CUSTOM_VIEW_NAME):
+            return dict(params or {})
+        view = self.company_views.get_by_name(sched.report_key, name)
+        overlay = view.params if view is not None else None
+        return overlay_view_params(params, overlay)
+
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
             include_regular: bool = True) -> int:
@@ -108,6 +118,7 @@ class ScheduleRunner:
             identity, scope = self._scope(sched, schedule_type)
             spec = registry.get(sched.report_key)
             base_params = _with_viewer_limits(self.authz, sched, schedule_type, sched.params)
+            base_params = self._params_for(sched, base_params)
             # Re-authorize the owner live (personal schedules only; masters are
             # admin-owned + unrestricted). A run that the owner can no longer
             # perform - report access pulled, account disabled, SharePoint revoked

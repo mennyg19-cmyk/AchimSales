@@ -299,11 +299,7 @@ def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
         report_id, base_sp, src_ordered.to_facts_ordered_report, visible_keys,
         from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
         start=start, end=end)
-    # The new SP's CustomerAccount is a single exact match, so a multi-customer
-    # selection isn't pushed down -- post-filter it here (same as invoiced).
-    accounts = _selected_accounts(params)
-    if len(accounts) > 1:
-        facts = [f for f in facts if f.customer_account in accounts]
+    facts = _filter_ordered_facts(facts, params)
     # build() consumes the facts list to keep peak memory down on big runs, so
     # capture the count first.
     row_count = len(facts)
@@ -319,6 +315,53 @@ def _selected_accounts(params: dict) -> set[str]:
     if c:
         return {s.strip() for s in str(c).split(",") if s.strip()}
     return set()
+
+
+def _status_filter(params: dict | None) -> list[str]:
+    raw = (params or {}).get("status")
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    return [s.strip() for s in str(raw).split(",") if s.strip()]
+
+
+def _status_token(value: str) -> str:
+    return "".join(ch for ch in (value or "").lower() if ch.isalnum())
+
+
+def _status_is_wanted(fact_status: str, wanted: list[str]) -> bool:
+    got = _status_token(fact_status)
+    if not got:
+        return False
+    for raw in wanted:
+        key = _status_token(raw)
+        if not key:
+            continue
+        if key in ("open", "openorder"):
+            if got in ("open", "openorder"):
+                return True
+        elif got == key or key in got:
+            return True
+    return False
+
+
+def _filter_ordered_facts(facts, params: dict):
+    """Keep salesman / status / multi-customer even if the SP ignored those params.
+
+    Master schedules are unscoped (visible_keys is None), so a missing SP filter
+    would otherwise dump the whole company into the workbook.
+    """
+    wanted_sm = {salesman_key(s) for s in _salesman_filter(params)}
+    if wanted_sm:
+        facts = [f for f in facts if salesman_key(getattr(f, "sales_group", "")) in wanted_sm]
+    wanted_status = _status_filter(params)
+    if wanted_status:
+        facts = [f for f in facts if _status_is_wanted(getattr(f, "status", ""), wanted_status)]
+    accounts = _selected_accounts(params)
+    if len(accounts) > 1:
+        facts = [f for f in facts if f.customer_account in accounts]
+    return facts
 
 
 def _invoice_day(fact) -> date | None:

@@ -96,9 +96,22 @@ def test_seed_stamps_matching_schedules_and_skips_other_views(tmp_path):
     assert masters.get(hesny_id).layout["order"] == ["full_data"]
     assert masters.get(hesny_id).params["period"] == "all_time"
     assert masters.get(hesny_id).params["salesman"] == ["Hkaufman"]
+    assert masters.get(hesny_id).params["status"] == ["Open order"]
     assert masters.get(custom_id).view_name == "March"
 
     views = {v.name: v for v in CompanyViewRepository(db).list_for_report("ordered")}
     assert DAILY_ORDERED_VIEW in views and HESHY_OPEN_VIEW in views
     assert views[HESHY_OPEN_VIEW].layout["views"]["full_data"]["hidden"] == ["LineNumber"]
     assert views[HESHY_OPEN_VIEW].params["period"] == "all_time"
+
+
+def test_overlay_view_params_named_filters_win():
+    from web.scheduling.company_layouts import overlay_view_params
+
+    out = overlay_view_params(
+        {"period": "yesterday", "salesman": ["REdwards"]},
+        {"period": "all_time", "salesman": "Hkaufman", "status": "Open order"},
+    )
+    assert out["period"] == "all_time"
+    assert out["salesman"] == "Hkaufman"
+    assert out["status"] == "Open order"

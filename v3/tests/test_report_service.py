@@ -70,6 +70,30 @@ def test_ordered_salesman_filter_drops_by_salesman_tab():
     assert "full_data" in {t["key"] for t in out["tabs"]}
 
 
+def test_ordered_keeps_only_selected_salesman_and_open_status():
+    """Heshy Open Orders: even if the SP returns everyone, keep Hkaufman Open."""
+    rows = [
+        {"SalesOrderNumber": "KEEP", "CustomerAccount": "100", "Item": "A",
+         "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open",
+         "SalesGroup": "Hkaufman"},
+        {"SalesOrderNumber": "OTHER-SM", "CustomerAccount": "200", "Item": "A",
+         "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open",
+         "SalesGroup": "REdwards"},
+        {"SalesOrderNumber": "INVOICED", "CustomerAccount": "100", "Item": "A",
+         "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Invoiced",
+         "SalesGroup": "Hkaufman"},
+        {"SalesOrderNumber": "OPEN-ORDER", "CustomerAccount": "100", "Item": "A",
+         "QuantityOrdered": "1", "Ordered $": "10", "SalesStatus": "Open order",
+         "SalesGroup": "Hkaufman"},
+    ]
+    out = _svc({"ordered_report": rows}).builder_for("ordered")(
+        {"period": "yesterday", "salesman": ["Hkaufman"], "status": ["Open order"]},
+        None)
+    assert out["row_count"] == 2
+    full = next(t for t in out["tabs"] if t["key"] == "full_data")
+    assert {r["SalesOrderNumber"] for r in full["rows"]} == {"KEEP", "OPEN-ORDER"}
+
+
 def test_invoiced_does_ytd_fetch_for_commissions():
     rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
              "Amount": "100", "SalesGroup": "REdwards"}]
