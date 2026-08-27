@@ -8,6 +8,7 @@
     <meta name="apple-mobile-web-app-title" content="Sales">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#2563eb">
+    <meta name="csrf-token" content="{{ form_protect() }}">
     <title>{% block title %}Sales Reports{% endblock %}</title>
     <script>
         window.APP_ROOT = {{ request.script_root|tojson }};
@@ -23,6 +24,16 @@
             var orig = window.fetch;
             window.fetch = function (input, init) {
                 if (typeof input === 'string') input = window.appUrl(input);
+                init = Object.assign({}, init || {});
+                var method = String(init.method || 'GET').toUpperCase();
+                if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && method !== 'TRACE') {
+                    var headers = new Headers(init.headers || {});
+                    var meta = document.querySelector('meta[name="csrf-token"]');
+                    if (meta && meta.content && !headers.has('X-CSRF-Token')) {
+                        headers.set('X-CSRF-Token', meta.content);
+                    }
+                    init.headers = headers;
+                }
                 return orig.call(this, input, init);
             };
         })();
@@ -31,7 +42,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
     <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/feather.min.js') }}"></script>
     {% block head %}{% endblock %}
 </head>
 <body class="{% if theme == 'dark' %}dark-theme{% endif %}">
@@ -137,6 +148,21 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof feather !== 'undefined') feather.replace();
+
+            var tokenMeta = document.querySelector('meta[name="csrf-token"]');
+            var token = tokenMeta ? tokenMeta.content : '';
+            if (token) {
+                document.querySelectorAll('form').forEach(function(form) {
+                    var method = (form.getAttribute('method') || 'get').toUpperCase();
+                    if (method === 'GET' || method === 'HEAD') return;
+                    if (form.querySelector('input[name="csrf_token"]')) return;
+                    var input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'csrf_token';
+                    input.value = token;
+                    form.appendChild(input);
+                });
+            }
 
             document.addEventListener('click', function(e) {
                 var helpBtn = e.target.closest('[data-help]');

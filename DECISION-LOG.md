@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Review: legacy CSRF and local Feather
+**What I had to decide:** How to add CSRF without boiling every fetch caller, and whether to SRI-pin CDNs or vendor them.
+**Options I considered:** (1) Flask-WTF. (2) Copy v3's per-session token and wrap `window.fetch`. (3) Add integrity hashes on unpkg/jsdelivr.
+**What I chose:** Same CSRF as v3 (form field or `X-CSRF-Token`). The existing fetch wrapper attaches the header. HTML forms get a hidden field. Entra `/auth/callback` is exempt. Feather is served from `/static/vendor`. Unused Chart.js CDN is gone. Google Maps stays on Google's CDN (dynamic loader). v3 Tabulator/Feather CDNs stay for a later pass.
+**Why:** Review items 13 and 20. Wrapping fetch covers the JS POSTs without touching every file. Local Feather is stronger than SRI on unpkg. Maps cannot reasonably use SRI.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Review: leftover XSS and Ordered/Invoiced formula prefix
 **What I had to decide:** How far to take remaining innerHTML and Excel writers after customer-access CI went green.
 **Options I considered:** (1) App-wide CSRF plus CDN SRI in this slice. (2) Only D365/user-data HTML sinks and the Ordered/Invoiced writers that skip `make_streaming_cell`. (3) Stop at customer access.

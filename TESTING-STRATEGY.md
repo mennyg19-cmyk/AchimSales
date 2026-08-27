@@ -107,6 +107,25 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Legacy CSRF and local Feather
+
+**What to test:**
+- POST without a token is 400.
+- POST with matching `X-CSRF-Token` or form `csrf_token` is 200.
+- Mismatched token is 400. GET is not checked.
+- POST `/auth/callback` is exempt (Entra).
+
+**Expected behavior:**
+- Fetch wrapper and HTML forms send the session token. Microsoft login callback still works without it.
+- Legacy pages load Feather from `/static/vendor`, not unpkg. Report form does not load Chart.js.
+
+**Edge cases:**
+- Missing session token is a deny, same as a wrong token.
+
+**Test files:** `tests/test_legacy_csrf.py`
+
+---
+
 ## Session role vs DB authorization
 
 **What to test:**

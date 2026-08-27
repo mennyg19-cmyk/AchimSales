@@ -17,6 +17,7 @@ if _SCRIPTS_DIR not in sys.path:
 from flask import Flask, request
 
 from webapp.config import FLASK_SECRET, reject_production_dev_bypass
+from webapp.csrf import init_csrf
 from webapp.security_headers import apply_security_headers
 from webapp.db import init_db, cleanup_stale_running_reports
 from webapp.helpers import inject_theme
@@ -104,6 +105,7 @@ def create_app() -> Flask:
         static_folder=os.path.join(os.path.dirname(__file__), "static"),
     )
     application.secret_key = FLASK_SECRET
+    init_csrf(application)
 
     application.config["SESSION_COOKIE_HTTPONLY"] = True
     application.config["SESSION_COOKIE_SAMESITE"] = "Lax"

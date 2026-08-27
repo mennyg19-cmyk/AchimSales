@@ -17,6 +17,7 @@
         </p>
 
         <form method="POST" action="{{ url_for('auth.role_picker') }}" style="margin-bottom: 16px;">
+            {% include "_form_protect.html" %}
             <input type="hidden" name="target_email" value="__self__">
             <button type="submit" class="btn btn-primary btn-lg btn-block">
                 <i data-feather="shield" style="width:18px;height:18px;vertical-align:middle;margin-right:6px;"></i>
@@ -30,6 +31,7 @@
                    style="margin-bottom: 12px;" autocomplete="off">
 
             <form method="POST" action="{{ url_for('auth.role_picker') }}" id="impersonateForm">
+                {% include "_form_protect.html" %}
                 <div id="userList" style="max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
                     {% set role_order = [('admin', 'Admins', 'shield'), ('developer', 'Developers', 'code'), ('manager', 'Managers', 'briefcase'), ('salesman', 'Salesmen', 'user')] %}
                     {% for role_key, role_label, role_icon in role_order %}
