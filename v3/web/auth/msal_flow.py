@@ -26,10 +26,9 @@ def _msal_app(cfg: Config):
 
 
 def _redirect_uri(cfg: Config) -> str:
-    root = request.url_root.rstrip("/")
-    if request.headers.get("X-Forwarded-Proto") == "https" and root.startswith("http://"):
-        root = "https://" + root[7:]
-    return root + cfg.redirect_path
+    from web.auth.public_origin import public_origin
+
+    return public_origin().rstrip("/") + cfg.redirect_path
 
 
 def build_login_url(cfg: Config) -> str:

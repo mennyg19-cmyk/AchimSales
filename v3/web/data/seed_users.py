@@ -1,20 +1,11 @@
-"""Copy the user directory from the live app into v3's `users` table.
+"""Optional copy of leftover Azure `app.db` users into v3's `users` table.
 
-The live app (webapp/) is the authoritative user directory: it stores every
-authorized account in its SQLite DB (`app_users`: email, role, salesman_key,
-display_name, dashboard_enabled, is_external). v3 mirrors that list on boot so
-the same people - with the same roles - can sign in to /test without being
-re-entered by hand.
+Reads that sqlite file directly (read-only). Roles map 1:1. A user's
+salesman_key is mapped into `user_salesman_access` when that salesman exists
+in v3's `salesmen` table (skipped otherwise — the FK would reject it).
 
-This reads the live DB *file* directly (read-only); it never imports live code,
-so v3 stays decoupled. Roles map 1:1 (admin|developer|manager|salesman). A
-user's salesman_key is mapped into v3's `user_salesman_access` when that salesman
-exists in v3's `salesmen` table (skipped otherwise - the FK would reject it).
-
-Mirror semantics: re-running updates role/flags/display_name to match live, so
-live remains the source of truth for who can sign in. Salesman grants are
-replaced (not merged) so a revoked live key disappears on the next copy.
-Explicit env admins (V3_ADMIN_EMAILS) are applied *after* this and always win.
+Re-running updates role/flags/display_name. Salesman grants are replaced, not
+merged. Explicit env admins (V3_ADMIN_EMAILS) are applied after this and win.
 """
 
 from __future__ import annotations

@@ -34,10 +34,10 @@ jobs:
           python-version: "3.10"
       - name: Install test dependencies
         run: pip install -r v3/requirements.txt
-      - name: Run v3 containment tests
+      - name: Run v3 tests for this change
         working-directory: v3
-        run: python -m pytest tests/test_odata_scope.py tests/test_config.py tests/test_smoke.py tests/test_precious_repair.py tests/test_session_authz.py tests/test_seed_users_grants.py -q --tb=short
-      - name: Run webapp bypass tests
+        run: python -m pytest tests/test_odata_scope.py tests/test_config.py tests/test_smoke.py tests/test_precious_repair.py tests/test_session_authz.py tests/test_seed_users_grants.py tests/test_auth.py tests/test_magic_link.py tests/test_public_origin.py tests/test_report_sources.py tests/test_security_headers.py tests/test_frontend.py -q --tb=short
+      - name: Run remaining root tests
         env:
           PYTHONPATH: ${{ github.workspace }}
-        run: python -m pytest tests/test_dev_bypass_auth.py tests/test_download_file_auth.py tests/test_security_headers.py tests/test_magic_link.py tests/test_magic_link_origin.py tests/test_excel_formula.py tests/test_legacy_session_authz.py tests/test_customer_access.py tests/test_legacy_csrf.py --noconftest -q --tb=short
+        run: python -m pytest tests/test_excel_formula.py tests/test_wsgi_dispatch.py --noconftest -q --tb=short

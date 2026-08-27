@@ -49,7 +49,7 @@ class Config:
     # Reporting API can't tie up worker slots with a refresh nobody asked for.
     dashboard_refresh_enabled: bool = True
     # Home app (is_beta): reports-only surface with hybrid SQL/OData sources.
-    # Dashboard stays off. Login is Live's (/legacy/login).
+    # Dashboard stays off. Login is native MSAL / magic-link on this app.
     is_beta: bool = False
     redirect_path: str = "/auth/callback"
     msal_scopes: tuple[str, ...] = field(default_factory=lambda: ("User.Read",))

@@ -387,7 +387,9 @@ def test_beta_login_shows_microsoft_button(tmp_path):
     resp = application.test_client().get("/login")
     assert resp.status_code == 200
     assert b"Achim User Login" in resp.data
-    assert b"/legacy/login/start" in resp.data
+    assert b"/login/start" in resp.data
+    assert b"/legacy/" not in resp.data
+    assert b"/login/magic-link" in resp.data
     assert b"Developer sign-in" not in resp.data
 
 

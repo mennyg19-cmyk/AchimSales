@@ -1,5 +1,5 @@
-# v3 Sales Reports rebuild - runtime dependencies
-# Pinned ranges mirror the live app (webapp/requirements.txt) so behaviour matches.
+# v3 Sales Reports - runtime dependencies
+# Pinned ranges match the repo-root production requirements.txt.
 Flask>=3.1,<4
 Jinja2>=3.1
 msal>=1.31,<2

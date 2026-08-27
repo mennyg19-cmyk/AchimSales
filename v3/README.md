@@ -1,10 +1,9 @@
 # v3 - Sales Reports (clean rebuild)
 
-A from-scratch rebuild of the D365 Sales Reports web app. **Pixel- and
-navigation-identical to the LIVE app** (`webapp/`), with corrected/centralized
-internals: one shared report engine, a single authorization layer, durable jobs,
-a tokenized CSS system, and Litestream-backed SQLite tuned for a single Azure
-App Service B1 instance.
+A from-scratch rebuild of the D365 Sales Reports web app. This tree is the
+site at `/`. Pixel- and navigation-faithful to the old Live app, with one
+shared report engine, a single authorization layer, durable jobs, and
+Litestream-backed SQLite.
 
 > Status: production home at `/` (this tree). Human sign-off and leftover
 > decisions: repo-root [`DECISION-LOG.md`](../DECISION-LOG.md) and

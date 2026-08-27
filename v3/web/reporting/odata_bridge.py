@@ -43,7 +43,7 @@ def build_odata_payload(
     visible_keys: set[str] | None,
 ) -> dict:
     """Run the live OData report and return a v3-compatible payload."""
-    from webapp.report_api import run_report
+    from web.reporting.odata_run import run_report
 
     run_params = dict(params or {})
     result = run_report(report_key, run_params)

@@ -39,8 +39,8 @@ def create_app(config: Config | None = None) -> Flask:
     from report_engine.lib import iso_date as _iso_date
     app.jinja_env.filters["iso_date"] = _iso_date
 
-    # /test keeps its own cookie. Beta shares Live's default `session` cookie
-    # (same FLASK_SECRET_KEY) so one Live login covers the home app — no second Entra callback.
+    # Home (is_beta) uses the `session` cookie + FLASK_SECRET_KEY so leftover
+    # Live cookies still work after the webapp tree is gone.
     if cfg.is_beta:
         app.config["SESSION_COOKIE_NAME"] = "session"
     else:
@@ -311,10 +311,7 @@ def _register_blueprints(app: Flask, cfg: Config) -> None:
 
 
 def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
-    """Home (is_beta) uses Live login: adopt session["user"], else /legacy/login.
-
-    Beta Access is no longer a hard gate — / is the site.
-    """
+    """Home (is_beta): leftover Live cookie or native v3 login, else /login."""
     if not cfg.is_beta:
         return
 
@@ -329,7 +326,6 @@ def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
         ep = request.endpoint or ""
         if ep.startswith("health."):
             return None
-        # Auth routes: adopt if already signed into Live; else Live login page.
         if ep.startswith("auth."):
             adopt_live_identity()
             return None
@@ -581,11 +577,11 @@ def _seed_developers(app: Flask, db) -> None:
 
 
 def _seed_users_from_live(app: Flask, db) -> None:
-    """Mirror the live app's user directory (roles + flags) into v3's users table.
+    """Optional one-time copy from the leftover Azure `app.db` user directory.
 
-    Live (webapp/) is the authoritative list of who may sign in. Reading it here
-    means every existing account works on /test without manual re-entry. Guarded:
-    a missing/locked live DB must never block boot.
+    Reads that sqlite file directly (read-only); it never imports the old
+    webapp package. Re-running updates role/flags/display_name. Explicit env
+    admins (V3_ADMIN_EMAILS) are applied after this and always win.
     """
     from web.data.seed_users import live_db_path, seed_users_from_live
 

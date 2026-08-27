@@ -1,5 +1,5 @@
-# Sales Reports -- unified container for live (/), v3 (/test), and rebuild (/test-next).
-# One image serves them by running wsgi:application under gunicorn.
+# Sales Reports -- v3 home site at /.
+# One image serves gunicorn wsgi:application.
 #
 # Installs on top of python:3.12-slim:
 #   - msodbcsql18          -> required by pyodbc for on-prem SQL Server
@@ -34,10 +34,10 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# webapp/requirements.txt already covers live + v3 (+ rebuild shares the same stack).
-COPY webapp/requirements.txt /tmp/live-requirements.txt
+# webapp/ was retired; production deps are at the repo root.
+COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip \
- && pip install -r /tmp/live-requirements.txt
+ && pip install -r /tmp/requirements.txt
 
 COPY . /app
 
@@ -52,10 +52,9 @@ ENV PORT=8000 \
 
 EXPOSE 8000
 
-# Prefer v3's cheap /test/healthz when mounted; otherwise accept live / (login redirect).
+# Prefer /healthz (liveness). Login is not a health signal.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:${PORT}/test/healthz \
-     || curl -fsS -o /dev/null http://127.0.0.1:${PORT}/ \
+    CMD curl -fsS http://127.0.0.1:${PORT}/healthz \
      || exit 1
 
 # gthread worker class so a single slow request (a 25-second dashboard

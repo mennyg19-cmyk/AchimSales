@@ -24,7 +24,8 @@
       one-time sign-in link from <strong>reports@achimonline.com</strong>.
       The link expires in 15 minutes.
     </p>
-    <form method="POST" action="/legacy/login/magic-link">
+    <form method="POST" action="{{ url_for('auth.request_magic_link') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="email" name="email" required autofocus placeholder="you@company.com"
              style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px;">
       <div style="display:flex; gap:8px; margin-top:12px;">

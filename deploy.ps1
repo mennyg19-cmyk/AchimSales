@@ -51,11 +51,7 @@ try {
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName) | Out-Null
     }
 
-    # Oryx builder expects requirements.txt at the zip root.
-    $webappReq = Join-Path $scriptDir "webapp\requirements.txt"
-    if (Test-Path $webappReq) {
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $webappReq, "requirements.txt") | Out-Null
-    }
+    # Oryx builder expects requirements.txt at the zip root (already in the tree).
 } finally {
     $zip.Dispose()
 }

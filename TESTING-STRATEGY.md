@@ -6,6 +6,24 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Single site at / (webapp/ and rebuild/ removed)
+
+**What to test:**
+- `PrefixRedirectMiddleware` sends `/beta/reports` to `/reports` and leaves `/login` and `/auth/callback` on the home app.
+- Home `/login` links to `/login/start`, not `/legacy`.
+- Magic-link tokens: new token invalidates the previous; consume is one-shot; 5/email and 40/IP windows.
+- Public origin for emailed links and Entra redirect is `PUBLIC_BASE_URL`, else Azure `https://reports.achimonline.com`, else loopback. Never the request Host.
+- Report source map reads/writes `beta_report_sources` in precious.db.
+- Base HTML in `is_beta` hides Dashboard and does not show a Beta pill.
+
+**Expected behavior:**
+- gunicorn `wsgi:application` is v3 only.
+- External reps still get a 15-minute one-time link.
+
+**Test files:** `tests/test_wsgi_dispatch.py`, `v3/tests/test_auth.py`, `v3/tests/test_magic_link.py`, `v3/tests/test_public_origin.py`, `v3/tests/test_report_sources.py`, `v3/tests/test_frontend.py`
+
+---
+
 ## P0 security containment
 
 **What to test:**
@@ -341,38 +359,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ## Home is Beta; Live at /legacy
 
-**What to test:**
-- `/` is the Beta (v3 is_beta) app; `/legacy` is the old Live app.
-- `/beta` and `/beta/reports` 302 to `/` and `/reports`.
-- `/login` is the home (Beta) sign-in page. `/login/start` 307s to Live for Microsoft.
-- `/dev/role-picker` is the home app (developers). `/auth/callback` still hits Live.
-- `/auth/callback` hits Live with no `/legacy` SCRIPT_NAME (Entra URI unchanged).
-- `/test` still strips to the v3 sandbox.
-- Live login `next` accepts `/legacy/...` and leftover `/beta/...`.
-- Entra redirect URI is `https://host/auth/callback` even when Live's SCRIPT_NAME is `/legacy`.
-- Logged-out home users go to `/login?next=/`. No 403 for missing Beta Access.
-
-**Expected behavior:**
-- Dummy WSGI apps behind `mount_beta_as_home` see the paths above.
-- `live_login_redirect("/")` is `/login?next=/`.
-
-**Edge cases:**
-- If `BETA_MOUNT_ENABLED` is off or Beta fails to boot, `/` stays Live (not covered by the dummy dispatch tests).
-
-**Test files:** `tests/test_wsgi_dispatch.py`, `tests/test_beta_sources.py`
+Superseded 2026-08-27: `webapp/` and extra mounts are gone. See **Single site at /** at the top of this file.
 
 ## Login page and developer role picker on home
 
 **What to test:**
-- Logged-out `/login` is the home Microsoft / External Rep page, not `/legacy/login`.
-- `/login/start` still 307s to Live so Entra keeps working.
+- Logged-out `/login` is the Microsoft / External Rep page.
+- `/login/start` starts MSAL on this app.
 - A developer session can open `/dev/role-picker`, pick a user, then open the picker again.
 
 **Expected behavior:**
-- Home login shows "Achim User Login".
+- Home login shows "Achim User Login" linking to `/login/start`.
 - Role picker lists users; View as Selected User then View as Admin (yourself) both 302 home.
 
 **Test files:** `v3/tests/test_auth.py`, `tests/test_wsgi_dispatch.py`
+`
 
 ## Company schedules table sorts by name
 
@@ -726,4 +727,4 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - A wide master schedule runs its salesmen sequentially inside one worker job capped at `max_job_seconds`; very large ones may need splitting (noted in DECISION-LOG).
 - A failed or refused (unconfigured mailer) send is still audited and still consumes the day's run.
 
-**Test files:** `rebuild/tests/test_scheduling.py` (cadence, sabbath, deliveries), `rebuild/tests/test_schedule_routes.py` (authz, CSRF, once-a-day, catch-up after Shabbos, whole-run failure notify, manual run-now + ignore-Shabbos, notification ownership), `rebuild/tests/test_email.py` (failure-notice composition, escaping, audited-when-off).
+**Test files:** `v3/tests/test_scheduling.py` (and related v3 schedule tests). Rebuild's copies of these files were deleted with `rebuild/`.

@@ -95,7 +95,7 @@ def test_beta_base_html_skips_missing_dashboard_endpoints(tmp_path):
     assert "Dashboard" not in html
     assert "Schedules" in html
     assert "data-notifications-url" not in html
-    assert "Beta" in html
+    assert ">Beta<" not in html
 
 
 def test_beta_report_view_keeps_schedule_and_run(tmp_path):
