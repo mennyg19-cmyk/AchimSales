@@ -7,6 +7,12 @@
 **Why:** You said only this report needs it. The site was already bound to the full column list (hidden columns keep their index); export dropped hidden columns then painted `idx >= 4` among what was left.
 **Status:** DECIDED — shipping this change.
 
+## 2026-09-02 Daily Ordered groups by salesman then sorts customers
+**What you asked for:** Daily Ordered should group by salesman and sort by customer within each salesman. The latest midnight file did not.
+**What I chose:** Put that on the Daily Ordered view for Summary (group Salesman, sort Salesman → Customer Name → Item) and By Customer (keep salesman then customer groups). Excel grouping now keeps salesman blocks together even if a customer sort is listed first. Heshy Open Orders still sorts customer then order number. Replay onto `main` because `cursor/**` no longer auto-deploys.
+**Why:** Summary is the first Excel sheet and was grouping by salesman without sorting first, so the same salesman appeared many times and customers stayed in dump order. By Customer was already nested correctly. Putting customer ahead of salesman in the sort list would split salesman groups (groupby needs consecutive keys).
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Official branch is `main`; only `main` auto-deploys
 **What you asked for:** Rename `webapp-cache` to a normal name like `main`. Explain the leftover branches and pull requests.
 **What I chose:** Official branch is `main` (same code that is on the site). Azure deploys only on push to `main`. `cursor/**` Cloud Agent branches no longer auto-deploy, because that is why the shop window kept getting replaced. Leftover `cursor/` branches are old photocopies; the Sol/Grok rewrite stays on PR #1 until we replay live onto it on purpose.

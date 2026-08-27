@@ -322,29 +322,46 @@ def _banner_cells(ws, ncol: int, text: str) -> list[WriteOnlyCell]:
     return cells
 
 
-def _sort_rows_for_groups(rows: list, group_fields: list[str],
-                          sorters: list | None) -> list:
-    """Sort by saved sorters first, then any group fields not already in that list.
-
-    Excel grouping uses itertools.groupby, which needs consecutive keys. A
-    salesman+customer group must stay sorted by both fields. An order group
-    after a customer sort must keep that customer order — re-sorting by the
-    group field alone would scatter the rows.
-    """
+def _sorter_specs(sorters: list | None) -> list[tuple[str, bool]]:
     specs: list[tuple[str, bool]] = []
     seen: set[str] = set()
     for spec in sorters or []:
         if not isinstance(spec, dict):
             continue
-        col = spec.get("column")
+        col = spec.get("column") or spec.get("field")
         if not col or col in seen:
             continue
         specs.append((str(col), (spec.get("dir") or "asc").lower() != "desc"))
         seen.add(str(col))
-    for field in group_fields:
-        if field not in seen:
-            specs.append((field, True))
-            seen.add(field)
+    return specs
+
+
+def _sort_rows_for_groups(rows: list, group_fields: list[str],
+                          sorters: list | None) -> list:
+    """Keep group keys consecutive, then apply extra sorts inside each group.
+
+    Excel grouping uses itertools.groupby, which needs adjacent keys. If every
+    group field is already in the sorter list (Heshy: customer then order
+    number, group by order), honour that sorter order. Otherwise group fields
+    are primary so a customer sort cannot split a salesman group.
+    """
+    sorter_specs = _sorter_specs(sorters)
+    sorter_cols = {col for col, _asc in sorter_specs}
+    group_covered = bool(group_fields) and all(g in sorter_cols for g in group_fields)
+    specs: list[tuple[str, bool]] = []
+    seen: set[str] = set()
+
+    def _add(col: str, ascending: bool) -> None:
+        if not col or col in seen:
+            return
+        specs.append((col, ascending))
+        seen.add(col)
+
+    if not group_covered:
+        for field in group_fields:
+            _add(field, True)
+    for col, ascending in sorter_specs:
+        _add(col, ascending)
     ordered = list(rows)
     for col, ascending in reversed(specs):
         ordered.sort(key=lambda row, c=col: _group_sort_key(row.get(c)),
@@ -490,6 +507,57 @@ def _stream_commission(ws, tab: dict) -> None:
         ws.append(pay)
         ws.append([])  # blank row between salesmen
 
+def _tab_groups_and_sorters(
+    tab: dict, view: dict, rows: list, known: set[str],
+) -> tuple[list[str], list | None]:
+    """Resolve Excel groups/sorts for one tab.
+
+    Empty group [] is a saved ungroup (Default view). Only use the builder
+    default_group when the view never set group at all.
+
+    A salesman-split Ordered file has empty default_group (the sheet is already
+    one rep). Daily Ordered still groups By Customer by Salesman then
+    CustomerName — drop the redundant Salesman level so customers sort A-Z.
+    Summary's builder default_layout (Customer Name then Item) fills extra
+    sorts when the view did not set sorters, including when default_group is
+    already Salesman.
+    """
+    if "group" in view:
+        wanted = view["group"] if isinstance(view["group"], list) else []
+        group_was_set = True
+    else:
+        wanted = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
+        group_was_set = False
+    if rows:
+        salesman_vals = {row.get("Salesman") for row in rows}
+        if len(salesman_vals) <= 1:
+            wanted = [g for g in wanted if g != "Salesman"]
+    sorters = view.get("sorters") if isinstance(view.get("sorters"), list) else []
+    dl = tab.get("default_layout") if isinstance(tab.get("default_layout"), dict) else {}
+    if not wanted and not group_was_set:
+        wanted = [g for g in (dl.get("group_levels") or []) if isinstance(g, str)]
+        if not sorters:
+            sorters = _sorters_from_default_layout(dl)
+    elif wanted and not sorters:
+        # Company Daily Ordered Summary groups by salesman; still take the
+        # builder's Customer Name / Item sort so rows are A-Z inside the group.
+        sorters = _sorters_from_default_layout(dl)
+    group_fields = [g for g in wanted if g in known]
+    return group_fields, sorters or None
+
+
+def _sorters_from_default_layout(dl: dict) -> list:
+    out: list[dict] = []
+    for spec in dl.get("sort_levels") or []:
+        if not isinstance(spec, dict):
+            continue
+        col = spec.get("field") or spec.get("column")
+        if not col:
+            continue
+        out.append({"column": col, "dir": spec.get("dir") or "asc"})
+    return out
+
+
 def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes:
     from openpyxl import Workbook
 
@@ -512,20 +580,13 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         # A group field may be hidden (so absent from metas) yet still present in
         # the row dicts - honour it from the row data, not just visible columns.
         known = {f for _h, f, _t in metas} | (set(rows[0].keys()) if rows else set())
-        # Empty group [] is a saved ungroup (Default view). Only use the
-        # builder default_group when the view never set group at all.
-        if "group" in v:
-            wanted = v["group"] if isinstance(v["group"], list) else []
-        else:
-            wanted = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
-        group_fields = [g for g in wanted if g in known]
+        group_fields, sorters = _tab_groups_and_sorters(tab, v, rows, known)
         salesman_bands = (payload.get("report_key") == "salesman"
                           and tab.get("layout") != "commission_cards")
         band_by_field = (_explicit_salesman_bands(list(tab.get("columns") or []))
                          if salesman_bands else None)
         _stream_grid(ws, metas, rows, group_fields, salesman_bands=salesman_bands,
-                     salesman_band_by_field=band_by_field,
-                     sorters=v.get("sorters") if isinstance(v.get("sorters"), list) else None)
+                     salesman_band_by_field=band_by_field, sorters=sorters)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
