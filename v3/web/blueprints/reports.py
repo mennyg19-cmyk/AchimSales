@@ -1110,22 +1110,50 @@ def claim_once_diagnostic():
     return jsonify(out)
 
 
+_PRECIOUS_REPAIR_MUTATING = frozenset({
+    "reindex", "delete-ghosts", "backup", "rebuild-jobs",
+})
+
+
 @reports_bp.get("/api/reports/diagnostics/precious-repair")
 @require_login
-def precious_repair_diagnostic():
-    """Developer-only. The jobs 'status' index disagrees with the table by id
-    (a queued row found by status doesn't exist by id) - SQLite corruption from
-    the old /home SMB WAL, carried into the restore. ?action=check reports
-    integrity + index-vs-scan counts. ?action=backup dumps every table to a JSON
-    file on /home (insurance before a wipe). ?action=reindex rebuilds indexes from
-    the real table rows. ?action=delete-ghosts removes the stuck queued rows.
-    ?action=rebuild-jobs drops + recreates the corrupt jobs table. All read the
-    same precious.db the worker uses."""
+def precious_repair_diagnostic_get():
+    """Read-only integrity check. Mutating actions must POST (CSRF-protected)."""
+    _require_developer()
+    action = request.args.get("action", "check")
+    if action in _PRECIOUS_REPAIR_MUTATING:
+        abort(405, description="Use POST for this action")
+    if action != "check":
+        abort(400, description="action must be check, backup, reindex, delete-ghosts, or rebuild-jobs")
+    return jsonify(_run_precious_repair("check"))
+
+
+@reports_bp.post("/api/reports/diagnostics/precious-repair")
+@require_login
+def precious_repair_diagnostic_post():
+    """Developer-only mutating repair. CSRF required (POST is not CSRF-exempt)."""
+    _require_developer()
+    body = request.get_json(silent=True) or {}
+    action = request.args.get("action") or body.get("action")
+    if action not in _PRECIOUS_REPAIR_MUTATING:
+        abort(400, description="POST action must be backup, reindex, delete-ghosts, or rebuild-jobs")
+    return jsonify(_run_precious_repair(action))
+
+
+def _require_developer():
     p = _principal_or_401()
     if p.role != ROLE_DEVELOPER:
         abort(403, description="Developer role required")
+
+
+def _run_precious_repair(action: str) -> dict:
+    """Developer-only. The jobs 'status' index disagrees with the table by id
+    (a queued row found by status doesn't exist by id) - SQLite corruption from
+    the old /home SMB WAL, carried into the restore. check reports integrity +
+    index-vs-scan counts. backup dumps every table to JSON on /home. reindex
+    rebuilds indexes. delete-ghosts removes stuck queued rows. rebuild-jobs
+    drops + recreates the corrupt jobs table."""
     db = current_app.config["DB"]
-    action = request.args.get("action", "check")
     out: dict = {"action": action}
     with db.precious() as conn:
         if action == "check":
@@ -1154,16 +1182,8 @@ def precious_repair_diagnostic():
             out["queued_remaining"] = conn.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status='queued'").fetchone()[0]
         elif action == "backup":
-            # Insurance before any wipe: dump every table's rows to a JSON file on
-            # persistent /home storage. Each table is read independently so the one
-            # corrupt table (jobs) can't abort the backup of the good rows.
             out["backup"] = _backup_precious(conn)
         elif action == "rebuild-jobs":
-            # The jobs PK index is malformed (rows missing from it), so per-row
-            # DELETE/REINDEX errors out. The jobs table is pure transient work-queue
-            # history - no business data - so drop the whole table (frees the corrupt
-            # b-trees wholesale, which DROP tolerates) and recreate it empty from its
-            # own captured schema: a fresh PK index plus the status/dedup indexes.
             schema = [r[0] for r in conn.execute(
                 "SELECT sql FROM sqlite_master WHERE tbl_name='jobs' AND sql IS NOT NULL"
                 " ORDER BY (type='table') DESC").fetchall()]
@@ -1176,7 +1196,7 @@ def precious_repair_diagnostic():
             out["integrity_check"] = [r[0] for r in conn.execute("PRAGMA integrity_check(30)").fetchall()]
         else:
             abort(400, description="action must be check, backup, reindex, delete-ghosts, or rebuild-jobs")
-    return jsonify(out)
+    return out
 
 
 def _backup_precious(conn) -> dict:

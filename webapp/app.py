@@ -14,9 +14,10 @@ _SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from flask import Flask
+from flask import Flask, request
 
 from webapp.config import FLASK_SECRET, reject_production_dev_bypass
+from webapp.security_headers import apply_security_headers
 from webapp.db import init_db, cleanup_stale_running_reports
 from webapp.helpers import inject_theme
 
@@ -110,6 +111,11 @@ def create_app() -> Flask:
         application.config["SESSION_COOKIE_SECURE"] = True
 
     application.context_processor(inject_theme)
+
+    @application.after_request
+    def _security_headers(response):
+        hsts = bool(os.environ.get("WEBSITE_SITE_NAME")) or request.is_secure
+        return apply_security_headers(response, hsts=hsts)
 
     @application.template_filter("format_summary_value")
     def _format_summary_value(value, key=""):

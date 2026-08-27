@@ -23,6 +23,7 @@ from webapp.user_map import (
 )
 from webapp.report_api import run_report
 from webapp.history import add_record, delete_record, update_record, get_history, get_record
+from webapp.report_download import resolve_history_xlsx
 from webapp.db import (
     add_notification, get_all_users, get_saved_reports,
     get_user_salesman_access, normalize_key,
@@ -561,25 +562,31 @@ def report_download(report_key):
     return send_file(filepath, as_attachment=True, download_name=os.path.basename(filepath))
 
 
+def _history_output_paths(email: str) -> list[str]:
+    paths = []
+    for rec in get_history(email):
+        if rec.get("filepath"):
+            paths.append(rec["filepath"])
+        for extra in rec.get("extra_files") or []:
+            extra_path = extra.get("filepath") if isinstance(extra, dict) else None
+            if extra_path:
+                paths.append(extra_path)
+    return paths
+
+
 @reports_bp.route("/report/download-file")
 @require_login
 def report_download_file():
-    """Download a report output file by path (validated to be under Direct Reports)."""
+    """Download a report output file the current user already produced."""
     from config.paths import get_direct_reports_root
 
     filepath = request.args.get("path", "")
-    if not filepath:
-        flash("No file specified.", "error")
-        return redirect(url_for("reports.reports_list"))
-
-    reports_root = os.path.realpath(get_direct_reports_root())
-    real_path = os.path.realpath(filepath)
-    if not real_path.startswith(reports_root) or not real_path.endswith(".xlsx"):
+    user = get_current_user()
+    real_path = resolve_history_xlsx(
+        filepath, get_direct_reports_root(), _history_output_paths(user.get("email", "")),
+    )
+    if not real_path:
         flash("Invalid file path.", "error")
-        return redirect(url_for("reports.reports_list"))
-
-    if not os.path.isfile(real_path):
-        flash("File not found.", "error")
         return redirect(url_for("reports.reports_list"))
 
     return send_file(real_path, as_attachment=True, download_name=os.path.basename(real_path))

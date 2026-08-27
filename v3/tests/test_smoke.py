@@ -48,6 +48,10 @@ def test_healthz_is_minimal(client):
     body = resp.get_json()
     # Must not leak anything beyond status (rule 9).
     assert body == {"status": "ok"}
+    assert resp.headers["X-Frame-Options"] == "DENY"
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    assert "default-src 'self'" in resp.headers["Content-Security-Policy"]
+    assert "Strict-Transport-Security" not in resp.headers
 
 
 def test_readyz_ok_in_dev(client):

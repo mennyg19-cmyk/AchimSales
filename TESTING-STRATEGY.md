@@ -26,6 +26,27 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Review security follow-up (download-file, precious-repair, headers)
+
+**What to test:**
+- A workbook in a sibling directory whose name starts with the reports root is rejected.
+- An .xlsx under the reports root is served only if that real path is in the current user's history.
+- `GET /api/reports/diagnostics/precious-repair?action=delete-ghosts` is 405 and leaves queued jobs. POST with CSRF deletes them. GET `check` still works for developers. Admins get 403.
+- `/healthz` includes X-Frame-Options, X-Content-Type-Options, and CSP. HSTS is off in local dev.
+
+**Expected behavior:**
+- Logged-in users cannot download another user's Direct Reports xlsx by guessing the path.
+- CSRF-exempt GET cannot wipe the jobs table.
+- Login and API responses send the browser security headers.
+
+**Edge cases:**
+- Non-.xlsx owned files are rejected.
+- POST without CSRF token is 400 and does not delete.
+
+**Test files:** `tests/test_download_file_auth.py`, `v3/tests/test_precious_repair.py`, `v3/tests/test_smoke.py`, `tests/test_security_headers.py`
+
+---
+
 <!-- Entries are added below as features are built. Each entry follows this format:
 
 ## [Feature/Module Name]

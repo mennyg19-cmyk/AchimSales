@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Review: download-file, GET repair, headers
+**What I had to decide:** How far to go on remaining review security items after P0 CI went green.
+**What I chose:** (1) `download-file` only serves an .xlsx that is under Direct Reports *and* in the current user's history, using `commonpath` instead of `startswith`. (2) `precious-repair` GET is check-only; mutating actions require POST+CSRF. (3) Add CSP/frame/nosniff/referrer/permissions headers; HSTS on Azure/prod. CSP still allows current CDNs and `'unsafe-inline'`.
+**Why:** Review items 5, 12, 19. Ownership is the missing check; prefix matching is a known bypass. GET is CSRF-exempt so mutations cannot stay on GET. Strict CSP without `'unsafe-inline'` would break inline scripts and Google Maps.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 CI: pin Actions + baseline Semgrep
 **What I had to decide:** Fix 130 blocking Semgrep hits (CDN SRI + Django csrf_token on Flask forms) and zizmor unpinned-action / persist-credentials findings on this PR by rewriting templates, or by tightening CI.
 **What I chose:** Pin every `uses:` to a commit SHA, set `persist-credentials: false` on checkout, pin the Semgrep image digest. On pull_request, Semgrep `--error` only for findings new vs the PR base. Full-repo `--error` stays unpaid debt, not this P0.
