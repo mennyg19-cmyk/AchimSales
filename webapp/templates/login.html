@@ -77,7 +77,7 @@
             one-time sign-in link from <strong>reports@achimonline.com</strong>.
             The link expires in 15 minutes.
         </p>
-        <form method="POST" action="{{ url_for('auth.request_magic_link') }}" class="login-magic-form">
+        <form method="POST" action="{{ url_for('auth.request_magic_link') }}" class="login-magic-form"> <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
             {% csrf_token %}
             <input type="email" name="email" required autofocus
                    placeholder="you@company.com"
