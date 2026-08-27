@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Salesman Daily Ordered files sort by customer
+**What you asked for:** Why the 9am salesman Ordered schedule using Daily Ordered did not sort by customer, when the company Daily Ordered send does.
+**What I chose:** Keep the live Daily Ordered layout on split sends. For a one-salesman file, drop the extra Salesman group so By Customer is grouped/sorted by customer. Honour Summary's existing `default_layout` (Customer Name then Item) when the view did not set groups — per-rep files had emptied `default_group` and that layout was never read.
+**Why:** Daily Ordered only customizes By Customer (Salesman then CustomerName). Split files turn off salesman grouping. Summary is the first sheet and stayed in dollar order. Company files still group By Customer by salesman then customer.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Daily Ordered view fills Yesterday and does not crash
 **What you asked for:** Clicking Daily Ordered threw `Cannot read properties of undefined (reading '_isDuplicate')` and left Period blank instead of Yesterday.
 **What I chose:** Map `yesterday` ↔ `daily` when filling a period dropdown so only a real option is selected. Store `generated_at` on `state.generatedAt`, not on `state.tabs`. Skip non-tab keys when applying a layout.

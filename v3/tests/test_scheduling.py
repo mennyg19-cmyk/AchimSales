@@ -187,6 +187,49 @@ def test_runner_company_named_view_uses_live_layout(tmp_path):
         "Salesman", "CustomerName"]
 
 
+def test_runner_split_named_view_keeps_live_layout(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.company_views import CompanyViewRepository
+
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="MKolko", email="m@x.com"),
+    ])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    live = {"active": "by_customer", "views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}
+    CompanyViewRepository(db).upsert(
+        "ordered", "Daily Ordered", params={"period": "yesterday"},
+        layout=live, updated_by=None)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Daily 9am Salesmen Ordered",
+        params={"period": "yesterday", "split_by_salesman": True},
+        layout={"order": ["summary", "by_customer"]},
+        cadence={"freq": "daily", "time": "09:00"},
+        recipients="a@x.com", view_name="Daily Ordered")
+    runner.run(mid, MASTER)
+    split = [c for c in delivery.calls if c["params"].get("salesman") == ["MKolko"]]
+    assert split
+    assert split[0]["layout"]["views"]["by_customer"]["group"] == [
+        "Salesman", "CustomerName"]
+
+
 def test_runner_master_runs_unrestricted(stack):
     db, runner = stack
     mid = MasterScheduleRepository(db).create("ordered", "Nightly", params={}, layout={},

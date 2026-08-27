@@ -287,7 +287,7 @@ def _sort_rows_for_groups(rows: list, group_fields: list[str],
     for spec in sorters or []:
         if not isinstance(spec, dict):
             continue
-        col = spec.get("column")
+        col = spec.get("column") or spec.get("field")
         if not col or col in seen:
             continue
         specs.append((str(col), (spec.get("dir") or "asc").lower() != "desc"))
@@ -427,6 +427,41 @@ def _stream_commission(ws, tab: dict) -> None:
         ws.append(pay)
         ws.append([])  # blank row between salesmen
 
+def _tab_groups_and_sorters(
+    tab: dict, view: dict, rows: list, known: set[str],
+) -> tuple[list[str], list | None]:
+    """Resolve Excel groups/sorts for one tab.
+
+    A salesman-split Ordered file has empty default_group (the sheet is already
+    one rep). Daily Ordered still groups By Customer by Salesman then
+    CustomerName — drop the redundant Salesman level so customers sort A-Z.
+    Summary's builder default_layout (Customer Name then Item) is used only when
+    the view and default_group did not pick groups.
+    """
+    view_group = view.get("group") if isinstance(view.get("group"), list) else []
+    default_group = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
+    wanted = [g for g in (view_group or default_group)]
+    if rows:
+        salesman_vals = {row.get("Salesman") for row in rows}
+        if len(salesman_vals) <= 1:
+            wanted = [g for g in wanted if g != "Salesman"]
+    sorters = view.get("sorters") if isinstance(view.get("sorters"), list) else []
+    dl = tab.get("default_layout") if isinstance(tab.get("default_layout"), dict) else {}
+    if not wanted and not view_group and not default_group:
+        wanted = [g for g in (dl.get("group_levels") or []) if isinstance(g, str)]
+        if not sorters:
+            sorters = []
+            for spec in dl.get("sort_levels") or []:
+                if not isinstance(spec, dict):
+                    continue
+                col = spec.get("field") or spec.get("column")
+                if not col:
+                    continue
+                sorters.append({"column": col, "dir": spec.get("dir") or "asc"})
+    group_fields = [g for g in wanted if g in known]
+    return group_fields, sorters or None
+
+
 def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes:
     from openpyxl import Workbook
 
@@ -449,14 +484,11 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         # A group field may be hidden (so absent from metas) yet still present in
         # the row dicts - honour it from the row data, not just visible columns.
         known = {f for _h, f, _t in metas} | (set(rows[0].keys()) if rows else set())
-        wanted = v.get("group") if isinstance(v.get("group"), list) else []
-        if not wanted:
-            wanted = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
-        group_fields = [g for g in wanted if g in known]
+        group_fields, sorters = _tab_groups_and_sorters(tab, v, rows, known)
         salesman_bands = (payload.get("report_key") == "salesman"
                           and tab.get("layout") != "commission_cards")
         _stream_grid(ws, metas, rows, group_fields, salesman_bands=salesman_bands,
-                     sorters=v.get("sorters") if isinstance(v.get("sorters"), list) else None)
+                     sorters=sorters)
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

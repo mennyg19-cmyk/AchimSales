@@ -22,6 +22,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Salesman Daily Ordered files sort by customer
+
+**What to test:**
+- Excel export: one-salesman By Customer with Daily Ordered groups drops the Salesman banner and sorts customers A-Z.
+- Excel export: per-rep Summary with empty default_group uses default_layout customer sort.
+- Split schedule send still passes the live Daily Ordered layout.
+
+**Expected behavior:**
+- 9am salesman Ordered using Daily Ordered groups/sorts By Customer by customer, and Summary by Customer Name.
+
+**Edge cases:**
+- Company file with more than one salesman still nests Salesman then CustomerName.
+
+**Test file:** `v3/tests/test_reporting.py`, `v3/tests/test_scheduling.py`
+
 ## Daily Ordered view period + layout crash
 
 **What to test:**

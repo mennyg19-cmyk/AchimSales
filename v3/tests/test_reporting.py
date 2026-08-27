@@ -382,6 +382,59 @@ def test_export_nested_groups_subtotals_each_level():
     assert grand[2].value == 10
 
 
+def test_export_drops_salesman_group_when_file_is_one_rep():
+    """Daily Ordered groups By Customer by salesman then customer. A per-rep
+    file is already one salesman — customers must still sort A-Z."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "by_customer", "name": "By Customer",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "CustomerName", "header": "CustomerName", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "Joe", "CustomerName": "Zed", "Amt": 9},
+            {"Salesman": "Joe", "CustomerName": "Ann", "Amt": 1},
+        ],
+    }]}
+    layout = {"views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    col_a = [c.value for c in wb["By Customer"]["A"]]
+    assert "Salesman: Joe" not in col_a
+    assert col_a.index("CustomerName: Ann") < col_a.index("CustomerName: Zed")
+
+
+def test_export_salesman_summary_uses_builder_customer_sort():
+    """Per-rep Ordered Summary has no default_group; honour default_layout."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "summary", "name": "Summary",
+        "columns": [
+            {"field": "Customer Name", "header": "Customer Name", "type": "text"},
+            {"field": "Item Number", "header": "Item Number", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Customer Name": "Zed", "Item Number": "B", "Amt": 9, "Salesman": "Joe"},
+            {"Customer Name": "Ann", "Item Number": "A", "Amt": 1, "Salesman": "Joe"},
+        ],
+        "default_group": [],
+        "default_layout": {
+            "group_levels": ["Customer Name"],
+            "sort_levels": [
+                {"field": "Customer Name", "dir": "asc"},
+                {"field": "Item Number", "dir": "asc"},
+            ],
+        },
+    }]}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, None)))
+    col_a = [c.value for c in wb["Summary"]["A"]]
+    assert col_a.index("Customer Name: Ann") < col_a.index("Customer Name: Zed")
+
+
 def test_export_sorts_then_groups_without_customer_totals():
     openpyxl = pytest.importorskip("openpyxl")
     from web.reporting.export import build_workbook
