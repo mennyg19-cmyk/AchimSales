@@ -212,6 +212,40 @@ def test_inactive_user_denied_everything(db, monkeypatch):
     assert authz.has_sharepoint_access(p) is False
 
 
+def test_is_developer_ignores_session_role(db):
+    authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("d@b.com", role="developer")
+    stale = Principal("d@b.com", "D", "salesman")
+    assert authz.is_developer(stale) is True
+    with db.precious() as conn:
+        conn.execute("UPDATE users SET role='salesman' WHERE email='d@b.com'")
+    assert authz.is_developer(stale) is False
+    with pytest.raises(Forbidden):
+        authz.assert_developer(stale)
+
+
+def test_session_allowed_inactive_and_impersonation(db):
+    authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("dev@b.com", role="developer")
+    target = users.upsert("rep@b.com", role="salesman")
+    own = Principal("dev@b.com", "D", "developer")
+    assert authz.session_allowed(own) is True
+    users.update(users.get_by_email("dev@b.com").id, is_active=False)
+    assert authz.session_allowed(own) is False
+    users.update(users.get_by_email("dev@b.com").id, is_active=True)
+    users.update(target.id, is_active=False)
+    impersonating = Principal(
+        "rep@b.com", "R", "salesman", impersonating=True,
+        real_email="dev@b.com", real_name="D",
+    )
+    assert authz.session_allowed(impersonating) is True
+    assert authz.is_developer(impersonating) is False
+    users.update(users.get_by_email("dev@b.com").id, role="salesman")
+    assert authz.session_allowed(impersonating) is False
+
+
 def test_sharepoint_access(db):
     authz = Authorization(db)
     users = UserRepository(db)

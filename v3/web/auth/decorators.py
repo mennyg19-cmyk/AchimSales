@@ -5,10 +5,9 @@ from __future__ import annotations
 import functools
 from typing import Callable
 
-from flask import abort, jsonify, redirect, request, url_for
+from flask import abort, current_app, jsonify, redirect, request, url_for
 
-from web.auth.principal import Principal
-from web.auth.session import current_principal
+from web.auth.session import current_principal, logout
 
 
 def _wants_json() -> bool:
@@ -29,7 +28,11 @@ def _deny(status: int, message: str):
 def require_login(view: Callable) -> Callable:
     @functools.wraps(view)
     def wrapper(*args, **kwargs):
-        if current_principal() is None:
+        p = current_principal()
+        if p is None:
+            return _deny(401, "Sign in required")
+        if not current_app.config["AUTHZ"].session_allowed(p):
+            logout()
             return _deny(401, "Sign in required")
         return view(*args, **kwargs)
 
@@ -43,7 +46,7 @@ def require_privileged(view: Callable) -> Callable:
     @require_login
     def wrapper(*args, **kwargs):
         p = current_principal()
-        if not (p and p.is_privileged):
+        if not current_app.config["AUTHZ"].is_privileged(p):
             return _deny(403, "Admin or developer role required")
         return view(*args, **kwargs)
 

@@ -16,6 +16,16 @@ log = logging.getLogger(__name__)
 _LIVE_USER_KEY = "user"
 
 
+def _live_directory_row(email: str) -> dict | None:
+    """Live app_users row, or None when Live DB is missing or the email is unknown."""
+    try:
+        from webapp.db import get_user_by_email
+        return get_user_by_email(email)
+    except Exception:  # noqa: BLE001 - Beta still works from its own users table
+        log.exception("beta: could not read live user directory for %s", email)
+        return None
+
+
 def live_login_redirect(next_path: str = "/") -> str:
     """Home login URL. Microsoft still starts on Live at /legacy/login/start."""
     safe = next_path if next_path.startswith("/") and not next_path.startswith("//") else "/"
@@ -37,12 +47,21 @@ def adopt_live_identity():
     email = str(live["email"]).strip().lower()
     raw_name = str(live.get("name") or email)
     display = raw_name.split(" (as ")[0] if " (as " in raw_name else raw_name
-    role = str(live.get("role") or "salesman").strip().lower()
-    if role not in VALID_ROLES:
-        role = "salesman"
-    is_dev = bool(live.get("_dev")) or role == "developer"
+    session_role = str(live.get("role") or "salesman").strip().lower()
+    if session_role not in VALID_ROLES:
+        session_role = "salesman"
+    is_dev = bool(live.get("_dev")) or session_role == "developer"
     dev_email = str(live.get("_dev_email") or "").strip().lower()
     impersonating = is_dev and bool(dev_email) and email != dev_email
+
+    live_row = _live_directory_row(email)
+    if live_row:
+        role = str(live_row.get("role") or "salesman").strip().lower()
+        if role not in VALID_ROLES:
+            role = "salesman"
+        display = (live_row.get("display_name") or display or email)
+    else:
+        role = session_role
 
     existing = current_principal()
     if (
@@ -56,8 +75,15 @@ def adopt_live_identity():
 
     db = current_app.config["DB"]
     users = UserRepository(db)
-    persist_role = "developer" if is_dev and email == (dev_email or email) else role
-    user = users.create(email, role=persist_role, display_name=display)
+    if live_row:
+        user = users.create(email, role=role, display_name=display)
+    else:
+        user = users.get_by_email(email)
+        if user is None:
+            persist_role = "developer" if is_dev and email == (dev_email or email) else role
+            user = users.create(email, role=persist_role, display_name=display)
+        elif not impersonating:
+            role = user.role
     _sync_salesman_scope(users, user.id, live, email, role)
 
     principal = Principal(

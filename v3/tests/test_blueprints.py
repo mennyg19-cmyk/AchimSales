@@ -497,8 +497,7 @@ def test_session_role_self_heals_from_db(tmp_path):
 
 
 def test_session_role_fails_closed_for_disabled_user(tmp_path):
-    """A disabled (or deleted) account that still carries a privileged session
-    role must not render privileged UI: the cached role is dropped to salesman."""
+    """A disabled account must be signed out, not left in as a salesman."""
     app = _make_app(tmp_path)
     client = app.test_client()
     repo = UserRepository(app.config["DB"])
@@ -508,10 +507,11 @@ def test_session_role_fails_closed_for_disabled_user(tmp_path):
         s["v3_user"] = {"email": "ex@x.com", "name": "Ex", "role": "developer", "is_dev": False}
         s["_csrf_token"] = _CSRF
 
-    body = client.get("/settings").get_data(as_text=True)
-    assert "/admin/users" not in body  # admin section hidden
+    resp = client.get("/settings")
+    assert resp.status_code in (301, 302)
+    assert "/login" in (resp.headers.get("Location") or "")
     with client.session_transaction() as s:
-        assert s["v3_user"]["role"] == "salesman"  # downgraded to fail closed
+        assert not s.get("v3_user")
 
 
 def test_dashboard_forbidden_for_salesman(tmp_path):

@@ -41,7 +41,6 @@ from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
-from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.data.repositories.company_views import CompanyView, CompanyViewRepository
 from web.data.repositories.report_defaults import (
@@ -296,7 +295,7 @@ def report_view(report_key: str):
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
         n4_mode_options=N4_MODE_OPTIONS,
-        is_developer=(p.role == ROLE_DEVELOPER),
+        is_developer=authz.is_developer(p),
         user_email=p.email,
         hide_commissions=not authz.may_see_commissions(p),
         can_edit_default=authz.can_see_company_schedules(p),
@@ -840,9 +839,7 @@ def preview_body(report_key: str):
     API, so the form can surface a live "this is what we'll ask for" panel.
     Developer-only -- the panel is a dev tool, not a user-facing feature.
     """
-    p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    p = _require_developer()
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
 
@@ -947,9 +944,7 @@ def reporting_api_diagnostics():
     """Admin/developer check: is the Reporting API reachable from the app right
     now, and is the job worker backed up? Answers 'why aren't our calls hitting
     the endpoint' without guessing. Developer-only (exposes the API host)."""
-    p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    p = _require_developer()
     cfg = current_app.config["APP_CONFIG"]
     from web import is_background_leader_process
     worker = current_app.config["JOB_WORKER"]
@@ -1079,9 +1074,7 @@ def claim_once_diagnostic():
     claims a job, the poller's failure is thread-specific; if it returns None,
     the method itself is the problem. Safe: any claimed job is immediately set
     back to 'queued' so the actual handler never runs and nothing is lost."""
-    p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    _require_developer()
     from datetime import datetime, timezone
     db = current_app.config["DB"]
     # Replicate claim_next() step by step so we can see WHICH step bails: does the
@@ -1142,8 +1135,8 @@ def precious_repair_diagnostic_post():
 
 def _require_developer():
     p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    _authz().assert_developer(p)
+    return p
 
 
 def _run_precious_repair(action: str) -> dict:

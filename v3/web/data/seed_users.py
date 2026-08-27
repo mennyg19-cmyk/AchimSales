@@ -12,8 +12,9 @@ user's salesman_key is mapped into v3's `user_salesman_access` when that salesma
 exists in v3's `salesmen` table (skipped otherwise - the FK would reject it).
 
 Mirror semantics: re-running updates role/flags/display_name to match live, so
-live remains the source of truth for who can sign in. Explicit env admins
-(V3_ADMIN_EMAILS) are applied *after* this and always win.
+live remains the source of truth for who can sign in. Salesman grants are
+replaced (not merged) so a revoked live key disappears on the next copy.
+Explicit env admins (V3_ADMIN_EMAILS) are applied *after* this and always win.
 """
 
 from __future__ import annotations
@@ -36,6 +37,29 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
 
 
+def _tables(conn: sqlite3.Connection) -> set[str]:
+    return {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def _grant_keys_by_email(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    if "user_salesman_access" not in _tables(conn):
+        return {}
+    cols = _columns(conn, "user_salesman_access")
+    email_col = "user_email" if "user_email" in cols else ("email" if "email" in cols else "")
+    if not email_col or "salesman_key" not in cols:
+        return {}
+    out: dict[str, list[str]] = {}
+    for r in conn.execute(
+        f"SELECT {email_col}, salesman_key FROM user_salesman_access"
+    ):
+        email = (r[0] or "").strip().lower()
+        key = (r[1] or "").strip()
+        if email and key:
+            out.setdefault(email, []).append(key)
+    return out
+
+
 def read_live_users(path: Path | str | None = None) -> list[dict]:
     """Read app_users from the live DB. Returns [] if the file/table is absent."""
     path = Path(path) if path is not None else live_db_path()
@@ -50,6 +74,10 @@ def read_live_users(path: Path | str | None = None) -> list[dict]:
         wanted = [c for c in ("email", "role", "salesman_key", "display_name",
                               "dashboard_enabled", "is_external") if c in cols]
         rows = conn.execute(f"SELECT {', '.join(wanted)} FROM app_users").fetchall()
+        try:
+            grants = _grant_keys_by_email(conn)
+        except sqlite3.Error:
+            grants = {}
     except sqlite3.Error:
         return []
     finally:
@@ -62,10 +90,18 @@ def read_live_users(path: Path | str | None = None) -> list[dict]:
         if not email or "@" not in email:
             continue
         role = (d.get("role") or "").strip().lower()
+        keys: list[str] = []
+        primary = (d.get("salesman_key") or "").strip()
+        if primary:
+            keys.append(primary)
+        for key in grants.get(email, []):
+            if key not in keys:
+                keys.append(key)
         out.append({
             "email": email,
             "role": role if role in VALID_ROLES else ROLE_SALESMAN,
-            "salesman_key": (d.get("salesman_key") or "").strip() or None,
+            "salesman_key": primary or None,
+            "salesman_keys": keys,
             "display_name": (d.get("display_name") or "").strip(),
             "dashboard_enabled": 1 if d.get("dashboard_enabled") else 0,
             "is_external": 1 if d.get("is_external") else 0,
@@ -91,11 +127,19 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
                 (u["email"], u["display_name"], u["role"],
                  u["is_external"], u["dashboard_enabled"]),
             )
-            key = _normalize_salesman_key(u["salesman_key"] or "")
-            if key and key in existing_salesmen:
-                uid = conn.execute(
-                    "SELECT id FROM users WHERE email = ?", (u["email"],)
-                ).fetchone()["id"]
+            uid = conn.execute(
+                "SELECT id FROM users WHERE email = ?", (u["email"],)
+            ).fetchone()["id"]
+            conn.execute("DELETE FROM user_salesman_access WHERE user_id = ?", (uid,))
+            seen: set[str] = set()
+            raw_keys = u.get("salesman_keys")
+            if raw_keys is None and u.get("salesman_key"):
+                raw_keys = [u["salesman_key"]]
+            for raw in raw_keys or []:
+                key = _normalize_salesman_key(raw or "")
+                if not key or key not in existing_salesmen or key in seen:
+                    continue
+                seen.add(key)
                 conn.execute(
                     "INSERT OR IGNORE INTO user_salesman_access(user_id, salesman_key)"
                     " VALUES (?, ?)",

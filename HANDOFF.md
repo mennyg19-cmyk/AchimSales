@@ -7,16 +7,14 @@ Last updated: 2026-08-27
 ## What's done
 
 - Cherry-picked `REPOSITORY-REVIEW.md` + review handoff onto this branch.
-- **P0.1** Untracked `.scratch/parity-cookies.env`. Tightened `.gitignore`. Added `tools/check-no-tracked-secrets.sh` (paths only). Values not printed or replayed.
-- **P0.2** Azure Production workflow deploys only `webapp-cache`. README Rule Preference updated.
-- **P0.3** Scoped OData fails the whole report if any non-empty tab has no salesman column.
-- **P0.4** Prod config requires Litestream Azure account/key/container. `startup.sh` refuses prod boot when Litestream is missing or precious.db is absent after restore. `/healthz` liveness; `/readyz` readiness.
-- **P0.5** `DEV_BYPASS_AUTH` only works with `APP_ENV=dev` and never on Azure. `create_app` refuses otherwise.
+- **P0.1–P0.5** as before (cookies untracked, no cursor Production deploys, OData fail-closed, Litestream readiness, no prod DEV_BYPASS_AUTH).
+- Review follow-up: download-file owner check, precious-repair GET-only check, security headers, magic-link claim/throttle/fixed origin, history XSS, notif-diag escape, shared Excel formula prefix.
+- Session/DB authz: v3 developer routes and login use `Authorization` (not cookie role). Disabled users are signed out. Live→v3 salesman grants replace on copy. Legacy session role is re-read from `app_users`.
 
 ## What's in progress
 
 - Session revoke and git-history purge are **BLOCKED** (need Azure Flask secret rotation + coordinated history rewrite).
-- Remaining review security: download-file, precious-repair GET, headers, magic-link claim/throttle/host, history XSS, notif-diag escape, Excel formula prefix on shared writers.
+- Remaining review security after session/DB authz: leftover innerHTML sinks, Number 4 / salesman formula writers, legacy CSRF, CDN SRI, leftover legacy customer/order fail-open.
 - No archive tag, deletion inventory, or legacy migration yet.
 
 ## What's next

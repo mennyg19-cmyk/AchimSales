@@ -70,6 +70,29 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Session role vs DB authorization
+
+**What to test:**
+- `Authorization.is_developer` follows the DB role, not the cookie.
+- A demoted developer cannot open `/dev/db-explorer` or reporting-api diagnostics; they can still load `/settings`.
+- A disabled user is signed out: `/` redirects to login and `/settings/theme` does not stick.
+- Impersonating an inactive salesman still loads `/`; db-explorer stays 403.
+- Live→v3 user copy drops a revoked salesman key on the next run.
+- Legacy `refresh_session_user` rewrites a stale admin cookie to the DB salesman role and drops a deleted user.
+
+**Expected behavior:**
+- Session is identity only. Developer tools and privileged nav use the live DB row.
+- Inactive own-sessions are logged out. Impersonation continues only while the real actor is an active admin/developer.
+- Boot-time live user mirror replaces salesman grants instead of INSERT OR IGNORE.
+
+**Edge cases:**
+- Admin cookies cannot open developer diagnostics.
+- Local DEV_BYPASS_AUTH fake users (not in app_users) keep their session.
+
+**Test files:** `v3/tests/test_session_authz.py`, `v3/tests/test_seed_users_grants.py`, `tests/test_legacy_session_authz.py`, `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
+
+---
+
 <!-- Entries are added below as features are built. Each entry follows this format:
 
 ## [Feature/Module Name]

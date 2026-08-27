@@ -176,8 +176,7 @@ def _ephemeral_dev_secret(cfg: Config) -> str:
 def _register_context(app: Flask, cfg: Config, db) -> None:
     from flask import request, url_for
 
-    from web.auth.principal import ROLE_SALESMAN
-    from web.auth.session import sync_role
+    from web.auth.session import logout, sync_role
 
     def _safe_url(endpoint: str, **kw) -> str:
         # A missing endpoint is logged at WARNING (not silently swallowed) so a
@@ -205,17 +204,17 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             return
         live = session.get("user")
         if isinstance(live, dict) and live.get("_dev"):
-            # Impersonation: session role is the picked user, not the DB row.
+            # Live role-picker: session role is the picked user, not the DB row.
             return
         try:
+            if not app.config["AUTHZ"].session_allowed(p):
+                logout()
+                return
+            if p.impersonating:
+                return
             row = users.get_by_email(p.email)
             if row is not None and row.is_active:
                 sync_role(row.role)
-            else:
-                # Locked out (deleted/disabled): drop any cached privileged role so
-                # the UI (badge + admin sections) matches the DB-enforced denial.
-                # Identity stays; the security layer already denies everything.
-                sync_role(ROLE_SALESMAN)
         except Exception:  # noqa: BLE001 - a role refresh must never break a request
             app.logger.warning("session role refresh failed for %s", p.email)
 
@@ -251,12 +250,13 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
                 row = users.get_by_email(p.email)
                 # Dashboard tab: global flag AND (per-user opt-in OR privileged).
                 dashboard_global = flag_map.get("dashboard_enabled", True)
+                privileged = app.config["AUTHZ"].is_privileged(p)
                 dashboard_enabled = dashboard_global and (
-                    bool(row and row.dashboard_enabled) or p.is_privileged
+                    bool(row and row.dashboard_enabled) or privileged
                 )
                 # Test-site link: global flag AND per-user opt-in (privileged always).
                 test_site_enabled = flag_map.get("test_site_enabled", False) and (
-                    bool(row and row.test_access) or p.is_privileged
+                    bool(row and row.test_access) or privileged
                 )
                 if theme is None and row is not None:
                     theme = _load_theme(db, row.id)

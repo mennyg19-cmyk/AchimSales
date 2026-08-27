@@ -15,9 +15,64 @@ log = logging.getLogger(__name__)
 
 # -- Auth helpers ----------------------------------------------------------
 
+def refresh_session_user(user: dict | None) -> dict | None:
+    """Re-resolve role from the user directory. Session is identity only.
+
+    Returns None when the account is gone (caller must drop the session).
+    Local DEV_BYPASS_AUTH fake users are not in app_users and stay as-is.
+    The _dev impersonation flag is kept only while _dev_email is still a
+    developer in the directory.
+    """
+    if not user or not user.get("email"):
+        return None
+    from webapp.config import dev_bypass_auth
+    from webapp.db import get_user_by_email
+
+    actor_email = str(user.get("_dev_email") or "").strip().lower()
+    try:
+        if user.get("_dev") and actor_email:
+            actor = get_user_by_email(actor_email)
+            if actor is None:
+                if dev_bypass_auth():
+                    return user
+                return None
+            if actor.get("role") != "developer":
+                return None
+
+        email = str(user.get("email") or "").strip().lower()
+        row = get_user_by_email(email)
+    except Exception:
+        log.exception("session refresh: user lookup failed")
+        return user
+    if row is None:
+        if dev_bypass_auth():
+            return user
+        return None
+    out = dict(user)
+    out["email"] = row["email"]
+    out["role"] = row["role"]
+    out["salesman_key"] = row.get("salesman_key")
+    return out
+
+
 def get_current_user() -> dict | None:
-    """Return the current user dict from the session, or None."""
-    return session.get("user")
+    """Return the current user dict from the session, or None.
+
+    Role and salesman_key are taken from the directory on every call so a
+    demotion or deletion takes effect before the cookie expires.
+    """
+    user = session.get("user")
+    refreshed = refresh_session_user(user)
+    if refreshed is None:
+        if user:
+            session.pop("user", None)
+        return None
+    if (
+        refreshed.get("role") != user.get("role")
+        or refreshed.get("salesman_key") != user.get("salesman_key")
+    ):
+        session["user"] = refreshed
+    return refreshed
 
 
 def require_login(f):

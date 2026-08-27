@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Review: session role vs DB authorization
+**What I had to decide:** Whether developer tools should stay reachable during impersonation, and what to do with a disabled account that still has a cookie.
+**Options I considered:** (1) Check the impersonator's real_email so db-explorer works while viewing as a salesman. (2) Check the current identity only, matching today's v3 `p.role` gates. (3) Demote disabled users to salesman in the cookie vs sign them out.
+**What I chose:** `Authorization.is_developer` uses the current identity's DB row, so impersonating a salesman hides developer tools. `session_allowed` signs out inactive own-sessions; impersonation continues only while the real actor is still an active admin/developer. Live user copy replaces salesman grants instead of only adding. Legacy `get_current_user` re-reads role from `app_users`; a `_dev` cookie whose actor is no longer a developer is dropped.
+**Why:** Review items 1–4. Session is identity. Privilege that survives a demotion or disable until cookie expiry was the hole. Opening db-explorer while impersonating would mix actor privilege with target identity; v3 already 403'd that.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Review: magic links, XSS, formula prefix
 **What I had to decide:** Throttle numbers, magic-link URL host, and how far to take Excel formula neutralization.
 **What I chose:** 5 tokens per email / 15 min; 40 POSTs per client IP / 15 min. New token marks older unconsumed tokens consumed. Consume is one UPDATE. Login re-checks salesman + is_external. Emailed URLs use PUBLIC_BASE_URL, or https://reports.achimonline.com on Azure, never the request Host. History cells and notif-diag strings are escaped. Legacy streaming/DataFrame Excel paths prefix `=+-@` leaders.
