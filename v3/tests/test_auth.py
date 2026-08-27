@@ -390,6 +390,7 @@ def test_beta_login_shows_microsoft_button(tmp_path):
     assert b"/login/start" in resp.data
     assert b"/legacy/" not in resp.data
     assert b"/login/magic-link" in resp.data
+    assert b"next=/healthz" not in resp.data
     assert b"Developer sign-in" not in resp.data
 
 

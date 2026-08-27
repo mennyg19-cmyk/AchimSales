@@ -41,7 +41,7 @@ def _safe_next() -> str:
     nxt = request.values.get("next") or ""
     if nxt.startswith("/") and not nxt.startswith("//"):
         return nxt
-    return url_for("health.healthz")
+    return url_for("reports.reports_list")
 
 
 def _login_or_403(user: User, *, name: str, is_dev: bool) -> None:
