@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Deletion inventory (no deletes)
+**What I had to decide:** Whether to untrack `.scratch/` and drop review logs in the same pass as the inventory.
+**Options I considered:** (1) Untrack `.scratch/` now because `.gitignore` already lists it. (2) Inventory only; wait for explicit approval of the exact list.
+**What I chose:** Inventory only (`DELETION-INVENTORY.md`). Default approval of "the inventory" means untrack `.scratch/` only. `webapp/` and `rebuild/` stay until v3 owns login and OData.
+**Why:** `cleanup-protocol.mdc` and the repository review both require an approved list before removal. Untracking 168 files without a yes is still a deletion from git.
+**Status:** DECIDED — shipping the inventory; deletions BLOCKED on owner reply.
+
 ## 2026-08-27 Review: v3 Feather and Tabulator served locally
 **What I had to decide:** Leave v3 on unpkg with SRI, or vendor the two libraries the same way legacy Feather was vendored.
 **Options I considered:** (1) SRI hashes on unpkg. (2) Copy Feather 4.29.2 and Tabulator 6.3.1 into `static_dist/vendor`. (3) Keep the CDN until the single-site migration.
