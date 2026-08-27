@@ -52,7 +52,8 @@ def test_unknown_report_raises():
 def test_ordered_payload_shape():
     rows = [{"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "A",
              "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open"}]
-    out = _svc({"ordered_report": rows}).builder_for("ordered")({}, None)
+    out = _svc({"ordered_report": rows}).builder_for("ordered")(
+        {"period": "yesterday"}, None)
     assert out["report_key"] == "ordered"
     assert out["row_count"] == 1
     assert [t["key"] for t in out["tabs"]][0] == "summary"
@@ -64,7 +65,7 @@ def test_ordered_salesman_filter_drops_by_salesman_tab():
              "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open",
              "SalesGroup": "REdwards"}]
     out = _svc({"ordered_report": rows}).builder_for("ordered")(
-        {"salesman": ["REdwards"]}, None)
+        {"period": "yesterday", "salesman": ["REdwards"]}, None)
     assert "by_salesman" not in {t["key"] for t in out["tabs"]}
     assert "full_data" in {t["key"] for t in out["tabs"]}
 
@@ -386,15 +387,15 @@ def test_scope_filters_facts_to_visible_keys():
     ]
     svc = _svc({"ordered_report": rows})
     # Unrestricted: sees both
-    out_all = svc.builder_for("ordered")({}, None)
+    out_all = svc.builder_for("ordered")({"period": "yesterday"}, None)
     assert out_all["row_count"] == 2
     # Scoped to REdwards only
-    out_scoped = svc.builder_for("ordered")({}, {"redwards"})
+    out_scoped = svc.builder_for("ordered")({"period": "yesterday"}, {"redwards"})
     assert out_scoped["row_count"] == 1
     full = next(t for t in out_scoped["tabs"] if t["key"] == "full_data")
     assert full["rows"][0]["SalesOrderNumber"] == "SO1"
     # Empty scope: sees nothing
-    out_empty = svc.builder_for("ordered")({}, set())
+    out_empty = svc.builder_for("ordered")({"period": "yesterday"}, set())
     assert out_empty["row_count"] == 0
 
 
@@ -474,15 +475,23 @@ def test_ordered_bounded_period_is_fetched_in_chunks_and_matches_single_call():
     assert {r["SalesOrderNumber"] for r in full["rows"]} == {"SO-JAN", "SO-FEB", "SO-MAR"}
 
 
-def test_ordered_all_time_stays_single_call():
-    """Open-ended (all_time) keeps one call so the SP's own default window is
-    unchanged - chunking only applies to bounded periods."""
+@pytest.mark.parametrize("params", [{"period": "all_time"}, {}])
+def test_ordered_open_ended_is_fetched_in_month_chunks(params):
+    """all_time / blank is go-live..today, fetched month-by-month like YTD.
+
+    One undated call blows the Reporting API timeout and can occupy a
+    job-worker slot until then, so later Ordered schedules fail too.
+    """
+    from report_engine.dates import D365_GO_LIVE, month_chunks, today_eastern
+
     rows = [_order_row("SO1", "2026-02-01T10:00:00")]
     svc = ReportService(_DateWindowClient(rows), _FakeSalesmenRepo())
-    svc.builder_for("ordered")({"period": "all_time"}, None)
-    # one request, with no date window pushed down
-    assert len(svc.client.windows) == 1
-    assert svc.client.windows[0] == ("0000-00-00", "9999-99-99")
+    svc.builder_for("ordered")(params, None)
+    expected = [
+        (chunk_start.isoformat(), chunk_end.isoformat())
+        for chunk_start, chunk_end in month_chunks(D365_GO_LIVE, today_eastern())
+    ]
+    assert svc.client.windows == expected
 
 
 def test_ensure_customers_resyncs_then_finds():

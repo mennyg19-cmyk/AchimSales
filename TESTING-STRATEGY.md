@@ -22,19 +22,36 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Ordered all_time is month-chunked
+
+**What to test:**
+- Ordered `period=all_time` and blank period fetch go-live..today one month at a time (same windows as `month_chunks`).
+- Bounded periods (yesterday, custom, YTD) still chunk only their own window.
+- `translate("ordered", {period: all_time})` still omits dates; the orchestrator adds them.
+
+**Expected behavior:**
+- No single undated Ordered SP call. Stitched rows match one full-window pull.
+
+**Edge cases:**
+- Go-live mid-month (2025-01-03) is the first chunk start. Last chunk ends today Eastern.
+
+**Test file:** `v3/tests/test_report_service.py`
+
 ## Deploy hook: [send-test-schedules]
 
 **What to test:**
-- A production deploy whose commit message contains `[send-test-schedules]` drops `send-test-schedules.flag` in the zip. `startup.sh` enqueues `DailyOrderReport` and `Daily Open Orders Report` on boot.
+- A production deploy whose commit message contains `[send-test-schedules]` drops `send-test-schedules.flag` in the zip (contents = commit SHA). `startup.sh` enqueues `DailyOrderReport` and `Daily Open Orders Report` on boot.
 - A normal deploy without that marker does not enqueue.
+- A recycle of the same zip does not enqueue again (SHA stamped on `/home/site/v3data/.send-test-schedules-consumed`).
 
 **Expected behavior:**
 - Same as Schedules → Run now on those two company rows. Test mode still applies.
 
 **Edge cases:**
 - Missing schedule name fails the enqueue step (deploy already succeeded).
+- wwwroot is read-only (Run-From-Package); `rm` of the flag is best-effort.
 
-**Test file:** none (live Kudu; unit tests cannot reach App Service)
+**Test file:** none (live startup; unit tests cannot reach App Service)
 
 ## Ordered Summary remainder from SP dollar amount
 

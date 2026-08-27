@@ -35,15 +35,30 @@ LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
 
 GUNICORN_CMD="gunicorn --config=${ROOT}/gunicorn.conf.py --bind=0.0.0.0:${PORT} --workers=${WORKERS} --worker-class=gthread --threads=${THREADS} --timeout=${TIMEOUT} --access-logfile=- --error-logfile=- wsgi:application"
 
-# Commit message [send-test-schedules] drops send-test-schedules.flag in the zip.
-# Runs on the box (Kudu SCM is unreachable from GitHub runners). Same as Run now.
+# Commit message [send-test-schedules] drops send-test-schedules.flag in the zip
+# (contents = that commit SHA). Runs on the box; Kudu SCM is unreachable from
+# GitHub runners. Same as Run now. The zip is often read-only (Run-From-Package),
+# so rm of the flag can fail and every App Service recycle would re-enqueue.
+# Stamp the SHA on the persistent data disk and skip if we already sent it.
 _enqueue_test_schedules() {
   MARKER="${ROOT}/send-test-schedules.flag"
-  if [ -f "${MARKER}" ]; then
-    echo "startup: enqueue DailyOrderReport + Daily Open Orders Report"
-    python3 "${ROOT}/tools/enqueue_named_master_schedules.py" || echo "startup: schedule enqueue failed"
-    rm -f "${MARKER}"
+  if [ ! -f "${MARKER}" ]; then
+    return
   fi
+  SIG=$(tr -d '[:space:]' < "${MARKER}")
+  # Persistent share — /tmp (beta precious) is wiped on recycle.
+  SENT_DIR="/home/site/v3data"
+  SENT="${SENT_DIR}/.send-test-schedules-consumed"
+  LAST=$(cat "${SENT}" 2>/dev/null || true)
+  if [ -n "${SIG}" ] && [ "${SIG}" = "${LAST}" ]; then
+    echo "startup: test schedules already enqueued for ${SIG}; skip"
+    return
+  fi
+  echo "startup: enqueue DailyOrderReport + Daily Open Orders Report"
+  python3 "${ROOT}/tools/enqueue_named_master_schedules.py" || echo "startup: schedule enqueue failed"
+  mkdir -p "${SENT_DIR}" 2>/dev/null || true
+  echo "${SIG}" > "${SENT}" 2>/dev/null || true
+  rm -f "${MARKER}"
 }
 
 # 1. Defensive dependency install (Oryx usually already did this on deploy).

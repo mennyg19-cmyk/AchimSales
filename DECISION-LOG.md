@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Ordered all_time is month-chunked
+**What you asked for:** All the ordered reports failed this morning.
+**What I chose:** Fetch Ordered `all_time` / blank the same way as YTD: one SP call per month from D365 go-live (2025-01-03) through today. `translate_ordered` still omits dates; the orchestrator adds each month's `CreatedDateTimeFrom/To`. The `[send-test-schedules]` flag now stores the commit SHA and is consumed once on the persistent disk so an App Service recycle of the same zip does not re-enqueue. This deploy also sends Daily Ordered and Heshy Open Orders so the missed midnight run goes out and all-time is proven on the chunked path.
+**Why:** Last night's Heshy all-time change plus a test send used one unbounded Ordered SP call. That hangs until the ~5 minute API timeout (or OOMs the B1) and holds a job-worker slot. Daily Ordered at midnight then fails too, because both jobs share the on-prem API and two workers. Dashboard `all_orders()` already chunked this; the report path did not.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Heshy Open Orders is all-time
 **What you asked for:** The Daily Open Orders Report for Heshy should include all-time orders, not just yesterday.
 **What I chose:** Period is `all_time` on the seed, the Heshy Open Orders company view, and existing matching schedules at boot (so today's live row updates). Status stays Open; salesman stays Hkaufman. Dates are omitted to the SP.

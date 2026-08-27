@@ -288,16 +288,17 @@ def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
     report_id = P.report_id_for("ordered")  # rpt.usp_ordered_report
     base_sp = P.translate("ordered", params)
     start, end = P.resolve_window(params)
-    # A bounded period (daily/MTD/YTD/last month/custom) is fetched month-by-month
-    # so a big YTD doesn't blow the API timeout. Open-ended (all_time/blank) keeps
-    # the single call so the SP's own default window is unchanged.
-    if start and end:
-        facts = svc._facts_chunked(
-            report_id, base_sp, src_ordered.to_facts_ordered_report, visible_keys,
-            from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
-            start=start, end=end)
-    else:
-        facts = svc._facts(report_id, base_sp, src_ordered.to_facts_ordered_report, visible_keys)
+    # translate() omits dates for all_time/blank so the SP would use its own
+    # (huge) default. One undated pull blows the API timeout and occupies a
+    # job-worker slot until then, so later Ordered schedules fail too.
+    # Dashboard all_orders() already chunks go-live..today; this report must
+    # do the same. Bounded periods (daily/MTD/YTD/custom) already have dates.
+    if not start or not end:
+        start, end = D365_GO_LIVE, today_eastern()
+    facts = svc._facts_chunked(
+        report_id, base_sp, src_ordered.to_facts_ordered_report, visible_keys,
+        from_key="CreatedDateTimeFrom", to_key="CreatedDateTimeTo",
+        start=start, end=end)
     # The new SP's CustomerAccount is a single exact match, so a multi-customer
     # selection isn't pushed down -- post-filter it here (same as invoiced).
     accounts = _selected_accounts(params)

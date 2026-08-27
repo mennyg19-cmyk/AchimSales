@@ -34,7 +34,17 @@ class _FakeClient:
     def run_report(self, report_id, params):
         # Fresh list per call, like the real client (which json-parses new rows
         # each time); the adapters consume the list to save memory on big runs.
-        return _FakeResult(list(self.rows_by_report.get(report_id, [])))
+        rows = list(self.rows_by_report.get(report_id, []))
+        frm = str((params or {}).get("CreatedDateTimeFrom") or "")[:10]
+        to = str((params or {}).get("CreatedDateTimeTo") or "")[:10]
+        if frm and to:
+            dated = []
+            for row in rows:
+                created = str(row.get("CreatedDateTime") or "")[:10]
+                if not created or frm <= created <= to:
+                    dated.append(row)
+            rows = dated
+        return _FakeResult(rows)
 
 
 class _FakeSalesmen:
