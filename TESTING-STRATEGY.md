@@ -22,6 +22,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Daily Ordered salesman then customer sort
+
+**What to test:**
+- Excel Summary with Daily Ordered layout: one banner per salesman, customers A-Z (then item) inside each.
+- Customer-only sorters plus a Salesman group still emit consecutive salesman banners.
+- Heshy still groups by order number after a customer sort, with no customer totals.
+
+**Expected behavior:**
+- Company Daily Ordered Summary and By Customer are salesman groups with customers A-Z inside. Per-rep files still drop the extra Salesman group.
+
+**Edge cases:**
+- Same customer with two item numbers stays together and items sort A-Z.
+- Heshy sorter-first behavior is unchanged.
+
+**Test file:** `v3/tests/test_reporting.py`, `v3/tests/test_company_views.py`
+
 ## Save this view asks company-wide vs personal
 
 **What to test:**
@@ -158,7 +174,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Expected behavior:**
 - Saved views lists Default, then company views, then personal. Wizard has a Company views optgroup. Schedules View column shows the stamped names.
-- Daily Ordered emails group By Customer by salesman then customer. Heshy’s file is one Full Data sheet, customers together, totals per order, no LineNumber.
+- Daily Ordered emails group Summary and By Customer by salesman, then sort customers A-Z inside each salesman. Heshy’s file is one Full Data sheet, customers together, totals per order, no LineNumber.
 
 **Edge cases:**
 - Layout `order` listing ShipDate when the column is absent does not fail (`apply_layout` skips unknown fields).

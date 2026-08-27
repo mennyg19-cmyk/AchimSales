@@ -435,6 +435,124 @@ def test_export_salesman_summary_uses_builder_customer_sort():
     assert col_a.index("Customer Name: Ann") < col_a.index("Customer Name: Zed")
 
 
+def test_export_customer_sort_does_not_split_salesman_groups():
+    """Daily Ordered Summary: sort customers A-Z inside each salesman, not across."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "summary", "name": "Summary",
+        "columns": [
+            {"field": "Customer Name", "header": "Customer Name", "type": "text"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Item Number", "header": "Item Number", "type": "text"},
+        ],
+        "rows": [
+            {"Customer Name": "ZEBRA", "Salesman": "REdwards", "Item Number": "Z-1"},
+            {"Customer Name": "AMAZON", "Salesman": "REdwards", "Item Number": "A-2"},
+            {"Customer Name": "MACY'S", "Salesman": "AGrossman", "Item Number": "M-1"},
+            {"Customer Name": "BOSCOV'S", "Salesman": "AGrossman", "Item Number": "B-1"},
+            {"Customer Name": "AMAZON", "Salesman": "REdwards", "Item Number": "A-1"},
+            {"Customer Name": "MACY'S", "Salesman": "AGrossman", "Item Number": "A-1"},
+        ],
+        "default_group": ["Salesman"],
+        "default_layout": {
+            "group_levels": ["Customer Name"],
+            "sort_levels": [
+                {"field": "Customer Name", "dir": "asc"},
+                {"field": "Item Number", "dir": "asc"},
+            ],
+        },
+    }]}
+    layout = {"views": {"summary": {
+        "group": ["Salesman"],
+        "sorters": [
+            {"column": "Customer Name", "dir": "asc"},
+            {"column": "Item Number", "dir": "asc"},
+        ],
+    }}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    col_a = [c.value for c in wb["Summary"]["A"]]
+    col_c = [c.value for c in wb["Summary"]["C"]]
+    assert col_a.count("Salesman: AGrossman") == 1
+    assert col_a.count("Salesman: REdwards") == 1
+    assert col_a.index("Salesman: AGrossman") < col_a.index("Salesman: REdwards")
+    ag = col_a.index("Salesman: AGrossman")
+    re = col_a.index("Salesman: REdwards")
+    assert col_a[ag + 1] == "BOSCOV'S"
+    assert col_a[ag + 2] == "MACY'S"
+    assert col_c[ag + 2] == "A-1"
+    assert col_a[re + 1] == "AMAZON"
+    assert col_c[re + 1] == "A-1"
+    assert col_a[re + 2] == "AMAZON"
+    assert col_c[re + 2] == "A-2"
+    assert col_a[re + 3] == "ZEBRA"
+
+
+def test_export_summary_salesman_group_takes_builder_customer_sort():
+    """No Daily Ordered summary view: still sort customers inside default_group."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "summary", "name": "Summary",
+        "columns": [
+            {"field": "Customer Name", "header": "Customer Name", "type": "text"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Item Number", "header": "Item Number", "type": "text"},
+        ],
+        "rows": [
+            {"Customer Name": "ZEBRA", "Salesman": "REdwards", "Item Number": "Z-1"},
+            {"Customer Name": "MACY'S", "Salesman": "AGrossman", "Item Number": "M-1"},
+            {"Customer Name": "BOSCOV'S", "Salesman": "AGrossman", "Item Number": "B-1"},
+        ],
+        "default_group": ["Salesman"],
+        "default_layout": {
+            "group_levels": ["Customer Name"],
+            "sort_levels": [
+                {"field": "Customer Name", "dir": "asc"},
+                {"field": "Item Number", "dir": "asc"},
+            ],
+        },
+    }]}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, None)))
+    col_a = [c.value for c in wb["Summary"]["A"]]
+    assert col_a.count("Salesman: AGrossman") == 1
+    ag = col_a.index("Salesman: AGrossman")
+    assert col_a[ag + 1] == "BOSCOV'S"
+    assert col_a[ag + 2] == "MACY'S"
+
+
+def test_daily_ordered_layout_sorts_summary_customers_within_salesman():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    from web.scheduling.company_layouts import DAILY_ORDERED_LAYOUT
+    payload = {"tabs": [{
+        "key": "summary", "name": "Summary",
+        "columns": [
+            {"field": "Customer Name", "header": "Customer Name", "type": "text"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Item Number", "header": "Item Number", "type": "text"},
+        ],
+        "rows": [
+            {"Customer Name": "ZEBRA", "Salesman": "REdwards", "Item Number": "Z-1"},
+            {"Customer Name": "BOSCOV'S", "Salesman": "AGrossman", "Item Number": "B-9"},
+            {"Customer Name": "AMAZON", "Salesman": "REdwards", "Item Number": "A-1"},
+            {"Customer Name": "BOSCOV'S", "Salesman": "AGrossman", "Item Number": "B-1"},
+        ],
+        "default_group": ["Salesman"],
+    }]}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, DAILY_ORDERED_LAYOUT)))
+    col_a = [c.value for c in wb["Summary"]["A"]]
+    col_c = [c.value for c in wb["Summary"]["C"]]
+    assert col_a.count("Salesman: AGrossman") == 1
+    assert col_a.index("Salesman: AGrossman") < col_a.index("Salesman: REdwards")
+    ag = col_a.index("Salesman: AGrossman")
+    assert col_c[ag + 1] == "B-1"
+    assert col_c[ag + 2] == "B-9"
+    re = col_a.index("Salesman: REdwards")
+    assert col_a[re + 1] == "AMAZON"
+    assert col_a[re + 2] == "ZEBRA"
+
+
 def test_export_sorts_then_groups_without_customer_totals():
     openpyxl = pytest.importorskip("openpyxl")
     from web.reporting.export import build_workbook

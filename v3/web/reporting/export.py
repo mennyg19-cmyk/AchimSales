@@ -273,15 +273,7 @@ def _banner_cells(ws, ncol: int, text: str) -> list[WriteOnlyCell]:
     return cells
 
 
-def _sort_rows_for_groups(rows: list, group_fields: list[str],
-                          sorters: list | None) -> list:
-    """Sort by saved sorters first, then any group fields not already in that list.
-
-    Excel grouping uses itertools.groupby, which needs consecutive keys. A
-    salesman+customer group must stay sorted by both fields. An order group
-    after a customer sort must keep that customer order — re-sorting by the
-    group field alone would scatter the rows.
-    """
+def _sorter_specs(sorters: list | None) -> list[tuple[str, bool]]:
     specs: list[tuple[str, bool]] = []
     seen: set[str] = set()
     for spec in sorters or []:
@@ -292,10 +284,35 @@ def _sort_rows_for_groups(rows: list, group_fields: list[str],
             continue
         specs.append((str(col), (spec.get("dir") or "asc").lower() != "desc"))
         seen.add(str(col))
-    for field in group_fields:
-        if field not in seen:
-            specs.append((field, True))
-            seen.add(field)
+    return specs
+
+
+def _sort_rows_for_groups(rows: list, group_fields: list[str],
+                          sorters: list | None) -> list:
+    """Keep group keys consecutive, then apply extra sorts inside each group.
+
+    Excel grouping uses itertools.groupby, which needs adjacent keys. If every
+    group field is already in the sorter list (Heshy: customer then order
+    number, group by order), honour that sorter order. Otherwise group fields
+    are primary so a customer sort cannot split a salesman group.
+    """
+    sorter_specs = _sorter_specs(sorters)
+    sorter_cols = {col for col, _asc in sorter_specs}
+    group_covered = bool(group_fields) and all(g in sorter_cols for g in group_fields)
+    specs: list[tuple[str, bool]] = []
+    seen: set[str] = set()
+
+    def _add(col: str, ascending: bool) -> None:
+        if not col or col in seen:
+            return
+        specs.append((col, ascending))
+        seen.add(col)
+
+    if not group_covered:
+        for field in group_fields:
+            _add(field, True)
+    for col, ascending in sorter_specs:
+        _add(col, ascending)
     ordered = list(rows)
     for col, ascending in reversed(specs):
         ordered.sort(key=lambda row, c=col: _group_sort_key(row.get(c)),
@@ -435,8 +452,9 @@ def _tab_groups_and_sorters(
     A salesman-split Ordered file has empty default_group (the sheet is already
     one rep). Daily Ordered still groups By Customer by Salesman then
     CustomerName — drop the redundant Salesman level so customers sort A-Z.
-    Summary's builder default_layout (Customer Name then Item) is used only when
-    the view and default_group did not pick groups.
+    Summary's builder default_layout (Customer Name then Item) fills extra
+    sorts when the view did not set sorters, including when default_group is
+    already Salesman.
     """
     view_group = view.get("group") if isinstance(view.get("group"), list) else []
     default_group = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
@@ -450,16 +468,25 @@ def _tab_groups_and_sorters(
     if not wanted and not view_group and not default_group:
         wanted = [g for g in (dl.get("group_levels") or []) if isinstance(g, str)]
         if not sorters:
-            sorters = []
-            for spec in dl.get("sort_levels") or []:
-                if not isinstance(spec, dict):
-                    continue
-                col = spec.get("field") or spec.get("column")
-                if not col:
-                    continue
-                sorters.append({"column": col, "dir": spec.get("dir") or "asc"})
+            sorters = _sorters_from_default_layout(dl)
+    elif wanted and not sorters:
+        # Company Daily Ordered Summary groups by salesman; still take the
+        # builder's Customer Name / Item sort so rows are A-Z inside the group.
+        sorters = _sorters_from_default_layout(dl)
     group_fields = [g for g in wanted if g in known]
     return group_fields, sorters or None
+
+
+def _sorters_from_default_layout(dl: dict) -> list:
+    out: list[dict] = []
+    for spec in dl.get("sort_levels") or []:
+        if not isinstance(spec, dict):
+            continue
+        col = spec.get("field") or spec.get("column")
+        if not col:
+            continue
+        out.append({"column": col, "dir": spec.get("dir") or "asc"})
+    return out
 
 
 def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes:

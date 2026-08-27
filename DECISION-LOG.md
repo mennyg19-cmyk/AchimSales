@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Daily Ordered groups by salesman then sorts customers
+**What you asked for:** Daily Ordered should group by salesman and sort by customer within each salesman. The latest midnight file did not.
+**What I chose:** Put that on the Daily Ordered view for Summary (group Salesman, sort Salesman → Customer Name → Item) and By Customer (keep salesman then customer groups). Excel grouping now keeps salesman blocks together even if a customer sort is listed first. Heshy Open Orders still sorts customer then order number.
+**Why:** Summary is the first Excel sheet and was grouping by salesman without sorting first, so the same salesman appeared many times and customers stayed in dump order. By Customer was already nested correctly. Putting customer ahead of salesman in the sort list would split salesman groups (groupby needs consecutive keys).
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Save this view asks company-wide vs personal
 **What you asked for:** When saving a view, ask company-wide or personal. Only admins and developers. Regular users always personal.
 **What I chose:** After the name prompt, admins and developers get OK = company-wide (upserts a company view everyone sees) or Cancel = just for you (personal preset). Salesmen and managers do not see that ask and always save personal. Edit on Default or an existing company view still updates that company view for managers and admins.

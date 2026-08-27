@@ -30,7 +30,18 @@ DAILY_ORDERED_LAYOUT = {
         "by_customer": {
             "group": ["Salesman", "CustomerName"],
             "hidden": [],
-            "sorters": [],
+            "sorters": [
+                {"column": "Salesman", "dir": "asc"},
+                {"column": "CustomerName", "dir": "asc"},
+            ],
+        },
+        "summary": {
+            "group": ["Salesman"],
+            "sorters": [
+                {"column": "Salesman", "dir": "asc"},
+                {"column": "Customer Name", "dir": "asc"},
+                {"column": "Item Number", "dir": "asc"},
+            ],
         },
     },
 }
