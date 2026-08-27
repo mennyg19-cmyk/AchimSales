@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 No second mail after a successful send today
+**What you asked for:** Why did you get both a failure mail and a success mail (and doubles) today.
+**What I chose:** A restart that requeues a schedule job skips delivery if that schedule already succeeded today (Eastern). The deploy test-send hook also skips those two company rows if they already succeeded today. Run now still sends. This deploy does not re-send those reports.
+**Why:** Midnight Daily Ordered really failed, then two deploys each tagged `[send-test-schedules]` ran the same two schedules again. A restart after a successful send can also mail a second copy. The failure mail was the real miss; the extras were retries.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Heshy Open Orders is Hkaufman + Open only
 **What you asked for:** Open Orders should only be open orders for Hkaufman, not a giant all-company file.
 **What I chose:** Keep all-time dates. At send, the Heshy Open Orders company view's salesman/status/period overlay the schedule. After the SP returns, drop any row that is not Hkaufman or not Open / Open order. Boot still writes those filters onto the matching company schedule.

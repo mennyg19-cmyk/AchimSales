@@ -94,13 +94,19 @@ class ScheduleRunner:
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
-            include_regular: bool = True) -> int:
+            include_regular: bool = True, recovered: bool = False) -> int:
         sched = self._load(schedule_id, schedule_type)
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
 
         run_id = self.run_repo.start(schedule_id, schedule_type)
         try:
+            if recovered and self._already_sent_today(schedule_id, schedule_type):
+                self.run_repo.finish(
+                    run_id, status="skipped",
+                    debug_log="Already sent today; not sending again after a restart",
+                )
+                return run_id
             if not ignore_sabbath and skip_sabbath_enabled(getattr(sched, "params", None)):
                 assur, reason = melacha_assur()
                 if assur:
@@ -177,6 +183,10 @@ class ScheduleRunner:
         return run_id
 
     # -- internals ----------------------------------------------------------
+
+    def _already_sent_today(self, schedule_id: int, schedule_type: str) -> bool:
+        last = eastern_date_of(self.run_repo.last_success_at(schedule_id, schedule_type))
+        return last is not None and last.isoformat() == C.eastern_date_iso()
 
     def _load(self, schedule_id: int, schedule_type: str):
         if schedule_type == MASTER:

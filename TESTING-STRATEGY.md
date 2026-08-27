@@ -22,6 +22,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## No second mail after a successful send today
+
+**What to test:**
+- `ScheduleRunner.run(..., recovered=True)` after a success today skips delivery and records skipped.
+- A later `run()` with recovered=False still sends (Run now).
+- Enqueue helper `_is_eastern_today` is true for now and false for two days ago.
+
+**Expected behavior:**
+- Restart / second `[send-test-schedules]` deploy does not mail again if that company schedule already succeeded today.
+
+**Edge cases:**
+- Last run today was a failure: hook still enqueues (so a fix can re-send).
+
+**Test file:** `v3/tests/test_scheduling.py`, `v3/tests/test_enqueue_named.py`
+
 ## Heshy Open Orders is Hkaufman + Open only
 
 **What to test:**

@@ -6,9 +6,12 @@ import json
 import os
 import sqlite3
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 NAMES = ("DailyOrderReport", "Daily Open Orders Report")
+EASTERN = ZoneInfo("America/New_York")
 
 
 def _db_path() -> Path:
@@ -18,7 +21,7 @@ def _db_path() -> Path:
             path = Path(raw)
             if path.is_file():
                 return path
-    here = Path("/home/web_sierra/wwwroot")
+    here = Path("/home/site/wwwroot")
     for rel in (".data/beta_precious.db", ".data/precious.db"):
         path = here / rel
         if path.is_file():
@@ -29,6 +32,29 @@ def _db_path() -> Path:
         if path.is_file():
             return path
     raise SystemExit("precious db not found (set BETA_PRECIOUS_DB_PATH)")
+
+
+def _is_eastern_today(iso: str | None) -> bool:
+    if not iso:
+        return False
+    raw = str(iso).strip().replace("Z", "+00:00")
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp.astimezone(EASTERN).date() == datetime.now(EASTERN).date()
+
+
+def _already_sent_today(conn: sqlite3.Connection, schedule_id: int) -> bool:
+    row = conn.execute(
+        "SELECT started_at FROM schedule_runs"
+        " WHERE schedule_id=? AND schedule_type='master' AND status='success'"
+        " ORDER BY id DESC LIMIT 1",
+        (schedule_id,),
+    ).fetchone()
+    return bool(row) and _is_eastern_today(row["started_at"])
 
 
 def main() -> None:
@@ -56,6 +82,9 @@ def main() -> None:
         if existing:
             queued.append({"name": name, "schedule_id": sid, "job_id": existing["id"],
                            "already": True})
+            continue
+        if _already_sent_today(conn, sid):
+            queued.append({"name": name, "schedule_id": sid, "skipped": "already sent today"})
             continue
         params = json.dumps({
             "schedule_id": sid,
