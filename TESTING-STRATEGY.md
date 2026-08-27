@@ -21,6 +21,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Edge cases:**
 - Empty tabs do not require a salesman column.
 - Azure `WEBSITE_SITE_NAME` blocks bypass even if `APP_ENV=dev`.
+- `/healthz` CSP does not allow unpkg or jsdelivr. Feather, Tabulator JS, and Tabulator CSS are served from `/static/vendor`.
 
 **Test files:** `v3/tests/test_odata_scope.py`, `v3/tests/test_config.py`, `v3/tests/test_smoke.py`, `tests/test_dev_bypass_auth.py`
 

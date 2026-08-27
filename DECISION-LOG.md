@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Review: v3 Feather and Tabulator served locally
+**What I had to decide:** Leave v3 on unpkg with SRI, or vendor the two libraries the same way legacy Feather was vendored.
+**Options I considered:** (1) SRI hashes on unpkg. (2) Copy Feather 4.29.2 and Tabulator 6.3.1 into `static_dist/vendor`. (3) Keep the CDN until the single-site migration.
+**What I chose:** Vendor both. CSP drops unpkg and jsdelivr. Google Maps stays on Google's CDN. Rebuild (`/test-next`) still uses unpkg Tabulator 5.6.1; that tree is not this pass.
+**Why:** Review item 20 leftover. Local copies match the legacy Feather change. Maps cannot reasonably use SRI.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Semgrep: Django `{% csrf_token %}` on Flask forms
 **What I had to decide:** CI Semgrep `django-no-csrf-token` stayed red after a real Jinja `{% csrf_token %}` tag, and `Markup()` on that tag's renderer tripped `explicit-unescape-with-markup`.
 **Options I considered:** (1) Revert form tokens and rely on the JS injector so baseline findings stay old. (2) `nosemgrep` on the POST forms plus keep the tag. (3) Keep fighting the generic `pattern-not-inside`.

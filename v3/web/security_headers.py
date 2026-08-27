@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-# 'unsafe-inline' + current CDNs keep the existing pages working. SRI/local
-# copies are still unpaid (REPOSITORY-REVIEW item 20).
+# 'unsafe-inline' stays for existing page scripts. Feather and Tabulator are
+# local. Google Maps stays on Google's CDN (dynamic loader, no SRI).
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net "
+    "script-src 'self' 'unsafe-inline' "
     "https://maps.googleapis.com https://maps.gstatic.com; "
-    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob: https:; "
-    "font-src 'self' data: https://unpkg.com; "
+    "font-src 'self' data:; "
     "connect-src 'self' https:; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "

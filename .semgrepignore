@@ -1,0 +1,4 @@
+# Third-party minified copies. p/default is not useful on these.
+webapp/static/vendor/
+v3/web/static_dist/vendor/
+v3/web/static_src/public/vendor/

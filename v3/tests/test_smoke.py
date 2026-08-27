@@ -51,6 +51,8 @@ def test_healthz_is_minimal(client):
     assert resp.headers["X-Frame-Options"] == "DENY"
     assert resp.headers["X-Content-Type-Options"] == "nosniff"
     assert "default-src 'self'" in resp.headers["Content-Security-Policy"]
+    assert "unpkg.com" not in resp.headers["Content-Security-Policy"]
+    assert "jsdelivr.net" not in resp.headers["Content-Security-Policy"]
     assert "Strict-Transport-Security" not in resp.headers
 
 
@@ -114,3 +116,14 @@ def test_csrf_rejects_mismatched_token(app_with_write_route):
         sess[_SESSION_KEY] = "known-token"
     resp = client.post("/_test/write", headers={"X-CSRF-Token": "wrong"})
     assert resp.status_code == 400
+
+
+def test_vendor_assets_are_local(client):
+    feather = client.get("/static/vendor/feather.min.js")
+    tab_js = client.get("/static/vendor/tabulator.min.js")
+    tab_css = client.get("/static/vendor/tabulator.min.css")
+    assert feather.status_code == 200
+    assert tab_js.status_code == 200
+    assert tab_css.status_code == 200
+    assert b"Tabulator" in tab_js.data
+    assert b".tabulator" in tab_css.data

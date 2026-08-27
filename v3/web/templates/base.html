@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
     <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}?v={{ asset_v }}">
-    <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/feather.min.js') }}?v={{ asset_v }}"></script>
     <script src="{{ url_for('static', filename='help_content.js') }}?v={{ asset_v }}"></script>
     {% block head %}{% endblock %}
 </head>
