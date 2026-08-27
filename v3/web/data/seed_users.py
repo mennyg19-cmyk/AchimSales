@@ -46,13 +46,20 @@ def _grant_keys_by_email(conn: sqlite3.Connection) -> dict[str, list[str]]:
     if "user_salesman_access" not in _tables(conn):
         return {}
     cols = _columns(conn, "user_salesman_access")
-    email_col = "user_email" if "user_email" in cols else ("email" if "email" in cols else "")
-    if not email_col or "salesman_key" not in cols:
+    if "salesman_key" not in cols:
+        return {}
+    if "user_email" in cols:
+        rows = conn.execute(
+            "SELECT user_email, salesman_key FROM user_salesman_access"
+        )
+    elif "email" in cols:
+        rows = conn.execute(
+            "SELECT email, salesman_key FROM user_salesman_access"
+        )
+    else:
         return {}
     out: dict[str, list[str]] = {}
-    for r in conn.execute(
-        f"SELECT {email_col}, salesman_key FROM user_salesman_access"
-    ):
+    for r in rows:
         email = (r[0] or "").strip().lower()
         key = (r[1] or "").strip()
         if email and key:
