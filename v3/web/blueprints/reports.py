@@ -300,6 +300,7 @@ def report_view(report_key: str):
         user_email=p.email,
         hide_commissions=not authz.may_see_commissions(p),
         can_edit_default=authz.can_see_company_schedules(p),
+        can_save_company=authz.is_privileged(p),
     )
 
 

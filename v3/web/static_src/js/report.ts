@@ -2240,7 +2240,24 @@ async function saveView(): Promise<void> {
   if (name == null || !name.trim()) return;
   const trimmed = name.trim();
   const overwrite = !!(editingPresetId && trimmed === editingPresetName);
+  const asCompany = attr("data-can-save-company") === "1" && window.confirm(
+    `Save “${trimmed}” as a company-wide view? Everyone will see it.\n\nOK = company-wide\nCancel = just for you`,
+  );
   try {
+    if (asCompany) {
+      const res = await fetch(attr("data-company-views-url"), {
+        method: "PUT", headers: csrfHeaders(),
+        body: JSON.stringify({
+          name: trimmed, params: collectParams(), layout: serializeLayout(),
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const saved = await res.json();
+      editingPresetId = saved?.id != null ? `${COMPANY_VIEW_PREFIX}${saved.id}` : null;
+      editingPresetName = trimmed;
+      setStatus(`Saved “${trimmed}” as a company-wide view.`);
+      return;
+    }
     const res = overwrite
       ? await fetch(presetUrl(editingPresetId!), {
           method: "PATCH", headers: csrfHeaders(),

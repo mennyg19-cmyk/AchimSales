@@ -839,6 +839,22 @@ def test_salesman_cannot_edit_default_view(tmp_path):
     assert put.status_code == 403
 
 
+def test_save_company_prompt_is_admin_and_dev_only(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    assert 'data-can-save-company="1"' in admin.get("/reports/ordered").get_data(as_text=True)
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    assert 'data-can-save-company="1"' in dev.get("/reports/ordered").get_data(as_text=True)
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    assert 'data-can-save-company="1"' not in mgr.get("/reports/ordered").get_data(as_text=True)
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    assert 'data-can-save-company="1"' not in rep.get("/reports/ordered").get_data(as_text=True)
+
+
 def test_company_views_list_put_and_home_cards(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
@@ -889,6 +905,22 @@ def test_salesman_cannot_edit_company_view(tmp_path):
         headers={"X-CSRF-Token": _CSRF},
     )
     assert put.status_code == 403
+
+
+def test_save_company_prompt_is_admin_and_dev_only(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    assert 'data-can-save-company="1"' in admin.get("/reports/ordered").get_data(as_text=True)
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    assert 'data-can-save-company="1"' in dev.get("/reports/ordered").get_data(as_text=True)
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    assert 'data-can-save-company="1"' not in mgr.get("/reports/ordered").get_data(as_text=True)
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    assert 'data-can-save-company="1"' not in rep.get("/reports/ordered").get_data(as_text=True)
 
 
 def test_schedule_create_default_view_shows_on_page(tmp_path):

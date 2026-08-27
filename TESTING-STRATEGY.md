@@ -22,6 +22,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Save this view asks company-wide vs personal
+
+**What to test:**
+- Report page `data-can-save-company="1"` for admin and developer only (not manager or salesman).
+- Viewer source has the company-wide vs personal confirm copy.
+
+**Expected behavior:**
+- Admin/dev: after naming a view, OK saves company-wide, Cancel saves personal.
+- Other roles: name prompt only, always personal.
+
+**Edge cases:**
+- Editing Default or an existing company view still overwrites that view without the extra ask.
+
+**Test file:** `v3/tests/test_frontend.py`, `v3/tests/test_blueprints.py`
+
 ## Salesman Daily Ordered files sort by customer
 
 **What to test:**

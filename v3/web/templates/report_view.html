@@ -195,6 +195,7 @@
      data-company-view-url="{{ url_for('reports.get_company_view', report_key=report.key, view_id=0) }}"
      data-company-views-url="{{ url_for('reports.put_company_view', report_key=report.key) }}"
      data-can-edit-default="{{ '1' if can_edit_default else '' }}"
+     data-can-save-company="{{ '1' if can_save_company else '' }}"
      data-email-url="{{ url_for('reports.email_now', report_key=report.key) }}"
      data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
      data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"

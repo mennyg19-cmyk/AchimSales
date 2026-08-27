@@ -163,6 +163,8 @@ def test_report_viewer_meeting_ux():
     assert "Add subgroup" in src
     assert "groupPills" in src
     assert "Save this view as (same name overwrites this view)" in src
+    assert "OK = company-wide" in src
+    assert "Cancel = just for you" in src
     assert "layout.clones" in src
     resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
     assert '(q.get("preset") || q.get("cview")) && !wanted) return false' in resume
@@ -187,6 +189,7 @@ def test_report_viewer_meeting_ux():
     assert 'id="groupPills"' in html
     assert "data-default-url" in html
     assert "data-company-view-url" in html
+    assert "data-can-save-company" in html
     wizard = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert 'option value="default">Default</option>' in wizard
     assert "Current filters — no saved view" not in wizard

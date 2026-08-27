@@ -66,7 +66,9 @@ Users authenticate with Microsoft Entra ID and can run any report on demand.
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** everyone can pick (Daily Ordered, Heshy Open Orders).
-Managers and admins edit them from Saved views. New schedules use Default;
+Managers and admins can edit existing company views from Saved views. Admins
+and developers are asked company-wide vs personal when they click Save this
+view; everyone else always saves a personal view. New schedules use Default;
 the schedules page shows Default, the company-view name, or Custom.
 
 ```powershell

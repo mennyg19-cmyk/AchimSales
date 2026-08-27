@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-27 Save this view asks company-wide vs personal
+**What you asked for:** When saving a view, ask company-wide or personal. Only admins and developers. Regular users always personal.
+**What I chose:** After the name prompt, admins and developers get OK = company-wide (upserts a company view everyone sees) or Cancel = just for you (personal preset). Salesmen and managers do not see that ask and always save personal. Edit on Default or an existing company view still updates that company view for managers and admins.
+**Why:** Company-wide views change what everyone sees. Managers can still fix Daily Ordered via Edit; they do not get a new-save shortcut.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Salesman Daily Ordered files sort by customer
 **What you asked for:** Why the 9am salesman Ordered schedule using Daily Ordered did not sort by customer, when the company Daily Ordered send does.
 **What I chose:** Keep the live Daily Ordered layout on split sends. For a one-salesman file, drop the extra Salesman group so By Customer is grouped/sorted by customer. Honour Summary's existing `default_layout` (Customer Name then Item) when the view did not set groups — per-rep files had emptied `default_group` and that layout was never read.
