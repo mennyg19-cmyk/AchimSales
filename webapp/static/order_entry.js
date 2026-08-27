@@ -708,8 +708,8 @@ var OE = (function () {
         if (!groups.length) { dd.style.display = 'none'; return; }
 
         dd.innerHTML = groups.map(function (g) {
-            return '<div class="oe-dropdown-item" data-group="' + g.name + '" data-item-number="' + g.sample.item_number + '">'
-                 + '<span class="oe-dd-primary">' + g.name + '</span>'
+            return '<div class="oe-dropdown-item" data-group="' + _escHtml(g.name) + '" data-item-number="' + _escHtml(g.sample.item_number) + '">'
+                 + '<span class="oe-dd-primary">' + _escHtml(g.name) + '</span>'
                  + '<span class="oe-dd-secondary">' + g.count + ' items</span>'
                  + '</div>';
         }).join('');
@@ -751,7 +751,7 @@ var OE = (function () {
         var thead = document.getElementById('matrixHead');
         var headerRow = '<tr><th class="oe-matrix-corner"></th>';
         data.colors.forEach(function (c) {
-            headerRow += '<th>' + c + '</th>';
+            headerRow += '<th>' + _escHtml(c) + '</th>';
         });
         headerRow += '</tr>';
         thead.innerHTML = headerRow;
@@ -759,13 +759,13 @@ var OE = (function () {
         var tbody = document.getElementById('matrixBody');
         var bodyHtml = '';
         data.sizes.forEach(function (s) {
-            bodyHtml += '<tr><td class="oe-matrix-row-label">' + s + '</td>';
+            bodyHtml += '<tr><td class="oe-matrix-row-label">' + _escHtml(s) + '</td>';
             data.colors.forEach(function (c) {
                 var cell = (data.grid[c] || {})[s];
                 if (cell && cell.available) {
                     var cp = cell.case_pack || 1;
                     bodyHtml += '<td><input type="number" class="oe-matrix-input" min="0" step="' + cp + '" value="0"'
-                              + ' data-color="' + c + '" data-size="' + s + '" data-sku="' + (cell.sku || '') + '"'
+                              + ' data-color="' + _escHtml(c) + '" data-size="' + _escHtml(s) + '" data-sku="' + _escHtml(cell.sku || '') + '"'
                               + ' data-case-pack="' + cp + '"'
                               + ' onchange="OE.snapMatrixQty(this)"></td>';
                 } else {

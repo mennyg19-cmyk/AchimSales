@@ -33,13 +33,23 @@ function _clearMsg() {
 
 // -- Chip rendering -------------------------------------------------------
 
+function _escHtml(str) {
+    return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function _renderChips(containerId, list, removeCallback) {
     var container = document.getElementById(containerId);
     container.innerHTML = '';
     list.forEach(function(email, idx) {
         var chip = document.createElement('span');
         chip.className = 'chip';
-        chip.innerHTML = email + ' <span class="chip-remove" onclick="' + removeCallback + '(' + idx + ')">&times;</span>';
+        chip.appendChild(document.createTextNode(email + ' '));
+        var x = document.createElement('span');
+        x.className = 'chip-remove';
+        x.setAttribute('onclick', removeCallback + '(' + idx + ')');
+        x.textContent = '\u00d7';
+        chip.appendChild(x);
         container.appendChild(chip);
     });
 }
@@ -379,16 +389,16 @@ function refreshLog() {
         html += '</tr></thead><tbody>';
         entries.forEach(function(e) {
             html += '<tr>';
-            html += '<td>' + (e.distribution_name || '') + '</td>';
-            html += '<td style="white-space:nowrap;">' + (e.sent_date || '') + '</td>';
-            html += '<td><span class="status-badge status-' + e.status + '">' + e.status + '</span></td>';
+            html += '<td>' + _escHtml(e.distribution_name || '') + '</td>';
+            html += '<td style="white-space:nowrap;">' + _escHtml(e.sent_date || '') + '</td>';
+            html += '<td><span class="status-badge status-' + _escHtml(e.status) + '">' + _escHtml(e.status) + '</span></td>';
             html += '<td>';
             (e.reports_included || []).forEach(function(rk) {
-                html += '<span class="chip">' + rk + '</span>';
+                html += '<span class="chip">' + _escHtml(rk) + '</span>';
             });
             html += '</td>';
             html += '<td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="' +
-                    (e.error || '').replace(/"/g, '&quot;') + '">' + (e.error || '') + '</td>';
+                    _escHtml(e.error || '') + '">' + _escHtml(e.error || '') + '</td>';
             html += '</tr>';
         });
         html += '</tbody></table></div>';

@@ -295,7 +295,7 @@
         fetchJSON('/api/dev/db/table/' + encodeURIComponent(state.table) + '?' + qs).then(function(res) {
             if (!res.ok) {
                 $('dbxGrid').innerHTML = '<thead><tr><th>Error</th></tr></thead><tbody><tr><td><div class="dbx-empty">'
-                    + (res.data.error || 'Failed to load') + '</div></td></tr></tbody>';
+                    + escapeHtml(res.data.error || 'Failed to load') + '</div></td></tr></tbody>';
                 return;
             }
             state.columns = res.data.columns;

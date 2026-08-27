@@ -93,6 +93,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Leftover XSS and Ordered/Invoiced formula prefix
+
+**What to test:**
+- Ordered summary cells prefix `=` leaders.
+- Invoiced data-sheet cells prefix `=` leaders.
+
+**Expected behavior:**
+- Email chips use text nodes, not innerHTML, for the address.
+- Order-entry matrix group/color/size/sku strings are escaped.
+
+**Test files:** `tests/test_excel_formula.py`
+
+---
+
 ## Session role vs DB authorization
 
 **What to test:**

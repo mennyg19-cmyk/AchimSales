@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-27 Review: leftover XSS and Ordered/Invoiced formula prefix
+**What I had to decide:** How far to take remaining innerHTML and Excel writers after customer-access CI went green.
+**Options I considered:** (1) App-wide CSRF plus CDN SRI in this slice. (2) Only D365/user-data HTML sinks and the Ordered/Invoiced writers that skip `make_streaming_cell`. (3) Stop at customer access.
+**What I chose:** Escape email-distribution chips/logs, order-entry matrix labels, settings beta-source keys, and db-explorer error text. Prefix `=+-@` on Ordered summary cells, Invoiced data/commission name cells, and salesman totals names. Leave CSRF and CDN SRI unpaid (SameSite=Lax; Semgrep baselines those hits).
+**Why:** Review leftover items 10–11. CSRF/SRI are repo-wide and were already deferred from P0.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Review: customer access fail-closed
 **What I had to decide:** Missing dashboard_cache / missing salesman_key used to grant access. Managers skipped order-detail checks because they have no salesman key.
 **Options I considered:** (1) Keep fail-open on cache misses so last-order works when the cache is empty. (2) Deny when the book is unknown; last-order may pass a D365 sales_group. (3) Treat managers as admin.

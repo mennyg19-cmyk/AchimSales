@@ -198,7 +198,7 @@ def _write_totals_row_monthly(ws, sort_num: int, grp: pd.DataFrame, sm_name: str
     row = ws.max_row + 1
     ws.cell(row=row, column=1, value=sort_num)
     ws.cell(row=row, column=2, value="Total for:")
-    ws.cell(row=row, column=3, value=sm_name)
+    ws.cell(row=row, column=3, value=_excel_val(sm_name))
     for c in range(1, 16):
         ws.cell(row=row, column=c).fill = FILL_TOTALS
         ws.cell(row=row, column=c).border = BORDER_THIN

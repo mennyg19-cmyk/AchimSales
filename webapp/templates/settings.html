@@ -443,6 +443,10 @@
         msg.style.color = ok ? 'var(--success, #16a34a)' : 'var(--error, #dc2626)';
         msg.textContent = text;
     }
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
     function render(sources) {
         list.innerHTML = '';
         Object.keys(sources).sort().forEach(function(key) {
@@ -451,8 +455,8 @@
             row.style.minHeight = '38px';
             var src = sources[key];
             row.innerHTML =
-                '<div class="settings-cust-info"><span class="settings-cust-account" style="font-size:13px;">' + key + '</span></div>' +
-                '<select data-report-key="' + key + '" style="font-size:13px; padding:4px 8px;">' +
+                '<div class="settings-cust-info"><span class="settings-cust-account" style="font-size:13px;">' + esc(key) + '</span></div>' +
+                '<select data-report-key="' + esc(key) + '" style="font-size:13px; padding:4px 8px;">' +
                 '<option value="sql"' + (src === 'sql' ? ' selected' : '') + '>sql</option>' +
                 '<option value="odata"' + (src === 'odata' ? ' selected' : '') + '>odata</option>' +
                 '</select>';

@@ -30,6 +30,7 @@ from core.excel_styles import (
 from core.excel_writer import (
     STREAMING_ROW_THRESHOLD,
     make_streaming_cell,
+    neutralize_excel_value,
     strip_datetime_tz,
 )
 from reports.ordered.builder import AGG_COLS, FULL_DATA_ORDER, SUMMARY_COLS
@@ -188,7 +189,7 @@ def _write_summary_sheet(ws, summary_df: pd.DataFrame, is_write_only: bool = Fal
         for _, row in summary_df.iterrows():
             cells = []
             for col in write_cols:
-                v = row.get(col, "")
+                v = neutralize_excel_value(row.get(col, ""))
                 cell = WriteOnlyCell(ws, value=v)
                 if row.get("_is_total"):
                     cell.fill = FILL_TOTAL_ROW
@@ -208,7 +209,7 @@ def _write_summary_sheet(ws, summary_df: pd.DataFrame, is_write_only: bool = Fal
             cell.font = FONT_HEADER
         for r_idx, (_, row) in enumerate(summary_df.iterrows(), 2):
             for c_idx, col in enumerate(write_cols, 1):
-                v = row.get(col, "")
+                v = neutralize_excel_value(row.get(col, ""))
                 cell = ws.cell(row=r_idx, column=c_idx, value=v)
                 if row.get("_is_total"):
                     cell.fill = FILL_TOTAL_ROW
