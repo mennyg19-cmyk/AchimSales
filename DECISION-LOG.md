@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Q4 Ordered Summary: group by CustomerAccount
+**What I had to decide:** If two customers share a name but have different accounts, merge Summary rows or keep them apart?
+**Options I considered:** (1) Group by customer name. (2) Group by CustomerAccount and show account plus name.
+**What I chose:** (2). Owner: two “Acme” accounts stay two rows.
+**Why:** Account number is the identity. Name is a label.
+**Status:** DECIDED — Q4 closed. Q5–Q11 still open.
+
 ## 2026-08-28 Q3 commission display: salesman table saved percent
 **What I had to decide:** When invoice rates differ, what the Commissions tab one % box should show.
 **Options I considered:** (1) “varies”. (2) First invoice rate. (3) Latest invoice rate. (4) Weighted blend. (5) The saved `salesmen.commission_pct` on the salesman row.
@@ -26,7 +33,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q3 DECIDED. Still waiting on Q4–Q11.
+**Status:** BLOCKED — Q1–Q4 DECIDED. Still waiting on Q5–Q11.
 
 ## 2026-08-28 Sol-list phase gate closed on the draft
 **What I had to decide:** Whether this remaining-review phase is done on the branch.
