@@ -211,6 +211,33 @@ def test_runner_rejects_non_dict_payload(db):
                    builder_version=1, params={}, builder=lambda p, v: ["not", "a", "dict"])
 
 
+def test_cancel_after_put_drops_cache(db):
+    from web.jobs.worker import JobCancelled
+
+    cache = ReportCache(db)
+    runner = ReportRunner(cache)
+    n = {"calls": 0}
+
+    def cancel():
+        n["calls"] += 1
+        return n["calls"] >= 2
+
+    with pytest.raises(JobCancelled):
+        runner.run(
+            report_key="ordered", identity="u", visible_salesman_keys=None,
+            builder_version=1, params={},
+            builder=lambda p, v: {"tabs": [{"name": "T", "rows": [{"v": 1}]}]},
+            cancel_check=cancel,
+        )
+    key = build_cache_key(
+        report_key="ordered", identity="u",
+        scope_token=canonical_scope_token(None),
+        builder_version=1, params={},
+    )
+    assert cache.get(key) is None
+    assert n["calls"] == 2
+
+
 def test_cache_strips_nan_and_inf(db):
     cache = ReportCache(db)
     key = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",

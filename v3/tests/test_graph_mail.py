@@ -21,18 +21,20 @@ class _Ok:
 
 def test_graph_send_retries_429_then_succeeds(monkeypatch):
     calls = {"n": 0}
+    sleeps = []
     mailer = GraphMailer("tid", "cid", "secret")
     monkeypatch.setattr(mailer, "_token", lambda: "tok")
-    monkeypatch.setattr("web.delivery.graph_mail.time.sleep", lambda _s: None)
+    monkeypatch.setattr("web.delivery.graph_mail.time.sleep", lambda s: sleeps.append(s))
 
     def fake_urlopen(req, timeout=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise urllib.error.HTTPError(
-                req.full_url, 429, "throttle", {"Retry-After": "0"}, io.BytesIO(b"slow"),
+                req.full_url, 429, "throttle", {"Retry-After": "7"}, io.BytesIO(b"slow"),
             )
         return _Ok()
 
     monkeypatch.setattr("web.delivery.graph_mail.urllib.request.urlopen", fake_urlopen)
     mailer.send(sender="from@x.com", to=["a@x.com"], subject="Hi", body_text="x")
     assert calls["n"] == 2
+    assert sleeps == [7.0]

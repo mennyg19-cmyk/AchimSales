@@ -112,6 +112,37 @@ def test_runner_personal_records_success(stack):
     assert OutboxRepository(db).list_recent()
 
 
+def test_schedule_history_uses_payload_row_count(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = Config(
+        app_env="dev", auth_mode="dev", flask_secret="t",
+        tenant_id="", client_id="", client_secret="",
+        reporting_api_base_url="", reporting_api_key="",
+        precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
+        litestream_blob_url="", outbox_dir=tmp_path / "outbox",
+    )
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    payload = {
+        "row_count": 99,
+        "tabs": [{"key": "t", "name": "T", "columns": [{"field": "a"}],
+                  "rows": [{"a": 1}, {"a": 2}]}],
+    }
+    delivery = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: payload), email)
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com")
+    runner.run(sid, PERSONAL)
+    hist = ScheduleRunRepository(db).list_for_schedule(sid, PERSONAL)
+    assert hist[0].rows == 99
+
+
 def test_runner_default_view_uses_company_layout_when_schedule_layout_empty(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
@@ -744,6 +775,7 @@ def test_runner_mtd_catch_up_sends_skipped_day_and_month_end(tmp_path, monkeypat
         "ordered", "MTD 10pm", params={"period": "mtd"}, layout={},
         cadence={"freq": "daily", "time": "22:00"}, recipients="team@x.com")
     monkeypatch.setattr(runner_mod.C, "eastern_date_iso", lambda _now=None: "2026-02-02")
+    MasterScheduleRepository(db).set_catch_up(mid, True, "2026-01-30")
     runner.run(mid, MASTER, catch_up_for_date="2026-01-30", include_regular=True)
     periods = [(c["params"].get("period"), c["params"].get("end_date")) for c in delivery.calls]
     assert periods == [
@@ -753,6 +785,7 @@ def test_runner_mtd_catch_up_sends_skipped_day_and_month_end(tmp_path, monkeypat
     ]
     assert "2026-01-30" in delivery.calls[0]["schedule_name"]
     assert "2026-01-31" in delivery.calls[1]["schedule_name"]
+    assert MasterScheduleRepository(db).get(mid).catch_up_pending is False
 
 
 def test_clock_ready_ignores_weekday():
@@ -851,12 +884,14 @@ def test_cancelled_schedule_does_not_mail_failure(tmp_path, monkeypatch):
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={}, layout={},
         cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    MasterScheduleRepository(db).set_catch_up(mid, True, "2026-06-01")
     with pytest.raises(JobCancelled):
-        runner.run(mid, MASTER)
+        runner.run(mid, MASTER, catch_up_for_date="2026-06-01")
     assert delivery.email.notices == []
     assert delivery.calls == 1
     rows = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert rows[0].status == "cancelled"
+    assert MasterScheduleRepository(db).get(mid).catch_up_pending is True
 
 
 def test_runner_failure_mails_test_list_when_test_mode_off(tmp_path, monkeypatch):
@@ -891,8 +926,10 @@ def test_runner_failure_mails_test_list_when_test_mode_off(tmp_path, monkeypatch
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={}, layout={},
         cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    MasterScheduleRepository(db).set_catch_up(mid, True, "2026-06-01")
     with pytest.raises(RuntimeError, match="SharePoint dropped"):
-        runner.run(mid, MASTER)
+        runner.run(mid, MASTER, catch_up_for_date="2026-06-01")
+    assert MasterScheduleRepository(db).get(mid).catch_up_pending is True
     assert delivery.email.notices == [{
         "to": ["menny@x.com"],
         "subject": "[FAIL] Nightly",
@@ -1031,4 +1068,35 @@ def test_runner_retry_skips_successful_fanout_legs(tmp_path, monkeypatch):
     assert salesman_calls.count(["B"]) == 2
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert hist[0].status == "success"
+
+
+def test_tick_prunes_cache_exports_and_fails_hung(tmp_path, monkeypatch):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import make_tick
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    called = {"cache": None, "exports": 0, "hung": None}
+
+    def fake_cache_prune(self, older_than_seconds):
+        called["cache"] = older_than_seconds
+        return 0
+
+    def fake_export_prune(self, older_than_seconds=None):
+        called["exports"] += 1
+        return 0
+
+    job_repo = JobRepository(db)
+
+    def fake_fail_hung(seconds):
+        called["hung"] = seconds
+        return 0
+
+    monkeypatch.setattr("web.scheduling.tick.ReportCache.prune", fake_cache_prune)
+    monkeypatch.setattr("web.scheduling.tick.ExportRepository.prune", fake_export_prune)
+    monkeypatch.setattr(job_repo, "fail_hung", fake_fail_hung)
+    make_tick(db, job_repo)()
+    assert called["cache"] == 6 * 3600
+    assert called["exports"] == 1
+    assert called["hung"] == 45 * 60
 

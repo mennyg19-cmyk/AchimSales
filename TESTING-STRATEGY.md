@@ -11,7 +11,10 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Custom dates raise; commission `1` is 1%; monthly commission uses each month's rate; Ordered Summary groups by CustomerAccount; Hebcal failure skips send.
 - Keep this run stores a precious snapshot; cache prune does not drop it; tick prunes cache/exports and fails jobs running > 45 minutes.
-- Manual Send now does not consume the scheduled slot; explicit salesman with no email fails the schedule; prod outbox-only is not success; Graph 429 honors Retry-After.
+- Graph 429 honors Retry-After (`test_graph_send_retries_429_then_succeeds` asserts the delay; `test_upload_session_retries_429` same for upload sessions).
+- Manual Send now does not consume the scheduled slot (`test_last_run_at_ignores_manual_trigger`). Catch-up clears only after success; stays after failure/cancel. Schedule history uses payload `row_count`. Tick prune + hung-job cap (`test_tick_prunes_cache_exports_and_fails_hung`).
+- `POST /api/reports/<key>/run` returns 400 for invalid custom dates (`test_run_invalid_custom_dates_returns_400`). Cancel after cache put drops the row (`test_cancel_after_put_drops_cache`).
+- Bad Litestream checksum refuses install (`test_prod_bad_litestream_checksum_refuses_boot`).
 - Empty-disk prod restore refuses boot (`tests/test_startup_restore.py`). Live Azure drill is not in CI.
 - Hung jobs running > 45 minutes fail and are not requeued (`test_fail_hung_marks_old_running_jobs_failed_not_requeued`).
 - Prod outbox-only delivery is not success (`test_prod_outbox_only_is_not_success`).

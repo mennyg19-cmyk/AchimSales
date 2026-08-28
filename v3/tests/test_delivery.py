@@ -484,7 +484,8 @@ def test_upload_drive_item_uses_session_over_4mb():
 def test_upload_session_retries_429(monkeypatch):
     from web.delivery.graph_upload import SIMPLE_UPLOAD_MAX, upload_drive_item
 
-    monkeypatch.setattr("web.delivery.graph_upload.time.sleep", lambda _s: None)
+    sleeps = []
+    monkeypatch.setattr("web.delivery.graph_upload.time.sleep", lambda s: sleeps.append(s))
 
     class _Resp:
         def __init__(self, status, payload=None, headers=None):
@@ -509,7 +510,7 @@ def test_upload_session_retries_429(monkeypatch):
         def post(self, url, **kwargs):
             self.posts += 1
             if self.posts == 1:
-                return _Resp(429, {}, {"Retry-After": "0"})
+                return _Resp(429, {}, {"Retry-After": "5"})
             return _Resp(200, {"uploadUrl": "https://upload/session"})
 
     req = _Req()
@@ -520,6 +521,7 @@ def test_upload_session_retries_429(monkeypatch):
     )
     assert out["webUrl"] == "https://sp/file"
     assert req.posts == 2
+    assert sleeps == [5.0]
 
 
 def test_sharepoint_prod_without_creds_raises(tmp_path):

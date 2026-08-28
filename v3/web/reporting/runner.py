@@ -58,6 +58,10 @@ class ReportRunner:
             from web.jobs.worker import JobCancelled
             raise JobCancelled()
         self.cache.put(cache_key, report_key, payload)
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            self.cache.drop(cache_key)
+            raise JobCancelled()
         from web.ops.metrics import note_report_latency
         note_report_latency(
             report_key, int((time.monotonic() - t0) * 1000), from_cache=False)

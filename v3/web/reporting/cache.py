@@ -186,6 +186,14 @@ class ReportCache:
                 (cache_key, report_key, blob, now),
             )
 
+    def drop(self, cache_key: str) -> None:
+        """Remove one cache row. Used when a run is cancelled after a put."""
+        with self.db.cache() as conn:
+            conn.execute(
+                "DELETE FROM report_payload_cache WHERE cache_key = ?",
+                (cache_key,),
+            )
+
     def prune(self, older_than_seconds: float) -> int:
         """Delete cache rows older than the cutoff (for a scheduled reaper). Returns count."""
         cutoff = datetime.fromtimestamp(

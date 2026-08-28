@@ -334,6 +334,26 @@ def test_run_requires_csrf(tmp_path):
     assert resp.status_code == 400  # missing CSRF header
 
 
+def test_run_invalid_custom_dates_returns_400(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={})
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    missing = client.post(
+        "/api/reports/ordered/run",
+        json={"period": "custom"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert missing.status_code == 400
+    bad = client.post(
+        "/api/reports/ordered/run",
+        json={"period": "custom", "start_date": "not-a-date", "end_date": "2026-04-30"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert bad.status_code == 400
+    assert app.config["JOB_REPO"].list_for_user(uid) == []
+
+
 def test_cancel_job_endpoint_cancels_owned_job(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()

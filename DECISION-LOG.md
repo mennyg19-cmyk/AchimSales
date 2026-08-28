@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Loop A P2 tests and cache-put cancel
+**What I had to decide:** Whether to accept the check-then-`cache.put` race or drop the row if cancel lands after the write.
+**Options I considered:** (1) Document the tiny race. (2) Check again after put and delete the cache key. (3) Hold a lock around check+put.
+**What I chose:** (2). Also add the missing tests the small-scope Loop A pass listed (manual `last_run_at`, catch-up only clears on success, payload `row_count`, tick prune/hung, run 400, Litestream checksum, Graph Retry-After delay).
+**Why:** A cancelled run should not leave a cache hit for the next viewer. Locking the cache for this is more machinery than the bug.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-28 Loop A findings on the Sol-list phase
 **What I had to decide:** Which of the eight Loop A findings to fix on this draft vs defer until production merge.
 **Options I considered:** (1) Fix every item including a pip freeze lockfile and live post-deploy smoke. (2) Fix the behavior bugs and the cheap Azure/CI holes; defer lockfile and live smoke. (3) Defer all as release-gate work.
