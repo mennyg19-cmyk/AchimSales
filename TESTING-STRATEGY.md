@@ -165,9 +165,9 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Edge cases:**
 - Admin cookies cannot open developer diagnostics.
-- Local DEV_BYPASS_AUTH fake users (not in app_users) keep their session.
+- Users who exist only in the session cookie and not in `app_users` are not a supported login path; `AUTH_MODE=dev` is refused in prod.
 
-**Test files:** `v3/tests/test_session_authz.py`, `v3/tests/test_seed_users_grants.py`, `tests/test_legacy_session_authz.py`, `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
+**Test files:** `v3/tests/test_session_authz.py`, `v3/tests/test_seed_users_grants.py`, `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
 
 ---
 

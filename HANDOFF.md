@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-28
 
-**Status:** Draft PR #1. v3 is the only site. Do not merge to `webapp-cache`. Do not deploy Production.
+**Status:** Draft PR #1. v3 is the only site. CI green on `8896033`. Do not merge to `webapp-cache`. Do not deploy Production.
 
 ## What's done
 
@@ -14,10 +14,10 @@ Last updated: 2026-08-28
 
 ## What's next
 
-1. Wait for CI on the current HEAD after this cleanup slice.
-2. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie blob must leave git history.
-3. Remaining product backlog (not this PR): scheduling delivery redesign, a11y, commission/name rules, Run now vs Send now.
-4. Do not flip `is_beta` to False (`BETA_PRECIOUS_DB_PATH` + `session` cookie).
+1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie blob must leave git history.
+2. Remaining product backlog (not this PR): scheduling delivery redesign, a11y, commission/name rules, Run now vs Send now.
+3. Do not flip `is_beta` to False (`BETA_PRECIOUS_DB_PATH` + `session` cookie).
+4. Do not merge this branch to `webapp-cache`.
 
 ## Open decisions
 
