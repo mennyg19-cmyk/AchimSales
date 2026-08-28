@@ -243,12 +243,6 @@ var HELP = {
               "Turn it off if this user doesn't need to see dashboard data."
     },
 
-    "settings-test-access": {
-        title: "Test-Site Access",
-        body: "When this is on, this user sees a link to the legacy test site.<br><br>" +
-              "Only matters when the global Test-Site feature flag is also on."
-    },
-
     "settings-assigned-salesmen": {
         title: "Assigned Salesmen",
         body: "For managers and non-privileged users, this limits which salesmen's customers and orders they can see.<br><br>" +

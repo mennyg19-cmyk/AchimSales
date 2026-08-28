@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-28
 
-**Status:** Draft PR #1. v3 is the only site. Loop B F1/F2 (orphan `test_access` API + dead `NEW_APP_MARKER`) closed; waiting on CI for the follow-up commit. Do not merge to `webapp-cache`. Do not deploy Production.
+**Status:** Draft PR #1. v3 is the only site. Loop C leftovers (help copy, factory docstring, smoke Config helper) in flight. Do not merge to `webapp-cache`. Do not deploy Production.
 
 ## What's done
 

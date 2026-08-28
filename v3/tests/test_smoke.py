@@ -8,6 +8,25 @@ from web import create_app
 from web.config import Config
 
 
+def _prod_cfg(tmp_path) -> Config:
+    return Config(
+        app_env="prod",
+        auth_mode="msal",
+        flask_secret="test-secret",
+        tenant_id="t",
+        client_id="c",
+        client_secret="s",
+        reporting_api_base_url="https://api.example",
+        reporting_api_key="k",
+        precious_db_path=tmp_path / "precious.db",
+        cache_db_path=tmp_path / "cache.db",
+        litestream_blob_url="",
+        litestream_azure_account_name="acct",
+        litestream_azure_account_key="key",
+        litestream_azure_container="container",
+    )
+
+
 @pytest.fixture
 def app():
     cfg = Config(
@@ -62,23 +81,7 @@ def test_readyz_ok_in_dev(client):
 
 
 def test_readyz_503_when_prod_db_missing(tmp_path):
-    cfg = Config(
-        app_env="prod",
-        auth_mode="msal",
-        flask_secret="test-secret",
-        tenant_id="t",
-        client_id="c",
-        client_secret="s",
-        reporting_api_base_url="https://api.example",
-        reporting_api_key="k",
-        precious_db_path=tmp_path / "precious.db",
-        cache_db_path=tmp_path / "cache.db",
-        litestream_blob_url="",
-        litestream_azure_account_name="acct",
-        litestream_azure_account_key="key",
-        litestream_azure_container="container",
-    )
-    application = create_app(cfg)
+    application = create_app(_prod_cfg(tmp_path))
     (tmp_path / "precious.db").unlink(missing_ok=True)
     client = application.test_client()
     live = client.get("/healthz")
@@ -129,22 +132,6 @@ def test_vendor_assets_are_local(client):
 
 
 def test_source_maps_hidden_in_prod(tmp_path):
-    cfg = Config(
-        app_env="prod",
-        auth_mode="msal",
-        flask_secret="test-secret",
-        tenant_id="t",
-        client_id="c",
-        client_secret="s",
-        reporting_api_base_url="https://api.example",
-        reporting_api_key="k",
-        precious_db_path=tmp_path / "precious.db",
-        cache_db_path=tmp_path / "cache.db",
-        litestream_blob_url="",
-        litestream_azure_account_name="acct",
-        litestream_azure_account_key="key",
-        litestream_azure_container="container",
-    )
-    client = create_app(cfg).test_client()
+    client = create_app(_prod_cfg(tmp_path)).test_client()
     assert client.get("/static/js/main.js").status_code == 200
     assert client.get("/static/js/main.js.map").status_code == 404

@@ -1,9 +1,9 @@
 """v3 web app factory.
 
 Boots fail-closed: load_config() raises in prod on insecure settings (rule 6),
-so an unsafe container never serves traffic. The factory wires config, CSRF, the
-"new app" marker, and blueprints. Heavy subsystems (data, jobs, reporting) are
-registered as later phases land - this file stays thin.
+so an unsafe container never serves traffic. The factory wires config, CSRF,
+and blueprints. Heavy subsystems (data, jobs, reporting) are registered as
+later phases land - this file stays thin.
 """
 
 from __future__ import annotations
