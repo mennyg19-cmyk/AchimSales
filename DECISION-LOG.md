@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Q8 external recipients: users may add; admin/dev must approve
+**What I had to decide:** May ordinary users email reports outside the company domain?
+**Options I considered:** (1) Any address. (2) Hard-block non-company domains except privileged override at send time. (3) Users may add outside addresses, but mail waits on admin/developer approval.
+**What I chose:** (3). Owner: regular users can add; admin or developer must approve. Approved company domain starts at `achimonline.com`.
+**Why:** Salesmen/managers need to request customer addresses without being able to fire unapproved mail.
+**Status:** DECIDED — unapproved addresses must not receive mail. Approvals are audited. Phase 6 builds the pending/approve flow. Q9–Q11 still open.
+
 ## 2026-08-28 Q7 /beta bookmarks: keep 302 through Production cutover
 **What I had to decide:** Keep `/beta` 302 to `/`, or return 410/404 now?
 **Options I considered:** (1) 410/404 immediately. (2) Keep 302 through Production cutover, then remove.
@@ -61,7 +68,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q7 DECIDED. Still waiting on Q8–Q11.
+**Status:** BLOCKED — Q1–Q8 DECIDED. Still waiting on Q9–Q11.
 
 ## 2026-08-28 Sol-list phase gate closed on the draft
 **What I had to decide:** Whether this remaining-review phase is done on the branch.
