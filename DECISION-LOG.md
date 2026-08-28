@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Remove /test nav, order-entry flag, prod source maps
+**What I had to decide:** How far "entire cleanup, PR ready, no production" goes past the single-site cutover.
+**Options I considered:** (1) Delete dashboard + scheduling + a11y + commission work. (2) Only docs. (3) Dead /test and order-entry surfaces, hide `*.map` in prod, keep `is_beta=True` and Automation trees.
+**What I chose:** (3). Drop Test Site nav, `test_site_enabled`, `order_entry_enabled`, the non-prod "v3" pill, and Test-site access on the user editor. Prod 404s `*.map` (files stay in `static_dist`). Full v3 pytest still has 3 pre-existing 401-vs-403 failures, so CI stays on `tools/run-p0-tests.sh`. No merge to `webapp-cache`.
+**Why:** Review listed those as leftover /test and preview surfaces. Dashboard stays in the tree because tests still mount it when `is_beta` is false. Scheduling/a11y/commission need owner product calls.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-28 Cutover leftover: Beta UI copy, Azure deploy tests
 **What I had to decide:** After CI went green, continue with `is_beta` rename / order-entry delete / merge, or finish unpaid cutover leftovers.
 **Options I considered:** (1) Rename `is_beta` and Azure `BETA_*` env vars. (2) Delete disabled order-entry. (3) User-facing Beta copy + docs + gate the Azure production job on the same P0 tests as CI.

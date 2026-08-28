@@ -1459,11 +1459,11 @@ def test_feature_flag_admin_set_and_reflects_in_settings(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app)  # admin
-    resp = client.post("/api/admin/feature-flags", json={"key": "test_site_enabled", "enabled": True},
+    resp = client.post("/api/admin/feature-flags", json={"key": "dashboard_enabled", "enabled": True},
                        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 200 and resp.get_json()["enabled"] is True
     from web.data.repositories.feature_flags import FeatureFlagRepository
-    assert FeatureFlagRepository(app.config["DB"]).is_enabled("test_site_enabled") is True
+    assert FeatureFlagRepository(app.config["DB"]).is_enabled("dashboard_enabled") is True
 
 
 def test_feature_flag_rejects_unknown_key(tmp_path):
@@ -1473,6 +1473,10 @@ def test_feature_flag_rejects_unknown_key(tmp_path):
     resp = client.post("/api/admin/feature-flags", json={"key": "nope", "enabled": True},
                        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 400
+    for key in ("test_site_enabled", "order_entry_enabled"):
+        retired = client.post("/api/admin/feature-flags", json={"key": key, "enabled": True},
+                              headers={"X-CSRF-Token": _CSRF})
+        assert retired.status_code == 400
 
 
 def test_feature_flag_forbidden_for_salesman(tmp_path):
@@ -1481,7 +1485,7 @@ def test_feature_flag_forbidden_for_salesman(tmp_path):
     with client.session_transaction() as s:
         s["v3_user"] = {"email": "rep@x.com", "name": "Rep", "role": "salesman", "is_dev": True}
         s["_csrf_token"] = _CSRF
-    resp = client.post("/api/admin/feature-flags", json={"key": "test_site_enabled", "enabled": True},
+    resp = client.post("/api/admin/feature-flags", json={"key": "dashboard_enabled", "enabled": True},
                        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 403
 

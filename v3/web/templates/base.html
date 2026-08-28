@@ -22,7 +22,6 @@
     <header class="app-header">
         <div class="header-left">
             <a href="{{ nav.reports }}" class="header-logo">Sales Reports</a>
-            {% if new_app_marker and app_env != 'prod' %}<span class="badge badge-salesman" style="margin-left:8px;">v3</span>{% endif %}
         </div>
         <div class="header-right">
             {% if user._dev and user.role not in ('admin', 'developer') %}
@@ -99,14 +98,6 @@
             </div>
             <span class="bottom-nav-label">Schedules</span>
         </a>
-        {% if test_site_enabled %}
-        <a href="/test/" class="bottom-nav-item" target="_blank">
-            <div class="bottom-nav-icon">
-                <i data-feather="external-link"></i>
-            </div>
-            <span class="bottom-nav-label">Test Site</span>
-        </a>
-        {% endif %}
         <a href="{{ nav.settings }}" class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}">
             <div class="bottom-nav-icon">
                 <i data-feather="settings"></i>

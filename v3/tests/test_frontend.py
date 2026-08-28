@@ -150,10 +150,11 @@ def test_switch_user_hidden_for_non_dev(tmp_path):
     assert 'title="Switch user"' not in html
 
 
-def test_test_site_nav_is_gated_off_by_default(tmp_path):
+def test_test_site_nav_is_gone(tmp_path):
     app = create_app(_cfg(tmp_path))
     html = _render(app, user={"name": "A", "role": "admin", "_dev": False})
     assert "Test Site" not in html
+    assert 'href="/test/"' not in html
 
 
 def test_report_viewer_meeting_ux():

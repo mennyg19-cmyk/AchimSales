@@ -1,8 +1,8 @@
 """Feature-flag repository (precious.db `feature_flags`).
 
-Global on/off switches that gate optional surfaces (dashboard tab, order entry,
-the test-site link). Mirrors the live app's flags. Reads default to the seeded
-value; an unknown key returns the caller's default so a missing row never raises.
+Global on/off switches that gate optional surfaces (dashboard tab).
+Reads default to the seeded value; an unknown key returns the caller's
+default so a missing row never raises.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ from web.data.connection import Database
 # key -> (default_enabled, description). Single source of truth for seeding.
 DEFAULTS: dict[str, tuple[bool, str]] = {
     "dashboard_enabled": (True, "Show the Dashboard tab"),
-    "order_entry_enabled": (False, "Show the Order Entry tab"),
-    "test_site_enabled": (False, "Show the link to the legacy test site"),
 }
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import time
 
-from flask import Flask, jsonify, session
+from flask import Flask, jsonify, request, session
 
 _ASSET_VERSION = str(int(time.time()))
 
@@ -60,6 +60,11 @@ def create_app(config: Config | None = None) -> Flask:
     def _security_headers(response):
         hsts = cfg.is_prod or bool(os.environ.get("WEBSITE_SITE_NAME"))
         return apply_security_headers(response, hsts=hsts)
+
+    @app.before_request
+    def _hide_source_maps():
+        if cfg.is_prod and (request.path or "").endswith(".map"):
+            return ("Not Found", 404)
 
     _register_reporting(app, cfg, db)
     _register_context(app, cfg, db)
@@ -234,8 +239,6 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         p = current_principal()
         user = None
         dashboard_enabled = False
-        order_entry_enabled = False
-        test_site_enabled = False
         theme = session.get("theme")
         if p is not None:
             user = {
@@ -246,7 +249,6 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             }
             try:
                 flag_map = flags.all()
-                order_entry_enabled = flag_map.get("order_entry_enabled", False)
                 row = users.get_by_email(p.email)
                 # Dashboard tab: global flag AND (per-user opt-in OR privileged).
                 dashboard_global = flag_map.get("dashboard_enabled", True)
@@ -254,26 +256,19 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
                 dashboard_enabled = dashboard_global and (
                     bool(row and row.dashboard_enabled) or privileged
                 )
-                # Test-site link: global flag AND per-user opt-in (privileged always).
-                test_site_enabled = flag_map.get("test_site_enabled", False) and (
-                    bool(row and row.test_access) or privileged
-                )
                 if theme is None and row is not None:
                     theme = _load_theme(db, row.id)
             except Exception:  # noqa: BLE001 - never let a nav query break a page render
                 app.logger.warning("nav/theme lookup failed for %s", p.email)
         return {
-            "new_app_marker": cfg.new_app_marker,  # removable header pill; deleted at cutover
             "app_env": cfg.app_env,
             "is_beta": cfg.is_beta,
             "asset_v": _ASSET_VERSION,
             "nav": nav,
             "user": user,
             "theme": theme or "light",
-            # Beta hides dashboard; schedules are enabled (grill 2026-08-12).
+            # Home (is_beta) hides dashboard; schedules stay on.
             "dashboard_enabled": False if cfg.is_beta else dashboard_enabled,
-            "order_entry_enabled": False if cfg.is_beta else order_entry_enabled,
-            "test_site_enabled": test_site_enabled,
         }
 
 

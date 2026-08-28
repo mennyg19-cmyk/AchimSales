@@ -70,7 +70,6 @@ function openUserModal(tr: HTMLTableRowElement): void {
   (($("euActive") as HTMLInputElement)).checked = tr.dataset.active === "1";
   (($("euDashboard") as HTMLInputElement)).checked = tr.dataset.dashboard === "1";
   (($("euSharepoint") as HTMLInputElement)).checked = tr.dataset.sharepoint === "1";
-  (($("euTest") as HTMLInputElement)).checked = tr.dataset.test === "1";
   (($("euExternal") as HTMLInputElement)).checked = tr.dataset.external === "1";
 
   // Load current per-salesman + per-report access so the modal reflects the
@@ -98,7 +97,7 @@ async function saveUser(): Promise<void> {
   const resp = await api(`${usersUrl}/${editingUserId}`, "PUT", {
     role: (($("euRole") as HTMLSelectElement)).value,
     is_active: checked("euActive"), dashboard_enabled: checked("euDashboard"),
-    sharepoint_access: checked("euSharepoint"), test_access: checked("euTest"),
+    sharepoint_access: checked("euSharepoint"),
     is_external: checked("euExternal"),
   });
   if (!resp.ok) {

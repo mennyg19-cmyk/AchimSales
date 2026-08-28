@@ -27,6 +27,11 @@ tests/output/
 
 node_modules/
 .data/
+.coverage
+htmlcov/
+coverage.xml
+playwright-report/
+test-results/
 
 # CodeGraph local index (rebuildable via `codegraph init`)
 .codegraph/

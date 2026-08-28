@@ -17,6 +17,7 @@ python -m pytest \
   tests/test_security_headers.py \
   tests/test_frontend.py \
   tests/test_blueprints.py::test_devtools_forbidden_for_admin_and_ok_for_developer \
+  tests/test_blueprints.py::test_feature_flag_rejects_unknown_key \
   -q --tb=short
 cd "$ROOT"
 PYTHONPATH="$ROOT" python -m pytest \

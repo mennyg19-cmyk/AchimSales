@@ -127,3 +127,27 @@ def test_vendor_assets_are_local(client):
     assert tab_css.status_code == 200
     assert b"Tabulator" in tab_js.data
     assert b".tabulator" in tab_css.data
+    assert client.get("/static/js/main.js.map").status_code == 200
+
+
+def test_source_maps_hidden_in_prod(tmp_path):
+    cfg = Config(
+        app_env="prod",
+        auth_mode="msal",
+        flask_secret="test-secret",
+        tenant_id="t",
+        client_id="c",
+        client_secret="s",
+        reporting_api_base_url="https://api.example",
+        reporting_api_key="k",
+        precious_db_path=tmp_path / "precious.db",
+        cache_db_path=tmp_path / "cache.db",
+        litestream_blob_url="",
+        new_app_marker=True,
+        litestream_azure_account_name="acct",
+        litestream_azure_account_key="key",
+        litestream_azure_container="container",
+    )
+    client = create_app(cfg).test_client()
+    assert client.get("/static/js/main.js").status_code == 200
+    assert client.get("/static/js/main.js.map").status_code == 404
