@@ -8,7 +8,7 @@ once-per-day guard means a minute-by-minute tick can't double-fire a schedule.
 Clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send waits for
 the next scheduled HH:MM — skip-class periods use the next regular slot;
 reschedule-class periods use the next weekday so a Friday 10pm skip runs
-Monday 10pm, not motzei Shabbos. A manual Run now ignores that skip.
+Monday 10pm, not motzei Shabbos. A manual Send now ignores that skip.
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ import logging
 from datetime import date, datetime, timezone
 
 from web.data.repositories.jobs import JobRepository
+from web.data.repositories.exports import ExportRepository
+from web.reporting.cache import ReportCache
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -55,6 +57,8 @@ def enqueue_due(db, job_repo: JobRepository, now: datetime | None = None) -> int
             owner_user_id=None,
         )
 
+    from web.ops.metrics import note_scheduler_tick
+    note_scheduler_tick(due_enqueued=enqueued)
     return enqueued
 
 
@@ -88,6 +92,14 @@ def make_tick(db, job_repo: JobRepository):
                 log.info("schedule tick enqueued %d due schedule(s)", n)
         except Exception:  # noqa: BLE001 - a tick must never crash the scheduler
             log.exception("schedule tick failed")
+        try:
+            ReportCache(db).prune(6 * 3600)
+            ExportRepository(db).prune()
+            hung = job_repo.fail_hung(45 * 60)
+            if hung:
+                log.warning("hung-job cap failed %d running job(s)", hung)
+        except Exception:  # noqa: BLE001 - reaper must not kill the tick
+            log.exception("cache/export/hung-job reaper failed")
 
     return tick
 
@@ -135,8 +147,6 @@ def _consider(job_repo, runs, repo, sched, schedule_type: str, now: datetime,
             regular = False
     if not makeup and not regular:
         return 0
-    if pending:
-        repo.set_catch_up(sched.id, False)
     enqueue_schedule_run(
         job_repo, schedule_id=sched.id, schedule_type=schedule_type,
         owner_user_id=owner_user_id,

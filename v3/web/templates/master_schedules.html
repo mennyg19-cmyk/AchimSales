@@ -328,8 +328,8 @@
 </div>
 
 {% if master_schedules %}
-<div class="ms-table-wrap" data-csrf="{{ csrf_token() }}">
-    <table class="data-table js-sortable" id="companySchedulesTable">
+<div class="ms-table-wrap schedules-table-wrap" data-csrf="{{ csrf_token() }}">
+    <table class="data-table js-sortable schedules-table" id="companySchedulesTable">
         <thead>
             <tr>
                 <th aria-sort="ascending">Name</th>
@@ -385,7 +385,7 @@
                     <span class="ms-field-hint">You can’t edit this schedule. Speak to an admin.</span>
                     {% endif %}
                     <button type="button" class="btn btn-sm btn-outline js-run"
-                            data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Run now</button>
+                            data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Send now</button>
                     <a class="btn btn-sm btn-outline"
                        href="{{ url_for('schedules.master_history', schedule_id=s.id) }}">History</a>
                     {% if s.can_edit %}

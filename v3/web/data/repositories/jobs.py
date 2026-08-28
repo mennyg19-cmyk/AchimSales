@@ -249,9 +249,9 @@ class JobRepository:
             return [dict(r) for r in rows]
 
     def keep_run(self, job_id: str, owner_user_id: int, *, kept_until: str,
-                 name: str = "", cap: int = 5) -> bool:
-        """Mark a finished run as Kept until kept_until. Enforces per-user cap by
-        clearing kept_until on the oldest Kept runs beyond ``cap``."""
+                 name: str = "", cap: int = 5, payload_json: str | None = None) -> bool:
+        """Mark a finished run as Kept until kept_until. Copies the payload into
+        precious when given so recycle/cache prune cannot drop a Kept run."""
         label = (name or "").strip()[:80]
         with self.db.precious() as conn:
             cur = conn.execute(
@@ -261,6 +261,14 @@ class JobRepository:
             )
             if cur.rowcount != 1:
                 return False
+            if payload_json:
+                conn.execute(
+                    "INSERT INTO kept_run_payloads(job_id, payload_json, copied_at)"
+                    " VALUES (?, ?, ?)"
+                    " ON CONFLICT(job_id) DO UPDATE SET"
+                    "   payload_json=excluded.payload_json, copied_at=excluded.copied_at",
+                    (job_id, payload_json, _now()),
+                )
             rows = conn.execute(
                 "SELECT id FROM jobs WHERE owner_user_id=? AND type='report.run'"
                 " AND kept_until IS NOT NULL AND kept_until != ''"
@@ -273,4 +281,48 @@ class JobRepository:
                     "UPDATE jobs SET kept_until=NULL, keep_name='' WHERE id=?",
                     [(i,) for i in drop_ids],
                 )
+                conn.executemany(
+                    "DELETE FROM kept_run_payloads WHERE job_id=?",
+                    [(i,) for i in drop_ids],
+                )
             return True
+
+    def get_kept_payload(self, job_id: str) -> dict | None:
+        """Payload copied at Keep this run, or None if never kept / already dropped."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM kept_run_payloads WHERE job_id=?",
+                (job_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            data = json.loads(row["payload_json"])
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    def has_kept_payload(self, job_id: str) -> bool:
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM kept_run_payloads WHERE job_id=? LIMIT 1",
+                (job_id,),
+            ).fetchone()
+        return row is not None
+
+    def fail_hung(self, older_than_seconds: float, *,
+                  error: str = "Timed out (hung job cap)") -> int:
+        """Mark long-running jobs failed so the UI unblocks. Does not requeue
+        (that would double-send). The worker thread may still finish; mark_success
+        is guarded to status='running' so it cannot resurrect the row."""
+        cutoff = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() - older_than_seconds,
+            tz=timezone.utc,
+        ).isoformat()
+        with self.db.precious() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status='failure', error=?, finished_at=?"
+                " WHERE status='running' AND started_at IS NOT NULL AND started_at < ?",
+                (error, _now(), cutoff),
+            )
+            return cur.rowcount

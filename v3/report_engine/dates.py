@@ -55,7 +55,7 @@ def parse_period(period: str, today: date | None = None) -> Period:
         p = Period(y.isoformat(), y, y)
     elif name == "mtd":
         p = Period("MTD", today.replace(day=1), today)
-    elif name == "last_month":
+    elif name in ("last_month", "month"):
         first_this = today.replace(day=1)
         last_prior = first_this - timedelta(days=1)
         p = Period(
@@ -68,7 +68,7 @@ def parse_period(period: str, today: date | None = None) -> Period:
     elif name == "this_week":
         monday = today - timedelta(days=today.weekday())
         p = Period("This Week", monday, today)
-    elif name == "last_7_days":
+    elif name in ("last_7_days", "week"):
         p = Period("Last 7 Days", today - timedelta(days=6), today)
     elif name == "all_time":
         p = Period("All Time", D365_GO_LIVE, today)

@@ -158,7 +158,10 @@ def test_test_site_nav_is_gone(tmp_path):
 
 
 def test_report_viewer_meeting_ux():
-    src = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    src = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((_SRC / "js").glob("report*.ts"))
+    )
     assert "Rename tab" in src
     assert 'textContent = "Delete"' in src
     assert "Add subgroup" in src
@@ -177,7 +180,13 @@ def test_report_viewer_meeting_ux():
     assert "function applySalesman(" in src
     assert "fulfillmentFillCss" in src
     assert 'col.field === "Fulfillment %"' in src
-    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    css = "\n".join(
+        (_SRC / "css" / name).read_text(encoding="utf-8")
+        for name in (
+            "pages-auth.css", "pages-report.css", "pages-schedules.css",
+            "pages-dashboard.css", "pages-settings.css",
+        )
+    )
     assert ".group-pill" in css
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="groupPills"' in html

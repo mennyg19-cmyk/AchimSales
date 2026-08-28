@@ -25,6 +25,14 @@ def _env_path(name: str, default: str) -> Path:
     return Path(os.environ.get(name, default)).expanduser()
 
 
+def _env_path_first(names: tuple[str, ...], default: str) -> Path:
+    for name in names:
+        raw = os.environ.get(name)
+        if raw:
+            return Path(raw).expanduser()
+    return Path(default).expanduser()
+
+
 class ConfigError(RuntimeError):
     """Raised when the environment is unsafe to boot (fail-closed)."""
 
@@ -70,6 +78,12 @@ class Config:
     @property
     def is_prod(self) -> bool:
         return self.app_env == "prod"
+
+    @property
+    def reports_only(self) -> bool:
+        """The live site is reports-only. Field name is still is_beta so Azure
+        BETA_PRECIOUS_DB_PATH and the `session` cookie stay unchanged."""
+        return self.is_beta
 
     @property
     def authority(self) -> str:
@@ -151,13 +165,13 @@ def load_config(*, is_beta: bool = False) -> Config:
     if is_beta:
         precious_default = "./.data/beta_precious.db"
         cache_default = "./.data/beta_cache.db"
-        precious_env = "BETA_PRECIOUS_DB_PATH"
-        cache_env = "BETA_CACHE_DB_PATH"
+        precious_names = ("SITE_PRECIOUS_DB_PATH", "BETA_PRECIOUS_DB_PATH")
+        cache_names = ("SITE_CACHE_DB_PATH", "BETA_CACHE_DB_PATH")
     else:
         precious_default = "./.data/precious.db"
         cache_default = "./.data/cache.db"
-        precious_env = "PRECIOUS_DB_PATH"
-        cache_env = "CACHE_DB_PATH"
+        precious_names = ("PRECIOUS_DB_PATH",)
+        cache_names = ("CACHE_DB_PATH",)
     # Home keeps the `session` cookie, so it must use FLASK_SECRET_KEY
     # (same value leftover Live cookies were signed with).
     if is_beta:
@@ -181,8 +195,8 @@ def load_config(*, is_beta: bool = False) -> Config:
             False if is_beta else _env_bool("DASHBOARD_REFRESH_ENABLED", True)
         ),
         is_beta=is_beta,
-        precious_db_path=_env_path(precious_env, precious_default),
-        cache_db_path=_env_path(cache_env, cache_default),
+        precious_db_path=_env_path_first(precious_names, precious_default),
+        cache_db_path=_env_path_first(cache_names, cache_default),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
         litestream_azure_account_name=os.environ.get("LITESTREAM_AZURE_ACCOUNT_NAME", "").strip(),
         litestream_azure_account_key=os.environ.get("LITESTREAM_AZURE_ACCOUNT_KEY", "").strip(),

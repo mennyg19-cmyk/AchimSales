@@ -1,5 +1,6 @@
 // Master schedule wizard (admin page).
 
+import { hiddenPollMs } from "./dialog";
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename, previewFolder } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
@@ -553,7 +554,7 @@ function pollLookupStatus(): void {
   };
   void tick();
   stopLookupPoll();
-  lookupPollTimer = window.setInterval(() => { void tick(); }, 2500);
+  lookupPollTimer = window.setInterval(() => { void tick(); }, hiddenPollMs(2500));
 }
 
 async function ensureLookups(): Promise<void> {
@@ -801,6 +802,51 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   updateMsFolderPreview();
 }
 
+const REPORT_DRAFT_KEY = "v3-schedule-from-report";
+
+async function consumeReportDraft(): Promise<void> {
+  if (new URLSearchParams(location.search).get("from_report") !== "1") return;
+  let draft: {
+    report_key?: string;
+    params?: Record<string, unknown>;
+    layout?: Record<string, unknown>;
+  } | null = null;
+  try {
+    draft = JSON.parse(sessionStorage.getItem(REPORT_DRAFT_KEY) || "null");
+  } catch {
+    draft = null;
+  }
+  sessionStorage.removeItem(REPORT_DRAFT_KEY);
+  history.replaceState(null, "", location.pathname + location.hash);
+  if (!draft?.report_key) return;
+  const form = masterForm();
+  if (!form) return;
+  form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {
+    r.checked = r.value === draft!.report_key;
+  });
+  const params = draft.params || {};
+  const periodEl = form.elements.namedItem("period") as HTMLSelectElement | null;
+  if (periodEl) periodEl.value = String(params.period || "");
+  const yearEl = form.elements.namedItem("year") as HTMLSelectElement | null;
+  if (yearEl && params.year != null) yearEl.value = String(params.year);
+  ensurePickers();
+  statusPicker?.setSelected(asStringList(params.status));
+  pendingSalesmen = asStringList(params.salesman);
+  salesmanPicker?.setSelected(pendingSalesmen);
+  pendingCustomers = asStringList(params.customers);
+  customerPicker?.setSelected(pendingCustomers);
+  pendingLayout = (draft.layout && typeof draft.layout === "object") ? draft.layout : {};
+  suggestName(form);
+  openWizard();
+  showStep(3);
+  syncParamsVisibility(form);
+  await ensureLookups();
+  await loadSavedViews(draft.report_key);
+  restoreSavedViewSelect("Custom");
+  updateMsFilenamePreview();
+  updateMsFolderPreview();
+}
+
 export function bindMasterWizard(): void {
   const form = masterForm();
   const wiz = wizardRoot();
@@ -997,6 +1043,7 @@ export function bindMasterWizard(): void {
   updateMsFolderPreview();
 
   showStep(1);
+  void consumeReportDraft();
 }
 
 async function initOdPicker(): Promise<void> {

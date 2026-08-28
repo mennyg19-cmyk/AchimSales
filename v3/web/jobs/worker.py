@@ -28,6 +28,18 @@ class JobContext:
     def set_progress(self, pct: int) -> None:
         self._repo.set_progress(self.job.id, pct)
 
+    def is_cancelled(self) -> bool:
+        current = self._repo.get(self.job.id)
+        return current is None or current.status == "cancelled"
+
+    def abort_if_cancelled(self) -> None:
+        if self.is_cancelled():
+            raise JobCancelled()
+
+
+class JobCancelled(Exception):
+    """The user cancelled this job; skip remaining side effects."""
+
 
 # A handler runs the work and returns a result_ref (e.g. a cache key), or "".
 Handler = Callable[[JobContext], str]
@@ -90,6 +102,8 @@ class JobWorker:
         try:
             result_ref = handler(JobContext(job, self.repo)) or ""
             self.repo.mark_success(job.id, result_ref)
+        except JobCancelled:
+            log.info("job %s (%s) cancelled; skipping success", job.id, job.type)
         except Exception as exc:  # noqa: BLE001 - record failure, keep worker alive
             log.exception("job %s (%s) failed", job.id, job.type)
             self.repo.mark_failure(job.id, str(exc))

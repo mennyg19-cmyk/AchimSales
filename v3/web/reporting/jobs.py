@@ -12,7 +12,7 @@ from typing import Callable, Iterable
 
 from web.data.repositories.jobs import JobRepository
 from web.data.repositories.run_log import ReportRunLogRepository
-from web.jobs.worker import Handler, JobContext
+from web.jobs.worker import Handler, JobCancelled, JobContext
 from web.reporting.cache import build_cache_key, canonical_scope_token
 from web.reporting.runner import Builder, ReportRunner
 
@@ -23,6 +23,9 @@ BuilderResolver = Callable[[str], Builder]
 
 
 def _count_rows(payload: dict) -> int:
+    facts = payload.get("row_count")
+    if isinstance(facts, int):
+        return facts
     return sum(len(tab.get("rows") or []) for tab in (payload.get("tabs") or []))
 
 
@@ -58,6 +61,7 @@ def make_report_run_handler(runner: ReportRunner, builder_resolver: BuilderResol
         builder = builder_resolver(p["report_key"])
         started = time.monotonic()
         try:
+            ctx.abort_if_cancelled()
             outcome = runner.run(
                 report_key=p["report_key"],
                 identity=p["identity"],
@@ -66,7 +70,11 @@ def make_report_run_handler(runner: ReportRunner, builder_resolver: BuilderResol
                 params=p["params"],
                 builder=builder,
                 force_refresh=True,  # a queued run always recomputes; the cache serves reads
+                cancel_check=ctx.is_cancelled,
             )
+            ctx.abort_if_cancelled()
+        except JobCancelled:
+            raise
         except Exception:
             _log(run_log, ctx, p, "failure", None, started)
             raise

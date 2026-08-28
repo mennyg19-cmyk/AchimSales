@@ -1,15 +1,15 @@
 # v3 Sales Reports - runtime dependencies
 # Pinned ranges match the repo-root production requirements.txt.
 Flask>=3.1,<4
-Jinja2>=3.1
+Jinja2>=3.1,<4
 msal>=1.31,<2
-python-dotenv>=1.0
-requests>=2.31
-gunicorn>=22.0
+python-dotenv>=1.0,<2
+requests>=2.31,<3
+gunicorn>=22.0,<24
 
 # Data / reporting
-pandas>=2.0
-openpyxl>=3.1
+pandas>=2.0,<3
+openpyxl>=3.1,<4
 
 # Background scheduling (in-process, single B1 instance)
 APScheduler>=3.10,<4
@@ -21,4 +21,4 @@ azure-identity>=1.15,<2
 tzdata>=2024.1
 
 # --- dev / test only ---
-pytest>=8.0
+pytest>=8.0,<9

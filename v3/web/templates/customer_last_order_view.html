@@ -16,7 +16,7 @@
 
 {% if error %}
 <div class="settings-card">
-    <p style="color:var(--danger);">Could not load order data: {{ error }}</p>
+    <p style="color:var(--error);">Could not load order data: {{ error }}</p>
 </div>
 {% elif not view or not view.primary %}
 <div class="settings-card">

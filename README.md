@@ -158,6 +158,7 @@ Standing choices when rules disagree (also used by agents):
 |-------|--------|
 | After a requested product change | **Commit + push.** Production deploys only from `webapp-cache`. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
+| Home-site flag | Keep `is_beta=True` (Azure `BETA_PRECIOUS_DB_PATH` + `session` cookie). `Config.reports_only` is the non-preview name. Do not rename Azure env vars in this PR. |
 
 ## D365 Entity Reference
 

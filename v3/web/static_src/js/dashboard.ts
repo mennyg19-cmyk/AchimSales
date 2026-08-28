@@ -4,6 +4,8 @@
  * by both the dashboard list and the customer-detail page (exclusion toggle).
  */
 
+import { hiddenPollMs } from "./dialog";
+
 declare global {
   interface Window {
     triggerDashRefresh?: () => void;
@@ -50,10 +52,10 @@ function initDashboard(): void {
         window.location.reload();
         return;
       }
-      if (tries < 40) setTimeout(poll, 3000);
+      if (tries < 40) setTimeout(poll, hiddenPollMs(3000));
       else if (btn) { btn.disabled = false; btn.textContent = "Refresh data"; }
     };
-    setTimeout(poll, 3000);
+    setTimeout(poll, hiddenPollMs(3000));
   }
   if (btn) btn.addEventListener("click", doRefresh);
   window.triggerDashRefresh = doRefresh; // hook for pull-to-refresh

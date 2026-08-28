@@ -45,7 +45,13 @@ class DeliveryService:
                         cc_raw: str = "", bcc_raw: str = "",
                         email_on_empty: bool = True,
                         empty_recipients_override: str | None = None,
-                        schedule_name: str = "") -> DeliveryOutcome:
+                        schedule_name: str = "",
+                        skip_email: bool = False, skip_folder: bool = False,
+                        idempotency_key: str = "",
+                        cancel_check=None) -> DeliveryOutcome:
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
         builder = self.builder_resolver(report_key)
         run_params = dict(params or {})
         if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
@@ -54,9 +60,15 @@ class DeliveryService:
             report_key=report_key, identity=identity,
             visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
             params=run_params, builder=builder, force_refresh=True,
+            cancel_check=cancel_check,
         )
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
-        rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
+        facts = payload.get("row_count")
+        rows = facts if isinstance(facts, int) else sum(
+            len(t.get("rows") or []) for t in payload.get("tabs") or [])
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
         if rows == 0 and not email_on_empty:
             return DeliveryOutcome(
                 result=DeliveryResult(
@@ -87,6 +99,8 @@ class DeliveryService:
             sharepoint_path=folder or None,
             onedrive_user=(onedrive_user or "").strip() or None,
             cc_raw=cc or "", bcc_raw=bcc or "",
+            skip_email=skip_email, skip_folder=skip_folder,
+            idempotency_key=idempotency_key,
         )
         return DeliveryOutcome(result=result, row_count=rows)
 

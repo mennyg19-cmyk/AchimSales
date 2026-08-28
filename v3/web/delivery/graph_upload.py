@@ -29,10 +29,11 @@ def upload_drive_item(
 ) -> dict[str, Any]:
     """PUT small files; createUploadSession + ranged PUTs when over 4 MB."""
     if len(content) < SIMPLE_UPLOAD_MAX:
-        r = requests.put(
-            put_url,
+        r = _put_with_retry(
+            requests, put_url,
+            data=content,
             headers={**headers, "Content-Type": "application/octet-stream"},
-            data=content, timeout=put_timeout,
+            timeout=put_timeout,
         )
         if r.status_code not in (200, 201):
             r.raise_for_status()
@@ -52,7 +53,8 @@ def upload_drive_item(
     while start < size:
         end = min(start + CHUNK_SIZE, size)
         chunk = content[start:end]
-        last = requests.put(
+        last = _put_with_retry(
+            requests,
             upload_url,
             data=chunk,
             headers={
@@ -64,3 +66,23 @@ def upload_drive_item(
         last.raise_for_status()
         start = end
     return last.json() if last is not None else {}
+
+
+def _put_with_retry(requests, url, *, data, headers, timeout, attempts: int = 3):
+    import time
+
+    last = None
+    for attempt in range(1, attempts + 1):
+        last = requests.put(url, data=data, headers=headers, timeout=timeout)
+        if last.status_code in (429, 503) and attempt < attempts:
+            from web.ops.metrics import note_graph_throttle
+            note_graph_throttle(last.status_code)
+            raw = last.headers.get("Retry-After") or last.headers.get("retry-after") or ""
+            try:
+                delay = min(60.0, float(raw))
+            except (TypeError, ValueError):
+                delay = min(30.0, float(2 ** attempt))
+            time.sleep(delay)
+            continue
+        return last
+    return last

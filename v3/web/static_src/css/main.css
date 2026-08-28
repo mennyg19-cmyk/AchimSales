@@ -1,4 +1,8 @@
 /* Front-end CSS entrypoint. esbuild bundles the @imports into static_dist/css/main.css. */
 @import "./tokens.css";
 @import "./shell.css";
-@import "./pages.css";
+@import "./pages-auth.css";
+@import "./pages-report.css";
+@import "./pages-schedules.css";
+@import "./pages-dashboard.css";
+@import "./pages-settings.css";

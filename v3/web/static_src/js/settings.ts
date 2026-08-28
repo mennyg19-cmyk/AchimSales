@@ -47,6 +47,7 @@ function initFlagToggles(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !enabled;
+        window.alert("Could not save that setting.");
       } finally {
         box.disabled = false;
       }
@@ -68,6 +69,7 @@ function initVisibilityToggles(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !enabled;
+        window.alert("Could not save report visibility.");
       } finally {
         box.disabled = false;
       }
@@ -98,6 +100,7 @@ function initExclusions(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !included;
+        window.alert("Could not save that exclusion.");
       } finally {
         box.disabled = false;
       }

@@ -1,5 +1,20 @@
 # Decision Log
 
+## 2026-08-28 God-file splits, is_beta alias, restore test, process counters
+**What I had to decide:** Finish Sol's leftover refactor/ops items without flipping production env vars or claiming a live Azure empty-disk drill.
+**Options I considered:** (1) Rename `is_beta` / `BETA_*` in Azure. (2) Alias only. (3) Skip splits until after merge.
+**What I chose:** (2). `Config.reports_only` aliases `is_beta`. Azure `BETA_PRECIOUS_DB_PATH` and the `session` cookie stay. Split reports/schedules blueprints, factory seeds/background, pages.css, and report.ts. Diagnostics `host.counters` holds Graph throttle / last report ms / last scheduler tick in-process. `tests/test_startup_restore.py` covers empty-disk refuse. Live restore drill stays BLOCKED.
+**Why:** Flipping `is_beta` points home at the wrong sqlite and cookie. Process counters are what we can prove without Azure. File splits were gated on delivery work already on this branch.
+**Status:** DECIDED — shipping this change. Live Litestream drill BLOCKED.
+
+## 2026-08-28 Implement the rest of REPOSITORY-REVIEW.md
+**What I had to decide:** Owner said do everything on Sol's list after we had deferred scheduling, a11y, commission, and `is_beta` rename.
+**Options I considered:** (1) Keep the deferral. (2) Implement Sol's stated fixes on this draft PR, still no production merge. (3) Also merge to `webapp-cache` and deploy.
+**What I chose:** (2). Sol's defect text is the spec. Hebcal fails closed. Commission `1` means 1%. Ordered Summary groups by account. P0.1 history rewrite and live production promote stay BLOCKED.
+**Why:** Owner overrode the earlier deferral. Merging unreviewed code to the production branch is still the go-live gate, not this agent.
+**Status:** DECIDED — shipping on this branch. P0.1 / production promote BLOCKED.
+
+
 ## 2026-08-28 Close leftover test_access API and NEW_APP_MARKER
 **What I had to decide:** Loop B found `test_access` still writable on the admin user API and `Config.new_app_marker` still loaded from env after the last reader (the "v3" pill) was deleted.
 **Options I considered:** (1) Defer as dead-surface debt. (2) Stop JSON/PUT only, keep the User field. (3) Drop the Python field, admin JSON, and env flag; leave the SQLite column.

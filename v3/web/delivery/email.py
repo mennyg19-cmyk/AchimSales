@@ -173,7 +173,9 @@ class EmailService:
                 report_name: str, filename: str = "", xlsx_bytes: bytes | None = None,
                 sharepoint_path: str | None = None,
                 onedrive_user: str | None = None,
-                cc_raw: str = "", bcc_raw: str = "") -> DeliveryResult:
+                cc_raw: str = "", bcc_raw: str = "",
+                skip_email: bool = False, skip_folder: bool = False,
+                idempotency_key: str = "") -> DeliveryResult:
         recipients = split_recipients(recipients_raw)
         cc = split_recipients(cc_raw)
         bcc = split_recipients(bcc_raw)
@@ -192,8 +194,13 @@ class EmailService:
 
         # Upload first so a link-only email (YTD / other large workbooks) can
         # include the SharePoint or OneDrive URL instead of a rejected Graph send.
-        sp_saved, sp_url, sp_err = self._maybe_folder(
-            upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
+        if skip_folder:
+            # Already uploaded on a prior attempt; do not PUT again.
+            sp_saved, sp_url, sp_err = bool(folder_path), None, None
+            upload_path = None
+        else:
+            sp_saved, sp_url, sp_err = self._maybe_folder(
+                upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
         record_path = folder_path or (upload_path if sp_saved else None)
         if not folder_path:
             sp_err = None if not sp_saved else sp_err
@@ -206,13 +213,17 @@ class EmailService:
 
         sent = False
         channel = ""
-        if recipients or cc or bcc:
+        if skip_email:
+            sent = True
+            channel = "skipped"
+        elif recipients or cc or bcc:
             graph = self._graph_mailer()
             if graph is not None:
                 try:
                     self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
                         filename, attach, body_html=body_html,
+                        idempotency_key=idempotency_key,
                     )
                     sent = True
                     channel = "graph"
@@ -281,13 +292,15 @@ class EmailService:
             s.send_message(msg, from_addr=self.cfg.email_from, to_addrs=recipients)
 
     def _graph_send(self, graph, recipients, cc, bcc, subject, body, filename, attach,
-                    body_html=None):
+                    body_html=None, idempotency_key=""):
         to = recipients or [self.cfg.email_from]
         try:
             graph.send(
                 sender=self.cfg.email_from, to=to, subject=subject, body_text=body,
                 body_html=body_html, filename=filename if attach else "",
                 xlsx_bytes=attach, cc=cc or None, bcc=bcc or None,
+                internet_message_id=idempotency_key,
+                client_request_id=idempotency_key,
             )
         except GraphMailError as exc:
             if attach is None or not _is_size_rejection(exc):
@@ -302,6 +315,8 @@ class EmailService:
                 sender=self.cfg.email_from, to=to, subject=subject, body_text=retry_body,
                 body_html=None, filename="", xlsx_bytes=None,
                 cc=cc or None, bcc=bcc or None,
+                internet_message_id=idempotency_key,
+                client_request_id=idempotency_key,
             )
 
     def _maybe_folder(self, path, filename, xlsx_bytes, *, onedrive_user: str | None):
@@ -327,10 +342,13 @@ class EmailService:
         # unconfigured). A requested SharePoint upload that failed makes the whole
         # delivery fail — otherwise a SharePoint-only send could look successful
         # while nothing was actually delivered.
-        sp_requested = bool(sp_path)
-        if not error and sp_requested and not sp_saved:
+        # Prod: an .eml on disk is not a received email. Dev/tests still treat
+        # the outbox file as the delivery record so the pipeline can run offline.
+        if not error and sp_path and not sp_saved:
             error = sp_error or "SharePoint upload failed"
-        email_delivered = bool(recipients) and not error
+        if self.cfg.is_prod and recipients and not sent and not error:
+            error = "Mail is not configured; wrote an outbox file but nobody received it"
+        email_delivered = bool(recipients) and not error and (sent or not self.cfg.is_prod)
         ok = (email_delivered or sp_saved) and not error
         status = "sent" if (ok and sent) else ("outbox" if ok else "failed")
         if not channel and recipients and ok and not sent:

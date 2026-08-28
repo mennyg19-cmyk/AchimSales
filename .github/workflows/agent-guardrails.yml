@@ -3,7 +3,9 @@ name: Agent Guardrails
 on:
   pull_request:
   push:
-    branches: ["main"]
+    branches:
+      - webapp-cache
+      - "cursor/**"
   workflow_dispatch:
 
 permissions:

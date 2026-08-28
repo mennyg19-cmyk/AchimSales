@@ -6,6 +6,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Sol list leftovers (2026-08-28)
+
+**What to test:**
+- Custom dates raise; commission `1` is 1%; monthly commission uses each month's rate; Ordered Summary groups by CustomerAccount; Hebcal failure skips send.
+- Keep this run stores a precious snapshot; cache prune does not drop it; tick prunes cache/exports and fails jobs running > 45 minutes.
+- Manual Send now does not consume the scheduled slot; explicit salesman with no email fails the schedule; prod outbox-only is not success; Graph 429 honors Retry-After.
+- Empty-disk prod restore refuses boot (`tests/test_startup_restore.py`). Live Azure drill is not in CI.
+- `Config.reports_only` tracks `is_beta`. Home copy says Saved views. Report Schedule opens the Schedules wizard.
+- CI: full `v3` pytest + root pytest (with `tests/conftest.py`) + `npx tsc --noEmit` + `npm run build` + dist js/css git check.
+
+**Test files:** `v3/tests/test_dates.py`, `v3/tests/test_report_invoiced.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_graph_mail.py`, `v3/tests/test_jobs.py`, `v3/tests/test_frontend.py`, `v3/tests/test_config.py`, `tests/test_startup_restore.py`
+
+---
+
 ## Single site at / (webapp/ and rebuild/ removed)
 
 **What to test:**

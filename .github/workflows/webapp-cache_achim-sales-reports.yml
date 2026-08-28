@@ -37,6 +37,12 @@ jobs:
         with:
           python-version: '3.10'
 
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: v3/package-lock.json
+
       # Oryx on App Service runs `pip install -r requirements.txt` at the
       # artifact root. Root requirements.txt is the production install list.
       - name: Install dependencies
@@ -44,25 +50,52 @@ jobs:
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
+          pip install -r v3/requirements.txt
 
-      - name: Run P0 tests
+      - name: Build frontend
+        working-directory: v3
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run tests
         run: |
           source antenv/bin/activate
-          bash tools/run-p0-tests.sh
+          cd v3
+          python -m pytest tests -q --tb=short
+          cd ..
+          PYTHONPATH="$PWD" python -m pytest tests -q --tb=short
 
       - name: Compile WSGI and v3 web
         run: |
           source antenv/bin/activate
           python -m compileall -q wsgi.py wsgi_dispatch.py app.py v3/web
 
-      # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment. Hence, we exclude the antenv virtual environment directory from the deployment artifact to reduce the payload size.
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-app
           path: |
-            .
-            !antenv/
+            app.py
+            wsgi.py
+            wsgi_dispatch.py
+            gunicorn.conf.py
+            startup.sh
+            litestream.yml
+            requirements.txt
+            report_registry.json
+            v3/
+            core/
+            data/
+            reports/
+            runbooks/
+            config/
+            !v3/node_modules/
+            !v3/web/static_src/
+            !**/*.map
+            !**/__pycache__/
+            !**/.pytest_cache/
+            !v3/tests/
 
       # 🚫 Opting Out of Oryx Build
       # If you prefer to disable the Oryx build process during deployment, follow these steps:

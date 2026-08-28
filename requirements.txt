@@ -1,11 +1,11 @@
 Flask>=3.1,<4
 msal>=1.31,<2
-python-dotenv>=1.0
-pandas>=2.0
-openpyxl>=3.1
-requests>=2.31
-gunicorn>=22.0
+python-dotenv>=1.0,<2
+pandas>=2.0,<3
+openpyxl>=3.1,<4
+requests>=2.31,<3
+gunicorn>=22.0,<24
 azure-identity>=1.15,<2
 APScheduler>=3.10,<4
 tzdata>=2024.1
-pytest>=7.0
+pytest>=7.0,<9

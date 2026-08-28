@@ -157,8 +157,10 @@ def _year_of(row: dict) -> int | None:
 
 
 def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
-    """Highest commission rate the SP sent per salesman key (rows should agree;
-    max ignores blank/zero rows like credits). Empty when the SP sends none."""
+    """Highest commission rate the SP sent per salesman (simple fallback only).
+
+    Monthly commissions use each row's own rate instead of this max.
+    """
     rates: dict[str, float] = {}
     for r in rows:
         sg = r.get("_sales_group") or ""
@@ -169,6 +171,14 @@ def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
         if rate > rates.get(key, 0.0):
             rates[key] = rate
     return rates
+
+
+def _row_commission_rate(row: dict, salesmen: Mapping[str, SalesmanFact]) -> float:
+    """Rate for this invoice row: SP value on the row, else the salesman master."""
+    rate = num(row.get("_commission_pct"))
+    if rate > 0:
+        return rate
+    return _commission_rate(row.get("_sales_group") or "", salesmen, {})
 
 
 def _commission_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
@@ -265,13 +275,12 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
     if not 1 <= end_month <= 12:
         end_month = 12
 
-    row_rates = _row_rates_by_salesman(ytd_rows)
     by_sm: dict[str, dict] = {}
     for r in ytd_rows:
         sg = r.get("_sales_group") or ""
         if not sg:
             continue
-        rate = _commission_rate(sg, salesmen, row_rates)
+        rate = _row_commission_rate(r, salesmen)
         if rate <= 0:
             continue
         # Guard against a caller passing a wider window than Jan 1..period end:
@@ -288,18 +297,27 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             "name": r.get("SalesmanName") or (sm.full_name or sm.display_name if sm else "") or sg,
             "pct": rate,
             "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, misc=0.0,
-                             credits=0.0)
+                             credits=0.0, commission=0.0)
                         for _ in range(end_month)],
         })
         slot = bucket["monthly"][m - 1]
         if r.get("_is_credit"):
-            slot["credits"] += num(r.get("Total Invoice"))
+            crd = num(r.get("Total Invoice"))
+            slot["credits"] += crd
+            slot["commission"] += crd * rate
         else:
-            slot["subtotal"] += num(r.get("SubTotal Invoices"))
-            slot["tariff"] += num(r.get("Tariff Charges"))
-            slot["freight"] += num(r.get("Freight Charges"))
-            slot["cc"] += num(r.get("CC Charges"))
-            slot["misc"] += num(r.get("Misc Charges"))
+            sub = num(r.get("SubTotal Invoices"))
+            tar = num(r.get("Tariff Charges"))
+            fre = num(r.get("Freight Charges"))
+            cc = num(r.get("CC Charges"))
+            misc = num(r.get("Misc Charges"))
+            slot["subtotal"] += sub
+            slot["tariff"] += tar
+            slot["freight"] += fre
+            slot["cc"] += cc
+            slot["misc"] += misc
+            slot["commission"] += (sub + tar + misc) * rate
+        bucket["pct"] = rate
 
     salesmen_out: list[dict] = []
     for bucket_key in sorted(by_sm, key=lambda k: by_sm[k]["name"].lower()):
@@ -318,7 +336,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             crd = round(slot["credits"], 2)
             ti = round(sub + tar + fre + cc + misc, 2)
             net = round(ti + crd - fre - cc, 2)
-            comm = net * pct  # kept UNrounded; YTD sums these (matches LIVE)
+            comm = round(slot["commission"], 2)
             monthly_out.append({
                 "month": idx + 1, "month_label": _MONTH_LABELS[idx],
                 "subtotal_invoices": sub, "tariff_charges": tar,
@@ -334,7 +352,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             ytd["total_invoices"] += ti
             ytd["credits"] += crd
             ytd["net_commission"] += net
-            ytd["commission"] += comm
+            ytd["commission"] += slot["commission"]
         for k in ytd:
             ytd[k] = round(ytd[k], 2)
         ytd["total_payable"] = ytd["commission"]

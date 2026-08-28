@@ -93,6 +93,18 @@ def test_run_param_windows_adds_regular_mtd_when_asked():
     ]
 
 
+def test_run_param_windows_skips_regular_when_catchup_already_covers_it():
+    windows = run_param_windows(
+        {"period": "yesterday"}, "invoiced",
+        skipped_iso="2026-01-30", today=date(2026, 2, 1),
+        last_success=date(2026, 1, 29), include_regular=True,
+    )
+    assert len(windows) == 1
+    assert windows[0]["period"] == "custom"
+    assert windows[0]["start_date"] == "2026-01-29"
+    assert windows[0]["end_date"] == "2026-01-31"
+
+
 def test_last_month_as_of_skipped_1st_stays_named_if_still_that_month():
     # Skip 1 Jan 2026 (Thu was New Year; use 2027-08-01 Saturday).
     skipped = date(2026, 8, 1)

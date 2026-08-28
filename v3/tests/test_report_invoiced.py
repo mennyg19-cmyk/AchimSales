@@ -280,10 +280,29 @@ def test_commissions_monthly_pivot_math():
 def test_adapter_reads_commission_rate_as_fraction():
     # A fraction passes through untouched...
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "0.06"}).commission_pct == 0.06
-    # ...and a whole percent (6) is normalized to 0.06 (guards a 100x mistake).
+    # ...and a whole percent (6 or 1) is normalized to a fraction.
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "6"}).commission_pct == 0.06
+    assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "1"}).commission_pct == 0.01
     # Blank/zero -> no rate (builder will fall back to the master).
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1"}).commission_pct == 0.0
+
+
+def test_commissions_apply_each_months_own_rate():
+    # Two rates in one year must not apply the later/higher rate to earlier months.
+    facts = S.to_facts([
+        {"InvoiceNumber": "JAN1", "CustomerAccount": "1", "InvoiceDate": "2026-01-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0.05"},
+        {"InvoiceNumber": "APR1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0.10"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    sm = comm["salesmen"][0]
+    assert sm["monthly"][0]["commission"] == 50.0   # Jan 1000 * 5%
+    assert sm["monthly"][3]["commission"] == 100.0  # Apr 1000 * 10%
+    assert sm["ytd"]["commission"] == 150.0
 
 
 def test_commissions_use_sp_rate_over_master():

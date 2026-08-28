@@ -136,6 +136,12 @@ def test_cache_key_changes_with_every_component():
                                        builder_version=1, params={"a": 2})
 
 
+def test_cache_key_includes_sql_odata_source():
+    base = dict(report_key="ordered", identity="u", scope_token="ALL",
+                builder_version=1, params={"a": 1})
+    assert build_cache_key(source="sql", **base) != build_cache_key(source="odata", **base)
+
+
 def test_cache_round_trip_and_isolation(db):
     cache = ReportCache(db)
     key_a = build_cache_key(report_key="ordered", identity="x", scope_token="mkolko",
@@ -203,6 +209,17 @@ def test_runner_rejects_non_dict_payload(db):
     with pytest.raises(TypeError):
         runner.run(report_key="ordered", identity="u", visible_salesman_keys=None,
                    builder_version=1, params={}, builder=lambda p, v: ["not", "a", "dict"])
+
+
+def test_cache_strips_nan_and_inf(db):
+    cache = ReportCache(db)
+    key = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                          builder_version=1, params={})
+    cache.put(key, "ordered", {"n": float("nan"), "i": float("inf"), "ok": 1.5})
+    payload = cache.get(key).payload
+    assert payload["n"] is None
+    assert payload["i"] is None
+    assert payload["ok"] == 1.5
 
 
 def test_cache_prune_removes_old_rows(db):

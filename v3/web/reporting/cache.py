@@ -1,7 +1,7 @@
 """THE one report payload cache + the single source of truth for cache keys.
 
 Cache-scope safety (REVIEW-LOG section 2): the key is derived from
-(report_key, identity, scope_token, builder_version, params). Because the
+(report_key, identity, scope_token, builder_version, source, params). Because the
 principal's scope_token is part of the key, two users with different scope can
 NEVER read each other's cached payload - different scope => different key. This
 function is the ONLY place a report cache key is built.
@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -44,12 +45,41 @@ def _stable_hash(value: Any) -> str:
     return hashlib.sha1(canonical.encode("utf-8")).hexdigest()
 
 
+def _source_token(report_key: str, source: str | None) -> str:
+    if source is not None:
+        return (source or "").strip().lower()
+    try:
+        from web.beta_sources import get_source
+        return (get_source(report_key) or "").strip().lower()
+    except Exception:  # noqa: BLE001 - key still works without an app context
+        return ""
+
+
+def _json_safe(value: Any) -> Any:
+    """Replace NaN/Inf so cache JSON stays standard (allow_nan=False)."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    try:
+        if value != value:  # NaN, including numpy
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    return value
+
+
 def build_cache_key(*, report_key: str, identity: str, scope_token: str,
-                    builder_version: int, params: dict[str, Any]) -> str:
+                    builder_version: int, params: dict[str, Any],
+                    source: str | None = None) -> str:
     """Single source of truth for report cache keys. Scope-aware by construction.
 
     `scope_token` must come from canonical_scope_token(); an empty token is
     rejected so a caller can never accidentally produce an unscoped key.
+    SQL vs OData is part of the key so flipping a report source cannot reuse
+    the other origin's payload.
     """
     if not scope_token:
         raise ValueError("scope_token is required (use canonical_scope_token())")
@@ -58,6 +88,7 @@ def build_cache_key(*, report_key: str, identity: str, scope_token: str,
         identity or "",
         scope_token,
         str(builder_version),
+        _source_token(report_key, source),
         _stable_hash(params),
     ])
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
@@ -145,13 +176,14 @@ class ReportCache:
 
     def _insert(self, cache_key: str, report_key: str, payload: dict) -> None:
         now = datetime.now(timezone.utc).isoformat()
+        blob = json.dumps(_json_safe(payload), default=str, allow_nan=False)
         with self.db.cache() as conn:
             conn.execute(
                 "INSERT INTO report_payload_cache(cache_key, report_key, payload_json, built_at)"
                 " VALUES (?, ?, ?, ?)"
                 " ON CONFLICT(cache_key) DO UPDATE SET"
                 "   payload_json=excluded.payload_json, built_at=excluded.built_at",
-                (cache_key, report_key, json.dumps(payload, default=str), now),
+                (cache_key, report_key, blob, now),
             )
 
     def prune(self, older_than_seconds: float) -> int:

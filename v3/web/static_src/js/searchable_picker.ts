@@ -95,6 +95,7 @@ export class SearchablePicker {
   close(): void {
     this.isOpen = false;
     this.list.hidden = true;
+    this.search.setAttribute("aria-expanded", "false");
   }
 
   handleOutsideClick(target: Node): void {
@@ -122,8 +123,12 @@ export class SearchablePicker {
     search.placeholder = this.placeholder;
     search.setAttribute("role", "combobox");
     search.setAttribute("aria-autocomplete", "list");
+    search.setAttribute("aria-expanded", "false");
+    search.setAttribute("aria-haspopup", "listbox");
+    search.setAttribute("aria-label", this.placeholder);
     search.addEventListener("focus", () => this.open());
     search.addEventListener("input", () => this.open());
+    search.addEventListener("keydown", (e) => this.onSearchKey(e));
     this.host.appendChild(search);
     return search;
   }
@@ -134,13 +139,30 @@ export class SearchablePicker {
     list = document.createElement("div");
     list.className = "customer-options";
     list.hidden = true;
+    list.setAttribute("role", "listbox");
+    list.id = `picker-list-${Math.random().toString(36).slice(2, 8)}`;
     this.host.appendChild(list);
     return list;
   }
 
   private open(): void {
     this.isOpen = true;
+    this.search.setAttribute("aria-expanded", "true");
+    this.search.setAttribute("aria-controls", this.list.id);
     this.renderOptions();
+  }
+
+  private onSearchKey(e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      this.close();
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "Enter") {
+      e.preventDefault();
+      this.open();
+      const first = this.list.querySelector<HTMLInputElement>("input[type='checkbox']");
+      first?.focus();
+    }
   }
 
   private renderOptions(): void {

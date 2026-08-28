@@ -35,7 +35,7 @@ body {
 .header-right { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 13px; flex-shrink: 1; min-width: 0; flex-wrap: wrap; }
 .btn-icon {
     display: inline-flex; align-items: center; justify-content: center;
-    min-width: 32px; min-height: 32px; padding: 4px;
+    min-width: 44px; min-height: 44px; padding: 4px;
 }
 .user-name { display: none; }
 @media (min-width: 480px) { .user-name { display: inline; color: var(--text-muted); } }
@@ -179,6 +179,10 @@ body {
     padding: 10px 20px; border-radius: var(--radius-sm); font-size: 15px;
     font-weight: 600; cursor: pointer; border: none; text-decoration: none;
     transition: all 0.15s ease; -webkit-tap-highlight-color: transparent;
+    min-height: 44px;
+}
+.btn:focus-visible, .bottom-nav-item:focus-visible, .header-text-link:focus-visible {
+    outline: 2px solid var(--border-focus); outline-offset: 2px;
 }
 .btn svg { width: 18px; height: 18px; }
 /* .btn's display would otherwise beat the browser's [hidden] rule, leaving
@@ -190,7 +194,7 @@ body {
 .btn-outline { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
 .btn-outline:hover { background: var(--bg); }
 .btn-outline:active { transform: scale(0.96); opacity: 0.7; transition: none; }
-.btn-sm { padding: 6px 12px; font-size: 13px; }
+.btn-sm { padding: 8px 12px; font-size: 13px; min-height: 44px; }
 .btn-lg { padding: 14px 24px; font-size: 17px; }
 .btn-block { width: 100%; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -227,11 +231,7 @@ body {
 .help-icon:hover, .help-icon:focus { border-color: var(--primary, #2563eb); color: var(--primary, #2563eb); outline: none; }
 
 /* -- Help popup -- */
-.help-popup-overlay {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.45); z-index: 10000; display: flex;
-    justify-content: center; align-items: center; padding: 24px 16px;
-}
+.help-popup-overlay[hidden] { display: none !important; }
 .help-popup-content {
     background: var(--bg-card, #1e293b); border-radius: 14px; padding: 20px 22px 22px;
     max-width: 380px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
@@ -265,3 +265,13 @@ body {
 .ptr-indicator.ptr-armed .ptr-spinner { border-top-color: var(--primary); border-color: rgba(37,99,235,0.25); }
 .ptr-indicator.ptr-refreshing .ptr-spinner { animation: ptr-spin 0.8s linear infinite; }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+

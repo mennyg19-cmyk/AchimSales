@@ -78,11 +78,12 @@
 </section>
 
 <!-- Edit user modal -->
-<div class="modal-overlay" id="editUserModal" style="display:none;"
+<div class="modal-overlay" id="editUserModal" hidden
+     role="presentation"
      data-csrf="{{ csrf_token() }}">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
     <div class="modal-head"><h3 id="editUserTitle">Edit user</h3>
-      <button type="button" class="modal-close" data-close-user>&times;</button></div>
+      <button type="button" class="modal-close" data-close-user aria-label="Close">&times;</button></div>
     <div class="modal-body">
       <label class="auth-field"><span class="auth-label">Role</span>
         <select id="euRole">{% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}</select></label>
@@ -127,10 +128,10 @@
 </div>
 
 <!-- Edit salesman modal -->
-<div class="modal-overlay" id="editSmModal" style="display:none;">
-  <div class="modal">
-    <div class="modal-head"><h3>Edit salesman</h3>
-      <button type="button" class="modal-close" data-close-sm>&times;</button></div>
+<div class="modal-overlay" id="editSmModal" hidden role="presentation">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editSmTitle">
+    <div class="modal-head"><h3 id="editSmTitle">Edit salesman</h3>
+      <button type="button" class="modal-close" data-close-sm aria-label="Close">&times;</button></div>
     <div class="modal-body">
       <label class="auth-field"><span class="auth-label">Number</span><input id="esNumber" type="text"></label>
       <label class="auth-field"><span class="auth-label">Full name</span><input id="esFull" type="text"></label>

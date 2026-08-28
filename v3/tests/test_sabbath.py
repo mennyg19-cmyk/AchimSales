@@ -49,14 +49,16 @@ def test_outside_any_window_is_not_restricted():
     assert _assur_from_items(items, now) == (False, "")
 
 
-def test_sabbath_check_fails_open_on_a_malformed_response(monkeypatch):
+def test_sabbath_check_fails_closed_on_a_malformed_response(monkeypatch):
     from web.scheduling import sabbath
     monkeypatch.setattr(
         sabbath, "_fetch_items",
         lambda now: [{"category": "candles", "date": "not-a-date"}],
     )
     now = datetime(2026, 6, 17, 20, 0, tzinfo=timezone.utc)
-    assert melacha_assur(now) == (False, "")
+    assur, reason = melacha_assur(now)
+    assert assur is True
+    assert reason == "Hebcal unavailable"
 
 
 def test_skip_sabbath_defaults_on():

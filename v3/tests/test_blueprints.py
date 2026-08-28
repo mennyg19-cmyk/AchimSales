@@ -738,7 +738,7 @@ def test_preset_create_list_get_delete_and_home(tmp_path):
     # Cross-report list (My Presets) + home page shows it
     allp = client.get("/api/saved-reports").get_json()["presets"]
     assert any(p["id"] == pid for p in allp)
-    assert "My presets" in client.get("/").get_data(as_text=True)
+    assert "Saved views" in client.get("/").get_data(as_text=True)
     assert "March edited" in client.get("/").get_data(as_text=True)
 
     # Delete
@@ -1433,13 +1433,13 @@ def test_preferences_api_persists_theme(tmp_path):
 def test_preferences_api_rejects_unknown_user(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
-    # session without a DB-backed user row
+    # session without a DB-backed user row — signed out (401), not 403
     with client.session_transaction() as s:
         s["v3_user"] = {"email": "ghost@x.com", "name": "G", "role": "salesman", "is_dev": True}
         s["_csrf_token"] = _CSRF
     resp = client.post("/api/settings/preferences", json={"theme": "dark"},
                        headers={"X-CSRF-Token": _CSRF})
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 def test_report_view_has_help_triggers(tmp_path):
@@ -1494,9 +1494,7 @@ def test_feature_flag_rejects_unknown_key(tmp_path):
 def test_feature_flag_forbidden_for_salesman(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
-    with client.session_transaction() as s:
-        s["v3_user"] = {"email": "rep@x.com", "name": "Rep", "role": "salesman", "is_dev": True}
-        s["_csrf_token"] = _CSRF
+    _login(client, app, email="rep@x.com", role="salesman")
     resp = client.post("/api/admin/feature-flags", json={"key": "dashboard_enabled", "enabled": True},
                        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 403
@@ -1789,9 +1787,7 @@ def test_save_and_on_do_not_catch_up_todays_missed_slot(tmp_path):
 def test_schedule_test_mode_forbidden_for_salesman(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
-    with client.session_transaction() as s:
-        s["v3_user"] = {"email": "rep@x.com", "name": "Rep", "role": "salesman", "is_dev": True}
-        s["_csrf_token"] = _CSRF
+    _login(client, app, email="rep@x.com", role="salesman")
     resp = client.post(
         "/api/admin/schedule-test", json={"enabled": True, "emails": ["a@x.com"]},
         headers={"X-CSRF-Token": _CSRF},

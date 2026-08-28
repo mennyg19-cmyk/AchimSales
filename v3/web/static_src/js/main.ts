@@ -4,6 +4,8 @@
  * page-loading overlay, and custom pull-to-refresh. Behavior matches live.
  */
 
+import { hiddenPollMs, openDialog } from "./dialog";
+
 declare const feather: { replace: () => void } | undefined;
 
 declare global {
@@ -22,6 +24,8 @@ declare const HELP: Record<string, HelpEntry> | undefined;
 
 let navPending = false;
 
+let closeHelpDialog: (() => void) | null = null;
+
 function openHelp(key: string): void {
   const entry = typeof HELP !== "undefined" && HELP[key];
   if (!entry) return;
@@ -31,13 +35,21 @@ function openHelp(key: string): void {
   if (!title || !body || !overlay) return;
   title.textContent = entry.title;
   body.innerHTML = entry.body;
-  overlay.style.display = "flex";
+  closeHelpDialog = openDialog(overlay, {
+    initial: document.getElementById("helpCloseBtn"),
+  });
 }
 
 function closeHelp(e?: Event): void {
   const overlay = document.getElementById("helpOverlay");
   if (!overlay) return;
   if (e && e.target && e.target !== overlay) return;
+  if (closeHelpDialog) {
+    closeHelpDialog();
+    closeHelpDialog = null;
+    return;
+  }
+  overlay.hidden = true;
   overlay.style.display = "none";
 }
 
@@ -246,7 +258,12 @@ function initNotificationBadges(): void {
     }
   }
   poll();
-  setInterval(poll, 30000);
+  const tick = () => { void poll(); };
+  let timer = window.setInterval(tick, hiddenPollMs(30000));
+  document.addEventListener("visibilitychange", () => {
+    window.clearInterval(timer);
+    timer = window.setInterval(tick, hiddenPollMs(30000));
+  });
 }
 
 interface ActiveReportJob {
@@ -282,8 +299,9 @@ function formatJobWhen(iso: string | null | undefined): string {
  * Header "Recent Reports" opens the same list. The pill shrinks to an icon.
  */
 function initReportJobsBar(): void {
-  const bar = document.getElementById("reportJobsBar");
-  if (!bar) return;
+  const found = document.getElementById("reportJobsBar");
+  if (!found) return;
+  const bar: HTMLElement = found;
   const activeUrl = bar.getAttribute("data-active-url") || "";
   const reportUrlTpl = bar.getAttribute("data-report-url") || "";
   const keepUrlTpl = bar.getAttribute("data-keep-url") || "";
@@ -487,7 +505,12 @@ function initReportJobsBar(): void {
     }
   }
   poll();
-  setInterval(poll, 5000);
+  const tickJobs = () => { void poll(); };
+  let jobTimer = window.setInterval(tickJobs, hiddenPollMs(5000));
+  document.addEventListener("visibilitychange", () => {
+    window.clearInterval(jobTimer);
+    jobTimer = window.setInterval(tickJobs, hiddenPollMs(5000));
+  });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -500,6 +523,9 @@ document.addEventListener("DOMContentLoaded", () => {
   initNotificationBadges();
   initReportJobsBar();
   initPullToRefresh();
+  document.getElementById("helpCloseBtn")?.addEventListener("click", () => closeHelp());
+  document.getElementById("helpOverlay")?.addEventListener("click", (e) => closeHelp(e));
+  document.querySelector(".help-popup-content")?.addEventListener("click", (e) => e.stopPropagation());
 });
 
 window.addEventListener("pageshow", () => {

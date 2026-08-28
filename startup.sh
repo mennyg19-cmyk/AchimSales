@@ -18,7 +18,7 @@
 # not abort the boot. Prod Litestream failures use explicit `exit 1`.
 set -u
 
-ROOT="/home/site/wwwroot"
+ROOT="${STARTUP_ROOT:-/home/site/wwwroot}"
 WORKERS="${WEB_CONCURRENCY:-2}"
 THREADS="${GUNICORN_THREADS:-8}"
 # 230s aligns with Azure App Service's front-end idle cap. Big report exports
@@ -28,13 +28,17 @@ THREADS="${GUNICORN_THREADS:-8}"
 TIMEOUT="${GUNICORN_TIMEOUT:-230}"
 PORT="${PORT:-8000}"
 APP_ENV="${APP_ENV:-prod}"
-LS_BIN="/home/bin/litestream"
+LS_BIN="${LITESTREAM_BIN:-/home/bin/litestream}"
 LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
+# sha256 of litestream-v0.3.13-linux-amd64.tar.gz (GitHub release asset).
+LS_SHA256="${LITESTREAM_SHA256:-eb75a3de5cab03875cdae9f5f539e6aedadd66607003d9b1e7a9077948818ba0}"
 
 GUNICORN_CMD="gunicorn --config=${ROOT}/gunicorn.conf.py --bind=0.0.0.0:${PORT} --workers=${WORKERS} --worker-class=gthread --threads=${THREADS} --timeout=${TIMEOUT} --access-logfile=- --error-logfile=- wsgi:application"
 
 # 1. Defensive dependency install (Oryx usually already did this on deploy).
-pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
+if [ -z "${STARTUP_SKIP_PIP:-}" ]; then
+  pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
+fi
 
 # 1b. One-time move off the /home SMB share onto local disk (rule 5).
 #     SQLite's WAL mode can't share its index across processes on an SMB share,
@@ -84,7 +88,12 @@ if [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${ROOT}/litestream.yml" ]
     echo "startup: fetching litestream ${LS_VERSION}"
     mkdir -p /home/bin
     if curl -fsSL "https://github.com/benbjohnson/litestream/releases/download/${LS_VERSION}/litestream-${LS_VERSION}-linux-amd64.tar.gz" -o /tmp/litestream.tgz; then
-      tar -xzf /tmp/litestream.tgz -C /home/bin litestream || echo "startup: litestream extract failed"
+      if ! echo "${LS_SHA256}  /tmp/litestream.tgz" | sha256sum -c -; then
+        echo "startup: litestream checksum mismatch; refusing that binary"
+        rm -f /tmp/litestream.tgz
+      else
+        tar -xzf /tmp/litestream.tgz -C /home/bin litestream || echo "startup: litestream extract failed"
+      fi
     else
       echo "startup: litestream download failed"
     fi

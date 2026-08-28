@@ -94,3 +94,8 @@ def test_valid_prod_config_passes():
 def test_dev_config_is_permissive():
     # Locally none of the prod guards apply (no litestream, no secret, dev auth).
     _cfg(app_env="dev", auth_mode="dev", flask_secret="", litestream_blob_url="").validate()
+
+
+def test_reports_only_alias_tracks_is_beta():
+    assert _cfg(is_beta=True).reports_only is True
+    assert _cfg().reports_only is False

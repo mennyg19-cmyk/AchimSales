@@ -2,29 +2,33 @@
 
 Last updated: 2026-08-28
 
-**Status:** Draft PR #1 is ready for owner review. CI green on `ce988ed`. Review loops A/B/C closed. Do not merge to `webapp-cache`. Do not deploy Production.
+**Status:** Draft PR #1 implements the remaining REPOSITORY-REVIEW items on `cursor/p0-security-containment-adb6`. Do not merge to `webapp-cache`. Do not deploy Production.
 
 ## What's done
 
-- P0.1–P0.5 and review security (P0.1 history rewrite still owner-blocked).
+- P0.1–P0.5 except history rewrite / live session revoke.
 - Rollback tag `archive/pre-cleanup-2026-08-27` = `b14d725`.
-- `webapp/` and `rebuild/` deleted; v3 owns Entra, magic links, OData, report-source map.
-- Settings copy is "Report data sources". Test Site nav, order-entry flag, and the "v3" pill are gone.
-- Admin user API no longer accepts or returns `test_access`. `NEW_APP_MARKER` is gone from Config.
-- Help copy no longer describes Test-Site Access. Factory docstring no longer mentions a "new app" marker.
-- Prod hides `*.map`. Azure Production build runs `tools/run-p0-tests.sh`.
-- Phase gate: Loop A, Loop B (plus re-pass), Loop C (plus re-pass) all zero findings on HEAD. Trust-boundary not triggered.
+- v3 is the only site at `/`. `is_beta=True` kept (`BETA_PRECIOUS_DB_PATH`, cookie `session`). `Config.reports_only` is an alias.
+- Report math: dates fail closed, commission `1` = 1%, monthly rates per month, Ordered Summary by CustomerAccount, Hebcal fail-closed.
+- Keep-run snapshot in precious; cache/export prune on the scheduler tick; hung jobs fail after 45 minutes (not requeued).
+- Delivery legs, Send now vs clock slot, Graph Retry-After, explicit salesman with no email fails the schedule. Prod outbox-only is not success.
+- UI/a11y items from the review, including Saved views copy and report-page Schedule using the Schedules wizard.
+- God-file splits: reports/schedules blueprints, factory seeds/background, pages.css, report.ts (grid/filters/jobs/views/delivery).
+- CI: full v3 pytest, root pytest (needs `tests/conftest.py`), tsc, npm build, dist js/css check.
+- Empty-disk restore **unit** test in `tests/test_startup_restore.py`. Diagnostics `host.counters` for Graph throttle / last report ms / last tick.
 
 ## What's next
 
 1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie blob must leave git history.
-2. Remaining product backlog (not this PR): scheduling delivery redesign, a11y, commission/name rules, Run now vs Send now.
-3. Do not flip `is_beta` to False (`BETA_PRECIOUS_DB_PATH` + `session` cookie).
-4. Do not merge this branch to `webapp-cache` until you mean to go live.
+2. Live Azure empty-disk restore drill (not done here).
+3. Review loops A/B/C on this phase if not already closed on HEAD after this push.
+4. Do not flip `is_beta` to False. Do not merge until you mean to go live.
 
-## Open decisions
+## Open decisions / BLOCKED
 
-Unchanged from the repository review. In-app Live email distributions were not ported; Automation runbooks still send.
+- P0.1 history rewrite and live session revoke.
+- Production merge/deploy.
+- In-app Live email distributions were not ported; Azure Automation still sends.
 
 ## Gotchas
 
@@ -32,4 +36,6 @@ Unchanged from the repository review. In-app Live email distributions were not p
 - Do not print cookie values.
 - Do not delete `reports/`, `core/`, `data/`, `runbooks/`.
 - Do not add a repo `.semgrepignore`.
-- Full v3 pytest: 3 tests still expect 403 and get 401 when the session user has no DB row / is a salesman using a raw session. Not in the P0 CI list.
+- Root pytest must **not** use `--noconftest` (fixtures live in `tests/conftest.py`).
+- Full v3 pytest: `cd v3 && python -m pytest tests -q`.
+- Frontend: `cd v3 && npx tsc --noEmit && npm run build` then commit dist js/css.

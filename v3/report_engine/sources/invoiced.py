@@ -45,14 +45,13 @@ def _commission_fraction(raw: Mapping) -> float:
 
     The master stores rates as fractions (0.06 = 6%) and the live math does
     net * rate, so we keep that convention. A real rate is well under 100%, so
-    if the SP ever sends a whole percent (6 instead of 0.06) we divide by 100 -
-    that guard only fires above 1.0, so a genuine fraction passes through
-    untouched. (See REVIEW-LOG: unit confirmed once a live call is captured.)
+    if the SP sends a whole percent (6 or even 1 instead of 0.06 / 0.01) we
+    divide by 100. Values in (0, 1) stay fractions. Exactly 1 is 1%, not 100%.
     """
     pct = num(first_of(raw, "commission", "Commission", "CommissionPct", "Commission %"))
     if pct <= 0:
         return 0.0
-    return pct / 100 if pct > 1 else pct
+    return pct / 100.0 if pct >= 1 else pct
 
 
 def to_fact(raw: Mapping) -> InvoiceChargeFact:

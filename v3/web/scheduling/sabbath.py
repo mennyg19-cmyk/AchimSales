@@ -1,7 +1,7 @@
 """Is it Shabbos or Yom Tov right now? (so a scheduled send can skip it).
 
 Matches the live Azure runbook: Hebcal for Brooklyn, 18-minute candles.
-Fails open — a calendar hiccup must never block every send.
+Fails closed — a calendar hiccup must not send on Shabbos by accident.
 """
 
 from __future__ import annotations
@@ -31,9 +31,9 @@ def melacha_assur(now_utc: datetime | None = None) -> tuple[bool, str]:
     try:
         items = _fetch_items(now)
         return _assur_from_items(items, now)
-    except Exception:  # noqa: BLE001 - a calendar hiccup must not block sends
-        log.warning("Hebcal check failed; treating as not restricted", exc_info=True)
-        return False, ""
+    except Exception:  # noqa: BLE001 - skip sends rather than risk Shabbos
+        log.warning("Hebcal check failed; treating as restricted", exc_info=True)
+        return True, "Hebcal unavailable"
 
 
 def _fetch_items(now: datetime) -> list[dict]:
@@ -61,9 +61,11 @@ def _assur_from_items(items: list[dict], now: datetime) -> tuple[bool, str]:
     for entry in items:
         category = entry.get("category", "")
         when = _parse_dt(entry.get("date", ""))
-        if category == "candles" and when is not None:
+        if category in ("candles", "havdalah") and when is None:
+            raise ValueError(f"Hebcal {category} date unreadable: {entry.get('date')!r}")
+        if category == "candles":
             candles.append((when, entry.get("memo", "") or ""))
-        elif category == "havdalah" and when is not None:
+        elif category == "havdalah":
             havdalahs.append(when)
         elif entry.get("yomtov"):
             yomtov_titles[entry.get("date", "")] = entry.get("title", "Yom Tov")

@@ -116,14 +116,16 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
         source = job_repo.get(p["source_job_id"])
         if source is None or source.owner_user_id != ctx.job.owner_user_id:
             raise RuntimeError("Source report not found")
-        cached = cache.get(source.result_ref)
-        if cached is None:
-            raise RuntimeError("Report result expired; re-run the report, then export")
+        payload = job_repo.get_kept_payload(source.id)
+        if payload is None:
+            cached = cache.get(source.result_ref)
+            if cached is None:
+                raise RuntimeError("Report result expired; re-run the report, then export")
+            payload = cached.payload
         run_params = (source.params.get("params") or {}) if isinstance(source.params, dict) else {}
         ctx.set_progress(25)
 
         layout = p.get("layout") if isinstance(p.get("layout"), dict) else None
-        payload = cached.payload
         if not authz.may_see_commissions(principal):
             payload = drop_commissions_tab(payload)
         if layout:

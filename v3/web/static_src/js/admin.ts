@@ -107,13 +107,21 @@ async function saveUser(): Promise<void> {
   const keys = Array.from(
     document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
   ).map((c) => c.value);
-  await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+  const scopeResp = await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+  if (!scopeResp.ok) {
+    setMsg("euMsg", "User saved, but salesman access did not save. Try again.");
+    return;
+  }
 
   const reportPosts = Array.from(
     document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
   ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
     { report_key: sel.getAttribute("data-report"), access: sel.value }));
-  await Promise.all(reportPosts);
+  const reportResps = await Promise.all(reportPosts);
+  if (reportResps.some((r) => !r.ok)) {
+    setMsg("euMsg", "User saved, but a report-access change did not save. Try again.");
+    return;
+  }
   window.location.reload();
 }
 
@@ -136,6 +144,7 @@ function initSalesmen(): void {
       const resp = await api(`${salesmenBase}/${encodeURIComponent(key)}`, "PUT",
         { is_active: box.checked });
       if (!resp.ok) box.checked = !box.checked;
+      if (!resp.ok) window.alert("Could not update salesman.");
       box.disabled = false;
     });
   });
@@ -166,11 +175,15 @@ async function saveSm(): Promise<void> {
 // --- helpers ----------------------------------------------------------------
 function show(id: string): void {
   const el = $(id);
-  if (el) el.style.display = "flex";
+  if (!el) return;
+  el.hidden = false;
+  el.style.display = "flex";
 }
 function hide(id: string): void {
   const el = $(id);
-  if (el) el.style.display = "none";
+  if (!el) return;
+  el.hidden = true;
+  el.style.display = "none";
 }
 function setMsg(id: string, text: string): void {
   const el = $(id);

@@ -64,6 +64,12 @@ def test_start_is_clamped_to_go_live():
     assert p.start_date == D365_GO_LIVE
 
 
+def test_month_and_week_alias_seeded_periods():
+    assert parse_period("month", today=date(2026, 5, 3)) == parse_period(
+        "last_month", today=date(2026, 5, 3))
+    assert parse_period("week", today=_TODAY) == parse_period("last_7_days", today=_TODAY)
+
+
 def test_unknown_period_raises():
     with pytest.raises(ValueError, match="Unknown period"):
         parse_period("bogus", today=_TODAY)

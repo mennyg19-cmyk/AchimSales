@@ -117,8 +117,45 @@ def run_param_windows(params: dict | None, report_key: str, *,
             params, report_key, skipped=skipped, today=today, last_success=last_success,
         ))
     if include_regular or not windows:
-        windows.append(params)
+        if not _regular_already_covered(windows, params, today):
+            windows.append(params)
     return _dedupe(windows)
+
+
+def _window_bounds(window: dict, today: date) -> tuple[date, date] | None:
+    p = period_of(window)
+    if p == "custom":
+        try:
+            return date.fromisoformat(str(window["start_date"])[:10]), date.fromisoformat(
+                str(window["end_date"])[:10])
+        except (KeyError, TypeError, ValueError):
+            return None
+    alias = {"month": "last_month", "week": "last_7_days"}.get(p, p)
+    if alias in ("all_time", ""):
+        return None
+    try:
+        per = parse_period(alias, today=today)
+    except ValueError:
+        return None
+    return per.start_date, per.end_date
+
+
+def _regular_already_covered(windows: list[dict], regular: dict, today: date) -> bool:
+    """True when a catch-up workbook already includes the regular date range."""
+    if not windows:
+        return False
+    bounds = _window_bounds(regular, today)
+    if bounds is None:
+        return False
+    r_start, r_end = bounds
+    for window in windows:
+        covered = _window_bounds(window, today)
+        if covered is None:
+            continue
+        w_start, w_end = covered
+        if w_start <= r_start and w_end >= r_end:
+            return True
+    return False
 
 
 def eastern_date_of(iso: str | None) -> date | None:

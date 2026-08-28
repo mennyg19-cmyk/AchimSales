@@ -330,6 +330,35 @@ def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
     assert all(c.get("email_on_empty") is False for c in split)
 
 
+def test_runner_explicit_salesman_without_email_fails(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="NoMail", number="3", full_name="No Mail",
+                     display_name="NoMail", email=""),
+    ])
+
+    class FakeDelivery:
+        def run_and_deliver(self, **kwargs):
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=FakeDelivery())  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={"email_salesman_keys": ["NoMail"]},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="manager@x.com")
+    with pytest.raises(RuntimeError, match="no email"):
+        runner.run(mid, MASTER)
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "failure"
+
+
 def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
@@ -382,7 +411,7 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     assert hist[0].status == "success"
 
 
-def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path):
+def test_runner_explicit_salesman_without_email_fails_the_schedule(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
     SalesmanRepository(db).upsert_many([
@@ -414,16 +443,10 @@ def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path
             "email_to_salesmen": True,
         }, layout={}, cadence={"freq": "daily", "time": "08:00"},
         recipients="manager@x.com")
-    runner.run(mid, MASTER)
-
-    assert len(delivery.calls) == 2  # management + MKolko only
-    assert delivery.calls[1]["recipients"] == "m@x.com"
+    with pytest.raises(RuntimeError, match="no email"):
+        runner.run(mid, MASTER)
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
-    assert hist[0].status == "success"
-    assert "NoMail" in (hist[0].debug_log or "")
-    assert "skipped" in (hist[0].debug_log or "").lower()
-    meta = hist[0].output_meta or {}
-    assert any(d.get("salesman") == "NoMail" and d.get("skipped") for d in meta.get("deliveries") or [])
+    assert hist[0].status == "failure"
 
 
 def test_runner_master_test_mode_redirects_and_skips_sharepoint(tmp_path):
@@ -638,7 +661,8 @@ def test_tick_skips_shabbos_and_catches_up_after(tmp_path, monkeypatch):
     job = job_repo.claim_next()
     assert job is not None and job.params["schedule_id"] == mid
     assert job.params["catch_up_for_date"] == "2026-06-01"
-    assert MasterScheduleRepository(db).get(mid).catch_up_pending is False
+    # Catch-up stays owed until the job actually finishes (not when it is queued).
+    assert MasterScheduleRepository(db).get(mid).catch_up_pending is True
 
 
 def test_tick_run_now_style_enqueue_still_works_when_restricted(tmp_path, monkeypatch):
@@ -915,4 +939,55 @@ def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypat
     assert delivery.calls == 2
     assert len(hist) == 1 and hist[0].status == "success"
     assert delivery.email.notices == []
+
+
+def test_runner_retry_skips_successful_fanout_legs(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="A", number="1", full_name="A", display_name="A", email="a@x.com"),
+        SalesmanSeed(raw_key="B", number="2", full_name="B", display_name="B", email="b@x.com"),
+    ])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+            self.b_tries = 0
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            salesman = (kwargs.get("params") or {}).get("salesman")
+            if salesman == ["B"]:
+                self.b_tries += 1
+                if self.b_tries == 1:
+                    return DeliveryOutcome(
+                        result=DeliveryResult(ok=False, error="Graph failed: 503"),
+                        row_count=0,
+                    )
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml",
+                    sent_via_smtp=True, send_channel="graph",
+                ),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={"email_salesman_keys": ["A", "B"]},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="manager@x.com")
+    runner.run(mid, MASTER)
+    salesman_calls = [
+        c.get("params", {}).get("salesman") for c in delivery.calls
+    ]
+    assert salesman_calls.count(["A"]) == 1
+    assert salesman_calls.count(["B"]) == 2
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "success"
 
