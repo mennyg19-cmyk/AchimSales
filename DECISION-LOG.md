@@ -1,11 +1,18 @@
 # Decision Log
 
+## 2026-08-28 Q3 commission display: salesman table saved percent
+**What I had to decide:** When invoice rates differ, what the Commissions tab one % box should show.
+**Options I considered:** (1) “varies”. (2) First invoice rate. (3) Latest invoice rate. (4) Weighted blend. (5) The saved `salesmen.commission_pct` on the salesman row.
+**What I chose:** (5). Owner: that % comes from the salesman table saved percent. Invoice-to-invoice differences do not change the printed %. Dollars still follow Q2 (each invoice's SP rate; SP `0` stays 0%).
+**Why:** The % column is the salesman's stored rate, not a summary of invoice stamps. People currently cannot edit `commission_pct`; it is the Excel-seeded copy unless we add an editor later.
+**Status:** DECIDED — Q3 closed. Q4–Q11 still open.
+
 ## 2026-08-28 Q2 commission effective rate: per invoice; SP zero stays zero
 **What I had to decide:** Use each invoice's rate, one rate per month, or one annual rate? Also whether a missing/zero SP rate may fall back to `salesmen.commission_pct`.
 **Options I considered:** (1) Per-invoice SP rate. (2) One rate per month. (3) One annual rate. Fallback: salesman-table copy vs treat blank/zero as 0%.
 **What I chose:** (1) plus no fallback. Owner confirmed: each invoice uses its own SP rate. SP `0` pays 0% on that invoice. Do not substitute the Excel-seeded `salesmen.commission_pct` copy.
 **Why:** SQL is the rate source. The app table is a leftover from `salesman_map.xlsx` and is not editable in People.
-**Status:** DECIDED — Q2 closed. Phase 6 must stop master fallback. Q3–Q11 still open.
+**Status:** DECIDED — Q2 closed. Phase 6: money does not fall back to the salesman table; the % column does (Q3). Q3–Q11 still open.
 
 ## 2026-08-28 Q1 commission unit: SP value is a fraction; 1 = 100%
 **What I had to decide:** Does stored-procedure `commission` value `1` mean 1% or 100%?
@@ -19,7 +26,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q2 DECIDED. Still waiting on Q3–Q11.
+**Status:** BLOCKED — Q1–Q3 DECIDED. Still waiting on Q4–Q11.
 
 ## 2026-08-28 Sol-list phase gate closed on the draft
 **What I had to decide:** Whether this remaining-review phase is done on the branch.
