@@ -2,25 +2,23 @@
 
 Last updated: 2026-08-28
 
-**Status:** Phase 0 in progress. Q1–Q5 policy DECIDED. Asking whether to use python-zmanim instead of the Hebcal HTTP endpoint. Do not start Phase 1. Keep PR #1 draft.
+**Status:** Phase 0 in progress. Q1–Q5 DECIDED. Asking Q6. Do not start Phase 1. Keep PR #1 draft.
 
-HEAD at last push before this note: `9ee9d8f`.
+HEAD at last push before this note: `171d82c`.
 
 ## What's done
 
 - Q1–Q4 as previously logged.
-- Q5 policy: if the calendar cannot cover now, hold and alert. Do not send blind.
+- Q5: live Hebcal fetch. On failure, fail the job and email Settings test emails (`schedule_test_emails`). No python-zmanim. Do not send from cache.
 
 ## What's next
 
-1. Owner: python-zmanim vs disk-cached Hebcal.
-2. Q6–Q11, then close Phase 0.
-3. Phase 1+.
+1. Q6–Q11, then close Phase 0.
+2. Phase 1+.
 
 ## Open / BLOCKED
 
-- Q5 calendar source (python-zmanim?).
-- Q6–Q11.
+- Q6–Q11 (asking Q6 in-app email distributions).
 - P0.1 Flask secret rotation.
 - Production merge/deploy.
 - Live Litestream empty-disk drill.
