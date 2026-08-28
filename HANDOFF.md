@@ -2,23 +2,23 @@
 
 Last updated: 2026-08-28
 
-**Status:** Phase 0 in progress. Q1–Q8 DECIDED. Asking Q9. Do not start Phase 1. Keep PR #1 draft.
+**Status:** Phase 0 in progress. Q1–Q9 DECIDED. Asking Q10. Do not start Phase 1. Keep PR #1 draft.
 
-HEAD at last push before this note: `6cb18af`.
+HEAD at last push before this note: `510d880`.
 
 ## What's done
 
-- Q1–Q7 as previously logged.
-- Q8: `achimonline.com` is allowed. Users may add other addresses; those stay pending until an admin or developer approves. Unapproved addresses must not receive mail.
+- Q1–Q8 as previously logged.
+- Q9: a manager who can see a company schedule may press Send now. Do not require edit/toggle permission.
 
 ## What's next
 
-1. Q9–Q11, then close Phase 0.
+1. Q10–Q11, then close Phase 0.
 2. Phase 1+.
 
 ## Open / BLOCKED
 
-- Q9–Q11 (asking Q9 company Send now).
+- Q10–Q11 (asking Q10 retention).
 - P0.1 Flask secret rotation.
 - Production merge/deploy.
 - Live Litestream empty-disk drill.

@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Q9 company Send now: view-only managers may trigger it
+**What I had to decide:** May a manager who can only view a company schedule press Send now?
+**Options I considered:** (1) Require the same edit/toggle permission (`can_edit_master`). (2) Keep Send now on the visibility check so any manager who can see the row can fire it.
+**What I chose:** (2). Owner: yes, they can.
+**Why:** Viewing the company list includes the right to kick a send. Toggle/edit stays tighter.
+**Status:** DECIDED — Q9 closed. Do not tighten `run_master` to `can_edit_master`. Q10–Q11 still open.
+
 ## 2026-08-28 Q8 external recipients: users may add; admin/dev must approve
 **What I had to decide:** May ordinary users email reports outside the company domain?
 **Options I considered:** (1) Any address. (2) Hard-block non-company domains except privileged override at send time. (3) Users may add outside addresses, but mail waits on admin/developer approval.
@@ -68,7 +75,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q8 DECIDED. Still waiting on Q9–Q11.
+**Status:** BLOCKED — Q1–Q9 DECIDED. Still waiting on Q10–Q11.
 
 ## 2026-08-28 Sol-list phase gate closed on the draft
 **What I had to decide:** Whether this remaining-review phase is done on the branch.
