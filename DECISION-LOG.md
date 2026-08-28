@@ -1,11 +1,18 @@
 # Decision Log
 
+## 2026-08-28 Q1 commission unit: SP value is a fraction; 1 = 100%
+**What I had to decide:** Does stored-procedure `commission` value `1` mean 1% or 100%?
+**Options I considered:** (1) Treat `1` as 1% (`pct >= 1` divide by 100), as this PR currently does. (2) Treat the column as a fraction: `0.05` = 5%, `1` = 100%. (3) Wait for a live Reporting API capture.
+**What I chose:** (2). Owner: rates are usually sent as decimals, nobody is paid 1%, typical rates are about 3–5%. This VM has no Reporting API credentials, so there is no live SP sample. Repo evidence matches the owner: salesman master/tests/CLI math all store `0.03`/`0.05`; original adapter used `pct > 1` so `1` stayed 100%; Sol later flipped to `>= 1` without a live row.
+**Why:** If the usual encoding is `0.03`–`0.05`, then `1` is 100%, not 1%. Current code would pay $10 on a $1,000 invoice instead of $1,000 if a row ever sent `1`. Phase 6 must restore `pct > 1` (divide only values above 1). Do not implement until remaining owner questions are logged.
+**Status:** DECIDED — Q1 closed. Q2–Q11 still open.
+
 ## 2026-08-28 Phase 0: archive proven; owner product decisions BLOCKED
 **What I had to decide:** Whether prior Sol-list commission/Hebcal/feature choices close the plan's 11 owner questions.
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — waiting on owner Q1 (commission unit). Q2–Q11 not asked yet.
+**Status:** BLOCKED — Q1 now DECIDED above. Still waiting on Q2–Q11.
 
 ## 2026-08-28 Sol-list phase gate closed on the draft
 **What I had to decide:** Whether this remaining-review phase is done on the branch.
