@@ -275,6 +275,25 @@ def test_keep_run_stores_name_and_drops_oldest_over_cap(db):
     assert jobs.get(ids[2]).keep_name == "Gamma"
 
 
+def test_fail_hung_marks_old_running_jobs_failed_not_requeued(db):
+    jobs = JobRepository(db)
+    old = jobs.enqueue("echo")
+    fresh = jobs.enqueue("echo")
+    assert jobs.claim_next().id == old
+    assert jobs.claim_next().id == fresh
+    with db.precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET started_at=? WHERE id=?",
+            ("2000-01-01T00:00:00+00:00", old),
+        )
+    assert jobs.fail_hung(45 * 60) == 1
+    hung = jobs.get(old)
+    assert hung.status == "failure" and "Timed out" in hung.error
+    assert jobs.get(fresh).status == "running"
+    jobs.mark_success(old, "late-result")
+    assert jobs.get(old).status == "failure"
+
+
 def test_keep_run_copies_payload_off_the_disposable_cache(db):
     uid = UserRepository(db).upsert("a@x.com", display_name="A", role="admin").id
     jobs = JobRepository(db)

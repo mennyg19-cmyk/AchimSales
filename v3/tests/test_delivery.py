@@ -145,6 +145,22 @@ def test_split_recipients_filters_invalid():
     assert split_recipients("") == []
 
 
+def test_prod_outbox_only_is_not_success(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, app_env="prod")
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="hi",
+        report_name="Ordered", filename="ordered.xlsx", xlsx_bytes=b"PK\x03\x04",
+    )
+    assert res.ok is False
+    assert "nobody received" in res.error
+    assert (cfg.outbox_dir / res.eml_name).exists()
+    row = OutboxRepository(db).get(res.outbox_id)
+    assert row and row.status == "failed"
+
+
 def test_email_writes_eml_and_logs_outbox(email):
     svc, cfg, db = email
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",

@@ -222,6 +222,27 @@ def test_cache_strips_nan_and_inf(db):
     assert payload["ok"] == 1.5
 
 
+def test_master_exports_expire_after_90_days(db):
+    from web.data.repositories.exports import (
+        EXPORT_TYPE_MASTER, EXPORT_TYPE_ONE_TIME, ExportRepository,
+    )
+    repo = ExportRepository(db)
+    repo.put("old-master", "ordered", "o.xlsx", b"PK", export_type=EXPORT_TYPE_MASTER)
+    repo.put("mid-master", "ordered", "m.xlsx", b"PK", export_type=EXPORT_TYPE_MASTER)
+    repo.put("mid-one", "ordered", "x.xlsx", b"PK", export_type=EXPORT_TYPE_ONE_TIME)
+    with db.cache() as conn:
+        conn.execute(
+            "UPDATE report_exports SET built_at=datetime('now','-91 days') WHERE job_id='old-master'"
+        )
+        conn.execute(
+            "UPDATE report_exports SET built_at=datetime('now','-10 days') WHERE job_id IN ('mid-master','mid-one')"
+        )
+    assert repo.prune() >= 2
+    assert repo.content("old-master") is None
+    assert repo.content("mid-one") is None
+    assert repo.content("mid-master") is not None
+
+
 def test_cache_prune_removes_old_rows(db):
     cache = ReportCache(db)
     key = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",

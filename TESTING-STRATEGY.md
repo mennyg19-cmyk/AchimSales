@@ -13,6 +13,9 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Keep this run stores a precious snapshot; cache prune does not drop it; tick prunes cache/exports and fails jobs running > 45 minutes.
 - Manual Send now does not consume the scheduled slot; explicit salesman with no email fails the schedule; prod outbox-only is not success; Graph 429 honors Retry-After.
 - Empty-disk prod restore refuses boot (`tests/test_startup_restore.py`). Live Azure drill is not in CI.
+- Hung jobs running > 45 minutes fail and are not requeued (`test_fail_hung_marks_old_running_jobs_failed_not_requeued`).
+- Prod outbox-only delivery is not success (`test_prod_outbox_only_is_not_success`).
+- Master exports expire after 90 days (`test_master_exports_expire_after_90_days`).
 - `Config.reports_only` tracks `is_beta`. Home copy says Saved views. Report Schedule opens the Schedules wizard.
 - CI: full `v3` pytest + root pytest (with `tests/conftest.py`) + `npx tsc --noEmit` + `npm run build` + dist js/css git check.
 
