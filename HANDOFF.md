@@ -2,27 +2,25 @@
 
 Last updated: 2026-08-28
 
-**Status:** Phase 0 in progress. Q1–Q4 DECIDED. Asking Q5. Do not start Phase 1. Keep PR #1 draft. No merge. No Production.
+**Status:** Phase 0 in progress. Q1–Q5 policy DECIDED. Asking whether to use python-zmanim instead of the Hebcal HTTP endpoint. Do not start Phase 1. Keep PR #1 draft.
 
-HEAD at last push before this note: `abf9452`.
+HEAD at last push before this note: `9ee9d8f`.
 
 ## What's done
 
-- Archive restore proven (`b14d725`).
-- Q1: SP `commission` is a fraction; `1` = 100%.
-- Q2: money uses each invoice's SP rate; SP `0` stays 0%.
-- Q3: Commissions tab % shows `salesmen.commission_pct`.
-- Q4: Ordered Summary groups by CustomerAccount; same name, different accounts stay two rows.
+- Q1–Q4 as previously logged.
+- Q5 policy: if the calendar cannot cover now, hold and alert. Do not send blind.
 
 ## What's next
 
-1. Q5–Q11, then close Phase 0.
-2. Phase 1.1 workflow. Phase 1.2 needs Azure secret rotation.
-3. Phases 2–10 in plan order.
+1. Owner: python-zmanim vs disk-cached Hebcal.
+2. Q6–Q11, then close Phase 0.
+3. Phase 1+.
 
 ## Open / BLOCKED
 
-- Q5–Q11 (asking Q5 Hebcal failure).
-- P0.1 Flask secret rotation / history rewrite.
+- Q5 calendar source (python-zmanim?).
+- Q6–Q11.
+- P0.1 Flask secret rotation.
 - Production merge/deploy.
 - Live Litestream empty-disk drill.
