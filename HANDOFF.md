@@ -2,23 +2,22 @@
 
 Last updated: 2026-08-28
 
-**Status:** Phase 0 in progress. Q1–Q10 DECIDED. Asking Q11. Do not start Phase 1. Keep PR #1 draft.
+**Status:** Phase 0 product questions closed (Q1–Q11). Starting Phase 1. Keep PR #1 draft. Do not merge or deploy Production.
 
-HEAD: `7d18200` before the Q10 commit.
+HEAD: `0aa35ac` before the Q11 commit.
 
 ## What's done
 
-- Q1–Q9 as previously logged.
-- Q10: kept runs 30 days (cap 5), one-time exports 7, scheduled 30, master 90, magic-link attempts / delivery legs / old jobs 90 days.
+- Q1–Q11 logged in `DECISION-LOG.md`.
+- Q11: 45-minute job cap; on timeout mark cancelled and kill the child; Reporting API 300s; Graph accept then connection loss = `unknown`, no auto-retry, operator reconciles.
 
 ## What's next
 
-1. Q11 timeout / unknown mail, then close Phase 0.
-2. Phase 1+.
+1. Phase 1.1 production workflow (dispatch guard, `production` Environment, timeouts, checks as deploy dependencies).
+2. Phase 1.2 owner: rotate Flask secrets; confirm old cookies dead; review access logs; decide history rewrite.
 
 ## Open / BLOCKED
 
-- Q11 (asking timeout / unknown mail).
-- P0.1 Flask secret rotation.
+- P0.1 / Phase 1.2 Flask secret rotation and history rewrite.
 - Production merge/deploy.
 - Live Litestream empty-disk drill.

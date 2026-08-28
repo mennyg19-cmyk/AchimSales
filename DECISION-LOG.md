@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Q11 timeout / unknown mail: 45 min kill; Graph unknown is not retried
+**What I had to decide:** Maximum report runtime, and what to do when Graph `sendMail` outcome is unknown.
+**Options I considered:** (1) Keep today's 45-minute DB-only fail while the worker thread can still finish; treat a lost Graph reply as failed and retry. (2) Cap at 45 minutes, mark the job cancelled, and kill the child process; keep Reporting API calls at 300 seconds; if the connection drops after Graph accepted `sendMail`, mark that delivery `unknown`, do not auto-retry, operator reconciles. (3) A different wall-clock cap.
+**What I chose:** (2). Owner: your recommendation.
+**Why:** A timed-out job must actually stop, not only look failed. A maybe-sent email must not be sent a second time.
+**Status:** DECIDED — Q11 closed. Phase 4 kills the child; Phase 5 adds `unknown`. All 11 owner questions are logged.
+
 ## 2026-08-28 Q10 retention: keep current TTLs; prune attempts/legs/jobs at 90 days
 **What I had to decide:** How long to keep kept runs, exports, delivery legs, magic-link attempts, and old jobs.
 **Options I considered:** (1) Leave attempts/legs/jobs forever. (2) Plan table: kept runs 30 days (cap 5), one-time exports 7 days, scheduled 30, master 90, attempts/legs/jobs 90 days. (3) Owner-chosen different days.
@@ -82,7 +89,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q10 DECIDED. Still waiting on Q11.
+**Status:** DECIDED — Q1–Q11 logged. Archive restore was already proven. Phase 0 product gate is closed. Phase 1.2 Flask-secret rotation remains BLOCKED.
 
 ## 2026-08-27 P0: cookie file untracked; history rewrite blocked
 **What I had to decide:** Whether to rewrite git history of `webapp-cache` in this change.
