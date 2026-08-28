@@ -57,3 +57,14 @@ def test_admin_cannot_check(tmp_path):
     client = app.test_client()
     _login(client, app)
     assert client.get(_URL).status_code == 403
+
+
+def test_backup_table_names_must_be_identifiers():
+    import pytest
+    from web.blueprints.report_diagnostics import _sqlite_ident
+
+    assert _sqlite_ident("jobs") == '"jobs"'
+    with pytest.raises(ValueError, match="non-identifier"):
+        _sqlite_ident("jobs; DROP TABLE users")
+    with pytest.raises(ValueError, match="non-identifier"):
+        _sqlite_ident("users--")

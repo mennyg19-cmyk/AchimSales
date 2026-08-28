@@ -16,6 +16,7 @@ Last updated: 2026-08-28
 - God-file splits: reports/schedules blueprints, factory seeds/background, pages.css, report.ts (grid/filters/jobs/views/delivery).
 - CI: full v3 pytest, root pytest (needs `tests/conftest.py`), tsc, npm build, dist js/css check.
 - Empty-disk restore **unit** test in `tests/test_startup_restore.py`. Diagnostics `host.counters` for Graph throttle / last report ms / last tick.
+- Precious backup dump quotes `sqlite_master` identifiers (PR Semgrep vs `webapp-cache`).
 
 ## What's next
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import time
 from urllib.parse import urlparse
@@ -13,6 +14,15 @@ from web.auth.decorators import require_login
 from web.blueprints.reports import (
     _authz, _job_repo, _principal_or_401, _require_developer, _user_id, reports_bp,
 )
+
+_SQLITE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _sqlite_ident(name: str) -> str:
+    """Quote a sqlite_master table name. Rejects anything that is not a plain ident."""
+    if not _SQLITE_IDENT.fullmatch(name or ""):
+        raise ValueError(f"Refusing to dump non-identifier table {name!r}")
+    return '"' + name + '"'
 
 def _probe_reporting_api(cfg, *, run_live: bool = False) -> dict:
     """Hit the on-prem Reporting API straight from this request (no worker, no
@@ -384,7 +394,9 @@ def _backup_precious(conn) -> dict:
     errors: dict = {}
     for table in tables:
         try:
-            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            ident = _sqlite_ident(table)
+            # ident is quoted from sqlite_master names only (never request input).
+            rows = conn.execute("SELECT * FROM " + ident).fetchall()  # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
             dump["tables"][table] = [dict(r) for r in rows]
             counts[table] = len(rows)
         except Exception as exc:  # noqa: BLE001 - one bad table must not lose the rest
