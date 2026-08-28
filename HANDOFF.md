@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-28
 
-**Status:** Draft PR #1 implements the remaining REPOSITORY-REVIEW items on `cursor/p0-security-containment-adb6`. Do not merge to `webapp-cache`. Do not deploy Production.
+**Status:** Draft PR #1 implements the remaining REPOSITORY-REVIEW items on `cursor/p0-security-containment-adb6`. Review loops A/B/C and trust-boundary are green on `7f55503` (CI 15/15). Do not merge to `webapp-cache`. Do not deploy Production.
 
 ## What's done
 
@@ -14,23 +14,27 @@ Last updated: 2026-08-28
 - Worker handlers run with a Flask app context (OData source map works off the request thread). Cancel is checked after the workbook and before send. Cancelled schedules do not mail a failure notice. `/readyz` is 503 if bootstrap failed. Cancel after cache put drops the row.
 - Delivery legs, Send now vs clock slot, Graph Retry-After, explicit salesman with no email fails the schedule. Prod outbox-only is not success.
 - UI/a11y items from the review, including Saved views copy and report-page Schedule using the Schedules wizard.
-- God-file splits: reports/schedules blueprints, factory seeds/background, pages.css, report.ts (grid/filters/jobs/views/delivery).
+- God-file splits: reports/schedules blueprints, factory seeds/background, pages.css, report.ts (grid/filters/jobs/views/delivery). `runner.py` helpers live in `runner_support.py`.
+- Export download re-checks live salesman scope and invoiced Commissions access against the source run (a baked `.xlsx` cannot be narrowed).
 - CI: full v3 pytest, root pytest (needs `tests/conftest.py`), tsc, npm build, dist js/css check.
 - Empty-disk restore **unit** test in `tests/test_startup_restore.py`. Diagnostics `host.counters` for Graph throttle / last report ms / last tick.
 - Precious backup dump quotes `sqlite_master` identifiers (PR Semgrep vs `webapp-cache`).
+- Phase review: Loop A green (`76fabd5`), Loop B green (`b49193c`), Loop C green (`b349b96`; report.ts cycles deferred), trust-boundary green (`7f55503`).
 
 ## What's next
 
 1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie blob must leave git history.
 2. Live Azure empty-disk restore drill (not done here).
-3. Review loops A/B/C on this phase if not already closed on HEAD after this push.
-4. Do not flip `is_beta` to False. Do not merge until you mean to go live.
+3. Do not flip `is_beta` to False. Do not merge until you mean to go live.
+4. Later: break `report-filters` / `report-grid` / `report-jobs` circular imports (Loop C F2, deferred).
 
 ## Open decisions / BLOCKED
 
 - P0.1 history rewrite and live session revoke.
 - Production merge/deploy.
 - In-app Live email distributions were not ported; Azure Automation still sends.
+- Pip freeze lockfile (deferred).
+- Live Litestream empty-disk drill.
 
 ## Gotchas
 
