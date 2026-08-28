@@ -4,7 +4,7 @@ Last updated: 2026-08-28
 
 **Status:** Phase 0 in progress. Q1–Q9 DECIDED. Asking Q10. Do not start Phase 1. Keep PR #1 draft.
 
-HEAD at last push before this note: `510d880`.
+HEAD: `3c3a5da` (Q9). Live log rotated; Sol-list entries are in `DECISION-LOG-ARCHIVE.md`.
 
 ## What's done
 
