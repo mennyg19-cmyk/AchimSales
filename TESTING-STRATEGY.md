@@ -6,6 +6,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 1.1 production deploy workflow (2026-08-28)
+
+**What to test:**
+- Every Azure deploy job has `if: github.ref == 'refs/heads/webapp-cache'` so `workflow_dispatch` from another branch does not package or deploy.
+- `build` needs tracked-secrets, gitleaks, semgrep, zizmor, python, frontend, and restore-preflight. `deploy` needs `build`.
+- Restore preflight runs `tests/test_startup_restore.py --noconftest`.
+- Python job is full v3 pytest plus root pytest.
+- Deploy job `environment` is `production`.
+
+**Expected behavior:**
+- A failed check job prevents the artifact and the Azure Production deploy.
+- This PR does not run the Azure workflow (push filter is `webapp-cache`); zizmor on CI lints the YAML.
+
+**Test files:** `.github/workflows/webapp-cache_achim-sales-reports.yml`, `tests/test_startup_restore.py`
+
+---
+
 ## Sol list leftovers (2026-08-28)
 
 **What to test:**
@@ -70,7 +87,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `AUTH_MODE=dev` is refused in prod; there is no leftover `DEV_BYPASS_AUTH` switch.
 - `/healthz` CSP does not allow unpkg or jsdelivr. Feather, Tabulator JS, and Tabulator CSS are served from `/static/vendor`.
 
-**Test files:** `v3/tests/test_odata_scope.py`, `v3/tests/test_config.py`, `v3/tests/test_smoke.py`. CI and the Azure production build run `tools/run-p0-tests.sh`.
+**Test files:** `v3/tests/test_odata_scope.py`, `v3/tests/test_config.py`, `v3/tests/test_smoke.py`. CI and the Azure Production python job run full pytest; restore-preflight is `tests/test_startup_restore.py`.
 
 ---
 

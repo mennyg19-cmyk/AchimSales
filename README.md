@@ -59,8 +59,12 @@ The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimo
 
 **Production branch is `webapp-cache`.** GitHub Action
 `.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
-push. Cloud Agent `cursor/**` branches do not deploy to the Azure Production
-slot. Manual zip deploy is still `deploy.ps1`.
+push, or on manual dispatch from `webapp-cache` only (any other ref is skipped).
+The deploy job uses GitHub Environment `production`
+(https://reports.achimonline.com). Required reviewers for that Environment are
+set in the GitHub repo settings, not in YAML. Cloud Agent `cursor/**` branches
+do not deploy to the Azure Production slot. Manual zip deploy is still
+`deploy.ps1`.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 

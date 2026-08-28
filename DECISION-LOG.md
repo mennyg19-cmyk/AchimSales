@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Phase 1.1 production workflow: checks are deploy dependencies
+**What I had to decide:** How to make security, Python, frontend, artifact, and restore-preflight real blockers of Azure Production, and how to run semgrep without failing on ~130 existing p/default hits.
+**Options I considered:** (1) Keep one build job with sequential steps. (2) Split jobs with `needs:`; semgrep `--error` on the whole repo. (3) Split jobs with `needs:`; semgrep `--error` only vs the previous commit.
+**What I chose:** (3). Every job has `if: github.ref == 'refs/heads/webapp-cache'`. Deploy uses GitHub Environment `production`. Each job has `timeout-minutes` (Actions has no workflow-level timeout).
+**Why:** `needs:` is what actually stops deploy when a check fails. Whole-repo semgrep `--error` would fail every Production deploy on findings that already exist.
+**Status:** DECIDED — YAML is on this draft. Required reviewers on Environment `production` are GitHub repo settings (that Environment does not exist yet; only `github-pages` does). BLOCKED on the owner enabling reviewers, plus Flask secret rotation (Phase 1.2).
+
 ## 2026-08-28 Q11 timeout / unknown mail: 45 min kill; Graph unknown is not retried
 **What I had to decide:** Maximum report runtime, and what to do when Graph `sendMail` outcome is unknown.
 **Options I considered:** (1) Keep today's 45-minute DB-only fail while the worker thread can still finish; treat a lost Graph reply as failed and retry. (2) Cap at 45 minutes, mark the job cancelled, and kill the child process; keep Reporting API calls at 300 seconds; if the connection drops after Graph accepted `sendMail`, mark that delivery `unknown`, do not auto-retry, operator reconciles. (3) A different wall-clock cap.

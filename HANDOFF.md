@@ -2,22 +2,23 @@
 
 Last updated: 2026-08-28
 
-**Status:** Phase 0 product questions closed (Q1–Q11). Starting Phase 1. Keep PR #1 draft. Do not merge or deploy Production.
+**Status:** Phase 0 closed. Phase 1.1 YAML on the draft. Phase 1 gate still open: owner must rotate Flask secrets and enable required reviewers on GitHub Environment `production`. Keep PR #1 draft. Do not merge or deploy Production.
 
-HEAD: `0aa35ac` before the Q11 commit.
+HEAD: `29f95df` before the Phase 1.1 commit.
 
 ## What's done
 
-- Q1–Q11 logged in `DECISION-LOG.md`.
-- Q11: 45-minute job cap; on timeout mark cancelled and kill the child; Reporting API 300s; Graph accept then connection loss = `unknown`, no auto-retry, operator reconciles.
+- Q1–Q11 logged.
+- Phase 1.1: Azure workflow skips unless `webapp-cache`; deploy job uses Environment `production`; check jobs are `needs:` of package/deploy; job timeouts set.
 
 ## What's next
 
-1. Phase 1.1 production workflow (dispatch guard, `production` Environment, timeouts, checks as deploy dependencies).
-2. Phase 1.2 owner: rotate Flask secrets; confirm old cookies dead; review access logs; decide history rewrite.
+1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; confirm old `session` / `v3_session` cookies no longer authenticate; review access logs from the cookie-file window; decide history rewrite; enable required reviewers on Environment `production`.
+2. After 1.2, Phase 2 auth. Do not start Phase 2 while 1.2 is BLOCKED.
 
 ## Open / BLOCKED
 
-- P0.1 / Phase 1.2 Flask secret rotation and history rewrite.
+- Phase 1.2 Flask secret rotation, cookie revoke, access-log review, history rewrite.
+- GitHub Environment `production` required reviewers.
 - Production merge/deploy.
 - Live Litestream empty-disk drill.
