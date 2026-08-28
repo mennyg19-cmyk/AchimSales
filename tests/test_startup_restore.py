@@ -44,9 +44,9 @@ def test_prod_empty_disk_after_restore_refuses_boot(tmp_path: Path):
         "APP_ENV": "prod",
         "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
     }
-    result = _run_startup(env, tmp_path)
-    out = result.stdout + result.stderr
-    assert result.returncode == 1
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1
     assert "refusing prod boot with empty durable state" in out
     assert not precious.exists()
     marker = precious.with_name(".litestream-restore-failed")
@@ -64,9 +64,9 @@ def test_prod_without_litestream_refuses_boot(tmp_path: Path):
         "APP_ENV": "prod",
         "PRECIOUS_DB_PATH": str(tmp_path / "data" / "precious.db"),
     }
-    result = _run_startup(env, tmp_path)
-    out = result.stdout + result.stderr
-    assert result.returncode == 1
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1
     assert "Litestream is required" in out
 
 
@@ -100,9 +100,9 @@ def test_prod_bad_litestream_checksum_refuses_boot(tmp_path: Path):
         "APP_ENV": "prod",
         "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
     }
-    result = _run_startup(env, tmp_path)
-    out = result.stdout + result.stderr
-    assert result.returncode == 1
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1
     assert "litestream checksum mismatch" in out
     assert "Litestream is required" in out
     assert not (tmp_path / "missing-litestream").exists()

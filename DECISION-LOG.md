@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Loop C: split runner helpers; leave report.ts cycles
+**What I had to decide:** Whether to fully close Loop C's four quality findings in this pass.
+**Options I considered:** (1) Split `runner.py`, delete dead `skip_notes`, rename test `result`, and also break the three `report-*.ts` circular imports. (2) Fix the Python items; defer the report.ts cycles. (3) Defer all as non-blocking notes.
+**What I chose:** (2). Extract schedule-run helpers into `runner_support.py`. Leave `report-filters`/`report-grid`/`report-jobs` circular imports until a dedicated frontend module-boundary pass.
+**Why:** Loop C marked the TS cycles as not blocking and the frontend build is already green. Breaking those cycles is a layout/runtime risk that needs its own verification, not a same-commit tidy.
+**Status:** DECIDED — shipping the Python split. Report.ts cycle break deferred.
+
 ## 2026-08-28 Loop A P2 tests and cache-put cancel
 **What I had to decide:** Whether to accept the check-then-`cache.put` race or drop the row if cancel lands after the write.
 **Options I considered:** (1) Document the tiny race. (2) Check again after put and delete the cache key. (3) Hold a lock around check+put.
