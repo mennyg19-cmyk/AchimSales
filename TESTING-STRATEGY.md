@@ -19,6 +19,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Hung jobs running > 45 minutes fail and are not requeued (`test_fail_hung_marks_old_running_jobs_failed_not_requeued`).
 - Prod outbox-only delivery is not success (`test_prod_outbox_only_is_not_success`).
 - A master schedule with no recipients, folder, or salesman split fails instead of recording success (`test_runner_master_with_no_targets_fails`).
+- Demoted users cannot download a finished export that was built wider than their live scope, or an invoiced file that still has the Commissions tab (`test_demoted_admin_cannot_download_unrestricted_export`, `test_demoted_manager_cannot_download_commissions_export`).
 - Master exports expire after 90 days (`test_master_exports_expire_after_90_days`).
 - Job worker runs handlers with a Flask app context (`test_app_worker_runs_handlers_with_flask_context`).
 - Cancel after workbook skips mail (`test_cancel_after_workbook_skips_mail`). Cancelled schedules do not send failure mail (`test_cancelled_schedule_does_not_mail_failure`). Cancel after an empty salesman split does not send the No Data Found notice (`test_cancel_after_empty_split_skips_no_data_notice`).

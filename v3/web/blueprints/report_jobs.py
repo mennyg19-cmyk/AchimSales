@@ -248,12 +248,29 @@ def export_report(report_key: str, job_id: str):
 @require_login
 def download_export(export_id: str):
     """Stream a finished background export. Owner-checked via the job row; the
-    blob lives in cache.db keyed by the export id."""
+    blob lives in cache.db keyed by the export id.
+
+    The .xlsx is already baked, so a demotion cannot be patched in the file.
+    Re-check the source run's scope and commission stamp against live access.
+    """
     p = _principal_or_401()
-    job = _owned_job_or_404(export_id, _user_id(p.email))
+    uid = _user_id(p.email)
+    job = _owned_job_or_404(export_id, uid)
     if job.type != EXPORT_JOB_TYPE:
         abort(404, description="Unknown export")
     _authz().assert_report_runnable(p, job.params.get("report_key"))
+    source_id = str(job.params.get("source_job_id") or "")
+    source = _job_repo().get(source_id) if source_id else None
+    if source is None or source.owner_user_id != uid:
+        abort(404, description="Unknown export")
+    _assert_scope_compatible(p, source)
+    if (
+        job.params.get("report_key") == "invoiced"
+        and not _authz().may_see_commissions(p)
+    ):
+        nested = source.params.get("params") if isinstance(source.params, dict) else {}
+        if not (nested or {}).get("_skip_commissions"):
+            abort(403, description="Result scope exceeds your current access; please re-run")
     if job.status != "success":
         abort(409, description="Export is not ready yet")
     found = _exports().content(export_id)

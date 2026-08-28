@@ -186,6 +186,83 @@ def test_run_poll_result_export_flow(tmp_path):
                for e in client.get("/api/reports/exports").get_json()["exports"])
 
 
+def test_demoted_admin_cannot_download_unrestricted_export(tmp_path):
+    """Admin-built export is company-wide. After demotion the baked file is 403."""
+    rows = {
+        "ordered_report": [
+            {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+             "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
+        ]
+    }
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    export_id = client.post(
+        f"/api/reports/ordered/export/{job_id}", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    ).get_json()["export_id"]
+    assert client.get(f"/api/reports/exports/{export_id}/download").status_code == 200
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    UserRepository(app.config["DB"]).update(uid, role="salesman")
+    denied = client.get(f"/api/reports/exports/{export_id}/download")
+    assert denied.status_code == 403
+
+
+def test_demoted_manager_cannot_download_commissions_export(tmp_path):
+    """Same salesman keys after demotion still 403 — the xlsx has Commissions."""
+    rows = [
+        {"InvoiceNumber": "INV1", "InvoiceAccount": "100", "CustomerName": "Acme",
+         "InvoiceDate": "2026-03-01", "SubTotal": "100", "SH_TariffCharges": "0",
+         "FreightCharges": "0", "CCSurcharge": "0", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
+    _seed_salesman(app)
+    client = app.test_client()
+    _login(client, app, email="mgr@x.com", role="manager")
+    uid = UserRepository(app.config["DB"]).get_by_email("mgr@x.com").id
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "INSERT INTO user_salesman_access(user_id, salesman_key) VALUES (?, ?)",
+            (uid, "redwards"),
+        )
+    job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    export_id = client.post(
+        f"/api/reports/invoiced/export/{job_id}", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    ).get_json()["export_id"]
+    assert client.get(f"/api/reports/exports/{export_id}/download").status_code == 200
+    UserRepository(app.config["DB"]).update(uid, role="salesman")
+    denied = client.get(f"/api/reports/exports/{export_id}/download")
+    assert denied.status_code == 403
+
+
+def test_salesman_can_redownload_own_narrow_export(tmp_path):
+    """A salesman-built file already matches live scope; re-download stays 200."""
+    rows = {
+        "ordered_report": [
+            {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
+             "ItemDescription": "Widget", "QuantityOrdered": "5", "Ordered $": "50",
+             "SalesStatus": "Open", "CreatedDateTime": "2026-03-01"},
+        ]
+    }
+    app = _make_app(tmp_path, rows_by_report=rows)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                         headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
+    export_id = client.post(
+        f"/api/reports/ordered/export/{job_id}", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    ).get_json()["export_id"]
+    xlsx = client.get(f"/api/reports/exports/{export_id}/download")
+    assert xlsx.status_code == 200
+    assert xlsx.data[:2] == b"PK"
+
+
 def test_run_log_records_and_renders(tmp_path):
     rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
