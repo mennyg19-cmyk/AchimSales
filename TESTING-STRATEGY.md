@@ -30,7 +30,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - OData tabs without a salesman column raise for scoped users; matching keys are kept; unrestricted users still see unscoped tabs.
 - Prod config rejects missing Litestream Azure account/key/container.
 - `/healthz` stays liveness-only; `/readyz` is 503 when prod precious.db is missing.
-- `DEV_BYPASS_AUTH` raises unless `APP_ENV=dev`, and never on Azure.
+- `AUTH_MODE=dev` is refused when `APP_ENV=prod`. Legacy `DEV_BYPASS_AUTH` died with `webapp/`.
 
 **Expected behavior:**
 - Scoped OData cannot return company-wide By Item (or any unscopeable tab).
@@ -38,10 +38,10 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Edge cases:**
 - Empty tabs do not require a salesman column.
-- Azure `WEBSITE_SITE_NAME` blocks bypass even if `APP_ENV=dev`.
+- `AUTH_MODE=dev` is refused in prod; there is no leftover `DEV_BYPASS_AUTH` switch.
 - `/healthz` CSP does not allow unpkg or jsdelivr. Feather, Tabulator JS, and Tabulator CSS are served from `/static/vendor`.
 
-**Test files:** `v3/tests/test_odata_scope.py`, `v3/tests/test_config.py`, `v3/tests/test_smoke.py`, `tests/test_dev_bypass_auth.py`
+**Test files:** `v3/tests/test_odata_scope.py`, `v3/tests/test_config.py`, `v3/tests/test_smoke.py`. CI and the Azure production build run `tools/run-p0-tests.sh`.
 
 ---
 

@@ -89,7 +89,7 @@ python run.py ordered
 | `/` | `v3/` (`is_beta=True`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
 | `/beta` | — | Redirects to the same path without `/beta` (old bookmarks) |
 
-Microsoft login and magic links run on this app (`/login`, `/login/start`, `/auth/callback`). Developers flip SQL/OData per report under Settings → Beta report data sources. Sales by State is SQL only and is not in that list.
+Microsoft login and magic links run on this app (`/login`, `/login/start`, `/auth/callback`). Developers flip SQL/OData per report under Settings → Report data sources. Sales by State is SQL only and is not in that list.
 
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
@@ -124,69 +124,30 @@ See `.env.example` for all required variables. Key groups:
   - `Sites.ReadWrite.All` — list/write the SharePoint site in `SP_SITE_URL` (or `Sites.Selected` plus a site grant)
   A 401 from the folder picker is usually a rejected token (secret expired, or consent never granted). A 403 is a valid token that still cannot read that drive.
 - **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)
-- **Web App**: `FLASK_SECRET_KEY`, `DEV_BYPASS_AUTH`
+- **Web App**: `FLASK_SECRET_KEY`, `BETA_PRECIOUS_DB_PATH`. `AUTH_MODE=dev` is refused when `APP_ENV=prod`.
 
 ## Directory Structure
 
 ```
-scripts/
-  app.py                    # Azure App Service / local entry point (gunicorn)
-  run.py                    # CLI entry point for all reports
-  deploy.ps1                # Deploy webapp to Azure App Service
-  requirements.txt          # Python deps for CLI / runbooks
-  report_registry.json      # Report definitions for universal_runbook
-  .env.example              # Environment variable template
+app.py                    # local: python app.py (same WSGI as Azure)
+wsgi.py                   # gunicorn wsgi:application
+wsgi_dispatch.py          # /beta bookmark 302
+run.py                    # CLI entry point for all reports
+deploy.ps1                # Deploy to Azure App Service
+requirements.txt          # production pip list
+report_registry.json      # Report definitions for universal_runbook
+.env.example              # Environment variable template
 
-  config/
-    settings.py             # Central config (Azure Automation vars + .env)
-    paths.py                # Output path resolution
-    salesman_map.py         # Salesman lookup (delegates to Excel)
-    salesman_excel.py       # Loads salesman data from salesman_map.xlsx
-    salesman_map.xlsx       # Editable salesman/subscription data
-    commission_map.py       # Commission rates by salesman
-
-  core/
-    auth.py                 # MSAL auth (D365 + Graph tokens)
-    odata.py                # OData v4 client with pagination
-    http.py                 # Shared HTTP session with retries
-    dates.py                # US Eastern date utilities + period parsing
-    columns.py              # Column detection + numeric conversion
-    excel_styles.py         # Shared Excel styling constants
-    excel_writer.py         # Shared Excel writing utilities
-    email_report.py         # Send reports by email (Graph or SMTP)
-    logging.py              # Structured logging setup
-    validation.py           # DataFrame validation before Excel write
-
-  data/
-    field_maps.py           # OData field rename maps + $select lists
-    d365_entities.py        # Entity-specific D365 fetch functions
-
-  reports/
-    base.py                 # Abstract base runner with CLI arg parsing
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report
-    customer_activity/      # Customer Activity Report
-    customer_aging/         # Customer Aging Report
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced / Shipped Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report (By Item + By Customer)
-    customer_activity/      # Customer Activity Report
-
-  runbooks/
-    universal_runbook.py    # Self-contained Azure Automation runbook
-
+config/                   # salesman/commission maps
+core/                     # D365 + Graph + Excel helpers (CLI/runbooks)
+data/                     # OData field maps
+reports/                  # CLI report runners
+runbooks/                 # Azure Automation
+tests/                    # root tests (Excel formula, WSGI)
+v3/                       # Flask site at /
+  web/                    # App factory, auth, reports UI, jobs
+  report_engine/          # SQL report math
   tests/
-    conftest.py             # Shared pytest fixtures
-    test_excel_formula.py
-    test_wsgi_dispatch.py
-
-  v3/                       # Flask site at / (gunicorn wsgi:application)
-    web/                    # App factory, auth, reports UI, jobs
-    report_engine/          # SQL report math
-    tests/
 ```
 
 ## Rule Preferences

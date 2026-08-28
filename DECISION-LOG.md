@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Cutover leftover: Beta UI copy, Azure deploy tests
+**What I had to decide:** After CI went green, continue with `is_beta` rename / order-entry delete / merge, or finish unpaid cutover leftovers.
+**Options I considered:** (1) Rename `is_beta` and Azure `BETA_*` env vars. (2) Delete disabled order-entry. (3) User-facing Beta copy + docs + gate the Azure production job on the same P0 tests as CI.
+**What I chose:** (3). Keep `is_beta=True` so `BETA_PRECIOUS_DB_PATH` and the `session` cookie stay. Shared `tools/run-p0-tests.sh` for CI and the Azure build job. Compile-check `wsgi.py` / `v3/web` on the Azure job (a live `import wsgi` fail-closes without App Settings). Settings heading is "Report data sources". Dropped dead `tools.parity` env docs. P0.5 `DEV_BYPASS_AUTH` died with `webapp/`; v3 still refuses `AUTH_MODE=dev` in prod.
+**Why:** Owner said continue. Review said not to start file-move refactors until delivery guarantees exist. Flipping `is_beta` would point home at the wrong sqlite and cookie. This branch still does not merge itself.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-27 Delete webapp/ and rebuild/; v3 is the only site
 **What I had to decide:** Keep holding `webapp/`/`rebuild/` because `/` imported them, or delete them now that the owner asked why they were still there.
 **Options I considered:** (1) Keep holding until a later phase. (2) Make v3 boot alone, then delete both trees and the extra mounts.

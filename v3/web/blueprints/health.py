@@ -40,10 +40,8 @@ def readyz():
 def manifest():
     """Mount-aware PWA manifest.
 
-    The app can be served under a prefix (e.g. /test via DispatcherMiddleware),
-    so start_url/scope/icons are resolved with url_for instead of being hardcoded
-    to "/". A static manifest would point the installed app at the wrong origin
-    path and break launch + offline scope under the prefix.
+    start_url/scope/icons use url_for so a future URL prefix cannot point the
+    installed app at the wrong path.
     """
     return jsonify({
         "name": "Achim Sales Reports",

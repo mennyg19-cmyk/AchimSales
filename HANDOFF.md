@@ -1,21 +1,23 @@
 # Session Handoff
 
-Last updated: 2026-08-27
+Last updated: 2026-08-28
 
-**Status:** Owner asked to delete `webapp/` and `rebuild/`. v3 is the only site at `/`. Branch `cursor/p0-security-containment-adb6`.
+**Status:** Draft PR #1. v3 is the only site at `/`. CI was green on `338bd54`; this follow-up gates Azure Production deploys on those same P0 tests.
 
 ## What's done
 
-- P0.1–P0.5 and review security.
+- P0.1–P0.5 and review security (P0.1 history rewrite still owner-blocked).
 - Rollback tag `archive/pre-cleanup-2026-08-27` = `b14d725`.
-- Junk cleanup (`85ac27e`): untracked `.scratch/`, dropped logs/rebuild audit docs.
-- v3 owns Entra, magic links, OData runners, report-source map. Beta pill gone. `/legacy`, `/test`, `/test-next` unmounted. `webapp/` and `rebuild/` removed.
+- `webapp/` and `rebuild/` deleted; v3 owns Entra, magic links, OData runners, report-source map.
+- Settings copy no longer says "Beta report data sources".
+- Azure Production workflow runs `tools/run-p0-tests.sh` plus `compileall` on WSGI/v3 before upload.
 
 ## What's next
 
-1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie must leave git history.
-2. Remaining review gates / production merge (not this branch — `cursor/**` does not deploy).
-3. Azure App Settings still used: `BETA_PRECIOUS_DB_PATH` (home sqlite), `FLASK_SECRET_KEY`. `BETA_MOUNT_ENABLED` / `V3_MOUNT_ENABLED` / `REBUILD_MOUNT_ENABLED` are unused.
+1. Wait for CI on this follow-up commit.
+2. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie blob must leave git history.
+3. Remaining review gates / production merge (not this branch — `cursor/**` does not deploy).
+4. Azure App Settings still used: `BETA_PRECIOUS_DB_PATH`, `FLASK_SECRET_KEY`. Do not flip `is_beta` to False.
 
 ## Open decisions
 

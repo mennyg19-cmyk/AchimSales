@@ -144,8 +144,9 @@ def load_config(*, is_beta: bool = False) -> Config:
     unconfigured deploy refuses to boot rather than silently running dev auth).
     Local dev must opt in explicitly with APP_ENV=dev (see .env.example).
 
-    ``is_beta`` selects Beta DB path defaults so /test and the home app don't share one
-    SQLite file when both are mounted in the same process.
+    ``is_beta`` selects home-site DB path defaults (`BETA_PRECIOUS_DB_PATH`).
+    Do not flip this to False in production: that would use PRECIOUS_DB_PATH
+    and a different cookie name.
     """
     app_env = os.environ.get("APP_ENV", "prod").strip().lower()
     if is_beta:
@@ -158,8 +159,8 @@ def load_config(*, is_beta: bool = False) -> Config:
         cache_default = "./.data/cache.db"
         precious_env = "PRECIOUS_DB_PATH"
         cache_env = "CACHE_DB_PATH"
-    # Beta shares Live's session cookie, so it must use Live's signing secret
-    # (FLASK_SECRET_KEY). /test keeps FLASK_SECRET so its cookie stays separate.
+    # Home keeps the `session` cookie, so it must use FLASK_SECRET_KEY
+    # (same value leftover Live cookies were signed with).
     if is_beta:
         flask_secret = (
             os.environ.get("FLASK_SECRET_KEY", "").strip()
