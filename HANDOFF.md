@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-28
 
-**Status:** Draft PR #1. v3 is the only site. Loop C leftovers (help copy, factory docstring, smoke Config helper) in flight. Do not merge to `webapp-cache`. Do not deploy Production.
+**Status:** Draft PR #1 is ready for owner review. CI green on `ce988ed`. Review loops A/B/C closed. Do not merge to `webapp-cache`. Do not deploy Production.
 
 ## What's done
 
@@ -11,14 +11,16 @@ Last updated: 2026-08-28
 - `webapp/` and `rebuild/` deleted; v3 owns Entra, magic links, OData, report-source map.
 - Settings copy is "Report data sources". Test Site nav, order-entry flag, and the "v3" pill are gone.
 - Admin user API no longer accepts or returns `test_access`. `NEW_APP_MARKER` is gone from Config.
+- Help copy no longer describes Test-Site Access. Factory docstring no longer mentions a "new app" marker.
 - Prod hides `*.map`. Azure Production build runs `tools/run-p0-tests.sh`.
+- Phase gate: Loop A, Loop B (plus re-pass), Loop C (plus re-pass) all zero findings on HEAD. Trust-boundary not triggered.
 
 ## What's next
 
 1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie blob must leave git history.
 2. Remaining product backlog (not this PR): scheduling delivery redesign, a11y, commission/name rules, Run now vs Send now.
 3. Do not flip `is_beta` to False (`BETA_PRECIOUS_DB_PATH` + `session` cookie).
-4. Do not merge this branch to `webapp-cache`.
+4. Do not merge this branch to `webapp-cache` until you mean to go live.
 
 ## Open decisions
 
