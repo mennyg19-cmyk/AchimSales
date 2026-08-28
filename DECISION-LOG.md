@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Q7 /beta bookmarks: keep 302 through Production cutover
+**What I had to decide:** Keep `/beta` 302 to `/`, or return 410/404 now?
+**Options I considered:** (1) 410/404 immediately. (2) Keep 302 through Production cutover, then remove.
+**What I chose:** (2). Owner confirmed. `PrefixRedirectMiddleware` stays for now.
+**Why:** Old bookmarks should keep working during cutover. After Production is stable, `/beta` becomes 410.
+**Status:** DECIDED — Q7 closed. Exact 410 date is a go-live follow-up, not a Phase 0 block. Q8–Q11 still open.
+
 ## 2026-08-28 Q6 in-app email distributions: stay retired
 **What I had to decide:** Port the old Live in-app email-distribution UI, or leave it deleted?
 **Options I considered:** (1) Rebuild some or all of it in v3. (2) Leave it retired; Azure Automation keeps sending.
@@ -54,7 +61,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q6 DECIDED. Still waiting on Q7–Q11.
+**Status:** BLOCKED — Q1–Q7 DECIDED. Still waiting on Q8–Q11.
 
 ## 2026-08-28 Sol-list phase gate closed on the draft
 **What I had to decide:** Whether this remaining-review phase is done on the branch.
