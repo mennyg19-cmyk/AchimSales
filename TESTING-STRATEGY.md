@@ -22,6 +22,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Inherit salesmen see Customer's Last Order
+
+**What to test:**
+- Registry `salesman_default` keys match Live `salesman_filter` (ordered, invoiced, customer_activity, customer_aging, customer_last_order).
+- A salesman with no per-report rows sees Customer's Last Order on `/` and can open `/report/customer-last-order`.
+- Explicit deny still 403s the pick page. Number 4 and Sales by State stay hidden on inherit.
+
+**Expected behavior:**
+- Inherit + salesman = Live salesman-filter reports, including Customer's Last Order.
+
+**Edge cases:**
+- Explicit Allow on Number 4 still works. Explicit Deny on CLO still hides it.
+
+**Test files:** `v3/tests/test_registry.py`, `v3/tests/test_blueprints.py`
+
 ## Fail-then-retry-success is one status email
 
 **What to test:**

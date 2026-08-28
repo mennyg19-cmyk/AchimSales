@@ -134,6 +134,7 @@ def test_salesman_inherit_shows_salesman_default_reports(tmp_path):
     _login(client, app, email="rep@x.com", role="salesman")
     html = client.get("/").get_data(as_text=True)
     assert "Ordered" in html and "Invoiced" in html and "Customer Activity" in html
+    assert "Customer's Last Order" in html or "Customer&#39;s Last Order" in html
     assert "Number 4" not in html  # non-salesman-default: inherit-hidden until allowed
     assert "Sales by State" not in html
 
@@ -1943,11 +1944,20 @@ def test_customer_last_order_salesmen_endpoint_scoped(tmp_path):
     assert all(salesman_key(s["key"]) == salesman_key("REdwards") for s in data["salesmen"])
 
 
-def test_customer_last_order_forbidden_for_ungranted_salesman(tmp_path):
-    app = _make_app(tmp_path, rows_by_report={"customer_last_orders": _clo_rows()})
+def test_customer_last_order_inherit_salesman_can_open_pick(tmp_path):
+    app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app, email="rep@x.com", role="salesman")
-    # No per-report grant -> page access denied (fail closed).
+    assert client.get("/report/customer-last-order").status_code == 200
+
+
+def test_customer_last_order_denied_salesman_forbidden(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    users = UserRepository(app.config["DB"])
+    user = users.get_by_email("rep@x.com")
+    users.set_report_access(user.id, "customer_last_order", False)
     assert client.get("/report/customer-last-order").status_code == 403
 
 

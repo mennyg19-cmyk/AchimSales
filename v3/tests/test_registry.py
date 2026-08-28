@@ -18,3 +18,11 @@ def test_built_and_backlog_are_disjoint_and_complete():
 
 def test_lookup_unknown_key_returns_none():
     assert registry.get("does_not_exist") is None
+
+
+def test_salesman_default_matches_live_salesman_filter_reports():
+    # Live webapp/user_map.py REPORTS_CONFIG salesman_filter=True keys.
+    assert {s.key for s in registry.REGISTRY if s.salesman_default} == {
+        "ordered", "invoiced", "customer_activity",
+        "customer_aging", "customer_last_order",
+    }

@@ -50,7 +50,8 @@ REGISTRY: tuple[ReportSpec, ...] = (
     # rows group by Item #. Cached v2 payloads must not be reused.
     ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=3),
     ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT, salesman_default=True),
-    ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT, in_app=True),
+    ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT,
+               in_app=True, salesman_default=True),
     ReportSpec(
         "item_averages", "Item Averages", ReportStatus.BUILT,
         privileged_only=True,

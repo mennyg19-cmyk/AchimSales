@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Inherit salesmen see Customer's Last Order
+**What you asked for:** mendyk@achimonline.com is on Inherit and Live and is missing reports, at least Customer's Last Order.
+**What I chose:** Set `salesman_default=True` on `customer_last_order` so Inherit matches Live (`salesman_filter: True` in `webapp/user_map.py`). Explicit Deny still hides it. Number 4 / Salesman / Sales by State stay inherit-hidden.
+**Why:** Home-site Inherit used a narrower salesman list than Live and dropped Customer's Last Order. An older review note that CLO stays hidden until Allow was wrong vs Live.
+**Status:** DECIDED — shipping this change.
+
+
 ## 2026-08-28 Fail-then-retry-success is one status email
 **What you asked for:** Jobs were failing a lot. If a job fails, retries, and then succeeds, do not send a fail email and a later pass email. Send one email that says it failed, retried, and succeeded.
 **What I had to decide:** Whether to keep per-period Azure FAILURE mails on a final failure; whether a catch-up fail plus a success heartbeat in the same run counts; where the retry story goes on the home-site report mail.
