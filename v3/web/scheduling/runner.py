@@ -343,6 +343,10 @@ class ScheduleRunner:
         """Send one workbook. Skip email or folder legs already marked sent/pending."""
         recipients = str(deliver_kwargs.get("recipients") or "")
         path = str(deliver_kwargs.get("sharepoint_path") or "")
+        has_email = bool(recipients.strip())
+        has_folder = bool(path.strip())
+        if not has_email and not has_folder:
+            raise RuntimeError("No delivery targets.")
         legs = DeliveryLegRepository(self.user_repo.db)
         email_key = attempt_key(
             schedule_type=schedule_type, schedule_id=schedule_id, trigger=trigger,

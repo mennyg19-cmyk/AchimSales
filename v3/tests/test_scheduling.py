@@ -112,6 +112,38 @@ def test_runner_personal_records_success(stack):
     assert OutboxRepository(db).list_recent()
 
 
+def test_runner_master_with_no_targets_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+            self.email = type("E", (), {"send_notice": staticmethod(lambda **k: None)})()
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Empty", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="")
+    with pytest.raises(RuntimeError, match="No delivery targets"):
+        runner.run(mid, MASTER)
+    assert delivery.calls == []
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "failure"
+
+
 def test_schedule_history_uses_payload_row_count(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
