@@ -22,7 +22,6 @@ def app():
         precious_db_path=Path("./.data/precious.db"),
         cache_db_path=Path("./.data/cache.db"),
         litestream_blob_url="",
-        new_app_marker=True,
     )
     return create_app(cfg)
 
@@ -75,7 +74,6 @@ def test_readyz_503_when_prod_db_missing(tmp_path):
         precious_db_path=tmp_path / "precious.db",
         cache_db_path=tmp_path / "cache.db",
         litestream_blob_url="",
-        new_app_marker=True,
         litestream_azure_account_name="acct",
         litestream_azure_account_key="key",
         litestream_azure_container="container",
@@ -143,7 +141,6 @@ def test_source_maps_hidden_in_prod(tmp_path):
         precious_db_path=tmp_path / "precious.db",
         cache_db_path=tmp_path / "cache.db",
         litestream_blob_url="",
-        new_app_marker=True,
         litestream_azure_account_name="acct",
         litestream_azure_account_key="key",
         litestream_azure_container="container",

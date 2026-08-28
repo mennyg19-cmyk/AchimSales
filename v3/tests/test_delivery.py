@@ -22,7 +22,7 @@ def _cfg(tmp_path, **over) -> Config:
         tenant_id="", client_id="", client_secret="",
         reporting_api_base_url="", reporting_api_key="",
         precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
-        litestream_blob_url="", new_app_marker=True, outbox_dir=tmp_path / "outbox",
+        litestream_blob_url="", outbox_dir=tmp_path / "outbox",
     )
     base.update(over)
     return Config(**base)

@@ -86,7 +86,7 @@ def stack(tmp_path):
         tenant_id="", client_id="", client_secret="",
         reporting_api_base_url="", reporting_api_key="",
         precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
-        litestream_blob_url="", new_app_marker=True, outbox_dir=tmp_path / "outbox",
+        litestream_blob_url="", outbox_dir=tmp_path / "outbox",
     )
     email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
     payload = {"tabs": [{"key": "t", "name": "T", "columns": [{"field": "a"}],

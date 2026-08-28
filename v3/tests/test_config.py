@@ -23,7 +23,6 @@ def _cfg(**over):
         litestream_azure_account_name="acct",
         litestream_azure_account_key="key",
         litestream_azure_container="container",
-        new_app_marker=True,
     )
     base.update(over)
     return Config(**base)

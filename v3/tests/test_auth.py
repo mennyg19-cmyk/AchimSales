@@ -21,7 +21,7 @@ def _dev_cfg(tmp_path) -> Config:
         tenant_id="", client_id="", client_secret="",
         reporting_api_base_url="", reporting_api_key="",
         precious_db_path=tmp_path / "precious.db", cache_db_path=tmp_path / "cache.db",
-        litestream_blob_url="", new_app_marker=True,
+        litestream_blob_url="",
     )
 
 

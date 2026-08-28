@@ -42,7 +42,6 @@ class Config:
     precious_db_path: Path
     cache_db_path: Path
     litestream_blob_url: str
-    new_app_marker: bool
     reporting_api_timeout: float = 300.0
     # The dashboard customer mirror is a side feature. When off, its 4-hour cron
     # and boot-prime never enqueue dashboard.refresh jobs - so a slow/wedged
@@ -188,7 +187,6 @@ def load_config(*, is_beta: bool = False) -> Config:
         litestream_azure_account_name=os.environ.get("LITESTREAM_AZURE_ACCOUNT_NAME", "").strip(),
         litestream_azure_account_key=os.environ.get("LITESTREAM_AZURE_ACCOUNT_KEY", "").strip(),
         litestream_azure_container=os.environ.get("LITESTREAM_AZURE_CONTAINER", "").strip(),
-        new_app_marker=_env_bool("NEW_APP_MARKER", True),
         outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),
         # Prefer EMAIL_FROM; fall back to live's EMAIL_FROM_ADDRESS (Azure has that).
         email_from=(

@@ -48,7 +48,7 @@ def _cfg(tmp_path) -> Config:
         tenant_id="", client_id="", client_secret="",
         reporting_api_base_url="", reporting_api_key="",
         precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
-        litestream_blob_url="", new_app_marker=True,
+        litestream_blob_url="",
         outbox_dir=tmp_path / "outbox",
     )
 
@@ -225,12 +225,24 @@ def test_admin_user_crud_and_scope(tmp_path):
     created = client.post("/api/admin/users", json={"email": "new@x.com", "role": "salesman"},
                           headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
-    uid = created.get_json()["id"]
+    created_body = created.get_json()
+    uid = created_body["id"]
+    assert "test_access" not in created_body
 
-    upd = client.put(f"/api/admin/users/{uid}", json={"role": "manager", "dashboard_enabled": True},
-                     headers={"X-CSRF-Token": _CSRF})
-    assert upd.status_code == 200 and upd.get_json()["role"] == "manager"
-    assert upd.get_json()["dashboard_enabled"] is True
+    upd = client.put(
+        f"/api/admin/users/{uid}",
+        json={"role": "manager", "dashboard_enabled": True, "test_access": True},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    body = upd.get_json()
+    assert upd.status_code == 200 and body["role"] == "manager"
+    assert body["dashboard_enabled"] is True
+    assert "test_access" not in body
+    with app.config["DB"].precious() as conn:
+        leftover = conn.execute(
+            "SELECT test_access FROM users WHERE id = ?", (uid,)
+        ).fetchone()
+    assert leftover["test_access"] == 0
 
     scope = client.post(f"/api/admin/users/{uid}/salesman-access", json={"keys": ["redwards"]},
                         headers={"X-CSRF-Token": _CSRF})

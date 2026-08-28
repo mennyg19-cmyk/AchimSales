@@ -17,6 +17,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Base HTML in `is_beta` hides Dashboard and does not show a Beta pill.
 - Home HTML has no Test Site nav and no `/test/` href.
 - Prod `/static/**.map` is 404; the JS/CSS files themselves stay 200.
+- Admin user JSON has no `test_access`; PUT with that key leaves the leftover SQLite column at default.
 
 **Expected behavior:**
 - gunicorn `wsgi:application` is v3 only.

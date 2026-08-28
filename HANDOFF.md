@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-28
 
-**Status:** Draft PR #1. v3 is the only site. CI green on `8896033`. Do not merge to `webapp-cache`. Do not deploy Production.
+**Status:** Draft PR #1. v3 is the only site. Loop B F1/F2 (orphan `test_access` API + dead `NEW_APP_MARKER`) closed; waiting on CI for the follow-up commit. Do not merge to `webapp-cache`. Do not deploy Production.
 
 ## What's done
 
@@ -10,6 +10,7 @@ Last updated: 2026-08-28
 - Rollback tag `archive/pre-cleanup-2026-08-27` = `b14d725`.
 - `webapp/` and `rebuild/` deleted; v3 owns Entra, magic links, OData, report-source map.
 - Settings copy is "Report data sources". Test Site nav, order-entry flag, and the "v3" pill are gone.
+- Admin user API no longer accepts or returns `test_access`. `NEW_APP_MARKER` is gone from Config.
 - Prod hides `*.map`. Azure Production build runs `tools/run-p0-tests.sh`.
 
 ## What's next

@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Close leftover test_access API and NEW_APP_MARKER
+**What I had to decide:** Loop B found `test_access` still writable on the admin user API and `Config.new_app_marker` still loaded from env after the last reader (the "v3" pill) was deleted.
+**Options I considered:** (1) Defer as dead-surface debt. (2) Stop JSON/PUT only, keep the User field. (3) Drop the Python field, admin JSON, and env flag; leave the SQLite column.
+**What I chose:** (3). No DROP migration. Privileged PUT with `test_access` is ignored. `NEW_APP_MARKER` is gone from Config and `v3/.env.example`.
+**Why:** Same cleanup goal as retiring leftover /test surfaces. The column stays so existing precious.db files keep loading.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-28 Remove /test nav, order-entry flag, prod source maps
 **What I had to decide:** How far "entire cleanup, PR ready, no production" goes past the single-site cutover.
 **Options I considered:** (1) Delete dashboard + scheduling + a11y + commission work. (2) Only docs. (3) Dead /test and order-entry surfaces, hide `*.map` in prod, keep `is_beta=True` and Automation trees.
