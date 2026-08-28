@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Phase 1.2 policy: do not rewrite history; require Environment reviewers
+**What I had to decide:** Rewrite git history to purge the cookie file, and whether Production deploys must wait on GitHub Environment reviewers.
+**Options I considered:** (1) Coordinated force-push of every branch that contains `f286ce2`. (2) Leave history; kill sessions by rotating Flask secrets. (3) Skip Environment required reviewers.
+**What I chose:** (2) and required reviewers. Owner: your recommendation.
+**Why:** Rotating `FLASK_SECRET_KEY` / `FLASK_SECRET` is what actually invalidates stolen cookies. A history rewrite is a force-push of production and every clone; do not do that in this PR. Environment reviewers are the remaining deploy brake after the YAML guard.
+**Status:** DECIDED — no history rewrite, no force-push. Environment `production` must have required reviewers (owner GitHub settings). Still BLOCKED on rotating the Azure Flask secrets and on actually turning reviewers on. Do not start Phase 2 until old cookies are dead.
+
 ## 2026-08-28 Phase 1.1 production workflow: checks are deploy dependencies
 **What I had to decide:** How to make security, Python, frontend, artifact, and restore-preflight real blockers of Azure Production, and how to run semgrep without failing on ~130 existing p/default hits.
 **Options I considered:** (1) Keep one build job with sequential steps. (2) Split jobs with `needs:`; semgrep `--error` on the whole repo. (3) Split jobs with `needs:`; semgrep `--error` only vs the previous commit.
@@ -102,7 +109,7 @@
 **What I had to decide:** Whether to rewrite git history of `webapp-cache` in this change.
 **What I chose:** Untrack `.scratch/parity-cookies.env`, tighten gitignore, add a filename-only scan. Do not print values. Do not force-push production history.
 **Why:** History purge needs a coordinated force-push of every branch that contains `f286ce2`. Session revoke needs rotating `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure (cookie-signed sessions).
-**Status:** BLOCKED — owner must rotate Flask secrets in Azure and approve history rewrite.
+**Status:** DECIDED — no history rewrite. Still BLOCKED on rotating Flask secrets in Azure.
 
 
 Older entries: DECISION-LOG-ARCHIVE.md

@@ -2,23 +2,26 @@
 
 Last updated: 2026-08-28
 
-**Status:** Phase 0 closed. Phase 1.1 YAML on the draft. Phase 1 gate still open: owner must rotate Flask secrets and enable required reviewers on GitHub Environment `production`. Keep PR #1 draft. Do not merge or deploy Production.
+**Status:** Phase 1.2 policy logged: do not rewrite git history; require GitHub Environment `production` reviewers. Gate still open until Azure Flask secrets are rotated. Keep PR #1 draft. Do not merge or deploy Production. Do not start Phase 2.
 
-HEAD: `29f95df` before the Phase 1.1 commit.
+HEAD: `bdbcdcb` before this policy commit.
 
 ## What's done
 
 - Q1–Q11 logged.
-- Phase 1.1: Azure workflow skips unless `webapp-cache`; deploy job uses Environment `production`; check jobs are `needs:` of package/deploy; job timeouts set.
+- Phase 1.1 workflow gating.
+- Phase 1.2 policy: no force-push / no history rewrite. Environment reviewers are required.
 
 ## What's next
 
-1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; confirm old `session` / `v3_session` cookies no longer authenticate; review access logs from the cookie-file window; decide history rewrite; enable required reviewers on Environment `production`.
-2. After 1.2, Phase 2 auth. Do not start Phase 2 while 1.2 is BLOCKED.
+1. Owner must rotate `FLASK_SECRET_KEY` and `FLASK_SECRET` in Azure App Service `achim-sales-reports`, then confirm old `session` / `v3_session` cookies no longer sign in.
+2. Owner must create GitHub Environment `production` if needed and enable Required reviewers.
+3. Owner should review App Service access logs from the cookie-file window.
+4. After old cookies are dead, Phase 2 auth.
 
 ## Open / BLOCKED
 
-- Phase 1.2 Flask secret rotation, cookie revoke, access-log review, history rewrite.
-- GitHub Environment `production` required reviewers.
+- Azure Flask secret rotation (this phrase does not do it).
+- GitHub Environment `production` required reviewers (repo Settings; this agent cannot write GitHub settings).
 - Production merge/deploy.
 - Live Litestream empty-disk drill.
