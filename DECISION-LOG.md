@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Q6 in-app email distributions: stay retired
+**What I had to decide:** Port the old Live in-app email-distribution UI, or leave it deleted?
+**Options I considered:** (1) Rebuild some or all of it in v3. (2) Leave it retired; Azure Automation keeps sending.
+**What I chose:** (2). Owner: leave it retired.
+**Why:** The old screen is gone. Automation already delivers those reports. Rebuilding it is out of scope for this PR.
+**Status:** DECIDED — Q6 closed. Q7–Q11 still open.
+
 ## 2026-08-28 Q5 calendar source: live Hebcal fetch; fail job and email test users
 **What I had to decide:** python-zmanim vs Hebcal, and what happens when the lookup fails.
 **Options I considered:** (1) python-zmanim offline. (2) Disk-cached Hebcal, send if the cache still covers now. (3) Live Hebcal fetch as the source of truth; on failure do not send.
@@ -47,7 +54,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q5 DECIDED. Still waiting on Q6–Q11.
+**Status:** BLOCKED — Q1–Q6 DECIDED. Still waiting on Q7–Q11.
 
 ## 2026-08-28 Sol-list phase gate closed on the draft
 **What I had to decide:** Whether this remaining-review phase is done on the branch.
