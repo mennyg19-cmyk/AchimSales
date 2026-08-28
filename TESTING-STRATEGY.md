@@ -20,7 +20,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Prod outbox-only delivery is not success (`test_prod_outbox_only_is_not_success`).
 - Master exports expire after 90 days (`test_master_exports_expire_after_90_days`).
 - Job worker runs handlers with a Flask app context (`test_app_worker_runs_handlers_with_flask_context`).
-- Cancel after workbook skips mail (`test_cancel_after_workbook_skips_mail`). Cancelled schedules do not send failure mail (`test_cancelled_schedule_does_not_mail_failure`).
+- Cancel after workbook skips mail (`test_cancel_after_workbook_skips_mail`). Cancelled schedules do not send failure mail (`test_cancelled_schedule_does_not_mail_failure`). Cancel after an empty salesman split does not send the No Data Found notice (`test_cancel_after_empty_split_skips_no_data_notice`).
 - `/readyz` is 503 when `.bootstrap-failed` exists (`test_readyz_503_when_bootstrap_failed`).
 - Graph upload session POST retries 429 (`test_upload_session_retries_429`).
 - `Config.reports_only` tracks `is_beta`. Home copy says Saved views. Report Schedule opens the Schedules wizard.

@@ -108,8 +108,11 @@ class DeliveryService:
         return DeliveryOutcome(result=result, row_count=rows)
 
     def send_no_data_notice(self, *, recipients: str, subject: str, body_text: str,
-                            report_name: str) -> DeliveryOutcome:
+                            report_name: str, cancel_check=None) -> DeliveryOutcome:
         """Text-only mail when a split salesman file has no rows. No workbook."""
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
         result = self.email.deliver(
             subject=subject, recipients_raw=recipients, body_text=body_text,
             report_name=report_name, filename="", xlsx_bytes=None,

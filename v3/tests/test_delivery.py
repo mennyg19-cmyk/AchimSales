@@ -204,6 +204,32 @@ def test_cancel_after_workbook_skips_mail(tmp_path, monkeypatch):
     assert delivered["n"] == 0
 
 
+def test_cancel_no_data_notice_skips_mail(tmp_path):
+    from web.jobs.worker import JobCancelled
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    delivered = {"n": 0}
+
+    def fake_deliver(**kwargs):
+        delivered["n"] += 1
+        return DeliveryResult(ok=True, recipients=["a@x.com"])
+
+    email.deliver = fake_deliver  # type: ignore[method-assign]
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: {}), email)
+    with pytest.raises(JobCancelled):
+        svc.send_no_data_notice(
+            recipients="a@x.com", subject="No Data Found", body_text="none",
+            report_name="Ordered", cancel_check=lambda: True,
+        )
+    assert delivered["n"] == 0
+
+
 def test_email_writes_eml_and_logs_outbox(email):
     svc, cfg, db = email
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",

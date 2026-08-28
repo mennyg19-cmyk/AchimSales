@@ -467,6 +467,8 @@ class ScheduleRunner:
                 cancel_check=cancel_check,
             )
             if outcome.row_count == 0 and outcome.result.send_channel != "skipped":
+                if cancel_check and cancel_check():
+                    raise JobCancelled()
                 notice_fn = getattr(self.delivery, "send_no_data_notice", None)
                 if callable(notice_fn):
                     period_label = str(split_params.get("period") or "this run")
@@ -477,6 +479,7 @@ class ScheduleRunner:
                     outcome = notice_fn(
                         recipients=test_recips if test_to else email,
                         subject=nsubj, body_text=nbody, report_name=report_name,
+                        cancel_check=cancel_check,
                     )
             outcomes.append(outcome)
             deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))

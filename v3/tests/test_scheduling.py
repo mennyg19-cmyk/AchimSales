@@ -442,6 +442,60 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     assert hist[0].status == "success"
 
 
+def test_cancel_after_empty_split_skips_no_data_notice(tmp_path):
+    from web.jobs.worker import JobCancelled
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+    ])
+    split_done = {"n": False}
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+            self.notices = []
+            self.email = type("E", (), {"send_notice": staticmethod(lambda **k: None)})()
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs.get("params", {}).get("salesman"):
+                split_done["n"] = True
+                return DeliveryOutcome(
+                    result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]]),
+                    row_count=0,
+                )
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=5,
+            )
+
+        def send_no_data_notice(self, **kwargs):
+            self.notices.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]]),
+                row_count=0,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Salesmen Ordered", params={
+            "period": "yesterday", "split_by_salesman": True,
+        }, layout={}, cadence={"freq": "daily", "time": "09:00"},
+        recipients="manager@x.com")
+    with pytest.raises(JobCancelled):
+        runner.run(mid, MASTER, cancel_check=lambda: split_done["n"])
+    assert delivery.notices == []
+    rows = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert rows[0].status == "cancelled"
+
+
 def test_runner_explicit_salesman_without_email_fails_the_schedule(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
