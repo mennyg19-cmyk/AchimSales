@@ -22,6 +22,24 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Fail-then-retry-success is one status email
+
+**What to test:**
+- Azure `run_with_retry`: first-try success sends the heartbeat unchanged. Fail then success is one mail whose subject/body name the failure, the retry, and the success. Catch-up FAILURE + success heartbeat in one run is one mail. Final failure after retry is one FAILURE mail.
+- Home-site runner: first attempt fails, retry succeeds → no `[FAIL]` notice; the report subject contains `retried after a failure` and the body names the first error.
+- Recovered worker run that has not already succeeded today includes the retry note. Recovered run after a successful send today still skips.
+- Reporting API 5xx/network retries sleep 1s then 2s; a 5xx then 200 sleeps once.
+
+**Expected behavior:**
+- One status inbox item for fail-then-success, not FAILURE + Heartbeat (Azure) or `[FAIL]` + report (home-site).
+- `[FAIL]` still goes out when both home-site attempts fail.
+
+**Edge cases:**
+- First-try clean success: heartbeat only, no retry wording.
+- Empty alert buffer + exception-only retry: combined mail still names the exception when Graph config exists.
+
+**Test files:** `tests/test_runbook_retry.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_reporting.py`
+
 ## Daily Ordered salesman then customer sort
 
 **What to test:**
@@ -311,10 +329,12 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Expected behavior:**
 - Subject is `[FAIL] {schedule name}`. Body names company/personal, report, and error.
 - Recipients are `settings.test_emails()`, not the schedule's customer list.
+- A retry that then succeeds does **not** send `[FAIL]`; the report mail carries the retry story instead.
 
 **Edge cases:**
 - Empty test list: no send, original failure still recorded.
 - Fake delivery with no `email.send_notice` (older tests) must not crash.
+- Inner retry success: `notices == []` and report subject includes `retried after a failure`.
 
 **Test file:** `v3/tests/test_scheduling.py`
 

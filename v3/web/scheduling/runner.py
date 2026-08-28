@@ -45,9 +45,25 @@ from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 log = logging.getLogger(__name__)
 
 # One extra full run after a short wait so a dropped Graph call is not the
-# last word. [FAIL] mail goes out only after this is exhausted.
+# last word. [FAIL] mail goes out only after this is exhausted. A retry that
+# succeeds is one report email that names the failure, not [FAIL] plus a pass.
 _TRANSIENT_ATTEMPTS = 2
 _TRANSIENT_RETRY_WAIT_S = 30
+_RETRY_SUBJECT_MARK = " — retried after a failure"
+_RECOVERED_RETRY_REASON = "an earlier worker run failed or was interrupted"
+
+
+def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str]:
+    reasons = "; ".join(
+        str(err).strip() for err in prior_errors if str(err).strip()
+    ) or "unknown error"
+    marked = subject if _RETRY_SUBJECT_MARK in subject else f"{subject}{_RETRY_SUBJECT_MARK}"
+    body = (
+        "This send failed once, then retried and succeeded.\n"
+        f"First attempt: {reasons}\n\n"
+        "There is no separate failure email for this run.\n"
+    )
+    return marked, body
 
 
 def _sharepoint_for_test(test_to, live_path: str) -> str:
@@ -161,6 +177,7 @@ class ScheduleRunner:
                     identity=identity, scope=scope, spec=spec, params=window,
                     subject=window_subject, report_name=report_name,
                     od_user=od_user, test_to=test_to, schedule_name=window_name,
+                    recovered=recovered,
                 )
                 outcomes.append(outcome)
             combined = _combine_outcomes(outcomes)
@@ -203,18 +220,24 @@ class ScheduleRunner:
     def _deliver_window(self, *, sched, schedule_type: str, schedule_id: int,
                         identity: str, scope, spec, params: dict,
                         subject: str, report_name: str, od_user: str,
-                        test_to: list[str] | None, schedule_name: str) -> DeliveryOutcome:
+                        test_to: list[str] | None, schedule_name: str,
+                        recovered: bool = False) -> DeliveryOutcome:
         builder_version = spec.builder_version if spec else 1
         last_error: Exception | None = None
+        prior_errors: list[str] = [_RECOVERED_RETRY_REASON] if recovered else []
         for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
+            send_subject, send_body = subject, ""
+            if prior_errors:
+                send_subject, send_body = _retry_success_mail(subject, prior_errors)
             try:
                 if schedule_type == MASTER and self._salesman_targets(params):
                     outcome = self._run_master_fanout(
                         sched=sched, identity=identity, scope=scope,
                         builder_version=builder_version,
-                        subject=subject, report_name=report_name,
+                        subject=send_subject, report_name=report_name,
                         onedrive_user=od_user, test_to=test_to,
                         params=params, schedule_name=schedule_name,
+                        body_text=send_body,
                     )
                 else:
                     no_data_all = bool(params.get("email_on_no_data"))
@@ -227,7 +250,7 @@ class ScheduleRunner:
                         builder_version=builder_version,
                         params=_report_params(params), layout=self._layout_for(sched),
                         recipients="; ".join(test_to) if test_to else sched.recipients,
-                        subject=subject, report_name=report_name,
+                        subject=send_subject, report_name=report_name,
                         sharepoint_path=_sharepoint_for_test(test_to, sched.sharepoint_path),
                         filename_template=getattr(sched, "filename_template", "") or "",
                         onedrive_user=od_user,
@@ -239,12 +262,14 @@ class ScheduleRunner:
                             else ("; ".join(test_empty) if empty_to_test else None)
                         ),
                         schedule_name=schedule_name,
+                        body_text=send_body,
                     )
                 if not outcome.result.ok:
                     raise RuntimeError(outcome.result.error or "delivery failed")
                 return outcome
             except Exception as exc:
                 last_error = exc
+                prior_errors.append(str(exc))
                 if attempt >= _TRANSIENT_ATTEMPTS:
                     raise
                 log.warning(
@@ -337,7 +362,8 @@ class ScheduleRunner:
                            onedrive_user: str = "",
                            test_to: list[str] | None = None,
                            params: dict | None = None,
-                           schedule_name: str = "") -> DeliveryOutcome:
+                           schedule_name: str = "",
+                           body_text: str = "") -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
         deliveries: list[dict] = []
         skip_notes: list[str] = []
@@ -361,6 +387,7 @@ class ScheduleRunner:
                 filename_template=getattr(sched, "filename_template", "") or "",
                 onedrive_user="" if test_to else onedrive_user,
                 schedule_name=sched_name,
+                body_text=body_text,
                 email_on_empty=no_data_all or empty_to_test,
                 empty_recipients_override=(
                     None if test_to
@@ -393,6 +420,7 @@ class ScheduleRunner:
                 report_name=f"{report_name} - {key}", sharepoint_path="",
                 filename_template=getattr(sched, "filename_template", "") or "",
                 schedule_name=f"{sched_name} - {key}",
+                body_text=body_text,
                 email_on_empty=False,
             )
             if outcome.row_count == 0:

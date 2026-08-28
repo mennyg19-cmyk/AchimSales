@@ -76,18 +76,44 @@ def test_client_4xx_raises_without_retry():
 
 def test_client_5xx_is_retried():
     sess = _FakeSession(_FakeResp(503, {}))
-    client = ReportingApiClient("http://api", "k", retries=2, session=sess)
+    slept = []
+    client = ReportingApiClient("http://api", "k", retries=2, session=sess,
+                                sleeper=slept.append)
     with pytest.raises(ReportingApiError):
         client.run_report("x", {})
     assert sess.calls == 3  # transient server error retried (initial + 2)
+    assert slept == [1, 2]
 
 
 def test_client_retries_network_then_fails():
     sess = _FakeSession(exc=ConnectionError("down"))
-    client = ReportingApiClient("http://api", "k", retries=2, session=sess)
+    slept = []
+    client = ReportingApiClient("http://api", "k", retries=2, session=sess,
+                                sleeper=slept.append)
     with pytest.raises(ReportingApiError):
         client.run_report("x", {})
     assert sess.calls == 3  # initial + 2 retries
+    assert slept == [1, 2]
+
+
+def test_client_5xx_then_ok_sleeps_once():
+    class Flip:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, url, *, json, headers, timeout):
+            self.calls += 1
+            if self.calls == 1:
+                return _FakeResp(503, {})
+            return _FakeResp(200, {"rows": [], "row_count": 0})
+
+    slept = []
+    sess = Flip()
+    client = ReportingApiClient("http://api", "k", retries=2, session=sess,
+                                sleeper=slept.append)
+    assert client.run_report("x", {}).row_count == 0
+    assert sess.calls == 2
+    assert slept == [1]
 
 
 def test_client_tolerates_non_list_rows():

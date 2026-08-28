@@ -931,10 +931,12 @@ def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypat
     class FakeDelivery:
         def __init__(self):
             self.calls = 0
+            self.kwargs = []
             self.email = FakeEmail()
 
         def run_and_deliver(self, **kwargs):
             self.calls += 1
+            self.kwargs.append(kwargs)
             if self.calls == 1:
                 return DeliveryOutcome(
                     result=DeliveryResult(ok=False, error="SharePoint dropped"),
@@ -958,6 +960,10 @@ def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypat
     assert delivery.calls == 2
     assert len(hist) == 1 and hist[0].status == "success"
     assert delivery.email.notices == []
+    sent = delivery.kwargs[1]
+    assert "retried after a failure" in sent["subject"]
+    assert "SharePoint dropped" in sent["body_text"]
+    assert "retried and succeeded" in sent["body_text"]
 
 
 def test_recovered_run_skips_when_already_sent_today(tmp_path, monkeypatch):
@@ -992,4 +998,34 @@ def test_recovered_run_skips_when_already_sent_today(tmp_path, monkeypatch):
     assert [row.status for row in hist] == ["skipped", "success"]
     runner.run(mid, MASTER)
     assert delivery.calls == 2
+
+
+def test_recovered_run_notes_retry_when_not_already_sent(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.sent = []
+
+        def run_and_deliver(self, **kwargs):
+            self.sent.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["team@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    runner.run(mid, MASTER, recovered=True)
+    assert len(delivery.sent) == 1
+    assert "retried after a failure" in delivery.sent[0]["subject"]
+    assert "earlier worker run failed" in delivery.sent[0]["body_text"]
 

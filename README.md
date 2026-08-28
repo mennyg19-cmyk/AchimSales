@@ -38,7 +38,14 @@ heartbeat email. If the whole job fails once (dropped Graph, non-zero exit),
 it waits 30 seconds and runs again before Azure marks it Failed.
 
 Home-site company schedules do the same: one extra full delivery, then `[FAIL]`
-mail to the test-email list.
+mail to the test-email list only if both attempts fail. If the first attempt
+fails and the retry succeeds, that is one report email that says it failed,
+retried, and succeeded — not a `[FAIL]` plus a later pass.
+
+Status mail from the Azure runbook is held until the retry finishes for the
+same reason: fail-then-success is one heartbeat, not `FAILURE:` plus
+`Runbook Heartbeat`. Publishing this file to Azure Automation still needs
+`.\deploy-runbook.ps1` (git push updates the App Service, not the runbook).
 
 Home-site clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send
 waits for the next scheduled HH:MM, not motzei Shabbos. Yesterday/daily and

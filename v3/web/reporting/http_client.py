@@ -79,12 +79,14 @@ class ReportResult:
 
 class ReportingApiClient:
     def __init__(self, base_url: str, api_key: str, *, timeout: float = 300.0,
-                 retries: int = 2, session: _Session | None = None):
+                 retries: int = 2, session: _Session | None = None,
+                 sleeper=time.sleep):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key or ""
         self.timeout = timeout
         self.retries = max(0, retries)
         self._session = session
+        self._sleep = sleeper
 
     @property
     def configured(self) -> bool:
@@ -138,6 +140,9 @@ class ReportingApiClient:
             except Exception as exc:  # noqa: BLE001 - transient/network/parse: retry then surface
                 last_exc = exc
                 log.warning("Reporting API attempt %d/%d failed: %s", attempt + 1, self.retries + 1, exc)
+                if attempt < self.retries:
+                    # 1s, 2s, 4s… capped so a wedged API is not hammered.
+                    self._sleep(min(2 ** attempt, 8))
         raise ReportingApiError(f"Reporting API unreachable for {report_id}: {last_exc}")
 
 

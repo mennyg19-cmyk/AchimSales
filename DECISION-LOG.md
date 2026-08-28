@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-08-28 Fail-then-retry-success is one status email
+**What you asked for:** Jobs were failing a lot. If a job fails, retries, and then succeeds, do not send a fail email and a later pass email. Send one email that says it failed, retried, and succeeded.
+**What I had to decide:** Whether to keep per-period Azure FAILURE mails on a final failure; whether a catch-up fail plus a success heartbeat in the same run counts; where the retry story goes on the home-site report mail.
+**What I chose:** Azure runbook status alerts are buffered for the whole attempt. Fail then success (including catch-up fail + later success in one run) flushes as one heartbeat that names the failure. A final failure is one FAILURE mail. Home-site still withholds `[FAIL]` until retries are exhausted; the successful report mail gets a “retried after a failure” subject and body. Reporting API 5xx/network retries wait 1s then 2s instead of firing immediately. Ordered all-time month chunking stays (that was the morning pile-up). Azure Automation still needs `.\deploy-runbook.ps1` for the runbook file itself.
+**Why:** `run_with_retry` wrapped all of `main()`, and `main()` mailed FAILURE plus Heartbeat on every attempt. Same for a catch-up FAILURE then a success heartbeat with no job-level retry. Immediate HTTP retries were hammering a sick API.
+**Status:** DECIDED — shipping this change.
+
+
 ## 2026-08-27 Daily Ordered groups by salesman then sorts customers
 **What you asked for:** Daily Ordered should group by salesman and sort by customer within each salesman. The latest midnight file did not.
 **What I chose:** Put that on the Daily Ordered view for Summary (group Salesman, sort Salesman → Customer Name → Item) and By Customer (keep salesman then customer groups). Excel grouping now keeps salesman blocks together even if a customer sort is listed first. Heshy Open Orders still sorts customer then order number.
