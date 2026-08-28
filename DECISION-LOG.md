@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Q10 retention: keep current TTLs; prune attempts/legs/jobs at 90 days
+**What I had to decide:** How long to keep kept runs, exports, delivery legs, magic-link attempts, and old jobs.
+**Options I considered:** (1) Leave attempts/legs/jobs forever. (2) Plan table: kept runs 30 days (cap 5), one-time exports 7 days, scheduled 30, master 90, attempts/legs/jobs 90 days. (3) Owner-chosen different days.
+**What I chose:** (2). Owner: correct.
+**Why:** Matches what exports and kept-runs already do. The three tables with no TTL today (magic-link attempts, delivery legs, old jobs) get a 90-day prune in Phase 6.
+**Status:** DECIDED — Q10 closed. Do not change the four existing TTLs or the kept-run cap of 5. Q11 still open.
+
 ## 2026-08-28 Q9 company Send now: view-only managers may trigger it
 **What I had to decide:** May a manager who can only view a company schedule press Send now?
 **Options I considered:** (1) Require the same edit/toggle permission (`can_edit_master`). (2) Keep Send now on the visibility check so any manager who can see the row can fire it.
@@ -75,7 +82,7 @@
 **Options I considered:** (1) Treat the old DECISION-LOG answers as signed off and start Phase 1. (2) Re-ask each plan question one at a time and hold implementation.
 **What I chose:** (2). Isolated archive checkout is proven (`b14d725` at `/tmp/achim-archive-restore`). Inventories are in `.scratch/`. Product decisions stay open starting with Q1.
 **Why:** The plan and the current assignment forbid silently deciding commission, Hebcal, distributions, `/beta`, recipients, Send-now, retention, or timeout.
-**Status:** BLOCKED — Q1–Q9 DECIDED. Still waiting on Q10–Q11.
+**Status:** BLOCKED — Q1–Q10 DECIDED. Still waiting on Q11.
 
 ## 2026-08-27 P0: cookie file untracked; history rewrite blocked
 **What I had to decide:** Whether to rewrite git history of `webapp-cache` in this change.
