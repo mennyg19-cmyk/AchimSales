@@ -86,6 +86,9 @@ class DeliveryService:
             sharepoint_path, report_name=report_name, params=params or {},
             schedule_name=schedule_name,
         ))
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
         to = recipients
         cc = cc_raw
         bcc = bcc_raw

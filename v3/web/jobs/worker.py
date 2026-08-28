@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Callable
 
@@ -46,9 +47,10 @@ Handler = Callable[[JobContext], str]
 
 
 class JobWorker:
-    def __init__(self, db: Database, max_workers: int = 2):
+    def __init__(self, db: Database, max_workers: int = 2, app=None):
         self.repo = JobRepository(db)
         self.max_workers = max(1, max_workers)
+        self.app = app
         self.handlers: dict[str, Handler] = {}
         self._sem = threading.BoundedSemaphore(self.max_workers)
         self._stop = threading.Event()
@@ -99,8 +101,10 @@ class JobWorker:
         if handler is None:
             self.repo.mark_failure(job.id, f"no handler for job type {job.type!r}")
             return
+        ctx = self.app.app_context() if self.app is not None else nullcontext()
         try:
-            result_ref = handler(JobContext(job, self.repo)) or ""
+            with ctx:
+                result_ref = handler(JobContext(job, self.repo)) or ""
             self.repo.mark_success(job.id, result_ref)
         except JobCancelled:
             log.info("job %s (%s) cancelled; skipping success", job.id, job.type)

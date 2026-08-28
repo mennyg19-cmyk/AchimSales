@@ -19,6 +19,33 @@ def db(tmp_path):
     return d
 
 
+def test_app_worker_runs_handlers_with_flask_context(tmp_path):
+    from web import create_app
+    from web.config import Config
+    from web.data.migrate import migrate
+
+    app = create_app(Config(
+        app_env="dev", auth_mode="dev", flask_secret="t",
+        tenant_id="", client_id="", client_secret="",
+        reporting_api_base_url="", reporting_api_key="",
+        precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
+        litestream_blob_url="", is_beta=True,
+    ))
+    migrate(app.config["DB"])
+    worker = app.config["JOB_WORKER"]
+    seen = {}
+
+    def handler(ctx):
+        from flask import has_app_context
+        seen["ctx"] = has_app_context()
+        return "ok"
+
+    worker.register("ctxprobe", handler)
+    JobRepository(app.config["DB"]).enqueue("ctxprobe")
+    worker.process_next()
+    assert seen["ctx"] is True
+
+
 def test_handler_success_records_result(db):
     worker = JobWorker(db)
     worker.register("echo", lambda ctx: f"result:{ctx.job.params.get('x')}")

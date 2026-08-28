@@ -80,6 +80,19 @@ def test_readyz_ok_in_dev(client):
     assert resp.get_json() == {"status": "ok"}
 
 
+def test_readyz_503_when_bootstrap_failed(tmp_path):
+    application = create_app(_prod_cfg(tmp_path))
+    (tmp_path / "precious.db").touch()
+    marker = tmp_path / ".bootstrap-failed"
+    marker.write_text("bootstrap_background failed\n", encoding="utf-8")
+    client = application.test_client()
+    live = client.get("/healthz")
+    ready = client.get("/readyz")
+    assert live.status_code == 200
+    assert ready.status_code == 503
+    assert ready.get_json() == {"status": "not_ready"}
+
+
 def test_readyz_503_when_prod_db_missing(tmp_path):
     application = create_app(_prod_cfg(tmp_path))
     (tmp_path / "precious.db").unlink(missing_ok=True)

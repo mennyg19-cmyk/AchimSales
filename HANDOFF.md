@@ -10,7 +10,8 @@ Last updated: 2026-08-28
 - Rollback tag `archive/pre-cleanup-2026-08-27` = `b14d725`.
 - v3 is the only site at `/`. `is_beta=True` kept (`BETA_PRECIOUS_DB_PATH`, cookie `session`). `Config.reports_only` is an alias.
 - Report math: dates fail closed, commission `1` = 1%, monthly rates per month, Ordered Summary by CustomerAccount, Hebcal fail-closed.
-- Keep-run snapshot in precious; cache/export prune on the scheduler tick; hung jobs fail after 45 minutes (not requeued). Tests cover hung fail, 90-day master export TTL, and prod outbox-only not counting as success.
+- Keep-run snapshot in precious; cache/export prune on the scheduler tick; hung jobs fail after 45 minutes (not requeued).
+- Worker handlers run with a Flask app context (OData source map works off the request thread). Cancel is checked after the workbook and before send. Cancelled schedules do not mail a failure notice. `/readyz` is 503 if bootstrap failed.
 - Delivery legs, Send now vs clock slot, Graph Retry-After, explicit salesman with no email fails the schedule. Prod outbox-only is not success.
 - UI/a11y items from the review, including Saved views copy and report-page Schedule using the Schedules wizard.
 - God-file splits: reports/schedules blueprints, factory seeds/background, pages.css, report.ts (grid/filters/jobs/views/delivery).

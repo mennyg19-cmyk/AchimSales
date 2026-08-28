@@ -32,6 +32,7 @@ from web.data.repositories.schedules import (
     ScheduleRunRepository,
 )
 from web.data.repositories.delivery_legs import DeliveryLegRepository, attempt_key
+from web.jobs.worker import JobCancelled
 from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
@@ -94,7 +95,6 @@ class ScheduleRunner:
         run_id = self.run_repo.start(schedule_id, schedule_type, trigger=trigger)
         try:
             if cancel_check and cancel_check():
-                from web.jobs.worker import JobCancelled
                 raise JobCancelled()
             if not ignore_sabbath and skip_sabbath_enabled(getattr(sched, "params", None)):
                 assur, reason = melacha_assur()
@@ -142,7 +142,6 @@ class ScheduleRunner:
             outcomes: list[DeliveryOutcome] = []
             for window in windows:
                 if cancel_check and cancel_check():
-                    from web.jobs.worker import JobCancelled
                     raise JobCancelled()
                 window_subject, window_name = _window_labels(
                     subject, getattr(sched, "name", "") or report_name, window,
@@ -164,6 +163,11 @@ class ScheduleRunner:
             )
             if catch_up_for_date:
                 self._set_catch_up(schedule_id, schedule_type, False)
+        except JobCancelled:
+            existing = self.run_repo.get(run_id)
+            if existing is None or existing.status == "running":
+                self.run_repo.finish(run_id, status="cancelled", debug_log="cancelled")
+            raise
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
             log.exception("schedule run failed (%s:%s)", schedule_type, schedule_id)
             existing = self.run_repo.get(run_id)
@@ -199,7 +203,6 @@ class ScheduleRunner:
         for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
             try:
                 if cancel_check and cancel_check():
-                    from web.jobs.worker import JobCancelled
                     raise JobCancelled()
                 if schedule_type == MASTER and self._salesman_targets(params):
                     outcome = self._run_master_fanout(
@@ -244,7 +247,6 @@ class ScheduleRunner:
                     raise RuntimeError(outcome.result.error or "delivery failed")
                 return outcome
             except Exception as exc:
-                from web.jobs.worker import JobCancelled
                 if isinstance(exc, JobCancelled):
                     raise
                 last_error = exc
@@ -382,7 +384,6 @@ class ScheduleRunner:
                 **deliver_kwargs,
             )
         except Exception as exc:
-            from web.jobs.worker import JobCancelled
             if recipients.strip() and not skip_email:
                 legs.mark_failed(email_key, "cancelled" if isinstance(exc, JobCancelled) else str(exc))
             if path.strip() and not skip_folder:
@@ -448,7 +449,6 @@ class ScheduleRunner:
                     f"Salesman {key} has no email; the schedule cannot send."
                 )
             if cancel_check and cancel_check():
-                from web.jobs.worker import JobCancelled
                 raise JobCancelled()
             split_params = _report_params(params)
             split_params["salesman"] = [key]

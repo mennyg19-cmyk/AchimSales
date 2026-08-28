@@ -6,6 +6,7 @@ must use an upload session or Graph rejects the request.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Protocol
 
 SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024
@@ -39,8 +40,8 @@ def upload_drive_item(
             r.raise_for_status()
         return r.json()
 
-    r = requests.post(
-        session_url,
+    r = _request_with_retry(
+        requests, "post", session_url,
         headers={**headers, "Content-Type": "application/json"},
         json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
         timeout=session_timeout,
@@ -53,9 +54,8 @@ def upload_drive_item(
     while start < size:
         end = min(start + CHUNK_SIZE, size)
         chunk = content[start:end]
-        last = _put_with_retry(
-            requests,
-            upload_url,
+        last = _request_with_retry(
+            requests, "put", upload_url,
             data=chunk,
             headers={
                 "Content-Length": str(len(chunk)),
@@ -69,11 +69,17 @@ def upload_drive_item(
 
 
 def _put_with_retry(requests, url, *, data, headers, timeout, attempts: int = 3):
-    import time
+    return _request_with_retry(
+        requests, "put", url, data=data, headers=headers, timeout=timeout,
+        attempts=attempts,
+    )
 
+
+def _request_with_retry(requests, method, url, *, attempts: int = 3, **kwargs):
+    call = getattr(requests, method)
     last = None
     for attempt in range(1, attempts + 1):
-        last = requests.put(url, data=data, headers=headers, timeout=timeout)
+        last = call(url, **kwargs)
         if last.status_code in (429, 503) and attempt < attempts:
             from web.ops.metrics import note_graph_throttle
             note_graph_throttle(last.status_code)

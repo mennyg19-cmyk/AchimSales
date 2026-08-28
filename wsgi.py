@@ -48,13 +48,20 @@ def _write_boot_error(text: str) -> None:
 
 def _bootstrap_async(v3_web, app) -> None:
     import threading
+    from pathlib import Path
 
     def _run():
+        marker = Path(app.config["APP_CONFIG"].precious_db_path).with_name(".bootstrap-failed")
         try:
             v3_web.bootstrap_background(app)
+            marker.unlink(missing_ok=True)
             log.info("v3 bootstrap_background complete")
         except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
             log.exception("v3 bootstrap_background failed (site stays mounted, may be degraded)")
+            try:
+                marker.write_text("bootstrap_background failed\n", encoding="utf-8")
+            except Exception:  # noqa: BLE001 - readiness still has other signals
+                pass
 
     threading.Thread(target=_run, name="v3-bootstrap", daemon=True).start()
 

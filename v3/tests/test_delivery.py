@@ -161,6 +161,49 @@ def test_prod_outbox_only_is_not_success(tmp_path):
     assert row and row.status == "failed"
 
 
+def test_cancel_after_workbook_skips_mail(tmp_path, monkeypatch):
+    from web.delivery.service import DeliveryService
+    from web.jobs.worker import JobCancelled
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}], "rows": [{"a": 1}]}]}
+    runner = ReportRunner(ReportCache(db))
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    delivered = {"n": 0}
+
+    def fake_deliver(**kwargs):
+        delivered["n"] += 1
+        return DeliveryResult(ok=True, recipients=["a@x.com"])
+
+    email.deliver = fake_deliver  # type: ignore[method-assign]
+    built = {"xlsx": False}
+
+    def fake_workbook(payload, layout):
+        built["xlsx"] = True
+        return b"PK"
+
+    monkeypatch.setattr("web.delivery.service.build_workbook", fake_workbook)
+    svc = DeliveryService(runner, lambda key: (lambda params, vk: payload), email)
+
+    def cancel():
+        return built["xlsx"]
+
+    with pytest.raises(JobCancelled):
+        svc.run_and_deliver(
+            report_key="ordered", identity="u@x.com", visible_salesman_keys=None,
+            builder_version=1, params={}, layout={}, recipients="a@x.com",
+            subject="S", report_name="Ordered", sharepoint_path="",
+            cancel_check=cancel,
+        )
+    assert built["xlsx"] is True
+    assert delivered["n"] == 0
+
+
 def test_email_writes_eml_and_logs_outbox(email):
     svc, cfg, db = email
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
@@ -436,6 +479,47 @@ def test_upload_drive_item_uses_session_over_4mb():
     assert big["webUrl"] == "https://sp/file"
     assert req.posts[0][0] == "https://graph/session"
     assert req.puts[0][0] == "https://upload/session"
+
+
+def test_upload_session_retries_429(monkeypatch):
+    from web.delivery.graph_upload import SIMPLE_UPLOAD_MAX, upload_drive_item
+
+    monkeypatch.setattr("web.delivery.graph_upload.time.sleep", lambda _s: None)
+
+    class _Resp:
+        def __init__(self, status, payload=None, headers=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.headers = headers or {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class _Req:
+        def __init__(self):
+            self.posts = 0
+
+        def put(self, url, **kwargs):
+            return _Resp(200, {"webUrl": "https://sp/file"})
+
+        def post(self, url, **kwargs):
+            self.posts += 1
+            if self.posts == 1:
+                return _Resp(429, {}, {"Retry-After": "0"})
+            return _Resp(200, {"uploadUrl": "https://upload/session"})
+
+    req = _Req()
+    out = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"},
+        content=b"x" * SIMPLE_UPLOAD_MAX, put_timeout=10,
+    )
+    assert out["webUrl"] == "https://sp/file"
+    assert req.posts == 2
 
 
 def test_sharepoint_prod_without_creds_raises(tmp_path):

@@ -818,6 +818,47 @@ def test_hold_before_slot_still_fires_when_time_arrives(tmp_path):
     assert enqueue_due(db, JobRepository(db), after) == 1
 
 
+def test_cancelled_schedule_does_not_mail_failure(tmp_path, monkeypatch):
+    from web.jobs.worker import JobCancelled
+
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    AppSettingsRepository(db).set_schedule_test(enabled=False, emails=["menny@x.com"])
+
+    class FakeEmail:
+        def __init__(self):
+            self.notices = []
+
+        def send_notice(self, **kwargs):
+            self.notices.append(kwargs)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.email = FakeEmail()
+            self.calls = 0
+
+        def run_and_deliver(self, **kwargs):
+            self.calls += 1
+            raise JobCancelled()
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    with pytest.raises(JobCancelled):
+        runner.run(mid, MASTER)
+    assert delivery.email.notices == []
+    assert delivery.calls == 1
+    rows = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert rows[0].status == "cancelled"
+
+
 def test_runner_failure_mails_test_list_when_test_mode_off(tmp_path, monkeypatch):
     monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
     db = Database(tmp_path / "p.db", tmp_path / "c.db")

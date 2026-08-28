@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-28 Loop A findings on the Sol-list phase
+**What I had to decide:** Which of the eight Loop A findings to fix on this draft vs defer until production merge.
+**Options I considered:** (1) Fix every item including a pip freeze lockfile and live post-deploy smoke. (2) Fix the behavior bugs and the cheap Azure/CI holes; defer lockfile and live smoke. (3) Defer all as release-gate work.
+**What I chose:** (2). Worker runs handlers inside the Flask app context. Cancel is checked after the workbook and before mail/upload. `JobCancelled` records `cancelled` and does not send a failure notice. `/readyz` is 503 when `.bootstrap-failed` exists. Graph upload session POST retries 429/503 with Retry-After. Azure production build runs `tsc` and the dist js/css check. Salesman xlsx seed test uses a temp workbook so CI does not skip. Python stays on bounded `>=x,<y` ranges (already capped). Interrupted Graph upload resume and live post-deploy smoke stay out of this pass.
+**Why:** Context/cancel/readyz are the phase expectations. A full lockfile and a live Production smoke are go-live work; this branch still does not deploy.
+**Status:** DECIDED — shipping the behavior fixes. Live post-deploy smoke BLOCKED. Pip freeze lockfile deferred.
+
 ## 2026-08-28 God-file splits, is_beta alias, restore test, process counters
 **What I had to decide:** Finish Sol's leftover refactor/ops items without flipping production env vars or claiming a live Azure empty-disk drill.
 **Options I considered:** (1) Rename `is_beta` / `BETA_*` in Azure. (2) Alias only. (3) Skip splits until after merge.

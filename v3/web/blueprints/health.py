@@ -5,7 +5,8 @@ It must NOT leak auth mode, secrets, paths, or any operational detail
 (the live `/healthz` leaked config - we do not repeat that).
 
 `/healthz` is liveness (process up). `/readyz` is readiness (precious.db present
-in prod, and startup did not mark a failed Litestream restore).
+in prod, startup did not mark a failed Litestream restore, and
+`bootstrap_background` did not fail).
 """
 
 from __future__ import annotations
@@ -17,6 +18,10 @@ from flask import Blueprint, current_app, jsonify, url_for
 health_bp = Blueprint("health", __name__)
 
 
+def bootstrap_failed_marker(cfg) -> Path:
+    return Path(cfg.precious_db_path).with_name(".bootstrap-failed")
+
+
 @health_bp.get("/healthz")
 def healthz():
     return {"status": "ok"}, 200
@@ -26,6 +31,8 @@ def healthz():
 def readyz():
     cfg = current_app.config.get("APP_CONFIG")
     if cfg is None:
+        return {"status": "not_ready"}, 503
+    if bootstrap_failed_marker(cfg).is_file():
         return {"status": "not_ready"}, 503
     if getattr(cfg, "is_prod", False):
         if not Path(cfg.precious_db_path).is_file():
