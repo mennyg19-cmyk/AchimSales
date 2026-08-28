@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-28
 
-**Status:** Draft PR #1 implements the remaining REPOSITORY-REVIEW items on `cursor/p0-security-containment-adb6`. Review loops A/B/C and trust-boundary are green on `7f55503` (CI 15/15). Do not merge to `webapp-cache`. Do not deploy Production.
+**Status:** Draft PR #1 was re-reviewed at `5b901ac` and is not merge-ready. `PR1-REMEDIATION-PLAN.md` is now the authority for the remaining job. Do not merge to `webapp-cache`. Do not deploy Production.
 
 ## What's done
 
@@ -23,16 +23,25 @@ Last updated: 2026-08-28
 
 ## What's next
 
-1. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` in Azure; approve history rewrite if the cookie blob must leave git history.
-2. Live Azure empty-disk restore drill (not done here).
-3. Do not flip `is_beta` to False. Do not merge until you mean to go live.
-4. Later: break `report-filters` / `report-grid` / `report-jobs` circular imports (Loop C F2, deferred).
+1. Read `PR1-REMEDIATION-PLAN.md` in full and follow its phases in order.
+2. Get the listed owner decisions before changing commission, Hebcal, retained features, redirect, recipient, retention, or timeout policy.
+3. Remove every OData path from `v3/`; keep OData only in the separate CLI/Azure Automation path while that path remains active.
+4. Move job processing, scheduling, cleanup, and report execution out of Flask/Gunicorn into a separately supervised process.
+5. Fix the auth, delivery-crash, SQL report, persistence/readiness, UI/accessibility, and parity blockers in the plan.
+6. Owner: rotate `FLASK_SECRET_KEY` / `FLASK_SECRET`; decide the coordinated history rewrite.
+7. Run the live Azure empty-disk restore drill and full browser/report parity gates.
+8. Do not merge until every Phase 10 gate is complete.
 
 ## Open decisions / BLOCKED
 
 - P0.1 history rewrite and live session revoke.
 - Production merge/deploy.
 - In-app Live email distributions were not ported; Azure Automation still sends.
+- Commission unit/effective-rate/display rules.
+- Hebcal outage behavior.
+- `/beta` redirect lifetime.
+- External-recipient and manager company-Send-now policy.
+- Retention and hard-timeout policy.
 - Pip freeze lockfile (deferred).
 - Live Litestream empty-disk drill.
 
@@ -41,6 +50,10 @@ Last updated: 2026-08-28
 - Rollback: `git checkout archive/pre-cleanup-2026-08-27`
 - Do not print cookie values.
 - Do not delete `reports/`, `core/`, `data/`, `runbooks/`.
+- “Remove OData from the app” means no OData under `v3/`; retained CLI/Azure Automation may still use it.
+- “Workers out of the app” means Flask/Gunicorn starts no worker or scheduler threads; use a separate supervised process.
+- Do not treat `pending` delivery legs as proof that Graph/SharePoint accepted anything.
+- Do not let old cookies or `/home/data/app.db` create/reactivate users.
 - Do not add a repo `.semgrepignore`.
 - Root pytest must **not** use `--noconftest` (fixtures live in `tests/conftest.py`).
 - Full v3 pytest: `cd v3 && python -m pytest tests -q`.
