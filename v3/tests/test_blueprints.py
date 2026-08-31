@@ -538,10 +538,13 @@ def test_expired_kept_run_is_not_served(tmp_path):
             "UPDATE jobs SET kept_until=? WHERE id=?",
             ("2000-01-01T00:00:00+00:00", job_id),
         )
-    from web.reporting.cache import ReportCache
-    ReportCache(db).prune(older_than_seconds=-1)
     resp = client.get(f"/api/reports/result/{job_id}")
     assert resp.status_code == 404
+    export = client.post(
+        f"/api/reports/ordered/export/{job_id}", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert export.status_code == 404
 
 
 def test_active_report_runs_is_owner_scoped(tmp_path):
@@ -1121,6 +1124,23 @@ def test_schedule_save_notes_pending_external(tmp_path):
     assert saved.recipients == "cust@x.com"
     pending = ExternalRecipientRepository(app.config["DB"]).list_pending()
     assert any(r["email"] == "cust@x.com" for r in pending)
+
+
+def test_schedule_save_notes_pending_cc_and_bcc(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/master-schedules", json={
+        "name": "CC pending", "report_key": "ordered",
+        "recipients": "team@achimonline.com",
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "params": {"period": "yesterday",
+                   "email_cc": "cc@x.com", "email_bcc": "bcc@x.com"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.external_recipients import ExternalRecipientRepository
+    emails = {r["email"] for r in ExternalRecipientRepository(app.config["DB"]).list_pending()}
+    assert emails == {"cc@x.com", "bcc@x.com"}
 
 
 def test_settings_approve_external_then_email_now_sends(tmp_path):

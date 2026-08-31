@@ -18,7 +18,7 @@ from web.jobs.queue import enqueue_or_503
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
-from web.data.repositories.jobs import kept_until_is_live
+from web.data.repositories.jobs import kept_until_is_live, kept_until_state
 
 @reports_bp.post("/api/reports/<report_key>/run")
 @require_login
@@ -101,9 +101,14 @@ def report_result(job_id: str):
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
     payload = None
-    if kept_until_is_live(job.kept_until):
+    state = kept_until_state(job.kept_until)
+    if state == "live":
         payload = _job_repo().get_kept_payload(job_id)
-    if payload is None:
+        if payload is None:
+            abort(404, description="Result expired; please re-run")
+    elif state == "expired":
+        abort(404, description="Result expired; please re-run")
+    else:
         cached = _cache().get(job.result_ref)
         if cached is None:
             abort(404, description="Result expired; please re-run")
@@ -225,7 +230,12 @@ def export_report(report_key: str, job_id: str):
     if job.status != "success":
         abort(409, description="Report is not ready to export")
     now = datetime.now(timezone.utc)
-    kept_ok = kept_until_is_live(job.kept_until, now) and _job_repo().has_kept_payload(job_id)
+    state = kept_until_state(job.kept_until, now)
+    if state == "expired":
+        abort(404, description="Result expired; please re-run")
+    kept_ok = state == "live" and _job_repo().has_kept_payload(job_id)
+    if state == "live" and not kept_ok:
+        abort(404, description="Result expired; please re-run")
     if not kept_ok and not _cache().exists(job.result_ref):
         abort(404, description="Result expired; please re-run")
     layout = request.get_json(silent=True)

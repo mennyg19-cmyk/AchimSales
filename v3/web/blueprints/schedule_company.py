@@ -129,7 +129,7 @@ def create_master():
         run_as_user_id=_parse_run_as(p, body),
         view_name=view_name,
     )
-    _note_saved_recipients(recipients, _uid(p.email))
+    _note_saved_recipients(recipients, _uid(p.email), params)
     _settings().unskip_seed_name(name)
     created = _master().get(mid)
     if created:
@@ -148,7 +148,7 @@ def copy_master(schedule_id: int):
         abort(404, description="Unknown master schedule")
     _require_master_edit(p, src)
     mid = _master().copy(src, owner_user_id=_uid(p.email))
-    _note_saved_recipients(src.recipients, _uid(p.email))
+    _note_saved_recipients(src.recipients, _uid(p.email), src.params)
     return jsonify({"id": mid}), 201
 
 
@@ -193,7 +193,7 @@ def update_master(schedule_id: int):
         kwargs["report_key"] = report_key
     if not _master().update(schedule_id, **kwargs):
         abort(404, description="Unknown master schedule")
-    _note_saved_recipients(recipients, _uid(p.email))
+    _note_saved_recipients(recipients, _uid(p.email), params)
     if existing.name != name:
         _settings().skip_seed_name(existing.name)
         _settings().unskip_seed_name(name)

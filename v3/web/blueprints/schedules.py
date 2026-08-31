@@ -169,10 +169,15 @@ def _clean_recipients(body: dict, *, sharepoint_path: str,
     return ", ".join(valid)
 
 
-def _note_saved_recipients(recipients: str, user_id: int | None) -> None:
+def _note_saved_recipients(recipients: str, user_id: int | None,
+                           params: dict | None = None) -> None:
     from web.data.repositories.external_recipients import ExternalRecipientRepository
+    addrs = split_recipients(recipients)
+    extra = params or {}
+    addrs.extend(split_recipients(str(extra.get("email_cc") or "")))
+    addrs.extend(split_recipients(str(extra.get("email_bcc") or "")))
     ExternalRecipientRepository(_db()).note_addresses(
-        split_recipients(recipients), requested_by_user_id=user_id)
+        addrs, requested_by_user_id=user_id)
 
 
 def _drain_if_dev():

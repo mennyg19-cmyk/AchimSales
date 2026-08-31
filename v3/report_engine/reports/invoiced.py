@@ -156,21 +156,18 @@ def _year_of(row: dict) -> int | None:
     return None
 
 
-def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
-    """Highest commission rate the SP sent per salesman (simple fallback only).
-
-    Monthly commissions use each row's own rate instead of this max.
-    """
-    rates: dict[str, float] = {}
+def _commission_dollars_by_customer(rows: Iterable[dict]) -> dict[tuple[str, str], float]:
+    """Sum each invoice's own SP rate. Keyed by (customer, salesman)."""
+    dollars: dict[tuple[str, str], float] = {}
     for r in rows:
         sg = r.get("_sales_group") or ""
         if not sg:
             continue
+        key = (r.get("CustomerAccount") or "", salesman_key(sg))
         rate = num(r.get("_commission_pct"))
-        key = salesman_key(sg)
-        if rate > rates.get(key, 0.0):
-            rates[key] = rate
-    return rates
+        base = num(r.get("SubTotal Invoices")) + num(r.get("Tariff Charges"))
+        dollars[key] = dollars.get(key, 0.0) + base * rate
+    return dollars
 
 
 def _display_commission_pct(sales_group: str, salesmen: Mapping[str, SalesmanFact]) -> float:
@@ -396,16 +393,16 @@ def _commissions_flat_table(salesmen_out: list[dict], grand: dict,
 
 def _commissions_simple(summary_rows: Sequence[dict],
                         salesmen: Mapping[str, SalesmanFact],
-                        row_rates: Mapping[str, float]) -> dict:
+                        dollars: Mapping[tuple[str, str], float]) -> dict:
     rows: list[dict] = []
     for r in summary_rows:
         sg = r.get("_sales_group") or ""
-        money_rate = row_rates.get(salesman_key(sg), 0.0) if sg else 0.0
+        key = (r.get("CustomerAccount") or "", salesman_key(sg) if sg else "")
         base = round(num(r.get("SubTotal Invoices")) + num(r.get("Total Tariff Charges")), 2)
         out = _public(r)
         out["Percent"] = _display_commission_pct(sg, salesmen) if sg else 0.0
         out["Commission Base"] = base
-        out["Commissions"] = round(base * money_rate, 2)
+        out["Commissions"] = round(dollars.get(key, 0.0), 2)
         rows.append(out)
     rows.sort(key=lambda r: -num(r.get("Commissions")))
     return {"key": "commissions", "name": "Commissions",
@@ -520,7 +517,8 @@ def build(facts: Iterable[InvoiceChargeFact], *,
             ytd_rows = [_enriched(f, salesmen) for f in ytd_facts]
             commissions = _commissions_monthly(ytd_rows, salesmen, year=year, end_month=end_month)
         else:
-            commissions = _commissions_simple(summary["rows"], salesmen, _row_rates_by_salesman(raw))
+            commissions = _commissions_simple(
+                summary["rows"], salesmen, _commission_dollars_by_customer(raw))
 
     summary["rows"] = [_public(r) for r in summary["rows"]]
 

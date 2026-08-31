@@ -124,7 +124,7 @@ def create_schedule():
         filename_template=(body.get("filename_template") or "").strip(),
         view_name=view_name,
     )
-    _note_saved_recipients(recipients, _uid(p.email))
+    _note_saved_recipients(recipients, _uid(p.email), body.get("params") or {})
     created = _repo().get(sid, _uid(p.email))
     if created:
         _hold_if_due(_repo(), created, PERSONAL)
@@ -154,7 +154,7 @@ def update_schedule(schedule_id: int):
     )
     if not ok:
         abort(404, description="Unknown schedule")
-    _note_saved_recipients(recipients, _uid(p.email))
+    _note_saved_recipients(recipients, _uid(p.email), body.get("params") or {})
     updated = _repo().get(schedule_id, _uid(p.email))
     if updated:
         _hold_if_due(_repo(), updated, PERSONAL)
@@ -220,7 +220,7 @@ def copy_schedule(schedule_id: int):
     )
     # Leave the copy inactive so it doesn't double-fire until edited.
     _repo().set_active(sid, uid, False)
-    _note_saved_recipients(src.recipients, uid)
+    _note_saved_recipients(src.recipients, uid, src.params)
     return jsonify({"id": sid}), 201
 
 

@@ -389,6 +389,21 @@ def test_commissions_simple_fallback_without_ytd():
     assert comm["columns"] == B.COMMISSION_COLS
 
 
+def test_commissions_simple_uses_each_invoice_rate():
+    facts = S.to_facts([
+        {"InvoiceNumber": "A", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0.05"},
+        {"InvoiceNumber": "B", "CustomerAccount": "1", "InvoiceDate": "2026-04-11",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]
+    row = next(r for r in comm["rows"] if r.get("CustomerAccount") == "1")
+    assert row["Commissions"] == 50.0
+    assert row["Percent"] == 0.05
+
+
 def test_unresolved_salesman_is_unassigned():
     facts = S.to_facts([{"InvoiceNumber": "X", "CustomerAccount": "1", "amount": "5"}])
     rows = _tabs_by_key(B.build(facts, salesmen={}))["invoices"]["rows"]

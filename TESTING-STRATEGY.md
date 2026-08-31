@@ -9,7 +9,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Phase 6 report and schedule defects (2026-08-31)
 
 **What to test:**
-- Commission cards use the current bucket's salesman number. SP `commission` is a fraction (`1` = 100%; values above 1 are percents). Invoice SP `0` stays $0. Commissions tab % still shows leftover `salesmen.commission_pct` (`test_report_invoiced.py`).
+- Commission cards use the current bucket's salesman number. SP `commission` is a fraction (`1` = 100%; values above 1 are percents). Invoice SP `0` stays $0. Commissions tab % still shows leftover `salesmen.commission_pct`. The no-YTD fallback also uses each invoice's own rate (`test_report_invoiced.py`).
 - Custom interval start after end is rejected (`test_dates.py`, `test_run_invalid_custom_dates_returns_400`).
 - Company save with Sabbath skip unchecked persists `skip_sabbath=false` (`test_master_schedule_persists_skip_sabbath_false`).
 - Forward `0026` marks leftover `scheduled` rows `legacy`. `last_run_at` ignores `manual`/`legacy`/`unknown` so a deploy-day historical row does not eat the next clock slot (`test_last_run_at_ignores_legacy_trigger`).
@@ -17,12 +17,12 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Configured `SP_SITE_URL` that does not resolve raises; no `sites?search=` fallback (`test_configured_site_url_does_not_search_on_failure`). Empty URL may still search.
 - View-only manager can company Send now; copy/edit stays tighter (`test_view_only_manager_can_company_send_now`).
 - Reconcile diagnostics and `claim-once` are POST+CSRF for developers. GET is 405. Query-string `DIAG_RECONCILE_KEY` is gone (`test_diagnostics.py`).
-- `@achimonline.com` (and subdomains) send. Other domains are stored, noted pending, and blocked until admin/developer approve. Settings test emails stay sendable. `send_notice` is not filtered (`test_email_now_pending_external_needs_approval`, `test_settings_approve_external_then_email_now_sends`, `test_salesman_cannot_approve_external`, `test_manager_cannot_approve_external`, `test_send_notice_is_not_filtered`).
+- `@achimonline.com` (and subdomains) send. Other domains are stored, noted pending, and blocked until admin/developer approve. CC/BCC on a schedule are noted too (`test_schedule_save_notes_pending_cc_and_bcc`). Settings test emails stay sendable. `send_notice` is not filtered (`test_email_now_pending_external_needs_approval`, `test_settings_approve_external_then_email_now_sends`, `test_salesman_cannot_approve_external`, `test_manager_cannot_approve_external`, `test_send_notice_is_not_filtered`).
 
 **Expected behavior:**
 - Business outputs match Q1–Q3 and Q8–Q10.
 - Unapproved outside-company addresses never receive mail.
-- Opening an expired kept run does not serve `kept_run_payloads`.
+- Opening an expired kept run does not serve `kept_run_payloads` and does not fall through to ordinary cache.
 
 **Test files:** `v3/tests/test_report_invoiced.py`, `v3/tests/test_dates.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_repositories_delivery.py`, `v3/tests/test_jobs.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_delivery.py`, `v3/tests/test_diagnostics.py`
 

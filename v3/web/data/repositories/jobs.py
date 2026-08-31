@@ -66,6 +66,13 @@ def kept_until_is_live(kept_until: str | None, now: datetime | None = None) -> b
     return dt > now
 
 
+def kept_until_state(kept_until: str | None, now: datetime | None = None) -> str:
+    """none = never kept; live = still inside the keep window; expired = was kept."""
+    if not kept_until:
+        return "none"
+    return "live" if kept_until_is_live(kept_until, now) else "expired"
+
+
 @dataclass(frozen=True)
 class Job:
     id: str
