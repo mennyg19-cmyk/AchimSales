@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 3: defer Loop C Q1 test helper
+**What I had to decide:** Extract a shared helper for five scoped-tab tests that stringify `tab["rows"]`, or leave them inline.
+**Options I considered:** (1) Extract `_assert_tabs_exclude`. (2) Leave inline; Loop C called it optional and non-blocking.
+**What I chose:** (2).
+**Why:** Each test forbids different strings (quoted vs unquoted `200`). Test-only; no production impact. Gate already green.
+**Status:** DECIDED — Phase 3 quality nit deferred.
+
 ## 2026-08-31 Phase 2: only a developer may impersonate a developer
 **What I had to decide:** Trust-boundary finding: an admin impersonating a developer passes `is_developer` checks because those read the *current* identity's DB role. Restrict vs accept.
 **Options I considered:** (1) Accept and log: admins are already privileged and can edit People. (2) Restrict: `/impersonate` 403 unless `actor_is_developer` when the target is a developer. (3) Change `is_developer` to always mean the real actor.
