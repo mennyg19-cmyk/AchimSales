@@ -115,7 +115,6 @@ def callback():
 @auth_bp.post("/logout")
 def logout_route():
     logout()
-    session.pop("user", None)
     session.clear()
     return redirect(url_for("auth.login_page"))
 
