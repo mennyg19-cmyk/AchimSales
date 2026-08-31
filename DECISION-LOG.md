@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 1.2: owner confirmed Flask secret rotation
+**What I had to decide:** Whether old `session` cookies are dead after the Azure App Setting change.
+**Options I considered:** (1) Keep waiting for a second confirmation. (2) Treat the owner's "I think it worked" as the revoke check and start Phase 2.
+**What I chose:** (2). Owner rotated `FLASK_SECRET_KEY` / `FLASK_SECRET` and reported sign-in bounced then worked again. This VM cannot read Production cookies.
+**Why:** Secret rotation is what invalidates stolen cookies. History rewrite stays off.
+**Status:** DECIDED — cookies treated as revoked. Still BLOCKED on GitHub Environment `production` required reviewers (settings click). Access-log review of the cookie-file window is still the owner's.
+
 ## 2026-08-28 Phase 1.2 policy: do not rewrite history; require Environment reviewers
 **What I had to decide:** Rewrite git history to purge the cookie file, and whether Production deploys must wait on GitHub Environment reviewers.
 **Options I considered:** (1) Coordinated force-push of every branch that contains `f286ce2`. (2) Leave history; kill sessions by rotating Flask secrets. (3) Skip Environment required reviewers.
