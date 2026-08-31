@@ -10,6 +10,15 @@ from web.delivery.states import FOLDER_KINDS, SENT, UNKNOWN
 from web.jobs.worker import JobCancelled
 
 
+def _iso_when(when) -> str:
+    if when is None:
+        return ""
+    if isinstance(when, str):
+        return when
+    iso = getattr(when, "isoformat", None)
+    return iso() if callable(iso) else str(when)
+
+
 def deliver_with_legs(
     delivery: DeliveryService,
     legs: DeliveryLegRepository,
@@ -49,6 +58,7 @@ def deliver_with_legs(
     recipients = str(deliver_kwargs.get("recipients") or "")
     path = str(deliver_kwargs.get("sharepoint_path") or "")
     onedrive_user = str(deliver_kwargs.get("onedrive_user") or "").strip()
+    frozen_when = _iso_when(when)
     if not recipients.strip() and not path.strip():
         raise RuntimeError("No delivery targets.")
     built = delivery.prepare(
@@ -103,6 +113,7 @@ def deliver_with_legs(
             delivery, legs, folder_key, built,
             onedrive_user=onedrive_user, run_id=run_id, slot_id=slot_id,
             job_id=job_id, salesman=salesman, cancel_check=cancel_check,
+            slot_when=frozen_when,
         )
     email_result = DeliveryResult(ok=True, recipients=[to] if to.strip() else [])
     if to.strip() and not skip_email:
@@ -114,7 +125,7 @@ def deliver_with_legs(
             recipients=to, cc=cc, bcc=bcc,
             folder_url=folder_result.sharepoint_url or "",
             run_id=run_id, slot_id=slot_id, job_id=job_id, salesman=salesman,
-            cancel_check=cancel_check,
+            cancel_check=cancel_check, slot_when=frozen_when,
         )
     return _combine_leg_results(
         built, email_result, folder_result, to, skip_email, skip_folder,
@@ -137,6 +148,7 @@ def send_notice_leg(
     report_name: str,
     cancel_check=None,
     retry_attempt_key: str = "",
+    when=None,
 ) -> DeliveryOutcome:
     key = attempt_key(
         slot_id=slot_id, kind="notice", target=recipients, salesman=salesman,
@@ -173,11 +185,13 @@ def send_notice_leg(
     if legs.prepare(
         key, run_id=run_id, kind="notice", target=recipients,
         salesman_key=salesman, slot_id=slot_id, job_id=job_id,
+        slot_when=_iso_when(when),
     ) == "skip":
         return send_notice_leg(
             delivery, legs, slot_id=slot_id, job_id=job_id, run_id=run_id,
             window=window, salesman=salesman, recipients=recipients, subject=subject,
             body_text=body_text, report_name=report_name, cancel_check=cancel_check,
+            retry_attempt_key=retry_attempt_key, when=when,
         )
     legs.mark_sending(key)
     try:
@@ -212,7 +226,7 @@ def send_notice_leg(
 
 def _send_folder_leg(delivery, legs, key, built: PreparedWorkbook, *,
                      onedrive_user: str, run_id, slot_id, job_id, salesman,
-                     cancel_check) -> DeliveryResult:
+                     cancel_check, slot_when: str = "") -> DeliveryResult:
     folder = built.folder
     filename = built.filename
     existing = legs.get(key)
@@ -222,6 +236,7 @@ def _send_folder_leg(delivery, legs, key, built: PreparedWorkbook, *,
     if legs.prepare(
         key, run_id=run_id, kind="onedrive" if onedrive_user else "sharepoint",
         target=folder, salesman_key=salesman, slot_id=slot_id, job_id=job_id,
+        slot_when=slot_when,
     ) == "skip":
         skip = legs.get(key)
         return DeliveryResult(
@@ -279,10 +294,11 @@ def _send_folder_leg(delivery, legs, key, built: PreparedWorkbook, *,
 def _send_email_leg(delivery, legs, key, built: PreparedWorkbook, *,
                     subject, report_name, body_text, recipients, cc, bcc,
                     folder_url, run_id, slot_id, job_id, salesman,
-                    cancel_check) -> DeliveryResult:
+                    cancel_check, slot_when: str = "") -> DeliveryResult:
     if legs.prepare(
         key, run_id=run_id, kind="email", target=recipients,
         salesman_key=salesman, slot_id=slot_id, job_id=job_id,
+        slot_when=slot_when,
     ) == "skip":
         skip = legs.get(key)
         return DeliveryResult(

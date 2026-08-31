@@ -2,19 +2,18 @@
 
 Last updated: 2026-08-31
 
-**Status:** Phase 5 in progress on draft PR #1. Loop A re-pass found one remaining blocker (two retries on one slot sharing a job); that is fixed in this HEAD. CI then a fresh Loop A re-pass are next. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 6.
+**Status:** Phase 5 in progress on draft PR #1. Loop A re-pass 2 failed: job-gone retry lost `slot_when`. This HEAD persists that instant on the leg (`0024`). Keep the PR draft. Do not merge or deploy Production. Do not start Phase 6.
 
 ## What's done
 
 - Q1–Q11 logged. Phases 0–4 closed. Phase 4 gate commit `ecedd7c`.
 - Phase 5 implementation: `0023_delivery_leg_states.sql`, honest states, frozen `slot_id`/`slot_day`/`slot_when`, build-before-send, Graph unknown, folder GET verify, token skew, 90-day leg prune.
-- Loop A findings F1–F5 + N1: child timeout/nonzero exit settles sending email → `unknown`; filename/folder use frozen `slot_when`; `reopen_for_retry` keeps upload session; retry sends only `retry_attempt_key` and the stored target; email-now unknown is listed on privileged `/schedules` with reconcile. `pending` migration test applies 0023 for real.
-- Local after this commit: v3 676, root 152, P0 111+10.
+- Loop A F1–F5 + N1 on `a664b65`. Re-pass 1 F1 (two-leg dedup) on `105e29e`. Re-pass 2 F1: `0024_leg_slot_when.sql` stores the enqueue instant on the leg so a deleted job row cannot mint a second `{HH}{mm}` filename.
 
 ## What's next
 
-1. Push this commit. Wait for CI + Agent Guardrails green on both push and PR.
-2. Fresh Loop A spawn (`gpt-5.6-sol-high`) → `.scratch/review-pass-A-phase5-repass.md`. Do not resume the FAIL agent.
+1. Push this commit. Wait for CI + Agent Guardrails green.
+2. Fresh Loop A spawn (`gpt-5.6-sol-high`) → `.scratch/review-pass-A-phase5-repass3.md`. Do not resume prior FAIL agents.
 3. If A PASS: Loop B then C (`claude-sonnet-5-thinking-high`), then trust-boundary (`claude-fable-5-thinking-high`).
 4. Owner still needs GitHub Environment `production` required reviewers.
 
@@ -36,6 +35,6 @@ Last updated: 2026-08-31
 - Never stage `.venv/` or `.scratch/`.
 - Graph JSON `@odata.type` in `v3/web/delivery/graph_mail.py` is Microsoft Graph, not D365 OData.
 - Do not claim `internetMessageId` or `Client-Request-Id` makes Graph `sendMail` idempotent.
-- Do not edit migrations `0016`, `0019`, `0020`, `0021`, `0022`, `0023`.
+- Do not edit migrations `0016`, `0019`, `0020`, `0021`, `0022`, `0023`. Add forward files only (`0024` is the slot_when column).
 - New POST forms need nosemgrep on the form tag (Flask `csrf_token()` is not a Django match).
 - SIGTERM still leaves the job `running` for recovery. Timeout and unsafe child death cancel then settle legs.

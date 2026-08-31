@@ -79,6 +79,7 @@ class DeliveryLeg:
     slot_id: str
     job_id: str
     upload_session_url: str
+    slot_when: str
     run_id: int | None
 
     @classmethod
@@ -94,6 +95,7 @@ class DeliveryLeg:
             upload_session_url=(
                 r["upload_session_url"] if "upload_session_url" in keys else ""
             ) or "",
+            slot_when=(r["slot_when"] if "slot_when" in keys else "") or "",
             run_id=r["run_id"] if "run_id" in keys else None,
         )
 
@@ -132,8 +134,10 @@ class DeliveryLegRepository:
         return [DeliveryLeg.from_row(r) for r in rows]
 
     def prepare(self, key: str, *, run_id: int | None, kind: str, target: str,
-                salesman_key: str = "", slot_id: str = "", job_id: str = "") -> str:
+                salesman_key: str = "", slot_id: str = "", job_id: str = "",
+                slot_when: str = "") -> str:
         """Insert or reopen a retryable row as prepared. Returns 'send' or 'skip'."""
+        frozen_when = slot_when or ""
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT status FROM delivery_legs WHERE attempt_key=?", (key,)
@@ -143,15 +147,18 @@ class DeliveryLegRepository:
             if row:
                 conn.execute(
                     "UPDATE delivery_legs SET status=?, error='', slot_id=?,"
-                    " job_id=?, updated_at=datetime('now') WHERE attempt_key=?",
-                    (PREPARED, slot_id or "", job_id or "", key),
+                    " job_id=?, slot_when=CASE WHEN ? != '' THEN ? ELSE slot_when END,"
+                    " updated_at=datetime('now') WHERE attempt_key=?",
+                    (PREPARED, slot_id or "", job_id or "", frozen_when,
+                     frozen_when, key),
                 )
                 return "send"
             conn.execute(
                 "INSERT INTO delivery_legs(run_id, attempt_key, kind, target,"
-                " salesman_key, status, slot_id, job_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " salesman_key, status, slot_id, job_id, slot_when)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (run_id, key, kind, target, salesman_key or "", PREPARED,
-                 slot_id or "", job_id or ""),
+                 slot_id or "", job_id or "", frozen_when),
             )
             return "send"
 

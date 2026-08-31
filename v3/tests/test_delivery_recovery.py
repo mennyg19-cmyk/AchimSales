@@ -53,7 +53,7 @@ def test_pending_migrates_to_unknown(tmp_path):
     staging = tmp_path / "pre0023"
     staging.mkdir()
     for sql in root.glob("*.sql"):
-        if sql.name.startswith("0023_"):
+        if sql.name[:4] >= "0023":
             continue
         (staging / sql.name).write_text(sql.read_text(encoding="utf-8"), encoding="utf-8")
     apply_migrations(precious, staging)
@@ -67,6 +67,7 @@ def test_pending_migrates_to_unknown(tmp_path):
     conn.close()
     applied = apply_migrations(precious, root)
     assert any(name.startswith("0023_") for name in applied)
+    assert any(name.startswith("0024_") for name in applied)
     db = Database(precious, tmp_path / "c.db")
     legs = DeliveryLegRepository(db)
     assert legs.get("legacy-pending").status == UNKNOWN
@@ -278,10 +279,14 @@ def test_operator_retry_parses_clock_slot_when_job_is_gone(tmp_path):
         schedule_type="personal", schedule_id=8, slot_day="2026-08-31",
         catch_up_for_date="2026-08-30", include_regular=False,
     )
+    frozen = "2026-08-31T13:00:00-04:00"
     legs = DeliveryLegRepository(db)
     key = attempt_key(slot_id=slot, kind="email", target="a@x.com")
     legs.prepare(key, run_id=1, kind="email", target="a@x.com",
+                 job_id="deleted-job", slot_id=slot, slot_when=frozen)
+    legs.prepare(key, run_id=1, kind="email", target="a@x.com",
                  job_id="deleted-job", slot_id=slot)
+    assert legs.get(key).slot_when == frozen
     legs.mark_sending(key)
     legs.mark_unknown(key, "lost")
     assert legs.reopen_for_retry(key) is True
@@ -290,9 +295,30 @@ def test_operator_retry_parses_clock_slot_when_job_is_gone(tmp_path):
     params = jobs.get(new_id).params
     assert params["slot_id"] == slot
     assert params["slot_day"] == "2026-08-31"
+    assert params["slot_when"] == frozen
     assert params["catch_up_for_date"] == "2026-08-30"
     assert params["include_regular"] is False
     assert params["retry_attempt_key"] == key
+
+
+def test_job_gone_retry_empty_slot_when_uses_midnight_eastern(tmp_path):
+    from web.delivery.filename_template import parse_frozen_when
+
+    db = _db(tmp_path)
+    jobs = JobRepository(db)
+    slot = scheduled_slot_id(
+        schedule_type="personal", schedule_id=8, slot_day="2026-08-31")
+    legs = DeliveryLegRepository(db)
+    key = attempt_key(slot_id=slot, kind="email", target="a@x.com")
+    legs.prepare(key, run_id=1, kind="email", target="a@x.com",
+                 job_id="deleted-job", slot_id=slot)
+    legs.mark_sending(key)
+    legs.mark_unknown(key, "lost")
+    assert legs.reopen_for_retry(key) is True
+    new_id = enqueue_leg_retry(jobs, legs.get(key))
+    params = jobs.get(new_id).params
+    expected = parse_frozen_when("", "2026-08-31").isoformat()
+    assert params["slot_when"] == expected
 
 
 class _Ok:
@@ -739,6 +765,44 @@ def test_folder_verify_uses_frozen_when_not_live_clock(tmp_path):
     )
     assert out.result.ok and not puts
     key = attempt_key(slot_id="s1", kind="sharepoint", target="August")
+    assert legs.get(key).status == SENT
+    assert legs.get(key).remote_id == "https://sp/original"
+
+
+def test_job_gone_retry_folder_keeps_frozen_filename(tmp_path):
+    from web.delivery.execute import deliver_with_legs
+    from web.delivery.filename_template import parse_frozen_when, resolve_filename_template
+
+    frozen = "2026-08-31T13:00:00-04:00"
+    when = parse_frozen_when(frozen, "2026-08-31")
+    name = resolve_filename_template("", report_name="R", when=when)
+    assert name == "R_2026-08-31_1300.xlsx"
+    files = {("Ordered", name): {"webUrl": "https://sp/original"}}
+    db = _db(tmp_path)
+    jobs = JobRepository(db)
+    slot = scheduled_slot_id(
+        schedule_type="personal", schedule_id=8, slot_day="2026-08-31")
+    legs = DeliveryLegRepository(db)
+    key = attempt_key(slot_id=slot, kind="sharepoint", target="Ordered")
+    legs.prepare(key, run_id=1, kind="sharepoint", target="Ordered",
+                 job_id="deleted-job", slot_id=slot, slot_when=frozen)
+    legs.mark_sending(key)
+    legs.mark_failed(key, "interrupted")
+    assert legs.reopen_for_retry(key) is True
+    new_id = enqueue_leg_retry(jobs, legs.get(key))
+    params = jobs.get(new_id).params
+    assert params["slot_when"] == frozen
+    retry_when = parse_frozen_when(params["slot_when"], params["slot_day"])
+    delivery, _sent, puts, _files = _workbook_delivery(files=files, folder="Ordered")
+    out = deliver_with_legs(
+        delivery, legs, slot_id=slot, job_id=new_id, run_id=1, window={},
+        recipients="", sharepoint_path="Ordered",
+        report_key="ordered", identity="u@x.com", builder_version=1,
+        filename_template="", report_name="R",
+        when=retry_when, retry_attempt_key=key,
+    )
+    assert out.result.ok
+    assert puts == []
     assert legs.get(key).status == SENT
     assert legs.get(key).remote_id == "https://sp/original"
 

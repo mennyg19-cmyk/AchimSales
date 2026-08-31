@@ -74,6 +74,18 @@ def enqueue_schedule_run(job_repo: JobRepository, *, schedule_id: int,
     )
 
 
+def _retry_slot_when(leg, job_params: dict | None, slot_day: str) -> str | None:
+    """Job params, then the leg row, then midnight Eastern of slot_day. Never the live clock."""
+    from_job = str((job_params or {}).get("slot_when") or "")
+    from_leg = getattr(leg, "slot_when", None) or ""
+    frozen = from_job or from_leg
+    if frozen:
+        return frozen
+    from web.delivery.filename_template import parse_frozen_when
+    midnight = parse_frozen_when("", slot_day)
+    return midnight.isoformat() if midnight else None
+
+
 def enqueue_leg_retry(job_repo: JobRepository, leg) -> str | None:
     """Queue a run that uses this leg's frozen slot_id. None if we cannot rebuild it."""
     from web.delivery.jobs import DELIVERY_JOB_TYPE, enqueue_delivery
@@ -83,6 +95,7 @@ def enqueue_leg_retry(job_repo: JobRepository, leg) -> str | None:
         return None
     if original is not None and original.type == SCHEDULE_RUN_JOB_TYPE:
         p = original.params
+        day = str(p.get("slot_day") or "")
         return enqueue_schedule_run(
             job_repo,
             schedule_id=int(p["schedule_id"]),
@@ -93,14 +106,18 @@ def enqueue_leg_retry(job_repo: JobRepository, leg) -> str | None:
             include_regular=bool(p.get("include_regular", True)),
             trigger="manual",
             slot_id=leg.slot_id,
-            slot_day=str(p.get("slot_day") or "") or None,
-            slot_when=str(p.get("slot_when") or "") or None,
+            slot_day=day or None,
+            slot_when=_retry_slot_when(leg, p, day),
             retry_attempt_key=leg.attempt_key,
         )
     if original is not None and original.type == DELIVERY_JOB_TYPE:
         payload = dict(original.params)
         payload["slot_id"] = leg.slot_id
         payload["retry_attempt_key"] = leg.attempt_key
+        if not payload.get("slot_when"):
+            stored = getattr(leg, "slot_when", "") or ""
+            if stored:
+                payload["slot_when"] = stored
         return enqueue_delivery(
             job_repo, owner_user_id=original.owner_user_id, payload=payload)
     parsed = parse_scheduled_slot_id(leg.slot_id)
@@ -117,6 +134,7 @@ def enqueue_leg_retry(job_repo: JobRepository, leg) -> str | None:
         trigger="manual",
         slot_id=leg.slot_id,
         slot_day=parsed["slot_day"],
+        slot_when=_retry_slot_when(leg, None, parsed["slot_day"]),
         retry_attempt_key=leg.attempt_key,
     )
 
