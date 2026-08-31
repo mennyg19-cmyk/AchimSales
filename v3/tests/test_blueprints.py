@@ -538,6 +538,10 @@ def test_expired_kept_run_is_not_served(tmp_path):
             "UPDATE jobs SET kept_until=? WHERE id=?",
             ("2000-01-01T00:00:00+00:00", job_id),
         )
+    from web.data.repositories.jobs import JobRepository
+    from datetime import datetime, timezone
+    assert JobRepository(db).prune_expired_kept(
+        now=datetime(2026, 8, 31, tzinfo=timezone.utc)) == 1
     resp = client.get(f"/api/reports/result/{job_id}")
     assert resp.status_code == 404
     export = client.post(

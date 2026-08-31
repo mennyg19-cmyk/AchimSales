@@ -380,7 +380,7 @@ def test_prune_expired_kept_drops_payload(db):
     from datetime import datetime, timezone
     assert jobs.prune_expired_kept(now=datetime(2026, 8, 31, tzinfo=timezone.utc)) == 1
     assert jobs.get_kept_payload(jid) is None
-    assert jobs.get(jid).kept_until is None
+    assert jobs.get(jid).kept_until == "2000-01-01T00:00:00+00:00"
 
 
 def test_job_prune_skips_queued_and_live_kept(db):
@@ -407,6 +407,27 @@ def test_job_prune_skips_queued_and_live_kept(db):
     assert jobs.get(old) is None
     assert jobs.get(kept) is not None
     assert jobs.get_kept_payload(kept)["row_count"] == 1
+
+
+def test_job_prune_drops_expired_kept_tombstone(db):
+    uid = UserRepository(db).upsert("a@x.com", display_name="A", role="admin").id
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("report.run", owner_user_id=uid)
+    jobs.claim_next()
+    jobs.mark_success(jid, "x")
+    jobs.keep_run(
+        jid, uid, kept_until="2000-01-01T00:00:00+00:00",
+        name="Old", payload_json='{"row_count": 1}',
+    )
+    from datetime import datetime, timezone
+    assert jobs.prune_expired_kept(now=datetime(2026, 8, 31, tzinfo=timezone.utc)) == 1
+    with db.precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET created_at=datetime('now', '-100 days') WHERE id=?",
+            (jid,),
+        )
+    assert jobs.prune() == 1
+    assert jobs.get(jid) is None
 
 
 def test_scheduler_queues_jobs_before_start():

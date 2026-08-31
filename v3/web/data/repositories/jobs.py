@@ -368,8 +368,9 @@ class JobRepository:
             rows = conn.execute(
                 "SELECT id FROM jobs WHERE owner_user_id=? AND type='report.run'"
                 " AND kept_until IS NOT NULL AND kept_until != ''"
+                " AND kept_until > ?"
                 " ORDER BY kept_until DESC, finished_at DESC",
-                (owner_user_id,),
+                (owner_user_id, _now()),
             ).fetchall()
             if len(rows) > cap:
                 drop_ids = [r["id"] for r in rows[cap:]]
@@ -423,7 +424,8 @@ class JobRepository:
             return cur.rowcount
 
     def prune_expired_kept(self, now: datetime | None = None) -> int:
-        """Drop kept payloads whose window has ended."""
+        """Drop kept payloads whose window has ended. Leave kept_until as a
+        tombstone so result/export cannot fall through to a later cache hit."""
         now = now or datetime.now(timezone.utc)
         cutoff = now.isoformat() if now.tzinfo else now.replace(tzinfo=timezone.utc).isoformat()
         with self.db.precious() as conn:
@@ -438,10 +440,6 @@ class JobRepository:
             conn.executemany(
                 "DELETE FROM kept_run_payloads WHERE job_id=?", [(i,) for i in ids],
             )
-            conn.executemany(
-                "UPDATE jobs SET kept_until=NULL, keep_name='' WHERE id=?",
-                [(i,) for i in ids],
-            )
             return len(ids)
 
     def prune(self, older_than_days: int = 90) -> int:
@@ -449,6 +447,7 @@ class JobRepository:
         self.prune_expired_kept()
         days = max(1, int(older_than_days))
         modifier = f"-{days} days"
+        cutoff = datetime.now(timezone.utc).isoformat()
         with self.db.precious() as conn:
             conn.execute(
                 """
@@ -457,18 +456,18 @@ class JobRepository:
                     SELECT id FROM jobs
                     WHERE created_at < datetime('now', ?)
                       AND status NOT IN ('queued', 'running')
-                      AND (kept_until IS NULL OR kept_until = '')
+                      AND (kept_until IS NULL OR kept_until = '' OR kept_until < ?)
                 )
                 """,
-                (modifier,),
+                (modifier, cutoff),
             )
             cur = conn.execute(
                 """
                 DELETE FROM jobs
                 WHERE created_at < datetime('now', ?)
                   AND status NOT IN ('queued', 'running')
-                  AND (kept_until IS NULL OR kept_until = '')
+                  AND (kept_until IS NULL OR kept_until = '' OR kept_until < ?)
                 """,
-                (modifier,),
+                (modifier, cutoff),
             )
             return int(cur.rowcount or 0)
