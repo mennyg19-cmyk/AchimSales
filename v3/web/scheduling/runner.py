@@ -512,8 +512,18 @@ class ScheduleRunner:
                 deliveries.append(_delivery_leg(full, kind="full"))
 
         salesmen = SalesmanRepository(self.user_repo.db)
-        for key in _salesman_targets(self.user_repo.db, params):
-            email = salesmen.get_email(key)
+        split_keys = _salesman_targets(self.user_repo.db, params)
+        if retry_leg is not None and retry_leg.salesman_key:
+            split_keys = [retry_leg.salesman_key]
+        for key in split_keys:
+            if (
+                retry_leg is not None
+                and retry_leg.salesman_key == key
+                and (retry_leg.target or "").strip()
+            ):
+                email = retry_leg.target
+            else:
+                email = salesmen.get_email(key)
             if not email:
                 raise RuntimeError(
                     f"Salesman {key} has no email; the schedule cannot send."

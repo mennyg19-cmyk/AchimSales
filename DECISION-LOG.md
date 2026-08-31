@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 5: fan-out retry uses stored salesman address
+**What I had to decide:** What happens when the operator retries one salesman split and that salesman's live email is blank or they were dropped from the schedule.
+**Options I considered:** (1) Keep requiring a live `get_email` (retry never sends). (2) Fail closed until the salesman record is restored. (3) Send the stored target on that selected leg only.
+**What I chose:** (3). First-send still requires a live email for every listed salesman.
+**Why:** Loop A re-pass 4 F1. I4 is retry of that stored attempt.
+**Status:** DECIDED — Phase 5 Loop A fix.
+
 ## 2026-08-31 Phase 5: freeze window and filename on retry
 **What I had to decide:** What “Send again” does after the live schedule’s period or filename template changed.
 **Options I considered:** (1) Keep hashing the current schedule (silent skip / second folder file). (2) Fail the retry until the operator restores the old schedule. (3) Persist the original window and resolved filename on the leg and retry that attempt.

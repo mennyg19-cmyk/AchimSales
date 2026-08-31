@@ -740,6 +740,99 @@ def test_retry_sends_only_the_selected_attempt_and_frozen_target(tmp_path):
     assert legs.get(key_b).status == SENT
 
 
+def _fanout_retry_runner(db, delivery):
+    from web.auth.authorization import Authorization
+    from web.data.repositories.schedules import (
+        MasterScheduleRepository, ScheduleRepository, ScheduleRunRepository,
+    )
+    from web.scheduling.runner import ScheduleRunner
+
+    return ScheduleRunner(
+        schedule_repo=ScheduleRepository(db),
+        master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery,
+    )
+
+
+def test_fanout_retry_sends_stored_target_when_live_email_blank(tmp_path):
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+    from web.data.repositories.schedules import MASTER, MasterScheduleRepository
+
+    db = _db(tmp_path)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="A", number="1", full_name="A", display_name="A",
+                     email="stored@example.com"),
+    ])
+    masters = MasterScheduleRepository(db)
+    mid = masters.create(
+        "ordered", "Nightly", params={"email_salesman_keys": ["A"]},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="manager@x.com")
+    sched = masters.get(mid)
+    key = attempt_key(
+        slot_id="s1", kind="email", target="stored@example.com", salesman="A")
+    legs = DeliveryLegRepository(db)
+    legs.prepare(key, run_id=1, kind="email", target="stored@example.com",
+                 salesman_key="A", slot_id="s1", job_id="j")
+    legs.mark_sending(key)
+    legs.mark_unknown(key, "lost")
+    assert legs.reopen_for_retry(key)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="A", number="1", full_name="A", display_name="A", email=""),
+    ])
+    delivery, sent, _puts, _files = _workbook_delivery()
+    out = _fanout_retry_runner(db, delivery)._run_master_fanout(
+        sched=sched, identity="u@x.com", scope=None, builder_version=1,
+        subject="S", report_name="R", onedrive_user="", test_to=None,
+        params={"email_salesman_keys": ["A"]}, schedule_name="N",
+        cancel_check=None, run_id=1, trigger="manual",
+        schedule_type=MASTER, schedule_id=mid,
+        slot_id="s1", job_id="j", when=None, retry_attempt_key=key,
+    )
+    assert out.result.ok
+    assert sent == ["stored@example.com"]
+    assert legs.get(key).status == SENT
+
+
+def test_fanout_retry_sends_stored_target_when_salesman_dropped(tmp_path):
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+    from web.data.repositories.schedules import MASTER, MasterScheduleRepository
+
+    db = _db(tmp_path)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="A", number="1", full_name="A", display_name="A",
+                     email="stored@example.com"),
+    ])
+    masters = MasterScheduleRepository(db)
+    mid = masters.create(
+        "ordered", "Nightly", params={"email_salesman_keys": ["B"]},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="manager@x.com")
+    sched = masters.get(mid)
+    key = attempt_key(
+        slot_id="s1", kind="email", target="stored@example.com", salesman="A")
+    legs = DeliveryLegRepository(db)
+    legs.prepare(key, run_id=1, kind="email", target="stored@example.com",
+                 salesman_key="A", slot_id="s1", job_id="j")
+    legs.mark_sending(key)
+    legs.mark_unknown(key, "lost")
+    assert legs.reopen_for_retry(key)
+    delivery, sent, _puts, _files = _workbook_delivery()
+    out = _fanout_retry_runner(db, delivery)._run_master_fanout(
+        sched=sched, identity="u@x.com", scope=None, builder_version=1,
+        subject="S", report_name="R", onedrive_user="", test_to=None,
+        params={"email_salesman_keys": ["B"]}, schedule_name="N",
+        cancel_check=None, run_id=1, trigger="manual",
+        schedule_type=MASTER, schedule_id=mid,
+        slot_id="s1", job_id="j", when=None, retry_attempt_key=key,
+    )
+    assert out.result.ok
+    assert sent == ["stored@example.com"]
+    assert "Salesman" not in (out.result.error or "")
+    assert legs.get(key).status == SENT
+
+
 def test_folder_verify_uses_frozen_when_not_live_clock(tmp_path):
     from datetime import datetime
     from zoneinfo import ZoneInfo
