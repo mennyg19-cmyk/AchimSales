@@ -351,21 +351,18 @@ def _register_cli(app: Flask, db) -> None:
         print("Applied migrations:", applied)
 
     @app.cli.command("import-live-users")
-    def import_live_users_cmd():  # pragma: no cover - invoked via `flask import-live-users`
+    def import_live_users_cmd():
         from web.data.repositories.app_settings import AppSettingsRepository
-        from web.data.seed_users import live_db_path, seed_users_from_live
+        from web.data.seed_users import copy_live_users, live_db_path, read_live_users
 
         path = live_db_path()
-        n = seed_users_from_live(db, path)
-        grants = 0
-        with db.precious() as conn:
-            grants = conn.execute(
-                "SELECT COUNT(*) FROM user_salesman_access"
-            ).fetchone()[0]
+        if not path.is_file():
+            raise SystemExit(f"Live user DB not found: {path}")
+        n_users, n_grants = copy_live_users(db, read_live_users(path))
         AppSettingsRepository(db).record_live_user_import(
-            path=str(path), users=n, grants=int(grants),
+            path=str(path), users=n_users, grants=n_grants,
         )
-        print(f"Imported {n} users from {path}")
+        print(f"Imported {n_users} users ({n_grants} grants) from {path}")
 
 
 

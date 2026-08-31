@@ -46,6 +46,22 @@ def _live_db(path, *, key: str, extra_keys=()):
     conn.close()
 
 
+def _cli_app(tmp_path):
+    from web import create_app
+    from web.config import Config
+
+    cfg = Config(
+        app_env="dev", auth_mode="dev", flask_secret="t",
+        tenant_id="", client_id="", client_secret="",
+        reporting_api_base_url="", reporting_api_key="",
+        precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
+        litestream_blob_url="",
+    )
+    app = create_app(cfg)
+    migrate(app.config["DB"])
+    return app
+
+
 def test_second_copy_drops_revoked_salesman_grant(tmp_path):
     live = tmp_path / "live.db"
     _live_db(live, key="akey")
@@ -79,20 +95,9 @@ def test_bootstrap_does_not_seed_from_live():
 
 
 def test_import_live_users_cli_records_marker(tmp_path, monkeypatch):
-    from web import create_app
-    from web.config import Config
-
     live = tmp_path / "live.db"
     _live_db(live, key="akey")
-    cfg = Config(
-        app_env="dev", auth_mode="dev", flask_secret="t",
-        tenant_id="", client_id="", client_secret="",
-        reporting_api_base_url="", reporting_api_key="",
-        precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
-        litestream_blob_url="",
-    )
-    app = create_app(cfg)
-    migrate(app.config["DB"])
+    app = _cli_app(tmp_path)
     with app.config["DB"].precious() as conn:
         conn.execute("INSERT INTO salesmen(key) VALUES ('akey')")
     monkeypatch.setenv("LIVE_DB_PATH", str(live))
@@ -110,3 +115,44 @@ def test_import_live_users_cli_records_marker(tmp_path, monkeypatch):
     assert data["grants"] == n_grants == 1
     assert str(live) in data["path"]
     assert data["at"]
+
+
+def test_import_live_users_cli_fails_when_source_missing(tmp_path, monkeypatch):
+    app = _cli_app(tmp_path)
+    missing = tmp_path / "no-such.db"
+    monkeypatch.setenv("LIVE_DB_PATH", str(missing))
+    result = app.test_cli_runner().invoke(args=["import-live-users"])
+    assert result.exit_code != 0
+    text = f"{result.output or ''}{result.exception or ''}".lower()
+    assert "not found" in text
+    with app.config["DB"].precious() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='live_user_import'"
+        ).fetchone()
+    assert row is None
+
+
+def test_import_live_users_cli_records_imported_grants_not_table_total(tmp_path, monkeypatch):
+    live = tmp_path / "live.db"
+    _live_db(live, key="akey")
+    app = _cli_app(tmp_path)
+    db = app.config["DB"]
+    other = UserRepository(db).upsert("other@x.com", role="salesman")
+    with db.precious() as conn:
+        conn.execute("INSERT INTO salesmen(key) VALUES ('akey'), ('zkey')")
+        conn.execute(
+            "INSERT INTO user_salesman_access(user_id, salesman_key) VALUES (?, 'zkey')",
+            (other.id,),
+        )
+    monkeypatch.setenv("LIVE_DB_PATH", str(live))
+    result = app.test_cli_runner().invoke(args=["import-live-users"])
+    assert result.exit_code == 0
+    with db.precious() as conn:
+        raw = conn.execute(
+            "SELECT value FROM app_settings WHERE key='live_user_import'"
+        ).fetchone()[0]
+        table_grants = conn.execute("SELECT COUNT(*) FROM user_salesman_access").fetchone()[0]
+    data = json.loads(raw)
+    assert table_grants == 2
+    assert data["users"] == 1
+    assert data["grants"] == 1

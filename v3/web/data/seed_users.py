@@ -107,10 +107,11 @@ def read_live_users(path: Path | str | None = None) -> list[dict]:
     return out
 
 
-def copy_live_users(db: Database, users: list[dict]) -> int:
-    """Upsert live users into v3. Returns the number of users written."""
+def copy_live_users(db: Database, users: list[dict]) -> tuple[int, int]:
+    """Upsert live users into v3. Returns (users written, grants written)."""
     if not users:
-        return 0
+        return 0, 0
+    grants_written = 0
     with db.precious() as conn:
         existing_salesmen = {r[0] for r in conn.execute("SELECT key FROM salesmen")}
         for u in users:
@@ -143,8 +144,10 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
                     " VALUES (?, ?)",
                     (uid, key),
                 )
-    return len(users)
+                grants_written += 1
+    return len(users), grants_written
 
 
 def seed_users_from_live(db: Database, path: Path | str | None = None) -> int:
-    return copy_live_users(db, read_live_users(path))
+    n_users, _n_grants = copy_live_users(db, read_live_users(path))
+    return n_users
