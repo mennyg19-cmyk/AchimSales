@@ -194,3 +194,10 @@ class Authorization:
         if self._is_privileged(u):
             return True
         return bool(u.sharepoint_access)
+
+    def can_see_company_views(self, p: Principal | None) -> bool:
+        """Named company views on Home / Saved views / the wizard. Flag only."""
+        u = self._active_user(p)
+        if u is None:
+            return False
+        return bool(u.can_see_company_views)

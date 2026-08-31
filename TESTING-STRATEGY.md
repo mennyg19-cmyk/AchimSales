@@ -22,6 +22,27 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Company views per-user permission
+
+**What to test:**
+- `users.can_see_company_views` defaults to 0; developer INSERT and `0016` set it to 1.
+- Admin without the flag: presets `company` is `[]`, GET/PUT company-view 403, Home has no Company views heading.
+- Developer via upsert INSERT: can PUT and sees Home cards.
+- Salesman with the flag: sees company in presets (`can_edit` false) and 403 on PUT. Salesman without the flag: empty list + GET 403.
+- People PUT `/api/admin/users/<id>` round-trips the flag. Creating a developer sets it on. Creating a salesman does not.
+- Live user mirror INSERT sets 1 for developers; ON CONFLICT does not overwrite the flag. `V3_DEVELOPER_EMAILS` seed sets the flag to 1.
+- `?cview=` GET returning null does not set `autoRunRequested`.
+
+**Expected behavior:**
+- Home, Saved views company group, and the schedule wizard company optgroup only appear when the flag is on.
+- Managers/admins still need the flag to edit; schedule privilege alone is not enough.
+
+**Edge cases:**
+- Inactive user with the flag is denied (fail closed).
+- Unchecking a developer in People sticks until `_seed_developers` runs (env-listed emails get the flag back on boot).
+
+**Test files:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_seed_developers.py`, `v3/tests/test_frontend.py`
+
 ## Ordered Summary remainder from SP dollar amount
 
 **What to test:**
@@ -40,9 +61,9 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Company views (Daily Ordered / Heshy Open Orders)
 
 **What to test:**
-- `company_views` upsert rejects Default/Custom; GET presets includes `company`.
-- Managers/admins PUT a company view; salesmen GET (`can_edit` false) and 403 on PUT.
-- Home page shows a Company views section with `?cview=` links.
+- `company_views` upsert rejects Default/Custom; GET presets includes `company` **when the user has `can_see_company_views`**.
+- Managers/admins PUT a company view **when they also have the see flag**; salesmen with the flag GET (`can_edit` false) and 403 on PUT.
+- Home page shows a Company views section with `?cview=` links **only for users with the flag**.
 - Boot stamps daily company Ordered schedules with Daily Ordered (salesman then customer). Salesman-split and already-named views are left alone. Heshy open-orders (Hkaufman + Open) gets Heshy Open Orders (Full Data only, hide LineNumber, sort customer then order, group by order).
 - Send with that view name uses the live company layout even if the schedule snapshot is stale.
 - Excel nested groups write banners/totals per level. Sort-then-group keeps customer clusters and does not add a customer total when the only group field is order number.

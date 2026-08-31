@@ -44,7 +44,7 @@ def _user_dict(u) -> dict:
         "id": u.id, "email": u.email, "display_name": u.display_name, "role": u.role,
         "is_active": u.is_active, "is_external": u.is_external,
         "dashboard_enabled": u.dashboard_enabled, "sharepoint_access": u.sharepoint_access,
-        "test_access": u.test_access,
+        "test_access": u.test_access, "can_see_company_views": u.can_see_company_views,
     }
 
 
@@ -112,6 +112,7 @@ def update_user(user_id: int):
         is_active=body.get("is_active"), is_external=body.get("is_external"),
         dashboard_enabled=body.get("dashboard_enabled"),
         sharepoint_access=body.get("sharepoint_access"), test_access=body.get("test_access"),
+        can_see_company_views=body.get("can_see_company_views"),
     )
     return jsonify(_user_dict(repo.get_by_id(user_id)))
 

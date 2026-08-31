@@ -264,6 +264,8 @@ def _my_presets(p) -> list[dict]:
 def _company_view_cards(p) -> list[dict]:
     """Company-wide views as home-page cards (deep-link Open URLs)."""
     authz = _authz()
+    if not authz.can_see_company_views(p):
+        return []
     titles = {s.key: s.title for s in registry.built_reports()}
     out: list[dict] = []
     for v in _company_views_repo().list_all():
@@ -1311,7 +1313,11 @@ def report_presets(report_key: str):
         abort(403, description="Unknown user")
     items = [_preset_dict(s) for s in _saved_repo().list_for_user(uid)
              if s.report_key == report_key]
-    company = [_company_view_dict(v, p) for v in _company_views_repo().list_for_report(report_key)]
+    authz = _authz()
+    company = (
+        [_company_view_dict(v, p) for v in _company_views_repo().list_for_report(report_key)]
+        if authz.can_see_company_views(p) else []
+    )
     return jsonify({
         "default": _default_dict(report_key, p, _defaults_repo().get(report_key)),
         "company": company,
@@ -1428,6 +1434,8 @@ def get_company_view(report_key: str, view_id: int):
     p = _principal_or_401()
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
+    if not _authz().can_see_company_views(p):
+        abort(403, description="You do not have access to company views.")
     row = _company_views_repo().get(view_id)
     if row is None or row.report_key != report_key:
         abort(404, description="Unknown company view")
@@ -1440,6 +1448,8 @@ def put_company_view(report_key: str):
     p = _principal_or_401()
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
+    if not _authz().can_see_company_views(p):
+        abort(403, description="You do not have access to company views.")
     if not _authz().can_see_company_schedules(p):
         abort(403, description="Only managers and admins can change company views.")
     uid = _user_id(p.email)

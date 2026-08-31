@@ -38,7 +38,8 @@
       <tr data-user-id="{{ u.id }}" data-email="{{ u.email }}" data-name="{{ u.display_name }}" data-role="{{ u.role }}"
           data-active="{{ 1 if u.is_active else 0 }}" data-external="{{ 1 if u.is_external else 0 }}"
           data-dashboard="{{ 1 if u.dashboard_enabled else 0 }}" data-sharepoint="{{ 1 if u.sharepoint_access else 0 }}"
-          data-test="{{ 1 if u.test_access else 0 }}">
+          data-test="{{ 1 if u.test_access else 0 }}"
+          data-company-views="{{ 1 if u.can_see_company_views else 0 }}">
         <td class="cell-email">{{ u.email }}</td>
         <td>{{ u.display_name or '\u2014' }}</td>
         <td>{{ role_badge(u.role) }}</td>
@@ -47,6 +48,7 @@
           {% if u.dashboard_enabled %}<span class="mini-flag">Dashboard</span>{% endif %}
           {% if u.sharepoint_access %}<span class="mini-flag">SharePoint</span>{% endif %}
           {% if u.test_access %}<span class="mini-flag">Test</span>{% endif %}
+          {% if u.can_see_company_views %}<span class="mini-flag">Company views</span>{% endif %}
           {% if u.is_external %}<span class="mini-flag">External</span>{% endif %}
         </td>
         <td class="cell-actions"><button type="button" class="btn btn-outline btn-sm btn-edit-user">Edit</button></td>
@@ -93,6 +95,8 @@
         <label class="flag-row"><input type="checkbox" id="euDashboard"> <span>Dashboard access</span></label>
         <label class="flag-row"><input type="checkbox" id="euSharepoint"> <span>SharePoint access</span></label>
         <label class="flag-row"><input type="checkbox" id="euTest"> <span>Test-site access</span></label>
+        <label class="flag-row"><input type="checkbox" id="euCompanyViews"> <span>Company views</span></label>
+        <p class="form-hint">Daily Ordered, Heshy Open Orders, and other shared views on Home and Saved views.</p>
         <label class="flag-row"><input type="checkbox" id="euExternal"> <span>External login</span></label>
       </div>
 

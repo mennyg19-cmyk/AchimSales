@@ -99,6 +99,12 @@ def _login(client, app, *, email="admin@x.com", role="admin"):
         s["_csrf_token"] = _CSRF
 
 
+def _grant_company_views(app, email="admin@x.com"):
+    repo = UserRepository(app.config["DB"])
+    u = repo.get_by_email(email)
+    repo.update(u.id, can_see_company_views=True)
+
+
 def test_reports_list_requires_login(tmp_path):
     app = _make_app(tmp_path)
     resp = app.test_client().get("/")
@@ -225,12 +231,22 @@ def test_admin_user_crud_and_scope(tmp_path):
     created = client.post("/api/admin/users", json={"email": "new@x.com", "role": "salesman"},
                           headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
-    uid = created.get_json()["id"]
+    body = created.get_json()
+    uid = body["id"]
+    assert body["can_see_company_views"] is False
 
-    upd = client.put(f"/api/admin/users/{uid}", json={"role": "manager", "dashboard_enabled": True},
-                     headers={"X-CSRF-Token": _CSRF})
+    upd = client.put(
+        f"/api/admin/users/{uid}",
+        json={"role": "manager", "dashboard_enabled": True, "can_see_company_views": True},
+        headers={"X-CSRF-Token": _CSRF},
+    )
     assert upd.status_code == 200 and upd.get_json()["role"] == "manager"
     assert upd.get_json()["dashboard_enabled"] is True
+    assert upd.get_json()["can_see_company_views"] is True
+
+    dev = client.post("/api/admin/users", json={"email": "dev@x.com", "role": "developer"},
+                      headers={"X-CSRF-Token": _CSRF})
+    assert dev.status_code == 201 and dev.get_json()["can_see_company_views"] is True
 
     scope = client.post(f"/api/admin/users/{uid}/salesman-access", json={"keys": ["redwards"]},
                         headers={"X-CSRF-Token": _CSRF})
@@ -833,6 +849,7 @@ def test_company_views_list_put_and_home_cards(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app)
+    _grant_company_views(app)
     empty = client.get("/api/reports/ordered/presets").get_json()
     assert empty["company"] == []
     saved = client.put(
@@ -863,6 +880,7 @@ def test_salesman_cannot_edit_company_view(tmp_path):
     app = _make_app(tmp_path)
     admin = app.test_client()
     _login(admin, app)
+    _grant_company_views(app)
     saved = admin.put(
         "/api/reports/ordered/company-views",
         json={"name": "Heshy Open Orders", "params": {}, "layout": {"order": ["full_data"]}},
@@ -871,6 +889,7 @@ def test_salesman_cannot_edit_company_view(tmp_path):
     assert saved.status_code == 200
     rep = app.test_client()
     _login(rep, app, email="rep@x.com", role="salesman")
+    _grant_company_views(app, "rep@x.com")
     listed = rep.get("/api/reports/ordered/presets").get_json()
     assert listed["company"][0]["can_edit"] is False
     put = rep.put(
@@ -879,6 +898,70 @@ def test_salesman_cannot_edit_company_view(tmp_path):
         headers={"X-CSRF-Token": _CSRF},
     )
     assert put.status_code == 403
+
+
+def test_company_views_hidden_without_flag(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    _grant_company_views(app)
+    saved = client.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Daily Ordered", "params": {}, "layout": {}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    view_id = saved.get_json()["id"]
+    repo = UserRepository(app.config["DB"])
+    repo.update(repo.get_by_email("admin@x.com").id, can_see_company_views=False)
+    listed = client.get("/api/reports/ordered/presets").get_json()
+    assert listed["company"] == []
+    assert client.get(f"/api/reports/ordered/company-views/{view_id}").status_code == 403
+    put = client.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Daily Ordered", "params": {}, "layout": {}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert put.status_code == 403
+    home = client.get("/").get_data(as_text=True)
+    assert "Company views" not in home
+
+
+def test_developer_sees_company_views_by_default(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    saved = client.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Daily Ordered", "params": {}, "layout": {}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    listed = client.get("/api/reports/ordered/presets").get_json()
+    assert listed["company"][0]["name"] == "Daily Ordered"
+    home = client.get("/").get_data(as_text=True)
+    assert "Company views" in home and "Daily Ordered" in home
+
+
+def test_salesman_without_flag_does_not_see_company_views(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    _grant_company_views(app)
+    saved = admin.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Daily Ordered", "params": {}, "layout": {}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    view_id = saved.get_json()["id"]
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    listed = rep.get("/api/reports/ordered/presets").get_json()
+    assert listed["company"] == []
+    assert rep.get(f"/api/reports/ordered/company-views/{view_id}").status_code == 403
+    home = rep.get("/").get_data(as_text=True)
+    assert "Company views" not in home
 
 
 def test_schedule_create_default_view_shows_on_page(tmp_path):

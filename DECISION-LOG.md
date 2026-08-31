@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Company views are a per-user flag
+**What you asked for:** Company views visibility should be a permission per user. Everyone no by default besides developers.
+**What I had to decide:** Whether developers always ignore the flag, and whether editing still needs the manager/admin schedule privilege.
+**What I chose:** New `users.can_see_company_views` (default 0). Authz is the flag only — an admin can uncheck a developer. Developers get 1 on migration, first INSERT, and the env developer seed (that seed restores the flag on boot, same as it restores the role). See (Home, presets `company`, GET, wizard optgroup) requires the flag. Edit requires the flag **and** `can_see_company_schedules`. Live user mirror sets 1 for developers on INSERT and does not overwrite the flag on conflict. People (`/admin/users`) has the checkbox. `?cview=` does not auto-run if GET is 403.
+**Why:** Shared views were showing to anyone who could open the report. Default off matches “besides devs.”
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-26 Shipping $ and remainder have no fallback math
 **What you asked for:** Shipping $ and Extended Price Remainder should only show ShippingDollars from the SP. No fallback calculations.
 **What I chose:** Both columns are `ShippingDollars` only. Missing/blank is $0, same as other SP dollar fields. Open $ stays Ordered $ − Shipped $ − Cancelled $. Ordered builder_version 7.

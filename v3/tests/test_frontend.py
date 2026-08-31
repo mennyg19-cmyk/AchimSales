@@ -172,6 +172,8 @@ def test_report_viewer_meeting_ux():
     assert "Only managers and admins can change company views." in src
     assert "Company views" in src
     assert "Apply this view’s filters (does not run the report)" not in src
+    cview = src.split("async function autoOpenPresetIfRequested", 1)[1].split("const id = q.get", 1)[0]
+    assert "if (!view) return;" in cview
     assert "if (!out.salesman && pendingSalesman) out.salesman = pendingSalesman;" in src
     assert "function applySalesman(" in src
     assert "fulfillmentFillCss" in src
@@ -192,3 +194,12 @@ def test_report_viewer_meeting_ux():
     assert "<th>View</th>" in sched
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
+
+
+def test_admin_users_has_company_views_flag():
+    html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
+    assert 'id="euCompanyViews"' in html
+    assert "data-company-views" in html
+    src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
+    assert "can_see_company_views: checked(\"euCompanyViews\")" in src
+    assert 'role === "developer"' in src

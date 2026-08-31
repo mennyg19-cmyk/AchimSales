@@ -71,6 +71,7 @@ function openUserModal(tr: HTMLTableRowElement): void {
   (($("euDashboard") as HTMLInputElement)).checked = tr.dataset.dashboard === "1";
   (($("euSharepoint") as HTMLInputElement)).checked = tr.dataset.sharepoint === "1";
   (($("euTest") as HTMLInputElement)).checked = tr.dataset.test === "1";
+  (($("euCompanyViews") as HTMLInputElement)).checked = tr.dataset.companyViews === "1";
   (($("euExternal") as HTMLInputElement)).checked = tr.dataset.external === "1";
 
   // Load current per-salesman + per-report access so the modal reflects the
@@ -99,6 +100,7 @@ async function saveUser(): Promise<void> {
     role: (($("euRole") as HTMLSelectElement)).value,
     is_active: checked("euActive"), dashboard_enabled: checked("euDashboard"),
     sharepoint_access: checked("euSharepoint"), test_access: checked("euTest"),
+    can_see_company_views: checked("euCompanyViews"),
     is_external: checked("euExternal"),
   });
   if (!resp.ok) {
@@ -194,6 +196,11 @@ function initEvents(): void {
   $("euSave")?.addEventListener("click", saveUser);
   $("euDelete")?.addEventListener("click", deleteUser);
   $("esSave")?.addEventListener("click", saveSm);
+  $("euRole")?.addEventListener("change", () => {
+    const role = ($("euRole") as HTMLSelectElement | null)?.value;
+    const box = $("euCompanyViews") as HTMLInputElement | null;
+    if (role === "developer" && box) box.checked = true;
+  });
 }
 
 if (root) {

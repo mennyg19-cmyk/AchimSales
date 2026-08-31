@@ -2436,6 +2436,7 @@ async function autoOpenPresetIfRequested(): Promise<void> {
   const cview = q.get("cview");
   if (cview) {
     const view = await getJSON<any>(companyViewGetUrl(cview));
+    if (!view) return;
     if (view?.params) applyParamsObject(view.params);
     if (view?.layout) pendingLayout = view.layout;
     autoRunRequested = true;

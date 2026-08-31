@@ -41,6 +41,8 @@ def test_developer_seed_creates_and_outranks_admin(tmp_path, monkeypatch):
 
     assert users.get_by_email("mennyg@achimonline.com").role == "developer"
     assert users.get_by_email("mennyg@ad.achimonline.com").role == "developer"
+    assert users.get_by_email("mennyg@achimonline.com").can_see_company_views is True
+    assert users.get_by_email("mennyg@ad.achimonline.com").can_see_company_views is True
 
 
 def test_developer_seed_noop_without_env(tmp_path, monkeypatch):
@@ -52,3 +54,26 @@ def test_developer_seed_noop_without_env(tmp_path, monkeypatch):
     _seed_developers(app, db)  # nothing configured -> no rows
 
     assert UserRepository(db).get_by_email("mennyg@achimonline.com") is None
+
+
+def test_copy_live_users_sets_developer_flag_on_insert_only(tmp_path):
+    from web.data.seed_users import copy_live_users
+
+    app = create_app(_cfg(tmp_path))
+    migrate(app.config["DB"])
+    db = app.config["DB"]
+    users = UserRepository(db)
+    copy_live_users(db, [
+        {"email": "dev@x.com", "role": "developer", "salesman_key": None,
+         "display_name": "Dev", "dashboard_enabled": 1, "is_external": 0},
+        {"email": "sm@x.com", "role": "salesman", "salesman_key": None,
+         "display_name": "Sm", "dashboard_enabled": 0, "is_external": 0},
+    ])
+    assert users.get_by_email("dev@x.com").can_see_company_views is True
+    assert users.get_by_email("sm@x.com").can_see_company_views is False
+    users.update(users.get_by_email("dev@x.com").id, can_see_company_views=False)
+    copy_live_users(db, [
+        {"email": "dev@x.com", "role": "developer", "salesman_key": None,
+         "display_name": "Dev", "dashboard_enabled": 1, "is_external": 0},
+    ])
+    assert users.get_by_email("dev@x.com").can_see_company_views is False

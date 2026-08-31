@@ -225,6 +225,23 @@ def test_sharepoint_access(db):
     assert authz.has_sharepoint_access(Principal("a@b.com", "A", "developer")) is True
 
 
+def test_company_views_flag_is_the_only_gate(db):
+    authz = Authorization(db)
+    users = UserRepository(db)
+    users.upsert("sm@b.com", role="salesman")
+    p = Principal("sm@b.com", "S", "salesman")
+    assert authz.can_see_company_views(p) is False
+    users.update(users.get_by_email("sm@b.com").id, can_see_company_views=True)
+    assert authz.can_see_company_views(p) is True
+    users.upsert("admin@b.com", role="admin")
+    assert authz.can_see_company_views(Principal("admin@b.com", "A", "admin")) is False
+    users.upsert("dev@b.com", role="developer")
+    assert authz.can_see_company_views(Principal("dev@b.com", "D", "developer")) is True
+    with db.precious() as conn:
+        conn.execute("UPDATE users SET is_active=0 WHERE email='dev@b.com'")
+    assert authz.can_see_company_views(Principal("dev@b.com", "D", "developer")) is False
+
+
 # --- blueprint flows --------------------------------------------------------
 
 @pytest.fixture

@@ -80,16 +80,18 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
     with db.precious() as conn:
         existing_salesmen = {r[0] for r in conn.execute("SELECT key FROM salesmen")}
         for u in users:
+            views_flag = 1 if u["role"] == "developer" else 0
             conn.execute(
                 "INSERT INTO users(email, display_name, role, is_active,"
-                " is_external, dashboard_enabled) VALUES (?, ?, ?, 1, ?, ?)"
+                " is_external, dashboard_enabled, can_see_company_views)"
+                " VALUES (?, ?, ?, 1, ?, ?, ?)"
                 " ON CONFLICT(email) DO UPDATE SET"
                 "   display_name=excluded.display_name,"
                 "   role=excluded.role,"
                 "   is_external=excluded.is_external,"
                 "   dashboard_enabled=excluded.dashboard_enabled",
                 (u["email"], u["display_name"], u["role"],
-                 u["is_external"], u["dashboard_enabled"]),
+                 u["is_external"], u["dashboard_enabled"], views_flag),
             )
             key = _normalize_salesman_key(u["salesman_key"] or "")
             if key and key in existing_salesmen:

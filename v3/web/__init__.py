@@ -564,9 +564,11 @@ def _seed_developers(app: Flask, db) -> None:
         with db.precious() as conn:
             for email in emails:
                 conn.execute(
-                    "INSERT INTO users(email, display_name, role, is_active)"
-                    " VALUES (?, '', 'developer', 1)"
-                    " ON CONFLICT(email) DO UPDATE SET role='developer', is_active=1",
+                    "INSERT INTO users(email, display_name, role, is_active,"
+                    " can_see_company_views)"
+                    " VALUES (?, '', 'developer', 1, 1)"
+                    " ON CONFLICT(email) DO UPDATE SET role='developer', is_active=1,"
+                    " can_see_company_views=1",
                     (email,),
                 )
     except Exception:  # noqa: BLE001 - seeding must never block boot

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from web.auth.principal import ROLE_DEVELOPER
 from web.data.connection import Database
 
 
@@ -19,6 +20,7 @@ class User:
     dashboard_enabled: bool
     sharepoint_access: bool
     test_access: bool
+    can_see_company_views: bool
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "User":
@@ -27,6 +29,7 @@ class User:
             is_active=bool(r["is_active"]), is_external=bool(r["is_external"]),
             dashboard_enabled=bool(r["dashboard_enabled"]),
             sharepoint_access=bool(r["sharepoint_access"]), test_access=bool(r["test_access"]),
+            can_see_company_views=bool(r["can_see_company_views"]),
         )
 
 
@@ -43,19 +46,24 @@ class UserRepository:
 
     def upsert(self, email: str, *, display_name: str = "", role: str = "salesman") -> User:
         email = email.lower().strip()
+        views_flag = 1 if role == ROLE_DEVELOPER else 0
         with self.db.precious() as conn:
             conn.execute(
-                "INSERT INTO users(email, display_name, role) VALUES (?, ?, ?)"
+                "INSERT INTO users(email, display_name, role, can_see_company_views)"
+                " VALUES (?, ?, ?, ?)"
                 " ON CONFLICT(email) DO UPDATE SET"
                 "   display_name=excluded.display_name WHERE excluded.display_name <> ''",
-                (email, display_name, role),
+                (email, display_name, role, views_flag),
             )
             row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
             return User.from_row(row)
 
     # --- admin operations ---------------------------------------------------
 
-    _FLAGS = ("is_active", "is_external", "dashboard_enabled", "sharepoint_access", "test_access")
+    _FLAGS = (
+        "is_active", "is_external", "dashboard_enabled", "sharepoint_access",
+        "test_access", "can_see_company_views",
+    )
 
     def list_all(self) -> list[User]:
         with self.db.precious() as conn:
@@ -81,12 +89,14 @@ class UserRepository:
     def create(self, email: str, *, role: str, display_name: str = "",
                is_external: bool = False) -> User:
         email = email.lower().strip()
+        views_flag = 1 if role == ROLE_DEVELOPER else 0
         with self.db.precious() as conn:
             conn.execute(
-                "INSERT INTO users(email, display_name, role, is_external) VALUES (?, ?, ?, ?)"
+                "INSERT INTO users(email, display_name, role, is_external, can_see_company_views)"
+                " VALUES (?, ?, ?, ?, ?)"
                 " ON CONFLICT(email) DO UPDATE SET role=excluded.role,"
                 "   display_name=excluded.display_name, is_external=excluded.is_external",
-                (email, display_name, role, 1 if is_external else 0),
+                (email, display_name, role, 1 if is_external else 0, views_flag),
             )
             row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         return User.from_row(row)
