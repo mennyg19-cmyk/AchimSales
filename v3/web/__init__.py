@@ -133,7 +133,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
         sharepoint = SharePointService(cfg, tokens=tokens)
         onedrive = OneDriveService(cfg, tokens=tokens)
     email = EmailService(cfg, OutboxRepository(db), sharepoint, onedrive=onedrive,
-                         tokens=tokens)
+                         tokens=tokens, db=db)
     delivery = DeliveryService(runner, service.builder_for, email)
     worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery, app.config["AUTHZ"]))
 

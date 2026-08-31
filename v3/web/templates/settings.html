@@ -144,6 +144,28 @@
             <button type="submit" class="btn btn-outline btn-sm">Add</button>
         </form>
         <p class="flag-desc test-mode-msg" id="testModeMsg" hidden></p>
+        <h3 class="settings-subhead">Outside-company addresses</h3>
+        <p class="flag-desc">Anyone can add these on a schedule or Email now. Mail waits until an admin or developer approves. Company addresses at achimonline.com go out without this step.</p>
+        {% if pending_recipients %}
+        <ul class="flag-list">
+            {% for row in pending_recipients %}
+            <li class="flag-row pending-email-row">
+                <span class="flag-meta">
+                    <span class="flag-name">{{ row.email }}</span>
+                    <span class="flag-desc">Requested {{ row.created_at }}</span>
+                </span>
+                <form method="post" action="{{ url_for('settings.decide_external_recipient') }}" class="pending-email-actions"> <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="email" value="{{ row.email }}">
+                    <button type="submit" name="action" value="approve" class="btn btn-primary btn-sm">Approve</button>
+                    <button type="submit" name="action" value="reject" class="btn btn-outline btn-sm">Reject</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="flag-desc">No pending addresses.</p>
+        {% endif %}
     </section>
 </details>
 

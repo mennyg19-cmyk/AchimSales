@@ -35,6 +35,21 @@ log = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _XLSX_MIME = "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_COMPANY_DOMAIN = "achimonline.com"
+
+
+def split_recipients(raw: str) -> list[str]:
+    parts = [x.strip() for x in re.split(r"[,;]", raw or "") if x.strip()]
+    return [p for p in parts if _EMAIL_RE.match(p)]
+
+
+def is_company_address(email: str) -> bool:
+    host = (email or "").strip().lower().rsplit("@", 1)
+    if len(host) != 2:
+        return False
+    domain = host[1]
+    return domain == _COMPANY_DOMAIN or domain.endswith("." + _COMPANY_DOMAIN)
+
 
 # Graph sendMail tops out around 4 MB for the whole JSON message; base64 adds
 # ~33%. Keep the raw workbook under 2.5 MB or Graph rejects the send (the
@@ -43,11 +58,6 @@ MAX_GRAPH_ATTACH_BYTES = 2_500_000
 
 # Same blue as the app header / primary buttons (tokens.css --primary).
 _BTN_BG = "#2563eb"
-
-
-def split_recipients(raw: str) -> list[str]:
-    parts = [x.strip() for x in re.split(r"[,;]", raw or "") if x.strip()]
-    return [p for p in parts if _EMAIL_RE.match(p)]
 
 
 def _slug(s: str) -> str:
@@ -146,13 +156,14 @@ class DeliveryResult:
 class EmailService:
     def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService,
                  graph: GraphMailer | None = None, onedrive: OneDriveService | None = None,
-                 tokens: GraphTokenCache | None = None):
+                 tokens: GraphTokenCache | None = None, db=None):
         self.cfg = cfg
         self.outbox = outbox
         self.sharepoint = sharepoint
         self.onedrive = onedrive
         self._graph = graph
         self._tokens = tokens
+        self._db = db
 
     def _graph_mailer(self) -> GraphMailer | None:
         if self._graph is not None:
@@ -183,11 +194,17 @@ class EmailService:
                 cc_raw: str = "", bcc_raw: str = "",
                 skip_email: bool = False, skip_folder: bool = False,
                 idempotency_key: str = "") -> DeliveryResult:
-        recipients = split_recipients(recipients_raw)
-        cc = split_recipients(cc_raw)
-        bcc = split_recipients(bcc_raw)
+        raw_to = split_recipients(recipients_raw)
+        raw_cc = split_recipients(cc_raw)
+        raw_bcc = split_recipients(bcc_raw)
+        recipients = self._sendable(raw_to)
+        cc = self._sendable(raw_cc)
+        bcc = self._sendable(raw_bcc)
         folder_path = (sharepoint_path or "").strip() or None
         if not recipients and not folder_path:
+            if raw_to or raw_cc or raw_bcc:
+                from web.data.repositories.external_recipients import APPROVAL_NEEDED
+                return DeliveryResult(ok=False, error=APPROVAL_NEEDED)
             return DeliveryResult(ok=False, error="No valid recipients.")
 
         attach = xlsx_bytes if _graph_attachable(xlsx_bytes) else None
@@ -266,6 +283,12 @@ class EmailService:
         return result
 
     # -- internals ----------------------------------------------------------
+
+    def _sendable(self, addresses: list[str]) -> list[str]:
+        if self._db is None:
+            return addresses
+        from web.data.repositories.external_recipients import ExternalRecipientRepository
+        return ExternalRecipientRepository(self._db).sendable(addresses)
 
     def _compose(self, subject, recipients, body_text, report_name, filename, xlsx_bytes,
                  cc=None, bcc=None, body_html=None):

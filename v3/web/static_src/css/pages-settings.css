@@ -67,6 +67,8 @@
 .test-email-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 8px; }
 .test-email-add .filter-field { flex: 1 1 100%; min-width: 0; }
 .test-mode-msg { margin-top: 8px; color: var(--error); }
+.pending-email-row { align-items: flex-start; }
+.pending-email-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .alert-warn { background: var(--warning-light); color: var(--text); border: 1px solid var(--warning); }
 .alert-warn a { font-weight: 600; }
 

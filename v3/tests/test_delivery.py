@@ -715,3 +715,102 @@ def test_delivery_expands_folder_tokens_and_strips_home(tmp_path, monkeypatch):
     )
     assert outcome.result.ok
     assert seen["sharepoint_path"] == "Salesman Report/Customer Activity/August 2026"
+
+
+def test_is_company_address_allows_subdomains():
+    from web.delivery.email import is_company_address
+    assert is_company_address("a@achimonline.com")
+    assert is_company_address("a@mail.achimonline.com")
+    assert not is_company_address("a@notachimonline.com")
+    assert not is_company_address("a@x.com")
+
+
+def test_deliver_filters_unapproved_when_db_passed(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg), db=db)
+    blocked = svc.deliver(
+        subject="S", recipients_raw="cust@x.com", body_text="",
+        report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+    )
+    assert blocked.ok is False
+    assert "approval" in blocked.error.lower()
+    ok = svc.deliver(
+        subject="S", recipients_raw="a@achimonline.com", body_text="",
+        report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+    )
+    assert ok.ok is True
+    assert ok.recipients == ["a@achimonline.com"]
+
+
+def test_send_notice_is_not_filtered(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s",
+               email_from="reports@achimonline.com")
+    graph = _FakeGraph()
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg),
+                       graph=graph, db=db)
+    svc.send_notice(to=["ops@gmail.com"], subject="[FAIL] x", body_text="err")
+    assert graph.calls[0]["to"] == ["ops@gmail.com"]
+
+
+def test_configured_site_url_does_not_search_on_failure(tmp_path, monkeypatch):
+    import requests
+
+    cfg = _cfg(
+        tmp_path, tenant_id="t", client_id="c", client_secret="s",
+        sp_site_url="https://contoso.sharepoint.com/sites/missing",
+    )
+    sp = SharePointService(cfg)
+    monkeypatch.setattr(sp, "_get_token", lambda: "tok")
+    calls = []
+
+    class FakeResp:
+        ok = False
+        status_code = 404
+
+        def json(self):
+            return {}
+
+        def raise_for_status(self):
+            raise RuntimeError("http")
+
+    def fake_get(url, headers=None, timeout=None):
+        calls.append(url)
+        return FakeResp()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    with pytest.raises(RuntimeError, match="SP_SITE_URL"):
+        sp._resolve_drive_id()
+    assert calls
+    assert all("search=" not in u for u in calls)
+
+
+def test_empty_site_url_may_search(tmp_path, monkeypatch):
+    import requests
+
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s", sp_site_url="")
+    sp = SharePointService(cfg)
+    monkeypatch.setattr(sp, "_get_token", lambda: "tok")
+    calls = []
+
+    class FakeResp:
+        ok = True
+        status_code = 200
+
+        def json(self):
+            return {"value": []}
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, headers=None, timeout=None):
+        calls.append(url)
+        return FakeResp()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    with pytest.raises(RuntimeError, match="Could not find SharePoint site"):
+        sp._resolve_drive_id()
+    assert any("search=achim" in u for u in calls)

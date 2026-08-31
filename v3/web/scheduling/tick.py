@@ -109,6 +109,8 @@ def make_tick(db, job_repo: JobRepository):
             MagicLinkRepository(db).prune(older_than_days=90)
             from web.data.repositories.delivery_legs import DeliveryLegRepository
             DeliveryLegRepository(db).prune()
+            job_repo.prune()
+            ScheduleRunRepository(db).prune()
             settings.beat_cleanup()
         except Exception:  # noqa: BLE001 - reaper must not kill the tick
             log.exception("cache/export/hung-job reaper failed")

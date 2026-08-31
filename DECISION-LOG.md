@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 6: company Send now stays on visibility (Q9)
+**What I had to decide:** The Phase 6 plan bullet says require operate/edit permission for company Send now. Q9 already chose the opposite.
+**Options I considered:** (1) Tighten `run_master` to `can_edit_master`. (2) Leave Send now on `_require_master_visible` so a view-only manager can still fire it.
+**What I chose:** (2). Do not implement that plan bullet.
+**Why:** Q9 is DECIDED. Viewing the company list includes the right to kick a send. Toggle/edit stays tighter.
+**Status:** DECIDED — Phase 6.
+
 ## 2026-08-31 Phase 5: stored full-leg retry after split-only edit
 **What I had to decide:** What happens when the operator retries a stored full email leg after the live master schedule drops manager recipients and keeps only salesman splits.
 **Options I considered:** (1) Keep requiring live `sched.recipients` (retry fails `No delivery targets`). (2) Fail closed until the operator restores a full target. (3) Still send that stored full target; skip live splits that are not the selected leg.

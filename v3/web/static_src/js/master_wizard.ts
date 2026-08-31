@@ -336,6 +336,7 @@ function collectExtraParams(): Record<string, unknown> {
     email_bcc: (document.getElementById("msBcc") as HTMLInputElement | null)?.value.trim() || "",
     email_on_no_data: !!(document.getElementById("msNoDataAll") as HTMLInputElement | null)?.checked,
     email_on_no_data_me_only: !!(document.getElementById("msNoDataMe") as HTMLInputElement | null)?.checked,
+    skip_sabbath: (document.getElementById("msSkipSabbath") as HTMLInputElement | null)?.checked !== false,
   };
 }
 
@@ -404,6 +405,7 @@ function fillReview(form: HTMLFormElement): void {
   if (isPrivileged() && runAsLabel) rows.push(["Run as", runAsLabel]);
   if (extra.email_on_no_data) rows.push(["No data", "email recipients"]);
   if (extra.email_on_no_data_me_only) rows.push(["No data", "email test addresses"]);
+  rows.push(["Skip Shabbos", extra.skip_sabbath === false ? "no" : "yes"]);
   review.innerHTML = rows.map(([k, v]) =>
     `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 }
@@ -769,6 +771,8 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   const noMe = document.getElementById("msNoDataMe") as HTMLInputElement | null;
   if (noAll) noAll.checked = !!params.email_on_no_data;
   if (noMe) noMe.checked = !!params.email_on_no_data_me_only;
+  const skipSab = document.getElementById("msSkipSabbath") as HTMLInputElement | null;
+  if (skipSab) skipSab.checked = params.skip_sabbath !== false;
   const useOd = folderKind === "onedrive" || (!shared && folderKind !== "sharepoint" && !!folderPath);
   const hasEmail = !!(row.dataset.recipients || "").trim()
     || !!params.email_to_salesmen || !!params.split_by_salesman

@@ -18,6 +18,7 @@ from web.jobs.queue import enqueue_or_503
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
+from web.data.repositories.jobs import kept_until_is_live
 
 @reports_bp.post("/api/reports/<report_key>/run")
 @require_login
@@ -99,7 +100,9 @@ def report_result(job_id: str):
     _assert_scope_compatible(p, job)
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
-    payload = _job_repo().get_kept_payload(job_id)
+    payload = None
+    if kept_until_is_live(job.kept_until):
+        payload = _job_repo().get_kept_payload(job_id)
     if payload is None:
         cached = _cache().get(job.result_ref)
         if cached is None:
@@ -133,15 +136,7 @@ def _age_seconds(ts: str | None, now: datetime | None = None) -> int | None:
 
 
 def _kept_still_valid(kept_until: str | None, now: datetime) -> bool:
-    if not kept_until:
-        return False
-    try:
-        dt = datetime.fromisoformat(kept_until)
-    except ValueError:
-        return False
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt > now
+    return kept_until_is_live(kept_until, now)
 
 
 @reports_bp.get("/api/reports/active")
@@ -229,7 +224,9 @@ def export_report(report_key: str, job_id: str):
     _assert_scope_compatible(p, job)
     if job.status != "success":
         abort(409, description="Report is not ready to export")
-    if not _job_repo().has_kept_payload(job_id) and not _cache().exists(job.result_ref):
+    now = datetime.now(timezone.utc)
+    kept_ok = kept_until_is_live(job.kept_until, now) and _job_repo().has_kept_payload(job_id)
+    if not kept_ok and not _cache().exists(job.result_ref):
         abort(404, description="Result expired; please re-run")
     layout = request.get_json(silent=True)
     if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)

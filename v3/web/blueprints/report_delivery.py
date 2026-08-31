@@ -10,6 +10,9 @@ from web.blueprints.reports import (
     _user_id, _visible_list, reports_bp,
 )
 from web.delivery.email import split_recipients
+from web.data.repositories.external_recipients import (
+    APPROVAL_NEEDED, ExternalRecipientRepository,
+)
 from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
 from web.jobs.queue import enqueue_or_503
@@ -30,10 +33,16 @@ def email_now(report_key: str):
     sharepoint_path = (body.get("sharepoint_path") or "").strip()
     # Validate up front so the user gets immediate feedback (the actual send is
     # off-thread). At least one delivery target is required.
-    if not split_recipients(recipients) and not sharepoint_path:
+    valid = split_recipients(recipients)
+    if not valid and not sharepoint_path:
         abort(400, description="Enter at least one valid recipient or a SharePoint folder.")
     if sharepoint_path and not authz.has_sharepoint_access(p):
         abort(403, description="You don't have SharePoint delivery access.")
+    if valid:
+        repo = ExternalRecipientRepository(current_app.config["DB"])
+        repo.note_addresses(valid, requested_by_user_id=uid)
+        if not repo.sendable(valid) and not sharepoint_path:
+            abort(400, description=APPROVAL_NEEDED)
 
     job_id = enqueue_or_503(lambda: enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
         "report_key": report_key, "identity": p.email,

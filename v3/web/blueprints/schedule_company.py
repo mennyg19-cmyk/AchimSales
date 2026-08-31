@@ -9,7 +9,8 @@ from web.auth.decorators import require_login
 from web.blueprints.schedules import (
     _MASTER_REPORT_FILTERS, _as_bool, _as_str_list, _authz, _check_sharepoint,
     _clean_recipients, _db, _drain_if_dev, _has_salesman_delivery, _hold_if_due,
-    _lookups, _master, _master_folder, _normalize_master_params, _params_label,
+    _lookups, _master, _master_folder, _normalize_master_params, _note_saved_recipients,
+    _params_label,
     _parse_cadence, _parse_is_shared, _parse_run_as, _principal, _require_admin,
     _history_extra, _require_company_viewer, _require_master_edit, _require_master_visible,
     _runs, _scoped_salesmen, _settings, _uid, _validate_report, schedules_bp,
@@ -128,6 +129,7 @@ def create_master():
         run_as_user_id=_parse_run_as(p, body),
         view_name=view_name,
     )
+    _note_saved_recipients(recipients, _uid(p.email))
     _settings().unskip_seed_name(name)
     created = _master().get(mid)
     if created:
@@ -146,6 +148,7 @@ def copy_master(schedule_id: int):
         abort(404, description="Unknown master schedule")
     _require_master_edit(p, src)
     mid = _master().copy(src, owner_user_id=_uid(p.email))
+    _note_saved_recipients(src.recipients, _uid(p.email))
     return jsonify({"id": mid}), 201
 
 
@@ -190,6 +193,7 @@ def update_master(schedule_id: int):
         kwargs["report_key"] = report_key
     if not _master().update(schedule_id, **kwargs):
         abort(404, description="Unknown master schedule")
+    _note_saved_recipients(recipients, _uid(p.email))
     if existing.name != name:
         _settings().skip_seed_name(existing.name)
         _settings().unskip_seed_name(name)

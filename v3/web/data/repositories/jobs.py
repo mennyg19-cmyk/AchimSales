@@ -51,6 +51,21 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def kept_until_is_live(kept_until: str | None, now: datetime | None = None) -> bool:
+    if not kept_until:
+        return False
+    try:
+        dt = datetime.fromisoformat(kept_until)
+    except ValueError:
+        return False
+    now = now or datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return dt > now
+
+
 @dataclass(frozen=True)
 class Job:
     id: str
@@ -399,3 +414,54 @@ class JobRepository:
                 (error, _now(), cutoff),
             )
             return cur.rowcount
+
+    def prune_expired_kept(self, now: datetime | None = None) -> int:
+        """Drop kept payloads whose window has ended."""
+        now = now or datetime.now(timezone.utc)
+        cutoff = now.isoformat() if now.tzinfo else now.replace(tzinfo=timezone.utc).isoformat()
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs"
+                " WHERE kept_until IS NOT NULL AND kept_until != '' AND kept_until < ?",
+                (cutoff,),
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+            if not ids:
+                return 0
+            conn.executemany(
+                "DELETE FROM kept_run_payloads WHERE job_id=?", [(i,) for i in ids],
+            )
+            conn.executemany(
+                "UPDATE jobs SET kept_until=NULL, keep_name='' WHERE id=?",
+                [(i,) for i in ids],
+            )
+            return len(ids)
+
+    def prune(self, older_than_days: int = 90) -> int:
+        """Drop finished jobs older than 90 days. Skip queued/running and still-kept."""
+        self.prune_expired_kept()
+        days = max(1, int(older_than_days))
+        modifier = f"-{days} days"
+        with self.db.precious() as conn:
+            conn.execute(
+                """
+                DELETE FROM kept_run_payloads
+                WHERE job_id IN (
+                    SELECT id FROM jobs
+                    WHERE created_at < datetime('now', ?)
+                      AND status NOT IN ('queued', 'running')
+                      AND (kept_until IS NULL OR kept_until = '')
+                )
+                """,
+                (modifier,),
+            )
+            cur = conn.execute(
+                """
+                DELETE FROM jobs
+                WHERE created_at < datetime('now', ?)
+                  AND status NOT IN ('queued', 'running')
+                  AND (kept_until IS NULL OR kept_until = '')
+                """,
+                (modifier,),
+            )
+            return int(cur.rowcount or 0)

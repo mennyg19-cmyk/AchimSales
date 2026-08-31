@@ -18,7 +18,7 @@ import re
 
 from web.auth.authorization import Authorization
 from web.data.repositories.exports import ExportRepository
-from web.data.repositories.jobs import JobRepository
+from web.data.repositories.jobs import JobRepository, kept_until_is_live
 from web.delivery.layout import apply_layout, expand_clones
 from web.jobs.worker import Handler, JobContext
 from web.reporting.cache import ReportCache
@@ -116,7 +116,9 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
         source = job_repo.get(p["source_job_id"])
         if source is None or source.owner_user_id != ctx.job.owner_user_id:
             raise RuntimeError("Source report not found")
-        payload = job_repo.get_kept_payload(source.id)
+        payload = None
+        if kept_until_is_live(source.kept_until):
+            payload = job_repo.get_kept_payload(source.id)
         if payload is None:
             cached = cache.get(source.result_ref)
             if cached is None:

@@ -169,6 +169,12 @@ def _clean_recipients(body: dict, *, sharepoint_path: str,
     return ", ".join(valid)
 
 
+def _note_saved_recipients(recipients: str, user_id: int | None) -> None:
+    from web.data.repositories.external_recipients import ExternalRecipientRepository
+    ExternalRecipientRepository(_db()).note_addresses(
+        split_recipients(recipients), requested_by_user_id=user_id)
+
+
 def _drain_if_dev():
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
@@ -349,6 +355,8 @@ def _normalize_master_params(raw: dict | None, *, allow_salesman_delivery: bool 
             out[key] = s
     out["email_on_no_data"] = _as_bool(src.get("email_on_no_data"))
     out["email_on_no_data_me_only"] = _as_bool(src.get("email_on_no_data_me_only"))
+    if "skip_sabbath" in src:
+        out["skip_sabbath"] = _as_bool(src.get("skip_sabbath"))
     kind = str(src.get("folder_kind") or "").strip()
     if kind in ("onedrive", "sharepoint"):
         out["folder_kind"] = kind

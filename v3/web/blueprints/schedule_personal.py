@@ -8,7 +8,8 @@ from web.auth.decorators import require_login
 from web.blueprints.schedules import (
     _MASTER_REPORT_FILTERS, _PERIOD_OPTIONS, _STATUS_OPTIONS, _authz,
     _check_personal_folder, _clean_recipients, _drain_if_dev, _hold_if_due,
-    _history_extra, _manager_options, _master, _master_page_context, _parse_cadence, _principal,
+    _history_extra, _manager_options, _master, _master_page_context, _note_saved_recipients,
+    _parse_cadence, _principal,
     _repo, _runs, _uid, _validate_report, _viewer_run_log, schedules_bp,
 )
 from web.data.repositories.app_settings import AppSettingsRepository
@@ -123,6 +124,7 @@ def create_schedule():
         filename_template=(body.get("filename_template") or "").strip(),
         view_name=view_name,
     )
+    _note_saved_recipients(recipients, _uid(p.email))
     created = _repo().get(sid, _uid(p.email))
     if created:
         _hold_if_due(_repo(), created, PERSONAL)
@@ -152,6 +154,7 @@ def update_schedule(schedule_id: int):
     )
     if not ok:
         abort(404, description="Unknown schedule")
+    _note_saved_recipients(recipients, _uid(p.email))
     updated = _repo().get(schedule_id, _uid(p.email))
     if updated:
         _hold_if_due(_repo(), updated, PERSONAL)
@@ -217,6 +220,7 @@ def copy_schedule(schedule_id: int):
     )
     # Leave the copy inactive so it doesn't double-fire until edited.
     _repo().set_active(sid, uid, False)
+    _note_saved_recipients(src.recipients, uid)
     return jsonify({"id": sid}), 201
 
 

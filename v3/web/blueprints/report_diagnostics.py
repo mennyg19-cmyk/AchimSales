@@ -120,35 +120,42 @@ def reporting_api_diagnostics():
     })
 
 
-@reports_bp.get("/api/reports/diagnostics/reconcile-salesman-invoiced")
-def reconcile_salesman_invoiced_diagnostic():
-    """One-shot: monthly_salesman_yoy vs invoiced_report Total Invoice.
-
-    Gated by env DIAG_RECONCILE_KEY (?k=...). When the key is unset, returns 404.
-    Optional ?scope=ty|ly|all (default all). Split ty/ly avoids App Service 230s
-    gateway timeout when both invoiced windows are large.
-    """
-    import hmac
-
-    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
-    provided = (request.args.get("k") or "").strip()
-    if (
-        not expected
-        or not provided
-        or len(expected) != len(provided)
-        or not hmac.compare_digest(expected, provided)
-    ):
-        abort(404)
-
+def _reporting_client():
     service = current_app.config.get("REPORT_SERVICE")
     client = getattr(service, "client", None) if service is not None else None
     if client is None or not getattr(client, "configured", False):
+        return None
+    return client
+
+
+def _body_or_args():
+    body = request.get_json(silent=True) or {}
+    return body if isinstance(body, dict) else {}
+
+
+@reports_bp.post("/api/reports/diagnostics/reconcile-salesman-invoiced")
+@require_login
+def reconcile_salesman_invoiced_diagnostic():
+    """One-shot: monthly_salesman_yoy vs invoiced_report Total Invoice.
+
+    Developer + CSRF (POST). Optional scope=ty|ly|all (default all).
+    """
+    _require_developer()
+    client = _reporting_client()
+    if client is None:
         return jsonify({"ok": False, "error": "Reporting API not configured"}), 503
 
-    year = request.args.get("year", type=int)
-    through = request.args.get("through_month", type=int)
-    scope = (request.args.get("scope") or "all").strip().lower()
-    only_month = request.args.get("month", type=int)
+    body = _body_or_args()
+    year = body.get("year")
+    if year is None:
+        year = request.args.get("year", type=int)
+    through = body.get("through_month")
+    if through is None:
+        through = request.args.get("through_month", type=int)
+    scope = str(body.get("scope") or request.args.get("scope") or "all").strip().lower()
+    only_month = body.get("month")
+    if only_month is None:
+        only_month = request.args.get("month", type=int)
     if scope not in ("ty", "ly", "all"):
         return jsonify({"ok": False, "error": "scope must be ty, ly, or all"}), 400
     try:
@@ -161,35 +168,27 @@ def reconcile_salesman_invoiced_diagnostic():
         return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
 
-@reports_bp.get("/api/reports/diagnostics/reconcile-number4-invoiced")
+@reports_bp.post("/api/reports/diagnostics/reconcile-number4-invoiced")
+@require_login
 def reconcile_number4_invoiced_diagnostic():
     """One-shot: Number 4 rolling-12 vs invoiced_report (subtotal + Total Invoice).
 
-    Gated by env DIAG_RECONCILE_KEY (?k=...). Optional ?view=by_customer|by_item,
-    ?month=1..12 (index into the rolling window, 1=oldest) for gateway-safe slices.
+    Developer + CSRF (POST). Optional view=by_customer|by_item,
+    month=1..12 (index into the rolling window, 1=oldest).
     """
-    import hmac
-
-    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
-    provided = (request.args.get("k") or "").strip()
-    if (
-        not expected
-        or not provided
-        or len(expected) != len(provided)
-        or not hmac.compare_digest(expected, provided)
-    ):
-        abort(404)
-
-    service = current_app.config.get("REPORT_SERVICE")
-    client = getattr(service, "client", None) if service is not None else None
-    if client is None or not getattr(client, "configured", False):
+    _require_developer()
+    client = _reporting_client()
+    if client is None:
         return jsonify({"ok": False, "error": "Reporting API not configured"}), 503
 
-    view = (request.args.get("view") or "by_customer").strip().lower()
+    body = _body_or_args()
+    view = str(body.get("view") or request.args.get("view") or "by_customer").strip().lower()
     if view not in ("by_customer", "by_item"):
         return jsonify({"ok": False, "error": "view must be by_customer or by_item"}), 400
-    only_month = request.args.get("month", type=int)
-    as_of_raw = (request.args.get("as_of") or "").strip()
+    only_month = body.get("month")
+    if only_month is None:
+        only_month = request.args.get("month", type=int)
+    as_of_raw = str(body.get("as_of") or request.args.get("as_of") or "").strip()
     as_of = None
     if as_of_raw:
         try:
@@ -253,7 +252,7 @@ def _recent_jobs(db, limit: int = 10) -> list[dict]:
     ]
 
 
-@reports_bp.get("/api/reports/diagnostics/claim-once")
+@reports_bp.post("/api/reports/diagnostics/claim-once")
 @require_login
 def claim_once_diagnostic():
     """Developer-only: call the REAL worker.repo.claim_next() from this request

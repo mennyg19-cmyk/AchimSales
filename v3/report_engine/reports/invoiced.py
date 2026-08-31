@@ -173,23 +173,9 @@ def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
     return rates
 
 
-def _row_commission_rate(row: dict, salesmen: Mapping[str, SalesmanFact]) -> float:
-    """Rate for this invoice row: SP value on the row, else the salesman master."""
-    rate = num(row.get("_commission_pct"))
-    if rate > 0:
-        return rate
-    return _commission_rate(row.get("_sales_group") or "", salesmen, {})
-
-
-def _commission_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
-                     row_rates: Mapping[str, float]) -> float:
-    """The rate to use for one salesman: the SP's per-row rate when present,
-    otherwise the salesman master. Both are fractions (0.06 = 6%)."""
-    key = salesman_key(sales_group)
-    row_rate = row_rates.get(key, 0.0)
-    if row_rate > 0:
-        return row_rate
-    sm = salesmen.get(key)
+def _display_commission_pct(sales_group: str, salesmen: Mapping[str, SalesmanFact]) -> float:
+    """Commissions-tab % box: leftover salesman-table rate, not invoice stamps."""
+    sm = salesmen.get(salesman_key(sales_group))
     return sm.commission_pct if sm else 0.0
 
 
@@ -280,9 +266,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         sg = r.get("_sales_group") or ""
         if not sg:
             continue
-        rate = _row_commission_rate(r, salesmen)
-        if rate <= 0:
-            continue
+        rate = num(r.get("_commission_pct"))
         # Guard against a caller passing a wider window than Jan 1..period end:
         # only count rows in the report year (LIVE fetches exactly that window).
         if _year_of(r) != year:
@@ -295,7 +279,6 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         bucket = by_sm.setdefault(bucket_key, {
             "label": r.get("Salesman") or sg,
             "name": r.get("SalesmanName") or (sm.full_name or sm.display_name if sm else "") or sg,
-            "pct": rate,
             "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, misc=0.0,
                              credits=0.0, commission=0.0)
                         for _ in range(end_month)],
@@ -317,12 +300,12 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             slot["cc"] += cc
             slot["misc"] += misc
             slot["commission"] += (sub + tar + misc) * rate
-        bucket["pct"] = rate
 
     salesmen_out: list[dict] = []
     for bucket_key in sorted(by_sm, key=lambda k: by_sm[k]["name"].lower()):
         bucket = by_sm[bucket_key]
-        pct = bucket["pct"]
+        sm = salesmen.get(bucket_key)
+        pct = sm.commission_pct if sm else 0.0
         ytd = dict(subtotal_invoices=0.0, tariff_charges=0.0, freight_charges=0.0,
                    cc_charges=0.0, misc_charges=0.0, total_invoices=0.0, credits=0.0,
                    net_commission=0.0, commission=0.0)
@@ -417,12 +400,12 @@ def _commissions_simple(summary_rows: Sequence[dict],
     rows: list[dict] = []
     for r in summary_rows:
         sg = r.get("_sales_group") or ""
-        pct = _commission_rate(sg, salesmen, row_rates) if sg else 0.0
+        money_rate = row_rates.get(salesman_key(sg), 0.0) if sg else 0.0
         base = round(num(r.get("SubTotal Invoices")) + num(r.get("Total Tariff Charges")), 2)
         out = _public(r)
-        out["Percent"] = pct
+        out["Percent"] = _display_commission_pct(sg, salesmen) if sg else 0.0
         out["Commission Base"] = base
-        out["Commissions"] = round(base * pct, 2)
+        out["Commissions"] = round(base * money_rate, 2)
         rows.append(out)
     rows.sort(key=lambda r: -num(r.get("Commissions")))
     return {"key": "commissions", "name": "Commissions",

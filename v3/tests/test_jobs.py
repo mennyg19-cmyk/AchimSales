@@ -366,6 +366,49 @@ def test_keep_run_copies_payload_off_the_disposable_cache(db):
     assert jobs.get_kept_payload(jid)["tabs"][0]["rows"][0]["n"] == 1
 
 
+def test_prune_expired_kept_drops_payload(db):
+    uid = UserRepository(db).upsert("a@x.com", display_name="A", role="admin").id
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("report.run", owner_user_id=uid, params={})
+    jobs.claim_next()
+    jobs.mark_success(jid, "cache-key")
+    assert jobs.keep_run(
+        jid, uid, kept_until="2000-01-01T00:00:00+00:00",
+        name="Old", payload_json='{"row_count": 1}',
+    )
+    assert jobs.get_kept_payload(jid) is not None
+    from datetime import datetime, timezone
+    assert jobs.prune_expired_kept(now=datetime(2026, 8, 31, tzinfo=timezone.utc)) == 1
+    assert jobs.get_kept_payload(jid) is None
+    assert jobs.get(jid).kept_until is None
+
+
+def test_job_prune_skips_queued_and_live_kept(db):
+    uid = UserRepository(db).upsert("a@x.com", display_name="A", role="admin").id
+    jobs = JobRepository(db)
+    old = jobs.enqueue("report.run", owner_user_id=uid)
+    kept = jobs.enqueue("report.run", owner_user_id=uid)
+    queued = jobs.enqueue("report.run", owner_user_id=uid)
+    assert jobs.claim_next().id == old
+    jobs.mark_success(old, "x")
+    assert jobs.claim_next().id == kept
+    jobs.mark_success(kept, "y")
+    jobs.keep_run(
+        kept, uid, kept_until="2099-01-01T00:00:00+00:00",
+        name="Keep", payload_json='{"row_count": 1}',
+    )
+    with db.precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET created_at=datetime('now', '-100 days') WHERE id IN (?, ?)",
+            (old, kept),
+        )
+    assert jobs.prune() == 1
+    assert jobs.get(queued) is not None
+    assert jobs.get(old) is None
+    assert jobs.get(kept) is not None
+    assert jobs.get_kept_payload(kept)["row_count"] == 1
+
+
 def test_scheduler_queues_jobs_before_start():
     sched = Scheduler()
     sched.add_cron("noop", lambda: None, hour=3)

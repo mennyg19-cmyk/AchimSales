@@ -213,7 +213,9 @@ class SharePointService:
             if site.ok:
                 site_id = site.json()["id"]
             else:
-                log.warning("SP_SITE_URL resolved to 404 (%s), falling back to search", site_ref)
+                raise RuntimeError(
+                    f"SP_SITE_URL could not be resolved ({site.status_code} for {site_ref})"
+                )
 
         if site_id is None:
             r = requests.get(f"{GRAPH_BASE}/sites?search=achim", headers=headers, timeout=TIMEOUT)

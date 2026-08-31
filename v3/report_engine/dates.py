@@ -82,12 +82,17 @@ def parse_period(period: str, today: date | None = None) -> Period:
 
 
 def parse_custom_range(start_raw: str, end_raw: str) -> Period:
-    """Parse an explicit YYYY-MM-DD..YYYY-MM-DD range (clamped; reversed swaps)."""
+    """Parse an explicit YYYY-MM-DD..YYYY-MM-DD range.
+
+    The start is clamped to D365 go-live. A window whose start is still after
+    its end (reversed dates, or a range that sits entirely before go-live) is
+    rejected instead of silently swapped or emptied.
+    """
     start = date.fromisoformat(start_raw[:10])
     end = date.fromisoformat(end_raw[:10])
-    if start > end:
-        start, end = end, start
     start = clamp_start(start)
+    if start > end:
+        raise ValueError("Start date is after end date")
     return Period(f"{start.isoformat()} to {end.isoformat()}", start, end)
 
 
