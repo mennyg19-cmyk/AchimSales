@@ -13,7 +13,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `flask bootstrap` / `python -m web.bootstrap` migrates and seeds and does not start the worker.
 - The worker process claims a job. `python -m web.jobs.child JOB_ID` runs an already-claimed row.
 - A child timeout kills the process group, records `cancelled`, and a later job can still run (`test_child_timeout_cancels_and_kills`, `test_two_hung_children_do_not_stop_the_queue`).
-- Worker crash recovery still requeues only jobs under the retry cap (`test_orphaned_running_job_is_recovered`, `test_repeatedly_crashing_job_is_failed_not_looped`).
+- Worker crash recovery requeues safe jobs under the retry cap (`test_orphaned_running_job_is_recovered`, `test_repeatedly_crashing_job_is_failed_not_looped`) and cancels `schedule.run` / `report.deliver` (`test_recover_orphans_cancels_delivery_not_requeued`, `test_recover_orphans_cancels_schedule_run_not_requeued`).
+- While a child `wait` is blocking, the worker still writes `worker_heartbeat` (`test_worker_heartbeat_stays_fresh_while_child_wait_blocks`).
 - Scheduler `start()` failure raises out of `run_worker` (`test_scheduler_start_failure_stops_the_worker`).
 - `tools/supervise-web.sh` runs bootstrap first; if either Gunicorn or the worker exits, the other is stopped (`tests/test_supervise_web.py`).
 - Prod `/readyz` is 503 when worker/scheduler heartbeats are missing or stale; `/healthz` stays 200. Dev `/readyz` stays 200 without heartbeats. `.bootstrap-failed` still 503.

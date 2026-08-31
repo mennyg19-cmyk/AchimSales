@@ -163,19 +163,37 @@ class JobWorker:
         )
         self._child_proc = proc
         try:
-            rc = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            log.warning("job %s timed out after %ss; killing child pid=%s",
-                        job.id, timeout, proc.pid)
-            self._kill_child(proc)
-            self.repo.cancel(job.id, error="Timed out (45 minute cap)")
-            return
+            rc = self._wait_child(proc, timeout)
+            if rc is None:
+                log.warning("job %s timed out after %ss; killing child pid=%s",
+                            job.id, timeout, proc.pid)
+                self._kill_child(proc)
+                self.repo.cancel(job.id, error="Timed out (45 minute cap)")
+                return
         finally:
             self._child_proc = None
         if rc not in (0, None):
             current = self.repo.get(job.id)
             if current is not None and current.status == "running":
                 self.repo.mark_failure(job.id, f"job child exited {rc}")
+
+    def _wait_child(self, proc: subprocess.Popen, timeout: float) -> int | None:
+        """Wait for the child; beat the worker heartbeat between wait chunks.
+
+        Returns the exit code, or None when the job cap elapsed. A single
+        proc.wait(timeout=cap) would skip beats for the whole run and make
+        prod /readyz look dead after 90s of a healthy job.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            chunk = min(WORKER_BEAT_EVERY_SECONDS, remaining)
+            try:
+                return proc.wait(timeout=chunk)
+            except subprocess.TimeoutExpired:
+                self._beat_worker()
 
     def _kill_child(self, proc: subprocess.Popen) -> None:
         try:

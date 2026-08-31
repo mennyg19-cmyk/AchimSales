@@ -21,6 +21,7 @@ from web.jobs.limits import (
     MAX_QUEUE_AGE_SECONDS,
     MAX_QUEUED_JOBS,
     PRIORITY_SQL,
+    UNSAFE_RECOVERY_TYPES,
 )
 
 _ACTIVE = ("queued", "running")
@@ -40,6 +41,9 @@ _RETRY_EXHAUSTED_ERROR = (
     "Stopped after the run kept crashing its worker - it most likely ran out of "
     "memory. Try a smaller date range or fewer customers, or export instead of "
     "viewing on screen."
+)
+_UNSAFE_ORPHAN_ERROR = (
+    "Worker died while this delivery was running; not retried."
 )
 
 
@@ -222,15 +226,16 @@ class JobRepository:
 
     def recover_orphans(self, running_older_than_seconds: float | None = None,
                         max_retries: int = _MAX_RECOVERY_RETRIES) -> int:
-        """Requeue 'running' jobs (orphaned by a crash) so work survives restarts,
-        but only up to `max_retries` times.
+        """Requeue safe 'running' jobs orphaned by a crash; cancel side-effect jobs.
 
-        Called at worker startup (single instance => nothing is truly running when
-        we boot) and usable as a periodic stale-job reaper. A job that has already
-        used up its retries is marked 'failure' instead of being requeued again,
-        so a run that keeps killing its process (e.g. an OOM report) can never
-        loop forever and take the site down with it. Returns the count requeued
-        (not the ones failed). Clears the dedup block an orphaned row would hold.
+        Called at worker startup (single instance => the previous worker is gone)
+        and usable as a periodic stale-job reaper. Report/export/mirror work is
+        requeued up to `max_retries` times. `schedule.run` and `report.deliver`
+        are cancelled so a restart cannot send the same mail twice. A job that
+        already used up its retries is marked 'failure' instead of requeued.
+        Returns the count requeued (not cancelled or failed). mark_success is
+        guarded to 'running', so a surviving child cannot resurrect a cancelled
+        delivery.
         """
         where = "status='running'"
         cutoff_params: tuple = ()
@@ -241,6 +246,8 @@ class JobRepository:
             ).isoformat()
             where += " AND (started_at IS NULL OR started_at < ?)"
             cutoff_params = (cutoff,)
+        unsafe = tuple(sorted(UNSAFE_RECOVERY_TYPES))
+        in_sql = ",".join("?" * len(unsafe))
         with self.db.precious() as conn:
             # Jobs that already exhausted their retries: fail them so they stop
             # being requeued (and crashing) on every restart.
@@ -249,11 +256,15 @@ class JobRepository:
                 f" WHERE {where} AND attempts >= ?",
                 (_RETRY_EXHAUSTED_ERROR, _now(), *cutoff_params, max_retries),
             )
-            # The rest: requeue and count this attempt.
+            conn.execute(
+                f"UPDATE jobs SET status='cancelled', error=?, finished_at=?"
+                f" WHERE {where} AND type IN ({in_sql})",
+                (_UNSAFE_ORPHAN_ERROR, _now(), *cutoff_params, *unsafe),
+            )
             cur = conn.execute(
                 f"UPDATE jobs SET status='queued', started_at=NULL, progress=0,"
-                f" attempts=attempts+1 WHERE {where}",
-                cutoff_params,
+                f" attempts=attempts+1 WHERE {where} AND type NOT IN ({in_sql})",
+                (*cutoff_params, *unsafe),
             )
             return cur.rowcount
 

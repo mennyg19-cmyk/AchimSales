@@ -17,3 +17,7 @@ PRIORITY_SQL = (
     "WHEN 'report.deliver' THEN 1 ELSE 2 END"
 )
 ADMISSION_EXEMPT_TYPES = frozenset({"schedule.run", "lookups.refresh", "dashboard.refresh"})
+
+# Crash recovery requeues cache/export/mirror work. These send mail; a restart
+# must not run them again. recover_orphans cancels them instead.
+UNSAFE_RECOVERY_TYPES = frozenset({"schedule.run", "report.deliver"})

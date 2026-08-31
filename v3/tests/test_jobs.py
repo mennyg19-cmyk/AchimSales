@@ -377,19 +377,39 @@ def test_scheduler_queues_jobs_before_start():
         sched.shutdown()
 
 
+def test_recover_orphans_cancels_delivery_not_requeued(db):
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("report.deliver")
+    assert jobs.claim_next().id == jid
+    assert jobs.recover_orphans() == 0
+    row = jobs.get(jid)
+    assert row.status == "cancelled"
+    assert "not retried" in row.error
+    jobs.mark_success(jid, "late-send")
+    assert jobs.get(jid).status == "cancelled"
+
+
+def test_recover_orphans_cancels_schedule_run_not_requeued(db):
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("schedule.run")
+    assert jobs.claim_next().id == jid
+    assert jobs.recover_orphans() == 0
+    row = jobs.get(jid)
+    assert row.status == "cancelled"
+    assert "not retried" in row.error
+    jobs.mark_success(jid, "late-send")
+    assert jobs.get(jid).status == "cancelled"
+
+
 def test_child_timeout_cancels_and_kills(db, monkeypatch):
     import subprocess as sp
 
     class FakeProc:
         def __init__(self, *a, **k):
             self.pid = 4242
-            self._waits = 0
 
         def wait(self, timeout=None):
-            self._waits += 1
-            if self._waits == 1:
-                raise sp.TimeoutExpired("python -m web.jobs.child", timeout)
-            return 0
+            raise sp.TimeoutExpired("python -m web.jobs.child", timeout)
 
         def kill(self):
             return None
@@ -412,13 +432,9 @@ def test_two_hung_children_do_not_stop_the_queue(db, monkeypatch):
     class FakeProc:
         def __init__(self, *a, **k):
             self.pid = 99
-            self._waits = 0
 
         def wait(self, timeout=None):
-            self._waits += 1
-            if self._waits == 1:
-                raise sp.TimeoutExpired("child", timeout)
-            return 0
+            raise sp.TimeoutExpired("child", timeout)
 
         def kill(self):
             return None
@@ -437,6 +453,46 @@ def test_two_hung_children_do_not_stop_the_queue(db, monkeypatch):
     assert jobs.get(b).status == "cancelled"
     worker.process_next()
     assert jobs.get(c).status == "success"
+
+
+def test_worker_heartbeat_stays_fresh_while_child_wait_blocks(db, monkeypatch):
+    """A long child wait must still write worker_heartbeat (Loop A F2)."""
+    import subprocess as sp
+
+    from web.data.repositories.app_settings import AppSettingsRepository
+
+    class SlowProc:
+        def __init__(self, *a, **k):
+            self.pid = 7
+            self.elapsed = 0.0
+
+        def wait(self, timeout=None):
+            chunk = 0.05 if timeout is None else min(float(timeout), 0.05)
+            time.sleep(chunk)
+            self.elapsed += chunk
+            if self.elapsed >= 0.2:
+                return 0
+            raise sp.TimeoutExpired("child", timeout)
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", SlowProc)
+    jobs = JobRepository(db)
+    settings = AppSettingsRepository(db)
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO app_settings(key, value) VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("worker_heartbeat", "2000-01-01T00:00:00+00:00"),
+        )
+    worker = JobWorker(db)
+    worker.register("echo", lambda ctx: "ok")
+    jid = jobs.enqueue("echo")
+    assert worker.process_next_child(timeout=5) == jid
+    age = settings.heartbeat_age_seconds("worker_heartbeat")
+    assert age is not None and age < 5
+    assert jobs.get(jid).status == "running"  # fake child never ran the handler
 
 
 def test_kill_child_terminates_a_real_process(db):

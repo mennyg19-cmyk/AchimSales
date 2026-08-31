@@ -74,7 +74,10 @@ Boot is three processes, one App Service instance (SQLite):
 3. `tools/supervise-web.sh` starts Gunicorn (HTTP only) and
    `python -m web.worker_main` (job claiming, scheduler, lookup mirror,
    heartbeats). If either sibling exits, the other is stopped so Azure restarts
-   the unit. Report jobs run in a killable child with a 45-minute cap.
+   the unit. Report jobs run in a killable child with a 45-minute cap. The
+   worker heartbeat keeps ticking during that wait. A worker restart requeues
+   report/export/mirror jobs and cancels in-flight `schedule.run` /
+   `report.deliver` so mail is not sent twice.
 
 `/healthz` is process liveness. `/readyz` is 503 until bootstrap has succeeded
 and (in prod) the worker and scheduler heartbeats are fresh.
