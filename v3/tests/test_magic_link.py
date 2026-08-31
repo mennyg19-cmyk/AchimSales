@@ -45,3 +45,47 @@ def test_ip_rate_limit(db):
     tokens.record_attempt("a@x.com", "1.2.3.4")
     assert tokens.ip_rate_limited("1.2.3.4") is True
     assert tokens.ip_rate_limited("9.9.9.9") is False
+
+
+def test_token_not_stored_plaintext(db):
+    tokens = MagicLinkRepository(db)
+    token = tokens.create_token("rep@x.com")
+    assert token
+    with db.precious() as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(magic_link_tokens)")]
+        blob = " ".join(
+            str(r["token_hash"]) for r in conn.execute("SELECT token_hash FROM magic_link_tokens")
+        )
+    assert "token_hash" in cols
+    assert "token" not in cols
+    assert token not in blob
+
+
+def test_prune_old_attempts_and_tokens(db):
+    tokens = MagicLinkRepository(db)
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO magic_link_attempts (email, ip, created_at) "
+            "VALUES ('a@x.com','1.1.1.1','2000-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO magic_link_tokens "
+            "(token_hash, email, created_at, expires_at) "
+            "VALUES ('deadbeef','a@x.com','2000-01-01T00:00:00+00:00',"
+            "'2000-01-01T00:15:00+00:00')"
+        )
+    assert tokens.prune(older_than_days=90) >= 2
+
+
+def test_redact_magic_link_filter():
+    import logging
+
+    from web.auth.log_redact import RedactMagicLinkFilter
+
+    rec = logging.LogRecord(
+        "x", logging.INFO, "", 0,
+        "GET /login/magic-link/abcDEF123xyz HTTP/1.1", (), None,
+    )
+    assert RedactMagicLinkFilter().filter(rec)
+    assert "<redacted>" in rec.getMessage()
+    assert "abcDEF123xyz" not in rec.getMessage()

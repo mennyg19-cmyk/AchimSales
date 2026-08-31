@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 2: role picker uses actor_is_developer; LIVE_DB_PATH stays for CLI
+**What I had to decide:** Gate `/dev/role-picker` on `authz.is_developer(p)` (plan 2.1 wording) vs the real actor during impersonation; whether to delete `LIVE_DB_PATH` in this phase.
+**Options I considered:** (1) `is_developer(p)` — impersonating a salesman could not reopen the picker. (2) `actor_is_developer(p)` — the signed-in developer keeps the picker while viewing as someone else. (3) Delete `LIVE_DB_PATH` now vs keep it for `flask import-live-users`.
+**What I chose:** (2) and keep `LIVE_DB_PATH` for the CLI only.
+**Why:** The picker exists so a developer can switch identities without logging out. Boot no longer reads the Live DB; the plan deletes `LIVE_DB_PATH` after import evidence, which we do not have yet.
+**Status:** DECIDED — Phase 2 implementation. Still BLOCKED on GitHub Environment `production` required reviewers.
+
 ## 2026-08-31 Phase 1.2: owner confirmed Flask secret rotation
 **What I had to decide:** Whether old `session` cookies are dead after the Azure App Setting change.
 **Options I considered:** (1) Keep waiting for a second confirmation. (2) Treat the owner's "I think it worked" as the revoke check and start Phase 2.

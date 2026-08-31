@@ -1,7 +1,10 @@
 """Live→v3 salesman grants replace revoked keys instead of only adding."""
 
+import inspect
+import json
 import sqlite3
 
+from web.background import bootstrap_background
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.users import UserRepository
@@ -67,3 +70,44 @@ def test_second_copy_drops_revoked_salesman_grant(tmp_path):
             "SELECT salesman_key FROM user_salesman_access WHERE user_id = ?", (uid,)
         )}
     assert keys == {"bkey"}
+
+
+def test_bootstrap_does_not_seed_from_live():
+    src = inspect.getsource(bootstrap_background)
+    assert "seed_users_from_live" not in src
+    assert "_seed_users_from_live" not in src
+
+
+def test_import_live_users_cli_records_marker(tmp_path, monkeypatch):
+    from web import create_app
+    from web.config import Config
+
+    live = tmp_path / "live.db"
+    _live_db(live, key="akey")
+    cfg = Config(
+        app_env="dev", auth_mode="dev", flask_secret="t",
+        tenant_id="", client_id="", client_secret="",
+        reporting_api_base_url="", reporting_api_key="",
+        precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
+        litestream_blob_url="",
+    )
+    app = create_app(cfg)
+    migrate(app.config["DB"])
+    with app.config["DB"].precious() as conn:
+        conn.execute("INSERT INTO salesmen(key) VALUES ('akey')")
+    monkeypatch.setenv("LIVE_DB_PATH", str(live))
+    result = app.test_cli_runner().invoke(args=["import-live-users"])
+    assert result.exit_code == 0
+    assert "Imported" in (result.output or "")
+    with app.config["DB"].precious() as conn:
+        raw = conn.execute(
+            "SELECT value FROM app_settings WHERE key='live_user_import'"
+        ).fetchone()[0]
+        n_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        n_grants = conn.execute("SELECT COUNT(*) FROM user_salesman_access").fetchone()[0]
+    data = json.loads(raw)
+    assert data["users"] == n_users == 1
+    assert data["grants"] == n_grants == 1
+    assert str(live) in data["path"]
+    assert data["at"]
+

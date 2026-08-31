@@ -58,6 +58,11 @@ class Authorization:
         u = self._active_user(p)
         return bool(u and u.role == ROLE_DEVELOPER)
 
+    def actor_is_developer(self, p: Principal | None) -> bool:
+        """The real logged-in person is a developer (impersonation uses real_email)."""
+        u = self._actor_user(p)
+        return bool(u and u.role == ROLE_DEVELOPER)
+
     def assert_developer(self, p: Principal | None) -> None:
         if not self.is_developer(p):
             raise Forbidden("Developer role required")

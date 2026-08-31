@@ -19,6 +19,7 @@ from datetime import date, datetime, timezone
 from web.data.repositories.jobs import JobRepository
 from web.data.repositories.exports import ExportRepository
 from web.reporting.cache import ReportCache
+from web.data.repositories.magic_links import MagicLinkRepository
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -98,6 +99,7 @@ def make_tick(db, job_repo: JobRepository):
             hung = job_repo.fail_hung(45 * 60)
             if hung:
                 log.warning("hung-job cap failed %d running job(s)", hung)
+            MagicLinkRepository(db).prune(older_than_days=90)
         except Exception:  # noqa: BLE001 - reaper must not kill the tick
             log.exception("cache/export/hung-job reaper failed")
 

@@ -74,24 +74,6 @@ def _seed_developers(app: Flask, db) -> None:
         app.logger.exception("developer seed failed")
 
 
-def _seed_users_from_live(app: Flask, db) -> None:
-    """Optional one-time copy from the leftover Azure `app.db` user directory.
-
-    Reads that sqlite file directly (read-only); it never imports the old
-    webapp package. Re-running updates role/flags/display_name. Explicit env
-    admins (V3_ADMIN_EMAILS) are applied after this and always win.
-    """
-    from web.data.seed_users import live_db_path, seed_users_from_live
-
-    try:
-        n = seed_users_from_live(db)
-        if n:
-            app.logger.info("mirrored %d users from live DB (%s)", n, live_db_path())
-    except Exception:  # noqa: BLE001 - seeding must never block boot
-        app.logger.exception("live user mirror failed")
-
-
-# Live `--salesman all`: one file per salesman with an email.
 _SALESMEN_ALL = {"period": "yesterday", "split_by_salesman": True}
 # Invoiced always includes a Commissions sheet. Salesmen Shipped files should not.
 _INVOICED_WITHOUT_COMMISSIONS = {

@@ -12,11 +12,13 @@ import os
 import time
 
 from flask import Flask, jsonify, request, session
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 _ASSET_VERSION = str(int(time.time()))
 
 from web.auth.authorization import Authorization, Forbidden
 from web.auth.session import current_principal
+from web.auth.log_redact import install_magic_link_log_redaction
 from web.config import Config, load_config
 from web.data.connection import from_config
 from web.data.repositories.feature_flags import FeatureFlagRepository
@@ -29,6 +31,8 @@ def create_app(config: Config | None = None) -> Flask:
     cfg = config or load_config()
 
     app = Flask(__name__, static_folder="static_dist", static_url_path="/static")
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+    install_magic_link_log_redaction()
     app.config["APP_CONFIG"] = cfg
     # In dev with no secret, use an ephemeral one (sessions won't persist across
     # restarts, which is fine locally). In prod, validate() already guaranteed a
@@ -38,8 +42,7 @@ def create_app(config: Config | None = None) -> Flask:
     from report_engine.lib import iso_date as _iso_date
     app.jinja_env.filters["iso_date"] = _iso_date
 
-    # Home (is_beta) uses the `session` cookie + FLASK_SECRET_KEY so leftover
-    # Live cookies still work after the webapp tree is gone.
+    # Home keeps the `session` cookie name so Azure App Settings stay as-is.
     if cfg.is_beta:
         app.config["SESSION_COOKIE_NAME"] = "session"
     else:
@@ -180,7 +183,7 @@ def _ephemeral_dev_secret(cfg: Config) -> str:
 def _register_context(app: Flask, cfg: Config, db) -> None:
     from flask import request, url_for
 
-    from web.auth.session import logout, sync_role
+    from web.auth.session import logout, refresh_from_db
 
     def _safe_url(endpoint: str, **kw) -> str:
         # A missing endpoint is logged at WARNING (not silently swallowed) so a
@@ -206,10 +209,6 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         p = current_principal()
         if p is None:
             return
-        live = session.get("user")
-        if isinstance(live, dict) and live.get("_dev"):
-            # Live role-picker: session role is the picked user, not the DB row.
-            return
         try:
             if not app.config["AUTHZ"].session_allowed(p):
                 logout()
@@ -218,7 +217,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
                 return
             row = users.get_by_email(p.email)
             if row is not None and row.is_active:
-                sync_role(row.role)
+                refresh_from_db(role=row.role, is_dev=(row.role == "developer"))
         except Exception:  # noqa: BLE001 - a role refresh must never break a request
             app.logger.warning("session role refresh failed for %s", p.email)
 
@@ -305,13 +304,13 @@ def _register_blueprints(app: Flask, cfg: Config) -> None:
 
 
 def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
-    """Home (is_beta): leftover Live cookie or native v3 login, else /login."""
+    """Home (is_beta): native v3 login, else /login."""
     if not cfg.is_beta:
         return
 
     from flask import redirect, request
 
-    from web.beta_live_session import adopt_live_identity, live_login_redirect
+    from web.auth.session import current_principal, login_redirect
 
     @app.before_request
     def _require_live_login():
@@ -321,10 +320,9 @@ def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
         if ep.startswith("health."):
             return None
         if ep.startswith("auth."):
-            adopt_live_identity()
             return None
 
-        p = adopt_live_identity()
+        p = current_principal()
         if p is None:
             mount = (request.script_root or "").rstrip("/")
             dest = mount + (request.full_path if request.full_path != "/?" else "/")
@@ -334,7 +332,7 @@ def _register_beta_access_gate(app: Flask, cfg: Config) -> None:
                 dest = "/" + dest
             if dest in ("", "?"):
                 dest = "/"
-            return redirect(live_login_redirect(dest))
+            return redirect(login_redirect(dest))
         return None
 
 
@@ -351,6 +349,23 @@ def _register_cli(app: Flask, db) -> None:
 
         applied = migrate(db)
         print("Applied migrations:", applied)
+
+    @app.cli.command("import-live-users")
+    def import_live_users_cmd():  # pragma: no cover - invoked via `flask import-live-users`
+        from web.data.repositories.app_settings import AppSettingsRepository
+        from web.data.seed_users import live_db_path, seed_users_from_live
+
+        path = live_db_path()
+        n = seed_users_from_live(db, path)
+        grants = 0
+        with db.precious() as conn:
+            grants = conn.execute(
+                "SELECT COUNT(*) FROM user_salesman_access"
+            ).fetchone()[0]
+        AppSettingsRepository(db).record_live_user_import(
+            path=str(path), users=n, grants=int(grants),
+        )
+        print(f"Imported {n} users from {path}")
 
 
 

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Not authorized &mdash; Sales Reports{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1 class="auth-title">Not authorized</h1>
+    <p class="auth-sub">
+      Microsoft signed you in, but this app has no active account for that email.
+      Ask an admin to add you under Settings → People, then try again.
+    </p>
+    <a href="{{ url_for('auth.login_page') }}" class="btn btn-primary btn-lg btn-block">Back to sign in</a>
+  </div>
+</div>
+{% endblock %}

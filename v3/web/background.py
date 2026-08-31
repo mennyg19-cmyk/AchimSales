@@ -14,7 +14,6 @@ from web.seeds import (
     _seed_feature_flags,
     _seed_master_schedules,
     _seed_report_config,
-    _seed_users_from_live,
 )
 
 def bootstrap_background(app: Flask) -> None:
@@ -30,8 +29,7 @@ def bootstrap_background(app: Flask) -> None:
     migrate(db)
     _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
     _seed_report_config(app, db)
-    _seed_users_from_live(app, db)    # mirror the live user directory into v3
-    _seed_admins(app, db)             # explicit env admins override the mirror
+    _seed_admins(app, db)             # explicit env admins
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
     cfg = app.config["APP_CONFIG"]
     if getattr(cfg, "is_beta", False):

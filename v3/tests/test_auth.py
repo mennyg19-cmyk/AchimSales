@@ -242,6 +242,7 @@ def test_session_allowed_inactive_and_impersonation(db):
     )
     assert authz.session_allowed(impersonating) is True
     assert authz.is_developer(impersonating) is False
+    assert authz.actor_is_developer(impersonating) is True
     users.update(users.get_by_email("dev@b.com").id, role="salesman")
     assert authz.session_allowed(impersonating) is False
 
@@ -405,10 +406,7 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
 
     client = application.test_client()
     with client.session_transaction() as s:
-        s["user"] = {
-            "email": "dev@x.com", "name": "Dev", "role": "developer",
-            "salesman_key": None, "_dev": True, "_dev_name": "Dev", "_dev_email": "dev@x.com",
-        }
+        s["v3_user"] = {"email": "dev@x.com", "name": "Dev", "role": "developer", "is_dev": True}
         s["_csrf_token"] = "t"
     page = client.get("/dev/role-picker")
     assert page.status_code == 200
@@ -417,8 +415,7 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
     resp = client.post("/dev/role-picker", data={"target_email": "rep@x.com", "csrf_token": "t"})
     assert resp.status_code == 302
     with client.session_transaction() as s:
-        assert s["user"]["email"] == "rep@x.com"
-        assert s["user"]["_dev"] is True
+        assert "user" not in s
         assert s["v3_user"]["email"] == "rep@x.com"
         assert s["v3_user"]["impersonating"] is True
     again = client.get("/dev/role-picker")
@@ -426,7 +423,201 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
     self_resp = client.post("/dev/role-picker", data={"target_email": "__self__", "csrf_token": "t"})
     assert self_resp.status_code == 302
     with client.session_transaction() as s:
-        assert s["user"]["email"] == "dev@x.com"
         assert s["v3_user"]["email"] == "dev@x.com"
         assert not s["v3_user"].get("impersonating")
+
+
+def test_role_picker_denied_when_developer_demoted(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "dev@x.com", "name": "Dev", "role": "developer", "is_dev": True}
+        s["_csrf_token"] = "t"
+    with application.config["DB"].precious() as conn:
+        conn.execute("UPDATE users SET role='salesman' WHERE email='dev@x.com'")
+    assert client.get("/dev/role-picker").status_code == 403
+    assert client.post(
+        "/dev/role-picker", data={"target_email": "__self__", "csrf_token": "t"}
+    ).status_code == 403
+
+
+def test_legacy_live_cookie_does_not_sign_in_or_create_user(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "ghost@x.com", "name": "Ghost", "role": "admin",
+            "_dev": True, "_dev_email": "ghost@x.com",
+        }
+    resp = client.get("/")
+    assert resp.status_code in (302, 301)
+    assert "/login" in (resp.headers.get("Location") or "")
+    assert UserRepository(application.config["DB"]).get_by_email("ghost@x.com") is None
+
+
+def test_msal_callback_unknown_user_denied(app, monkeypatch):
+    monkeypatch.setattr(
+        "web.blueprints.auth.msal_flow.complete_login",
+        lambda cfg: {"email": "new@x.com", "name": "New"},
+    )
+    resp = app.test_client().get("/auth/callback")
+    assert resp.status_code == 403
+    assert b"Not authorized" in resp.data
+    assert UserRepository(app.config["DB"]).get_by_email("new@x.com") is None
+
+
+def test_msal_callback_inactive_user_denied(app, monkeypatch):
+    UserRepository(app.config["DB"]).upsert("old@x.com", role="salesman")
+    with app.config["DB"].precious() as conn:
+        conn.execute("UPDATE users SET is_active=0 WHERE email='old@x.com'")
+    monkeypatch.setattr(
+        "web.blueprints.auth.msal_flow.complete_login",
+        lambda cfg: {"email": "old@x.com", "name": "Old"},
+    )
+    resp = app.test_client().get("/auth/callback")
+    assert resp.status_code == 403
+    assert UserRepository(app.config["DB"]).get_by_email("old@x.com").is_active is False
+
+
+def test_leftover_live_cookie_does_not_sign_in_existing_user(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("a@x.com", role="admin")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "a@x.com", "name": "A", "role": "admin", "is_admin": True,
+        }
+    resp = client.get("/")
+    assert resp.status_code in (302, 301)
+    assert "/login" in (resp.headers.get("Location") or "")
+    with client.session_transaction() as s:
+        assert "v3_user" not in s
+
+
+def test_leftover_live_cookie_does_not_skip_role_refresh(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("a@x.com", role="admin")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "a@x.com", "name": "A", "role": "admin"}
+        s["user"] = {
+            "email": "a@x.com", "name": "A", "role": "admin", "is_admin": True,
+        }
+    with application.config["DB"].precious() as conn:
+        conn.execute("UPDATE users SET role='salesman' WHERE email='a@x.com'")
+    client.get("/")
+    with client.session_transaction() as s:
+        assert s["v3_user"]["role"] == "salesman"
+
+
+def test_role_picker_denied_for_admin_even_with_is_dev_cookie(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("admin@x.com", role="admin")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {
+            "email": "admin@x.com", "name": "A", "role": "admin", "is_dev": True,
+        }
+        s["_csrf_token"] = "t"
+    assert client.get("/dev/role-picker").status_code == 403
+    assert client.post(
+        "/dev/role-picker", data={"target_email": "__self__", "csrf_token": "t"}
+    ).status_code == 403
+
+
+def test_role_picker_denied_when_impersonating_actor_demoted(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer")
+    UserRepository(application.config["DB"]).upsert("rep@x.com", role="salesman")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {
+            "email": "rep@x.com", "name": "Rep (as Dev)", "role": "salesman",
+            "is_dev": True, "impersonating": True,
+            "real_email": "dev@x.com", "real_name": "Dev",
+        }
+        s["_csrf_token"] = "t"
+    with application.config["DB"].precious() as conn:
+        conn.execute("UPDATE users SET role='salesman' WHERE email='dev@x.com'")
+    resp = client.get("/dev/role-picker")
+    assert resp.status_code in (302, 403)
+    if resp.status_code in (301, 302):
+        assert "/login" in (resp.headers.get("Location") or "")
+
+
+def test_magic_link_records_trusted_proxy_ip_not_leftmost_xff(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    users = UserRepository(application.config["DB"])
+    row = users.upsert("rep@x.com", role="salesman")
+    users.update(row.id, is_external=True)
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["_csrf_token"] = "t"
+    client.post(
+        "/login/magic-link",
+        data={"email": "rep@x.com", "csrf_token": "t"},
+        headers={"X-Forwarded-For": "1.2.3.4, 9.9.9.9"},
+    )
+    with application.config["DB"].precious() as conn:
+        attempt_ips = [r[0] for r in conn.execute(
+            "SELECT ip FROM magic_link_attempts"
+        )]
+        token_ips = [r[0] for r in conn.execute(
+            "SELECT request_ip FROM magic_link_tokens"
+        )]
+    assert attempt_ips == ["9.9.9.9"]
+    assert "1.2.3.4" not in attempt_ips
+    assert token_ips == ["9.9.9.9"]
+
+
+def test_rotated_secret_rejects_old_session_cookie(tmp_path):
+    from dataclasses import replace
+
+    old = replace(_dev_cfg(tmp_path), is_beta=True, flask_secret="old-secret")
+    app_old = create_app(old)
+    migrate(app_old.config["DB"])
+    UserRepository(app_old.config["DB"]).upsert("a@x.com", role="admin")
+    c_old = app_old.test_client()
+    with c_old.session_transaction() as s:
+        s["v3_user"] = {"email": "a@x.com", "name": "A", "role": "admin"}
+    cookie = c_old.get_cookie("session")
+    assert cookie is not None
+
+    new = replace(_dev_cfg(tmp_path), is_beta=True, flask_secret="new-secret")
+    app_new = create_app(new)
+    c_new = app_new.test_client()
+    c_new.set_cookie("session", cookie.value)
+    resp = c_new.get("/")
+    assert resp.status_code in (301, 302)
+    assert "/login" in (resp.headers.get("Location") or "")
+
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from web.data.connection import Database
 from web.delivery.email import split_recipients
@@ -78,6 +79,14 @@ class AppSettingsRepository:
             return
         names.discard(name)
         self._set(_SEED_SKIP, json.dumps(sorted(names)))
+
+    def record_live_user_import(self, *, path: str, users: int, grants: int) -> None:
+        self._set("live_user_import", json.dumps({
+            "at": datetime.now(timezone.utc).isoformat(),
+            "path": path,
+            "users": users,
+            "grants": grants,
+        }))
 
     def _get(self, key: str) -> str:
         with self.db.precious() as conn:

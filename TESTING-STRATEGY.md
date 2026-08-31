@@ -23,6 +23,25 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 2 auth (single identity store)
+
+**What to test:**
+- A leftover Live `session["user"]` cookie does not sign anyone in, does not create a user, and does not skip DB role refresh.
+- `/dev/role-picker` GET/POST require live `authz.actor_is_developer` (real actor during impersonation). `p.is_dev` and admin are not enough. Demoted developer is 403 (or signed out).
+- MSAL `/auth/callback` uses `get_by_email`, not `upsert`. Unknown and inactive Entra users get 403 "Not authorized" and no new/reactivated row.
+- `bootstrap_background` does not call `seed_users_from_live`. `flask import-live-users` writes `app_settings.live_user_import` with path, user count, and grant count.
+- Magic-link tokens are SHA-256 at rest (`token_hash` PK). Consume is one atomic hash update. Access-log filter redacts `/login/magic-link/<token>`. Tick prunes attempts/tokens at 90 days.
+- `POST /login/magic-link` with `X-Forwarded-For: 1.2.3.4, 9.9.9.9` records `9.9.9.9` (ProxyFix, one Azure hop), not the leftmost spoofed IP.
+- A session cookie signed with the previous Flask secret does not stay signed in.
+
+**Expected behavior:**
+- One identity store: precious `users`. Cookie/session fields never grant roles.
+- Boot does not read `/home/data/app.db`. `LIVE_DB_PATH` remains for the CLI until import evidence exists.
+
+**Test files:** `v3/tests/test_auth.py`, `v3/tests/test_magic_link.py`, `v3/tests/test_session_authz.py`, `v3/tests/test_seed_users_grants.py`, `v3/tests/test_scheduling.py`
+
+---
+
 ## Sol list leftovers (2026-08-28)
 
 **What to test:**

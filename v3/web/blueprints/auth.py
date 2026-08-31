@@ -53,9 +53,8 @@ def _login_or_403(user: User, *, name: str, is_dev: bool) -> None:
 
 def _signed_in():
     from web.auth.session import current_principal
-    from web.beta_live_session import adopt_live_identity
 
-    return adopt_live_identity() or current_principal()
+    return current_principal()
 
 
 @auth_bp.get("/login")
@@ -103,7 +102,10 @@ def callback():
     result = msal_flow.complete_login(cfg)
     if "error" in result:
         abort(400, description=result["error"])
-    user = UserRepository(_db()).upsert(result["email"], display_name=result["name"])
+    user = UserRepository(_db()).get_by_email(result["email"])
+    if user is None or not user.is_active:
+        log.info("Entra sign-in refused (unknown or inactive)")
+        return render_template("unauthorized.html"), 403
     is_dev = user.role == "developer"
     _login_or_403(user, name=user.display_name or result["name"], is_dev=is_dev)
     dest = session.pop(_NEXT_KEY, None) or url_for("reports.reports_list")
@@ -119,8 +121,9 @@ def logout_route():
 
 
 def _client_ip() -> str:
-    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-    return forwarded or (request.remote_addr or "")
+    # ProxyFix (one Azure hop) already set remote_addr. Do not read leftmost
+    # X-Forwarded-For — a client can spoof that.
+    return (request.remote_addr or "").strip()
 
 
 def _magic_link_url(token: str) -> str:
@@ -210,8 +213,8 @@ def role_picker():
     if p is None:
         return redirect(url_for("auth.login_page"))
     authz = current_app.config["AUTHZ"]
-    if not (p.is_dev or authz.is_privileged(p)):
-        return redirect(url_for("reports.reports_list"))
+    if not authz.actor_is_developer(p):
+        abort(403, description="Developer role required")
 
     dev_email = (p.real_email or p.email).strip().lower()
     raw_name = p.real_name or p.name
@@ -228,11 +231,6 @@ def role_picker():
             login(Principal(
                 email=real.email, name=dev_name, role=real.role, is_dev=True,
             ))
-            session["user"] = {
-                "email": real.email, "name": dev_name, "role": real.role,
-                "salesman_key": None, "_dev": True,
-                "_dev_name": dev_name, "_dev_email": dev_email,
-            }
         else:
             row = users.get_by_email(target_email.lower())
             if row is None:
@@ -247,15 +245,6 @@ def role_picker():
                 real_email=dev_email,
                 real_name=dev_name,
             ))
-            session["user"] = {
-                "email": row.email,
-                "name": f"{display} (as {dev_name})",
-                "role": row.role,
-                "salesman_key": None,
-                "_dev": True,
-                "_dev_name": dev_name,
-                "_dev_email": dev_email,
-            }
         return redirect(url_for("reports.reports_list"))
 
     user = {
@@ -347,6 +336,6 @@ def impersonate_end():
         return redirect(url_for("auth.login_page"))
     login(Principal(
         email=real_user.email, name=p.real_name or real_user.display_name or real_user.email,
-        role=real_user.role, is_dev=p.is_dev,
+        role=real_user.role, is_dev=(real_user.role == "developer"),
     ))
     return redirect(url_for("reports.reports_list"))

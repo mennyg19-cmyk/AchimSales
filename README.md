@@ -93,7 +93,7 @@ python run.py ordered
 | `/` | `v3/` (`is_beta=True`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
 | `/beta` | — | Redirects to the same path without `/beta` (old bookmarks) |
 
-Microsoft login and magic links run on this app (`/login`, `/login/start`, `/auth/callback`). Developers flip SQL/OData per report under Settings → Report data sources. Sales by State is SQL only and is not in that list.
+Microsoft login and magic links run on this app (`/login`, `/login/start`, `/auth/callback`). People admin creates accounts; Microsoft sign-in does not auto-provision. Magic-link tokens are stored as hashes. One-time copy of leftover Live users: `flask import-live-users`. Developers flip SQL/OData per report under Settings → Report data sources. Sales by State is SQL only and is not in that list.
 
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.

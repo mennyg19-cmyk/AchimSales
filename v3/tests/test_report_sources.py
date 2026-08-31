@@ -60,9 +60,9 @@ def test_odata_workbook_to_tabs(tmp_path):
     assert scoped["rows"][0]["InvoiceNumber"] == "IN1"
 
 
-def test_live_login_redirect_escapes_mount():
-    from web.beta_live_session import live_login_redirect
+def test_login_redirect_escapes_open_redirect():
+    from web.auth.session import login_redirect
 
-    assert live_login_redirect("/") == "/login?next=/"
-    assert live_login_redirect("/reports") == "/login?next=/reports"
-    assert live_login_redirect("https://evil.example/") == "/login?next=/"
+    assert login_redirect("/") == "/login?next=/"
+    assert login_redirect("/reports") == "/login?next=/reports"
+    assert login_redirect("https://evil.example/") == "/login?next=/"

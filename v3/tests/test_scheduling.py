@@ -1162,7 +1162,7 @@ def test_tick_prunes_cache_exports_and_fails_hung(tmp_path, monkeypatch):
 
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    called = {"cache": None, "exports": 0, "hung": None}
+    called = {"cache": None, "exports": 0, "hung": None, "magic": None}
 
     def fake_cache_prune(self, older_than_seconds):
         called["cache"] = older_than_seconds
@@ -1178,11 +1178,17 @@ def test_tick_prunes_cache_exports_and_fails_hung(tmp_path, monkeypatch):
         called["hung"] = seconds
         return 0
 
+    def fake_magic_prune(self, older_than_days=90):
+        called["magic"] = older_than_days
+        return 0
+
     monkeypatch.setattr("web.scheduling.tick.ReportCache.prune", fake_cache_prune)
     monkeypatch.setattr("web.scheduling.tick.ExportRepository.prune", fake_export_prune)
+    monkeypatch.setattr("web.scheduling.tick.MagicLinkRepository.prune", fake_magic_prune)
     monkeypatch.setattr(job_repo, "fail_hung", fake_fail_hung)
     make_tick(db, job_repo)()
     assert called["cache"] == 6 * 3600
     assert called["exports"] == 1
     assert called["hung"] == 45 * 60
+    assert called["magic"] == 90
 
