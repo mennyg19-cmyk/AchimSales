@@ -68,6 +68,7 @@ def test_pending_migrates_to_unknown(tmp_path):
     applied = apply_migrations(precious, root)
     assert any(name.startswith("0023_") for name in applied)
     assert any(name.startswith("0024_") for name in applied)
+    assert any(name.startswith("0025_") for name in applied)
     db = Database(precious, tmp_path / "c.db")
     legs = DeliveryLegRepository(db)
     assert legs.get("legacy-pending").status == UNKNOWN
@@ -805,6 +806,89 @@ def test_job_gone_retry_folder_keeps_frozen_filename(tmp_path):
     assert puts == []
     assert legs.get(key).status == SENT
     assert legs.get(key).remote_id == "https://sp/original"
+
+
+def test_retry_after_period_change_still_sends_selected_leg(tmp_path):
+    from web.delivery.execute import deliver_with_legs
+
+    db = _db(tmp_path)
+    legs = DeliveryLegRepository(db)
+    original = {"period": "yesterday"}
+    key = attempt_key(slot_id="s1", kind="email", target="a@x.com", window=original)
+    legs.prepare(key, run_id=1, kind="email", target="a@x.com",
+                 slot_id="s1", job_id="j", window_from="yesterday")
+    legs.mark_sending(key)
+    legs.mark_unknown(key, "lost")
+    assert legs.reopen_for_retry(key) is True
+    delivery, sent, _puts, _files = _workbook_delivery()
+    out = deliver_with_legs(
+        delivery, legs, slot_id="s1", job_id="j", run_id=1,
+        window={"period": "mtd"}, params={"period": "mtd"},
+        recipients="a@x.com", sharepoint_path="",
+        report_key="ordered", identity="u@x.com", builder_version=1,
+        retry_attempt_key=key,
+    )
+    assert out.result.ok
+    assert sent == ["a@x.com"]
+    assert legs.get(key).status == SENT
+
+
+def test_retry_after_filename_template_change_gets_original_name(tmp_path):
+    from web.delivery.execute import deliver_with_legs
+    from web.delivery.filename_template import parse_frozen_when
+
+    frozen = "2026-08-31T13:00:00-04:00"
+    original = "R_2026-08-31_1300.xlsx"
+    files = {("Ordered", original): {"webUrl": "https://sp/original"}}
+    db = _db(tmp_path)
+    legs = DeliveryLegRepository(db)
+    key = attempt_key(slot_id="s1", kind="sharepoint", target="Ordered")
+    legs.prepare(key, run_id=1, kind="sharepoint", target="Ordered",
+                 slot_id="s1", job_id="j", slot_when=frozen, filename=original)
+    legs.mark_sending(key)
+    legs.mark_failed(key, "interrupted")
+    assert legs.reopen_for_retry(key) is True
+    delivery, _sent, puts, _files = _workbook_delivery(files=files, folder="Ordered")
+    out = deliver_with_legs(
+        delivery, legs, slot_id="s1", job_id="j", run_id=1, window={},
+        recipients="", sharepoint_path="Ordered",
+        report_key="ordered", identity="u@x.com", builder_version=1,
+        filename_template="Changed_{YYYY}-{MM}-{DD}_{HH}{mm}", report_name="R",
+        when=parse_frozen_when(frozen, "2026-08-31"), retry_attempt_key=key,
+    )
+    assert out.result.ok
+    assert puts == []
+    assert legs.get(key).status == SENT
+    assert legs.get(key).remote_id == "https://sp/original"
+    assert legs.get(key).filename == original
+
+
+def test_first_send_stores_window_and_filename(tmp_path):
+    from web.delivery.execute import deliver_with_legs
+    from web.delivery.filename_template import parse_frozen_when, resolve_filename_template
+
+    frozen = "2026-08-31T13:00:00-04:00"
+    when = parse_frozen_when(frozen, "2026-08-31")
+    name = resolve_filename_template("", report_name="R", when=when)
+    db = _db(tmp_path)
+    legs = DeliveryLegRepository(db)
+    delivery, sent, _puts, _files = _workbook_delivery()
+    deliver_with_legs(
+        delivery, legs, slot_id="s1", job_id="j", run_id=1,
+        window={"period": "yesterday"}, params={"period": "yesterday"},
+        recipients="a@x.com", sharepoint_path="Ordered",
+        report_key="ordered", identity="u@x.com", builder_version=1,
+        filename_template="", report_name="R", when=when,
+    )
+    email_key = attempt_key(
+        slot_id="s1", kind="email", target="a@x.com", window={"period": "yesterday"})
+    folder_key = attempt_key(
+        slot_id="s1", kind="sharepoint", target="Ordered", window={"period": "yesterday"})
+    assert sent == ["a@x.com"]
+    assert legs.get(email_key).window_from == "yesterday"
+    assert legs.get(email_key).filename == name
+    assert legs.get(folder_key).window_from == "yesterday"
+    assert legs.get(folder_key).filename == name
 
 
 def test_reopen_for_retry_keeps_upload_session(tmp_path):

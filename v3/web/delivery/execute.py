@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from web.data.repositories.delivery_legs import DeliveryLegRepository, attempt_key
+from web.data.repositories.delivery_legs import (
+    DeliveryLegRepository, attempt_key, restore_window, window_key_parts,
+)
 from web.delivery.email import DeliveryResult
 from web.delivery.graph_mail import GraphUnknownError
 from web.delivery.service import DeliveryOutcome, DeliveryService, PreparedWorkbook
@@ -38,6 +40,17 @@ def deliver_with_legs(
     if retry_key and retry_leg is None:
         raise RuntimeError("Cannot retry; that delivery leg is gone.")
     if retry_leg is not None:
+        restored = restore_window(retry_leg.window_from, retry_leg.window_to)
+        if restored:
+            window = restored
+            params = dict(deliver_kwargs.get("params") or {})
+            if "start_date" in restored:
+                params.pop("period", None)
+            else:
+                params.pop("start_date", None)
+                params.pop("end_date", None)
+            params.update(restored)
+            deliver_kwargs["params"] = params
         probe = attempt_key(
             slot_id=slot_id, kind=retry_leg.kind, target=retry_leg.target,
             salesman=salesman, window=window,
@@ -55,6 +68,7 @@ def deliver_with_legs(
             deliver_kwargs["recipients"] = retry_leg.target
         else:
             deliver_kwargs["sharepoint_path"] = retry_leg.target
+    wf, wt = window_key_parts(window)
     recipients = str(deliver_kwargs.get("recipients") or "")
     path = str(deliver_kwargs.get("sharepoint_path") or "")
     onedrive_user = str(deliver_kwargs.get("onedrive_user") or "").strip()
@@ -81,6 +95,9 @@ def deliver_with_legs(
             result=DeliveryResult(ok=True, error=built.skip_reason),
             row_count=0,
         )
+    if retry_leg is not None and retry_leg.filename:
+        built.filename = retry_leg.filename
+    frozen_name = built.filename or ""
     to = recipients
     cc = str(deliver_kwargs.get("cc_raw") or "")
     bcc = str(deliver_kwargs.get("bcc_raw") or "")
@@ -113,7 +130,8 @@ def deliver_with_legs(
             delivery, legs, folder_key, built,
             onedrive_user=onedrive_user, run_id=run_id, slot_id=slot_id,
             job_id=job_id, salesman=salesman, cancel_check=cancel_check,
-            slot_when=frozen_when,
+            slot_when=frozen_when, window_from=wf, window_to=wt,
+            filename=frozen_name,
         )
     email_result = DeliveryResult(ok=True, recipients=[to] if to.strip() else [])
     if to.strip() and not skip_email:
@@ -126,6 +144,7 @@ def deliver_with_legs(
             folder_url=folder_result.sharepoint_url or "",
             run_id=run_id, slot_id=slot_id, job_id=job_id, salesman=salesman,
             cancel_check=cancel_check, slot_when=frozen_when,
+            window_from=wf, window_to=wt, filename=frozen_name,
         )
     return _combine_leg_results(
         built, email_result, folder_result, to, skip_email, skip_folder,
@@ -150,24 +169,23 @@ def send_notice_leg(
     retry_attempt_key: str = "",
     when=None,
 ) -> DeliveryOutcome:
+    retry_key = (retry_attempt_key or "").strip()
+    stored = legs.get(retry_key) if retry_key else None
+    if stored is not None:
+        restored = restore_window(stored.window_from, stored.window_to)
+        if restored:
+            window = restored
+        recipients = stored.target
+        salesman = stored.salesman_key or salesman
     key = attempt_key(
         slot_id=slot_id, kind="notice", target=recipients, salesman=salesman,
         window=window,
     )
-    retry_key = (retry_attempt_key or "").strip()
     if retry_key and retry_key != key:
         return DeliveryOutcome(
             result=DeliveryResult(ok=True, send_channel="skipped", sent_via_smtp=True),
             row_count=0,
         )
-    if retry_key:
-        stored = legs.get(key)
-        if stored is not None:
-            recipients = stored.target
-            key = attempt_key(
-                slot_id=slot_id, kind="notice", target=recipients, salesman=salesman,
-                window=window,
-            )
     if legs.is_settled(key):
         leg = legs.get(key)
         ok = leg is not None and leg.status == SENT
@@ -182,10 +200,11 @@ def send_notice_leg(
         )
     if cancel_check and cancel_check():
         raise JobCancelled()
+    wf, wt = window_key_parts(window)
     if legs.prepare(
         key, run_id=run_id, kind="notice", target=recipients,
         salesman_key=salesman, slot_id=slot_id, job_id=job_id,
-        slot_when=_iso_when(when),
+        slot_when=_iso_when(when), window_from=wf, window_to=wt,
     ) == "skip":
         return send_notice_leg(
             delivery, legs, slot_id=slot_id, job_id=job_id, run_id=run_id,
@@ -226,9 +245,10 @@ def send_notice_leg(
 
 def _send_folder_leg(delivery, legs, key, built: PreparedWorkbook, *,
                      onedrive_user: str, run_id, slot_id, job_id, salesman,
-                     cancel_check, slot_when: str = "") -> DeliveryResult:
+                     cancel_check, slot_when: str = "", window_from: str = "",
+                     window_to: str = "", filename: str = "") -> DeliveryResult:
     folder = built.folder
-    filename = built.filename
+    filename = filename or built.filename
     existing = legs.get(key)
     if existing and existing.status == SENT:
         return DeliveryResult(ok=True, sharepoint_saved=True,
@@ -236,7 +256,8 @@ def _send_folder_leg(delivery, legs, key, built: PreparedWorkbook, *,
     if legs.prepare(
         key, run_id=run_id, kind="onedrive" if onedrive_user else "sharepoint",
         target=folder, salesman_key=salesman, slot_id=slot_id, job_id=job_id,
-        slot_when=slot_when,
+        slot_when=slot_when, window_from=window_from, window_to=window_to,
+        filename=filename,
     ) == "skip":
         skip = legs.get(key)
         return DeliveryResult(
@@ -294,11 +315,13 @@ def _send_folder_leg(delivery, legs, key, built: PreparedWorkbook, *,
 def _send_email_leg(delivery, legs, key, built: PreparedWorkbook, *,
                     subject, report_name, body_text, recipients, cc, bcc,
                     folder_url, run_id, slot_id, job_id, salesman,
-                    cancel_check, slot_when: str = "") -> DeliveryResult:
+                    cancel_check, slot_when: str = "", window_from: str = "",
+                    window_to: str = "", filename: str = "") -> DeliveryResult:
     if legs.prepare(
         key, run_id=run_id, kind="email", target=recipients,
         salesman_key=salesman, slot_id=slot_id, job_id=job_id,
-        slot_when=slot_when,
+        slot_when=slot_when, window_from=window_from, window_to=window_to,
+        filename=filename or built.filename,
     ) == "skip":
         skip = legs.get(key)
         return DeliveryResult(

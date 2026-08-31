@@ -25,7 +25,9 @@ from web.data.repositories.schedules import (
     ScheduleRepository,
     ScheduleRunRepository,
 )
-from web.data.repositories.delivery_legs import DeliveryLegRepository, attempt_key
+from web.data.repositories.delivery_legs import (
+    DeliveryLegRepository, attempt_key, window_key_parts,
+)
 from web.jobs.worker import JobCancelled
 from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
@@ -402,6 +404,7 @@ class ScheduleRunner:
         # Test doubles with only run_and_deliver still need skip-on-retry.
         legs = DeliveryLegRepository(self.user_repo.db)
         frozen_when = when.isoformat() if hasattr(when, "isoformat") else (when or "")
+        wf, wt = window_key_parts(window)
         email_key = attempt_key(
             slot_id=slot_id or f"{schedule_type}:{schedule_id}:{trigger}",
             kind="email", target=recipients, salesman=salesman, window=window,
@@ -430,11 +433,11 @@ class ScheduleRunner:
         if recipients.strip() and not skip_email:
             legs.prepare(email_key, run_id=run_id, kind="email", target=recipients,
                          salesman_key=salesman, slot_id=slot_id, job_id=job_id,
-                         slot_when=frozen_when)
+                         slot_when=frozen_when, window_from=wf, window_to=wt)
         if path.strip() and not skip_folder:
             legs.prepare(folder_key, run_id=run_id, kind="sharepoint", target=path,
                          salesman_key=salesman, slot_id=slot_id, job_id=job_id,
-                         slot_when=frozen_when)
+                         slot_when=frozen_when, window_from=wf, window_to=wt)
         try:
             outcome = self.delivery.run_and_deliver(
                 skip_email=skip_email, skip_folder=skip_folder,

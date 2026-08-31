@@ -36,6 +36,31 @@ def attempt_key(*, slot_id: str, kind: str, target: str, salesman: str = "",
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
 
 
+def window_key_parts(window: dict | None = None) -> tuple[str, str]:
+    window = window or {}
+    return (
+        str(window.get("start_date") or window.get("period") or ""),
+        str(window.get("end_date") or ""),
+    )
+
+
+def restore_window(window_from: str, window_to: str) -> dict:
+    """Rebuild the window dict that went into attempt_key."""
+    from_s = (window_from or "").strip()
+    to_s = (window_to or "").strip()
+    if not from_s and not to_s:
+        return {}
+    if len(from_s) == 10 and from_s[4:5] == "-" and from_s[7:8] == "-":
+        out = {"start_date": from_s}
+        if to_s:
+            out["end_date"] = to_s
+        return out
+    out = {"period": from_s} if from_s else {}
+    if to_s:
+        out["end_date"] = to_s
+    return out
+
+
 def scheduled_slot_id(*, schedule_type: str, schedule_id: int, slot_day: str,
                       catch_up_for_date: str = "", include_regular: bool = True) -> str:
     cu = catch_up_for_date or "-"
@@ -80,6 +105,9 @@ class DeliveryLeg:
     job_id: str
     upload_session_url: str
     slot_when: str
+    window_from: str
+    window_to: str
+    filename: str
     run_id: int | None
 
     @classmethod
@@ -96,6 +124,9 @@ class DeliveryLeg:
                 r["upload_session_url"] if "upload_session_url" in keys else ""
             ) or "",
             slot_when=(r["slot_when"] if "slot_when" in keys else "") or "",
+            window_from=(r["window_from"] if "window_from" in keys else "") or "",
+            window_to=(r["window_to"] if "window_to" in keys else "") or "",
+            filename=(r["filename"] if "filename" in keys else "") or "",
             run_id=r["run_id"] if "run_id" in keys else None,
         )
 
@@ -135,9 +166,13 @@ class DeliveryLegRepository:
 
     def prepare(self, key: str, *, run_id: int | None, kind: str, target: str,
                 salesman_key: str = "", slot_id: str = "", job_id: str = "",
-                slot_when: str = "") -> str:
+                slot_when: str = "", window_from: str = "", window_to: str = "",
+                filename: str = "") -> str:
         """Insert or reopen a retryable row as prepared. Returns 'send' or 'skip'."""
         frozen_when = slot_when or ""
+        wf = window_from or ""
+        wt = window_to or ""
+        fname = filename or ""
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT status FROM delivery_legs WHERE attempt_key=?", (key,)
@@ -147,18 +182,23 @@ class DeliveryLegRepository:
             if row:
                 conn.execute(
                     "UPDATE delivery_legs SET status=?, error='', slot_id=?,"
-                    " job_id=?, slot_when=CASE WHEN ? != '' THEN ? ELSE slot_when END,"
+                    " job_id=?,"
+                    " slot_when=CASE WHEN ? != '' THEN ? ELSE slot_when END,"
+                    " window_from=CASE WHEN ? != '' THEN ? ELSE window_from END,"
+                    " window_to=CASE WHEN ? != '' THEN ? ELSE window_to END,"
+                    " filename=CASE WHEN ? != '' THEN ? ELSE filename END,"
                     " updated_at=datetime('now') WHERE attempt_key=?",
-                    (PREPARED, slot_id or "", job_id or "", frozen_when,
-                     frozen_when, key),
+                    (PREPARED, slot_id or "", job_id or "",
+                     frozen_when, frozen_when, wf, wf, wt, wt, fname, fname, key),
                 )
                 return "send"
             conn.execute(
                 "INSERT INTO delivery_legs(run_id, attempt_key, kind, target,"
-                " salesman_key, status, slot_id, job_id, slot_when)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " salesman_key, status, slot_id, job_id, slot_when,"
+                " window_from, window_to, filename)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (run_id, key, kind, target, salesman_key or "", PREPARED,
-                 slot_id or "", job_id or "", frozen_when),
+                 slot_id or "", job_id or "", frozen_when, wf, wt, fname),
             )
             return "send"
 

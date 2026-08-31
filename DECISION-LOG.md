@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 5: freeze window and filename on retry
+**What I had to decide:** What “Send again” does after the live schedule’s period or filename template changed.
+**Options I considered:** (1) Keep hashing the current schedule (silent skip / second folder file). (2) Fail the retry until the operator restores the old schedule. (3) Persist the original window and resolved filename on the leg and retry that attempt.
+**What I chose:** (3). Forward migration `0025`. Do not edit `0023` or `0024`.
+**Why:** Loop A re-pass 3 F1/F2. I4 is retry of that stored attempt, not of whatever the schedule is now.
+**Status:** DECIDED — Phase 5 Loop A fix.
+
 ## 2026-08-31 Phase 5: delivery states and Graph unknown
 **What I had to decide:** How `pending` maps, what worker death does to in-flight legs, and how an operator reconciles `unknown`.
 **Options I considered:** (1) Requeue `schedule.run` when legs are only prepared (double-send risk with a detached child). (2) Keep cancelling those jobs; convert sending email to `unknown`, accepted email/folder to `sent`, prepared to failed-before-send. (3) Leave sending rows until Phase 6.
