@@ -619,5 +619,3 @@ def test_rotated_secret_rejects_old_session_cookie(tmp_path):
     resp = c_new.get("/")
     assert resp.status_code in (301, 302)
     assert "/login" in (resp.headers.get("Location") or "")
-
-

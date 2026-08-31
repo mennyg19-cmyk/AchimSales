@@ -110,4 +110,3 @@ def test_import_live_users_cli_records_marker(tmp_path, monkeypatch):
     assert data["grants"] == n_grants == 1
     assert str(live) in data["path"]
     assert data["at"]
-
