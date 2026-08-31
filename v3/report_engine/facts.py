@@ -1,10 +1,8 @@
 """Typed report facts - the semantic layer between data sources and builders.
 
 A "fact" is one business row in a source-agnostic, normalized shape. Source
-adapters (sources/) produce facts from either the on-prem Reporting API (web
-path) or D365 OData (CLI/runbook path); builders (reports/) consume ONLY facts.
-This is what lets the parity harness separate *rule* drift from *source* drift:
-feed identical facts to two builders and the only difference can be the rules.
+adapters (sources/) produce facts from the on-prem Reporting API. Builders
+(reports/) consume ONLY facts.
 """
 
 from __future__ import annotations
@@ -12,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Source = Literal["reporting_api", "odata"]
+Source = Literal["reporting_api"]
 
 
 @dataclass(frozen=True)

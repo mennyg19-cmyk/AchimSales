@@ -45,6 +45,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 3 SQL-only v3
+
+**What to test:**
+- `ReportService.builder_for` always uses the SQL orchestrator (Item Averages calls `item_customer_sales_rolling_12`).
+- Cache/dedup keys do not take an origin token.
+- Settings has no Report data sources picker. `GET /api/dev/beta-sources` is 404.
+- `v3/web` does not import `reports.*` CLI runners. A tree walk under `v3/` finds no D365 OData mentions except frozen migration `0016_report_sources.sql` and Graph `@odata.type`.
+- Scoped salesman keys apply to every tab of Ordered, Invoiced, Salesman, Number 4, and Customer Activity. Item Averages stays privileged SQL. Sales by State stays company-wide (all three tabs). Customer's Last Order already has in-app scope tests.
+
+**Expected behavior:**
+- Every visible web report uses the Reporting API. Missing SQL fails the run. CLI/Automation OData stays under `reports/`, `core/`, `data/`, `runbooks/`.
+
+**Test files:** `v3/tests/test_v3_sql_only.py`, `v3/tests/test_report_service.py`, `v3/tests/test_blueprints.py`
+
+---
+
 ## Sol list leftovers (2026-08-28)
 
 **What to test:**
@@ -101,7 +117,6 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `AUTH_MODE=dev` is refused when `APP_ENV=prod`. Legacy `DEV_BYPASS_AUTH` died with `webapp/`.
 
 **Expected behavior:**
-- Scoped OData cannot return company-wide By Item (or any unscopeable tab).
 - Production boot refuses empty durable state and auth bypass.
 
 **Edge cases:**
@@ -109,7 +124,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `AUTH_MODE=dev` is refused in prod; there is no leftover `DEV_BYPASS_AUTH` switch.
 - `/healthz` CSP does not allow unpkg or jsdelivr. Feather, Tabulator JS, and Tabulator CSS are served from `/static/vendor`.
 
-**Test files:** `v3/tests/test_odata_scope.py`, `v3/tests/test_config.py`, `v3/tests/test_smoke.py`. CI and the Azure Production python job run full pytest; restore-preflight is `tests/test_startup_restore.py`.
+**Test files:** `v3/tests/test_config.py`, `v3/tests/test_smoke.py`. CI and the Azure Production python job run full pytest; restore-preflight is `tests/test_startup_restore.py`.
 
 ---
 
@@ -338,7 +353,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - YTD drops rows with no current-year qty or dollars.
 - Every tab sets `default_group` to Item #.
 - Excel By Item headers are quantity-only.
-- OData extra_files dicts are read as paths; Item/Customer sheet names do not collide.
+- Number 4 extra files are not part of the web app.
 
 **Expected behavior:**
 - Mode By Item → two qty-only tabs. Mode By Customer → two tabs with dollars. Both → four tabs.
@@ -348,7 +363,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Empty view still keeps headers.
 - Prior-year-only rows appear on 12 Months and vanish on YTD.
 
-**Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_odata_number4.py`, `tests/test_number_4.py`
+**Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `tests/test_number_4.py`
 
 ## Sales by State (SQL only)
 
@@ -357,11 +372,10 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Third catalog key is `sales_by_state_filtered` (not `sales_by_state_detail`).
 - Summary sorts by sales amount. NYC sales amount appears on the first row only, even if the SP repeats it.
 - Detail Excel serial dates become YYYY-MM-DD; negative amounts stay negative.
-- Report is built, not on the Settings SQL/OData list, and not a salesman default.
+- Report is built and not a salesman default.
 
 **Expected behavior:**
 - Admin reports list shows Sales by State. Salesman inherit list does not.
-- `get_source("sales_by_state")` is sql.
 
 **Edge cases:**
 - Custom period dates override the year window when both start and end are set.
@@ -602,7 +616,7 @@ Superseded 2026-08-27: `webapp/` and extra mounts are gone. See **Single site at
 **What to test:**
 - Salesman `/settings` is `container-narrow`, has You (profile, theme, exclusions), no admin/developer blocks.
 - Admin has People, Reports, Delivery, History; not Database explorer.
-- Developer has explorer, notification diagnostic, beta sources.
+- Developer has explorer and notification diagnostic.
 - `POST /api/admin/report-visibility` hides a report unless a per-user allow override exists.
 - Exclusions save without the dashboard blueprint (Beta).
 - `/admin/schedule-runs` and `/admin/run-log` are admin-only.

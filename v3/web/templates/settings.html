@@ -13,7 +13,6 @@
      data-test-url="{{ url_for('settings.set_schedule_test') }}"
      data-vis-url="{{ url_for('settings.set_report_visibility') }}"
      data-excl-url="{{ url_for('settings.set_exclusion') }}"
-     data-beta-url="{{ url_for('settings.set_beta_source') }}"
      data-csrf="{{ csrf_token() }}">
 
 <details class="settings-cat" open>
@@ -167,20 +166,6 @@
             <a class="btn btn-outline btn-sm" href="{{ url_for('devtools.db_explorer_page') }}">Database explorer</a>
             <a class="btn btn-outline btn-sm" href="{{ url_for('devtools.notif_diagnostic_page') }}">Notification diagnostic</a>
         </div>
-        <h3 class="settings-subhead">Report data sources</h3>
-        <p class="flag-desc">SQL (Reporting API) vs OData (live) for each report. Schedules stay OData until phase two.</p>
-        <ul class="flag-list" id="betaSourcesList">
-            {% for key in beta_sources.keys()|sort %}
-            <li class="flag-row">
-                <span class="flag-name beta-source-key">{{ key }}</span>
-                <select class="beta-source-select" data-key="{{ key }}">
-                    <option value="sql" {% if beta_sources[key] == 'sql' %}selected{% endif %}>sql</option>
-                    <option value="odata" {% if beta_sources[key] == 'odata' %}selected{% endif %}>odata</option>
-                </select>
-            </li>
-            {% endfor %}
-        </ul>
-        <p class="flag-desc" id="betaSourcesMsg" hidden></p>
     </section>
 </details>
 {% endif %}

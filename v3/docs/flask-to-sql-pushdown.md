@@ -90,7 +90,7 @@ packing-slip math.
 | Fulfillment % = (ordered - cancelled) / ordered, clamped 0..1 | Computed column. | Movable |
 | ERROR ITEM filter | `WHERE Item NOT LIKE '%ERROR%ITEM%'` in the SP. | Movable |
 | 5 aggregate tabs (By Customer / Item / Order / Salesman, Summary) | All GROUP BYs - but the "Full Data" tab shows every line anyway, so detail rows travel regardless. Saves CPU, not transfer. | Movable\* |
-| Duplicate LineNumber-0 rows | The SP returns some order+line keys 4x (see `v3/docs/odata-vs-sp-mismatch.md`). Dedupe belongs in the SP. | Fix SP |
+| Duplicate LineNumber-0 rows | The SP returns some order+line keys 4x. Dedupe belongs in the SP. | Fix SP |
 
 ### Monthly Salesman (SP: `invoiced_order_charges`)
 

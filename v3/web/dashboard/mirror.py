@@ -4,7 +4,7 @@ Pulls the customer universe (customer_master) and the all-time order history
 (salesline_release, go-live..today) from the Reporting API, groups orders per
 customer, runs the cadence metrics, and rebuilds `dashboard_customers` in one
 full refresh. This is the v3 analogue of LIVE's `refresh_cache()`, but sourced
-from the Reporting API (like the test app) rather than direct D365 OData.
+from the Reporting API (like the test app) rather than the CLI D365 clients.
 """
 
 from __future__ import annotations

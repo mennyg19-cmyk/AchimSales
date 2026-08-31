@@ -507,6 +507,16 @@ def test_leftover_live_cookie_does_not_sign_in_existing_user(tmp_path):
         assert "v3_user" not in s
 
 
+def test_login_redirect_escapes_open_redirect():
+    from web.auth.session import login_redirect
+
+    assert login_redirect("/") == "/login?next=/"
+    assert login_redirect("/reports") == "/login?next=/reports"
+    assert login_redirect("https://evil.example/") == "/login?next=/"
+    assert login_redirect("/\\evil.com") == "/login?next=/"
+    assert login_redirect("/%5Cevil.com") == "/login?next=/"
+
+
 def test_login_next_backslash_is_not_used_after_login(app):
     for i, nxt in enumerate(("/\\evil.com", "/%5Cevil.com")):
         client = app.test_client()

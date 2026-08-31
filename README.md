@@ -1,8 +1,7 @@
 # D365 Sales Reports
 
-Automated sales reporting from Dynamics 365 F&O via OData. Reports run on
-scheduled Azure Automation jobs, on demand via a Flask web app, or locally
-from the CLI.
+Automated sales reporting from Dynamics 365 F&O. The web app uses the SQL
+Reporting API. CLI and Azure Automation jobs may still use OData.
 
 ## Reports
 
@@ -90,15 +89,15 @@ python run.py ordered
 
 | Path | Code | Role |
 |------|------|------|
-| `/` | `v3/` (`is_beta=True`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
+| `/` | `v3/` (`is_beta=True`) | Site home — reports from the SQL Reporting API. |
 | `/beta` | — | Redirects to the same path without `/beta` (old bookmarks) |
 
-Microsoft login and magic links run on this app (`/login`, `/login/start`, `/auth/callback`). People admin creates accounts; Microsoft sign-in does not auto-provision. Magic-link tokens are stored as hashes. One-time copy of leftover Live users: `flask import-live-users`. Developers flip SQL/OData per report under Settings → Report data sources. Sales by State is SQL only and is not in that list.
+Microsoft login and magic links run on this app (`/login`, `/login/start`, `/auth/callback`). People admin creates accounts; Microsoft sign-in does not auto-provision. Magic-link tokens are stored as hashes. One-time copy of leftover Live users: `flask import-live-users`. Every visible web report uses the SQL Reporting API. If SQL is missing, the run fails; there is no OData fallback in the web app. CLI and Azure Automation may still use OData under `reports/`, `core/`, `data/`, and `runbooks/`.
 
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
-On the home site, **Settings** is the control panel: You, People, Reports, Delivery, History, and (developers) Database explorer, notification diagnostic, and SQL/OData sources. In-app Live email distributions were not ported; Azure Automation runbooks still send. The sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`) and is restored/replicated by Litestream, so Settings like schedule test mode survive an App Service recycle.
+On the home site, **Settings** is the control panel: You, People, Reports, Delivery, History, and (developers) Database explorer and notification diagnostic. In-app Live email distributions were not ported; Azure Automation runbooks still send. The sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`) and is restored/replicated by Litestream, so Settings like schedule test mode survive an App Service recycle.
 
 `/legacy`, `/test`, and `/test-next` are gone. Rollback: `git checkout archive/pre-cleanup-2026-08-27`.
 

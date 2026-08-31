@@ -1,6 +1,6 @@
 /**
- * Settings hub: flags, schedule test mode, exclusions, report visibility,
- * beta sources. Optimistic UI with rollback if the request fails.
+ * Settings hub: flags, schedule test mode, exclusions, report visibility.
+ * Optimistic UI with rollback if the request fails.
  */
 
 function hub(): HTMLElement | null {
@@ -103,30 +103,6 @@ function initExclusions(): void {
         window.alert("Could not save that exclusion.");
       } finally {
         box.disabled = false;
-      }
-    });
-  });
-}
-
-function initBetaSources(): void {
-  const root = hub();
-  const url = root?.getAttribute("data-beta-url") || "";
-  const msg = document.getElementById("betaSourcesMsg");
-  if (!root || !url) return;
-  root.querySelectorAll<HTMLSelectElement>(".beta-source-select").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const report_key = sel.getAttribute("data-key") || "";
-      const source = sel.value;
-      sel.disabled = true;
-      try {
-        const resp = await postJson(url, { report_key, source });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error((data as { error?: string }).error || String(resp.status));
-        if (msg) { msg.hidden = false; msg.textContent = `${report_key} → ${source}`; }
-      } catch (err) {
-        if (msg) { msg.hidden = false; msg.textContent = err instanceof Error ? err.message : "Could not save."; }
-      } finally {
-        sel.disabled = false;
       }
     });
   });
@@ -237,7 +213,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initFlagToggles();
   initVisibilityToggles();
   initExclusions();
-  initBetaSources();
   initScheduleTest();
 });
 

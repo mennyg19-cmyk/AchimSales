@@ -125,21 +125,14 @@ def test_cache_key_isolates_scope():
 
 
 def test_cache_key_changes_with_every_component():
-    k = lambda **o: build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
-                                    builder_version=1, params={"a": 1}, **o)
-    baseline = k()
+    baseline = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                               builder_version=1, params={"a": 1})
     assert baseline != build_cache_key(report_key="invoiced", identity="u", scope_token="ALL",
                                        builder_version=1, params={"a": 1})
     assert baseline != build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
                                        builder_version=2, params={"a": 1})
     assert baseline != build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
                                        builder_version=1, params={"a": 2})
-
-
-def test_cache_key_includes_sql_odata_source():
-    base = dict(report_key="ordered", identity="u", scope_token="ALL",
-                builder_version=1, params={"a": 1})
-    assert build_cache_key(source="sql", **base) != build_cache_key(source="odata", **base)
 
 
 def test_cache_round_trip_and_isolation(db):
