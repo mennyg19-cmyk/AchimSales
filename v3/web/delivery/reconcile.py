@@ -5,13 +5,10 @@ from __future__ import annotations
 import logging
 
 from web.data.repositories.app_settings import AppSettingsRepository
-from web.data.repositories.notifications import NotificationRepository
+from web.data.repositories.notifications import DELIVERY_UNKNOWN, NotificationRepository
 from web.data.repositories.users import UserRepository
-from web.delivery.states import UNKNOWN
 
 log = logging.getLogger(__name__)
-
-DELIVERY_UNKNOWN = "delivery_unknown"
 
 
 def alert_unknown_delivery(db, settings: AppSettingsRepository, *, delivery,

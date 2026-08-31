@@ -740,6 +740,31 @@ def test_retry_sends_only_the_selected_attempt_and_frozen_target(tmp_path):
     assert legs.get(key_b).status == SENT
 
 
+def test_already_settled_email_skip_does_not_crash(tmp_path):
+    from web.delivery.execute import deliver_with_legs
+
+    db = _db(tmp_path)
+    legs = DeliveryLegRepository(db)
+    email_key = attempt_key(slot_id="s1", kind="email", target="a@x.com")
+    folder_key = attempt_key(slot_id="s1", kind="sharepoint", target="Ordered")
+    legs.prepare(email_key, run_id=1, kind="email", target="a@x.com",
+                 slot_id="s1", job_id="j")
+    legs.mark_sent(email_key, row_count=1)
+    legs.prepare(folder_key, run_id=1, kind="sharepoint", target="Ordered",
+                 slot_id="s1", job_id="j")
+    legs.mark_sent(folder_key, row_count=1)
+    delivery, sent, _puts, _files = _workbook_delivery()
+    out = deliver_with_legs(
+        delivery, legs, slot_id="s1", job_id="j", run_id=1, window={},
+        report_key="ordered", identity="u@x.com", builder_version=1,
+        recipients="a@x.com", sharepoint_path="Ordered",
+    )
+    assert sent == []
+    assert out.result.send_channel == "skipped"
+    assert out.result.ok
+    assert legs.get(email_key).status == SENT
+
+
 def _fanout_retry_runner(db, delivery):
     from web.auth.authorization import Authorization
     from web.data.repositories.schedules import (

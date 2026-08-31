@@ -8,7 +8,7 @@ from web.data.repositories.delivery_legs import (
 from web.delivery.email import DeliveryResult
 from web.delivery.graph_mail import GraphUnknownError
 from web.delivery.service import DeliveryOutcome, DeliveryService, PreparedWorkbook
-from web.delivery.states import FOLDER_KINDS, SENT, UNKNOWN
+from web.delivery.states import FAILED, FOLDER_KINDS, SENT, UNKNOWN
 from web.jobs.worker import JobCancelled
 
 
@@ -147,7 +147,7 @@ def deliver_with_legs(
             window_from=wf, window_to=wt, filename=frozen_name,
         )
     return _combine_leg_results(
-        built, email_result, folder_result, to, skip_email, skip_folder,
+        built, email_result, folder_result, to, skip_folder,
         email_key=email_key,
     )
 
@@ -408,15 +408,13 @@ def _skipped_outcome(legs, email_key, folder_key, recipients, path) -> DeliveryO
 
 
 def _combine_leg_results(built, email_result, folder_result, recipients,
-                         skip_email, skip_folder, email_key: str = "") -> DeliveryOutcome:
+                         skip_folder, email_key: str = "") -> DeliveryOutcome:
     unknown = bool(email_result.unknown)
     folder_needed = folder_result.sharepoint_error or (
         not skip_folder and not folder_result.sharepoint_saved and folder_result.error
     )
     error_bits = [x for x in (email_result.error, folder_result.error, folder_result.sharepoint_error) if x]
     ok = email_result.ok and folder_result.ok and not unknown and not folder_needed
-    if skip_email and recipients.strip():
-        pass
     return DeliveryOutcome(
         result=DeliveryResult(
             ok=ok,
