@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-31
 
-**Status:** Phase 5 in progress on draft PR #1. Loop A FAIL (5 blocking) is fixed in this HEAD; CI then a fresh Loop A re-pass are next. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 6.
+**Status:** Phase 5 in progress on draft PR #1. Loop A re-pass found one remaining blocker (two retries on one slot sharing a job); that is fixed in this HEAD. CI then a fresh Loop A re-pass are next. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 6.
 
 ## What's done
 

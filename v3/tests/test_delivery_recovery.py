@@ -556,6 +556,67 @@ def test_reconcile_retry_http_reuses_slot_and_rejects_salesman(tmp_path):
     assert queued[0].params["slot_day"] == "2026-08-31"
 
 
+def test_reconcile_retry_two_legs_same_slot_queues_two_jobs(tmp_path):
+    from tests.test_blueprints import _CSRF, _login, _make_app
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    db = app.config["DB"]
+    uid = UserRepository(db).upsert("admin@x.com", display_name="Admin", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com")
+    run_id = ScheduleRunRepository(db).start(sid, PERSONAL, trigger="scheduled")
+    slot = scheduled_slot_id(
+        schedule_type="personal", schedule_id=sid, slot_day="2026-08-31")
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("schedule.run", owner_user_id=uid, params={
+        "schedule_id": sid, "schedule_type": "personal",
+        "slot_id": slot, "slot_day": "2026-08-31",
+        "include_regular": True, "catch_up_for_date": "",
+    })
+    jobs.claim_next()
+    jobs.mark_success(jid, "run:1")
+    legs = DeliveryLegRepository(db)
+    key_a = attempt_key(slot_id=slot, kind="email", target="a@x.com", salesman="A")
+    key_b = attempt_key(slot_id=slot, kind="email", target="b@x.com", salesman="B")
+    for key, target, salesman in (
+        (key_a, "a@x.com", "A"),
+        (key_b, "b@x.com", "B"),
+    ):
+        legs.prepare(key, run_id=run_id, kind="email", target=target,
+                     salesman_key=salesman, job_id=jid, slot_id=slot)
+        legs.mark_sending(key)
+        legs.mark_unknown(key, "lost")
+
+    _login(client, app)
+    first = client.post(
+        f"/api/delivery-legs/{key_a}/reconcile",
+        data={"action": "retry", "csrf_token": _CSRF},
+    )
+    second = client.post(
+        f"/api/delivery-legs/{key_b}/reconcile",
+        data={"action": "retry", "csrf_token": _CSRF},
+    )
+    assert first.status_code == 200 and second.status_code == 200
+    assert legs.get(key_a).status == PREPARED
+    assert legs.get(key_b).status == PREPARED
+    queued = [
+        j for j in jobs.list_for_user(uid, limit=20)
+        if j.status == "queued" and j.params.get("slot_id") == slot
+    ]
+    keys = {j.params.get("retry_attempt_key") for j in queued}
+    assert keys == {key_a, key_b}
+    assert len(queued) == 2
+    same = enqueue_leg_retry(jobs, legs.get(key_a))
+    assert same in {j.id for j in queued}
+    still = [
+        j for j in jobs.list_for_user(uid, limit=20)
+        if j.status == "queued" and j.params.get("slot_id") == slot
+    ]
+    assert len(still) == 2
+
+
 def test_graph_token_refreshes_before_expiry(monkeypatch):
     from web.delivery.graph_token import GraphTokenCache
 

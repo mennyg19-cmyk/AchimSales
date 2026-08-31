@@ -39,7 +39,15 @@ def enqueue_schedule_run(job_repo: JobRepository, *, schedule_id: int,
     frozen_when = slot_when or now.isoformat()
     if slot_id:
         frozen_slot = slot_id
-        dedup_key = f"schedrun-retry:{schedule_type}:{schedule_id}:{frozen_slot}"
+        # One in-flight retry per selected leg. Slot-only would collapse two
+        # operator retries on the same run into one job that only sends the first.
+        if retry_attempt_key:
+            dedup_key = (
+                f"schedrun-retry:{schedule_type}:{schedule_id}:"
+                f"{frozen_slot}:{retry_attempt_key}"
+            )
+        else:
+            dedup_key = f"schedrun-retry:{schedule_type}:{schedule_id}:{frozen_slot}"
     elif trigger == "manual":
         frozen_slot = f"manual:{uuid.uuid4().hex}"
         dedup_key = f"schedrun:{schedule_type}:{schedule_id}:{frozen_slot}"
