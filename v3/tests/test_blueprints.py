@@ -2090,6 +2090,9 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
     dev = app.test_client()
     _login(dev, app, email="dev@x.com", role="developer")
     assert dev.get("/dev/db-explorer").status_code == 200
+    explorer = dev.get("/dev/db-explorer").get_data(as_text=True)
+    assert 'id="dbxAdd"' in explorer
+    assert "Add row" in explorer
     tables = dev.get("/api/dev/db/tables?db=precious").get_json()["tables"]
     assert any(t["name"] == "users" for t in tables)
     html = dev.get("/settings").get_data(as_text=True)
@@ -2098,3 +2101,88 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
     assert 'class="beta-source-select" data-key="sales_by_state"' not in html
     assert 'class="vis-toggle" data-key="sales_by_state"' in html
     assert dev.get("/dev/notif-diagnostic").status_code == 200
+
+
+def test_devtools_row_insert_update_delete(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    h = {"X-CSRF-Token": _CSRF}
+    created = client.post(
+        "/api/dev/db/table/feature_flags/row",
+        json={"db": "precious", "values": {
+            "key": "dbx_test", "enabled": "1", "description": "from explorer",
+        }},
+        headers=h,
+    )
+    assert created.status_code == 200, created.get_json()
+    oid = created.get_json()["oid"]
+    rows = client.get("/api/dev/db/table/feature_flags?db=precious").get_json()["rows"]
+    hit = next(r for r in rows if r["key"] == "dbx_test")
+    assert hit["description"] == "from explorer"
+    assert hit["_oid"] == oid
+
+    upd = client.put(
+        "/api/dev/db/table/feature_flags/row",
+        json={"db": "precious", "oid": oid, "values": {
+            "key": "dbx_test", "enabled": "0", "description": "edited",
+        }},
+        headers=h,
+    )
+    assert upd.status_code == 200
+    hit = next(
+        r for r in client.get("/api/dev/db/table/feature_flags?db=precious").get_json()["rows"]
+        if r["key"] == "dbx_test"
+    )
+    assert hit["description"] == "edited" and hit["enabled"] == 0
+
+    deleted = client.delete(
+        "/api/dev/db/table/feature_flags/row",
+        json={"db": "precious", "oid": oid},
+        headers=h,
+    )
+    assert deleted.status_code == 200
+    keys = [r["key"] for r in client.get("/api/dev/db/table/feature_flags?db=precious").get_json()["rows"]]
+    assert "dbx_test" not in keys
+
+    missing = client.post(
+        "/api/dev/db/table/no_such_table/row",
+        json={"db": "precious", "values": {"key": "x"}},
+        headers=h,
+    )
+    assert missing.status_code == 404
+
+    admin = app.test_client()
+    _login(admin, app)
+    assert admin.post(
+        "/api/dev/db/table/feature_flags/row",
+        json={"db": "precious", "values": {"key": "nope"}},
+        headers=h,
+    ).status_code == 403
+
+
+def test_devtools_insert_and_delete_composite_pk_row(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    h = {"X-CSRF-Token": _CSRF}
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO salesmen(key, number, display_name, is_active)"
+            " VALUES ('zz', '', 'Z', 1)"
+        )
+    uid = UserRepository(app.config["DB"]).get_by_email("dev@x.com").id
+    created = client.post(
+        "/api/dev/db/table/user_salesman_access/row",
+        json={"db": "precious", "values": {"user_id": str(uid), "salesman_key": "zz"}},
+        headers=h,
+    )
+    assert created.status_code == 200, created.get_json()
+    oid = created.get_json()["oid"]
+    deleted = client.delete(
+        "/api/dev/db/table/user_salesman_access/row",
+        json={"db": "precious", "oid": oid},
+        headers=h,
+    )
+    assert deleted.status_code == 200
+

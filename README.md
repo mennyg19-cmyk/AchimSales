@@ -116,7 +116,8 @@ asks for an optional name; the bottom-right pill can be minimized.
 
 On the home site, **Settings** is the control panel (same ~800px width as Live): You,
 People, Reports, Delivery, History, and (developers) Database explorer,
-notification diagnostic, and beta SQL/OData sources. Live Email Distributions
+notification diagnostic, and beta SQL/OData sources. Developers can add, edit,
+save, and delete rows in Database explorer (precious and cache). Live Email Distributions
 stay on Live only. Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
 and is restored/replicated by Litestream (same as `/test`), so Settings like
 schedule test mode survive an App Service recycle.

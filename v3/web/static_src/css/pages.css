@@ -771,7 +771,10 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 }
 .dbx-table-btn:hover { background: var(--bg); }
 .dbx-table-btn.is-on { background: var(--primary); color: #fff; }
-.dbx-cell { min-width: 72px; }
+.dbx-cell { min-width: 72px; width: 100%; box-sizing: border-box; }
+.dbx-row-new { background: var(--primary-light); }
+.dbx-actions { white-space: nowrap; }
+.dbx-actions .btn { margin-right: 4px; }
 
 /* Feature-flag toggles */
 .flag-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }

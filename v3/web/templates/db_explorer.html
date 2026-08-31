@@ -10,7 +10,7 @@
      data-csrf="{{ csrf_token() }}">
   <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
   <h1 class="page-title">Database explorer</h1>
-  <p class="page-subtitle">Edits save immediately. There is no undo.</p>
+  <p class="page-subtitle">Add, edit, save, or delete rows. There is no undo.</p>
 </div>
 <p class="dbx-warn">Developer only. Table and column names are checked against the schema; arbitrary SQL is not accepted.</p>
 <div class="dbx-toolbar">
@@ -21,6 +21,7 @@
     </select>
   </label>
   <input type="search" id="dbxSearch" class="user-search" placeholder="Search this table…" autocomplete="off">
+  <button type="button" class="btn btn-primary btn-sm" id="dbxAdd" disabled>Add row</button>
 </div>
 <div class="dbx-layout">
   <aside class="dbx-tables" id="dbxTables"></aside>

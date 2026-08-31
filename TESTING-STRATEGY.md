@@ -22,6 +22,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Database explorer add/edit/save/delete for developers
+
+**What to test:**
+- Developer can INSERT a `feature_flags` row, GET it (including `_oid`), PUT an edit, DELETE it.
+- Admin gets 403 on insert. Unknown table is 404.
+- Composite PK `user_salesman_access` insert + delete by oid succeeds.
+- Page is still 403 for admin and 200 for developer.
+
+**Expected behavior:**
+- Settings → Database explorer: pick a table, Add row, fill cells, Save. Existing rows Save or Delete. Edits persist in precious/cache.
+
+**Edge cases:**
+- Empty insert (no columns) is 400. SQLite constraint errors return 400 with the DB message.
+- Live `/legacy` explorer Add row uses the existing POST insert API.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
 ## Home Users & access: salesman list and role persist
 
 **What to test:**

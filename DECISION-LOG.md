@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-08-31 Database explorer is fully editable for developers
+**What you asked for:** The database manager should be fully editable by developers: add rows, delete rows, edit, and save.
+**What I had to decide:** Whether to keep per-cell auto-save or require an explicit Save, and how to edit tables with composite primary keys (salesman access, report access).
+**What I chose:** Explicit Add row / Save / Delete on the home explorer. Rows are located by SQLite rowid so composite-key tables work. Live Settings explorer gets Add row too (insert API was already there with no button). Still developer-only; no arbitrary SQL.
+**Why:** Home only auto-saved cells on tables with a single primary key, and had no insert. Managers' salesman-access rows could not be edited there.
+**Status:** DECIDED — shipping this change.
+
+
 ## 2026-08-31 igrossman missing salesmen; admin role did not save
 **What you asked for:** The site is not showing all salesmen for igrossman even though all salesmen are checked on his user. Turning him into an admin did not save. Settings / Users page is broken.
 **What I had to decide:** Whether Live Settings or home Users & access was the source of truth after the home-site cutover, and whether boot/login should keep copying Live roles onto existing home users.

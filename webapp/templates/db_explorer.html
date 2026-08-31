@@ -221,6 +221,7 @@
             <span class="dbx-pageinfo" id="dbxPageInfo">—</span>
             <button class="btn btn-sm btn-outline" id="dbxNext" disabled>Next ›</button>
             <button class="btn btn-sm btn-outline" id="dbxRefresh" disabled>Refresh</button>
+            <button class="btn btn-sm btn-primary" id="dbxAdd" disabled>Add row</button>
         </div>
 
         <div class="dbx-grid-wrap">
@@ -342,6 +343,7 @@
         }
 
         $('dbxGrid').innerHTML = '<thead>' + thead + '</thead><tbody>' + tbody + '</tbody>';
+        $('dbxAdd').disabled = false;
         updatePager();
     }
 
@@ -419,6 +421,62 @@
         input.addEventListener('blur', function() { commit(true); });
     }
 
+    function startAddRow() {
+        if (!state.table || !state.columns.length) return;
+        var tbody = $('dbxGrid').querySelector('tbody');
+        if (!tbody) return;
+        var existing = tbody.querySelector('tr.dbx-new');
+        if (existing) {
+            var focusEl = existing.querySelector('input');
+            if (focusEl) focusEl.focus();
+            return;
+        }
+        var tr = document.createElement('tr');
+        tr.className = 'dbx-new';
+        state.columns.forEach(function(c) {
+            var td = document.createElement('td');
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'dbx-edit';
+            input.setAttribute('data-col', c.name);
+            input.placeholder = c.name;
+            td.appendChild(input);
+            tr.appendChild(td);
+        });
+        var tdAct = document.createElement('td');
+        tdAct.className = 'dbx-actions';
+        var saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'btn btn-sm btn-primary';
+        saveBtn.textContent = 'Save';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'btn btn-sm btn-outline';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.style.marginLeft = '4px';
+        saveBtn.addEventListener('click', function() {
+            var values = {};
+            tr.querySelectorAll('input[data-col]').forEach(function(inp) {
+                if (inp.value !== '') values[inp.getAttribute('data-col')] = inp.value;
+            });
+            fetchJSON('/api/dev/db/table/' + encodeURIComponent(state.table) + '/row', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(values)
+            }).then(function(res) {
+                if (res.ok) { loadRows(); refreshTableCounts(); }
+                else { alert('Insert failed: ' + (res.data.error || 'unknown')); }
+            });
+        });
+        cancelBtn.addEventListener('click', function() { tr.remove(); });
+        tdAct.appendChild(saveBtn);
+        tdAct.appendChild(cancelBtn);
+        tr.appendChild(tdAct);
+        tbody.insertBefore(tr, tbody.firstChild);
+        var first = tr.querySelector('input');
+        if (first) first.focus();
+    }
+
     /* --- Wire events ------------------------------------------------------- */
     $('dbxTableList').addEventListener('click', function(e) {
         var link = e.target.closest('.dbx-table-link');
@@ -474,6 +532,7 @@
         if (state.page < pages) { state.page++; loadRows(); }
     });
     $('dbxRefresh').addEventListener('click', function() { loadRows(); refreshTableCounts(); });
+    $('dbxAdd').addEventListener('click', startAddRow);
 
     refreshTableCounts();
 
