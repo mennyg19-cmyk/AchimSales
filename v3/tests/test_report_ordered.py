@@ -143,14 +143,32 @@ def test_summary_uses_sp_left_to_ship():
     assert a["QtyLeftToShip"] == 20
     assert a["QtyReserved"] == 5
     assert a["Extended Price Remainder"] == 0.0  # no ShippingDollars on the row
+    assert a["Extended Price Cancelled"] == 0.0
     assert a["purchid"] == "PO-7788"
     assert a["ExpectedArrivalDate"] == "2026-03-15"
 
     b = next(r for r in summary["rows"] if r["Item Number"] == "ITM-B")
     assert b["QtyLeftToShip"] == 0
     assert b["Extended Price Remainder"] == 0.0
+    assert b["Extended Price Cancelled"] == 20.0
     assert b["purchid"] == ""
     assert b["ExpectedArrivalDate"] == ""
+    fields = [c["field"] for c in summary["columns"]]
+    assert fields[fields.index("Extended Price - Ordered"):
+                  fields.index("Extended Price Remainder") + 1] == [
+        "Extended Price - Ordered", "Extended Price Cancelled", "Extended Price Remainder",
+    ]
+    assert next(c for c in summary["columns"]
+                if c["field"] == "Extended Price Cancelled")["type"] == "money"
+
+
+def test_summary_cancelled_sums_same_customer_item():
+    extra = dict(_rows()[1], SalesOrderNumber="SO3")
+    extra["Cancelled $"] = "5.00"
+    summary = next(t for t in B.build(S.to_facts_ordered_report([_rows()[1], extra]))
+                   if t["key"] == "summary")
+    b = next(r for r in summary["rows"] if r["Item Number"] == "ITM-B")
+    assert b["Extended Price Cancelled"] == 25.0
 
 
 def test_by_item_includes_purchid_and_arrival():

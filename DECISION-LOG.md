@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-31 Ordered Summary gets Extended Price Cancelled
+**What you asked for:** Extended price cancelled has to be added to the Summary tab of the Ordered report.
+**What I chose:** New Summary column **Extended Price Cancelled**, between Ordered and Remainder. Same SP `Cancelled $` the other Ordered tabs already use, summed by customer + item. Missing/blank is $0. Ordered builder_version 8 so cached v7 payloads are not reused.
+**Why:** Summary already shows Ordered and Remainder dollars. Cancelled was only on the other tabs.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-31 Oversized email must include a download link
 **What you asked for:** If an attachment is too big for the email, it should include a link.
 **What I had to decide:** The download button was already the intended behavior; why the mail still had no URL.

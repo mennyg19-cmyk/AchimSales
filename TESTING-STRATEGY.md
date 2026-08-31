@@ -22,6 +22,21 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Ordered Summary Extended Price Cancelled
+
+**What to test:**
+- Summary has `Extended Price Cancelled` (money) between Ordered and Remainder.
+- Value is SP `Cancelled $` summed by customer + item (ITM-B fixture is $20, ITM-A is $0).
+- Blank/missing cancelled dollars is $0. No qty × price.
+
+**Expected behavior:**
+- Summary tab shows the cancelled extended price next to Ordered and Remainder.
+
+**Edge cases:**
+- Two lines for the same customer + item add together.
+
+**Test file:** `v3/tests/test_report_ordered.py`
+
 ## Schedule crash on missing company-views column
 
 **What to test:**

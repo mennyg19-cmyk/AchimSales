@@ -13,6 +13,7 @@ is the combined live QtyReleased+QtyShipped)::
 
 Dollar columns: Ordered/Shipped/Cancelled $ from the SP. Shipping $ and
 Summary Extended Price Remainder are ShippingDollars with no fallback math.
+Summary Extended Price Cancelled is Cancelled $.
 Open $ stays Ordered $ − Shipped $ − Cancelled $. Shipped $ is not shown.
 
 LIVE also drops "ERROR ITEM" lines; we mirror that.
@@ -130,6 +131,7 @@ SUMMARY_COLS = [
     {"field": "QtyLeftToShip",            "header": "Qty left to ship",         "type": "int"},
     {"field": "Net Price",                "header": "Net Price",                "type": "money"},
     {"field": "Extended Price - Ordered", "header": "Extended Price - Ordered", "type": "money"},
+    {"field": "Extended Price Cancelled", "header": "Extended Price Cancelled", "type": "money"},
     {"field": "Extended Price Remainder", "header": "Extended Price Remainder", "type": "money"},
 ]
 
@@ -289,7 +291,8 @@ def _build_summary(lines: list[dict]) -> dict:
                 "ExpectedArrivalDate": ln["ExpectedArrivalDate"],
                 "QtyOrdered": 0, "QtyReserved": 0, "QtyReleased": 0,
                 "QtyCancelled": 0, "QtyLeftToShip": 0,
-                "Extended Price - Ordered": 0.0, "Extended Price Remainder": 0.0,
+                "Extended Price - Ordered": 0.0, "Extended Price Cancelled": 0.0,
+                "Extended Price Remainder": 0.0,
             }
         g["QtyOrdered"] += ln["QtyOrdered"]
         g["QtyReserved"] += ln["QtyReserved"]
@@ -297,12 +300,14 @@ def _build_summary(lines: list[dict]) -> dict:
         g["QtyCancelled"] += ln["QtyCancelled"]
         g["QtyLeftToShip"] += ln["QtyLeftToShip"]
         g["Extended Price - Ordered"] += ln["Ordered $"]
+        g["Extended Price Cancelled"] += ln["Cancelled $"]
         g["Extended Price Remainder"] += ln["Extended Price Remainder"]
 
     for g in grouped.values():
         qo = g["QtyOrdered"]
         g["Net Price"] = round(g["Extended Price - Ordered"] / qo, 4) if qo else 0.0
         g["Extended Price - Ordered"] = round(g["Extended Price - Ordered"], 2)
+        g["Extended Price Cancelled"] = round(g["Extended Price Cancelled"], 2)
         g["Extended Price Remainder"] = round(g["Extended Price Remainder"], 2)
 
     return _tab(
