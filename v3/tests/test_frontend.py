@@ -177,12 +177,14 @@ def test_report_viewer_meeting_ux():
     assert "function applySalesman(" in src
     assert "function initPeriodExtras" in src
     assert "Choose a period before running this report." in src
+    assert "function fillDateRangeFromBounds" in src
     assert "fulfillmentFillCss" in src
     assert 'col.field === "Fulfillment %"' in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".group-pill" in css
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="groupPills"' in html
+    assert 'id="allDatesBtn"' in html
     assert "data-default-url" in html
     assert "data-company-view-url" in html
     wizard = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")

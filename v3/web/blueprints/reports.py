@@ -37,7 +37,7 @@ import time
 from urllib.parse import urlencode, urlparse
 
 from report_engine import registry
-from report_engine.dates import MONTH_OPTIONS
+from report_engine.dates import D365_GO_LIVE, MONTH_OPTIONS, today_eastern
 from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
@@ -81,6 +81,7 @@ PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
     ("mtd", "Month to Date"),
     ("ytd", "Year to Date"),
     ("custom_month", "Custom Month and Year"),
+    ("custom", "Custom Date Range"),
 )
 
 # Number 4's one question: which rolling-12 view(s) to build. "Both" fetches
@@ -294,6 +295,8 @@ def report_view(report_key: str):
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         month_options=MONTH_OPTIONS,
+        earliest_date=D365_GO_LIVE.isoformat(),
+        latest_date=today_eastern().isoformat(),
         status_options=STATUS_OPTIONS, year_options=_year_options(),
         n4_mode_options=N4_MODE_OPTIONS,
         is_developer=(p.role == ROLE_DEVELOPER),
@@ -305,8 +308,6 @@ def report_view(report_key: str):
 
 def _year_options() -> list[int]:
     """Descending years for the year picker (current back to D365 go-live year)."""
-    from report_engine.dates import D365_GO_LIVE, today_eastern
-
     return list(range(today_eastern().year, D365_GO_LIVE.year - 1, -1))
 
 

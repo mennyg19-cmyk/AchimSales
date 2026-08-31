@@ -82,15 +82,16 @@ var HELP = {
               "<strong>Week to Date</strong> — Monday through today.<br>" +
               "<strong>Month to Date</strong> — from the 1st of this month until today.<br>" +
               "<strong>Year to Date</strong> — from January 1st until today.<br>" +
-              "<strong>Custom Month and Year</strong> — pick a calendar month and year; the report covers that whole month.<br><br>" +
-              "Saved views and schedules can still use All Time, Last Month, or a custom date range if they were set that way.<br><br>" +
+              "<strong>Custom Month and Year</strong> — pick a calendar month and year; the report covers that whole month.<br>" +
+              "<strong>Custom Date Range</strong> — pick a From date and a To date. Both dates are included. For every order since D365 go-live, pick this and tap All dates (or set From to January 3, 2025 and To to today).<br><br>" +
+              "Saved views and schedules can still use All Time or Last Month if they were set that way.<br><br>" +
               "<strong>Important:</strong> On the Ordered Report, if you pick \"Open Orders Only\", the time period is ignored — it will show all open orders no matter when they were placed."
     },
 
     "param-custom-dates": {
         title: "Custom Date Range",
-        body: "Pick a start date (From) and an end date (To).<br><br>" +
-              "The report will include everything between those two dates. Both dates are included."
+        body: "Pick a start date (From) and an end date (To). Both dates are included.<br><br>" +
+              "There is no All Time shortcut in the period list. To run every order since D365 go-live, tap <strong>All dates</strong> — that fills From with January 3, 2025 and To with today."
     },
 
     "param-status": {

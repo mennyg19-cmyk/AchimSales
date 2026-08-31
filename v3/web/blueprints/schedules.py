@@ -225,7 +225,7 @@ def schedules_page():
         for s in registry.built_reports()
         if (not s.in_app) and authz.can_view_report(p, s.key)
     ]
-    from report_engine.dates import MONTH_OPTIONS, today_eastern
+    from report_engine.dates import D365_GO_LIVE, MONTH_OPTIONS, today_eastern
     year_now = today_eastern().year
     context = {
         "active_tab": "schedules", "schedules": items,
@@ -238,6 +238,8 @@ def schedules_page():
         "report_filters": _MASTER_REPORT_FILTERS,
         "period_options": _PERIOD_OPTIONS,
         "month_options": MONTH_OPTIONS,
+        "earliest_date": D365_GO_LIVE.isoformat(),
+        "latest_date": today_eastern().isoformat(),
         "status_options": [(v, label) for v, label in _STATUS_OPTIONS if v],
         "year_options": list(range(year_now, year_now - 5, -1)),
         "managers": _manager_options() if is_privileged else [],
@@ -491,6 +493,7 @@ _PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
     ("mtd", "Month to Date"),
     ("ytd", "Year to Date"),
     ("custom_month", "Custom Month and Year"),
+    ("custom", "Custom Date Range"),
     ("last_month", "Last Month"),
     ("all_time", "All Time"),
 )
@@ -668,7 +671,7 @@ def _master_page_context(p, uid: int) -> dict:
         for s in registry.built_reports()
         if not s.in_app
     ]
-    from report_engine.dates import MONTH_OPTIONS, today_eastern
+    from report_engine.dates import D365_GO_LIVE, MONTH_OPTIONS, today_eastern
     year_now = today_eastern().year
     return {
         "master_schedules": items,
@@ -676,6 +679,8 @@ def _master_page_context(p, uid: int) -> dict:
         "report_filters": _MASTER_REPORT_FILTERS,
         "period_options": _PERIOD_OPTIONS,
         "month_options": MONTH_OPTIONS,
+        "earliest_date": D365_GO_LIVE.isoformat(),
+        "latest_date": today_eastern().isoformat(),
         "status_options": _STATUS_OPTIONS,
         "year_options": list(range(year_now, year_now - 5, -1)),
     }

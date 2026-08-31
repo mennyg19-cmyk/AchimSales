@@ -1,4 +1,9 @@
-# Decision Log
+## 2026-08-31 Custom Date Range is how you ask for a full-history run
+**What you asked for:** Period also needs a custom date range. A full-time report is allowed, but only if the user actually asks for it with the range picker.
+**What I chose:** Custom Date Range is in the Ordered/Invoiced picker (and the schedule wizard). From and To start empty; Run stays off until both dates are set. All dates fills From with D365 go-live (2025-01-03) and To with today. All Time is not in the interactive list. Saved views and schedules can still store All Time.
+**Why:** Same rule as Choose one — a wide-open report should be an explicit date choice, not a default.
+**Status:** DECIDED — shipping this change.
+
 
 ## 2026-08-31 Period picker starts at Choose one; no All Time default
 **What you asked for:** Period on all reports must not default to All Time. Default to nothing ("Choose one"). Cannot run until a period is picked. Options: Yesterday, Last 7 days, Week to Date, Month to Date, Year to Date, Custom Month and Year (month + year extras like Custom Range).

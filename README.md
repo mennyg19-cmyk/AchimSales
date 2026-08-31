@@ -65,8 +65,9 @@ slot. Manual zip deploy is still `deploy.ps1`.
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
 On Ordered and Invoiced, Period starts at **Choose one**. Run and Email me stay
-off until a period is picked — there is no All Time default. Saved views and
-schedules can still store All Time, Last Month, or a custom date range.
+off until a period is picked — there is no All Time default. Custom Date Range
+opens From/To; **All dates** fills go-live (2025-01-03) through today. Saved
+views and schedules can still store All Time or Last Month.
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** everyone can pick (Daily Ordered, Heshy Open Orders).

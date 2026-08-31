@@ -25,14 +25,15 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Period filter defaults to Choose one and cannot run blank
 
 **What to test:**
-- Ordered HTML: first option Choose one; Yesterday, Last 7 days, Week to Date, Month to Date, Year to Date, Custom Month and Year present; All Time not in the default list.
+- Ordered HTML: first option Choose one; Yesterday, Last 7 days, Week to Date, Month to Date, Year to Date, Custom Month and Year, Custom Date Range present; All Time not in the default list.
+- Custom Date Range without From/To is 400; with both dates is 202. All dates button is in the HTML.
 - `POST /api/reports/ordered/run` with `{}` or no period is 400 with a Choose a period message.
 - `custom_month` without month/year is 400; with month and year is 202 and translate bounds that calendar month.
 - Explicit `period: all_time` still 202.
 - `parse_custom_month` is 1st–last day; a month before D365 go-live raises.
 
 **Expected behavior:**
-- Opening Ordered/Invoiced, Period is Choose one and Run is disabled until a period is picked. Custom Month and Year opens month and year selects.
+- Opening Ordered/Invoiced, Period is Choose one and Run is disabled until a period is picked. Custom Month and Year opens month and year selects. Custom Date Range opens From/To; All dates fills go-live through today.
 
 **Edge cases:**
 - Saved views / URLs with `all_time`, `last_month`, or `custom` still run; the dropdown injects that option.

@@ -143,7 +143,10 @@ def test_report_view_renders_filters(tmp_path):
     assert "Month to Date" in html
     assert "Year to Date" in html
     assert "Custom Month and Year" in html
+    assert "Custom Date Range" in html
     assert 'data-custom-month' in html
+    assert 'data-custom' in html
+    assert 'id="allDatesBtn"' in html
     assert "disabled>Run report" in html
     assert "All Time" not in html
     assert "Last Month" not in html
@@ -169,6 +172,15 @@ def test_run_rejects_blank_period(tmp_path):
                      json={"period": "custom_month", "month": "4", "year": "2026"},
                      headers={"X-CSRF-Token": _CSRF})
     assert ok.status_code == 202
+    missing_range = client.post("/api/reports/ordered/run",
+                                json={"period": "custom"},
+                                headers={"X-CSRF-Token": _CSRF})
+    assert missing_range.status_code == 400
+    ranged = client.post("/api/reports/ordered/run",
+                         json={"period": "custom", "start_date": "2025-01-03",
+                               "end_date": "2026-08-31"},
+                         headers={"X-CSRF-Token": _CSRF})
+    assert ranged.status_code == 202
     explicit = client.post("/api/reports/ordered/run", json={"period": "all_time"},
                            headers={"X-CSRF-Token": _CSRF})
     assert explicit.status_code == 202
@@ -1121,6 +1133,9 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     assert 'id="msPeriod"' in admin_html
     assert ">Choose one<" in admin_html
     assert "Custom Month and Year" in admin_html
+    assert "Custom Date Range" in admin_html
+    assert 'data-custom' in admin_html
+    assert 'id="msAllDates"' in admin_html
     assert 'data-custom-month' in admin_html
     assert "Yesterday" in admin_html
     assert "All Time" in admin_html

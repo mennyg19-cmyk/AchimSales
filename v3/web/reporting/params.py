@@ -51,7 +51,7 @@ def period_selection_error(params: dict) -> str | None:
         start_raw = (params.get("start_date") or "").strip()
         end_raw = (params.get("end_date") or "").strip()
         if not (start_raw and end_raw):
-            return "Custom range needs a From date and a To date."
+            return "Custom Date Range needs a From date and a To date."
         try:
             parse_custom_range(start_raw, end_raw)
         except ValueError:

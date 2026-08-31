@@ -117,6 +117,20 @@
                         {% endfor %}
                     </select>
                 </label>
+                <div class="ms-field-row" data-custom hidden>
+                    <label class="ms-field ms-field-block">
+                        <span>From</span>
+                        <input type="date" name="start_date" id="msCustomFrom" min="{{ earliest_date }}" max="{{ latest_date }}">
+                    </label>
+                    <label class="ms-field ms-field-block">
+                        <span>To</span>
+                        <input type="date" name="end_date" id="msCustomTo" min="{{ earliest_date }}" max="{{ latest_date }}">
+                    </label>
+                    <label class="ms-field ms-field-block">
+                        <span>Full history</span>
+                        <button type="button" id="msAllDates" class="btn btn-outline" title="From D365 go-live through today">All dates</button>
+                    </label>
+                </div>
                 <div class="ms-field-row" data-custom-month hidden>
                     <label class="ms-field ms-field-block">
                         <span>Month</span>

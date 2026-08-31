@@ -38,11 +38,15 @@
     </label>
     <label class="filter-field filter-custom" data-custom hidden>
         <span>From</span>
-        <input type="date" name="start_date">
+        <input type="date" name="start_date" min="{{ earliest_date }}" max="{{ latest_date }}">
     </label>
     <label class="filter-field filter-custom" data-custom hidden>
         <span>To</span>
-        <input type="date" name="end_date">
+        <input type="date" name="end_date" min="{{ earliest_date }}" max="{{ latest_date }}">
+    </label>
+    <label class="filter-field filter-custom" data-custom hidden>
+        <span>Full history</span>
+        <button type="button" id="allDatesBtn" class="btn btn-outline" title="From D365 go-live through today">All dates</button>
     </label>
     <label class="filter-field filter-custom" data-custom-month hidden>
         <span>Month</span>

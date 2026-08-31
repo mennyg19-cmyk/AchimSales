@@ -77,6 +77,10 @@ def test_period_selection_error_blank_and_custom_month():
     assert P.period_selection_error({"period": "custom_month"}) is not None
     assert P.period_selection_error({"period": "custom_month", "month": "4", "year": "2026"}) is None
     assert P.period_selection_error({"period": "custom_month", "month": "4", "custom_year": "2026"}) is None
+    assert P.period_selection_error({"period": "custom"}) is not None
+    assert P.period_selection_error({
+        "period": "custom", "start_date": "2025-01-03", "end_date": "2026-08-31",
+    }) is None
 
 
 def test_blank_period_with_dates_still_omits_dates():

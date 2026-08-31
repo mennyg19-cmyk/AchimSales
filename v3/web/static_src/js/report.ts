@@ -1763,13 +1763,25 @@ function initPeriodExtras(): void {
       i.addEventListener("input", syncPeriodGate);
     });
   });
+  $("allDatesBtn")?.addEventListener("click", () => {
+    fillDateRangeFromBounds(
+      document.querySelector('[name="start_date"]') as HTMLInputElement | null,
+      document.querySelector('[name="end_date"]') as HTMLInputElement | null,
+    );
+    syncPeriodGate();
+  });
   sync();
+}
+
+function fillDateRangeFromBounds(startEl: HTMLInputElement | null, endEl: HTMLInputElement | null): void {
+  if (startEl?.min) startEl.value = startEl.min;
+  if (endEl?.max) endEl.value = endEl.max;
 }
 
 const EXTRA_PERIOD_LABELS: Record<string, string> = {
   all_time: "All Time",
   last_month: "Last Month",
-  custom: "Custom Range",
+  custom: "Custom Date Range",
   daily: "Yesterday",
 };
 
@@ -1797,7 +1809,7 @@ function periodGateMessage(): string | null {
   if (period === "custom") {
     const sd = (document.querySelector('[name="start_date"]') as HTMLInputElement | null)?.value.trim();
     const ed = (document.querySelector('[name="end_date"]') as HTMLInputElement | null)?.value.trim();
-    if (!sd || !ed) return "Custom range needs a From date and a To date.";
+    if (!sd || !ed) return "Custom Date Range needs a From date and a To date.";
   }
   if (period === "custom_month") {
     const month = (document.querySelector('[name="month"]') as HTMLSelectElement | null)?.value.trim();

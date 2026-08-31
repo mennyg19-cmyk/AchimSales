@@ -108,12 +108,20 @@ function syncParamsVisibility(form: HTMLFormElement): void {
   syncPeriodExtras();
 }
 
+function fillDateRangeFromBounds(startEl: HTMLInputElement | null, endEl: HTMLInputElement | null): void {
+  if (startEl?.min) startEl.value = startEl.min;
+  if (endEl?.max) endEl.value = endEl.max;
+}
+
 function syncPeriodExtras(): void {
   const sel = document.getElementById("msPeriod") as HTMLSelectElement | null;
-  const wrap = document.querySelector<HTMLElement>("[data-custom-month]");
   const periodField = document.querySelector<HTMLElement>('[data-param="period"]');
-  if (!wrap) return;
-  wrap.hidden = !sel || !!periodField?.hidden || sel.value !== "custom_month";
+  const hidden = !sel || !!periodField?.hidden;
+  const period = sel?.value || "";
+  const rangeWrap = document.querySelector<HTMLElement>("[data-custom]");
+  const monthWrap = document.querySelector<HTMLElement>("[data-custom-month]");
+  if (rangeWrap) rangeWrap.hidden = hidden || period !== "custom";
+  if (monthWrap) monthWrap.hidden = hidden || period !== "custom_month";
 }
 
 function applyPeriodValue(sel: HTMLSelectElement | null, raw: unknown): void {
@@ -135,7 +143,7 @@ function applyPeriodValue(sel: HTMLSelectElement | null, raw: unknown): void {
   } else {
     const opt = document.createElement("option");
     opt.value = wanted;
-    opt.textContent = wanted === "custom" ? "Custom Range" : wanted.replace(/_/g, " ");
+    opt.textContent = wanted === "custom" ? "Custom Date Range" : wanted.replace(/_/g, " ");
     sel.appendChild(opt);
     sel.value = wanted;
   }
@@ -144,13 +152,18 @@ function applyPeriodValue(sel: HTMLSelectElement | null, raw: unknown): void {
 function applyCustomMonthFields(params: Record<string, unknown>): void {
   const monthEl = document.getElementById("msCustomMonth") as HTMLSelectElement | null;
   const yearEl = document.getElementById("msCustomYear") as HTMLSelectElement | null;
+  const fromEl = document.getElementById("msCustomFrom") as HTMLInputElement | null;
+  const toEl = document.getElementById("msCustomTo") as HTMLInputElement | null;
+  const period = String(params.period || "");
   if (monthEl) monthEl.value = params.month != null ? String(params.month) : "";
   const year = params.custom_year != null ? params.custom_year : params.year;
-  if (yearEl && String(params.period || "") === "custom_month") {
+  if (yearEl && period === "custom_month") {
     yearEl.value = year != null ? String(year) : "";
   } else if (yearEl) {
     yearEl.value = "";
   }
+  if (fromEl) fromEl.value = period === "custom" && params.start_date != null ? String(params.start_date) : "";
+  if (toEl) toEl.value = period === "custom" && params.end_date != null ? String(params.end_date) : "";
   syncPeriodExtras();
 }
 
@@ -356,6 +369,12 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
       const year = (document.getElementById("msCustomYear") as HTMLSelectElement | null)?.value.trim();
       if (month) out.month = month;
       if (year) out.year = year;
+    }
+    if (v === "custom") {
+      const start = (document.getElementById("msCustomFrom") as HTMLInputElement | null)?.value.trim();
+      const end = (document.getElementById("msCustomTo") as HTMLInputElement | null)?.value.trim();
+      if (start) out.start_date = start;
+      if (end) out.end_date = end;
     }
   }
   if (needed.includes("status")) {
@@ -695,6 +714,11 @@ function validateStep(step: number, form: HTMLFormElement): string | null {
         const year = (document.getElementById("msCustomYear") as HTMLSelectElement | null)?.value.trim();
         if (!month || !year) return "Custom Month and Year needs both a month and a year.";
       }
+      if (v === "custom") {
+        const start = (document.getElementById("msCustomFrom") as HTMLInputElement | null)?.value.trim();
+        const end = (document.getElementById("msCustomTo") as HTMLInputElement | null)?.value.trim();
+        if (!start || !end) return "Custom Date Range needs a From date and a To date.";
+      }
     }
   }
   if (step === 4) {
@@ -935,6 +959,12 @@ export function bindMasterWizard(): void {
     syncPeriodExtras();
     updateMsFilenamePreview();
     updateMsFolderPreview();
+  });
+  document.getElementById("msAllDates")?.addEventListener("click", () => {
+    fillDateRangeFromBounds(
+      document.getElementById("msCustomFrom") as HTMLInputElement | null,
+      document.getElementById("msCustomTo") as HTMLInputElement | null,
+    );
   });
   document.getElementById("msSplitBySalesman")?.addEventListener("change", () => {
     syncDeliveryOptionsVisibility(form);
