@@ -5,16 +5,13 @@ Not an HTTP process. The supervisor starts this next to Gunicorn.
 
 from __future__ import annotations
 
-import logging
-import os
 import sys
+
+from web.process_log import configure_process_logging
 
 
 def main() -> int:
-    logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
+    configure_process_logging()
     from web.background import home_app, run_worker
 
     run_worker(home_app())

@@ -89,23 +89,17 @@ class JobRepository:
         """Create a job, or return the existing active job id for the same dedup_key."""
         if dedup_key:
             with self.db.precious() as conn:
-                existing = conn.execute(
-                    "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
-                    (dedup_key, *_ACTIVE),
-                ).fetchone()
+                existing = self._active_id_for_dedup(conn, dedup_key)
                 if existing:
-                    return existing["id"]
+                    return existing
         if job_type not in ADMISSION_EXEMPT_TYPES:
             self._assert_admission()
         job_id = uuid.uuid4().hex
         with self.db.precious() as conn:
             if dedup_key:
-                existing = conn.execute(
-                    "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
-                    (dedup_key, *_ACTIVE),
-                ).fetchone()
+                existing = self._active_id_for_dedup(conn, dedup_key)
                 if existing:
-                    return existing["id"]
+                    return existing
             try:
                 conn.execute(
                     "INSERT INTO jobs(id, type, status, owner_user_id, dedup_key, params_json)"
@@ -114,14 +108,18 @@ class JobRepository:
                 )
             except sqlite3.IntegrityError:
                 # Lost a race against a concurrent enqueue with the same dedup_key.
-                row = conn.execute(
-                    "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
-                    (dedup_key, *_ACTIVE),
-                ).fetchone()
-                if row:
-                    return row["id"]
+                existing = self._active_id_for_dedup(conn, dedup_key) if dedup_key else None
+                if existing:
+                    return existing
                 raise
         return job_id
+
+    def _active_id_for_dedup(self, conn, dedup_key: str) -> str | None:
+        row = conn.execute(
+            "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
+            (dedup_key, *_ACTIVE),
+        ).fetchone()
+        return row["id"] if row else None
 
     def _assert_admission(self) -> None:
         """Refuse interactive work when the queue is already too deep or too old.

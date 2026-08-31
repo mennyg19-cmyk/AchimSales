@@ -7,8 +7,9 @@ timeout. This process is killable; it must not start a poller or scheduler.
 from __future__ import annotations
 
 import logging
-import os
 import sys
+
+from web.process_log import configure_process_logging
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -17,10 +18,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write("usage: python -m web.jobs.child JOB_ID\n")
         return 2
     job_id = argv[0].strip()
-    logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
+    configure_process_logging()
     log = logging.getLogger("web.jobs.child")
     from web.background import home_app
 
@@ -30,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     if job is None or job.status != "running":
         log.warning("child: job %s is not running; nothing to do", job_id)
         return 0
-    worker._run(job)
+    worker.run_claimed(job)
     return 0
 
 

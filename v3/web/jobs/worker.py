@@ -95,7 +95,7 @@ class JobWorker:
         job = self.repo.claim_next()
         if job is None:
             return None
-        self._run(job)
+        self.run_claimed(job)
         return job.id
 
     def drain(self, limit: int = 1000) -> int:
@@ -105,7 +105,7 @@ class JobWorker:
             count += 1
         return count
 
-    def _run(self, job: Job) -> None:
+    def run_claimed(self, job: Job) -> None:
         current = self.repo.get(job.id)
         if current is None or current.status != "running":
             return
@@ -174,7 +174,7 @@ class JobWorker:
                 log.warning("job %s timed out after %ss; killing child pid=%s",
                             job.id, timeout, proc.pid)
                 self._kill_child(proc)
-                self.repo.cancel(job.id, error="Timed out (45 minute cap)")
+                self.repo.cancel(job.id, error=f"Timed out ({int(timeout)}s cap)")
                 return
         finally:
             self._child_proc = None
@@ -292,7 +292,7 @@ class JobWorker:
 
     def _run_and_release(self, job: Job) -> None:
         try:
-            self._run(job)
+            self.run_claimed(job)
         finally:
             self._sem.release()
 

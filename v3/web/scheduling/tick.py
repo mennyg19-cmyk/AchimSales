@@ -17,6 +17,7 @@ import logging
 from datetime import date, datetime, timezone
 
 from web.data.repositories.jobs import JobRepository
+from web.jobs.limits import JOB_TIMEOUT_SECONDS
 from web.data.repositories.exports import ExportRepository
 from web.reporting.cache import ReportCache
 from web.data.repositories.magic_links import MagicLinkRepository
@@ -102,7 +103,7 @@ def make_tick(db, job_repo: JobRepository):
         try:
             ReportCache(db).prune(6 * 3600)
             ExportRepository(db).prune()
-            hung = job_repo.fail_hung(45 * 60)
+            hung = job_repo.fail_hung(JOB_TIMEOUT_SECONDS)
             if hung:
                 log.warning("hung-job cap cancelled %d running job(s)", hung)
             MagicLinkRepository(db).prune(older_than_days=90)

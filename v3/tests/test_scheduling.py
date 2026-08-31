@@ -23,6 +23,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult, EmailService
 from web.delivery.service import DeliveryOutcome, DeliveryService
+from web.jobs.limits import JOB_TIMEOUT_SECONDS
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.scheduling import cadence as C
 from web.scheduling.runner import ScheduleRunner
@@ -1189,6 +1190,6 @@ def test_tick_prunes_cache_exports_and_fails_hung(tmp_path, monkeypatch):
     make_tick(db, job_repo)()
     assert called["cache"] == 6 * 3600
     assert called["exports"] == 1
-    assert called["hung"] == 45 * 60
+    assert called["hung"] == JOB_TIMEOUT_SECONDS
     assert called["magic"] == 90
 
