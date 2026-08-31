@@ -21,7 +21,11 @@ from typing import Callable
 
 from web.data.connection import Database
 from web.data.repositories.jobs import Job, JobRepository
-from web.jobs.limits import JOB_TIMEOUT_SECONDS, WORKER_BEAT_EVERY_SECONDS
+from web.jobs.limits import (
+    JOB_TIMEOUT_SECONDS,
+    UNSAFE_RECOVERY_TYPES,
+    WORKER_BEAT_EVERY_SECONDS,
+)
 
 log = logging.getLogger(__name__)
 
@@ -182,8 +186,15 @@ class JobWorker:
                          job.id, rc)
                 return
             current = self.repo.get(job.id)
-            if current is not None and current.status == "running":
-                self.repo.mark_failure(job.id, f"job child exited {rc}")
+            if current is None or current.status != "running":
+                return
+            if job.type in UNSAFE_RECOVERY_TYPES:
+                self.repo.cancel(
+                    job.id,
+                    error="Job child died while this delivery was running; not retried.",
+                )
+                return
+            self.repo.mark_failure(job.id, f"job child exited {rc}")
 
     def _wait_child(self, proc: subprocess.Popen, timeout: float) -> int | None:
         """Wait for the child; beat the worker heartbeat between wait chunks.

@@ -620,6 +620,31 @@ def test_nonzero_child_exit_still_fails_when_worker_is_not_stopping(db, monkeypa
     assert "exited 1" in done.error
 
 
+def test_nonzero_child_exit_cancels_delivery_not_failed(db, monkeypatch):
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 14
+
+        def wait(self, timeout=None):
+            return -9
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    for job_type in ("report.deliver", "schedule.run"):
+        jid = jobs.enqueue(job_type)
+        assert worker.process_next_child(timeout=5) == jid
+        row = jobs.get(jid)
+        assert row.status == "cancelled", job_type
+        assert "not retried" in row.error
+        assert "ran out of memory" not in row.error
+        jobs.mark_success(jid, "late-send")
+        assert jobs.get(jid).status == "cancelled"
+
+
 def test_kill_child_terminates_a_real_process(db):
     import subprocess as sp
     import sys
