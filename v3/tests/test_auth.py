@@ -393,3 +393,82 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
         assert s["v3_user"]["email"] == "dev@x.com"
         assert not s["v3_user"].get("impersonating")
 
+
+def _stub_live_salesman_access(monkeypatch, keys=None):
+    """Adopt reads Live grants if webapp.db is importable. Keep tests isolated."""
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+    try:
+        import webapp.db as live_db
+    except ImportError:
+        return
+    monkeypatch.setattr(live_db, "get_user_salesman_access", lambda email: list(keys or []))
+
+
+def test_adopt_does_not_overwrite_home_role_and_merges_grants(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from web.auth.authorization import Authorization
+    from web.auth.principal import Principal
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    db = application.config["DB"]
+    users = UserRepository(db)
+    with db.precious() as conn:
+        for key in ("igrossman", "redwards"):
+            conn.execute("INSERT OR IGNORE INTO salesmen(key) VALUES (?)", (key,))
+    u = users.upsert("igrossman@x.com", role="admin", display_name="I Grossman")
+    users.add_salesman_access(u.id, ["igrossman"])
+    _stub_live_salesman_access(monkeypatch)
+
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "igrossman@x.com", "name": "I Grossman", "role": "manager",
+            "salesman_key": "R.Edwards",
+        }
+    resp = client.get("/login")
+    assert resp.status_code in (200, 302)
+
+    saved = users.get_by_email("igrossman@x.com")
+    assert saved.role == "admin"
+    assert users.get_salesman_access(saved.id) == {"igrossman", "redwards"}
+    authz = Authorization(db)
+    assert authz.visible_salesman_keys(
+        Principal(email="igrossman@x.com", name="I", role="manager")
+    ) is None  # admin in DB is unrestricted
+    with client.session_transaction() as s:
+        assert (s.get("v3_user") or {}).get("role") == "admin"
+
+
+def test_adopt_does_not_drop_home_salesman_grants(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    db = application.config["DB"]
+    users = UserRepository(db)
+    with db.precious() as conn:
+        for key in ("redwards", "hkaufman"):
+            conn.execute("INSERT OR IGNORE INTO salesmen(key) VALUES (?)", (key,))
+    u = users.upsert("mgr@x.com", role="manager", display_name="Mgr")
+    users.add_salesman_access(u.id, ["hkaufman"])
+    _stub_live_salesman_access(monkeypatch)
+
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "mgr@x.com", "name": "Mgr", "role": "manager",
+            "salesman_key": "R.Edwards",
+        }
+    client.get("/login")
+
+    assert users.get_salesman_access(u.id) == {"hkaufman", "redwards"}
+

@@ -70,6 +70,12 @@ slot. Manual zip deploy is still `deploy.ps1`.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
+On the home site, **Settings → Users & access** is the source of truth for an
+existing person's role and salesman list. Boot still copies new people from
+Live (`/legacy`) and adds any Live salesman grants that home is missing. It
+does not reset a role you already saved on home. Env `V3_ADMIN_EMAILS` /
+`V3_DEVELOPER_EMAILS` still force those roles after seed.
+
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** everyone can pick (Daily Ordered, Heshy Open Orders).
 Daily Ordered groups Summary and By Customer by salesman, then sorts customers

@@ -243,9 +243,13 @@ def test_admin_user_crud_and_scope(tmp_path):
     assert upd.status_code == 200 and upd.get_json()["role"] == "manager"
     assert upd.get_json()["dashboard_enabled"] is True
 
-    scope = client.post(f"/api/admin/users/{uid}/salesman-access", json={"keys": ["redwards"]},
+    scope = client.post(f"/api/admin/users/{uid}/salesman-access", json={"keys": ["R.Edwards"]},
                         headers={"X-CSRF-Token": _CSRF})
     assert scope.get_json()["keys"] == ["redwards"]
+
+    as_admin = client.put(f"/api/admin/users/{uid}", json={"role": "admin"},
+                          headers={"X-CSRF-Token": _CSRF})
+    assert as_admin.status_code == 200 and as_admin.get_json()["role"] == "admin"
 
     deleted = client.delete(f"/api/admin/users/{uid}", headers={"X-CSRF-Token": _CSRF})
     assert deleted.status_code == 200

@@ -22,6 +22,26 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Home Users & access: salesman list and role persist
+
+**What to test:**
+- Live seed inserts a new person with the Live role, and copies `user_salesman_access` (normalized to `salesmen.key`).
+- Seed does not overwrite an existing home role (admin stays admin when Live still says manager).
+- Seed adds missing Live grants and does not delete extra grants already saved on home.
+- `set_salesman_access` stores `R.Edwards` as `redwards`.
+- Adopting a Live session does not overwrite a home admin role, and merges the Live `salesman_key` instead of replacing home grants.
+- Admin PUT can set role to admin; salesman-access POST accepts unnormalized keys.
+
+**Expected behavior:**
+- Checking all salesmen on a manager (Live or home) makes those salesmen appear in their picker after the next home boot/login.
+- Saving admin on Users & access survives the next page load and the next App Service recycle.
+
+**Edge cases:**
+- Live grant for a salesman not yet in home `salesmen` is skipped (FK).
+- Live Assigned Salesmen save also runs for the salesman role, not only manager.
+
+**Test files:** `v3/tests/test_seed_users.py`, `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
+
 ## Inherit salesmen see Customer's Last Order
 
 **What to test:**

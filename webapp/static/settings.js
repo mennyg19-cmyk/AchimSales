@@ -89,7 +89,7 @@ function toggleSalesmanField(prefix) {
     var wrap = document.getElementById(prefix + 'SalesmanKeyWrap');
     if (wrap) wrap.style.display = role === 'salesman' ? '' : 'none';
     var smAssign = document.getElementById(prefix + 'AssignedSalesmenWrap');
-    if (smAssign) smAssign.style.display = role === 'manager' ? '' : 'none';
+    if (smAssign) smAssign.style.display = (role === 'manager' || role === 'salesman') ? '' : 'none';
     // The "External (magic-link)" option only makes sense for salesmen.
     // Hide it for any other role to avoid mismatched configs.
     var extWrap = (prefix === 'new')

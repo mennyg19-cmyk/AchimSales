@@ -44,40 +44,43 @@ def adopt_live_identity():
     dev_email = str(live.get("_dev_email") or "").strip().lower()
     impersonating = is_dev and bool(dev_email) and email != dev_email
 
+    db = current_app.config["DB"]
+    users = UserRepository(db)
+    persist_role = "developer" if is_dev and email == (dev_email or email) else role
+    user = users.get_by_email(email)
+    if user is None:
+        user = users.create(email, role=persist_role, display_name=display)
+    elif display and not (user.display_name or "").strip():
+        users.upsert(email, display_name=display)
+        user = users.get_by_email(email) or user
+    _sync_salesman_scope(users, user.id, live, email)
+
     existing = current_principal()
     if (
         existing is not None
         and existing.email == email
-        and existing.role == role
+        and existing.role == user.role
         and existing.is_dev == is_dev
         and existing.impersonating == impersonating
     ):
         return existing
 
-    db = current_app.config["DB"]
-    users = UserRepository(db)
-    persist_role = "developer" if is_dev and email == (dev_email or email) else role
-    user = users.create(email, role=persist_role, display_name=display)
-    _sync_salesman_scope(users, user.id, live, email, role)
-
     principal = Principal(
         email=email,
         name=raw_name,
-        role=role,
+        role=user.role,
         is_dev=is_dev,
         impersonating=impersonating,
         real_email=dev_email if impersonating else "",
         real_name=str(live.get("_dev_name") or "") if impersonating else "",
     )
     login(principal)
-    log.info("beta adopted live session for %s role=%s impersonating=%s", email, role, impersonating)
+    log.info("beta adopted live session for %s role=%s impersonating=%s", email, user.role, impersonating)
     return principal
 
 
-def _sync_salesman_scope(users, user_id: int, live: dict, email: str, role: str) -> None:
-    """Copy Live salesman visibility into Beta's user_salesman_access."""
-    if role in ("admin", "developer"):
-        return
+def _sync_salesman_scope(users, user_id: int, live: dict, email: str) -> None:
+    """Add Live salesman grants. Does not drop grants already saved on home."""
     keys: list[str] = []
     sm = (live.get("salesman_key") or "").strip()
     if sm:
@@ -86,8 +89,8 @@ def _sync_salesman_scope(users, user_id: int, live: dict, email: str, role: str)
         from webapp.db import get_user_salesman_access
 
         for key in get_user_salesman_access(email):
-            if key and key not in keys:
+            if key:
                 keys.append(key)
-    except Exception:  # noqa: BLE001 - Beta still works; scope may be empty until next hit
+    except Exception:  # noqa: BLE001 - home still works; scope may be empty until next hit
         log.exception("beta: could not read live salesman access for %s", email)
-    users.set_salesman_access(user_id, keys)
+    users.add_salesman_access(user_id, keys)

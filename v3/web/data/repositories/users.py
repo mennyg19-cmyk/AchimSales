@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from report_engine.lib import salesman_key
 from web.data.connection import Database
 
 
@@ -120,9 +121,24 @@ class UserRepository:
             ).fetchall()
         return {r["salesman_key"] for r in rows}
 
+    @staticmethod
+    def _normalized_salesman_keys(keys: list[str]) -> list[str]:
+        return sorted({salesman_key(k) for k in keys if k and salesman_key(k)})
+
+    def add_salesman_access(self, user_id: int, keys: list[str]) -> None:
+        """Add grants. Does not remove existing ones. Unknown salesman keys are skipped."""
+        clean = self._normalized_salesman_keys(keys)
+        if not clean:
+            return
+        with self.db.precious() as conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO user_salesman_access(user_id, salesman_key) VALUES (?, ?)",
+                [(user_id, k) for k in clean],
+            )
+
     def set_salesman_access(self, user_id: int, keys: list[str]) -> None:
         """Replace-all the user's per-salesman grants in one transaction."""
-        clean = sorted({k.strip() for k in keys if k and k.strip()})
+        clean = self._normalized_salesman_keys(keys)
         with self.db.precious() as conn:
             conn.execute("DELETE FROM user_salesman_access WHERE user_id = ?", (user_id,))
             conn.executemany(

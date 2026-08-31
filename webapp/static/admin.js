@@ -200,7 +200,7 @@ function saveEditUser() {
         );
     });
 
-    if (role === 'manager') {
+    if (role === 'manager' || role === 'salesman') {
         var selectedKeys = [];
         document.querySelectorAll('.assigned-sm-toggle').forEach(function(toggle) {
             if (toggle.checked) selectedKeys.push(toggle.getAttribute('data-sm-key'));
@@ -215,9 +215,9 @@ function saveEditUser() {
     }
 
     Promise.all(promises).then(function(results) {
-        var anyFail = results.some(function(r) { return !r.success; });
-        if (anyFail) {
-            _showMsg(msg, 'Some changes may have failed', true);
+        var fail = results.find(function(r) { return !r || !r.success; });
+        if (fail) {
+            _showMsg(msg, fail.error || 'Some changes may have failed', true);
         } else {
             _showMsg(msg, 'Saved!', false);
             setTimeout(function() { location.reload(); }, 600);

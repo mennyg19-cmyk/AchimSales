@@ -369,7 +369,7 @@ def bootstrap_background(app: Flask) -> None:
     migrate(db)
     _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
     _seed_report_config(app, db)
-    _seed_users_from_live(app, db)    # mirror the live user directory into v3
+    _seed_users_from_live(app, db)    # new Live people + missing salesman grants
     _seed_admins(app, db)             # explicit env admins override the mirror
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
     cfg = app.config["APP_CONFIG"]
@@ -578,11 +578,10 @@ def _seed_developers(app: Flask, db) -> None:
 
 
 def _seed_users_from_live(app: Flask, db) -> None:
-    """Mirror the live app's user directory (roles + flags) into v3's users table.
+    """Insert Live people who are not on home yet; add missing salesman grants.
 
-    Live (webapp/) is the authoritative list of who may sign in. Reading it here
-    means every existing account works on /test without manual re-entry. Guarded:
-    a missing/locked live DB must never block boot.
+    Does not overwrite a role already saved on Users & access. Guarded: a
+    missing/locked live DB must never block boot.
     """
     from web.data.seed_users import live_db_path, seed_users_from_live
 

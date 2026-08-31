@@ -61,6 +61,7 @@ function initAddUser(): void {
 
 // --- edit user modal --------------------------------------------------------
 let editingUserId = "";
+let accessLoad: Promise<void> | null = null;
 
 function openUserModal(tr: HTMLTableRowElement): void {
   editingUserId = tr.dataset.userId || "";
@@ -73,20 +74,35 @@ function openUserModal(tr: HTMLTableRowElement): void {
   (($("euTest") as HTMLInputElement)).checked = tr.dataset.test === "1";
   (($("euExternal") as HTMLInputElement)).checked = tr.dataset.external === "1";
 
+  const saveBtn = $("euSave") as HTMLButtonElement | null;
+  if (saveBtn) saveBtn.disabled = true;
+  document.querySelectorAll<HTMLInputElement>("#euSalesmen input").forEach((c) => {
+    c.checked = false;
+    c.disabled = true;
+  });
+
   // Load current per-salesman + per-report access so the modal reflects the
   // user's live state (rather than blank defaults).
-  Promise.all([
+  accessLoad = Promise.all([
     api(`${usersUrl}/${editingUserId}/salesman-access`, "GET").then((r) => r.json()),
     api(`${usersUrl}/${editingUserId}/report-access`, "GET").then((r) => r.json()),
   ]).then(([scope, reports]) => {
     const keys: string[] = scope.keys || [];
     document.querySelectorAll<HTMLInputElement>("#euSalesmen input").forEach((c) => {
       c.checked = keys.includes(c.value);
+      c.disabled = false;
     });
     const access: Record<string, string> = reports.access || {};
     document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select").forEach((sel) => {
       sel.value = access[sel.getAttribute("data-report") || ""] || "inherit";
     });
+  }).catch(() => {
+    document.querySelectorAll<HTMLInputElement>("#euSalesmen input").forEach((c) => {
+      c.disabled = false;
+    });
+    setMsg("euMsg", "Could not load salesman access");
+  }).finally(() => {
+    if (saveBtn) saveBtn.disabled = false;
   });
 
   setMsg("euMsg", "");
@@ -95,27 +111,42 @@ function openUserModal(tr: HTMLTableRowElement): void {
 
 async function saveUser(): Promise<void> {
   if (!editingUserId) return;
-  const resp = await api(`${usersUrl}/${editingUserId}`, "PUT", {
-    role: (($("euRole") as HTMLSelectElement)).value,
-    is_active: checked("euActive"), dashboard_enabled: checked("euDashboard"),
-    sharepoint_access: checked("euSharepoint"), test_access: checked("euTest"),
-    is_external: checked("euExternal"),
-  });
-  if (!resp.ok) {
-    setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
-    return;
-  }
-  const keys = Array.from(
-    document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
-  ).map((c) => c.value);
-  await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+  if (accessLoad) await accessLoad;
+  const saveBtn = $("euSave") as HTMLButtonElement | null;
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const resp = await api(`${usersUrl}/${editingUserId}`, "PUT", {
+      role: (($("euRole") as HTMLSelectElement)).value,
+      is_active: checked("euActive"), dashboard_enabled: checked("euDashboard"),
+      sharepoint_access: checked("euSharepoint"), test_access: checked("euTest"),
+      is_external: checked("euExternal"),
+    });
+    if (!resp.ok) {
+      setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
+      return;
+    }
+    const keys = Array.from(
+      document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
+    ).map((c) => c.value);
+    const scopeRes = await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+    if (!scopeRes.ok) {
+      setMsg("euMsg", (await scopeRes.json().catch(() => ({}))).error || "Role saved, but salesman access failed");
+      return;
+    }
 
-  const reportPosts = Array.from(
-    document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
-  ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
-    { report_key: sel.getAttribute("data-report"), access: sel.value }));
-  await Promise.all(reportPosts);
-  window.location.reload();
+    const reportPosts = Array.from(
+      document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
+    ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
+      { report_key: sel.getAttribute("data-report"), access: sel.value }));
+    const reportRes = await Promise.all(reportPosts);
+    if (reportRes.some((r) => !r.ok)) {
+      setMsg("euMsg", "Role saved, but a report override failed");
+      return;
+    }
+    window.location.reload();
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
 }
 
 async function deleteUser(): Promise<void> {

@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-08-31 igrossman missing salesmen; admin role did not save
+**What you asked for:** The site is not showing all salesmen for igrossman even though all salesmen are checked on his user. Turning him into an admin did not save. Settings / Users page is broken.
+**What I had to decide:** Whether Live Settings or home Users & access was the source of truth after the home-site cutover, and whether boot/login should keep copying Live roles onto existing home users.
+**What I chose:** Home Users & access wins for an existing person. Boot and login still add people and salesman grants from Live, but they do not overwrite a role already saved on home, and they do not delete extra grants. Live Assigned Salesmen now save for salesman as well as manager. Env admin/developer emails still force those roles after seed.
+**Why:** Every App Service recycle re-ran the Live user seed with `ON CONFLICT DO UPDATE role`, so an admin save on home reverted to Live (manager). Seed also only copied the one `app_users.salesman_key`, not Live `user_salesman_access`, so a manager with every salesman checked still had one key on home. Login then called `users.create()` (overwrites role) and `set_salesman_access` (replace-all, unnormalized keys dropped by FK).
+**Status:** DECIDED — shipping this change.
+
+
 ## 2026-08-31 Fail-then-success emails were still two mails
 **What you asked for:** Stop getting a failure email and then a success email.
 **What I had to decide:** Whether the leftover pair was Azure calling `main()` (retry never wrapped), home-site sending `[FAIL]` before a later job succeeded, or both.
