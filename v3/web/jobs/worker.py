@@ -63,6 +63,7 @@ class JobWorker:
         self._executor: ThreadPoolExecutor | None = None
         self._poller: threading.Thread | None = None
         self._child_proc: subprocess.Popen | None = None
+        self._killed_by_parent = False
 
     def register(self, job_type: str, handler: Handler) -> None:
         self.handlers[job_type] = handler
@@ -157,6 +158,7 @@ class JobWorker:
         return job.id
 
     def _run_in_child(self, job: Job, timeout: float) -> None:
+        self._killed_by_parent = False
         proc = subprocess.Popen(
             [sys.executable, "-m", "web.jobs.child", job.id],
             start_new_session=True,
@@ -173,6 +175,12 @@ class JobWorker:
         finally:
             self._child_proc = None
         if rc not in (0, None):
+            # SIGTERM/stop killed this child so the next worker can recover:
+            # safe types requeue, schedule.run / report.deliver cancel.
+            if self._stop.is_set() and self._killed_by_parent:
+                log.info("job %s left running after worker stop (child rc=%s)",
+                         job.id, rc)
+                return
             current = self.repo.get(job.id)
             if current is not None and current.status == "running":
                 self.repo.mark_failure(job.id, f"job child exited {rc}")
@@ -196,6 +204,7 @@ class JobWorker:
                 self._beat_worker()
 
     def _kill_child(self, proc: subprocess.Popen) -> None:
+        self._killed_by_parent = True
         try:
             if hasattr(os, "killpg"):
                 os.killpg(proc.pid, signal.SIGKILL)

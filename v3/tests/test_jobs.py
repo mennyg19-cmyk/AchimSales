@@ -1,5 +1,6 @@
 """Durable job worker: dispatch, failure isolation, progress, bounded draining."""
 
+import threading
 import time
 
 import pytest
@@ -493,6 +494,100 @@ def test_worker_heartbeat_stays_fresh_while_child_wait_blocks(db, monkeypatch):
     age = settings.heartbeat_age_seconds("worker_heartbeat")
     assert age is not None and age < 5
     assert jobs.get(jid).status == "running"  # fake child never ran the handler
+
+
+def test_worker_stop_leaves_safe_job_running_for_recovery(db, monkeypatch):
+    """SIGTERM/stop must not fail a safe job the next worker can requeue (Loop A R1)."""
+    import subprocess as sp
+
+    killed = threading.Event()
+
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 11
+
+        def wait(self, timeout=None):
+            if killed.wait(timeout if timeout else 30):
+                return -9
+            raise sp.TimeoutExpired("child", timeout)
+
+        def kill(self):
+            killed.set()
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("web.jobs.worker.os.killpg", lambda pid, sig: killed.set())
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    jid = jobs.enqueue("report.run")
+    thread = threading.Thread(target=lambda: worker.process_next_child(timeout=5))
+    thread.start()
+    deadline = time.time() + 2
+    while worker._child_proc is None and time.time() < deadline:
+        time.sleep(0.01)
+    assert worker._child_proc is not None
+    worker.stop()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert jobs.get(jid).status == "running"
+    assert jobs.recover_orphans() == 1
+    assert jobs.get(jid).status == "queued"
+
+
+def test_worker_stop_lets_recover_cancel_in_flight_delivery(db, monkeypatch):
+    import subprocess as sp
+
+    killed = threading.Event()
+
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 12
+
+        def wait(self, timeout=None):
+            if killed.wait(timeout if timeout else 30):
+                return -9
+            raise sp.TimeoutExpired("child", timeout)
+
+        def kill(self):
+            killed.set()
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("web.jobs.worker.os.killpg", lambda pid, sig: killed.set())
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    jid = jobs.enqueue("report.deliver")
+    thread = threading.Thread(target=lambda: worker.process_next_child(timeout=5))
+    thread.start()
+    deadline = time.time() + 2
+    while worker._child_proc is None and time.time() < deadline:
+        time.sleep(0.01)
+    assert worker._child_proc is not None
+    worker.stop()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert jobs.get(jid).status == "running"
+    assert jobs.recover_orphans() == 0
+    assert jobs.get(jid).status == "cancelled"
+
+
+def test_nonzero_child_exit_still_fails_when_worker_is_not_stopping(db, monkeypatch):
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 13
+
+        def wait(self, timeout=None):
+            return 1
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    jid = jobs.enqueue("echo")
+    assert worker.process_next_child(timeout=5) == jid
+    done = jobs.get(jid)
+    assert done.status == "failure"
+    assert "exited 1" in done.error
 
 
 def test_kill_child_terminates_a_real_process(db):
