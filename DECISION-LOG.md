@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 5: last live fan-out key still retries
+**What I had to decide:** Whether selected salesman retry still uses fan-out when live keys are empty.
+**Options I considered:** (1) Ordinary full-delivery when `_salesman_targets` is empty (silent skip). (2) Fail the retry. (3) Enter fan-out from the selected leg's `salesman_key` and send the stored target.
+**What I chose:** (3). First-send with no salesman keys still uses the ordinary full-delivery path.
+**Why:** Loop A re-pass 5 F1. Same stored-target retry; an empty live list must not hide the selected leg.
+**Status:** DECIDED — Phase 5 Loop A fix.
+
 ## 2026-08-31 Phase 5: fan-out retry uses stored salesman address
 **What I had to decide:** What happens when the operator retries one salesman split and that salesman's live email is blank or they were dropped from the schedule.
 **Options I considered:** (1) Keep requiring a live `get_email` (retry never sends). (2) Fail closed until the salesman record is restored. (3) Send the stored target on that selected leg only.

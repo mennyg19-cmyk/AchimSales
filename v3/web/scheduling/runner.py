@@ -220,7 +220,14 @@ class ScheduleRunner:
             try:
                 if cancel_check and cancel_check():
                     raise JobCancelled()
-                if schedule_type == MASTER and _salesman_targets(self.user_repo.db, params):
+                retry_salesman = ""
+                if retry_attempt_key:
+                    selected = DeliveryLegRepository(self.user_repo.db).get(
+                        retry_attempt_key)
+                    retry_salesman = (selected.salesman_key if selected else "") or ""
+                if schedule_type == MASTER and (
+                    _salesman_targets(self.user_repo.db, params) or retry_salesman
+                ):
                     outcome = self._run_master_fanout(
                         sched=sched, identity=identity, scope=scope,
                         builder_version=builder_version,

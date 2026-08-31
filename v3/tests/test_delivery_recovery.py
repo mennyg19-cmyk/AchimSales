@@ -833,6 +833,43 @@ def test_fanout_retry_sends_stored_target_when_salesman_dropped(tmp_path):
     assert legs.get(key).status == SENT
 
 
+def test_fanout_retry_sends_when_last_live_key_removed(tmp_path):
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+    from web.data.repositories.schedules import (
+        MASTER, MasterScheduleRepository, ScheduleRunRepository,
+    )
+
+    db = _db(tmp_path)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="A", number="1", full_name="A", display_name="A",
+                     email="stored@example.com"),
+    ])
+    masters = MasterScheduleRepository(db)
+    mid = masters.create(
+        "ordered", "Nightly", params={},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="manager@x.com")
+    key = attempt_key(
+        slot_id="s1", kind="email", target="stored@example.com", salesman="A")
+    legs = DeliveryLegRepository(db)
+    legs.prepare(key, run_id=1, kind="email", target="stored@example.com",
+                 salesman_key="A", slot_id="s1", job_id="j")
+    legs.mark_sending(key)
+    legs.mark_unknown(key, "lost")
+    assert legs.reopen_for_retry(key)
+    delivery, sent, _puts, _files = _workbook_delivery()
+    runner = _fanout_retry_runner(db, delivery)
+    runner.run(
+        mid, MASTER, ignore_sabbath=True, trigger="manual",
+        slot_id="s1", slot_day="2026-08-31", job_id="j",
+        retry_attempt_key=key,
+    )
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "success"
+    assert sent == ["stored@example.com"]
+    assert legs.get(key).status == SENT
+
+
 def test_folder_verify_uses_frozen_when_not_live_clock(tmp_path):
     from datetime import datetime
     from zoneinfo import ZoneInfo
