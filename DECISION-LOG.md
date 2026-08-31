@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Oversized email must include a download link
+**What you asked for:** If an attachment is too big for the email, it should include a link.
+**What I had to decide:** The download button was already the intended behavior; why the mail still had no URL.
+**What I chose:** Keep SharePoint/OneDrive + Outlook **Download workbook** button. Graph chunked uploads often return no `webUrl` — GET the item, then an organization view link. A 413 retry uploads to `Test` if there is no URL yet and sends the same button, not “sent without the file.”
+**Why:** The 13 MB Number 4 case uses an upload session. Missing `webUrl` produced “download it from SharePoint” with nothing to click. Same hole on Graph 413.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-31 Schedules failed after company-views column
 **What you asked for:** Why are all the schedules failing? Fix it.
 **What I had to decide:** Root cause, and whether to wait on a Premier auth review before shipping.

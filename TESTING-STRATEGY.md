@@ -135,7 +135,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Edge cases:**
 - Requested live SharePoint path that fails still fails the whole delivery (unchanged).
-- Graph 413 on a small attachment still retries once without the file.
+- Graph 413 on a small attachment retries without the file, uploads to `Test` if needed, and includes the download link.
+- Chunked upload with no `webUrl` in the session response still gets a URL (GET item, then org view link).
 
 **Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`
 

@@ -210,10 +210,16 @@ class EmailService:
             graph = self._graph_mailer()
             if graph is not None:
                 try:
-                    self._graph_send(
+                    sent_url = self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
                         filename, attach, body_html=body_html,
+                        report_name=report_name, intro=body_text,
+                        xlsx_bytes=xlsx_bytes, file_url=sp_url,
+                        onedrive_user=onedrive_user,
                     )
+                    if sent_url:
+                        sp_url = sent_url
+                        sp_saved = True
                     sent = True
                     channel = "graph"
                 except GraphMailError as exc:
@@ -281,7 +287,8 @@ class EmailService:
             s.send_message(msg, from_addr=self.cfg.email_from, to_addrs=recipients)
 
     def _graph_send(self, graph, recipients, cc, bcc, subject, body, filename, attach,
-                    body_html=None):
+                    body_html=None, *, report_name="", intro="", xlsx_bytes=None,
+                    file_url=None, onedrive_user=None):
         to = recipients or [self.cfg.email_from]
         try:
             graph.send(
@@ -289,20 +296,27 @@ class EmailService:
                 body_html=body_html, filename=filename if attach else "",
                 xlsx_bytes=attach, cc=cc or None, bcc=bcc or None,
             )
+            return file_url
         except GraphMailError as exc:
             if attach is None or not _is_size_rejection(exc):
                 raise
             log.warning("Graph rejected the attachment (%s); retrying without it", exc)
-            retry_body = (
-                f"{body.rstrip()}\n\n"
-                f"The workbook was too large to attach to email, so this copy "
-                f"was sent without the file.\n"
-            )
+            url = file_url
+            if not url and xlsx_bytes and filename:
+                saved, url, _err = self._maybe_folder(
+                    TEST_SHAREPOINT_FOLDER, filename, xlsx_bytes,
+                    onedrive_user=onedrive_user)
+                if saved and url:
+                    file_url = url
+            retry_text, retry_html = _email_bodies(
+                intro or report_name, report_name or subject, filename,
+                xlsx_bytes, None, url)
             graph.send(
-                sender=self.cfg.email_from, to=to, subject=subject, body_text=retry_body,
-                body_html=None, filename="", xlsx_bytes=None,
+                sender=self.cfg.email_from, to=to, subject=subject, body_text=retry_text,
+                body_html=retry_html, filename="", xlsx_bytes=None,
                 cc=cc or None, bcc=bcc or None,
             )
+            return url
 
     def _maybe_folder(self, path, filename, xlsx_bytes, *, onedrive_user: str | None):
         if not path or not xlsx_bytes:
@@ -314,7 +328,8 @@ class EmailService:
                 res = self.onedrive.upload_file(onedrive_user, path, filename, xlsx_bytes)
             else:
                 res = self.sharepoint.upload_file(path, filename, xlsx_bytes)
-            return True, res.get("webUrl"), None
+            url = str(res.get("webUrl") or "").strip() or None
+            return True, url, None
         except Exception as exc:  # noqa: BLE001
             log.exception("%s upload failed", "OneDrive" if onedrive_user else "SharePoint")
             return False, None, str(exc)

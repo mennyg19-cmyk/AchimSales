@@ -114,19 +114,28 @@ class SharePointService:
                     "id": f"mock-{rel_folder}-{filename}".replace(" ", "_"), "mock": True}
         import requests
 
-        from web.delivery.graph_upload import upload_drive_item
+        from web.delivery.graph_upload import resolve_web_url, upload_drive_item
 
         self._ensure_folder(rel_folder)
         path = f"{self._abs(rel_folder)}/{quote(filename)}"
         base = self._drive_base()
+        headers = {"Authorization": f"Bearer {self._get_token()}"}
         body = upload_drive_item(
             requests,
             put_url=f"{base}/root:/{path}:/content",
             session_url=f"{base}/root:/{path}:/createUploadSession",
-            headers={"Authorization": f"Bearer {self._get_token()}"},
+            headers=headers,
             content=content, put_timeout=UPLOAD_TIMEOUT,
         )
-        return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
+        url = resolve_web_url(
+            requests, headers=headers, body=body,
+            get_url=f"{base}/root:/{path}", items_base=f"{base}/items",
+            timeout=TIMEOUT,
+        )
+        if not url:
+            log.warning("SharePoint uploaded %s but Graph returned no webUrl", filename)
+        return {"webUrl": url or None, "name": body.get("name") or filename,
+                "id": body.get("id")}
 
     # -- internals ----------------------------------------------------------
 

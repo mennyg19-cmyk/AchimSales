@@ -296,7 +296,7 @@ def test_graph_oversize_fallback_upload_failure_still_sends_email(tmp_path):
     assert res.sharepoint_saved is False
 
 
-def test_graph_retries_without_attachment_after_413(tmp_path):
+def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
     class RejectThenOk(_FakeGraph):
         def send(self, **kwargs):
             self.calls.append(kwargs)
@@ -306,6 +306,12 @@ def test_graph_retries_without_attachment_after_413(tmp_path):
 
     graph = RejectThenOk()
     svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {
+            "webUrl": f"https://achim.sharepoint.com/{folder}/{name}",
+            "name": name, "id": "1",
+        }
+    )
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
                       report_name="Ordered", filename="ordered.xlsx",
                       xlsx_bytes=b"PK\x03\x04")
@@ -313,7 +319,11 @@ def test_graph_retries_without_attachment_after_413(tmp_path):
     assert len(graph.calls) == 2
     assert graph.calls[0]["xlsx_bytes"] == b"PK\x03\x04"
     assert graph.calls[1]["xlsx_bytes"] is None
-    assert "too large" in graph.calls[1]["body_text"].lower()
+    url = "https://achim.sharepoint.com/Test/ordered.xlsx"
+    assert url in graph.calls[1]["body_text"]
+    assert "Download workbook" in graph.calls[1]["body_html"]
+    assert url in graph.calls[1]["body_html"]
+    assert res.sharepoint_url == url
 
 
 def test_sharepoint_mock_lists_folders(tmp_path):
@@ -420,6 +430,56 @@ def test_upload_drive_item_uses_session_over_4mb():
     assert big["webUrl"] == "https://sp/file"
     assert req.posts[0][0] == "https://graph/session"
     assert req.puts[0][0] == "https://upload/session"
+
+
+def test_resolve_web_url_from_body_get_then_create_link():
+    from web.delivery.graph_upload import resolve_web_url, web_url_from_item
+
+    class _Resp:
+        def __init__(self, payload, ok=True):
+            self.ok = ok
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Req:
+        def __init__(self, get_payload=None, post_payload=None, get_ok=True):
+            self.get_payload = get_payload or {}
+            self.post_payload = post_payload or {}
+            self.get_ok = get_ok
+            self.gets = []
+            self.posts = []
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            return _Resp(self.get_payload, ok=self.get_ok)
+
+        def post(self, url, **kwargs):
+            self.posts.append((url, kwargs.get("json")))
+            return _Resp(self.post_payload)
+
+    assert web_url_from_item({"link": {"webUrl": "https://from-link"}}) == "https://from-link"
+    assert resolve_web_url(
+        _Req(), headers={}, body={"webUrl": "https://from-body"},
+        get_url="https://g", items_base="https://i", timeout=1,
+    ) == "https://from-body"
+
+    req = _Req(get_payload={"webUrl": "https://from-get", "id": "x"})
+    assert resolve_web_url(
+        req, headers={}, body={"id": "x"},
+        get_url="https://g", items_base="https://i", timeout=1,
+    ) == "https://from-get"
+    assert req.gets == ["https://g"]
+    assert req.posts == []
+
+    req = _Req(get_payload={"id": "x"}, post_payload={"link": {"webUrl": "https://from-link"}})
+    assert resolve_web_url(
+        req, headers={}, body={},
+        get_url="https://g", items_base="https://i", timeout=1,
+    ) == "https://from-link"
+    assert req.posts == [("https://i/x/createLink",
+                          {"type": "view", "scope": "organization"})]
 
 
 def test_sharepoint_prod_without_creds_raises(tmp_path):

@@ -16,6 +16,64 @@ CHUNK_SIZE = 327680 * 10  # 3.2 MiB
 class _Requests(Protocol):
     def put(self, url: str, **kwargs): ...
     def post(self, url: str, **kwargs): ...
+    def get(self, url: str, **kwargs): ...
+
+
+def web_url_from_item(body: dict | None) -> str:
+    """Graph driveItem.webUrl, or createLink's nested link.webUrl."""
+    if not body:
+        return ""
+    url = str(body.get("webUrl") or "").strip()
+    if url:
+        return url
+    link = body.get("link")
+    if isinstance(link, dict):
+        return str(link.get("webUrl") or "").strip()
+    return ""
+
+
+def resolve_web_url(
+    requests: _Requests, *,
+    headers: dict[str, str],
+    body: dict | None,
+    get_url: str,
+    items_base: str,
+    timeout: float,
+) -> str:
+    """webUrl from the upload body, else GET the item, else an org view link.
+
+    Chunked upload sessions often return {expirationDateTime, nextExpectedRanges}
+    with no webUrl. The file is on the drive; we have to ask for the item.
+    """
+    url = web_url_from_item(body)
+    if url:
+        return url
+    item_id = str((body or {}).get("id") or "")
+    try:
+        r = requests.get(get_url, headers=headers, timeout=timeout)
+        if getattr(r, "ok", False):
+            data = r.json() if hasattr(r, "json") else {}
+            url = web_url_from_item(data)
+            if url:
+                return url
+            item_id = str(data.get("id") or item_id)
+    except Exception:  # noqa: BLE001 - still try createLink from the upload id
+        pass
+    if not item_id:
+        return ""
+    try:
+        r = requests.post(
+            f"{items_base}/{item_id}/createLink",
+            headers={**headers, "Content-Type": "application/json"},
+            json={"type": "view", "scope": "organization"},
+            timeout=timeout,
+        )
+        if not getattr(r, "ok", False):
+            return ""
+        data = r.json() if hasattr(r, "json") else {}
+        return web_url_from_item(data)
+    except Exception:  # noqa: BLE001 - caller can still send the mail without a URL
+        return ""
 
 
 def upload_drive_item(

@@ -82,7 +82,7 @@ class OneDriveService:
                     "name": filename, "id": f"mock-od-{filename}", "mock": True}
         import requests
 
-        from web.delivery.graph_upload import upload_drive_item
+        from web.delivery.graph_upload import resolve_web_url, upload_drive_item
 
         self._ensure_folder(user, rel_folder)
         folder = _enc_path(rel_folder)
@@ -90,14 +90,24 @@ class OneDriveService:
             item = f"{self._drive_root(user)}:{folder}/{quote(filename)}"
         else:
             item = f"{self._drive_root(user)}:/{quote(filename)}"
+        headers = self._headers()
         body = upload_drive_item(
             requests,
             put_url=f"{item}:/content",
             session_url=f"{item}:/createUploadSession",
-            headers=self._headers(),
+            headers=headers,
             content=content, put_timeout=UPLOAD_TIMEOUT,
         )
-        return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
+        url = resolve_web_url(
+            requests, headers=headers, body=body,
+            get_url=item,
+            items_base=f"{GRAPH_BASE}/users/{quote(user)}/drive/items",
+            timeout=TIMEOUT,
+        )
+        if not url:
+            log.warning("OneDrive uploaded %s but Graph returned no webUrl", filename)
+        return {"webUrl": url or None, "name": body.get("name") or filename,
+                "id": body.get("id")}
 
     def _drive_root(self, user: str) -> str:
         return f"{GRAPH_BASE}/users/{quote(user)}/drive/root"
