@@ -78,12 +78,15 @@ def create_app(config: Config | None = None) -> Flask:
 
 
 def _register_reporting(app: Flask, cfg: Config, db) -> None:
-    """Build the reporting stack (no background threads here - wsgi starts those).
+    """Build the reporting stack (no background threads here).
 
     Routes enqueue runs onto the durable job table and read results from the one
-    cache; the worker (started by `bootstrap_background`) drains the queue.
+    cache; a separate worker process drains the queue.
     """
-    from web.dashboard.jobs import DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler
+    from web.dashboard.jobs import (
+        DASHBOARD_REFRESH_JOB_TYPE, LOOKUPS_REFRESH_JOB_TYPE,
+        make_lookups_refresh_handler, make_refresh_handler,
+    )
     from web.dashboard.mirror import MirrorService
     from web.dashboard.service import DashboardService
     from web.data.repositories.dashboard import DashboardRepository
@@ -113,7 +116,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     service = ReportService(client, salesmen_repo)
     cache = ReportCache(db)
     runner = ReportRunner(cache)
-    worker = JobWorker(db, app=app)
+    worker = JobWorker(db, app=app, max_workers=1)
     run_log = ReportRunLogRepository(db)
     worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for, run_log))
 
@@ -134,6 +137,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     mirror = MirrorService(
         customers_fetch=service.customer_universe, orders_fetch=service.all_orders, repo=dash_repo)
     worker.register(DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler(mirror, db))
+    worker.register(LOOKUPS_REFRESH_JOB_TYPE, make_lookups_refresh_handler(mirror))
     app.config["DASHBOARD_REPO"] = dash_repo
     app.config["DASHBOARD_SERVICE"] = DashboardService(dash_repo)
     app.config["MIRROR_SERVICE"] = mirror
@@ -350,6 +354,18 @@ def _register_cli(app: Flask, db) -> None:
         applied = migrate(db)
         print("Applied migrations:", applied)
 
+    @app.cli.command("bootstrap")
+    def bootstrap_cmd():  # pragma: no cover - invoked via `flask bootstrap`
+        from web.background import run_bootstrap_cli
+
+        run_bootstrap_cli(app)
+
+    @app.cli.command("worker")
+    def worker_cmd():  # pragma: no cover - invoked via `flask worker`
+        from web.background import run_worker
+
+        run_worker(app)
+
     @app.cli.command("import-live-users")
     def import_live_users_cmd():
         from web.data.repositories.app_settings import AppSettingsRepository
@@ -370,7 +386,7 @@ def _register_cli(app: Flask, db) -> None:
 
 
 
-from web.background import bootstrap_background, is_background_leader_process
+from web.background import bootstrap_background, is_background_leader_process, run_bootstrap
 from web.seeds import (
     _AZURE_SCHEDULES,
     _LIVE_RUNBOOK_SCHEDULES,
@@ -383,4 +399,5 @@ __all__ = [
     "create_app",
     "bootstrap_background",
     "is_background_leader_process",
+    "run_bootstrap",
 ]

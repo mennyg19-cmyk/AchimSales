@@ -6,9 +6,10 @@
 # Responsibilities, in order:
 #   1. (Defensive) pip install the deployed requirements.
 #   2. Litestream restore + replicate (required when APP_ENV=prod).
-#   3. Launch gunicorn with --config=gunicorn.conf.py so the leader-election
-#      post_fork hook runs (exactly ONE worker owns the email-distribution loop
-#      AND the v3 job worker + scheduler -- no duplicate sends).
+#   3. Launch tools/supervise-web.sh under Litestream: bootstrap, then Gunicorn
+#      (HTTP) and python -m web.worker_main (jobs + scheduler) as siblings.
+#      If either process exits, the supervisor stops the other so the platform
+#      restarts the unit. One App Service instance while SQLite is used.
 #
 # CRITICAL: in APP_ENV=prod this process must not serve an empty precious.db.
 # Restore failure or missing Litestream settings abort boot. Local APP_ENV=dev
@@ -34,6 +35,10 @@ LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
 LS_SHA256="${LITESTREAM_SHA256:-eb75a3de5cab03875cdae9f5f539e6aedadd66607003d9b1e7a9077948818ba0}"
 
 GUNICORN_CMD="gunicorn --config=${ROOT}/gunicorn.conf.py --bind=0.0.0.0:${PORT} --workers=${WORKERS} --worker-class=gthread --threads=${THREADS} --timeout=${TIMEOUT} --access-logfile=- --error-logfile=- wsgi:application"
+export GUNICORN_CMD
+export STARTUP_ROOT="${ROOT}"
+export PYTHONPATH="${ROOT}/v3:${ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+SUPERVISE_CMD="bash ${ROOT}/tools/supervise-web.sh"
 
 # 1. Defensive dependency install (Oryx usually already did this on deploy).
 if [ -z "${STARTUP_SKIP_PIP:-}" ]; then
@@ -140,8 +145,8 @@ if [ -x "${LS_BIN}" ] && [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${R
         ;;
     esac
   fi
-  echo "startup: launching gunicorn under litestream replicate"
-  exec "${LS_BIN}" replicate -config "${ROOT}/litestream.yml" -exec "${GUNICORN_CMD}"
+  echo "startup: launching gunicorn + worker under litestream replicate"
+  exec "${LS_BIN}" replicate -config "${ROOT}/litestream.yml" -exec "${SUPERVISE_CMD}"
 fi
 
 # 3. Fallback: no Litestream. Dev only.
@@ -149,5 +154,5 @@ if [ "${APP_ENV}" = "prod" ]; then
   echo "startup: litestream not active; refusing prod boot"
   exit 1
 fi
-echo "startup: litestream not active; launching gunicorn directly"
-exec ${GUNICORN_CMD}
+echo "startup: litestream not active; launching gunicorn + worker directly"
+exec ${SUPERVISE_CMD}

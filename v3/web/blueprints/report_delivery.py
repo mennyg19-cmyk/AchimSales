@@ -12,6 +12,7 @@ from web.blueprints.reports import (
 from web.delivery.email import split_recipients
 from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
+from web.jobs.queue import enqueue_or_503
 
 @reports_bp.post("/api/reports/<report_key>/email-now")
 @require_login
@@ -34,7 +35,7 @@ def email_now(report_key: str):
     if sharepoint_path and not authz.has_sharepoint_access(p):
         abort(403, description="You don't have SharePoint delivery access.")
 
-    job_id = enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
+    job_id = enqueue_or_503(lambda: enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
         "report_key": report_key, "identity": p.email,
         "visible_keys": _visible_list(authz.visible_salesman_keys(p)),
         "builder_version": spec.builder_version,
@@ -42,7 +43,7 @@ def email_now(report_key: str):
         "layout": body.get("layout") or {}, "recipients": recipients,
         "subject": (body.get("subject") or "").strip(), "report_name": spec.title,
         "sharepoint_path": sharepoint_path,
-    })
+    }))
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
         worker.drain()

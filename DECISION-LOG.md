@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 4: HTTP vs worker split
+**What I had to decide:** How Gunicorn stays HTTP-only, how dropdowns stay filled without a Gunicorn thread, queue backpressure numbers, and heartbeat stale windows.
+**Options I considered:** (1) Keep a lookups thread in each Gunicorn worker. (2) HTTP reads the sqlite customer mirror; the worker cron fills it (`lookups.refresh` when the dashboard UI is off, full `dashboard.refresh` when it is on). (3) Add a process-supervision framework.
+**What I chose:** (2). Shell supervisor only (`tools/supervise-web.sh`). One killable child at a time, 45-minute cap, cancel + SIGKILL. Interactive enqueue refuses at 40 queued or when the oldest queued job is older than 20 minutes; `schedule.run` / mirror jobs skip that so exports cannot starve deliveries. Prod `/readyz` is 503 if the worker heartbeat is older than 90s or the scheduler heartbeat is older than 180s. Dev `/readyz` does not require heartbeats.
+**Why:** Phase 4 gate forbids ThreadPoolExecutor / scheduler / poller / lookup threads in Flask/Gunicorn. Home site has dashboard refresh off, so a customer-only mirror job is what keeps salesman/customer dropdowns populated. No new framework.
+**Status:** DECIDED — Phase 4 implementation.
+
 ## 2026-08-31 Phase 3: defer Loop C Q1 test helper
 **What I had to decide:** Extract a shared helper for five scoped-tab tests that stringify `tab["rows"]`, or leave them inline.
 **Options I considered:** (1) Extract `_assert_tabs_exclude`. (2) Leave inline; Loop C called it optional and non-blocking.

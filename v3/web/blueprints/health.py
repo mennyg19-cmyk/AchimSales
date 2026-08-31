@@ -4,9 +4,9 @@ Rule 9 / security: liveness returns the MINIMUM needed for a load balancer.
 It must NOT leak auth mode, secrets, paths, or any operational detail
 (the live `/healthz` leaked config - we do not repeat that).
 
-`/healthz` is liveness (process up). `/readyz` is readiness (precious.db present
-in prod, startup did not mark a failed Litestream restore, and
-`bootstrap_background` did not fail).
+`/healthz` is liveness (process up). `/readyz` is readiness: precious.db in
+prod, no failed Litestream restore, bootstrap did not fail, and (prod) worker
++ scheduler heartbeats are fresh.
 """
 
 from __future__ import annotations
@@ -14,6 +14,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, url_for
+
+from web.jobs.limits import (
+    SCHEDULER_HEARTBEAT_STALE_SECONDS,
+    WORKER_HEARTBEAT_STALE_SECONDS,
+)
 
 health_bp = Blueprint("health", __name__)
 
@@ -40,7 +45,28 @@ def readyz():
         marker = Path(cfg.precious_db_path).with_name(".litestream-restore-failed")
         if marker.is_file():
             return {"status": "not_ready"}, 503
+        if not _heartbeats_fresh(current_app):
+            return {"status": "not_ready"}, 503
     return {"status": "ok"}, 200
+
+
+def _heartbeats_fresh(app) -> bool:
+    from web.data.repositories.app_settings import AppSettingsRepository
+
+    db = app.config.get("DB")
+    if db is None:
+        return False
+    try:
+        settings = AppSettingsRepository(db)
+        worker_age = settings.heartbeat_age_seconds("worker_heartbeat")
+        sched_age = settings.heartbeat_age_seconds("scheduler_heartbeat")
+    except Exception:  # noqa: BLE001 - missing schema or locked DB is not ready
+        return False
+    if worker_age is None or worker_age > WORKER_HEARTBEAT_STALE_SECONDS:
+        return False
+    if sched_age is None or sched_age > SCHEDULER_HEARTBEAT_STALE_SECONDS:
+        return False
+    return True
 
 
 @health_bp.get("/manifest.json")

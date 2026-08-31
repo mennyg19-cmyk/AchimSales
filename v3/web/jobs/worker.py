@@ -1,14 +1,19 @@
-"""Bounded in-process worker draining the durable job table.
+"""Durable job drain: in-process for tests, killable child processes in prod.
 
-Capacity is bounded by a semaphore so we never mark more jobs `running` than we
-can actually execute on a 1-vCPU B1. The poller claims a job only after acquiring
-capacity, runs the registered handler, and records success/failure in the DB.
+Capacity on the B1 is one child at a time. The parent claims a row, spawns
+``python -m web.jobs.child JOB_ID``, and waits with a hard timeout. Timeout
+kills the child process group and records cancelled.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import signal
+import subprocess
+import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -16,6 +21,7 @@ from typing import Callable
 
 from web.data.connection import Database
 from web.data.repositories.jobs import Job, JobRepository
+from web.jobs.limits import JOB_TIMEOUT_SECONDS, WORKER_BEAT_EVERY_SECONDS
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +53,7 @@ Handler = Callable[[JobContext], str]
 
 
 class JobWorker:
-    def __init__(self, db: Database, max_workers: int = 2, app=None):
+    def __init__(self, db: Database, max_workers: int = 1, app=None):
         self.repo = JobRepository(db)
         self.max_workers = max(1, max_workers)
         self.app = app
@@ -56,6 +62,7 @@ class JobWorker:
         self._stop = threading.Event()
         self._executor: ThreadPoolExecutor | None = None
         self._poller: threading.Thread | None = None
+        self._child_proc: subprocess.Popen | None = None
 
     def register(self, job_type: str, handler: Handler) -> None:
         self.handlers[job_type] = handler
@@ -66,17 +73,14 @@ class JobWorker:
         return self._poller is not None
 
     def health(self) -> dict:
-        """Live snapshot of the poller for the admin diagnostic. Lets us tell a
-        worker that never started from one whose poller thread died from one
-        that's wedged with every capacity slot held by a hung handler. Only the
-        background-leader process actually runs a poller; on a follower this
-        reports started=False (which is correct for that process)."""
+        """Live snapshot of the poller for the admin diagnostic."""
         return {
-            "started": self._poller is not None,
+            "started": self._poller is not None or self._child_proc is not None,
             "poller_alive": bool(self._poller and self._poller.is_alive()),
             "max_workers": self.max_workers,
-            "free_slots": self._sem._value,  # how many jobs it could claim right now
+            "free_slots": self._sem._value,
             "handler_types": sorted(self.handlers),
+            "child_pid": None if self._child_proc is None else self._child_proc.pid,
         }
 
     # --- synchronous driving (used by tests + simple call sites) -----------
@@ -97,6 +101,9 @@ class JobWorker:
         return count
 
     def _run(self, job: Job) -> None:
+        current = self.repo.get(job.id)
+        if current is None or current.status != "running":
+            return
         handler = self.handlers.get(job.type)
         if handler is None:
             self.repo.mark_failure(job.id, f"no handler for job type {job.type!r}")
@@ -112,13 +119,107 @@ class JobWorker:
             log.exception("job %s (%s) failed", job.id, job.type)
             self.repo.mark_failure(job.id, str(exc))
 
-    # --- background lifecycle ----------------------------------------------
+    # --- killable child (production worker process) ------------------------
+
+    def run_forever(self, poll_interval: float = 1.0,
+                    job_timeout: float | None = None) -> None:
+        """Claim one job at a time, run it in a child, wait or kill on timeout."""
+        timeout = JOB_TIMEOUT_SECONDS if job_timeout is None else job_timeout
+        recovered = self.repo.recover_orphans()
+        if recovered:
+            log.info("recovered %d orphaned running job(s) on startup", recovered)
+        self._stop.clear()
+        self._install_stop_signals()
+        self._beat_worker()
+        last_beat = time.monotonic()
+        log.info("job child loop entered (timeout=%ss, poll=%.1fs)", timeout, poll_interval)
+        while not self._stop.is_set():
+            now = time.monotonic()
+            if now - last_beat >= WORKER_BEAT_EVERY_SECONDS:
+                self._beat_worker()
+                last_beat = now
+            job = self.repo.claim_next()
+            if job is None:
+                self._stop.wait(poll_interval)
+                continue
+            log.info("job worker claimed %s (%s)", job.id, job.type)
+            self._run_in_child(job, timeout)
+        log.warning("job child loop exited (stop=%s)", self._stop.is_set())
+
+    def process_next_child(self, timeout: float | None = None) -> str | None:
+        """Claim one job and run it in a child (tests). Returns the job id or None."""
+        job = self.repo.claim_next()
+        if job is None:
+            return None
+        self._run_in_child(
+            job, JOB_TIMEOUT_SECONDS if timeout is None else timeout,
+        )
+        return job.id
+
+    def _run_in_child(self, job: Job, timeout: float) -> None:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "web.jobs.child", job.id],
+            start_new_session=True,
+        )
+        self._child_proc = proc
+        try:
+            rc = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            log.warning("job %s timed out after %ss; killing child pid=%s",
+                        job.id, timeout, proc.pid)
+            self._kill_child(proc)
+            self.repo.cancel(job.id, error="Timed out (45 minute cap)")
+            return
+        finally:
+            self._child_proc = None
+        if rc not in (0, None):
+            current = self.repo.get(job.id)
+            if current is not None and current.status == "running":
+                self.repo.mark_failure(job.id, f"job child exited {rc}")
+
+    def _kill_child(self, proc: subprocess.Popen) -> None:
+        try:
+            if hasattr(os, "killpg"):
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:
+                proc.kill()
+        except (ProcessLookupError, OSError):
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+    def _beat_worker(self) -> None:
+        from web.data.repositories.app_settings import AppSettingsRepository
+
+        try:
+            AppSettingsRepository(self.repo.db).beat_worker(os.getpid())
+        except Exception:  # noqa: BLE001 - heartbeat must not kill the loop
+            log.exception("worker heartbeat failed")
+
+    def _install_stop_signals(self) -> None:
+        def _handle(signum, _frame):
+            log.info("job worker received signal %s; stopping", signum)
+            self._stop.set()
+            if self._child_proc is not None:
+                self._kill_child(self._child_proc)
+
+        try:
+            signal.signal(signal.SIGTERM, _handle)
+            signal.signal(signal.SIGINT, _handle)
+        except (ValueError, OSError):
+            # Not the main thread (tests) — stop() still works.
+            pass
+
+    # --- background lifecycle (in-process threads; tests / local drain) ----
 
     def start(self, poll_interval: float = 1.0) -> None:
         if self._poller is not None:
             return
-        # Recover jobs orphaned in 'running' by a previous crash/restart before we
-        # begin claiming new ones (plan section 10: jobs survive a B1 restart).
         recovered = self.repo.recover_orphans()
         if recovered:
             log.info("recovered %d orphaned running job(s) on startup", recovered)
@@ -128,9 +229,6 @@ class JobWorker:
         self._poller.start()
 
     def _loop(self, poll_interval: float) -> None:
-        # Heartbeat so the logs PROVE the poller is actually iterating (an alive
-        # thread that isn't looping looks identical from the outside otherwise).
-        # ~30s cadence at the default 1s poll: quiet enough to leave on in prod.
         heartbeat_every = max(1, int(30 / poll_interval))
         iterations = 0
         log.info("job poller loop entered (max_workers=%d, poll=%.1fs)", self.max_workers, poll_interval)
@@ -162,6 +260,8 @@ class JobWorker:
 
     def stop(self, wait: bool = True) -> None:
         self._stop.set()
+        if self._child_proc is not None:
+            self._kill_child(self._child_proc)
         if self._poller is not None:
             self._poller.join(timeout=5)
             self._poller = None

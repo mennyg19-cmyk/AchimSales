@@ -87,6 +87,12 @@ def hold_until_next_slot(repo, runs: ScheduleRunRepository, sched,
 def make_tick(db, job_repo: JobRepository):
     """Build the no-arg callable APScheduler will fire each minute."""
     def tick() -> None:
+        from web.data.repositories.app_settings import AppSettingsRepository
+        settings = AppSettingsRepository(db)
+        try:
+            settings.beat_scheduler()
+        except Exception:  # noqa: BLE001 - heartbeat must not kill the tick
+            log.exception("scheduler heartbeat failed")
         try:
             n = enqueue_due(db, job_repo)
             if n:
@@ -98,8 +104,9 @@ def make_tick(db, job_repo: JobRepository):
             ExportRepository(db).prune()
             hung = job_repo.fail_hung(45 * 60)
             if hung:
-                log.warning("hung-job cap failed %d running job(s)", hung)
+                log.warning("hung-job cap cancelled %d running job(s)", hung)
             MagicLinkRepository(db).prune(older_than_days=90)
+            settings.beat_cleanup()
         except Exception:  # noqa: BLE001 - reaper must not kill the tick
             log.exception("cache/export/hung-job reaper failed")
 

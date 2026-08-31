@@ -6,6 +6,29 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 4 process ownership (2026-08-31)
+
+**What to test:**
+- `create_app` / Gunicorn `wsgi.py` start no job poller, scheduler, bootstrap thread, or `v3-lookups` thread.
+- `flask bootstrap` / `python -m web.bootstrap` migrates and seeds and does not start the worker.
+- The worker process claims a job. `python -m web.jobs.child JOB_ID` runs an already-claimed row.
+- A child timeout kills the process group, records `cancelled`, and a later job can still run (`test_child_timeout_cancels_and_kills`, `test_two_hung_children_do_not_stop_the_queue`).
+- Worker crash recovery still requeues only jobs under the retry cap (`test_orphaned_running_job_is_recovered`, `test_repeatedly_crashing_job_is_failed_not_looped`).
+- Scheduler `start()` failure raises out of `run_worker` (`test_scheduler_start_failure_stops_the_worker`).
+- `tools/supervise-web.sh` runs bootstrap first; if either Gunicorn or the worker exits, the other is stopped (`tests/test_supervise_web.py`).
+- Prod `/readyz` is 503 when worker/scheduler heartbeats are missing or stale; `/healthz` stays 200. Dev `/readyz` stays 200 without heartbeats. `.bootstrap-failed` still 503.
+- `claim_next` prefers `schedule.run` over interactive exports. Interactive enqueue is 503 when the queue is deeper than 40 or the oldest queued job is older than 20 minutes; `schedule.run` is exempt.
+- HTTP lookup `status()` does not start a thread. Home-site dropdowns read the sqlite customer mirror; the worker cron `lookups.refresh` fills it when the dashboard UI is off.
+
+**Expected behavior:**
+- Flask/Gunicorn only serve HTTP and enqueue/read durable state.
+- A timed-out report actually stops (child killed), not only a DB row flip.
+- A killed worker cannot leave prod `/readyz` green.
+
+**Test files:** `v3/tests/test_process_ownership.py`, `v3/tests/test_jobs.py`, `v3/tests/test_smoke.py`, `tests/test_supervise_web.py`, `v3/tests/test_dashboard_mirror.py`
+
+---
+
 ## Phase 1.1 production deploy workflow (2026-08-28)
 
 **What to test:**
@@ -65,13 +88,13 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **What to test:**
 - Custom dates raise; commission `1` is 1%; monthly commission uses each month's rate; Ordered Summary groups by CustomerAccount; Hebcal failure skips send.
-- Keep this run stores a precious snapshot; cache prune does not drop it; tick prunes cache/exports and fails jobs running > 45 minutes.
+- Keep this run stores a precious snapshot; cache prune does not drop it; tick prunes cache/exports and cancels jobs running > 45 minutes.
 - Graph 429 honors Retry-After (`test_graph_send_retries_429_then_succeeds` asserts the delay; `test_upload_session_retries_429` same for upload sessions).
 - Manual Send now does not consume the scheduled slot (`test_last_run_at_ignores_manual_trigger`). Catch-up clears only after success; stays after failure/cancel. Schedule history uses payload `row_count`. Tick prune + hung-job cap (`test_tick_prunes_cache_exports_and_fails_hung`).
 - `POST /api/reports/<key>/run` returns 400 for invalid custom dates (`test_run_invalid_custom_dates_returns_400`). Cancel after cache put drops the row (`test_cancel_after_put_drops_cache`).
 - Bad Litestream checksum refuses install (`test_prod_bad_litestream_checksum_refuses_boot`).
 - Empty-disk prod restore refuses boot (`tests/test_startup_restore.py`). Live Azure drill is not in CI.
-- Hung jobs running > 45 minutes fail and are not requeued (`test_fail_hung_marks_old_running_jobs_failed_not_requeued`).
+- Hung jobs running > 45 minutes are cancelled and are not requeued (`test_fail_hung_cancels_old_running_jobs_not_requeued`). The worker also kills the child on that cap.
 - Prod outbox-only delivery is not success (`test_prod_outbox_only_is_not_success`).
 - A master schedule with no recipients, folder, or salesman split fails instead of recording success (`test_runner_master_with_no_targets_fails`).
 - Demoted users cannot download a finished export that was built wider than their live scope, or an invoiced file that still has the Commissions tab (`test_demoted_admin_cannot_download_unrestricted_export`, `test_demoted_manager_cannot_download_commissions_export`).

@@ -105,6 +105,51 @@ def test_readyz_503_when_prod_db_missing(tmp_path):
     assert ready.get_json() == {"status": "not_ready"}
 
 
+def test_readyz_503_when_prod_heartbeats_missing(tmp_path):
+    from web.data.migrate import migrate
+
+    application = create_app(_prod_cfg(tmp_path))
+    migrate(application.config["DB"])
+    client = application.test_client()
+    assert client.get("/healthz").status_code == 200
+    ready = client.get("/readyz")
+    assert ready.status_code == 503
+    assert ready.get_json() == {"status": "not_ready"}
+
+
+def test_readyz_ok_in_prod_when_heartbeats_fresh(tmp_path):
+    from web.data.migrate import migrate
+    from web.data.repositories.app_settings import AppSettingsRepository
+
+    application = create_app(_prod_cfg(tmp_path))
+    migrate(application.config["DB"])
+    settings = AppSettingsRepository(application.config["DB"])
+    settings.beat_worker(1)
+    settings.beat_scheduler()
+    client = application.test_client()
+    ready = client.get("/readyz")
+    assert ready.status_code == 200
+    assert ready.get_json() == {"status": "ok"}
+
+
+def test_readyz_503_when_prod_scheduler_heartbeat_stale(tmp_path):
+    from web.data.migrate import migrate
+    from web.data.repositories.app_settings import AppSettingsRepository
+
+    application = create_app(_prod_cfg(tmp_path))
+    migrate(application.config["DB"])
+    settings = AppSettingsRepository(application.config["DB"])
+    settings.beat_worker(1)
+    settings.beat_scheduler()
+    with application.config["DB"].precious() as conn:
+        conn.execute(
+            "UPDATE app_settings SET value=? WHERE key='scheduler_heartbeat'",
+            ("2000-01-01T00:00:00+00:00",),
+        )
+    client = application.test_client()
+    assert client.get("/readyz").status_code == 503
+
+
 def test_csrf_blocks_write_without_token(app_with_write_route):
     client = app_with_write_route.test_client()
     resp = client.post("/_test/write")

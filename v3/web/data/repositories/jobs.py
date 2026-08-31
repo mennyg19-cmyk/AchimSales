@@ -16,8 +16,18 @@ from datetime import datetime, timezone
 from typing import Any
 
 from web.data.connection import Database
+from web.jobs.limits import (
+    ADMISSION_EXEMPT_TYPES,
+    MAX_QUEUE_AGE_SECONDS,
+    MAX_QUEUED_JOBS,
+    PRIORITY_SQL,
+)
 
 _ACTIVE = ("queued", "running")
+
+
+class QueueAdmissionError(Exception):
+    """Interactive enqueue refused because the durable queue is backed up."""
 
 # How many times crash-recovery will requeue a job before giving up on it. A job
 # that keeps dying mid-run (an out-of-memory report the OS SIGKILLs never gets to
@@ -73,6 +83,16 @@ class JobRepository:
     def enqueue(self, job_type: str, *, owner_user_id: int | None = None,
                 dedup_key: str | None = None, params: dict[str, Any] | None = None) -> str:
         """Create a job, or return the existing active job id for the same dedup_key."""
+        if dedup_key:
+            with self.db.precious() as conn:
+                existing = conn.execute(
+                    "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
+                    (dedup_key, *_ACTIVE),
+                ).fetchone()
+                if existing:
+                    return existing["id"]
+        if job_type not in ADMISSION_EXEMPT_TYPES:
+            self._assert_admission()
         job_id = uuid.uuid4().hex
         with self.db.precious() as conn:
             if dedup_key:
@@ -99,16 +119,52 @@ class JobRepository:
                 raise
         return job_id
 
+    def _assert_admission(self) -> None:
+        """Refuse interactive work when the queue is already too deep or too old.
+
+        Clock `schedule.run` (and worker-owned mirror refreshes) skip this so
+        exports cannot starve deliveries.
+        """
+        with self.db.precious() as conn:
+            queued = conn.execute(
+                "SELECT COUNT(*) AS n FROM jobs WHERE status='queued'"
+            ).fetchone()["n"]
+            oldest = conn.execute(
+                "SELECT MIN(created_at) AS t FROM jobs WHERE status='queued'"
+            ).fetchone()["t"]
+        if queued >= MAX_QUEUED_JOBS:
+            raise QueueAdmissionError(
+                "The report queue is busy. Try again in a few minutes."
+            )
+        if queued and oldest:
+            try:
+                created = datetime.fromisoformat(str(oldest))
+            except ValueError:
+                created = None
+            if created is not None:
+                if created.tzinfo is not None:
+                    created = created.astimezone(timezone.utc).replace(tzinfo=None)
+                age = (datetime.now(timezone.utc).replace(tzinfo=None) - created).total_seconds()
+                if age > MAX_QUEUE_AGE_SECONDS:
+                    raise QueueAdmissionError(
+                        "The report queue is backed up. Try again in a few minutes."
+                    )
+
     def get(self, job_id: str) -> Job | None:
         with self.db.precious() as conn:
             row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
             return Job.from_row(row) if row else None
 
     def claim_next(self) -> Job | None:
-        """Atomically move the oldest queued job to running and return it."""
+        """Atomically move the next queued job to running.
+
+        Scheduled deliveries win over interactive exports so a busy viewer
+        cannot starve the clock.
+        """
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+                f"SELECT * FROM jobs WHERE status = 'queued' "
+                f"ORDER BY {PRIORITY_SQL}, created_at LIMIT 1"
             ).fetchone()
             if not row:
                 return None
@@ -141,22 +197,27 @@ class JobRepository:
                 (error, _now(), job_id),
             )
 
-    def cancel(self, job_id: str) -> bool:
+    def cancel(self, job_id: str, *, error: str = "") -> bool:
         """Cancel a queued OR running job. Returns True if it was active to cancel.
 
-        A queued job never starts. A running job can't be yanked out of its
-        upstream call mid-flight (e.g. a slow Reporting API request that hasn't
-        returned yet), so that worker thread keeps going until the call ends -
-        but marking the row 'cancelled' lets the screen stop waiting on it right
-        away, and `mark_success`/`mark_failure` are guarded to 'running' so when
-        the call finally finishes it can't overwrite the cancellation.
+        A queued job never starts. A running job's child is killed by the
+        worker on timeout; this row update is what the UI sees. mark_success
+        / mark_failure are guarded to 'running' so a late child cannot
+        overwrite the cancellation.
         """
         with self.db.precious() as conn:
-            updated = conn.execute(
-                "UPDATE jobs SET status='cancelled', finished_at=?"
-                " WHERE id=? AND status IN (?, ?)",
-                (_now(), job_id, *_ACTIVE),
-            )
+            if error:
+                updated = conn.execute(
+                    "UPDATE jobs SET status='cancelled', error=?, finished_at=?"
+                    " WHERE id=? AND status IN (?, ?)",
+                    (error, _now(), job_id, *_ACTIVE),
+                )
+            else:
+                updated = conn.execute(
+                    "UPDATE jobs SET status='cancelled', finished_at=?"
+                    " WHERE id=? AND status IN (?, ?)",
+                    (_now(), job_id, *_ACTIVE),
+                )
             return updated.rowcount == 1
 
     def recover_orphans(self, running_older_than_seconds: float | None = None,
@@ -312,16 +373,15 @@ class JobRepository:
 
     def fail_hung(self, older_than_seconds: float, *,
                   error: str = "Timed out (hung job cap)") -> int:
-        """Mark long-running jobs failed so the UI unblocks. Does not requeue
-        (that would double-send). The worker thread may still finish; mark_success
-        is guarded to status='running' so it cannot resurrect the row."""
+        """Cancel long-running jobs the child killer missed. Does not requeue
+        (that would double-send). mark_success is guarded to status='running'."""
         cutoff = datetime.fromtimestamp(
             datetime.now(timezone.utc).timestamp() - older_than_seconds,
             tz=timezone.utc,
         ).isoformat()
         with self.db.precious() as conn:
             cur = conn.execute(
-                "UPDATE jobs SET status='failure', error=?, finished_at=?"
+                "UPDATE jobs SET status='cancelled', error=?, finished_at=?"
                 " WHERE status='running' AND started_at IS NOT NULL AND started_at < ?",
                 (error, _now(), cutoff),
             )

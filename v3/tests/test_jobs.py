@@ -6,7 +6,7 @@ import pytest
 
 from web.data.connection import Database
 from web.data.migrate import migrate
-from web.data.repositories.jobs import JobRepository
+from web.data.repositories.jobs import JobRepository, QueueAdmissionError
 from web.data.repositories.users import UserRepository
 from web.jobs.scheduler import Scheduler
 from web.jobs.worker import JobContext, JobWorker
@@ -302,7 +302,36 @@ def test_keep_run_stores_name_and_drops_oldest_over_cap(db):
     assert jobs.get(ids[2]).keep_name == "Gamma"
 
 
-def test_fail_hung_marks_old_running_jobs_failed_not_requeued(db):
+def test_claim_next_prefers_schedule_run_over_export(db):
+    jobs = JobRepository(db)
+    export_id = jobs.enqueue("report.export")
+    sched_id = jobs.enqueue("schedule.run")
+    claimed = jobs.claim_next()
+    assert claimed.id == sched_id
+    assert jobs.claim_next().id == export_id
+
+
+def test_admission_refuses_interactive_when_queue_is_deep(db, monkeypatch):
+    monkeypatch.setattr("web.data.repositories.jobs.MAX_QUEUED_JOBS", 2)
+    jobs = JobRepository(db)
+    jobs.enqueue("report.run")
+    jobs.enqueue("report.run")
+    with pytest.raises(QueueAdmissionError):
+        jobs.enqueue("report.export")
+    # Clock runs still enqueue so exports cannot starve deliveries.
+    sid = jobs.enqueue("schedule.run")
+    assert jobs.get(sid).status == "queued"
+
+
+def test_admission_allows_deduped_retry_when_queue_is_full(db, monkeypatch):
+    monkeypatch.setattr("web.data.repositories.jobs.MAX_QUEUED_JOBS", 1)
+    jobs = JobRepository(db)
+    a = jobs.enqueue("report.run", dedup_key="same")
+    b = jobs.enqueue("report.run", dedup_key="same")
+    assert a == b
+
+
+def test_fail_hung_cancels_old_running_jobs_not_requeued(db):
     jobs = JobRepository(db)
     old = jobs.enqueue("echo")
     fresh = jobs.enqueue("echo")
@@ -315,10 +344,10 @@ def test_fail_hung_marks_old_running_jobs_failed_not_requeued(db):
         )
     assert jobs.fail_hung(45 * 60) == 1
     hung = jobs.get(old)
-    assert hung.status == "failure" and "Timed out" in hung.error
+    assert hung.status == "cancelled" and "Timed out" in hung.error
     assert jobs.get(fresh).status == "running"
     jobs.mark_success(old, "late-result")
-    assert jobs.get(old).status == "failure"
+    assert jobs.get(old).status == "cancelled"
 
 
 def test_keep_run_copies_payload_off_the_disposable_cache(db):
@@ -346,3 +375,78 @@ def test_scheduler_queues_jobs_before_start():
         assert sched._scheduler.get_job("noop") is not None
     finally:
         sched.shutdown()
+
+
+def test_child_timeout_cancels_and_kills(db, monkeypatch):
+    import subprocess as sp
+
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 4242
+            self._waits = 0
+
+        def wait(self, timeout=None):
+            self._waits += 1
+            if self._waits == 1:
+                raise sp.TimeoutExpired("python -m web.jobs.child", timeout)
+            return 0
+
+        def kill(self):
+            return None
+
+    killed = []
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("web.jobs.worker.os.killpg", lambda pid, sig: killed.append((pid, sig)))
+    worker = JobWorker(db)
+    worker.register("echo", lambda ctx: "ok")
+    jid = JobRepository(db).enqueue("echo")
+    assert worker.process_next_child(timeout=0.05) == jid
+    done = JobRepository(db).get(jid)
+    assert done.status == "cancelled" and "Timed out" in done.error
+    assert killed and killed[0][0] == 4242
+
+
+def test_two_hung_children_do_not_stop_the_queue(db, monkeypatch):
+    import subprocess as sp
+
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 99
+            self._waits = 0
+
+        def wait(self, timeout=None):
+            self._waits += 1
+            if self._waits == 1:
+                raise sp.TimeoutExpired("child", timeout)
+            return 0
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("web.jobs.worker.os.killpg", lambda pid, sig: None)
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    worker.register("echo", lambda ctx: "ok")
+    a = jobs.enqueue("echo")
+    b = jobs.enqueue("echo")
+    c = jobs.enqueue("echo")
+    worker.process_next_child(timeout=0.05)
+    worker.process_next_child(timeout=0.05)
+    assert jobs.get(a).status == "cancelled"
+    assert jobs.get(b).status == "cancelled"
+    worker.process_next()
+    assert jobs.get(c).status == "success"
+
+
+def test_kill_child_terminates_a_real_process(db):
+    import subprocess as sp
+    import sys
+
+    worker = JobWorker(db)
+    proc = sp.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        start_new_session=True,
+    )
+    worker._kill_child(proc)
+    assert proc.poll() is not None

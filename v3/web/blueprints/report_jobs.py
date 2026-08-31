@@ -14,6 +14,7 @@ from web.blueprints.reports import (
     _job_repo, _lookups, _owned_job_or_404, _params_for_viewer, _principal_or_401,
     _selected_customer_accounts, _user_id, _visible_list, reports_bp,
 )
+from web.jobs.queue import enqueue_or_503
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
@@ -47,11 +48,11 @@ def run_report(report_key: str):
         resolve_window(params)
     except ValueError as exc:
         abort(400, description=str(exc))
-    job_id = enqueue_report_run(
+    job_id = enqueue_or_503(lambda: enqueue_report_run(
         _job_repo(), report_key=report_key, identity=p.email,
         visible_salesman_keys=visible, builder_version=spec.builder_version,
         params=params, owner_user_id=uid,
-    )
+    ))
 
     # In prod the background worker drains the queue; only in non-prod (no poller)
     # do we run it inline so a local dev poll resolves without a worker thread.
@@ -233,10 +234,10 @@ def export_report(report_key: str, job_id: str):
     layout = request.get_json(silent=True)
     if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)
         layout = {}
-    export_id = enqueue_export(
+    export_id = enqueue_or_503(lambda: enqueue_export(
         _job_repo(), owner_user_id=uid, source_job_id=job_id, report_key=report_key,
         report_name=spec.title, layout=layout,
-    )
+    ))
     # Non-prod has no background poller; drain inline so a local export resolves.
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:

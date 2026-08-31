@@ -73,3 +73,26 @@ class MirrorService:
         written = self.repo.replace_all(records)
         log.info("dashboard mirror rebuilt: %d customers", written)
         return written
+
+    def rebuild_customers_only(self) -> int:
+        """Write customer_master into the mirror with empty cadence metrics.
+
+        Home site keeps dashboard.refresh off (no all-time orders pull) but
+        salesman/customer dropdowns still need this table.
+        """
+        customers = list(self._customers())
+        records: list[DashboardCustomer] = []
+        for c in customers:
+            acct = c.customer_account
+            if not acct:
+                continue
+            records.append(DashboardCustomer(
+                customer_account=acct, customer_name=c.customer_name,
+                sales_group=c.sales_group or "",
+                last_order_date=None, order_count=0, avg_gap_days=None,
+                gap_stdev=None, overdue_threshold=None, days_since_last=None,
+                status="new",
+            ))
+        written = self.repo.replace_all(records)
+        log.info("lookups mirror rebuilt: %d customers", written)
+        return written

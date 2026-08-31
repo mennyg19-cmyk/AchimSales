@@ -88,6 +88,30 @@ class AppSettingsRepository:
             "grants": grants,
         }))
 
+    def beat_worker(self, pid: int) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self._set("worker_heartbeat", now)
+        self._set("worker_pid", str(pid))
+
+    def beat_scheduler(self) -> None:
+        self._set("scheduler_heartbeat", datetime.now(timezone.utc).isoformat())
+
+    def beat_cleanup(self) -> None:
+        self._set("last_cleanup_at", datetime.now(timezone.utc).isoformat())
+
+    def heartbeat_age_seconds(self, key: str) -> float | None:
+        """Seconds since the ISO timestamp in `key`, or None if missing/unreadable."""
+        raw = self._get(key)
+        if not raw:
+            return None
+        try:
+            ts = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - ts).total_seconds()
+
     def _get(self, key: str) -> str:
         with self.db.precious() as conn:
             row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()

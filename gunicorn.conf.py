@@ -1,7 +1,7 @@
 """Gunicorn config for the Azure App Service container.
 
-Background-work ownership (v3's job worker/scheduler) is elected from
-bootstrap via an exclusive file lock (`web._is_background_leader`).
+HTTP only. Job claiming and the scheduler run in ``python -m web.worker_main``,
+started beside Gunicorn by tools/supervise-web.sh.
 
 Access-log redaction is installed from the shared filter after the worker
 loads the app (v3 is already on sys.path). create_app also installs it;

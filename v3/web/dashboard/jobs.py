@@ -17,12 +17,20 @@ from web.jobs.worker import Handler, JobContext
 log = logging.getLogger(__name__)
 
 DASHBOARD_REFRESH_JOB_TYPE = "dashboard.refresh"
+LOOKUPS_REFRESH_JOB_TYPE = "lookups.refresh"
 _DEDUP_KEY = "dashboard.refresh"
+_LOOKUPS_DEDUP_KEY = "lookups.refresh"
 
 
 def enqueue_refresh(job_repo: JobRepository, *, owner_user_id: int | None = None) -> str:
     return job_repo.enqueue(
         DASHBOARD_REFRESH_JOB_TYPE, owner_user_id=owner_user_id, dedup_key=_DEDUP_KEY, params={})
+
+
+def enqueue_lookups_refresh(job_repo: JobRepository, *, owner_user_id: int | None = None) -> str:
+    return job_repo.enqueue(
+        LOOKUPS_REFRESH_JOB_TYPE, owner_user_id=owner_user_id,
+        dedup_key=_LOOKUPS_DEDUP_KEY, params={})
 
 
 def make_refresh_handler(mirror: MirrorService, db) -> Handler:
@@ -35,5 +43,13 @@ def make_refresh_handler(mirror: MirrorService, db) -> Handler:
             log.exception("overdue notification generation failed")
             notified = 0
         return f"customers={count} overdue_notified={notified}"
+
+    return handler
+
+
+def make_lookups_refresh_handler(mirror: MirrorService) -> Handler:
+    def handler(ctx: JobContext) -> str:
+        count = mirror.rebuild_customers_only()
+        return f"customers={count}"
 
     return handler

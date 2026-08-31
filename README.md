@@ -67,6 +67,18 @@ do not deploy to the Azure Production slot. Manual zip deploy is still
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
+Boot is three processes, one App Service instance (SQLite):
+
+1. Litestream restore + replicate (outer durability).
+2. `python -m web.bootstrap` — migrations and seeds. Failure exits before traffic.
+3. `tools/supervise-web.sh` starts Gunicorn (HTTP only) and
+   `python -m web.worker_main` (job claiming, scheduler, lookup mirror,
+   heartbeats). If either sibling exits, the other is stopped so Azure restarts
+   the unit. Report jobs run in a killable child with a 45-minute cap.
+
+`/healthz` is process liveness. `/readyz` is 503 until bootstrap has succeeded
+and (in prod) the worker and scheduler heartbeats are fresh.
+
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** everyone can pick (Daily Ordered, Heshy Open Orders).
 Managers and admins edit them from Saved views. New schedules use Default;

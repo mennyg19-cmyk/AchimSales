@@ -2,7 +2,10 @@
 
     gunicorn wsgi:application
 
-/ is v3 in home mode (is_beta=True: reports-only, hybrid SQL/OData).
+HTTP only: create the Flask app. Migrations, seeds, job claiming, and the
+scheduler run in separate processes (see tools/supervise-web.sh).
+
+/ is v3 in home mode (is_beta=True: reports-only, SQL Reporting API).
 /beta/... 302s to the same path without /beta (old bookmarks).
 """
 
@@ -46,26 +49,6 @@ def _write_boot_error(text: str) -> None:
             continue
 
 
-def _bootstrap_async(v3_web, app) -> None:
-    import threading
-    from pathlib import Path
-
-    def _run():
-        marker = Path(app.config["APP_CONFIG"].precious_db_path).with_name(".bootstrap-failed")
-        try:
-            v3_web.bootstrap_background(app)
-            marker.unlink(missing_ok=True)
-            log.info("v3 bootstrap_background complete")
-        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
-            log.exception("v3 bootstrap_background failed (site stays mounted, may be degraded)")
-            try:
-                marker.write_text("bootstrap_background failed\n", encoding="utf-8")
-            except Exception:  # noqa: BLE001 - readiness still has other signals
-                pass
-
-    threading.Thread(target=_run, name="v3-bootstrap", daemon=True).start()
-
-
 def _build_home_app():
     v3_root = str(_REPO_ROOT / "v3")
     if v3_root in sys.path:
@@ -78,9 +61,7 @@ def _build_home_app():
         from web.config import load_config as _load
 
         cfg = _load(is_beta=True)
-    app = v3_web.create_app(cfg)
-    _bootstrap_async(v3_web, app)
-    return app
+    return v3_web.create_app(cfg)
 
 
 def _unavailable(environ, start_response):

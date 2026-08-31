@@ -1,11 +1,6 @@
-"""In-process background work for a single B1 instance (plan section 10).
+"""In-process helpers plus a separate worker process on the B1.
 
-- JobWorker: a BOUNDED thread pool that drains the durable `jobs` table. The DB
-  is the source of truth, so jobs survive restarts and dedup works across them.
-- Scheduler: an APScheduler wrapper for periodic work (mirror refresh, scheduled
-  report emails, distributions). Single instance => exactly one owner, so the old
-  "scheduler owner election" + fail-open locks are unnecessary.
-
-No Redis, no separate worker dyno on B1; a separate worker App Service is the
-documented first scale step.
+- JobWorker: tests drain inline; production ``run_forever`` claims one job and
+  runs it in a killable child (``python -m web.jobs.child``).
+- Scheduler: APScheduler wrapper, started only in the worker process.
 """
