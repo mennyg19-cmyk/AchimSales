@@ -17,7 +17,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Configured `SP_SITE_URL` that does not resolve raises; no `sites?search=` fallback (`test_configured_site_url_does_not_search_on_failure`). Empty URL may still search.
 - View-only manager can company Send now; copy/edit stays tighter (`test_view_only_manager_can_company_send_now`).
 - Reconcile diagnostics and `claim-once` are POST+CSRF for developers. GET is 405. Query-string `DIAG_RECONCILE_KEY` is gone (`test_diagnostics.py`).
-- `@achimonline.com` (and subdomains) send. Other domains are stored, noted pending, and blocked until admin/developer approve. Settings test emails stay sendable. `send_notice` is not filtered (`test_email_now_pending_external_needs_approval`, `test_settings_approve_external_then_email_now_sends`, `test_send_notice_is_not_filtered`).
+- `@achimonline.com` (and subdomains) send. Other domains are stored, noted pending, and blocked until admin/developer approve. Settings test emails stay sendable. `send_notice` is not filtered (`test_email_now_pending_external_needs_approval`, `test_settings_approve_external_then_email_now_sends`, `test_salesman_cannot_approve_external`, `test_manager_cannot_approve_external`, `test_send_notice_is_not_filtered`).
 
 **Expected behavior:**
 - Business outputs match Q1–Q3 and Q8–Q10.

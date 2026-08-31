@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from web.data.connection import Database
 from web.data.repositories.app_settings import AppSettingsRepository
-from web.delivery.email import is_company_address, split_recipients
+from web.delivery.email import is_company_address
 
 APPROVAL_NEEDED = "Those addresses need admin or developer approval."
 
@@ -75,8 +75,3 @@ class ExternalRecipientRepository:
                 "SELECT email FROM external_recipients WHERE status='approved'",
             ).fetchall()
         return {r["email"].lower() for r in rows}
-
-
-def note_addresses(db: Database, raw: str, requested_by_user_id: int | None = None) -> None:
-    ExternalRecipientRepository(db).note_addresses(
-        split_recipients(raw), requested_by_user_id=requested_by_user_id)

@@ -1168,6 +1168,24 @@ def test_salesman_cannot_approve_external(tmp_path):
     assert resp.status_code == 403
 
 
+def test_manager_cannot_approve_external(tmp_path):
+    """Q8: approve is admin/developer. A manager who can Send now still cannot."""
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    admin.post("/api/schedules", json={
+        "report_key": "ordered", "recipients": "cust@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    resp = mgr.post(
+        "/settings/external-recipients",
+        data={"email": "cust@x.com", "action": "approve", "csrf_token": _CSRF},
+    )
+    assert resp.status_code == 403
+
+
 def test_delivery_job_reauthorizes_owner_and_fails_closed(tmp_path):
     """A queued delivery fails at execution time when the owner's access has been
     revoked since enqueue (live re-auth). Guards against mid-flight role changes."""
