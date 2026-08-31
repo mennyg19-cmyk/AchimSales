@@ -2,22 +2,21 @@
 
 Last updated: 2026-08-31
 
-**Status:** Phase 4 review gate is closed on draft PR #1 (HEAD `9466fe4`). Keep the PR draft. Do not merge or deploy Production. Phase 5 (delivery states) is next.
+**Status:** Phase 5 in progress on draft PR #1. Loop A FAIL (5 blocking) is fixed in this HEAD; CI then a fresh Loop A re-pass are next. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 6.
 
 ## What's done
 
-- Q1–Q11 logged.
-- Phase 1.1 workflow gating. Phase 1.2: no history rewrite; owner confirmed Flask secret rotation.
-- Phase 2: live-cookie adopt deleted; MSAL lookup-only; boot does not read Live DB; magic-link hashes + ProxyFix IP + log redaction. Trust-boundary F1–F3 closed.
-- Phase 3: v3 is SQL Reporting API only. OData path deleted under `v3/`. Graph `@odata.type` kept. CLI/Automation OData stays outside `v3/`.
-- Phase 4: HTTP-only Gunicorn. `python -m web.bootstrap` then `tools/supervise-web.sh` (Gunicorn + `python -m web.worker_main`). Killable `python -m web.jobs.child` with 45-minute cap. Prod `/readyz` needs fresh worker (90s) and scheduler (180s) heartbeats. Crash recovery requeues report/export/mirror; cancels `schedule.run` / `report.deliver` (including retry cap and independent child crash). SIGTERM leaves the row `running` for recovery. Heartbeat ticks during child wait.
-- Phase 4 reviews on `9466fe4` (Loop A PASS `3758af7`, Loop B PASS `ad22a65`, Loop C PASS then nits in this HEAD). Trust-boundary N/A (no auth/roles/payments).
-- CI + Agent Guardrails success on `9466fe4` (push CI `33423206555` / AG `33423206553`; PR CI `33423211223` / AG `33423211205`). Local: v3 641, root 152, P0 111+10.
+- Q1–Q11 logged. Phases 0–4 closed. Phase 4 gate commit `ecedd7c`.
+- Phase 5 implementation: `0023_delivery_leg_states.sql`, honest states, frozen `slot_id`/`slot_day`/`slot_when`, build-before-send, Graph unknown, folder GET verify, token skew, 90-day leg prune.
+- Loop A findings F1–F5 + N1: child timeout/nonzero exit settles sending email → `unknown`; filename/folder use frozen `slot_when`; `reopen_for_retry` keeps upload session; retry sends only `retry_attempt_key` and the stored target; email-now unknown is listed on privileged `/schedules` with reconcile. `pending` migration test applies 0023 for real.
+- Local after this commit: v3 676, root 152, P0 111+10.
 
 ## What's next
 
-1. Phase 5: delivery states `prepared|sending|accepted|sent|failed|unknown`. Graph post-submit crash = `unknown`, no auto-retry.
-2. Owner still needs GitHub Environment `production` required reviewers (Settings → Environments). That Environment does not exist yet.
+1. Push this commit. Wait for CI + Agent Guardrails green on both push and PR.
+2. Fresh Loop A spawn (`gpt-5.6-sol-high`) → `.scratch/review-pass-A-phase5-repass.md`. Do not resume the FAIL agent.
+3. If A PASS: Loop B then C (`claude-sonnet-5-thinking-high`), then trust-boundary (`claude-fable-5-thinking-high`).
+4. Owner still needs GitHub Environment `production` required reviewers.
 
 ## Open / BLOCKED
 
@@ -32,9 +31,11 @@ Last updated: 2026-08-31
 - Do not check off boxes in `PR1-REMEDIATION-PLAN.md`.
 - Do not restore `webapp/` or `rebuild/`. Preserve `archive/pre-cleanup-2026-08-27`.
 - Keep `is_beta=True` until Phase 7.
-- `gh` is read-only. PRs via ManagePullRequest. Keep draft.
+- `gh` is read-only. PRs via ManagePullRequest. Keep draft. Omit `draft` on `update_pr` to keep draft.
 - Python: `/workspace/.venv/bin/python`. v3 tests: cwd `/workspace/v3`. Root tests: `PYTHONPATH=/workspace` without `--noconftest`.
 - Never stage `.venv/` or `.scratch/`.
 - Graph JSON `@odata.type` in `v3/web/delivery/graph_mail.py` is Microsoft Graph, not D365 OData.
-- `core.email_report` import from `magic_link_email.py` is Graph mail, not D365 OData.
-- Do not start Phase 5 until this handoff is the source of truth for the next session.
+- Do not claim `internetMessageId` or `Client-Request-Id` makes Graph `sendMail` idempotent.
+- Do not edit migrations `0016`, `0019`, `0020`, `0021`, `0022`, `0023`.
+- New POST forms need nosemgrep on the form tag (Flask `csrf_token()` is not a Django match).
+- SIGTERM still leaves the job `running` for recovery. Timeout and unsafe child death cancel then settle legs.

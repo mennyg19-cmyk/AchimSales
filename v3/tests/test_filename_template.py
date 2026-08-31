@@ -3,7 +3,9 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
+from web.delivery.filename_template import (
+    parse_frozen_when, resolve_filename_template, resolve_folder_template,
+)
 
 _ET = ZoneInfo("America/New_York")
 
@@ -85,3 +87,13 @@ def test_folder_template_keeps_spaces_and_slashes():
 def test_folder_template_blank_is_empty():
     assert resolve_folder_template("") == ""
     assert resolve_folder_template("  /  ") == ""
+
+
+def test_parse_frozen_when_prefers_iso_over_day():
+    instant = parse_frozen_when("2026-08-31T16:00:00+00:00", "2026-09-01")
+    assert instant is not None
+    eastern = instant.astimezone(_ET)
+    assert (eastern.year, eastern.month, eastern.day, eastern.hour) == (2026, 8, 31, 12)
+    from_day = parse_frozen_when("", "2026-08-31")
+    assert from_day is not None and from_day.hour == 0
+    assert parse_frozen_when("", "") is None

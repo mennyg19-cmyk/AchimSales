@@ -36,6 +36,7 @@ class DeliveryOutcome:
     row_count: int
     # Optional per-leg details for fan-out runs (kind, recipients, salesman, …).
     deliveries: list[dict] | None = None
+    unknown_attempt_key: str = ""
 
 
 class DeliveryService:
@@ -50,7 +51,8 @@ class DeliveryService:
                 builder_version: int, params: dict, layout: dict,
                 report_name: str, sharepoint_path: str = "",
                 filename_template: str = "", schedule_name: str = "",
-                email_on_empty: bool = True, cancel_check=None) -> PreparedWorkbook:
+                email_on_empty: bool = True, cancel_check=None,
+                when=None) -> PreparedWorkbook:
         """Build the workbook before any external send is marked sending."""
         if cancel_check and cancel_check():
             from web.jobs.worker import JobCancelled
@@ -81,11 +83,11 @@ class DeliveryService:
         xlsx = build_workbook(payload, layout)
         filename = resolve_filename_template(
             filename_template, report_name=report_name, params=params or {},
-            schedule_name=schedule_name,
+            schedule_name=schedule_name, when=when,
         )
         folder = strip_reports_home(resolve_folder_template(
             sharepoint_path, report_name=report_name, params=params or {},
-            schedule_name=schedule_name,
+            schedule_name=schedule_name, when=when,
         ))
         if cancel_check and cancel_check():
             from web.jobs.worker import JobCancelled
@@ -107,7 +109,7 @@ class DeliveryService:
                         schedule_name: str = "",
                         skip_email: bool = False, skip_folder: bool = False,
                         idempotency_key: str = "",
-                        cancel_check=None) -> DeliveryOutcome:
+                        cancel_check=None, when=None) -> DeliveryOutcome:
         built = self.prepare(
             report_key=report_key, identity=identity,
             visible_salesman_keys=visible_salesman_keys,
@@ -115,6 +117,7 @@ class DeliveryService:
             report_name=report_name, sharepoint_path=sharepoint_path,
             filename_template=filename_template, schedule_name=schedule_name,
             email_on_empty=email_on_empty, cancel_check=cancel_check,
+            when=when,
         )
         if built.skipped_empty:
             return DeliveryOutcome(

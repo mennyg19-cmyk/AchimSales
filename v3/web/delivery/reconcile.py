@@ -22,7 +22,15 @@ def alert_unknown_delivery(db, settings: AppSettingsRepository, *, delivery,
     send = getattr(email, "send_notice", None) if email is not None else None
     if send is not None and emails:
         try:
-            send(to=emails, subject=subject, body_text=body)
+            text = body
+            if attempt_key:
+                text = (
+                    f"{body}\n\nAttempt key: {attempt_key}\n"
+                    "Open Schedules (unknown email-now) or History: mark "
+                    "'I received it' if the mail arrived, or 'Send again' only "
+                    "if it is missing."
+                )
+            send(to=emails, subject=subject, body_text=text)
         except Exception:  # noqa: BLE001 - never hide the original outcome
             log.exception("Could not send unknown-delivery notice")
     _notify_privileged(db, subject, body, attempt_key=attempt_key, run_id=run_id)

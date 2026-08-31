@@ -81,8 +81,8 @@ Boot is three processes, one App Service instance (SQLite):
    folder sends are persisted as separate legs (`prepared`, `sending`,
    `accepted`, `sent`, `failed`, `unknown`). If the connection drops after
    Graph may have accepted `sendMail`, that leg is `unknown` and is not
-   retried. Settings test emails get a `[UNKNOWN]` notice; History has
-   "I received it" / "Send again".
+   retried. Settings test emails get a `[UNKNOWN]` notice; History (scheduled)
+   and Schedules (email-now) have "I received it" / "Send again".
 
 `/healthz` is process liveness. `/readyz` is 503 until bootstrap has succeeded
 and (in prod) the worker and scheduler heartbeats are fresh.

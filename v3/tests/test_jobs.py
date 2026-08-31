@@ -645,6 +645,64 @@ def test_nonzero_child_exit_cancels_delivery_not_failed(db, monkeypatch):
         assert jobs.get(jid).status == "cancelled"
 
 
+def test_child_timeout_settles_sending_email_unknown(db, monkeypatch):
+    import subprocess as sp
+
+    from web.data.repositories.delivery_legs import DeliveryLegRepository, attempt_key
+    from web.delivery.states import UNKNOWN
+
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 88
+
+        def wait(self, timeout=None):
+            raise sp.TimeoutExpired("python -m web.jobs.child", timeout)
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    monkeypatch.setattr("web.jobs.worker.os.killpg", lambda pid, sig: None)
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    worker.register("schedule.run", lambda ctx: "ok")
+    jid = jobs.enqueue("schedule.run")
+    legs = DeliveryLegRepository(db)
+    key = attempt_key(slot_id="s1", kind="email", target="a@x.com")
+    legs.prepare(key, run_id=1, kind="email", target="a@x.com", job_id=jid, slot_id="s1")
+    legs.mark_sending(key)
+    assert worker.process_next_child(timeout=0.05) == jid
+    assert jobs.get(jid).status == "cancelled"
+    assert legs.get(key).status == UNKNOWN
+
+
+def test_nonzero_child_exit_settles_sending_email_unknown(db, monkeypatch):
+    from web.data.repositories.delivery_legs import DeliveryLegRepository, attempt_key
+    from web.delivery.states import UNKNOWN
+
+    class FakeProc:
+        def __init__(self, *a, **k):
+            self.pid = 14
+
+        def wait(self, timeout=None):
+            return -9
+
+        def kill(self):
+            return None
+
+    monkeypatch.setattr("web.jobs.worker.subprocess.Popen", FakeProc)
+    jobs = JobRepository(db)
+    worker = JobWorker(db)
+    jid = jobs.enqueue("schedule.run")
+    legs = DeliveryLegRepository(db)
+    key = attempt_key(slot_id="s1", kind="email", target="a@x.com")
+    legs.prepare(key, run_id=1, kind="email", target="a@x.com", job_id=jid, slot_id="s1")
+    legs.mark_sending(key)
+    assert worker.process_next_child(timeout=5) == jid
+    assert jobs.get(jid).status == "cancelled"
+    assert legs.get(key).status == UNKNOWN
+
+
 def test_kill_child_terminates_a_real_process(db):
     import subprocess as sp
     import sys

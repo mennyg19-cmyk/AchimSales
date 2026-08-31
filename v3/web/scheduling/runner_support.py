@@ -213,6 +213,9 @@ def _combine_outcomes(outcomes: list[DeliveryOutcome]) -> DeliveryOutcome:
         result=combined,
         row_count=sum(o.row_count for o in outcomes),
         deliveries=deliveries,
+        unknown_attempt_key=next(
+            (o.unknown_attempt_key for o in outcomes if o.unknown_attempt_key), ""
+        ),
     )
 
 

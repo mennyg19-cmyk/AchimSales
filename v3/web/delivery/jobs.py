@@ -9,13 +9,16 @@ failed and surfaces in the run history.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from web.auth.authorization import Authorization
 from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.jobs import JobRepository
 from web.delivery.execute import deliver_with_legs
+from web.delivery.filename_template import parse_frozen_when
 from web.delivery.service import DeliveryService
 from web.jobs.worker import Handler, JobContext
+from web.scheduling import cadence as C
 
 DELIVERY_JOB_TYPE = "report.deliver"
 
@@ -25,6 +28,10 @@ def enqueue_delivery(job_repo: JobRepository, *, owner_user_id: int | None,
     """Enqueue a delivery. Not deduped: each send is an intentional, distinct act."""
     params = dict(payload or {})
     params.setdefault("slot_id", f"manual-deliver:{uuid.uuid4().hex}")
+    if not params.get("slot_when"):
+        now = datetime.now(timezone.utc)
+        params["slot_when"] = now.isoformat()
+        params.setdefault("slot_day", C.eastern_date_iso(now))
     return job_repo.enqueue(DELIVERY_JOB_TYPE, owner_user_id=owner_user_id, params=params)
 
 
@@ -52,16 +59,22 @@ def make_delivery_handler(delivery: DeliveryService, authz: Authorization) -> Ha
             filename_template=p.get("filename_template") or "",
             schedule_name=p.get("schedule_name") or "",
             cancel_check=ctx.is_cancelled,
+            when=parse_frozen_when(
+                str(p.get("slot_when") or ""), str(p.get("slot_day") or ""),
+            ),
+            retry_attempt_key=str(p.get("retry_attempt_key") or ""),
         )
         if outcome.result.unknown:
             from web.delivery.reconcile import alert_unknown_delivery
             from web.data.repositories.app_settings import AppSettingsRepository
+            key = outcome.unknown_attempt_key
             alert_unknown_delivery(
                 authz.db, AppSettingsRepository(authz.db), delivery=delivery,
                 subject="[UNKNOWN] email-now send",
                 body=outcome.result.error or "Graph may have accepted this send.",
+                attempt_key=key,
             )
-            return f"unknown:{outcome.result.outbox_id or ''}"
+            return f"unknown:{outcome.result.outbox_id or key}"
         if not outcome.result.ok:
             raise RuntimeError(outcome.result.error or "Delivery failed")
         return f"outbox:{outcome.result.outbox_id}"

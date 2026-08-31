@@ -6,7 +6,7 @@ from web.data.repositories.delivery_legs import DeliveryLegRepository, attempt_k
 from web.delivery.email import DeliveryResult
 from web.delivery.graph_mail import GraphUnknownError
 from web.delivery.service import DeliveryOutcome, DeliveryService, PreparedWorkbook
-from web.delivery.states import SENT, UNKNOWN
+from web.delivery.states import FOLDER_KINDS, SENT, UNKNOWN
 from web.jobs.worker import JobCancelled
 
 
@@ -20,8 +20,32 @@ def deliver_with_legs(
     window: dict | None,
     salesman: str = "",
     cancel_check=None,
+    when=None,
+    retry_attempt_key: str = "",
     **deliver_kwargs,
 ) -> DeliveryOutcome:
+    retry_key = (retry_attempt_key or "").strip()
+    retry_leg = legs.get(retry_key) if retry_key else None
+    if retry_key and retry_leg is None:
+        raise RuntimeError("Cannot retry; that delivery leg is gone.")
+    if retry_leg is not None:
+        probe = attempt_key(
+            slot_id=slot_id, kind=retry_leg.kind, target=retry_leg.target,
+            salesman=salesman, window=window,
+        )
+        if probe != retry_key or (
+            retry_leg.kind != "email" and retry_leg.kind not in FOLDER_KINDS
+        ):
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=True, send_channel="skipped", sent_via_smtp=True,
+                ),
+                row_count=0,
+            )
+        if retry_leg.kind == "email":
+            deliver_kwargs["recipients"] = retry_leg.target
+        else:
+            deliver_kwargs["sharepoint_path"] = retry_leg.target
     recipients = str(deliver_kwargs.get("recipients") or "")
     path = str(deliver_kwargs.get("sharepoint_path") or "")
     onedrive_user = str(deliver_kwargs.get("onedrive_user") or "").strip()
@@ -40,6 +64,7 @@ def deliver_with_legs(
         schedule_name=deliver_kwargs.get("schedule_name") or "",
         email_on_empty=bool(deliver_kwargs.get("email_on_empty", True)),
         cancel_check=cancel_check,
+        when=when,
     )
     if built.skipped_empty:
         return DeliveryOutcome(
@@ -50,7 +75,7 @@ def deliver_with_legs(
     cc = str(deliver_kwargs.get("cc_raw") or "")
     bcc = str(deliver_kwargs.get("bcc_raw") or "")
     override = deliver_kwargs.get("empty_recipients_override")
-    if built.row_count == 0 and override:
+    if retry_leg is None and built.row_count == 0 and override:
         to = str(override)
         cc = ""
         bcc = ""
@@ -64,6 +89,9 @@ def deliver_with_legs(
     )
     skip_email = bool(to.strip()) and legs.is_settled(email_key)
     skip_folder = bool((built.folder or path).strip()) and legs.is_settled(folder_key)
+    if retry_leg is not None:
+        skip_email = skip_email or retry_leg.kind != "email"
+        skip_folder = skip_folder or retry_leg.kind not in FOLDER_KINDS
     if (not to.strip() or skip_email) and (not (built.folder or path).strip() or skip_folder):
         return _skipped_outcome(legs, email_key, folder_key, to, built.folder or path)
     if cancel_check and cancel_check():
@@ -88,7 +116,10 @@ def deliver_with_legs(
             run_id=run_id, slot_id=slot_id, job_id=job_id, salesman=salesman,
             cancel_check=cancel_check,
         )
-    return _combine_leg_results(built, email_result, folder_result, to, skip_email, skip_folder)
+    return _combine_leg_results(
+        built, email_result, folder_result, to, skip_email, skip_folder,
+        email_key=email_key,
+    )
 
 
 def send_notice_leg(
@@ -105,11 +136,26 @@ def send_notice_leg(
     body_text: str,
     report_name: str,
     cancel_check=None,
+    retry_attempt_key: str = "",
 ) -> DeliveryOutcome:
     key = attempt_key(
         slot_id=slot_id, kind="notice", target=recipients, salesman=salesman,
         window=window,
     )
+    retry_key = (retry_attempt_key or "").strip()
+    if retry_key and retry_key != key:
+        return DeliveryOutcome(
+            result=DeliveryResult(ok=True, send_channel="skipped", sent_via_smtp=True),
+            row_count=0,
+        )
+    if retry_key:
+        stored = legs.get(key)
+        if stored is not None:
+            recipients = stored.target
+            key = attempt_key(
+                slot_id=slot_id, kind="notice", target=recipients, salesman=salesman,
+                window=window,
+            )
     if legs.is_settled(key):
         leg = legs.get(key)
         ok = leg is not None and leg.status == SENT
@@ -308,6 +354,7 @@ def _skipped_outcome(legs, email_key, folder_key, recipients, path) -> DeliveryO
     )
     email_failed = bool(email_leg and email_leg.status == FAILED)
     ok = not unknown and not email_failed
+    unknown_key = email_key if email_leg and email_leg.status == UNKNOWN else ""
     return DeliveryOutcome(
         result=DeliveryResult(
             ok=ok, send_channel="skipped", sent_via_smtp=ok,
@@ -317,11 +364,12 @@ def _skipped_outcome(legs, email_key, folder_key, recipients, path) -> DeliveryO
             error=(email_leg.error if email_leg and not ok else ""),
         ),
         row_count=rows,
+        unknown_attempt_key=unknown_key,
     )
 
 
 def _combine_leg_results(built, email_result, folder_result, recipients,
-                         skip_email, skip_folder) -> DeliveryOutcome:
+                         skip_email, skip_folder, email_key: str = "") -> DeliveryOutcome:
     unknown = bool(email_result.unknown)
     folder_needed = folder_result.sharepoint_error or (
         not skip_folder and not folder_result.sharepoint_saved and folder_result.error
@@ -345,4 +393,5 @@ def _combine_leg_results(built, email_result, folder_result, recipients,
             unknown=unknown,
         ),
         row_count=built.row_count,
+        unknown_attempt_key=email_key if unknown else "",
     )

@@ -202,11 +202,21 @@ class DeliveryLegRepository:
                 (url or "", key),
             )
 
+    def list_unattached_unknown(self, limit: int = 50) -> list[DeliveryLeg]:
+        """Email-now (and other) unknown legs with no schedule run to hang History on."""
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM delivery_legs WHERE status=? AND run_id IS NULL"
+                " ORDER BY id DESC LIMIT ?",
+                (UNKNOWN, max(1, int(limit))),
+            ).fetchall()
+        return [DeliveryLeg.from_row(r) for r in rows]
+
     def reopen_for_retry(self, key: str) -> bool:
-        """Operator retry: unknown or failed → prepared. Returns False if not allowed."""
+        """Operator retry: unknown or failed → prepared. Keep any upload session."""
         with self.db.precious() as conn:
             cur = conn.execute(
-                "UPDATE delivery_legs SET status=?, error='', upload_session_url='',"
+                "UPDATE delivery_legs SET status=?, error='',"
                 " updated_at=datetime('now') WHERE attempt_key=? AND status IN (?, ?)",
                 (PREPARED, key, UNKNOWN, FAILED),
             )

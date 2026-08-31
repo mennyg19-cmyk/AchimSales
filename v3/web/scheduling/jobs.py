@@ -28,12 +28,15 @@ def enqueue_schedule_run(job_repo: JobRepository, *, schedule_id: int,
                          trigger: str = "scheduled",
                          now: datetime | None = None,
                          slot_id: str | None = None,
-                         slot_day: str | None = None) -> str:
+                         slot_day: str | None = None,
+                         slot_when: str | None = None,
+                         retry_attempt_key: str = "") -> str:
     # Clock ticks collapse to one in-flight run per schedule. Send now is a
     # separate job so it cannot steal the scheduled slot's dedup key. Operator
     # retry passes the frozen slot_id so attempt_key matches the reopened leg.
     now = now or datetime.now(timezone.utc)
     frozen_day = slot_day or C.eastern_date_iso(now)
+    frozen_when = slot_when or now.isoformat()
     if slot_id:
         frozen_slot = slot_id
         dedup_key = f"schedrun-retry:{schedule_type}:{schedule_id}:{frozen_slot}"
@@ -46,16 +49,20 @@ def enqueue_schedule_run(job_repo: JobRepository, *, schedule_id: int,
             catch_up_for_date=catch_up_for_date or "", include_regular=include_regular,
         )
         dedup_key = f"schedrun:{schedule_type}:{schedule_id}"
+    params = {"schedule_id": schedule_id, "schedule_type": schedule_type,
+              "ignore_sabbath": bool(ignore_sabbath),
+              "catch_up_for_date": catch_up_for_date or "",
+              "include_regular": bool(include_regular),
+              "trigger": trigger,
+              "slot_id": frozen_slot,
+              "slot_day": frozen_day,
+              "slot_when": frozen_when}
+    if retry_attempt_key:
+        params["retry_attempt_key"] = retry_attempt_key
     return job_repo.enqueue(
         SCHEDULE_RUN_JOB_TYPE, owner_user_id=owner_user_id,
         dedup_key=dedup_key,
-        params={"schedule_id": schedule_id, "schedule_type": schedule_type,
-                "ignore_sabbath": bool(ignore_sabbath),
-                "catch_up_for_date": catch_up_for_date or "",
-                "include_regular": bool(include_regular),
-                "trigger": trigger,
-                "slot_id": frozen_slot,
-                "slot_day": frozen_day},
+        params=params,
     )
 
 
@@ -79,10 +86,13 @@ def enqueue_leg_retry(job_repo: JobRepository, leg) -> str | None:
             trigger="manual",
             slot_id=leg.slot_id,
             slot_day=str(p.get("slot_day") or "") or None,
+            slot_when=str(p.get("slot_when") or "") or None,
+            retry_attempt_key=leg.attempt_key,
         )
     if original is not None and original.type == DELIVERY_JOB_TYPE:
         payload = dict(original.params)
         payload["slot_id"] = leg.slot_id
+        payload["retry_attempt_key"] = leg.attempt_key
         return enqueue_delivery(
             job_repo, owner_user_id=original.owner_user_id, payload=payload)
     parsed = parse_scheduled_slot_id(leg.slot_id)
@@ -99,6 +109,7 @@ def enqueue_leg_retry(job_repo: JobRepository, leg) -> str | None:
         trigger="manual",
         slot_id=leg.slot_id,
         slot_day=parsed["slot_day"],
+        retry_attempt_key=leg.attempt_key,
     )
 
 
@@ -115,6 +126,8 @@ def make_schedule_run_handler(runner: ScheduleRunner) -> Handler:
             cancel_check=ctx.is_cancelled,
             slot_id=str(p.get("slot_id") or ""),
             slot_day=str(p.get("slot_day") or ""),
+            slot_when=str(p.get("slot_when") or ""),
+            retry_attempt_key=str(p.get("retry_attempt_key") or ""),
             job_id=ctx.job.id,
         )
         ctx.abort_if_cancelled()

@@ -87,6 +87,14 @@ def schedules_page():
     test_settings = AppSettingsRepository(current_app.config["DB"])
     context["test_mode_on"] = can_see_company and test_settings.is_schedule_test_mode()
     context["test_emails"] = test_settings.test_emails() if context["test_mode_on"] else []
+    from web.data.repositories.delivery_legs import DeliveryLegRepository
+    from web.delivery.states import UNKNOWN
+    context["can_reconcile"] = is_privileged
+    context["unknown_status"] = UNKNOWN
+    context["unattached_legs"] = (
+        DeliveryLegRepository(current_app.config["DB"]).list_unattached_unknown()
+        if is_privileged else []
+    )
     return render_template("schedules.html", **context)
 
 

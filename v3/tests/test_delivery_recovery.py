@@ -44,25 +44,33 @@ def _cfg(tmp_path, **over) -> Config:
 
 
 def test_pending_migrates_to_unknown(tmp_path):
-    db = _db(tmp_path)
-    with db.precious() as conn:
-        conn.execute(
-            "INSERT INTO delivery_legs(run_id, attempt_key, kind, target, status)"
-            " VALUES (1, 'legacy-pending', 'email', 'a@x.com', 'pending')"
-        )
-    # Re-apply is a no-op; simulate leftover by inserting pending then running
-    # the 0023 UPDATE logic the repo now treats as unknown after migrate.
-    # Fresh migrate already ran 0023, so insert pending after migrate:
+    from pathlib import Path
+
+    from web.data.migrate import apply_migrations
+
+    precious = tmp_path / "p.db"
+    root = Path(__file__).resolve().parents[1] / "web" / "data" / "migrations" / "precious"
+    staging = tmp_path / "pre0023"
+    staging.mkdir()
+    for sql in root.glob("*.sql"):
+        if sql.name.startswith("0023_"):
+            continue
+        (staging / sql.name).write_text(sql.read_text(encoding="utf-8"), encoding="utf-8")
+    apply_migrations(precious, staging)
+    import sqlite3
+    conn = sqlite3.connect(precious)
+    conn.execute(
+        "INSERT INTO delivery_legs(run_id, attempt_key, kind, target, status)"
+        " VALUES (1, 'legacy-pending', 'email', 'a@x.com', 'pending')"
+    )
+    conn.commit()
+    conn.close()
+    applied = apply_migrations(precious, root)
+    assert any(name.startswith("0023_") for name in applied)
+    db = Database(precious, tmp_path / "c.db")
     legs = DeliveryLegRepository(db)
-    assert legs.get("legacy-pending").status == "pending"
-    with db.precious() as conn:
-        conn.execute(
-            "UPDATE delivery_legs SET status='unknown',"
-            " error='Migrated from pending; confirm whether the mail or file arrived.'"
-            " WHERE status='pending'"
-        )
     assert legs.get("legacy-pending").status == UNKNOWN
-    assert not legs.get("legacy-pending").status == "pending"
+    assert legs.get("legacy-pending").status != "pending"
 
 
 def test_crash_before_external_call_is_retryable(tmp_path):
@@ -130,6 +138,7 @@ def test_enqueue_freezes_slot_day(tmp_path):
     jid = enqueue_schedule_run(JobRepository(db), schedule_id=3, now=now)
     params = JobRepository(db).get(jid).params
     assert params["slot_day"] == "2026-08-31"
+    assert params["slot_when"].startswith("2026-08-31T16:00:00")
     assert "master:3:2026-08-31" in params["slot_id"] or "personal:3:2026-08-31" in params["slot_id"]
 
 
@@ -257,6 +266,7 @@ def test_operator_retry_reuses_frozen_slot_after_midnight(tmp_path):
     params = jobs.get(new_id).params
     assert params["slot_id"] == slot
     assert params["slot_day"] == "2026-08-31"
+    assert params["retry_attempt_key"] == key
     assert attempt_key(
         slot_id=params["slot_id"], kind="email", target="a@x.com") == key
 
@@ -282,6 +292,7 @@ def test_operator_retry_parses_clock_slot_when_job_is_gone(tmp_path):
     assert params["slot_day"] == "2026-08-31"
     assert params["catch_up_for_date"] == "2026-08-30"
     assert params["include_regular"] is False
+    assert params["retry_attempt_key"] == key
 
 
 class _Ok:
@@ -564,3 +575,208 @@ def test_graph_token_refreshes_before_expiry(monkeypatch):
     assert cache.get() == "tok2"
     cache.clear()
     assert cache.get() == "tok3"
+
+
+def _workbook_delivery(sent=None, puts=None, files=None, folder="Ordered"):
+    from web.delivery.email import DeliveryResult
+    from web.delivery.service import PreparedWorkbook
+
+    sent = sent if sent is not None else []
+    puts = puts if puts is not None else []
+    files = files if files is not None else {}
+
+    class SP:
+        def get_file(self, folder_name, filename):
+            return files.get((folder_name, filename))
+
+        def upload_file(self, folder_name, filename, data, resume_url="", on_session=None):
+            puts.append({"folder": folder_name, "filename": filename, "resume": resume_url})
+            if on_session:
+                on_session("https://upload/session")
+            return {"webUrl": "https://sp/" + filename}
+
+    class Mail:
+        sharepoint = SP()
+        onedrive = None
+
+        def deliver(self, **kwargs):
+            sent.append(kwargs.get("recipients_raw"))
+            return DeliveryResult(ok=True, recipients=[kwargs.get("recipients_raw") or ""])
+
+    class Delivery:
+        email = Mail()
+
+        def prepare(self, **kwargs):
+            from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
+            when = kwargs.get("when")
+            name = resolve_filename_template(
+                kwargs.get("filename_template") or "",
+                report_name=kwargs.get("report_name") or "R",
+                when=when,
+            )
+            resolved = resolve_folder_template(
+                kwargs.get("sharepoint_path") or folder,
+                report_name=kwargs.get("report_name") or "R",
+                when=when,
+            )
+            return PreparedWorkbook(
+                row_count=1, xlsx=b"PK", filename=name, folder=resolved or folder,
+            )
+
+    return Delivery(), sent, puts, files
+
+
+def test_retry_sends_only_the_selected_attempt_and_frozen_target(tmp_path):
+    from web.delivery.execute import deliver_with_legs
+
+    db = _db(tmp_path)
+    legs = DeliveryLegRepository(db)
+    key_a = attempt_key(slot_id="s1", kind="email", target="a@x.com", salesman="A")
+    key_b = attempt_key(slot_id="s1", kind="email", target="b@x.com", salesman="B")
+    legs.prepare(key_b, run_id=1, kind="email", target="b@x.com",
+                 salesman_key="B", slot_id="s1", job_id="j")
+    legs.mark_failed(key_b, "lost")
+    assert legs.reopen_for_retry(key_b)
+    delivery, sent, _puts, _files = _workbook_delivery()
+    common = dict(
+        slot_id="s1", job_id="j", run_id=1, window={},
+        report_key="ordered", identity="u@x.com", builder_version=1,
+        retry_attempt_key=key_b,
+    )
+    deliver_with_legs(delivery, legs, salesman="A", recipients="a@x.com", **common)
+    deliver_with_legs(
+        delivery, legs, salesman="B", recipients="new-b@x.com", **common,
+    )
+    assert sent == ["b@x.com"]
+    assert legs.get(key_a) is None
+    assert legs.get(key_b).status == SENT
+
+
+def test_folder_verify_uses_frozen_when_not_live_clock(tmp_path):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from web.delivery.execute import deliver_with_legs
+    from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
+
+    t1 = datetime(2026, 8, 31, 13, 0, tzinfo=ZoneInfo("America/New_York"))
+    t2 = datetime(2026, 9, 1, 9, 5, tzinfo=ZoneInfo("America/New_York"))
+    name1 = resolve_filename_template("", report_name="R", when=t1)
+    name2 = resolve_filename_template("", report_name="R", when=t2)
+    assert name1 != name2
+    folder1 = resolve_folder_template("{Month}", report_name="R", when=t1)
+    assert folder1 == "August"
+    files = {(folder1, name1): {"webUrl": "https://sp/original"}}
+    db = _db(tmp_path)
+    legs = DeliveryLegRepository(db)
+    delivery, _sent, puts, _files = _workbook_delivery(files=files, folder="{Month}")
+    out = deliver_with_legs(
+        delivery, legs, slot_id="s1", job_id="j", run_id=1, window={},
+        recipients="", sharepoint_path="{Month}",
+        report_key="ordered", identity="u@x.com", builder_version=1,
+        filename_template="", report_name="R", when=t1,
+    )
+    assert out.result.ok and not puts
+    key = attempt_key(slot_id="s1", kind="sharepoint", target="August")
+    assert legs.get(key).status == SENT
+    assert legs.get(key).remote_id == "https://sp/original"
+
+
+def test_reopen_for_retry_keeps_upload_session(tmp_path):
+    from web.delivery.execute import _send_folder_leg
+    from web.delivery.service import PreparedWorkbook
+
+    db = _db(tmp_path)
+    legs = DeliveryLegRepository(db)
+    key = attempt_key(slot_id="s1", kind="sharepoint", target="Ordered")
+    legs.prepare(key, run_id=1, kind="sharepoint", target="Ordered",
+                 slot_id="s1", job_id="j")
+    legs.mark_sending(key)
+    legs.set_upload_session(key, "https://upload/session")
+    legs.mark_failed(key, "lost")
+    assert legs.reopen_for_retry(key) is True
+    assert legs.get(key).upload_session_url == "https://upload/session"
+
+    seen = {}
+
+    class SP:
+        def get_file(self, folder, filename):
+            return None
+
+        def upload_file(self, folder, filename, data, resume_url="", on_session=None):
+            seen["resume"] = resume_url
+            return {"webUrl": "https://sp/file.xlsx"}
+
+    class D:
+        email = type("E", (), {"sharepoint": SP(), "onedrive": None})()
+
+    built = PreparedWorkbook(row_count=1, xlsx=b"PK", filename="r.xlsx", folder="Ordered")
+    _send_folder_leg(
+        D(), legs, key, built, onedrive_user="", run_id=1,
+        slot_id="s1", job_id="j", salesman="", cancel_check=None,
+    )
+    assert seen["resume"] == "https://upload/session"
+
+
+def test_email_now_unknown_alert_includes_attempt_key(tmp_path):
+    from web.data.repositories.app_settings import AppSettingsRepository
+    from web.data.repositories.notifications import NotificationRepository
+    from web.delivery.reconcile import alert_unknown_delivery
+
+    db = _db(tmp_path)
+    uid = UserRepository(db).upsert("admin@x.com", display_name="Admin", role="admin").id
+    settings = AppSettingsRepository(db)
+    settings.set_schedule_test(emails=["ops@x.com"])
+    key = attempt_key(slot_id="manual-deliver:1", kind="email", target="a@x.com")
+    DeliveryLegRepository(db).prepare(
+        key, run_id=None, kind="email", target="a@x.com",
+        slot_id="manual-deliver:1", job_id="j1",
+    )
+    DeliveryLegRepository(db).mark_unknown(key, "lost after submit")
+    notices = []
+
+    class Mail:
+        def send_notice(self, **kwargs):
+            notices.append(kwargs)
+
+    delivery = type("D", (), {"email": Mail()})()
+    alert_unknown_delivery(
+        db, AppSettingsRepository(db), delivery=delivery,
+        subject="[UNKNOWN] email-now send", body="Graph may have accepted this send.",
+        attempt_key=key,
+    )
+    assert key in notices[0]["body_text"]
+    payload = NotificationRepository(db).list_undismissed(uid)[0].payload
+    assert payload["attempt_key"] == key
+
+
+def test_schedules_page_lists_unattached_unknown_for_admin_not_salesman(tmp_path):
+    from tests.test_blueprints import _CSRF, _login, _make_app
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    db = app.config["DB"]
+    UserRepository(db).upsert("admin@x.com", display_name="Admin", role="admin")
+    key = attempt_key(slot_id="manual-deliver:9", kind="email", target="a@x.com")
+    legs = DeliveryLegRepository(db)
+    legs.prepare(key, run_id=None, kind="email", target="a@x.com",
+                 slot_id="manual-deliver:9", job_id="j9")
+    legs.mark_unknown(key, "lost")
+
+    _login(client, app, email="rep@x.com", role="salesman")
+    hidden = client.get("/schedules")
+    assert hidden.status_code == 200
+    assert b"Unknown email-now sends" not in hidden.data
+    assert key.encode() not in hidden.data
+
+    _login(client, app)
+    shown = client.get("/schedules")
+    assert shown.status_code == 200
+    assert b"Unknown email-now sends" in shown.data
+    assert key.encode() in shown.data
+    mark = client.post(
+        f"/api/delivery-legs/{key}/reconcile",
+        data={"action": "mark_sent", "csrf_token": _CSRF, "next": "/schedules"},
+    )
+    assert mark.status_code == 302
+    assert legs.get(key).status == SENT

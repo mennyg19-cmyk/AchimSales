@@ -176,6 +176,7 @@ class JobWorker:
                             job.id, timeout, proc.pid)
                 self._kill_child(proc)
                 self.repo.cancel(job.id, error=f"Timed out ({int(timeout)}s cap)")
+                self._settle_orphaned_legs()
                 return
         finally:
             self._child_proc = None
@@ -194,6 +195,7 @@ class JobWorker:
                     job.id,
                     error="Job child died while this delivery was running; not retried.",
                 )
+                self._settle_orphaned_legs()
                 return
             self.repo.mark_failure(job.id, f"job child exited {rc}")
 
@@ -231,6 +233,15 @@ class JobWorker:
                 proc.kill()
             except OSError:
                 pass
+
+    def _settle_orphaned_legs(self) -> None:
+        """Same settlement as worker-start recover, for a still-alive parent."""
+        from web.data.repositories.delivery_legs import DeliveryLegRepository
+
+        self.repo.interrupted_unknown = (
+            DeliveryLegRepository(self.repo.db).interrupt_orphaned_legs()
+        )
+        self._alert_unknown_legs()
 
     def _alert_unknown_legs(self) -> None:
         newly = getattr(self.repo, "interrupted_unknown", None) or []

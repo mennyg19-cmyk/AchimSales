@@ -14,6 +14,27 @@ from zoneinfo import ZoneInfo
 _EASTERN = ZoneInfo("America/New_York")
 _BAD = re.compile(r"[^A-Za-z0-9._-]+")
 
+
+def parse_frozen_when(slot_when: str = "", slot_day: str = "") -> datetime | None:
+    """Enqueue instant for filename/folder tokens. Never reads the live clock."""
+    raw = (slot_when or "").strip()
+    if raw:
+        try:
+            instant = datetime.fromisoformat(raw)
+        except ValueError:
+            instant = None
+        else:
+            if instant.tzinfo is None:
+                instant = instant.replace(tzinfo=_EASTERN)
+            return instant
+    day = (slot_day or "").strip()
+    if not day:
+        return None
+    try:
+        return datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=_EASTERN)
+    except ValueError:
+        return None
+
 # {Token} → value. Order in TOKEN_HELP is the GUI chip order.
 TOKEN_HELP: tuple[tuple[str, str], ...] = (
     ("{YYYY}", "4-digit year"),
