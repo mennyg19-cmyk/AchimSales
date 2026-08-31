@@ -507,6 +507,117 @@ def test_leftover_live_cookie_does_not_sign_in_existing_user(tmp_path):
         assert "v3_user" not in s
 
 
+def test_login_next_backslash_is_not_used_after_login(app):
+    for i, nxt in enumerate(("/\\evil.com", "/%5Cevil.com")):
+        client = app.test_client()
+        page = client.get("/login", query_string={"next": nxt})
+        assert page.status_code == 200
+        assert b"evil" not in page.data
+        with client.session_transaction() as s:
+            token = s["_csrf_token"]
+        resp = client.post(
+            "/login/dev",
+            data={
+                "email": f"redir{i}@b.com",
+                "role": "admin",
+                "csrf_token": token,
+                "next": nxt,
+            },
+        )
+        assert resp.status_code == 302
+        loc = resp.headers.get("Location") or ""
+        assert "evil" not in loc
+        assert "\\" not in loc
+
+
+def test_login_start_does_not_stash_backslash_next(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    monkeypatch.setattr(
+        "web.blueprints.auth.msal_flow.build_login_url",
+        lambda cfg: "https://login.microsoftonline.com/fake",
+    )
+    client = application.test_client()
+    for nxt in ("/\\evil.com", "/%5Cevil.com"):
+        resp = client.get("/login/start", query_string={"next": nxt})
+        assert resp.status_code == 302
+        with client.session_transaction() as s:
+            stored = s.get("v3_login_next") or ""
+            assert "evil" not in stored
+            assert "\\" not in stored
+
+
+def test_admin_cannot_impersonate_a_developer(app):
+    db = app.config["DB"]
+    UserRepository(db).upsert("admin@x.com", role="admin", display_name="Admin")
+    UserRepository(db).upsert("dev@x.com", role="developer", display_name="Dev")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "admin@x.com", "name": "Admin", "role": "admin"}
+        s["_csrf_token"] = "t"
+    resp = client.post("/impersonate", data={"email": "dev@x.com", "csrf_token": "t"})
+    assert resp.status_code == 403
+    with client.session_transaction() as s:
+        assert s["v3_user"]["email"] == "admin@x.com"
+        assert not s["v3_user"].get("impersonating")
+
+
+def test_developer_can_impersonate_a_developer(app):
+    db = app.config["DB"]
+    UserRepository(db).upsert("dev1@x.com", role="developer", display_name="Dev One")
+    UserRepository(db).upsert("dev2@x.com", role="developer", display_name="Dev Two")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {
+            "email": "dev1@x.com", "name": "Dev One", "role": "developer", "is_dev": True,
+        }
+        s["_csrf_token"] = "t"
+    resp = client.post("/impersonate", data={"email": "dev2@x.com", "csrf_token": "t"})
+    assert resp.status_code == 302
+    with client.session_transaction() as s:
+        assert s["v3_user"]["email"] == "dev2@x.com"
+        assert s["v3_user"]["impersonating"] is True
+
+
+def test_msal_token_failure_is_generic(app, monkeypatch):
+    class Boom:
+        def acquire_token_by_auth_code_flow(self, flow, values):
+            raise RuntimeError("client_secret=super-secret leaked")
+
+    monkeypatch.setattr("web.auth.msal_flow._msal_app", lambda cfg: Boom())
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_auth_flow"] = {"state": "st"}
+    resp = client.get("/auth/callback?code=x&state=st")
+    assert resp.status_code == 400
+    body = resp.get_data(as_text=True)
+    assert "super-secret" not in body
+    assert "client_secret" not in body
+    assert "Sign-in failed. Start login again." in body
+
+
+def test_msal_entra_error_description_is_generic(app, monkeypatch):
+    class Fail:
+        def acquire_token_by_auth_code_flow(self, flow, values):
+            return {
+                "error": "invalid_grant",
+                "error_description": "AADSTS70000: secret=abc leaked to client",
+            }
+
+    monkeypatch.setattr("web.auth.msal_flow._msal_app", lambda cfg: Fail())
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_auth_flow"] = {"state": "st"}
+    resp = client.get("/auth/callback?code=x&state=st")
+    assert resp.status_code == 400
+    body = resp.get_data(as_text=True)
+    assert "AADSTS70000" not in body
+    assert "secret=abc" not in body
+    assert "Sign-in failed. Start login again." in body
+
+
 def test_leftover_live_cookie_does_not_skip_role_refresh(tmp_path):
     from dataclasses import replace
 

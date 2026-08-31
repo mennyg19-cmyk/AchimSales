@@ -25,8 +25,18 @@ def logout() -> None:
     session.pop("user", None)
 
 
+def safe_internal_path(path: str, *, fallback: str = "/") -> str:
+    """Same-app relative path only. Rejects protocol-relative and backslash tricks."""
+    raw = path or ""
+    if not raw.startswith("/") or raw.startswith("//"):
+        return fallback
+    if "\\" in raw or "%5c" in raw.lower():
+        return fallback
+    return raw
+
+
 def login_redirect(next_path: str = "/") -> str:
-    safe = next_path if next_path.startswith("/") and not next_path.startswith("//") else "/"
+    safe = safe_internal_path(next_path, fallback="/")
     return f"/login?next={quote(safe, safe='/?=&')}"
 
 

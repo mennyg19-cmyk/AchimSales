@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 2: only a developer may impersonate a developer
+**What I had to decide:** Trust-boundary finding: an admin impersonating a developer passes `is_developer` checks because those read the *current* identity's DB role. Restrict vs accept.
+**Options I considered:** (1) Accept and log: admins are already privileged and can edit People. (2) Restrict: `/impersonate` 403 unless `actor_is_developer` when the target is a developer. (3) Change `is_developer` to always mean the real actor.
+**What I chose:** (2). Role picker stays developer-only. `is_developer` still means the current identity so a developer viewing as a salesman does not keep developer tools.
+**Why:** Admin impersonation of a developer would unlock `/dev/role-picker` and other developer-only screens under someone else's email. Admins can already manage users without that.
+**Status:** DECIDED — Phase 2 trust-boundary fix.
+
 ## 2026-08-31 Phase 2: role picker uses actor_is_developer; LIVE_DB_PATH stays for CLI
 **What I had to decide:** Gate `/dev/role-picker` on `authz.is_developer(p)` (plan 2.1 wording) vs the real actor during impersonation; whether to delete `LIVE_DB_PATH` in this phase.
 **Options I considered:** (1) `is_developer(p)` — impersonating a salesman could not reopen the picker. (2) `actor_is_developer(p)` — the signed-in developer keeps the picker while viewing as someone else. (3) Delete `LIVE_DB_PATH` now vs keep it for `flask import-live-users`.

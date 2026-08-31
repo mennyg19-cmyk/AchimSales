@@ -66,3 +66,5 @@ def test_login_redirect_escapes_open_redirect():
     assert login_redirect("/") == "/login?next=/"
     assert login_redirect("/reports") == "/login?next=/reports"
     assert login_redirect("https://evil.example/") == "/login?next=/"
+    assert login_redirect("/\\evil.com") == "/login?next=/"
+    assert login_redirect("/%5Cevil.com") == "/login?next=/"

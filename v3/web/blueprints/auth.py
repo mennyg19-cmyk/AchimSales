@@ -17,8 +17,8 @@ from flask import (
 )
 
 from web.auth import msal_flow
-from web.auth.principal import VALID_ROLES, Principal
-from web.auth.session import login, logout
+from web.auth.principal import VALID_ROLES, Principal, ROLE_DEVELOPER
+from web.auth.session import login, logout, safe_internal_path
 from web.data.repositories.users import User, UserRepository
 
 log = logging.getLogger(__name__)
@@ -39,9 +39,7 @@ def _db():
 def _safe_next() -> str:
     """Only allow same-app relative redirects (no open redirect). Reads args+form."""
     nxt = request.values.get("next") or ""
-    if nxt.startswith("/") and not nxt.startswith("//"):
-        return nxt
-    return url_for("reports.reports_list")
+    return safe_internal_path(nxt, fallback=url_for("reports.reports_list"))
 
 
 def _login_or_403(user: User, *, name: str, is_dev: bool) -> None:
@@ -306,6 +304,8 @@ def impersonate_start():
     target = UserRepository(_db()).get_by_email(target_email)
     if target is None:
         abort(404, description="User not found")
+    if target.role == ROLE_DEVELOPER and not authz.actor_is_developer(p):
+        abort(403, description="Only a developer can impersonate a developer")
 
     display = target.display_name or target.email
     impersonated = Principal(

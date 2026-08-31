@@ -33,6 +33,9 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Magic-link tokens are SHA-256 at rest (`token_hash` PK). Consume is one atomic hash update. Access-log filter redacts `/login/magic-link/<token>`. Tick prunes attempts/tokens at 90 days.
 - `POST /login/magic-link` with `X-Forwarded-For: 1.2.3.4, 9.9.9.9` records `9.9.9.9` (ProxyFix, one Azure hop), not the leftmost spoofed IP.
 - A session cookie signed with the previous Flask secret does not stay signed in.
+- `next=/\evil.com` and `next=/%5Cevil.com` are not kept for post-login redirect (`login_redirect` and `/login/start`).
+- An admin POSTing `/impersonate` targeting a developer gets 403 and keeps their own session. A developer can still impersonate a developer.
+- MSAL token exceptions and Entra `error_description` are not copied into the `/auth/callback` 400 body.
 
 **Expected behavior:**
 - One identity store: precious `users`. Cookie/session fields never grant roles.
