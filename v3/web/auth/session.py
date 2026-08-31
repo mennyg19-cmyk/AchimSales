@@ -30,18 +30,8 @@ def login_redirect(next_path: str = "/") -> str:
     return f"/login?next={quote(safe, safe='/?=&')}"
 
 
-def sync_role(role: str) -> None:
-    """Refresh the cached role on the stored principal.
-
-    The session is trusted only for identity; role/scope are re-resolved from the
-    DB on every security check. Presentation (badge, settings, nav) reads the
-    cached session role captured at login. Call this per-request so a promotion
-    shows up without a re-login.
-    """
-    refresh_from_db(role=role, is_dev=None)
-
-
 def refresh_from_db(*, role: str, is_dev: bool | None) -> None:
+    # Presentation cache only. Authorization re-reads role from the DB.
     data = session.get(_SESSION_KEY)
     if not isinstance(data, dict):
         return

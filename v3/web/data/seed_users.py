@@ -158,8 +158,3 @@ def copy_live_users(db: Database, users: list[dict]) -> tuple[int, int]:
                 )
                 grants_written += 1
     return len(users), grants_written
-
-
-def seed_users_from_live(db: Database, path: Path | str | None = None) -> int:
-    n_users, _n_grants = copy_live_users(db, read_live_users(path))
-    return n_users
