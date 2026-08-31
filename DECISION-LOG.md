@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 5: stored full-leg retry after split-only edit
+**What I had to decide:** What happens when the operator retries a stored full email leg after the live master schedule drops manager recipients and keeps only salesman splits.
+**Options I considered:** (1) Keep requiring live `sched.recipients` (retry fails `No delivery targets`). (2) Fail closed until the operator restores a full target. (3) Still send that stored full target; skip live splits that are not the selected leg.
+**What I chose:** (3). First-send with no targets still fails. First-send still requires a live email for listed salesmen.
+**Why:** Loop A re-pass 6 F1. I4 is retry of that stored attempt, not of the current target shape.
+**Status:** DECIDED — Phase 5 Loop A fix.
+
 ## 2026-08-31 Phase 5: last live fan-out key still retries
 **What I had to decide:** Whether selected salesman retry still uses fan-out when live keys are empty.
 **Options I considered:** (1) Ordinary full-delivery when `_salesman_targets` is empty (silent skip). (2) Fail the retry. (3) Enter fan-out from the selected leg's `salesman_key` and send the stored target.

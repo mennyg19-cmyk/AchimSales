@@ -392,6 +392,16 @@ class ScheduleRunner:
         """Build first, then send each email/folder leg. Fake deliveries skip legs."""
         recipients = str(deliver_kwargs.get("recipients") or "")
         path = str(deliver_kwargs.get("sharepoint_path") or "")
+        if not recipients.strip() and not path.strip() and retry_attempt_key:
+            selected = DeliveryLegRepository(self.user_repo.db).get(retry_attempt_key)
+            stored = (selected.target if selected else "") or ""
+            if selected and not (selected.salesman_key or "").strip() and stored:
+                if selected.kind in ("email", "notice"):
+                    recipients = stored
+                    deliver_kwargs["recipients"] = stored
+                else:
+                    path = stored
+                    deliver_kwargs["sharepoint_path"] = stored
         if not recipients.strip() and not path.strip():
             raise RuntimeError("No delivery targets.")
         if hasattr(self.delivery, "prepare"):
@@ -486,7 +496,10 @@ class ScheduleRunner:
             DeliveryLegRepository(self.user_repo.db).get(retry_attempt_key)
             if retry_attempt_key else None
         )
-        if sched.recipients or sched.sharepoint_path:
+        retry_full = bool(
+            retry_leg is not None and not (retry_leg.salesman_key or "").strip()
+        )
+        if sched.recipients or sched.sharepoint_path or retry_full:
             no_data_all = bool(params.get("email_on_no_data"))
             no_data_me = bool(params.get("email_on_no_data_me_only"))
             test_empty = self.settings.test_emails()
@@ -523,6 +536,8 @@ class ScheduleRunner:
         if retry_leg is not None and retry_leg.salesman_key:
             split_keys = [retry_leg.salesman_key]
         for key in split_keys:
+            if retry_leg is not None and retry_leg.salesman_key != key:
+                continue
             if (
                 retry_leg is not None
                 and retry_leg.salesman_key == key
@@ -541,8 +556,6 @@ class ScheduleRunner:
             split_params["salesman"] = [key]
             try:
                 if retry_leg is not None and retry_leg.kind == "notice":
-                    if retry_leg.salesman_key != key:
-                        continue
                     from web.delivery.execute import send_notice_leg
                     period_label = str(split_params.get("period") or "this run")
                     nsubj, nbody = _no_data_email(
@@ -561,8 +574,6 @@ class ScheduleRunner:
                     )
                     outcomes.append(outcome)
                     deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))
-                    continue
-                if retry_leg is not None and retry_leg.salesman_key != key:
                     continue
                 outcome = self._deliver_email_and_folder(
                     run_id=run_id, trigger=trigger,
