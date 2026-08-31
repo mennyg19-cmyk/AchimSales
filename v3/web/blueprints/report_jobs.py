@@ -15,10 +15,12 @@ from web.blueprints.reports import (
     _selected_customer_accounts, _user_id, _visible_list, reports_bp,
 )
 from web.jobs.queue import enqueue_or_503
-from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
+from web.reporting.export_jobs import (
+    EXPORT_JOB_TYPE, enqueue_export, load_source_payload, source_result_available,
+)
 from web.reporting.jobs import enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
-from web.data.repositories.jobs import kept_until_is_live, kept_until_state
+from web.data.repositories.jobs import kept_until_is_live
 
 @reports_bp.post("/api/reports/<report_key>/run")
 @require_login
@@ -100,19 +102,9 @@ def report_result(job_id: str):
     _assert_scope_compatible(p, job)
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
-    payload = None
-    state = kept_until_state(job.kept_until)
-    if state == "live":
-        payload = _job_repo().get_kept_payload(job_id)
-        if payload is None:
-            abort(404, description="Result expired; please re-run")
-    elif state == "expired":
+    payload = load_source_payload(job, _job_repo(), _cache())
+    if payload is None:
         abort(404, description="Result expired; please re-run")
-    else:
-        cached = _cache().get(job.result_ref)
-        if cached is None:
-            abort(404, description="Result expired; please re-run")
-        payload = cached.payload
     if not _authz().may_see_commissions(p):
         payload = drop_commissions_tab(payload)
     return jsonify(payload)
@@ -230,13 +222,7 @@ def export_report(report_key: str, job_id: str):
     if job.status != "success":
         abort(409, description="Report is not ready to export")
     now = datetime.now(timezone.utc)
-    state = kept_until_state(job.kept_until, now)
-    if state == "expired":
-        abort(404, description="Result expired; please re-run")
-    kept_ok = state == "live" and _job_repo().has_kept_payload(job_id)
-    if state == "live" and not kept_ok:
-        abort(404, description="Result expired; please re-run")
-    if not kept_ok and not _cache().exists(job.result_ref):
+    if not source_result_available(job, _job_repo(), _cache(), now):
         abort(404, description="Result expired; please re-run")
     layout = request.get_json(silent=True)
     if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)
