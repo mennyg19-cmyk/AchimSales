@@ -156,14 +156,18 @@ def _year_of(row: dict) -> int | None:
     return None
 
 
-def _commission_dollars_by_customer(rows: Iterable[dict]) -> dict[tuple[str, str], float]:
-    """Sum each invoice's own SP rate. Keyed by (customer, salesman)."""
-    dollars: dict[tuple[str, str], float] = {}
+def _customer_salesman_key(row: dict) -> tuple[str, str, str, str]:
+    return (row.get("CustomerAccount") or "", row.get("CustomerName") or "",
+            row.get("Salesman") or "", row.get("SalesmanName") or "")
+
+
+def _commission_dollars_by_customer(rows: Iterable[dict]) -> dict[tuple[str, str, str, str], float]:
+    """Sum each invoice's own SP rate. Same grouping as `_summary_by_customer`."""
+    dollars: dict[tuple[str, str, str, str], float] = {}
     for r in rows:
-        sg = r.get("_sales_group") or ""
-        if not sg:
+        if not (r.get("_sales_group") or ""):
             continue
-        key = (r.get("CustomerAccount") or "", salesman_key(sg))
+        key = _customer_salesman_key(r)
         rate = num(r.get("_commission_pct"))
         base = num(r.get("SubTotal Invoices")) + num(r.get("Tariff Charges"))
         dollars[key] = dollars.get(key, 0.0) + base * rate
@@ -219,8 +223,7 @@ def _summary_by_customer(raw: Sequence[dict]) -> dict:
     buckets: dict[tuple, dict] = {}
     invoices_seen: dict[tuple, set] = {}
     for r in raw:
-        key = (r.get("CustomerAccount") or "", r.get("CustomerName") or "",
-               r.get("Salesman") or "", r.get("SalesmanName") or "")
+        key = _customer_salesman_key(r)
         b = buckets.get(key)
         if b is None:
             b = {
@@ -393,11 +396,11 @@ def _commissions_flat_table(salesmen_out: list[dict], grand: dict,
 
 def _commissions_simple(summary_rows: Sequence[dict],
                         salesmen: Mapping[str, SalesmanFact],
-                        dollars: Mapping[tuple[str, str], float]) -> dict:
+                        dollars: Mapping[tuple[str, str, str, str], float]) -> dict:
     rows: list[dict] = []
     for r in summary_rows:
         sg = r.get("_sales_group") or ""
-        key = (r.get("CustomerAccount") or "", salesman_key(sg) if sg else "")
+        key = _customer_salesman_key(r)
         base = round(num(r.get("SubTotal Invoices")) + num(r.get("Total Tariff Charges")), 2)
         out = _public(r)
         out["Percent"] = _display_commission_pct(sg, salesmen) if sg else 0.0

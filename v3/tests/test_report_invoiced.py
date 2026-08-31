@@ -404,6 +404,23 @@ def test_commissions_simple_uses_each_invoice_rate():
     assert row["Percent"] == 0.05
 
 
+def test_commissions_simple_does_not_reuse_dollars_across_names():
+    facts = S.to_facts([
+        {"InvoiceNumber": "A", "CustomerAccount": "1", "CustomerName": "Old Name",
+         "InvoiceDate": "2026-04-10", "amount": "1000", "salesman": "REdwards",
+         "Total Invoice": "1000", "commission": "0.05"},
+        {"InvoiceNumber": "B", "CustomerAccount": "1", "CustomerName": "New Name",
+         "InvoiceDate": "2026-04-11", "amount": "1000", "salesman": "REdwards",
+         "Total Invoice": "1000", "commission": "0"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]
+    by_name = {r["CustomerName"]: r for r in comm["rows"] if r.get("CustomerName")}
+    assert by_name["Old Name"]["Commissions"] == 50.0
+    assert by_name["New Name"]["Commissions"] == 0.0
+    assert by_name["Old Name"]["Percent"] == 0.05
+    assert by_name["New Name"]["Percent"] == 0.05
+
+
 def test_unresolved_salesman_is_unassigned():
     facts = S.to_facts([{"InvoiceNumber": "X", "CustomerAccount": "1", "amount": "5"}])
     rows = _tabs_by_key(B.build(facts, salesmen={}))["invoices"]["rows"]

@@ -9,7 +9,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Phase 6 report and schedule defects (2026-08-31)
 
 **What to test:**
-- Commission cards use the current bucket's salesman number. SP `commission` is a fraction (`1` = 100%; values above 1 are percents). Invoice SP `0` stays $0. Commissions tab % still shows leftover `salesmen.commission_pct`. The no-YTD fallback also uses each invoice's own rate (`test_report_invoiced.py`).
+- Commission cards use the current bucket's salesman number. SP `commission` is a fraction (`1` = 100%; values above 1 are percents). Invoice SP `0` stays $0. Commissions tab % still shows leftover `salesmen.commission_pct`. The no-YTD fallback uses each invoice's own rate and the same customer/salesman grouping as the summary (`test_report_invoiced.py`).
 - Custom interval start after end is rejected (`test_dates.py`, `test_run_invalid_custom_dates_returns_400`).
 - Company save with Sabbath skip unchecked persists `skip_sabbath=false` (`test_master_schedule_persists_skip_sabbath_false`).
 - Forward `0026` marks leftover `scheduled` rows `legacy`. `last_run_at` ignores `manual`/`legacy`/`unknown` so a deploy-day historical row does not eat the next clock slot (`test_last_run_at_ignores_legacy_trigger`).
