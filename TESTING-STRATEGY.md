@@ -29,7 +29,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - A leftover Live `session["user"]` cookie does not sign anyone in, does not create a user, and does not skip DB role refresh.
 - `/dev/role-picker` GET/POST require live `authz.actor_is_developer` (real actor during impersonation). `p.is_dev` and admin are not enough. Demoted developer is 403 (or signed out).
 - MSAL `/auth/callback` uses `get_by_email`, not `upsert`. Unknown and inactive Entra users get 403 "Not authorized" and no new/reactivated row.
-- `bootstrap_background` does not call `seed_users_from_live`. `flask import-live-users` writes `app_settings.live_user_import` with path, imported user count, and imported grant count. A missing Live DB file exits non-zero and does not write the marker.
+- `bootstrap_background` does not call `seed_users_from_live`. `flask import-live-users` writes `app_settings.live_user_import` with path, imported user count, and imported grant count. A missing Live DB file or a SQLite file without `app_users` exits non-zero and does not write the marker. An empty valid `app_users` table may record users=0.
 - Magic-link tokens are SHA-256 at rest (`token_hash` PK). Consume is one atomic hash update. Access-log filter redacts `/login/magic-link/<token>`. Tick prunes attempts/tokens at 90 days.
 - `POST /login/magic-link` with `X-Forwarded-For: 1.2.3.4, 9.9.9.9` records `9.9.9.9` (ProxyFix, one Azure hop), not the leftmost spoofed IP.
 - A session cookie signed with the previous Flask secret does not stay signed in.

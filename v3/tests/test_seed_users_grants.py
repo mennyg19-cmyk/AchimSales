@@ -156,3 +156,48 @@ def test_import_live_users_cli_records_imported_grants_not_table_total(tmp_path,
     assert table_grants == 2
     assert data["users"] == 1
     assert data["grants"] == 1
+
+
+def _no_import_marker(db):
+    with db.precious() as conn:
+        return conn.execute(
+            "SELECT value FROM app_settings WHERE key='live_user_import'"
+        ).fetchone()
+
+
+def test_import_live_users_cli_fails_when_schema_is_wrong(tmp_path, monkeypatch):
+    live = tmp_path / "not-users.db"
+    conn = sqlite3.connect(live)
+    conn.execute("CREATE TABLE unrelated(x INTEGER)")
+    conn.commit()
+    conn.close()
+    app = _cli_app(tmp_path)
+    monkeypatch.setenv("LIVE_DB_PATH", str(live))
+    result = app.test_cli_runner().invoke(args=["import-live-users"])
+    assert result.exit_code != 0
+    text = f"{result.output or ''}{result.exception or ''}".lower()
+    assert "app_users" in text
+    assert _no_import_marker(app.config["DB"]) is None
+
+
+def test_import_live_users_cli_allows_empty_app_users_table(tmp_path, monkeypatch):
+    live = tmp_path / "empty-users.db"
+    conn = sqlite3.connect(live)
+    conn.execute(
+        "CREATE TABLE app_users (email TEXT PRIMARY KEY, role TEXT,"
+        " salesman_key TEXT, display_name TEXT, dashboard_enabled INTEGER,"
+        " is_external INTEGER)"
+    )
+    conn.commit()
+    conn.close()
+    app = _cli_app(tmp_path)
+    monkeypatch.setenv("LIVE_DB_PATH", str(live))
+    result = app.test_cli_runner().invoke(args=["import-live-users"])
+    assert result.exit_code == 0
+    with app.config["DB"].precious() as conn:
+        raw = conn.execute(
+            "SELECT value FROM app_settings WHERE key='live_user_import'"
+        ).fetchone()[0]
+    data = json.loads(raw)
+    assert data["users"] == 0
+    assert data["grants"] == 0

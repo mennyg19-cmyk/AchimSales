@@ -353,12 +353,16 @@ def _register_cli(app: Flask, db) -> None:
     @app.cli.command("import-live-users")
     def import_live_users_cmd():
         from web.data.repositories.app_settings import AppSettingsRepository
-        from web.data.seed_users import copy_live_users, live_db_path, read_live_users
+        from web.data.seed_users import (
+            LiveUserSourceError, copy_live_users, live_db_path, read_live_users,
+        )
 
         path = live_db_path()
-        if not path.is_file():
-            raise SystemExit(f"Live user DB not found: {path}")
-        n_users, n_grants = copy_live_users(db, read_live_users(path))
+        try:
+            users = read_live_users(path)
+        except LiveUserSourceError as exc:
+            raise SystemExit(str(exc)) from exc
+        n_users, n_grants = copy_live_users(db, users)
         AppSettingsRepository(db).record_live_user_import(
             path=str(path), users=n_users, grants=n_grants,
         )

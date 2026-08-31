@@ -58,17 +58,29 @@ def _grant_keys_by_email(conn: sqlite3.Connection) -> dict[str, list[str]]:
     return out
 
 
+class LiveUserSourceError(RuntimeError):
+    """The leftover Live user DB is missing, unreadable, or not a user directory."""
+
+
 def read_live_users(path: Path | str | None = None) -> list[dict]:
-    """Read app_users from the live DB. Returns [] if the file/table is absent."""
+    """Read app_users from the live DB. Raises if the source is unusable.
+
+    An existing file with an empty `app_users` table returns [].
+    """
     path = Path(path) if path is not None else live_db_path()
     if not path.is_file():
-        return []
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        raise LiveUserSourceError(f"Live user DB not found: {path}")
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        raise LiveUserSourceError(f"Cannot read live user DB {path}: {exc}") from exc
     conn.row_factory = sqlite3.Row
     try:
+        if "app_users" not in _tables(conn):
+            raise LiveUserSourceError(f"{path} has no app_users table")
         cols = _columns(conn, "app_users")
         if "email" not in cols:
-            return []
+            raise LiveUserSourceError(f"{path} app_users has no email column")
         wanted = [c for c in ("email", "role", "salesman_key", "display_name",
                               "dashboard_enabled", "is_external") if c in cols]
         rows = conn.execute(f"SELECT {', '.join(wanted)} FROM app_users").fetchall()
@@ -76,8 +88,8 @@ def read_live_users(path: Path | str | None = None) -> list[dict]:
             grants = _grant_keys_by_email(conn)
         except sqlite3.Error:
             grants = {}
-    except sqlite3.Error:
-        return []
+    except sqlite3.Error as exc:
+        raise LiveUserSourceError(f"Cannot read live user DB {path}: {exc}") from exc
     finally:
         conn.close()
 
