@@ -8,8 +8,12 @@ failed and surfaces in the run history.
 
 from __future__ import annotations
 
+import uuid
+
 from web.auth.authorization import Authorization
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.jobs import JobRepository
+from web.delivery.execute import deliver_with_legs
 from web.delivery.service import DeliveryService
 from web.jobs.worker import Handler, JobContext
 
@@ -19,7 +23,9 @@ DELIVERY_JOB_TYPE = "report.deliver"
 def enqueue_delivery(job_repo: JobRepository, *, owner_user_id: int | None,
                      payload: dict) -> str:
     """Enqueue a delivery. Not deduped: each send is an intentional, distinct act."""
-    return job_repo.enqueue(DELIVERY_JOB_TYPE, owner_user_id=owner_user_id, params=payload)
+    params = dict(payload or {})
+    params.setdefault("slot_id", f"manual-deliver:{uuid.uuid4().hex}")
+    return job_repo.enqueue(DELIVERY_JOB_TYPE, owner_user_id=owner_user_id, params=params)
 
 
 def make_delivery_handler(delivery: DeliveryService, authz: Authorization) -> Handler:
@@ -31,7 +37,12 @@ def make_delivery_handler(delivery: DeliveryService, authz: Authorization) -> Ha
         principal = authz.principal_for_user_id(ctx.job.owner_user_id)
         scope = authz.authorize_delivery(
             principal, p["report_key"], sharepoint=bool(p.get("sharepoint_path")))
-        outcome = delivery.run_and_deliver(
+        outcome = deliver_with_legs(
+            delivery, DeliveryLegRepository(authz.db),
+            slot_id=str(p.get("slot_id") or ctx.job.id),
+            job_id=ctx.job.id,
+            run_id=None,
+            window=p.get("params") or {},
             report_key=p["report_key"], identity=principal.email,
             visible_salesman_keys=scope,
             builder_version=p["builder_version"], params=p.get("params") or {},
@@ -40,7 +51,17 @@ def make_delivery_handler(delivery: DeliveryService, authz: Authorization) -> Ha
             sharepoint_path=p.get("sharepoint_path", ""),
             filename_template=p.get("filename_template") or "",
             schedule_name=p.get("schedule_name") or "",
+            cancel_check=ctx.is_cancelled,
         )
+        if outcome.result.unknown:
+            from web.delivery.reconcile import alert_unknown_delivery
+            from web.data.repositories.app_settings import AppSettingsRepository
+            alert_unknown_delivery(
+                authz.db, AppSettingsRepository(authz.db), delivery=delivery,
+                subject="[UNKNOWN] email-now send",
+                body=outcome.result.error or "Graph may have accepted this send.",
+            )
+            return f"unknown:{outcome.result.outbox_id or ''}"
         if not outcome.result.ok:
             raise RuntimeError(outcome.result.error or "Delivery failed")
         return f"outbox:{outcome.result.outbox_id}"

@@ -7,7 +7,7 @@ that run in their book. Sales reps never see the company list.
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, url_for
+from flask import Blueprint, abort, current_app, redirect, request, url_for
 
 from report_engine import registry
 from report_engine.lib import salesman_key
@@ -442,6 +442,77 @@ def _master_page_context(p, uid: int) -> dict:
         "year_options": list(range(year_now, year_now - 5, -1)),
     }
 
+
+
+def _history_extra(runs, p) -> dict:
+    from web.data.repositories.delivery_legs import DeliveryLegRepository
+    from web.delivery.states import UNKNOWN
+    repo = DeliveryLegRepository(_db())
+    legs_by_run = {r.id: repo.list_for_run(r.id) for r in runs}
+    return {
+        "legs_by_run": legs_by_run,
+        "can_reconcile": _authz().is_privileged(p),
+        "unknown_status": UNKNOWN,
+    }
+
+
+from web.auth.decorators import require_login as _require_login
+from flask import jsonify as _jsonify
+
+
+@schedules_bp.post("/api/delivery-legs/<attempt_key>/reconcile")
+@_require_login
+def reconcile_delivery_leg(attempt_key: str):
+    """Operator: mark an unknown send as received, or reopen it to send again."""
+    from web.data.repositories.delivery_legs import DeliveryLegRepository
+    from web.data.repositories.jobs import QueueAdmissionError
+    from web.delivery.states import UNKNOWN
+    from web.scheduling.jobs import enqueue_leg_retry
+
+    p = _principal()
+    if not _authz().is_privileged(p):
+        abort(403, description="Admins and developers can reconcile unknown sends.")
+    body = request.get_json(silent=True) or {}
+    action = (request.form.get("action") or body.get("action") or "").strip()
+    legs = DeliveryLegRepository(_db())
+    leg = legs.get(attempt_key)
+    if leg is None:
+        abort(404, description="Unknown delivery leg")
+    if action == "mark_sent":
+        if leg.status not in (UNKNOWN, "accepted"):
+            abort(400, description="Only unknown sends can be marked received.")
+        legs.mark_sent(attempt_key, row_count=leg.row_count, remote_id=leg.remote_id)
+    elif action == "retry":
+        prev = leg.status
+        err = leg.error
+        job_repo = current_app.config["JOB_REPO"]
+        if leg.job_id:
+            running = job_repo.get(leg.job_id)
+            if running is not None and running.status in ("queued", "running"):
+                abort(409, description="That send is still running.")
+
+        def _restore(reason: str) -> None:
+            if prev == UNKNOWN:
+                legs.mark_unknown(attempt_key, err or reason)
+            else:
+                legs.mark_failed(attempt_key, err or reason)
+
+        if not legs.reopen_for_retry(attempt_key):
+            abort(400, description="Only unknown or failed legs can be retried.")
+        try:
+            queued = enqueue_leg_retry(job_repo, leg)
+        except QueueAdmissionError as exc:
+            _restore(str(exc))
+            abort(503, description=str(exc))
+        if not queued:
+            _restore("retry unavailable")
+            abort(400, description="Cannot retry this send; the original job is gone.")
+    else:
+        abort(400, description="action must be mark_sent or retry")
+    nxt = request.form.get("next") or request.args.get("next") or ""
+    if nxt.startswith("/") and not nxt.startswith("//"):
+        return redirect(nxt)
+    return _jsonify({"ok": True, "attempt_key": attempt_key, "action": action})
 
 
 from web.blueprints import schedule_personal as _schedule_personal  # noqa: F401, E402

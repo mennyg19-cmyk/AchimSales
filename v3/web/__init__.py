@@ -126,7 +126,14 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
 
     sharepoint = SharePointService(cfg)
     onedrive = OneDriveService(cfg)
-    email = EmailService(cfg, OutboxRepository(db), sharepoint, onedrive=onedrive)
+    from web.delivery.graph_token import GraphTokenCache
+    tokens = None
+    if cfg.tenant_id and cfg.client_id and cfg.client_secret:
+        tokens = GraphTokenCache(cfg.tenant_id, cfg.client_id, cfg.client_secret)
+        sharepoint = SharePointService(cfg, tokens=tokens)
+        onedrive = OneDriveService(cfg, tokens=tokens)
+    email = EmailService(cfg, OutboxRepository(db), sharepoint, onedrive=onedrive,
+                         tokens=tokens)
     delivery = DeliveryService(runner, service.builder_for, email)
     worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery, app.config["AUTHZ"]))
 

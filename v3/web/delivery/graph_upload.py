@@ -1,17 +1,20 @@
 """Upload bytes to a Graph drive item.
 
 Simple PUT /content works up to 4 MB. Larger files (YTD Ordered workbooks)
-must use an upload session or Graph rejects the request.
+must use an upload session or Graph rejects the request. A crash mid-session
+resumes from Graph `nextExpectedRanges` when the session URL is still valid.
 """
 
 from __future__ import annotations
 
 import time
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024
 # Graph requires chunk sizes that are a multiple of 320 KiB (except the last).
 CHUNK_SIZE = 327680 * 10  # 3.2 MiB
+
+SessionHook = Callable[[str], None]
 
 
 class _Requests(Protocol):
@@ -27,6 +30,8 @@ def upload_drive_item(
     content: bytes,
     put_timeout: float,
     session_timeout: float = 30,
+    resume_url: str = "",
+    on_session: SessionHook | None = None,
 ) -> dict[str, Any]:
     """PUT small files; createUploadSession + ranged PUTs when over 4 MB."""
     if len(content) < SIMPLE_UPLOAD_MAX:
@@ -40,16 +45,27 @@ def upload_drive_item(
             r.raise_for_status()
         return r.json()
 
-    r = _request_with_retry(
-        requests, "post", session_url,
-        headers={**headers, "Content-Type": "application/json"},
-        json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
-        timeout=session_timeout,
-    )
-    r.raise_for_status()
-    upload_url = r.json()["uploadUrl"]
-    size = len(content)
+    upload_url = (resume_url or "").strip()
     start = 0
+    if upload_url:
+        nxt = _session_next_start(requests, upload_url, timeout=session_timeout)
+        if nxt is None:
+            upload_url = ""
+        else:
+            start = nxt
+    if not upload_url:
+        r = _request_with_retry(
+            requests, "post", session_url,
+            headers={**headers, "Content-Type": "application/json"},
+            json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
+            timeout=session_timeout,
+        )
+        r.raise_for_status()
+        upload_url = r.json()["uploadUrl"]
+        start = 0
+        if on_session is not None:
+            on_session(upload_url)
+    size = len(content)
     last = None
     while start < size:
         end = min(start + CHUNK_SIZE, size)
@@ -63,9 +79,38 @@ def upload_drive_item(
             },
             timeout=put_timeout,
         )
-        last.raise_for_status()
+        try:
+            last.raise_for_status()
+        except Exception:
+            nxt = _session_next_start(requests, upload_url, timeout=session_timeout)
+            if nxt is None or nxt == start:
+                raise
+            start = nxt
+            continue
         start = end
     return last.json() if last is not None else {}
+
+
+def _session_next_start(requests, upload_url: str, *, timeout: float) -> int | None:
+    getter = getattr(requests, "get", None)
+    if getter is None:
+        return None
+    r = getter(upload_url, timeout=timeout)
+    if r.status_code in (404, 410):
+        return None
+    if r.status_code >= 400:
+        return None
+    try:
+        ranges = (r.json() or {}).get("nextExpectedRanges") or []
+    except Exception:  # noqa: BLE001
+        return None
+    if not ranges:
+        return 0
+    first = str(ranges[0]).split("-", 1)[0].strip()
+    try:
+        return int(first)
+    except ValueError:
+        return 0
 
 
 def _put_with_retry(requests, url, *, data, headers, timeout, attempts: int = 3):

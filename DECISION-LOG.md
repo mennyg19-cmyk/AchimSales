@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Phase 5: delivery states and Graph unknown
+**What I had to decide:** How `pending` maps, what worker death does to in-flight legs, and how an operator reconciles `unknown`.
+**Options I considered:** (1) Requeue `schedule.run` when legs are only prepared (double-send risk with a detached child). (2) Keep cancelling those jobs; convert sending email to `unknown`, accepted email/folder to `sent`, prepared to failed-before-send. (3) Leave sending rows until Phase 6.
+**What I chose:** (2). Freeze `slot_id` + `slot_day` at enqueue. Build the workbook before any leg is `sending`. Graph timeout after submit is `unknown` (not auto-retried). Connection refused is failed. Operator: `[UNKNOWN]` mail to Settings test emails, in-app notice for admin/developer, History mark-sent or retry that leg. Tokens cache with a 60s refresh skew; one 401 retry. Upload sessions resume from `nextExpectedRanges`. Legs prune at 90 days with no FK to jobs.
+**Why:** Q11 + Phase 5 gate. Phase 4 still forbids a second child on a cancelled delivery.
+**Status:** DECIDED — Phase 5 implementation.
+
 ## 2026-08-31 Phase 4 Loop A: unsafe orphan recovery
 **What I had to decide:** What `recover_orphans` does with a `running` `schedule.run` or `report.deliver` after the worker dies.
 **Options I considered:** (1) Requeue like report.run (double-send). (2) Cancel and do not retry. (3) Leave `running` until Phase 5 `unknown`.

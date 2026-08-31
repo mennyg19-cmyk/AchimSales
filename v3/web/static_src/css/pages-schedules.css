@@ -43,6 +43,7 @@
 .row-actions { display: flex; gap: 6px; }
 .badge-success { background: var(--success-light, #dcfce7); color: var(--success, #16a34a); }
 .badge-error { background: var(--error-light); color: var(--error); }
+.badge-warning { background: var(--warning-light, #fef9c3); color: var(--warning, #b45309); }
 .run-debug { color: var(--error); font-size: 12px; white-space: normal; max-width: 360px; }
 .run-sp, .run-rcpt { color: var(--text-muted); font-size: 12px; }
 
@@ -77,6 +78,7 @@
 }
 .run-history-card.is-success { border-left-color: var(--success, #16a34a); }
 .run-history-card.is-failure { border-left-color: var(--error); }
+.run-history-card.is-unknown { border-left-color: var(--warning, #f59e0b); }
 .run-history-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
 .run-history-when, .run-history-rows { font-size: 12px; color: var(--text-muted); }
 .run-history-summary { font-size: 14px; color: var(--text); margin: 0 0 10px; white-space: pre-wrap; }
@@ -90,6 +92,8 @@
 .leg-ok { color: var(--text); }
 .leg-skip { color: var(--text-muted); }
 .leg-fail { color: var(--error); }
+.leg-unknown { color: var(--warning, #b45309); }
+.leg-reconcile { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 8px; }
 
 /* ── Master schedules page (wizard) ── */
 .ms-wizard {

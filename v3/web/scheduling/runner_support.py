@@ -146,6 +146,7 @@ def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") ->
         "rows": outcome.row_count,
         "send_channel": mail.send_channel,
         "sent": mail.sent_via_smtp,
+        "unknown": mail.unknown,
         "sharepoint_saved": mail.sharepoint_saved,
         "sharepoint_url": mail.sharepoint_url or "",
         "eml": mail.eml_name,
@@ -190,12 +191,13 @@ def _combine_outcomes(outcomes: list[DeliveryOutcome]) -> DeliveryOutcome:
         else:
             deliveries.append(_delivery_leg(outcome, kind="full"))
     ok = all(o.result.ok for o in outcomes)
+    unknown = any(o.result.unknown for o in outcomes)
     notes = [o.result.error for o in outcomes if o.result.error]
     recipients = [email for o in outcomes for email in o.result.recipients]
     eml_names = [o.result.eml_name for o in outcomes if o.result.eml_name]
     channels = [o.result.send_channel for o in outcomes if o.result.send_channel]
     combined = DeliveryResult(
-        ok=ok,
+        ok=ok and not unknown,
         error="; ".join(notes),
         recipients=recipients,
         eml_name=", ".join(eml_names),
@@ -205,6 +207,7 @@ def _combine_outcomes(outcomes: list[DeliveryOutcome]) -> DeliveryOutcome:
         sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
         sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
         outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
+        unknown=unknown,
     )
     return DeliveryOutcome(
         result=combined,
@@ -230,6 +233,8 @@ def _summary_message(outcome: DeliveryOutcome, *, ok: bool) -> str:
                 if d.get("sharepoint_saved"):
                     part += " (+ SharePoint)"
                 bits.append(part)
+            elif d.get("unknown"):
+                bits.append(f"{label} unknown: {d.get('error') or 'Graph may have accepted the send'}")
             else:
                 bits.append(f"{label} failed: {d.get('error') or 'delivery failed'}")
     else:

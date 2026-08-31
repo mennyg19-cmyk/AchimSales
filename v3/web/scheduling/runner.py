@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from datetime import date, datetime, timezone
 
 from report_engine import registry
@@ -34,8 +35,8 @@ from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 from web.scheduling.runner_support import (
-    _as_str_list, _combine_outcomes, _commit_email_folder_legs,
-    _delivery_leg, _no_data_email, _onedrive_user, _output_meta, _report_params,
+    _as_str_list, _combine_outcomes, _delivery_leg, _no_data_email, _onedrive_user,
+    _output_meta, _report_params,
     _salesman_targets, _sharepoint_for_test, _summary_message, _window_labels,
     _with_viewer_limits,
 )
@@ -78,12 +79,15 @@ class ScheduleRunner:
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
             include_regular: bool = True, trigger: str = "scheduled",
-            cancel_check=None) -> int:
+            cancel_check=None, slot_id: str = "", slot_day: str = "",
+            job_id: str = "") -> int:
         sched = self._load(schedule_id, schedule_type)
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
 
         run_id = self.run_repo.start(schedule_id, schedule_type, trigger=trigger)
+        slot_day = slot_day or C.eastern_date_iso()
+        slot_id = slot_id or f"adhoc:{schedule_type}:{schedule_id}:{uuid.uuid4().hex}"
         try:
             if cancel_check and cancel_check():
                 raise JobCancelled()
@@ -120,7 +124,7 @@ class ScheduleRunner:
             if test_to is not None:
                 subject = f"[TEST] {subject}"
             od_user = "" if test_to else _onedrive_user(sched, schedule_type, identity)
-            today = date.fromisoformat(C.eastern_date_iso())
+            today = date.fromisoformat(slot_day)
             windows = run_param_windows(
                 base_params, sched.report_key,
                 skipped_iso=catch_up_for_date,
@@ -143,17 +147,27 @@ class ScheduleRunner:
                     subject=window_subject, report_name=report_name,
                     od_user=od_user, test_to=test_to, schedule_name=window_name,
                     cancel_check=cancel_check, run_id=run_id, trigger=trigger,
+                    slot_id=slot_id, job_id=job_id,
                 )
                 outcomes.append(outcome)
             combined = _combine_outcomes(outcomes)
             meta = _output_meta(combined)
-            summary = _summary_message(combined, ok=True)
-            self.run_repo.finish(
-                run_id, status="success",
-                rows=combined.row_count, output_meta=meta, debug_log=summary,
-            )
-            if catch_up_for_date:
-                self._set_catch_up(schedule_id, schedule_type, False)
+            summary = _summary_message(combined, ok=combined.result.ok)
+            if combined.result.unknown:
+                self.run_repo.finish(
+                    run_id, status="unknown",
+                    rows=combined.row_count, output_meta=meta, debug_log=summary,
+                )
+                self._notify_unknown(sched, schedule_type, summary)
+            elif not combined.result.ok:
+                raise RuntimeError(combined.result.error or "delivery failed")
+            else:
+                self.run_repo.finish(
+                    run_id, status="success",
+                    rows=combined.row_count, output_meta=meta, debug_log=summary,
+                )
+                if catch_up_for_date:
+                    self._set_catch_up(schedule_id, schedule_type, False)
         except JobCancelled:
             existing = self.run_repo.get(run_id)
             if existing is None or existing.status == "running":
@@ -188,7 +202,8 @@ class ScheduleRunner:
                         subject: str, report_name: str, od_user: str,
                         test_to: list[str] | None, schedule_name: str,
                         cancel_check=None, run_id: int | None = None,
-                        trigger: str = "scheduled") -> DeliveryOutcome:
+                        trigger: str = "scheduled", slot_id: str = "",
+                        job_id: str = "") -> DeliveryOutcome:
         builder_version = spec.builder_version if spec else 1
         last_error: Exception | None = None
         for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
@@ -205,6 +220,7 @@ class ScheduleRunner:
                         cancel_check=cancel_check,
                         run_id=run_id, trigger=trigger,
                         schedule_type=schedule_type, schedule_id=schedule_id,
+                        slot_id=slot_id, job_id=job_id,
                     )
                 else:
                     no_data_all = bool(params.get("email_on_no_data"))
@@ -233,8 +249,9 @@ class ScheduleRunner:
                         ),
                         schedule_name=schedule_name,
                         cancel_check=cancel_check,
+                        slot_id=slot_id, job_id=job_id,
                     )
-                if not outcome.result.ok:
+                if not outcome.result.ok and not outcome.result.unknown:
                     raise RuntimeError(outcome.result.error or "delivery failed")
                 return outcome
             except Exception as exc:
@@ -321,6 +338,23 @@ class ScheduleRunner:
         except Exception:  # noqa: BLE001 - never hide the original failure
             log.exception("Could not send schedule failure notice")
 
+    def _notify_unknown(self, sched, schedule_type: str, summary: str) -> None:
+        from web.delivery.reconcile import alert_unknown_delivery
+        name = getattr(sched, "name", None) or getattr(sched, "report_key", "schedule")
+        alert_unknown_delivery(
+            self.user_repo.db, self.settings,
+            delivery=self.delivery,
+            subject=f"[UNKNOWN] {name}",
+            body=(
+                f"A scheduled send may already be in a mailbox. Do not assume it failed.\n\n"
+                f"Schedule: {name}\n"
+                f"Kind: {'Company' if schedule_type == MASTER else 'Personal'}\n"
+                f"{summary}\n\n"
+                "Open History: mark 'I received it' if the mail arrived, or "
+                "'Send again' only if it is missing."
+            ),
+        )
+
     def _subject(self, sched, schedule_type: str, report_name: str) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         label = "Master" if schedule_type == MASTER else "Scheduled"
@@ -330,24 +364,34 @@ class ScheduleRunner:
     def _deliver_email_and_folder(self, *, run_id: int | None, trigger: str,
                                   schedule_type: str, schedule_id: int,
                                   window: dict, salesman: str = "",
+                                  slot_id: str = "", job_id: str = "",
                                   **deliver_kwargs) -> DeliveryOutcome:
-        """Send one workbook. Skip email or folder legs already marked sent/pending."""
+        """Build first, then send each email/folder leg. Fake deliveries skip legs."""
         recipients = str(deliver_kwargs.get("recipients") or "")
         path = str(deliver_kwargs.get("sharepoint_path") or "")
-        has_email = bool(recipients.strip())
-        has_folder = bool(path.strip())
-        if not has_email and not has_folder:
+        if not recipients.strip() and not path.strip():
             raise RuntimeError("No delivery targets.")
+        if hasattr(self.delivery, "prepare"):
+            from web.delivery.execute import deliver_with_legs
+            return deliver_with_legs(
+                self.delivery,
+                DeliveryLegRepository(self.user_repo.db),
+                slot_id=slot_id or f"{schedule_type}:{schedule_id}:{trigger}",
+                job_id=job_id,
+                run_id=run_id,
+                window=window,
+                salesman=salesman,
+                **deliver_kwargs,
+            )
+        # Test doubles with only run_and_deliver still need skip-on-retry.
         legs = DeliveryLegRepository(self.user_repo.db)
         email_key = attempt_key(
-            schedule_type=schedule_type, schedule_id=schedule_id, trigger=trigger,
-            run_id=run_id or 0, window=window, kind="email", target=recipients,
-            salesman=salesman,
+            slot_id=slot_id or f"{schedule_type}:{schedule_id}:{trigger}",
+            kind="email", target=recipients, salesman=salesman, window=window,
         )
         folder_key = attempt_key(
-            schedule_type=schedule_type, schedule_id=schedule_id, trigger=trigger,
-            run_id=run_id or 0, window=window, kind="sharepoint", target=path,
-            salesman=salesman,
+            slot_id=slot_id or f"{schedule_type}:{schedule_id}:{trigger}",
+            kind="sharepoint", target=path, salesman=salesman, window=window,
         )
         skip_email = bool(recipients.strip()) and legs.is_settled(email_key)
         skip_folder = bool(path.strip()) and legs.is_settled(folder_key)
@@ -367,11 +411,11 @@ class ScheduleRunner:
                 row_count=rows,
             )
         if recipients.strip() and not skip_email:
-            legs.begin(email_key, run_id=run_id, kind="email", target=recipients,
-                       salesman_key=salesman)
+            legs.prepare(email_key, run_id=run_id, kind="email", target=recipients,
+                         salesman_key=salesman, slot_id=slot_id, job_id=job_id)
         if path.strip() and not skip_folder:
-            legs.begin(folder_key, run_id=run_id, kind="sharepoint", target=path,
-                       salesman_key=salesman)
+            legs.prepare(folder_key, run_id=run_id, kind="sharepoint", target=path,
+                         salesman_key=salesman, slot_id=slot_id, job_id=job_id)
         try:
             outcome = self.delivery.run_and_deliver(
                 skip_email=skip_email, skip_folder=skip_folder,
@@ -384,6 +428,7 @@ class ScheduleRunner:
             if path.strip() and not skip_folder:
                 legs.mark_failed(folder_key, "cancelled" if isinstance(exc, JobCancelled) else str(exc))
             raise
+        from web.scheduling.runner_support import _commit_email_folder_legs
         _commit_email_folder_legs(
             legs, email_key, folder_key, recipients, path, skip_email, skip_folder, outcome,
         )
@@ -399,6 +444,7 @@ class ScheduleRunner:
                            cancel_check=None, run_id: int | None = None,
                            trigger: str = "scheduled",
                            schedule_type: str = MASTER, schedule_id: int = 0,
+                           slot_id: str = "", job_id: str = "",
                            ) -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
         deliveries: list[dict] = []
@@ -431,6 +477,7 @@ class ScheduleRunner:
                     else ("; ".join(test_empty) if empty_to_test else None)
                 ),
                 cancel_check=cancel_check,
+                slot_id=slot_id, job_id=job_id,
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -446,35 +493,59 @@ class ScheduleRunner:
                 raise JobCancelled()
             split_params = _report_params(params)
             split_params["salesman"] = [key]
-            outcome = self._deliver_email_and_folder(
-                run_id=run_id, trigger=trigger,
-                schedule_type=schedule_type, schedule_id=schedule_id,
-                window=params, salesman=key,
-                report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                builder_version=builder_version, params=split_params, layout=self._layout_for(sched),
-                recipients=test_recips if test_to else email,
-                subject=f"{subject} - {key}",
-                report_name=f"{report_name} - {key}", sharepoint_path="",
-                filename_template=getattr(sched, "filename_template", "") or "",
-                schedule_name=f"{sched_name} - {key}",
-                email_on_empty=False,
-                cancel_check=cancel_check,
-            )
-            if outcome.row_count == 0 and outcome.result.send_channel != "skipped":
-                if cancel_check and cancel_check():
-                    raise JobCancelled()
-                notice_fn = getattr(self.delivery, "send_no_data_notice", None)
-                if callable(notice_fn):
+            try:
+                outcome = self._deliver_email_and_folder(
+                    run_id=run_id, trigger=trigger,
+                    schedule_type=schedule_type, schedule_id=schedule_id,
+                    window=params, salesman=key,
+                    report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
+                    builder_version=builder_version, params=split_params, layout=self._layout_for(sched),
+                    recipients=test_recips if test_to else email,
+                    subject=f"{subject} - {key}",
+                    report_name=f"{report_name} - {key}", sharepoint_path="",
+                    filename_template=getattr(sched, "filename_template", "") or "",
+                    schedule_name=f"{sched_name} - {key}",
+                    email_on_empty=False,
+                    cancel_check=cancel_check,
+                    slot_id=slot_id, job_id=job_id,
+                )
+                if outcome.row_count == 0 and outcome.result.send_channel != "skipped":
+                    if cancel_check and cancel_check():
+                        raise JobCancelled()
                     period_label = str(split_params.get("period") or "this run")
                     nsubj, nbody = _no_data_email(
                         report_name, period_label, key,
                         customers=_as_str_list(split_params.get("customers")),
                     )
-                    outcome = notice_fn(
-                        recipients=test_recips if test_to else email,
-                        subject=nsubj, body_text=nbody, report_name=report_name,
-                        cancel_check=cancel_check,
-                    )
+                    notice_to = test_recips if test_to else email
+                    if hasattr(self.delivery, "prepare"):
+                        from web.delivery.execute import send_notice_leg
+                        outcome = send_notice_leg(
+                            self.delivery, DeliveryLegRepository(self.user_repo.db),
+                            slot_id=slot_id, job_id=job_id, run_id=run_id,
+                            window=params, salesman=key, recipients=notice_to,
+                            subject=nsubj, body_text=nbody, report_name=report_name,
+                            cancel_check=cancel_check,
+                        )
+                    else:
+                        notice_fn = getattr(self.delivery, "send_no_data_notice", None)
+                        if callable(notice_fn):
+                            outcome = notice_fn(
+                                recipients=notice_to,
+                                subject=nsubj, body_text=nbody, report_name=report_name,
+                                cancel_check=cancel_check,
+                            )
+            except JobCancelled:
+                raise
+            except Exception as exc:  # noqa: BLE001 - keep other salesmen going
+                log.exception("split delivery failed for salesman %s", key)
+                outcome = DeliveryOutcome(
+                    result=DeliveryResult(
+                        ok=False, error=str(exc),
+                        recipients=[test_recips if test_to else email],
+                    ),
+                    row_count=0,
+                )
             outcomes.append(outcome)
             deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))
 

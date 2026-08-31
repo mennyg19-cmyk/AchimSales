@@ -133,6 +133,7 @@ class JobWorker:
         recovered = self.repo.recover_orphans()
         if recovered:
             log.info("recovered %d orphaned running job(s) on startup", recovered)
+        self._alert_unknown_legs()
         self._stop.clear()
         self._install_stop_signals()
         self._beat_worker()
@@ -231,6 +232,21 @@ class JobWorker:
             except OSError:
                 pass
 
+    def _alert_unknown_legs(self) -> None:
+        newly = getattr(self.repo, "interrupted_unknown", None) or []
+        if not newly:
+            return
+        from web.delivery.reconcile import alert_unknown_legs
+
+        try:
+            if self.app is not None:
+                with self.app.app_context():
+                    alert_unknown_legs(self.repo.db, newly)
+            else:
+                alert_unknown_legs(self.repo.db, newly)
+        except Exception:  # noqa: BLE001
+            log.exception("unknown-delivery alert failed")
+
     def _beat_worker(self) -> None:
         from web.data.repositories.app_settings import AppSettingsRepository
 
@@ -261,6 +277,7 @@ class JobWorker:
         recovered = self.repo.recover_orphans()
         if recovered:
             log.info("recovered %d orphaned running job(s) on startup", recovered)
+        self._alert_unknown_legs()
         self._stop.clear()
         self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="job")
         self._poller = threading.Thread(target=self._loop, args=(poll_interval,), daemon=True)

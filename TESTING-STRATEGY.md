@@ -6,6 +6,30 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 5 delivery recovery (2026-08-31)
+
+**What to test:**
+- Leftover `pending` is not settled. Legs use prepared/sending/accepted/sent/failed/unknown (`v3/tests/test_delivery_recovery.py`).
+- Clock enqueue freezes `slot_id` + `slot_day`. Execution does not key legs off `eastern_date_iso()` (`test_enqueue_freezes_slot_day`, `test_slot_id_does_not_use_execution_day`).
+- Crash before send (prepared) is failed/retryable. Crash while sending email is unknown and not auto-retried. Crash after Graph accepted commits sent (`test_crash_before_external_call_is_retryable`, `test_crash_while_sending_email_is_unknown_not_retried`, `test_crash_after_graph_accepted_commits_sent`). Worker death still cancels `schedule.run` / `report.deliver`.
+- Graph timeout after submit raises `GraphUnknownError`. Connection refused is a plain `GraphMailError`. sendMail 401 clears the token and retries once. EmailService records `unknown` (`test_graph_timeout_after_submit_is_unknown`, `test_graph_connection_refused_is_failed_not_unknown`, `test_graph_401_clears_token_and_retries_once`, `test_email_deliver_records_unknown`).
+- Empty skip does not insert a sent workbook-email leg. A failed no-data notice stays failed/retryable (`test_empty_skip_does_not_mark_workbook_email_sent`, `test_failed_notice_stays_failed_and_retryable`).
+- Partial fan-out: a sent salesman stays sent while a failed one retries (`test_partial_fan_out_keeps_sent_and_failed`).
+- Operator mark-sent and reopen-for-retry (`test_operator_mark_sent_and_retry`). Retry reuses the frozen `slot_id` so attempt_key matches (`test_operator_retry_reuses_frozen_slot_after_midnight`, `test_operator_retry_parses_clock_slot_when_job_is_gone`). Privileged-only History POST (`test_reconcile_retry_http_reuses_slot_and_rejects_salesman`).
+- Crash after folder Graph acceptance commits sent; interrupted folder upload is failed/retryable; GET verify after a lost PUT marks sent (`test_crash_after_folder_accepted_commits_sent`, `test_crash_while_folder_sending_is_failed_retryable`, `test_folder_upload_error_then_get_is_sent`).
+- Upload session resumes from `nextExpectedRanges` (`test_upload_session_resumes_from_next_expected_range`). Graph 429 Retry-After still holds.
+- Token cache refreshes 60s before expiry (`test_graph_token_refreshes_before_expiry`).
+- Cancel after build before send does not create a sending leg; cancel during send marks failed, not sent (`test_cancel_after_build_before_send_does_not_create_sending_leg`, `test_cancel_during_send_marks_failed_not_sent`). Existing cancel-after-workbook / cancel-no-data-notice tests still apply.
+- Legs older than 90 days prune (`test_legs_prune_old_rows`). Tick calls `DeliveryLegRepository.prune`.
+
+**Expected behavior:**
+- A required email that definitely did not send is never recorded success.
+- Graph connection loss after submit is unknown: no auto-retry; operator confirms from History.
+
+**Test files:** `v3/tests/test_delivery_recovery.py`, `v3/tests/test_delivery.py`, `v3/tests/test_graph_mail.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_jobs.py`
+
+---
+
 ## Phase 4 process ownership (2026-08-31)
 
 **What to test:**

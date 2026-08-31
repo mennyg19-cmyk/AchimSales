@@ -26,7 +26,8 @@ from uuid import uuid4
 
 from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
-from web.delivery.graph_mail import GraphMailError, GraphMailer
+from web.delivery.graph_mail import GraphMailError, GraphMailer, GraphUnknownError
+from web.delivery.graph_token import GraphTokenCache
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.delivery.onedrive import OneDriveService
 
@@ -139,16 +140,19 @@ class DeliveryResult:
     sharepoint_url: str | None = None
     sharepoint_error: str | None = None
     outbox_id: int | None = None
+    unknown: bool = False
 
 
 class EmailService:
     def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService,
-                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None):
+                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None,
+                 tokens: GraphTokenCache | None = None):
         self.cfg = cfg
         self.outbox = outbox
         self.sharepoint = sharepoint
         self.onedrive = onedrive
         self._graph = graph
+        self._tokens = tokens
 
     def _graph_mailer(self) -> GraphMailer | None:
         if self._graph is not None:
@@ -156,7 +160,10 @@ class EmailService:
         if not (self.cfg.tenant_id and self.cfg.client_id and self.cfg.client_secret
                 and self.cfg.email_from):
             return None
-        return GraphMailer(self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret)
+        return GraphMailer(
+            self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret,
+            tokens=self._tokens,
+        )
 
     def send_notice(self, *, to: list[str], subject: str, body_text: str) -> None:
         """Plain mail, no workbook. Used for failure alerts."""
@@ -227,6 +234,12 @@ class EmailService:
                     )
                     sent = True
                     channel = "graph"
+                except GraphUnknownError as exc:
+                    log.exception("Graph send outcome unknown")
+                    return self._record(subject, recipients, filename, eml_name, sent=False,
+                                        channel="", sp_path=record_path, sp_saved=sp_saved,
+                                        sp_url=sp_url, sp_error=sp_err,
+                                        error=str(exc), unknown=True)
                 except GraphMailError as exc:
                     log.exception("Graph send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
@@ -335,7 +348,8 @@ class EmailService:
             return False, None, str(exc)
 
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
-                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
+                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="",
+                unknown=False) -> DeliveryResult:
         # "Success" means every REQUESTED target was actually delivered. An email
         # target is delivered when recipients exist and the send didn't hard-fail
         # (the .eml + outbox row is the delivery record when Graph/SMTP are
@@ -344,13 +358,20 @@ class EmailService:
         # while nothing was actually delivered.
         # Prod: an .eml on disk is not a received email. Dev/tests still treat
         # the outbox file as the delivery record so the pipeline can run offline.
+        if unknown:
+            error = error or (
+                "Connection lost after submitting mail to Microsoft Graph. "
+                "Confirm whether it arrived; do not retry automatically."
+            )
         if not error and sp_path and not sp_saved:
             error = sp_error or "SharePoint upload failed"
         if self.cfg.is_prod and recipients and not sent and not error:
             error = "Mail is not configured; wrote an outbox file but nobody received it"
         email_delivered = bool(recipients) and not error and (sent or not self.cfg.is_prod)
-        ok = (email_delivered or sp_saved) and not error
+        ok = (email_delivered or sp_saved) and not error and not unknown
         status = "sent" if (ok and sent) else ("outbox" if ok else "failed")
+        if unknown:
+            status = "unknown"
         if not channel and recipients and ok and not sent:
             channel = "outbox"
         outbox_id = self.outbox.enqueue(
@@ -363,4 +384,5 @@ class EmailService:
             ok=ok, error=error, recipients=recipients, eml_name=eml_name,
             sent_via_smtp=sent, send_channel=channel, sharepoint_saved=sp_saved,
             sharepoint_url=sp_url, sharepoint_error=sp_error, outbox_id=outbox_id,
+            unknown=unknown,
         )

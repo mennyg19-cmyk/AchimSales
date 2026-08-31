@@ -77,7 +77,12 @@ Boot is three processes, one App Service instance (SQLite):
    the unit. Report jobs run in a killable child with a 45-minute cap. The
    worker heartbeat keeps ticking during that wait. A worker restart (including
    SIGTERM) requeues report/export/mirror jobs and cancels in-flight
-   `schedule.run` / `report.deliver` so mail is not sent twice.
+   `schedule.run` / `report.deliver` so mail is not sent twice. Email and
+   folder sends are persisted as separate legs (`prepared`, `sending`,
+   `accepted`, `sent`, `failed`, `unknown`). If the connection drops after
+   Graph may have accepted `sendMail`, that leg is `unknown` and is not
+   retried. Settings test emails get a `[UNKNOWN]` notice; History has
+   "I received it" / "Send again".
 
 `/healthz` is process liveness. `/readyz` is 503 until bootstrap has succeeded
 and (in prod) the worker and scheduler heartbeats are fresh.

@@ -11,7 +11,7 @@ from web.blueprints.schedules import (
     _clean_recipients, _db, _drain_if_dev, _has_salesman_delivery, _hold_if_due,
     _lookups, _master, _master_folder, _normalize_master_params, _params_label,
     _parse_cadence, _parse_is_shared, _parse_run_as, _principal, _require_admin,
-    _require_company_viewer, _require_master_edit, _require_master_visible,
+    _history_extra, _require_company_viewer, _require_master_edit, _require_master_visible,
     _runs, _scoped_salesmen, _settings, _uid, _validate_report, schedules_bp,
 )
 from web.data.repositories.report_defaults import (
@@ -34,10 +34,11 @@ def master_history(schedule_id: int):
     spec = registry.get(sched.report_key)
     title = sched.name or (spec.title if spec else sched.report_key)
     runs = _runs().list_for_schedule(schedule_id, MASTER)
+    extra = _history_extra(runs, p)
     return render_template(
         "schedule_history.html", active_tab="schedules",
         report_title=title, cadence=C.describe(sched.cadence),
-        schedule_type=MASTER, schedule_id=schedule_id, runs=runs,
+        schedule_type=MASTER, schedule_id=schedule_id, runs=runs, **extra,
     )
 
 

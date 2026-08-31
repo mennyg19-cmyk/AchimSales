@@ -8,7 +8,7 @@ from web.auth.decorators import require_login
 from web.blueprints.schedules import (
     _MASTER_REPORT_FILTERS, _PERIOD_OPTIONS, _STATUS_OPTIONS, _authz,
     _check_personal_folder, _clean_recipients, _drain_if_dev, _hold_if_due,
-    _manager_options, _master, _master_page_context, _parse_cadence, _principal,
+    _history_extra, _manager_options, _master, _master_page_context, _parse_cadence, _principal,
     _repo, _runs, _uid, _validate_report, _viewer_run_log, schedules_bp,
 )
 from web.data.repositories.app_settings import AppSettingsRepository
@@ -222,9 +222,10 @@ def schedule_history(schedule_id: int):
         abort(404, description="Unknown schedule")
     spec = registry.get(sched.report_key)
     runs = _runs().list_for_schedule(schedule_id, PERSONAL)
+    extra = _history_extra(runs, p)
     return render_template(
         "schedule_history.html", active_tab="schedules",
         report_title=spec.title if spec else sched.report_key,
         cadence=C.describe(sched.cadence), schedule_type=PERSONAL,
-        schedule_id=schedule_id, runs=runs,
+        schedule_id=schedule_id, runs=runs, **extra,
     )

@@ -550,6 +550,52 @@ def test_upload_session_retries_429(monkeypatch):
     assert sleeps == [5.0]
 
 
+def test_upload_session_resumes_from_next_expected_range():
+    from web.delivery.graph_upload import SIMPLE_UPLOAD_MAX, CHUNK_SIZE, upload_drive_item
+
+    class _Resp:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.headers = {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class _Req:
+        def __init__(self):
+            self.puts = []
+            self.gets = 0
+
+        def put(self, url, **kwargs):
+            self.puts.append(kwargs.get("headers", {}).get("Content-Range"))
+            if len(self.puts) == 1:
+                return _Resp(500)
+            return _Resp(200, {"webUrl": "https://sp/file", "id": "1"})
+
+        def post(self, url, **kwargs):
+            return _Resp(200, {"uploadUrl": "https://upload/session"})
+
+        def get(self, url, **kwargs):
+            self.gets += 1
+            return _Resp(200, {"nextExpectedRanges": [f"{CHUNK_SIZE}-"]})
+
+    req = _Req()
+    size = SIMPLE_UPLOAD_MAX + CHUNK_SIZE
+    out = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"},
+        content=b"x" * size, put_timeout=10,
+    )
+    assert out["webUrl"] == "https://sp/file"
+    assert req.gets >= 1
+    assert any(r and r.startswith(f"bytes {CHUNK_SIZE}-") for r in req.puts)
+
+
 def test_sharepoint_prod_without_creds_raises(tmp_path):
     sp = SharePointService(_cfg(tmp_path, app_env="prod",
                                 tenant_id="", client_id="", client_secret=""))

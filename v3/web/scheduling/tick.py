@@ -107,6 +107,8 @@ def make_tick(db, job_repo: JobRepository):
             if hung:
                 log.warning("hung-job cap cancelled %d running job(s)", hung)
             MagicLinkRepository(db).prune(older_than_days=90)
+            from web.data.repositories.delivery_legs import DeliveryLegRepository
+            DeliveryLegRepository(db).prune()
             settings.beat_cleanup()
         except Exception:  # noqa: BLE001 - reaper must not kill the tick
             log.exception("cache/export/hung-job reaper failed")
@@ -162,6 +164,7 @@ def _consider(job_repo, runs, repo, sched, schedule_type: str, now: datetime,
         owner_user_id=owner_user_id,
         catch_up_for_date=skipped_iso if pending else None,
         include_regular=regular,
+        now=now,
     )
     return 1
 

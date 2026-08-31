@@ -83,6 +83,7 @@ class Job:
 class JobRepository:
     def __init__(self, db: Database):
         self.db = db
+        self.interrupted_unknown: list = []
 
     def enqueue(self, job_type: str, *, owner_user_id: int | None = None,
                 dedup_key: str | None = None, params: dict[str, Any] | None = None) -> str:
@@ -264,7 +265,10 @@ class JobRepository:
                 f" attempts=attempts+1 WHERE {where} AND type NOT IN ({in_sql})",
                 (*cutoff_params, *unsafe),
             )
-            return cur.rowcount
+            requeued = cur.rowcount
+        from web.data.repositories.delivery_legs import DeliveryLegRepository
+        self.interrupted_unknown = DeliveryLegRepository(self.db).interrupt_orphaned_legs()
+        return requeued
 
     def status_summary(self, active_limit: int = 20) -> dict:
         """Counts of jobs by status plus the currently active (queued/running)
