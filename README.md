@@ -36,16 +36,15 @@ It downloads the codebase from SharePoint, imports the appropriate report
 runner via `report_registry.json`, runs it, uploads the output, and sends a
 heartbeat email. If the whole job fails once (dropped Graph, non-zero exit),
 it waits 30 seconds and runs again before Azure marks it Failed.
+Azure Automation calls `main()` by name; `main()` is the retry wrapper, so
+fail-then-success is still one status email even when the file is not started
+as `__main__`. git push does not publish this file — use `.\deploy-runbook.ps1`.
 
-Home-site company schedules do the same: one extra full delivery, then `[FAIL]`
-mail to the test-email list only if both attempts fail. If the first attempt
-fails and the retry succeeds, that is one report email that says it failed,
-retried, and succeeded — not a `[FAIL]` plus a later pass.
-
-Status mail from the Azure runbook is held until the retry finishes for the
-same reason: fail-then-success is one heartbeat, not `FAILURE:` plus
-`Runbook Heartbeat`. Publishing this file to Azure Automation still needs
-`.\deploy-runbook.ps1` (git push updates the App Service, not the runbook).
+Home-site company schedules retry a dropped delivery once, then hold `[FAIL]`
+mail for 15 minutes. If a later attempt (or another window in the same run)
+succeeds, that is one report email that says it failed, retried, and succeeded —
+not a `[FAIL]` plus a later pass. `[FAIL]` only goes to the test-email list if
+the schedule is still failed after that wait.
 
 Home-site clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send
 waits for the next scheduled HH:MM, not motzei Shabbos. Yesterday/daily and

@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-08-31 Fail-then-success emails were still two mails
+**What you asked for:** Stop getting a failure email and then a success email.
+**What I had to decide:** Whether the leftover pair was Azure calling `main()` (retry never wrapped), home-site sending `[FAIL]` before a later job succeeded, or both.
+**What I chose:** Azure `main()` is the retry wrapper, so Automation's main-by-name start buffers status mail. Home-site keeps going after a catch-up/window miss so a later window can still send; `[FAIL]` is held 15 minutes and dropped if that schedule succeeds in the meantime. A later success the same day amends the report mail with the retry story. Publishing the runbook still needs `.\deploy-runbook.ps1`.
+**Why:** The previous retry buffer only ran under `if __name__ == "__main__"`. Azure calls `main()`. Home `[FAIL]` went out as soon as one window died, then Azure or the next home job sent the report.
+**Status:** DECIDED — shipping this change.
+
+
 ## 2026-08-28 Inherit salesmen see Customer's Last Order
 **What you asked for:** mendyk@achimonline.com is on Inherit and Live and is missing reports, at least Customer's Last Order.
 **What I chose:** Set `salesman_default=True` on `customer_last_order` so Inherit matches Live (`salesman_filter: True` in `webapp/user_map.py`). Explicit Deny still hides it. Number 4 / Salesman / Sales by State stay inherit-hidden.

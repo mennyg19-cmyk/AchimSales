@@ -34,6 +34,15 @@ def _alert_kwargs():
     )
 
 
+def test_main_uses_run_with_retry(monkeypatch):
+    import universal_runbook as u
+
+    seen = []
+    monkeypatch.setattr(u, "run_with_retry", lambda fn=None, **k: seen.append(fn) or 0)
+    assert u.main() == 0
+    assert seen == [u._job]
+
+
 def test_run_with_retry_returns_on_first_success():
     calls = []
 

@@ -79,7 +79,7 @@ def hold_until_next_slot(repo, runs: ScheduleRunRepository, sched,
     return True
 
 
-def make_tick(db, job_repo: JobRepository):
+def make_tick(db, job_repo: JobRepository, runner=None):
     """Build the no-arg callable APScheduler will fire each minute."""
     def tick() -> None:
         try:
@@ -88,6 +88,12 @@ def make_tick(db, job_repo: JobRepository):
                 log.info("schedule tick enqueued %d due schedule(s)", n)
         except Exception:  # noqa: BLE001 - a tick must never crash the scheduler
             log.exception("schedule tick failed")
+        if runner is None:
+            return
+        try:
+            runner.flush_pending_fail_notices()
+        except Exception:  # noqa: BLE001 - notice flush must not kill the scheduler
+            log.exception("pending fail-notice flush failed")
 
     return tick
 

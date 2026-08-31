@@ -40,14 +40,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Fail-then-retry-success is one status email
 
 **What to test:**
+- Azure `main()` calls `run_with_retry(_job)` so a main-by-name start still buffers mail.
 - Azure `run_with_retry`: first-try success sends the heartbeat unchanged. Fail then success is one mail whose subject/body name the failure, the retry, and the success. Catch-up FAILURE + success heartbeat in one run is one mail. Final failure after retry is one FAILURE mail.
 - Home-site runner: first attempt fails, retry succeeds → no `[FAIL]` notice; the report subject contains `retried after a failure` and the body names the first error.
+- A failed home-site run does not send `[FAIL]` immediately. Flush after the wait sends it. A later success the same day cancels that notice and amends the report mail.
+- Catch-up window fail then a later window success in the same run: no `[FAIL]`, success mail names the miss.
 - Recovered worker run that has not already succeeded today includes the retry note. Recovered run after a successful send today still skips.
 - Reporting API 5xx/network retries sleep 1s then 2s; a 5xx then 200 sleeps once.
 
 **Expected behavior:**
 - One status inbox item for fail-then-success, not FAILURE + Heartbeat (Azure) or `[FAIL]` + report (home-site).
-- `[FAIL]` still goes out when both home-site attempts fail.
+- `[FAIL]` still goes out when the schedule is still failed after the 15-minute hold.
 
 **Edge cases:**
 - First-try clean success: heartbeat only, no retry wording.
@@ -338,8 +341,10 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Home-site schedule failure mail
 
 **What to test:**
-- A failed company schedule emails the test-email list even when test mode is off.
+- A failed company schedule emails the test-email list even when test mode is off, after the hold.
+- Immediate failure does not send `[FAIL]`; `flush_pending_fail_notices(wait_s=0)` does.
 - If sending that notice throws, the original schedule error still raises.
+- A later success the same day cancels the held notice and amends the report mail.
 
 **Expected behavior:**
 - Subject is `[FAIL] {schedule name}`. Body names company/personal, report, and error.
@@ -350,6 +355,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Empty test list: no send, original failure still recorded.
 - Fake delivery with no `email.send_notice` (older tests) must not crash.
 - Inner retry success: `notices == []` and report subject includes `retried after a failure`.
+- Catch-up window fail + later window success: `notices == []`.
 
 **Test file:** `v3/tests/test_scheduling.py`
 

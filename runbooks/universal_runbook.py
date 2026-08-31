@@ -25,6 +25,9 @@ Flow:
  11. Upload Direct Reports/ output to SharePoint
  12. One status email at the end (heartbeat, combined fail-then-retry-success,
       or a single FAILURE). Per-step FAILURE mails are held until then.
+      Azure Automation must call main() — main() wraps the retry so a
+      main-by-name start still combines mail. git push does not publish this
+      file; use deploy-runbook.ps1.
 
 Azure Automation Parameters:
   report_name (str, required): Key from report_registry.json, e.g. "ordered",
@@ -1586,7 +1589,7 @@ def _parse_runbook_args():
     return report_name, extra_args, webapp_record_id
 
 
-def main():
+def _job():
     _report_name, _extra_args, _webapp_record_id = _parse_runbook_args()
     log.info("Raw sys.argv: %s", sys.argv)
     log.info("Resolved parameters: report_name=%r, extra_args=%r, webapp_record_id=%r",
@@ -2107,7 +2110,7 @@ def _flush_status_alerts(records):
         _deliver_alert(**alert)
 
 
-def run_with_retry(run_fn=main, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAIT_S,
+def run_with_retry(run_fn=_job, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAIT_S,
                    sleeper=time.sleep):
     """Run the job once more after a wait so a one-off Graph drop is not final.
 
@@ -2151,5 +2154,11 @@ def run_with_retry(run_fn=main, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAI
     return last_code
 
 
+def main():
+    """Azure Automation entry. Retry+buffer lives here so a main() start
+    still combines fail-then-success into one mail."""
+    return run_with_retry(_job)
+
+
 if __name__ == "__main__":
-    sys.exit(run_with_retry())
+    sys.exit(main() or 0)

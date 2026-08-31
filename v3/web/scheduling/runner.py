@@ -45,12 +45,18 @@ from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
 log = logging.getLogger(__name__)
 
 # One extra full run after a short wait so a dropped Graph call is not the
-# last word. [FAIL] mail goes out only after this is exhausted. A retry that
-# succeeds is one report email that names the failure, not [FAIL] plus a pass.
+# last word. [FAIL] mail waits so a later retry/success can replace it.
+# A retry that succeeds is one report email that names the failure, not
+# [FAIL] plus a pass.
 _TRANSIENT_ATTEMPTS = 2
 _TRANSIENT_RETRY_WAIT_S = 30
+_FAIL_NOTICE_WAIT_S = 15 * 60
+_FAIL_NOTICE_PENDING = "pending"
+_FAIL_NOTICE_SENT = "sent"
+_FAIL_NOTICE_SUPERSEDED = "superseded"
 _RETRY_SUBJECT_MARK = " — retried after a failure"
 _RECOVERED_RETRY_REASON = "an earlier worker run failed or was interrupted"
+_PRIOR_FAIL_REASON = "an earlier run of this schedule failed today"
 
 
 def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str]:
@@ -122,6 +128,7 @@ class ScheduleRunner:
                     run_id, status="skipped",
                     debug_log="Already sent today; not sending again after a restart",
                 )
+                self._supersede_pending_fail_notices(schedule_id, schedule_type)
                 return run_id
             if not ignore_sabbath and skip_sabbath_enabled(getattr(sched, "params", None)):
                 assur, reason = melacha_assur()
@@ -167,26 +174,49 @@ class ScheduleRunner:
                 ),
                 include_regular=include_regular,
             )
+            prior_errors: list[str] = []
+            if recovered:
+                prior_errors.append(_RECOVERED_RETRY_REASON)
+            elif self._had_failure_today(schedule_id, schedule_type):
+                prior_errors.append(_PRIOR_FAIL_REASON)
             outcomes: list[DeliveryOutcome] = []
+            window_errors: list[str] = []
             for window in windows:
                 window_subject, window_name = _window_labels(
                     subject, getattr(sched, "name", "") or report_name, window,
                 )
-                outcome = self._deliver_window(
-                    sched=sched, schedule_type=schedule_type, schedule_id=schedule_id,
-                    identity=identity, scope=scope, spec=spec, params=window,
-                    subject=window_subject, report_name=report_name,
-                    od_user=od_user, test_to=test_to, schedule_name=window_name,
-                    recovered=recovered,
-                )
-                outcomes.append(outcome)
+                try:
+                    outcome = self._deliver_window(
+                        sched=sched, schedule_type=schedule_type, schedule_id=schedule_id,
+                        identity=identity, scope=scope, spec=spec, params=window,
+                        subject=window_subject, report_name=report_name,
+                        od_user=od_user, test_to=test_to, schedule_name=window_name,
+                        prior_errors=prior_errors + window_errors,
+                    )
+                    outcomes.append(outcome)
+                except Exception as exc:  # noqa: BLE001 - try remaining windows
+                    log.warning(
+                        "schedule %s:%s window failed; continuing",
+                        schedule_type, schedule_id, exc_info=True,
+                    )
+                    window_errors.append(str(exc))
+            if not outcomes:
+                err = "; ".join(window_errors) or "delivery failed"
+                self._hold_fail_notice(run_id, schedule_id, schedule_type, err)
+                raise RuntimeError(err)
             combined = _combine_outcomes(outcomes)
             meta = _output_meta(combined)
             summary = _summary_message(combined, ok=True)
+            if window_errors:
+                summary = (
+                    f"{summary}; a window failed, then a later window succeeded: "
+                    f"{'; '.join(window_errors)}"
+                )
             self.run_repo.finish(
                 run_id, status="success",
                 rows=combined.row_count, output_meta=meta, debug_log=summary,
             )
+            self._supersede_pending_fail_notices(schedule_id, schedule_type)
             if catch_up_for_date:
                 self._set_catch_up(schedule_id, schedule_type, False)
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
@@ -194,8 +224,7 @@ class ScheduleRunner:
             existing = self.run_repo.get(run_id)
             # Don't wipe a detailed finish() already written for a delivery failure.
             if existing is None or existing.status == "running":
-                self.run_repo.finish(run_id, status="failure", debug_log=str(exc))
-            self._notify_failure(sched, schedule_type, str(exc))
+                self._hold_fail_notice(run_id, schedule_id, schedule_type, str(exc))
             raise
         return run_id
 
@@ -204,6 +233,64 @@ class ScheduleRunner:
     def _already_sent_today(self, schedule_id: int, schedule_type: str) -> bool:
         last = eastern_date_of(self.run_repo.last_success_at(schedule_id, schedule_type))
         return last is not None and last.isoformat() == C.eastern_date_iso()
+
+    def _had_failure_today(self, schedule_id: int, schedule_type: str) -> bool:
+        today = C.eastern_date_iso()
+        for row in self.run_repo.list_for_schedule(schedule_id, schedule_type, limit=20):
+            if row.status != "failure":
+                continue
+            day = eastern_date_of(row.started_at or row.finished_at)
+            if day is not None and day.isoformat() == today:
+                return True
+        return False
+
+    def _hold_fail_notice(self, run_id: int, schedule_id: int, schedule_type: str,
+                          error: str) -> None:
+        self._supersede_pending_fail_notices(schedule_id, schedule_type)
+        self.run_repo.finish(
+            run_id, status="failure", debug_log=error,
+            output_meta={
+                "fail_notice": _FAIL_NOTICE_PENDING,
+                "fail_error": error,
+            },
+        )
+
+    def _supersede_pending_fail_notices(self, schedule_id: int, schedule_type: str) -> None:
+        for row in self.run_repo.list_for_schedule(schedule_id, schedule_type, limit=20):
+            meta = dict(row.output_meta or {})
+            if row.status == "failure" and meta.get("fail_notice") == _FAIL_NOTICE_PENDING:
+                meta["fail_notice"] = _FAIL_NOTICE_SUPERSEDED
+                self.run_repo.patch_output_meta(row.id, meta)
+
+    def flush_pending_fail_notices(self, now: datetime | None = None,
+                                   wait_s: int | None = None) -> int:
+        """Send held [FAIL] mail after the wait if no later success landed."""
+        now = now or datetime.now(timezone.utc)
+        wait_s = _FAIL_NOTICE_WAIT_S if wait_s is None else wait_s
+        sent = 0
+        for row in self.run_repo.list_recent_failures(limit=80):
+            meta = dict(row.output_meta or {})
+            if meta.get("fail_notice") != _FAIL_NOTICE_PENDING:
+                continue
+            if row.schedule_id is None:
+                continue
+            last_ok = self.run_repo.last_success_at(row.schedule_id, row.schedule_type)
+            if last_ok and (not row.started_at or last_ok >= row.started_at):
+                meta["fail_notice"] = _FAIL_NOTICE_SUPERSEDED
+                self.run_repo.patch_output_meta(row.id, meta)
+                continue
+            age = _iso_age_s(row.finished_at or row.started_at, now)
+            if age is None or age < wait_s:
+                continue
+            sched = self._load(row.schedule_id, row.schedule_type)
+            if sched is not None:
+                self._notify_failure(
+                    sched, row.schedule_type, meta.get("fail_error") or row.debug_log,
+                )
+            meta["fail_notice"] = _FAIL_NOTICE_SENT
+            self.run_repo.patch_output_meta(row.id, meta)
+            sent += 1
+        return sent
 
     def _load(self, schedule_id: int, schedule_type: str):
         if schedule_type == MASTER:
@@ -221,10 +308,13 @@ class ScheduleRunner:
                         identity: str, scope, spec, params: dict,
                         subject: str, report_name: str, od_user: str,
                         test_to: list[str] | None, schedule_name: str,
-                        recovered: bool = False) -> DeliveryOutcome:
+                        recovered: bool = False,
+                        prior_errors: list[str] | None = None) -> DeliveryOutcome:
         builder_version = spec.builder_version if spec else 1
         last_error: Exception | None = None
-        prior_errors: list[str] = [_RECOVERED_RETRY_REASON] if recovered else []
+        prior_errors = list(prior_errors or [])
+        if recovered and _RECOVERED_RETRY_REASON not in prior_errors:
+            prior_errors.append(_RECOVERED_RETRY_REASON)
         for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
             send_subject, send_body = subject, ""
             if prior_errors:
@@ -677,3 +767,15 @@ def _summary_message(outcome: DeliveryOutcome, *, ok: bool) -> str:
     if ok and r.error and r.error not in body:
         body = f"{body}; {r.error}"
     return prefix + body
+
+
+def _iso_age_s(iso: str | None, now: datetime) -> float | None:
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (now - dt).total_seconds()

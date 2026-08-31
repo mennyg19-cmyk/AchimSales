@@ -485,7 +485,11 @@ def _start_scheduler(app: Flask, db) -> None:
 
     try:
         scheduler = Scheduler()
-        scheduler.add_cron("schedule-tick", make_tick(db, job_repo), minute="*")
+        scheduler.add_cron(
+            "schedule-tick",
+            make_tick(db, job_repo, app.config.get("SCHEDULE_RUNNER")),
+            minute="*",
+        )
         # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence). Skipped
         # entirely when the dashboard refresh is turned off.
         if dashboard_on:
