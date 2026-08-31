@@ -61,7 +61,7 @@
                 {% if leg.target %} → {{ leg.target }}{% endif %}
                 {% if leg.error %} ({{ leg.error }}){% endif %}
                 {% if can_reconcile and leg.status == unknown_status %}
-                <form method="post" action="{{ url_for('schedules.reconcile_delivery_leg', attempt_key=leg.attempt_key) }}" class="leg-reconcile">
+                <form method="post" action="{{ url_for('schedules.reconcile_delivery_leg', attempt_key=leg.attempt_key) }}" class="leg-reconcile"> <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="next" value="{{ request.path }}">
                     <button type="submit" name="action" value="mark_sent" class="btn btn-sm btn-outline">I received it</button>
