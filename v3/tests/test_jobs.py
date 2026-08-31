@@ -402,6 +402,36 @@ def test_recover_orphans_cancels_schedule_run_not_requeued(db):
     assert jobs.get(jid).status == "cancelled"
 
 
+def test_recover_orphans_cancels_delivery_at_retry_cap(db):
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("report.deliver")
+    jobs.claim_next()
+    with db.precious() as conn:
+        conn.execute("UPDATE jobs SET attempts=1 WHERE id=?", (jid,))
+    assert jobs.recover_orphans() == 0
+    row = jobs.get(jid)
+    assert row.status == "cancelled"
+    assert "not retried" in row.error
+    assert "ran out of memory" not in row.error
+    jobs.mark_success(jid, "late-send")
+    assert jobs.get(jid).status == "cancelled"
+
+
+def test_recover_orphans_cancels_schedule_run_at_retry_cap(db):
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("schedule.run")
+    jobs.claim_next()
+    with db.precious() as conn:
+        conn.execute("UPDATE jobs SET attempts=1 WHERE id=?", (jid,))
+    assert jobs.recover_orphans() == 0
+    row = jobs.get(jid)
+    assert row.status == "cancelled"
+    assert "not retried" in row.error
+    assert "ran out of memory" not in row.error
+    jobs.mark_success(jid, "late-send")
+    assert jobs.get(jid).status == "cancelled"
+
+
 def test_child_timeout_cancels_and_kills(db, monkeypatch):
     import subprocess as sp
 

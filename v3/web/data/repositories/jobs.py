@@ -231,11 +231,11 @@ class JobRepository:
         Called at worker startup (single instance => the previous worker is gone)
         and usable as a periodic stale-job reaper. Report/export/mirror work is
         requeued up to `max_retries` times. `schedule.run` and `report.deliver`
-        are cancelled so a restart cannot send the same mail twice. A job that
-        already used up its retries is marked 'failure' instead of requeued.
-        Returns the count requeued (not cancelled or failed). mark_success is
-        guarded to 'running', so a surviving child cannot resurrect a cancelled
-        delivery.
+        are cancelled even at the retry cap so a restart cannot send the same
+        mail twice. A safe job that already used up its retries is marked
+        'failure' instead of requeued. Returns the count requeued (not cancelled
+        or failed). mark_success is guarded to 'running', so a surviving child
+        cannot resurrect a cancelled delivery.
         """
         where = "status='running'"
         cutoff_params: tuple = ()
@@ -249,17 +249,17 @@ class JobRepository:
         unsafe = tuple(sorted(UNSAFE_RECOVERY_TYPES))
         in_sql = ",".join("?" * len(unsafe))
         with self.db.precious() as conn:
-            # Jobs that already exhausted their retries: fail them so they stop
-            # being requeued (and crashing) on every restart.
-            conn.execute(
-                f"UPDATE jobs SET status='failure', error=?, finished_at=?"
-                f" WHERE {where} AND attempts >= ?",
-                (_RETRY_EXHAUSTED_ERROR, _now(), *cutoff_params, max_retries),
-            )
+            # Side-effect jobs first: never requeue, never the report OOM failure.
             conn.execute(
                 f"UPDATE jobs SET status='cancelled', error=?, finished_at=?"
                 f" WHERE {where} AND type IN ({in_sql})",
                 (_UNSAFE_ORPHAN_ERROR, _now(), *cutoff_params, *unsafe),
+            )
+            # Safe jobs that already exhausted retries: fail so they stop looping.
+            conn.execute(
+                f"UPDATE jobs SET status='failure', error=?, finished_at=?"
+                f" WHERE {where} AND attempts >= ? AND type NOT IN ({in_sql})",
+                (_RETRY_EXHAUSTED_ERROR, _now(), *cutoff_params, max_retries, *unsafe),
             )
             cur = conn.execute(
                 f"UPDATE jobs SET status='queued', started_at=NULL, progress=0,"
