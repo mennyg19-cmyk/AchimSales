@@ -94,7 +94,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Home `/login` links to `/login/start`, not `/legacy`.
 - Magic-link tokens: new token invalidates the previous; consume is one-shot; 5/email and 40/IP windows.
 - Public origin for emailed links and Entra redirect is `PUBLIC_BASE_URL`, else Azure `https://reports.achimonline.com`, else loopback. Never the request Host.
-- Report source map reads/writes `beta_report_sources` in precious.db.
+- Home reports use the SQL Reporting API only. Settings has no data-source picker.
 - Base HTML in `is_beta` hides Dashboard and does not show a Beta pill.
 - Home HTML has no Test Site nav and no `/test/` href.
 - Prod `/static/**.map` is 404; the JS/CSS files themselves stay 200.
@@ -104,14 +104,14 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - gunicorn `wsgi:application` is v3 only.
 - External reps still get a 15-minute one-time link.
 
-**Test files:** `tests/test_wsgi_dispatch.py`, `v3/tests/test_auth.py`, `v3/tests/test_magic_link.py`, `v3/tests/test_public_origin.py`, `v3/tests/test_report_sources.py`, `v3/tests/test_frontend.py`
+**Test files:** `tests/test_wsgi_dispatch.py`, `v3/tests/test_auth.py`, `v3/tests/test_magic_link.py`, `v3/tests/test_public_origin.py`, `v3/tests/test_v3_sql_only.py`, `v3/tests/test_frontend.py`
 
 ---
 
 ## P0 security containment
 
 **What to test:**
-- OData tabs without a salesman column raise for scoped users; matching keys are kept; unrestricted users still see unscoped tabs.
+- Scoped salesman keys apply to every tab of SQL reports that have a salesman field. Item Averages stays privileged SQL. Sales by State stays company-wide.
 - Prod config rejects missing Litestream Azure account/key/container.
 - `/healthz` stays liveness-only; `/readyz` is 503 when prod precious.db is missing.
 - `AUTH_MODE=dev` is refused when `APP_ENV=prod`. Legacy `DEV_BYPASS_AUTH` died with `webapp/`.

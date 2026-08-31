@@ -52,3 +52,20 @@ def test_v3_web_does_not_import_cli_report_runners():
             if mod == "reports" or mod.startswith("reports."):
                 banned.append(f"{path.relative_to(V3_ROOT)}:{node.lineno} from {mod}")
     assert banned == []
+
+
+def test_settings_assets_have_no_source_picker():
+    """Picker class names are not an 'odata' word; check the Settings assets directly."""
+    paths = [
+        V3_ROOT / "web" / "static_src" / "css" / "pages-settings.css",
+        V3_ROOT / "web" / "static_src" / "js" / "settings.ts",
+        V3_ROOT / "web" / "templates" / "settings.html",
+        V3_ROOT / "web" / "static_dist" / "css" / "main.css",
+        V3_ROOT / "web" / "static_dist" / "js" / "settings.js",
+    ]
+    hits: list[str] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        if "beta-source" in text:
+            hits.append(str(path.relative_to(V3_ROOT)))
+    assert hits == [], f"source-picker leftovers: {hits}"
