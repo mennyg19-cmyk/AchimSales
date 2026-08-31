@@ -44,6 +44,29 @@ def test_this_week_starts_monday():
     p = parse_period("this_week", today=_TODAY)
     assert p.start_date == date(2026, 4, 13)  # Monday
     assert p.end_date == _TODAY
+    assert p.label == "Week to Date"
+    assert parse_period("wtd", today=_TODAY) == p
+
+
+def test_custom_month_is_full_calendar_month():
+    from report_engine.dates import parse_custom_month
+    p = parse_custom_month(2026, 4)
+    assert p.start_date == date(2026, 4, 1)
+    assert p.end_date == date(2026, 4, 30)
+    assert parse_custom_month("2026", "2").end_date == date(2026, 2, 28)
+
+
+def test_custom_month_before_go_live_is_rejected():
+    from report_engine.dates import parse_custom_month
+    with pytest.raises(ValueError, match="before the earliest"):
+        parse_custom_month(2024, 12)
+
+
+def test_custom_month_january_2025_starts_at_go_live():
+    from report_engine.dates import parse_custom_month
+    p = parse_custom_month(2025, 1)
+    assert p.start_date == D365_GO_LIVE
+    assert p.end_date == date(2025, 1, 31)
 
 
 def test_last_7_days_is_six_days_back_inclusive():

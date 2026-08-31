@@ -16,7 +16,7 @@ from datetime import date
 from typing import Any, Callable
 
 from report_engine.dates import (
-    D365_GO_LIVE,
+    parse_custom_month,
     parse_custom_range,
     parse_period,
     sp_datetime,
@@ -24,6 +24,56 @@ from report_engine.dates import (
 )
 
 Translator = Callable[[dict], dict[str, Any]]
+
+
+def _int_param(params: dict, *keys: str) -> int | None:
+    for key in keys:
+        raw = params.get(key)
+        if raw is None or str(raw).strip() == "":
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def period_selection_error(params: dict) -> str | None:
+    """Why this period cannot run, or None if it is complete enough.
+
+    Call only for reports that expose a period filter. Explicit all_time is
+    allowed (saved views / schedules); a blank period is not.
+    """
+    period = (params.get("period") or "").strip().lower()
+    if not period:
+        return "Choose a period before running this report."
+    if period == "custom":
+        start_raw = (params.get("start_date") or "").strip()
+        end_raw = (params.get("end_date") or "").strip()
+        if not (start_raw and end_raw):
+            return "Custom range needs a From date and a To date."
+        try:
+            parse_custom_range(start_raw, end_raw)
+        except ValueError:
+            return "Custom range dates are not valid."
+        return None
+    if period == "custom_month":
+        year = _int_param(params, "custom_year", "year")
+        month = _int_param(params, "month")
+        if year is None or month is None:
+            return "Custom Month and Year needs both a month and a year."
+        try:
+            parse_custom_month(year, month)
+        except ValueError:
+            return "Pick a valid month and year."
+        return None
+    if period == "all_time":
+        return None
+    try:
+        parse_period(period)
+    except ValueError:
+        return "Unknown period. Choose one from the list."
+    return None
 
 
 def _csv(value: Any) -> str | None:
@@ -57,6 +107,16 @@ def _resolve_window(params: dict) -> tuple[date | None, date | None]:
             p = parse_custom_range(start_raw, end_raw)
         except ValueError:
             # Unparseable custom dates -> omit the filter rather than 500.
+            return (None, None)
+        return p.start_date, p.end_date
+    if period == "custom_month":
+        year = _int_param(params, "custom_year", "year")
+        month = _int_param(params, "month")
+        if year is None or month is None:
+            return (None, None)
+        try:
+            p = parse_custom_month(year, month)
+        except ValueError:
             return (None, None)
         return p.start_date, p.end_date
     p = parse_period(period)

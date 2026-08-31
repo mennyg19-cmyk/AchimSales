@@ -90,6 +90,25 @@ function $(id: string): HTMLElement | null {
   return document.getElementById(id);
 }
 
+/** Set a control only to a real <option>. daily and yesterday are the same period. */
+function setSelectValue(el: HTMLSelectElement | HTMLInputElement, raw: string): void {
+  if (!(el instanceof HTMLSelectElement)) {
+    el.value = raw;
+    return;
+  }
+  const wanted = String(raw);
+  const values = [...el.options].map((o) => o.value);
+  if (values.includes(wanted)) {
+    el.value = wanted;
+    return;
+  }
+  const aliases: Record<string, string> = {
+    yesterday: "daily", daily: "yesterday", wtd: "this_week",
+  };
+  const mapped = aliases[wanted.trim().toLowerCase()] || "";
+  if (mapped && values.includes(mapped)) el.value = mapped;
+}
+
 function setStatus(msg: string, kind: "info" | "error" = "info"): void {
   const el = $("reportStatus");
   if (!el) return;
@@ -1526,6 +1545,13 @@ function isReportShown(): boolean {
 }
 
 async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<string, unknown> } = {}): Promise<void> {
+  if (!opts.overrideParams) {
+    const gate = periodGateMessage();
+    if (gate) {
+      setStatus(gate, "error");
+      return;
+    }
+  }
   if (opts.preserveLayout) {
     captureActive();
     // Empty the old rows right away so the user isn't staring at stale data
@@ -1542,8 +1568,12 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
       headers: { "Content-Type": "application/json", "X-CSRF-Token": attr("data-csrf") },
       body: JSON.stringify(params),
     });
-    if (!res.ok) throw new Error(`Could not start the report (HTTP ${res.status}).`);
-    const { job_id } = await res.json();
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = (body as { error?: string }).error;
+      throw new Error(err || `Could not start the report (HTTP ${res.status}).`);
+    }
+    const { job_id } = body as { job_id: string };
     activeRunJobId = job_id;
     await poll(job_id, opts);
   } catch (err) {
@@ -1551,8 +1581,7 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
   } finally {
     showCancel(false);
     activeRunJobId = null;
-    const runBtn = $("runBtn") as HTMLButtonElement | null;
-    if (runBtn) runBtn.disabled = false;
+    syncPeriodGate();
   }
 }
 
@@ -1571,8 +1600,7 @@ async function resumeJob(jobId: string, elapsedMs = 0): Promise<void> {
   } finally {
     showCancel(false);
     activeRunJobId = null;
-    const runBtn = $("runBtn") as HTMLButtonElement | null;
-    if (runBtn) runBtn.disabled = false;
+    syncPeriodGate();
   }
 }
 
@@ -1610,8 +1638,7 @@ function setToolbarEnabled(hasData: boolean): void {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
-  const runBtn = $("runBtn") as HTMLButtonElement | null;
-  if (runBtn) runBtn.disabled = false;
+  syncPeriodGate();
 }
 
 // --------------------------------------------------------------------------
@@ -1696,12 +1723,15 @@ function updateControlsSummary(): void {
   if (!el) return;
   const parts: string[] = [];
   document.querySelectorAll<HTMLSelectElement>("#filterForm select").forEach((sel) => {
+    const field = sel.closest(".filter-field") as HTMLElement | null;
+    if (field?.hidden) return;
     const opt = sel.options[sel.selectedIndex];
-    if (opt && opt.textContent) parts.push(opt.textContent.trim());
+    if (opt && opt.value && opt.textContent) parts.push(opt.textContent.trim());
   });
   const sd = (document.querySelector('[name="start_date"]') as HTMLInputElement | null)?.value;
   const ed = (document.querySelector('[name="end_date"]') as HTMLInputElement | null)?.value;
-  if (sd || ed) parts.push(`${sd || "…"} – ${ed || "…"}`);
+  const customWrap = document.querySelector<HTMLElement>("[data-custom]");
+  if (!customWrap?.hidden && (sd || ed)) parts.push(`${sd || "…"} – ${ed || "…"}`);
   if (selectedCustomers.size) parts.push(`${selectedCustomers.size} customer${selectedCustomers.size > 1 ? "s" : ""}`);
   el.textContent = parts.filter(Boolean).join("  ·  ");
 }
@@ -1710,13 +1740,79 @@ function updateControlsSummary(): void {
 // Filters / boot
 // --------------------------------------------------------------------------
 
-function initCustomRangeToggle(): void {
+function initPeriodExtras(): void {
   const sel = $("periodSelect") as HTMLSelectElement | null;
-  if (!sel) return;
+  if (!sel) {
+    syncPeriodGate();
+    return;
+  }
   const customs = Array.from(document.querySelectorAll<HTMLElement>("[data-custom]"));
-  const sync = () => customs.forEach((c) => (c.hidden = sel.value !== "custom"));
+  const customMonths = Array.from(document.querySelectorAll<HTMLElement>("[data-custom-month]"));
+  const sync = () => {
+    customs.forEach((c) => (c.hidden = sel.value !== "custom"));
+    customMonths.forEach((c) => (c.hidden = sel.value !== "custom_month"));
+    syncPeriodGate();
+  };
   sel.addEventListener("change", sync);
+  customMonths.forEach((el) => {
+    el.querySelectorAll("select").forEach((s) => s.addEventListener("change", syncPeriodGate));
+  });
+  customs.forEach((el) => {
+    el.querySelectorAll("input").forEach((i) => {
+      i.addEventListener("change", syncPeriodGate);
+      i.addEventListener("input", syncPeriodGate);
+    });
+  });
   sync();
+}
+
+const EXTRA_PERIOD_LABELS: Record<string, string> = {
+  all_time: "All Time",
+  last_month: "Last Month",
+  custom: "Custom Range",
+  daily: "Yesterday",
+};
+
+function ensurePeriodOption(sel: HTMLSelectElement, raw: string): void {
+  const wanted = String(raw || "").trim();
+  if (!wanted) return;
+  const values = [...sel.options].map((o) => o.value);
+  if (values.includes(wanted)) return;
+  const aliases: Record<string, string> = {
+    yesterday: "daily", daily: "yesterday", wtd: "this_week",
+  };
+  const mapped = aliases[wanted.toLowerCase()] || "";
+  if (mapped && values.includes(mapped)) return;
+  const opt = document.createElement("option");
+  opt.value = wanted;
+  opt.textContent = EXTRA_PERIOD_LABELS[wanted] || wanted.replace(/_/g, " ");
+  sel.appendChild(opt);
+}
+
+function periodGateMessage(): string | null {
+  const sel = $("periodSelect") as HTMLSelectElement | null;
+  if (!sel) return null;
+  const period = sel.value.trim();
+  if (!period) return "Choose a period before running this report.";
+  if (period === "custom") {
+    const sd = (document.querySelector('[name="start_date"]') as HTMLInputElement | null)?.value.trim();
+    const ed = (document.querySelector('[name="end_date"]') as HTMLInputElement | null)?.value.trim();
+    if (!sd || !ed) return "Custom range needs a From date and a To date.";
+  }
+  if (period === "custom_month") {
+    const month = (document.querySelector('[name="month"]') as HTMLSelectElement | null)?.value.trim();
+    const year = (document.querySelector('[name="year"]') as HTMLSelectElement | null)?.value.trim();
+    if (!month || !year) return "Custom Month and Year needs both a month and a year.";
+  }
+  return null;
+}
+
+function syncPeriodGate(): void {
+  const blocked = periodGateMessage() != null;
+  const runBtn = $("runBtn") as HTMLButtonElement | null;
+  const emailMe = $("emailMeBtn") as HTMLButtonElement | null;
+  if (runBtn) runBtn.disabled = blocked;
+  if (emailMe) emailMe.disabled = blocked;
 }
 
 // --------------------------------------------------------------------------
@@ -2006,9 +2102,14 @@ async function initLookups(): Promise<void> {
 function applyDeepLink(): void {
   const q = new URLSearchParams(window.location.search);
   if (![...q.keys()].length) return;
-  (["period", "status", "year", "mode"] as const).forEach((name) => {
+  const periodEl = document.querySelector<HTMLSelectElement>('[name="period"]');
+  if (periodEl && q.has("period")) {
+    ensurePeriodOption(periodEl, q.get("period") || "");
+    setSelectValue(periodEl, q.get("period") || "");
+  }
+  (["status", "year", "mode", "month"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
-    if (el && q.has(name)) el.value = q.get(name) || "";
+    if (el && q.has(name)) setSelectValue(el, q.get(name) || "");
   });
   // The salesman <option>s aren't loaded yet; stash the value and apply it in
   // initLookups() after the list arrives (setting .value now would be lost).
@@ -2234,9 +2335,14 @@ async function saveView(): Promise<void> {
 }
 
 function applyParamsObject(params: Record<string, unknown>): void {
-  (["period", "year", "mode"] as const).forEach((name) => {
+  const periodEl = document.querySelector<HTMLSelectElement>('[name="period"]');
+  if (periodEl && params.period != null) {
+    ensurePeriodOption(periodEl, String(params.period));
+    setSelectValue(periodEl, String(params.period));
+  }
+  (["year", "mode", "month"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
-    if (el && params[name] != null) el.value = String(params[name]);
+    if (el && params[name] != null) setSelectValue(el, String(params[name]));
   });
   const statusEl = document.querySelector<HTMLSelectElement>('[name="status"]');
   if (statusEl && params.status != null) {
@@ -2256,7 +2362,7 @@ function applyParamsObject(params: Record<string, unknown>): void {
   const list = Array.isArray(custs) ? custs : (custs ? String(custs).split(",") : []);
   list.forEach((c) => { const k = String(c).trim(); if (k) selectedCustomers.set(k, k); });
   if (hasFilter("customerPicker")) renderCustomerPicker();
-  // Re-sync custom-range field visibility via the listener bound at boot.
+  // Re-sync custom-range / custom-month extras via the listener bound at boot.
   ($("periodSelect") as HTMLSelectElement | null)?.dispatchEvent(new Event("change"));
 }
 
@@ -2591,6 +2697,11 @@ async function postEmailNow(recipients: string, subject: string, sharepointPath:
 }
 
 async function sendEmail(): Promise<void> {
+  const gate = periodGateMessage();
+  if (gate) {
+    emailMsg(gate, true);
+    return;
+  }
   const recipients = (($("emailRecipients") as HTMLInputElement)).value.trim();
   const subject = (($("emailSubject") as HTMLInputElement)).value.trim();
   if (!recipients && !emailSp.path()) {
@@ -2611,6 +2722,11 @@ async function sendEmail(): Promise<void> {
 }
 
 async function emailMe(): Promise<void> {
+  const gate = periodGateMessage();
+  if (gate) {
+    setStatus(gate, "error");
+    return;
+  }
   const me = attr("data-user-email").trim();
   if (!me) {
     setStatus("This account has no email address.", "error");
@@ -2639,7 +2755,7 @@ async function emailMe(): Promise<void> {
   } catch (e) {
     setStatus((e as Error).message || "Could not send.", "error");
   } finally {
-    if (btn) btn.disabled = false;
+    syncPeriodGate();
   }
 }
 
@@ -2771,6 +2887,8 @@ function collectScheduleRecipients(): { to: string; cc: string; bcc: string } {
 }
 
 async function saveSchedule(): Promise<void> {
+  const gate = periodGateMessage();
+  if (gate) { schedMsg(gate, true); return; }
   const { to, cc, bcc } = collectScheduleRecipients();
   if (!to && !cc && !bcc && !scheduleOd.path()) {
     schedMsg("Enter recipients or pick a OneDrive folder.", true);
@@ -2813,10 +2931,10 @@ async function saveSchedule(): Promise<void> {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if (!root) return;
-  // Apply deep-links BEFORE wiring the custom-range toggle so a period=custom
-  // link reveals the date inputs when the toggle does its initial sync.
+  // Apply deep-links BEFORE wiring period extras so a period=custom /
+  // custom_month link reveals From/To or month/year on the first sync.
   applyDeepLink();
-  initCustomRangeToggle();
+  initPeriodExtras();
   $("controlsToggle")?.addEventListener("click", () => {
     setControlsCollapsed(!$("reportControls")?.classList.contains("collapsed"));
   });

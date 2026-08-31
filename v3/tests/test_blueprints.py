@@ -136,6 +136,47 @@ def test_report_view_renders_filters(tmp_path):
     assert 'id="runBtn"' in html
     assert 'id="emailMeBtn"' in html
     assert 'name="period"' in html  # ordered exposes a period filter
+    assert ">Choose one<" in html
+    assert "Yesterday" in html
+    assert "Last 7 days" in html
+    assert "Week to Date" in html
+    assert "Month to Date" in html
+    assert "Year to Date" in html
+    assert "Custom Month and Year" in html
+    assert 'data-custom-month' in html
+    assert "disabled>Run report" in html
+    assert "All Time" not in html
+    assert "Last Month" not in html
+    invoiced = client.get("/reports/invoiced").get_data(as_text=True)
+    assert ">Choose one<" in invoiced
+    assert "Custom Month and Year" in invoiced
+    assert 'id="periodSelect"' in invoiced
+
+
+def test_run_rejects_blank_period(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    resp = client.post("/api/reports/ordered/run", json={},
+                       headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 400
+    assert "Choose a period" in resp.get_json()["error"]
+    missing_month = client.post("/api/reports/ordered/run",
+                                json={"period": "custom_month"},
+                                headers={"X-CSRF-Token": _CSRF})
+    assert missing_month.status_code == 400
+    ok = client.post("/api/reports/ordered/run",
+                     json={"period": "custom_month", "month": "4", "year": "2026"},
+                     headers={"X-CSRF-Token": _CSRF})
+    assert ok.status_code == 202
+    explicit = client.post("/api/reports/ordered/run", json={"period": "all_time"},
+                           headers={"X-CSRF-Token": _CSRF})
+    assert explicit.status_code == 202
+    email = client.post("/api/reports/ordered/email-now",
+                        json={"recipients": "a@x.com", "params": {}},
+                        headers={"X-CSRF-Token": _CSRF})
+    assert email.status_code == 400
+    assert "Choose a period" in email.get_json()["error"]
 
 
 def test_run_poll_result_export_flow(tmp_path):
@@ -444,7 +485,7 @@ def test_cannot_read_another_users_job(tmp_path):
     app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
     client = app.test_client()
     _login(client, app)
-    job_id = client.post("/api/reports/ordered/run", json={},
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
                          headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
 
     other = app.test_client()
@@ -603,7 +644,7 @@ def test_granted_non_privileged_user_can_run_scoped_report(tmp_path):
         s["_csrf_token"] = _CSRF
     assert "Ordered" in client.get("/").get_data(as_text=True)
     assert client.get("/reports/ordered").status_code == 200
-    resp = client.post("/api/reports/ordered/run", json={},
+    resp = client.post("/api/reports/ordered/run", json={"period": "all_time"},
                        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 202
 
@@ -612,7 +653,7 @@ def test_revoked_access_blocks_result_read(tmp_path):
     app = _make_app(tmp_path, rows_by_report={"salesline_release": []})
     client = app.test_client()
     _login(client, app)
-    job_id = client.post("/api/reports/ordered/run", json={},
+    job_id = client.post("/api/reports/ordered/run", json={"period": "all_time"},
                          headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
     # Demote the admin to salesman (fail-closed) and confirm the cached result is denied.
     db = app.config["DB"]
@@ -1077,6 +1118,13 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     assert "Company schedules" in admin_html
     assert "msWizard" in admin_html
     assert "Add a schedule" in admin_html
+    assert 'id="msPeriod"' in admin_html
+    assert ">Choose one<" in admin_html
+    assert "Custom Month and Year" in admin_html
+    assert 'data-custom-month' in admin_html
+    assert "Yesterday" in admin_html
+    assert "All Time" in admin_html
+    assert "Last Month" in admin_html
 
     rep = app.test_client()
     _login(rep, app, email="rep@x.com", role="salesman")
@@ -1918,7 +1966,7 @@ def test_invoiced_commissions_tab_is_not_blank(tmp_path):
     app = _make_app(tmp_path, rows_by_report={"invoiced_report": rows})
     client = app.test_client()
     _login(client, app)
-    job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},
+    job_id = client.post("/api/reports/invoiced/run", json={"period": "ytd"},
                          headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
     payload = client.get(f"/api/reports/result/{job_id}").get_json()
     comm = next(t for t in payload["tabs"] if t["key"] == "commissions")
@@ -1936,7 +1984,7 @@ def test_salesman_invoiced_run_omits_commissions_tab(tmp_path):
     _login(client, app, email="rep@x.com", role="salesman")
     html = client.get("/reports/invoiced").get_data(as_text=True)
     assert 'data-hide-commissions="1"' in html
-    job_id = client.post("/api/reports/invoiced/run", json={"year": "2026"},
+    job_id = client.post("/api/reports/invoiced/run", json={"period": "ytd"},
                          headers={"X-CSRF-Token": _CSRF}).get_json()["job_id"]
     payload = client.get(f"/api/reports/result/{job_id}").get_json()
     assert "commissions" not in {t["key"] for t in payload["tabs"]}
@@ -1953,7 +2001,7 @@ def test_salesman_email_now_invoiced_skips_commissions(tmp_path):
     _login(client, app, email="rep@x.com", role="salesman")
     resp = client.post("/api/reports/invoiced/email-now",
                        json={"recipients": "rep@x.com", "subject": "Invoiced",
-                             "params": {"year": "2026"}, "layout": {}},
+                             "params": {"period": "ytd"}, "layout": {}},
                        headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 202
     job_id = resp.get_json()["job_id"]

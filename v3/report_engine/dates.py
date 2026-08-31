@@ -3,8 +3,8 @@
 Re-implemented for v3 (no pandas, no legacy `core/` coupling). Matches the
 business meaning of the live/test apps' periods so report windows line up:
 
-    daily/yesterday | mtd | last_month | ytd | this_week | last_7_days
-    | all_time | custom
+    daily/yesterday | mtd | last_month | ytd | this_week/wtd | last_7_days
+    | all_time | custom | custom_month
 
 The on-prem Reporting API's stored procedures take SQL Server `datetime`
 params with NO timezone offset - they interpret the value as already-Eastern.
@@ -13,6 +13,7 @@ So `sp_datetime()` emits Eastern wall-clock 'YYYY-MM-DD HH:MM:SS'.
 
 from __future__ import annotations
 
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Iterator
@@ -22,6 +23,21 @@ EASTERN = ZoneInfo("America/New_York")
 
 # Earliest valid date in D365 F&O; anything before is migration noise.
 D365_GO_LIVE = date(2025, 1, 3)
+
+MONTH_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("1", "January"),
+    ("2", "February"),
+    ("3", "March"),
+    ("4", "April"),
+    ("5", "May"),
+    ("6", "June"),
+    ("7", "July"),
+    ("8", "August"),
+    ("9", "September"),
+    ("10", "October"),
+    ("11", "November"),
+    ("12", "December"),
+)
 
 
 def now_eastern() -> datetime:
@@ -65,9 +81,9 @@ def parse_period(period: str, today: date | None = None) -> Period:
         )
     elif name == "ytd":
         p = Period("YTD", today.replace(month=1, day=1), today)
-    elif name == "this_week":
+    elif name in ("this_week", "wtd"):
         monday = today - timedelta(days=today.weekday())
-        p = Period("This Week", monday, today)
+        p = Period("Week to Date", monday, today)
     elif name == "last_7_days":
         p = Period("Last 7 Days", today - timedelta(days=6), today)
     elif name == "all_time":
@@ -75,10 +91,28 @@ def parse_period(period: str, today: date | None = None) -> Period:
     else:
         raise ValueError(
             f"Unknown period: {period!r}. Use daily, mtd, last_month, ytd, "
-            "this_week, last_7_days, all_time."
+            "this_week, last_7_days, all_time, custom_month."
         )
 
     return Period(p.label, clamp_start(p.start_date), p.end_date)
+
+
+def parse_custom_month(year: int | str, month: int | str) -> Period:
+    """Full calendar month (1st through last day), start clamped to go-live."""
+    try:
+        y = int(year)
+        m = int(month)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid month/year: {year!r} {month!r}") from exc
+    if m < 1 or m > 12:
+        raise ValueError(f"Month must be 1-12, got {m}")
+    last = monthrange(y, m)[1]
+    start = date(y, m, 1)
+    end = date(y, m, last)
+    start = clamp_start(start)
+    if start > end:
+        raise ValueError("That month is before the earliest report date.")
+    return Period(date(y, m, 1).strftime("%b %Y"), start, end)
 
 
 def parse_custom_range(start_raw: str, end_raw: str) -> Period:

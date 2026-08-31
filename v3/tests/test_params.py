@@ -61,6 +61,24 @@ def test_ordered_all_time_omits_dates():
     assert "CreatedDateTimeTo" not in out
 
 
+def test_custom_month_bounds_ordered_dates():
+    out = P.translate("ordered", {"period": "custom_month", "month": "4", "year": "2026"})
+    assert out["CreatedDateTimeFrom"] == "2026-04-01 00:00:00"
+    assert out["CreatedDateTimeTo"] == "2026-04-30 23:59:59"
+    alias = P.translate("ordered", {"period": "custom_month", "month": "4", "custom_year": "2026"})
+    assert alias["CreatedDateTimeFrom"] == out["CreatedDateTimeFrom"]
+    assert alias["CreatedDateTimeTo"] == out["CreatedDateTimeTo"]
+
+
+def test_period_selection_error_blank_and_custom_month():
+    assert P.period_selection_error({}) == "Choose a period before running this report."
+    assert P.period_selection_error({"period": "mtd"}) is None
+    assert P.period_selection_error({"period": "all_time"}) is None
+    assert P.period_selection_error({"period": "custom_month"}) is not None
+    assert P.period_selection_error({"period": "custom_month", "month": "4", "year": "2026"}) is None
+    assert P.period_selection_error({"period": "custom_month", "month": "4", "custom_year": "2026"}) is None
+
+
 def test_blank_period_with_dates_still_omits_dates():
     # A named period is required to bound dates (matches the test-app contract).
     out = P.translate("ordered", {"period": "", "start_date": "2026-04-01",

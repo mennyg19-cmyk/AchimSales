@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-08-31 Period picker starts at Choose one; no All Time default
+**What you asked for:** Period on all reports must not default to All Time. Default to nothing ("Choose one"). Cannot run until a period is picked. Options: Yesterday, Last 7 days, Week to Date, Month to Date, Year to Date, Custom Month and Year (month + year extras like Custom Range).
+**What I had to decide:** Whether All Time / Last Month / Custom Range stay in the dropdown; whether Custom Month is a full calendar month; whether schedules keep All Time.
+**What I chose:** Interactive Ordered/Invoiced picker is that exclusive list, first option Choose one. Run / Email me are disabled until a period is complete. Server returns 400 if period is blank, custom range lacks dates, or custom month lacks month and year. Explicit `all_time` still runs for saved views, schedules, and the API. Custom Month and Year is the whole calendar month (current month includes future days with no data). Week to Date is Monday–today (`this_week`). Yesterday is `yesterday` (still aliases `daily`). Schedules keep All Time and Last Month so Heshy Open Orders and monthly jobs still work, plus Custom Month and Year, and the wizard will not go Next without a period.
+**Why:** A blank default was running every order since D365 go-live. Users should not get a wide-open report by accident. Old company views that store All Time still need to run.
+**Status:** DECIDED — shipping this change.
+
+
 ## 2026-08-26 Shipping $ and remainder have no fallback math
 **What you asked for:** Shipping $ and Extended Price Remainder should only show ShippingDollars from the SP. No fallback calculations.
 **What I chose:** Both columns are `ShippingDollars` only. Missing/blank is $0, same as other SP dollar fields. Open $ stays Ordered $ − Shipped $ − Cancelled $. Ordered builder_version 7.

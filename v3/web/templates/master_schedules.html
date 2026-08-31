@@ -111,12 +111,32 @@
                 <label class="ms-field ms-field-block" data-param="period" hidden>
                     <span>Time period for the report</span>
                     <select name="period" id="msPeriod">
-                        <option value="">— pick one —</option>
+                        <option value="">Choose one</option>
                         {% for value, label in period_options %}
                         <option value="{{ value }}">{{ label }}</option>
                         {% endfor %}
                     </select>
                 </label>
+                <div class="ms-field-row" data-custom-month hidden>
+                    <label class="ms-field ms-field-block">
+                        <span>Month</span>
+                        <select name="month" id="msCustomMonth">
+                            <option value="">Choose one</option>
+                            {% for value, label in month_options %}
+                            <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="ms-field ms-field-block">
+                        <span>Year</span>
+                        <select name="custom_year" id="msCustomYear">
+                            <option value="">Choose one</option>
+                            {% for y in year_options %}
+                            <option value="{{ y }}">{{ y }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                </div>
                 <div class="ms-field ms-field-block" data-param="status" hidden>
                     <span>Order status (optional — pick one or more)</span>
                     <select id="msStatusSource" hidden>

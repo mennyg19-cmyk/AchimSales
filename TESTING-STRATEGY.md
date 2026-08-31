@@ -22,6 +22,25 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Period filter defaults to Choose one and cannot run blank
+
+**What to test:**
+- Ordered HTML: first option Choose one; Yesterday, Last 7 days, Week to Date, Month to Date, Year to Date, Custom Month and Year present; All Time not in the default list.
+- `POST /api/reports/ordered/run` with `{}` or no period is 400 with a Choose a period message.
+- `custom_month` without month/year is 400; with month and year is 202 and translate bounds that calendar month.
+- Explicit `period: all_time` still 202.
+- `parse_custom_month` is 1st–last day; a month before D365 go-live raises.
+
+**Expected behavior:**
+- Opening Ordered/Invoiced, Period is Choose one and Run is disabled until a period is picked. Custom Month and Year opens month and year selects.
+
+**Edge cases:**
+- Saved views / URLs with `all_time`, `last_month`, or `custom` still run; the dropdown injects that option.
+- Number 4 / Salesman / Sales by State have no period picker and still run.
+- Schedules still list All Time and Last Month; wizard Next on Options requires a period for Ordered/Invoiced.
+
+**Test files:** `v3/tests/test_blueprints.py`, `v3/tests/test_dates.py`, `v3/tests/test_params.py`
+
 ## Ordered Summary remainder from SP dollar amount
 
 **What to test:**

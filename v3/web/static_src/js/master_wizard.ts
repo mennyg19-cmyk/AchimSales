@@ -105,6 +105,53 @@ function syncParamsVisibility(form: HTMLFormElement): void {
   if (fields) fields.hidden = empty;
   if (intro) intro.hidden = empty;
   void ensureLookups();
+  syncPeriodExtras();
+}
+
+function syncPeriodExtras(): void {
+  const sel = document.getElementById("msPeriod") as HTMLSelectElement | null;
+  const wrap = document.querySelector<HTMLElement>("[data-custom-month]");
+  const periodField = document.querySelector<HTMLElement>('[data-param="period"]');
+  if (!wrap) return;
+  wrap.hidden = !sel || !!periodField?.hidden || sel.value !== "custom_month";
+}
+
+function applyPeriodValue(sel: HTMLSelectElement | null, raw: unknown): void {
+  if (!sel) return;
+  const wanted = String(raw || "").trim();
+  if (!wanted) {
+    sel.value = "";
+    return;
+  }
+  const aliases: Record<string, string> = {
+    yesterday: "daily", daily: "yesterday", wtd: "this_week",
+  };
+  const values = [...sel.options].map((o) => o.value);
+  const mapped = aliases[wanted.toLowerCase()] || "";
+  if (values.includes(wanted)) {
+    sel.value = wanted;
+  } else if (mapped && values.includes(mapped)) {
+    sel.value = mapped;
+  } else {
+    const opt = document.createElement("option");
+    opt.value = wanted;
+    opt.textContent = wanted === "custom" ? "Custom Range" : wanted.replace(/_/g, " ");
+    sel.appendChild(opt);
+    sel.value = wanted;
+  }
+}
+
+function applyCustomMonthFields(params: Record<string, unknown>): void {
+  const monthEl = document.getElementById("msCustomMonth") as HTMLSelectElement | null;
+  const yearEl = document.getElementById("msCustomYear") as HTMLSelectElement | null;
+  if (monthEl) monthEl.value = params.month != null ? String(params.month) : "";
+  const year = params.custom_year != null ? params.custom_year : params.year;
+  if (yearEl && String(params.period || "") === "custom_month") {
+    yearEl.value = year != null ? String(year) : "";
+  } else if (yearEl) {
+    yearEl.value = "";
+  }
+  syncPeriodExtras();
 }
 
 function syncDeliveryOptionsVisibility(form: HTMLFormElement): void {
@@ -215,9 +262,12 @@ function applySavedViewFromSelect(): void {
   const preset = JSON.parse(raw) as { params?: Record<string, unknown>; layout?: Record<string, unknown> };
   const params = preset.params || {};
   const periodEl = form.elements.namedItem("period") as HTMLSelectElement | null;
-  if (periodEl) periodEl.value = String(params.period || "");
+  applyPeriodValue(periodEl, params.period);
+  applyCustomMonthFields(params);
   const yearEl = form.elements.namedItem("year") as HTMLSelectElement | null;
-  if (yearEl) yearEl.value = params.year != null ? String(params.year) : "";
+  if (yearEl && String(params.period || "") !== "custom_month") {
+    yearEl.value = params.year != null ? String(params.year) : "";
+  }
   ensurePickers();
   statusPicker?.setSelected(asStringList(params.status));
   pendingSalesmen = asStringList(params.salesman);
@@ -301,6 +351,12 @@ function collectParams(form: HTMLFormElement): Record<string, unknown> {
   if (needed.includes("period")) {
     const v = (form.elements.namedItem("period") as HTMLSelectElement).value.trim();
     if (v) out.period = v;
+    if (v === "custom_month") {
+      const month = (document.getElementById("msCustomMonth") as HTMLSelectElement | null)?.value.trim();
+      const year = (document.getElementById("msCustomYear") as HTMLSelectElement | null)?.value.trim();
+      if (month) out.month = month;
+      if (year) out.year = year;
+    }
   }
   if (needed.includes("status")) {
     const vals = statusPicker?.selectedKeys() || [];
@@ -629,6 +685,18 @@ function validateStep(step: number, form: HTMLFormElement): string | null {
     const cad = masterCadence(form);
     if (!cad.ok) return cad.error || "Check the schedule timing.";
   }
+  if (step === 3) {
+    const needed = reportFilters()[selectedReportKey(form)] || [];
+    if (needed.includes("period")) {
+      const v = (form.elements.namedItem("period") as HTMLSelectElement).value.trim();
+      if (!v) return "Choose a time period for the report.";
+      if (v === "custom_month") {
+        const month = (document.getElementById("msCustomMonth") as HTMLSelectElement | null)?.value.trim();
+        const year = (document.getElementById("msCustomYear") as HTMLSelectElement | null)?.value.trim();
+        if (!month || !year) return "Custom Month and Year needs both a month and a year.";
+      }
+    }
+  }
   if (step === 4) {
     const emailOn = destOn("msWantEmail");
     const cloudOn = destOn("msWantCloud");
@@ -735,7 +803,8 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
     c.checked = monthdays.includes(Number(c.value));
   });
 
-  (form.elements.namedItem("period") as HTMLSelectElement).value = params.period || "";
+  applyPeriodValue(form.elements.namedItem("period") as HTMLSelectElement, params.period);
+  applyCustomMonthFields(params);
   ensurePickers();
   statusPicker?.setSelected(asStringList(params.status));
   pendingSalesmen = asStringList(params.salesman);
@@ -748,8 +817,11 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   if (splitBySalesman) splitBySalesman.checked = !!params.split_by_salesman;
   pendingCustomers = asStringList(params.customers);
   customerPicker?.setSelected(pendingCustomers);
+  applyCustomMonthFields(params);
   (form.elements.namedItem("year") as HTMLSelectElement).value =
-    params.year != null ? String(params.year) : "";
+    String(params.period || "") === "custom_month"
+      ? ""
+      : (params.year != null ? String(params.year) : "");
 
   (form.elements.namedItem("recipients") as HTMLInputElement).value = row.dataset.recipients || "";
   const folderKind = String(params.folder_kind || "");
@@ -860,6 +932,7 @@ export function bindMasterWizard(): void {
     updateMsFolderPreview();
   });
   document.getElementById("msPeriod")?.addEventListener("change", () => {
+    syncPeriodExtras();
     updateMsFilenamePreview();
     updateMsFolderPreview();
   });

@@ -37,6 +37,7 @@ import time
 from urllib.parse import urlencode, urlparse
 
 from report_engine import registry
+from report_engine.dates import MONTH_OPTIONS
 from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
@@ -74,14 +75,12 @@ REPORT_FILTERS: dict[str, tuple[str, ...]] = {
 }
 
 PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("all_time", "All Time"),
+    ("yesterday", "Yesterday"),
+    ("last_7_days", "Last 7 days"),
+    ("this_week", "Week to Date"),
     ("mtd", "Month to Date"),
-    ("last_month", "Last Month"),
     ("ytd", "Year to Date"),
-    ("this_week", "This Week"),
-    ("last_7_days", "Last 7 Days"),
-    ("daily", "Yesterday"),
-    ("custom", "Custom Range"),
+    ("custom_month", "Custom Month and Year"),
 )
 
 # Number 4's one question: which rolling-12 view(s) to build. "Both" fetches
@@ -294,6 +293,7 @@ def report_view(report_key: str):
     return render_template(
         "report_view.html", active_tab="reports", report=spec,
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
+        month_options=MONTH_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
         n4_mode_options=N4_MODE_OPTIONS,
         is_developer=(p.role == ROLE_DEVELOPER),
@@ -323,6 +323,11 @@ def run_report(report_key: str):
     params = request.get_json(silent=True)
     if not isinstance(params, dict):
         params = request.form.to_dict()
+
+    if "period" in REPORT_FILTERS.get(report_key, ()):
+        period_err = P.period_selection_error(params)
+        if period_err:
+            return jsonify({"error": period_err}), 400
 
     # Validate selected customers: resync if unknown, error if still missing.
     selected = _selected_customer_accounts(params)
@@ -1484,11 +1489,17 @@ def email_now(report_key: str):
     if sharepoint_path and not authz.has_sharepoint_access(p):
         abort(403, description="You don't have SharePoint delivery access.")
 
+    run_params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    if "period" in REPORT_FILTERS.get(report_key, ()):
+        period_err = P.period_selection_error(run_params)
+        if period_err:
+            return jsonify({"error": period_err}), 400
+
     job_id = enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
         "report_key": report_key, "identity": p.email,
         "visible_keys": _visible_list(authz.visible_salesman_keys(p)),
         "builder_version": spec.builder_version,
-        "params": _params_for_viewer(p, report_key, body.get("params") or {}),
+        "params": _params_for_viewer(p, report_key, run_params),
         "layout": body.get("layout") or {}, "recipients": recipients,
         "subject": (body.get("subject") or "").strip(), "report_name": spec.title,
         "sharepoint_path": sharepoint_path,

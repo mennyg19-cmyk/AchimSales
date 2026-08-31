@@ -225,7 +225,7 @@ def schedules_page():
         for s in registry.built_reports()
         if (not s.in_app) and authz.can_view_report(p, s.key)
     ]
-    from report_engine.dates import today_eastern
+    from report_engine.dates import MONTH_OPTIONS, today_eastern
     year_now = today_eastern().year
     context = {
         "active_tab": "schedules", "schedules": items,
@@ -237,6 +237,7 @@ def schedules_page():
         "personal_report_filters": {k: list(v) for k, v in _MASTER_REPORT_FILTERS.items()},
         "report_filters": _MASTER_REPORT_FILTERS,
         "period_options": _PERIOD_OPTIONS,
+        "month_options": MONTH_OPTIONS,
         "status_options": [(v, label) for v, label in _STATUS_OPTIONS if v],
         "year_options": list(range(year_now, year_now - 5, -1)),
         "managers": _manager_options() if is_privileged else [],
@@ -485,11 +486,12 @@ _MASTER_REPORT_FILTERS: dict[str, tuple[str, ...]] = {
 
 _PERIOD_OPTIONS: tuple[tuple[str, str], ...] = (
     ("yesterday", "Yesterday"),
+    ("last_7_days", "Last 7 days"),
+    ("this_week", "Week to Date"),
     ("mtd", "Month to Date"),
-    ("last_month", "Last Month"),
     ("ytd", "Year to Date"),
-    ("this_week", "This Week"),
-    ("last_7_days", "Last 7 Days"),
+    ("custom_month", "Custom Month and Year"),
+    ("last_month", "Last Month"),
     ("all_time", "All Time"),
 )
 
@@ -559,7 +561,7 @@ def _normalize_master_params(raw: dict | None, *, allow_salesman_delivery: bool 
     """Keep only known filter keys; multi filters store as lists."""
     src = raw if isinstance(raw, dict) else {}
     out: dict = {}
-    for key in ("period", "year", "start_date", "end_date"):
+    for key in ("period", "year", "start_date", "end_date", "month", "custom_year"):
         val = src.get(key)
         if val is None:
             continue
@@ -666,13 +668,14 @@ def _master_page_context(p, uid: int) -> dict:
         for s in registry.built_reports()
         if not s.in_app
     ]
-    from report_engine.dates import today_eastern
+    from report_engine.dates import MONTH_OPTIONS, today_eastern
     year_now = today_eastern().year
     return {
         "master_schedules": items,
         "built_reports": built,
         "report_filters": _MASTER_REPORT_FILTERS,
         "period_options": _PERIOD_OPTIONS,
+        "month_options": MONTH_OPTIONS,
         "status_options": _STATUS_OPTIONS,
         "year_options": list(range(year_now, year_now - 5, -1)),
     }

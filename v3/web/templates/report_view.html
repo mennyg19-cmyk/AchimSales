@@ -30,6 +30,7 @@
     <label class="filter-field">
         <span>Period <button type="button" class="help-btn" data-help="param-period" data-no-guard aria-label="Help">?</button></span>
         <select name="period" id="periodSelect">
+            <option value="">Choose one</option>
             {% for value, label in period_options %}
             <option value="{{ value }}">{{ label }}</option>
             {% endfor %}
@@ -42,6 +43,24 @@
     <label class="filter-field filter-custom" data-custom hidden>
         <span>To</span>
         <input type="date" name="end_date">
+    </label>
+    <label class="filter-field filter-custom" data-custom-month hidden>
+        <span>Month</span>
+        <select name="month" id="customMonthSelect">
+            <option value="">Choose one</option>
+            {% for value, label in month_options %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label class="filter-field filter-custom" data-custom-month hidden>
+        <span>Year</span>
+        <select name="year" id="customYearSelect">
+            <option value="">Choose one</option>
+            {% for y in year_options %}
+            <option value="{{ y }}">{{ y }}</option>
+            {% endfor %}
+        </select>
     </label>
     {% endif %}
     {% if 'n4_mode' in filters %}
@@ -91,8 +110,8 @@
     {% endif %}
     </div>
     <div class="filter-run-group">
-    <button type="button" id="runBtn" class="btn btn-primary filter-run-btn">Run report</button>
-    <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn" title="Run this report and email the Excel file to you">Email me</button>
+    <button type="button" id="runBtn" class="btn btn-primary filter-run-btn"{% if 'period' in filters %} disabled{% endif %}>Run report</button>
+    <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn"{% if 'period' in filters %} disabled{% endif %} title="Run this report and email the Excel file to you">Email me</button>
     </div>
 </form>
 

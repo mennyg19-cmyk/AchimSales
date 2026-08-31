@@ -121,6 +121,7 @@ def test_beta_report_view_keeps_schedule_and_run(tmp_path):
             period_options=(),
             status_options=(),
             year_options=[2026],
+            month_options=[("1", "January")],
             n4_mode_options=(),
             is_developer=True,
         )
@@ -174,6 +175,8 @@ def test_report_viewer_meeting_ux():
     assert "Apply this view’s filters (does not run the report)" not in src
     assert "if (!out.salesman && pendingSalesman) out.salesman = pendingSalesman;" in src
     assert "function applySalesman(" in src
+    assert "function initPeriodExtras" in src
+    assert "Choose a period before running this report." in src
     assert "fulfillmentFillCss" in src
     assert 'col.field === "Fulfillment %"' in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")

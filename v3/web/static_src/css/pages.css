@@ -897,6 +897,7 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .ms-where { max-width: 720px; }
 .ms-where .ms-field-block { max-width: none; }
 .ms-field-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.ms-field-row[hidden] { display: none !important; }
 .ms-field-row .ms-field-block { flex: 1 1 240px; min-width: 200px; }
 .ms-dest-toggles { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 16px; }
 .ms-dest-panel { margin: 0 0 18px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
