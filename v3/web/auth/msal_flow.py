@@ -50,10 +50,8 @@ def complete_login(cfg: Config) -> dict:
         log.exception("MSAL token acquisition failed")
         return {"error": "Sign-in failed. Start login again."}
     if "error" in result:
-        log.warning(
-            "MSAL token error: %s",
-            result.get("error_description") or result.get("error"),
-        )
+        # Log the error code only. Entra error_description can carry secrets.
+        log.warning("Microsoft sign-in failed: %s", result.get("error") or "unknown")
         return {"error": "Sign-in failed. Start login again."}
     claims = result.get("id_token_claims") or {}
     email = (claims.get("preferred_username") or claims.get("email") or claims.get("upn") or "").strip().lower()

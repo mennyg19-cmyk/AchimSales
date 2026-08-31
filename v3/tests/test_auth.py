@@ -598,7 +598,9 @@ def test_msal_token_failure_is_generic(app, monkeypatch):
     assert "Sign-in failed. Start login again." in body
 
 
-def test_msal_entra_error_description_is_generic(app, monkeypatch):
+def test_msal_entra_error_description_is_generic(app, monkeypatch, caplog):
+    import logging
+
     class Fail:
         def acquire_token_by_auth_code_flow(self, flow, values):
             return {
@@ -610,12 +612,15 @@ def test_msal_entra_error_description_is_generic(app, monkeypatch):
     client = app.test_client()
     with client.session_transaction() as s:
         s["v3_auth_flow"] = {"state": "st"}
-    resp = client.get("/auth/callback?code=x&state=st")
+    with caplog.at_level(logging.WARNING):
+        resp = client.get("/auth/callback?code=x&state=st")
     assert resp.status_code == 400
     body = resp.get_data(as_text=True)
     assert "AADSTS70000" not in body
     assert "secret=abc" not in body
     assert "Sign-in failed. Start login again." in body
+    assert "AADSTS70000" not in caplog.text
+    assert "secret=abc" not in caplog.text
 
 
 def test_leftover_live_cookie_does_not_skip_role_refresh(tmp_path):

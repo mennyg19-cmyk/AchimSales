@@ -35,7 +35,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - A session cookie signed with the previous Flask secret does not stay signed in.
 - `next=/\evil.com` and `next=/%5Cevil.com` are not kept for post-login redirect (`login_redirect` and `/login/start`).
 - An admin POSTing `/impersonate` targeting a developer gets 403 and keeps their own session. A developer can still impersonate a developer.
-- MSAL token exceptions and Entra `error_description` are not copied into the `/auth/callback` 400 body.
+- MSAL token exceptions and Entra `error_description` are not copied into the `/auth/callback` 400 body or into logs (logs may include the error code only).
 
 **Expected behavior:**
 - One identity store: precious `users`. Cookie/session fields never grant roles.
