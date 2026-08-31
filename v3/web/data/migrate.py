@@ -63,13 +63,25 @@ def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
             )
             try:
                 conn.executescript(script)
-            except Exception:
+            except Exception as exc:
                 conn.rollback()  # discard the partial, uncommitted migration
                 # Gunicorn workers boot in parallel and can race to apply the
                 # same pending migration. The loser fails (duplicate version row
                 # or "table already exists"); if the version is now recorded as
                 # applied, the winner did our work - skip it, don't crash boot.
                 if version in _applied(conn):
+                    continue
+                # ALTER TABLE ADD COLUMN is not always transactional. If the
+                # column landed but schema_migrations did not, the next boot
+                # would raise duplicate-column and never start the scheduler.
+                if "duplicate column name" in str(exc).lower():
+                    conn.execute(
+                        "INSERT OR IGNORE INTO schema_migrations(version, applied_at)"
+                        " VALUES (?, ?)",
+                        (version, ts),
+                    )
+                    conn.commit()
+                    newly.append(version)
                     continue
                 raise
             newly.append(version)
@@ -80,10 +92,43 @@ def apply_migrations(path: Path, migrations_dir: Path) -> list[str]:
 
 def migrate(db: Database) -> dict[str, list[str]]:
     """Apply both databases' migrations. Returns {db_name: [applied versions]}."""
+    precious = apply_migrations(db.precious_path, _MIGRATIONS_ROOT / "precious")
+    _ensure_users_company_views_column(db.precious_path)
     return {
-        "precious": apply_migrations(db.precious_path, _MIGRATIONS_ROOT / "precious"),
+        "precious": precious,
         "cache": migrate_cache_only(db),
     }
+
+
+def _ensure_users_company_views_column(path: Path) -> None:
+    """Add can_see_company_views if 0016 was skipped or the column was lost."""
+    conn = _connect(path)
+    try:
+        tables = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "users" not in tables:
+            return
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+        if "can_see_company_views" in cols:
+            return
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN can_see_company_views INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute(
+                "UPDATE users SET can_see_company_views = 1 WHERE role = 'developer'"
+            )
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            conn.rollback()
+            # Parallel gunicorn workers can both see a missing column and ALTER.
+            if "duplicate column name" not in str(exc).lower():
+                raise
+    finally:
+        conn.close()
 
 
 def migrate_cache_only(db: Database) -> list[str]:

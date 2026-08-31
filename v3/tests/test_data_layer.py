@@ -192,3 +192,122 @@ def test_concurrent_claim_never_double_claims(db):
 
     assert sorted(claimed) == sorted(ids)  # each claimed exactly once
     assert len(claimed) == len(set(claimed))
+
+
+def test_duplicate_column_records_version_instead_of_raising(tmp_path):
+    """0016 is ALTER ADD COLUMN only. Retry after a lost version row must not crash boot."""
+    mig = tmp_path / "mig"
+    mig.mkdir()
+    db_path = tmp_path / "p.db"
+    conn = _connect(db_path)
+    try:
+        conn.execute("CREATE TABLE t (x INTEGER)")
+        conn.commit()
+    finally:
+        conn.close()
+    (mig / "0001_add.sql").write_text(
+        "ALTER TABLE t ADD COLUMN y INTEGER NOT NULL DEFAULT 0;\n",
+        encoding="utf-8",
+    )
+    assert apply_migrations(db_path, mig) == ["0001_add"]
+    conn = _connect(db_path)
+    try:
+        conn.execute("DELETE FROM schema_migrations WHERE version='0001_add'")
+        conn.commit()
+    finally:
+        conn.close()
+    newly = apply_migrations(db_path, mig)
+    assert newly == ["0001_add"]
+    conn = _connect(db_path)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(t)")}
+        versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+    finally:
+        conn.close()
+    assert "y" in cols
+    assert "0001_add" in versions
+
+
+def test_migrate_retries_0016_when_column_exists_without_version(tmp_path):
+    d = Database(tmp_path / "p.db", tmp_path / "c.db")
+    first = migrate(d)
+    assert "0016_can_see_company_views" in first["precious"]
+    conn = _connect(d.precious_path)
+    try:
+        conn.execute(
+            "DELETE FROM schema_migrations WHERE version='0016_can_see_company_views'"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    second = migrate(d)
+    assert "0016_can_see_company_views" in second["precious"]
+    conn = _connect(d.precious_path)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+        versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+    finally:
+        conn.close()
+    assert "can_see_company_views" in cols
+    assert "0016_can_see_company_views" in versions
+
+
+def test_migrate_repairs_missing_company_views_column(tmp_path):
+    d = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(d)
+    conn = _connect(d.precious_path)
+    try:
+        try:
+            conn.execute("ALTER TABLE users DROP COLUMN can_see_company_views")
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            pytest.skip(str(exc))
+    finally:
+        conn.close()
+    migrate(d)
+    conn = _connect(d.precious_path)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    finally:
+        conn.close()
+    assert "can_see_company_views" in cols
+    u = UserRepository(d).upsert("dev@x.com", role="developer")
+    assert u.can_see_company_views is True
+
+
+def test_parallel_ensure_company_views_column_does_not_raise(tmp_path):
+    from web.data.migrate import _ensure_users_company_views_column
+
+    d = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(d)
+    conn = _connect(d.precious_path)
+    try:
+        try:
+            conn.execute("ALTER TABLE users DROP COLUMN can_see_company_views")
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            pytest.skip(str(exc))
+    finally:
+        conn.close()
+    errors: list[Exception] = []
+    barrier = threading.Barrier(4)
+
+    def boot():
+        try:
+            barrier.wait()
+            _ensure_users_company_views_column(d.precious_path)
+        except Exception as exc:  # noqa: BLE001 - the test asserts on these
+            errors.append(exc)
+
+    threads = [threading.Thread(target=boot) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    conn = _connect(d.precious_path)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    finally:
+        conn.close()
+    assert "can_see_company_views" in cols

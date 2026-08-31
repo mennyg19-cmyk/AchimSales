@@ -24,12 +24,14 @@ class User:
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "User":
+        keys = set(r.keys())
+        views = bool(r["can_see_company_views"]) if "can_see_company_views" in keys else False
         return cls(
             id=r["id"], email=r["email"], display_name=r["display_name"], role=r["role"],
             is_active=bool(r["is_active"]), is_external=bool(r["is_external"]),
             dashboard_enabled=bool(r["dashboard_enabled"]),
             sharepoint_access=bool(r["sharepoint_access"]), test_access=bool(r["test_access"]),
-            can_see_company_views=bool(r["can_see_company_views"]),
+            can_see_company_views=views,
         )
 
 

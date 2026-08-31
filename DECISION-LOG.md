@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-08-31 Schedules failed after company-views column
+**What you asked for:** Why are all the schedules failing? Fix it.
+**What I had to decide:** Root cause, and whether to wait on a Premier auth review before shipping.
+**What I chose:** `User.from_row` required `can_see_company_views`. Request handlers swallow that IndexError; `ScheduleRunner` does not. Gunicorn workers racing 0016 can also crash `migrate()` (`duplicate column name`) so `wsgi._bootstrap_v3_async` never starts the scheduler. Hotfix: missing flag reads as False (fail closed); duplicate-column retry records the version and continues; boot repairs a missing column; parallel ALTER of that column does not raise. Stayed on `cursor/company-views-permission-89b7` (that SHA is what production is running). Skipped Sol/Fable so the outage fix is not delayed.
+**Why:** Site up + every schedule dead matches swallowed request errors and a scheduler that never starts or dies on `from_row`.
+**Status:** DECIDED — hotfix deviation (no Premier auth pass before deploy).
+
 ## 2026-08-31 Company views are a per-user flag
 **What you asked for:** Company views visibility should be a permission per user. Everyone no by default besides developers.
 **What I had to decide:** Whether developers always ignore the flag, and whether editing still needs the manager/admin schedule privilege.

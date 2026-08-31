@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -110,6 +111,35 @@ def test_runner_personal_records_success(stack):
     hist = ScheduleRunRepository(db).list_for_schedule(sid, PERSONAL)
     assert len(hist) == 1 and hist[0].status == "success" and hist[0].rows == 2
     assert OutboxRepository(db).list_recent()
+
+
+def test_runner_personal_succeeds_when_company_views_column_missing(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class FakeDelivery:
+        def run_and_deliver(self, **kwargs):
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["a@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=FakeDelivery())  # type: ignore[arg-type]
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com")
+    with db.precious() as conn:
+        try:
+            conn.execute("ALTER TABLE users DROP COLUMN can_see_company_views")
+        except sqlite3.OperationalError as exc:
+            pytest.skip(str(exc))
+    runner.run(sid, PERSONAL)
+    hist = ScheduleRunRepository(db).list_for_schedule(sid, PERSONAL)
+    assert len(hist) == 1 and hist[0].status == "success"
 
 
 def test_runner_default_view_uses_company_layout_when_schedule_layout_empty(tmp_path):

@@ -22,6 +22,26 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Schedule crash on missing company-views column
+
+**What to test:**
+- `User.from_row` on a SELECT that omits `can_see_company_views` returns False, no IndexError.
+- `get_by_email` after `DROP COLUMN can_see_company_views` (skip if SQLite too old) does not raise.
+- Re-running a migration whose ADD COLUMN already landed, with the version row deleted, does not raise; version is recorded.
+- `migrate()` after dropping the column puts it back. Four threads calling `_ensure_users_company_views_column` on a dropped column do not raise.
+- Personal `ScheduleRunner` still records success when the column is gone (fake delivery).
+
+**Expected behavior:**
+- Boot finishes and the scheduler starts even if 0016 raced. Schedule runs do not IndexError on the user row.
+- Company-views permission still defaults off except developers.
+
+**Edge cases:**
+- Column present, version missing (duplicate-column retry).
+- Version present, column missing (Litestream / restore; ensure repairs).
+- Two workers both ALTER (duplicate-column in ensure).
+
+**Test files:** `v3/tests/test_auth.py`, `v3/tests/test_data_layer.py`, `v3/tests/test_scheduling.py`
+
 ## Company views per-user permission
 
 **What to test:**

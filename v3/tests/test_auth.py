@@ -12,7 +12,7 @@ from web.auth.principal import Principal
 from web.config import Config
 from web.data.connection import Database
 from web.data.migrate import migrate
-from web.data.repositories.users import UserRepository
+from web.data.repositories.users import User, UserRepository
 
 
 def _dev_cfg(tmp_path) -> Config:
@@ -223,6 +223,34 @@ def test_sharepoint_access(db):
     assert authz.has_sharepoint_access(p) is True
     users.upsert("a@b.com", role="developer")
     assert authz.has_sharepoint_access(Principal("a@b.com", "A", "developer")) is True
+
+
+def test_from_row_defaults_company_views_when_column_absent(db):
+    """Schedule runs SELECT * / a partial user row. Missing flag must not IndexError."""
+    UserRepository(db).upsert("a@x.com", role="admin")
+    with db.precious() as conn:
+        row = conn.execute(
+            "SELECT id, email, display_name, role, is_active, is_external, "
+            "dashboard_enabled, sharepoint_access, test_access FROM users WHERE email=?",
+            ("a@x.com",),
+        ).fetchone()
+    u = User.from_row(row)
+    assert u.can_see_company_views is False
+    assert u.email == "a@x.com"
+
+
+def test_get_by_email_when_company_views_column_dropped(db):
+    import sqlite3
+
+    repo = UserRepository(db)
+    repo.upsert("a@x.com", role="admin")
+    with db.precious() as conn:
+        try:
+            conn.execute("ALTER TABLE users DROP COLUMN can_see_company_views")
+        except sqlite3.OperationalError as exc:
+            pytest.skip(str(exc))
+    u = repo.get_by_email("a@x.com")
+    assert u is not None and u.can_see_company_views is False
 
 
 def test_company_views_flag_is_the_only_gate(db):
