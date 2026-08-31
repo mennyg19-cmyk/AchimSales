@@ -449,8 +449,11 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         # A group field may be hidden (so absent from metas) yet still present in
         # the row dicts - honour it from the row data, not just visible columns.
         known = {f for _h, f, _t in metas} | (set(rows[0].keys()) if rows else set())
-        wanted = v.get("group") if isinstance(v.get("group"), list) else []
-        if not wanted:
+        # Empty group [] is a saved ungroup (Default view). Only use the
+        # builder default_group when the view never set group at all.
+        if "group" in v:
+            wanted = v["group"] if isinstance(v["group"], list) else []
+        else:
             wanted = tab.get("default_group") if isinstance(tab.get("default_group"), list) else []
         group_fields = [g for g in wanted if g in known]
         salesman_bands = (payload.get("report_key") == "salesman"

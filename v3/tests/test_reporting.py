@@ -456,6 +456,47 @@ def test_export_group_by_hidden_column_still_groups():
     assert any(str(v).startswith("Cust: A") for v in col_a)   # still grouped by hidden col
 
 
+def test_export_empty_saved_group_does_not_use_default_group():
+    """Number 4 Default ungroup used to fall back to Item # in the emailed file."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "by_customer", "name": "T",
+        "default_group": ["Item #"],
+        "columns": [
+            {"field": "Item #", "header": "Item #", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Item #": "A", "Amt": 10}, {"Item #": "A", "Amt": 5},
+            {"Item #": "B", "Amt": 7},
+        ],
+    }]}
+    wb = openpyxl.load_workbook(io.BytesIO(
+        build_workbook(payload, {"views": {"by_customer": {"group": []}}})))
+    col_a = [c.value for c in wb["T"]["A"]]
+    assert not any(str(v).startswith("Item #:") for v in col_a)
+    assert "Grand total" not in col_a
+
+
+def test_export_missing_group_still_uses_default_group():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "default_group": ["Item #"],
+        "columns": [
+            {"field": "Item #", "header": "Item #", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [{"Item #": "A", "Amt": 10}, {"Item #": "B", "Amt": 7}],
+    }]}
+    wb = openpyxl.load_workbook(io.BytesIO(
+        build_workbook(payload, {"views": {"t": {"hidden": []}}})))
+    col_a = [c.value for c in wb["T"]["A"]]
+    assert any(str(v).startswith("Item #: A") for v in col_a)
+
+
 def test_export_fulfillment_percent_is_heatmap_filled():
     openpyxl = pytest.importorskip("openpyxl")
     from web.reporting.export import build_workbook

@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-08-31 Number 4 Default ungroup was ignored in email
+**What you asked for:** The Number 4 report, I tried to edit the Default view but in the email it's still grouping by item.
+**What I chose:** A saved `group: []` means ungrouped. Excel only uses the builder’s Item # default when the view never set `group`. Empty list used to fall through to Item #, so Default ungroup (and Email me after ungrouping) still grouped.
+**Why:** Number 4 tabs ship `default_group: Item #`. Clearing group on Default saved `[]`, which the exporter treated as “no group specified.”
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-31 Ordered Summary gets Extended Price Cancelled
 **What you asked for:** Extended price cancelled has to be added to the Summary tab of the Ordered report.
 **What I chose:** New Summary column **Extended Price Cancelled**, between Ordered and Remainder. Same SP `Cancelled $` the other Ordered tabs already use, summed by customer + item. Missing/blank is $0. Ordered builder_version 8 so cached v7 payloads are not reused.

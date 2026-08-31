@@ -22,6 +22,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `tests/test_feature_name.py` (or equivalent)
 -->
 
+## Number 4 Default group in emailed Excel
+
+**What to test:**
+- Tab with `default_group: Item #` and layout `group: []` does not write Item # group banners.
+- Layout with no `group` key still uses `default_group` (old snapshots / never-saved Default).
+
+**Expected behavior:**
+- Editing Default to ungroup (or Email me after ungrouping) produces a flat sheet, not Item groups.
+
+**Edge cases:**
+- `group: ["Customer"]` still overrides Item # (existing nested-group tests).
+
+**Test file:** `v3/tests/test_reporting.py`
+
 ## Ordered Summary Extended Price Cancelled
 
 **What to test:**
