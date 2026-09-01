@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 8 UI/accessibility **implementation + browser evidence done**. Draft PR #1. Keep the PR draft. Do not merge or deploy Production. Reviews (Loops A/B/C) are the remaining Phase 8 gate.
+**Status:** Phase 8 UI/accessibility **implementation done**. Loop A re-pass FAIL (network Add user + badge contrast). Fixes in the working tree. Draft PR #1. Keep draft. Do not merge or deploy Production. Fresh Loop A re-pass2 next; then B/C. Do not start Phase 9.
 
 ## What's done
 
@@ -17,7 +17,7 @@ Last updated: 2026-09-01
 
 ## What's next
 
-1. Loop A (`gpt-5.6-sol-high`) then B/C (`claude-sonnet-5-thinking-high`). Trust-boundary only if a reviewer says auth/roles were newly touched.
+1. Fresh Loop A re-pass (`gpt-5.6-sol-high`, not resume). Then B/C (`claude-sonnet-5-thinking-high`). Trust-boundary only if a reviewer says auth/roles were newly touched.
 2. Do not start Phase 9 until that review gate passes.
 3. Live Azure empty-disk drill stays owner BLOCKED.
 

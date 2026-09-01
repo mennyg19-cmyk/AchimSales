@@ -20,7 +20,14 @@ function headers(): Record<string, string> {
 }
 
 async function api(url: string, method: string, body?: unknown): Promise<Response> {
-  return fetch(url, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  try {
+    return await fetch(url, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  } catch {
+    return new Response(JSON.stringify({ error: "Could not reach the server." }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }
 
 function $(id: string): HTMLElement | null {

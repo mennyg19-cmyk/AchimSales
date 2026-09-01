@@ -15,6 +15,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Tabulator MIT text is vendored and linked from Settings (`TABULATOR-LICENSE.txt`).
 - Source checks in `test_phase8_a11y.py`. Browser matrix (roles, widths, themes, flows) is the phase gate, not this file.
 - Dark theme uses `--primary` for text (`#60a5fa`) and `--primary-fill` (`#2563eb`) for filled buttons so white labels stay ≥4.5:1. Commission card headers stay `#1a5a94` on white text. Filter/close leftovers are 44px (`col-filter-btn`, `group-pill-x`).
+- Light text `--primary` is `#1d4ed8` so chips/status on `--primary-light` stay ≥4.5:1; fill stays `#2563eb`. Light success/error/warning and dark error tokens are the darker/lighter values that pass on their tint surfaces. Admin `api()` turns a dropped network request into a 503 JSON error so Add user still announces.
 - Monochrome-dark `--primary` is light zinc (`#d4d4d8`) on cards; `--primary-fill` stays `#52525b`. Done/failed report-job fabs use darker greens/reds (`#15803d` / `#b91c1c`, with dark-theme overrides) so white labels stay ≥4.5:1.
 - Export/More `bindMenu` closes on Tab as well as Escape and returns focus to the button. Report-page customer picker Arrow/Enter/Escape matches `SearchablePicker`.
 - Admin `#addUserMsg`, report `#emailMsg`, dashboard refresh/timeout `#dashLive`, and schedule Send now `#scheduleLive` announce failures.

@@ -1,19 +1,19 @@
-/* Design tokens - copied verbatim from the LIVE app (webapp/static/style.css)
-   so v3 is pixel-identical. Primary stays live-blue #2563eb (NOT the green test
-   app). Single source of truth for colors/shadows/radii. */
+/* Design tokens - copied from the LIVE app (webapp/static/style.css) so v3
+   matches. Filled controls stay live-blue #2563eb. Text/icon --primary is
+   darker so chips and status on --primary-light stay ≥4.5:1. */
 
 :root {
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
+    --primary: #1d4ed8;
+    --primary-hover: #1e40af;
     --primary-fill: #2563eb;
     --primary-fill-hover: #1d4ed8;
     --on-primary: #ffffff;
     --primary-light: #dbeafe;
-    --success: #16a34a;
-    --success-light: #dcfce7;
-    --error: #dc2626;
+    --success: #15803d;
+    --success-light: #f0fdf4;
+    --error: #b91c1c;
     --error-light: #fef2f2;
-    --warning: #f59e0b;
+    --warning: #b45309;
     --warning-light: #fef9c3;
     --bg: #f8fafc;
     --bg-card: #ffffff;
@@ -41,7 +41,7 @@ body.dark-theme {
     --primary-light: #1e3a5f;
     --success: #4ade80;
     --success-light: #14532d;
-    --error: #ef4444;
+    --error: #f87171;
     --error-light: #450a0a;
     --warning: #f59e0b;
     --warning-light: #451a03;
@@ -116,7 +116,7 @@ body.monochrome-dark-theme {
     --primary-light: #3f3f46;
     --success: #a1a1aa;
     --success-light: #27272a;
-    --error: #ef4444;
+    --error: #f87171;
     --error-light: #450a0a;
     --warning: #d6d3d1;
     --warning-light: #292524;

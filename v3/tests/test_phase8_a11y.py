@@ -129,3 +129,26 @@ def test_monochrome_dark_primary_and_job_fabs_meet_fill_split():
     assert ".report-jobs-done .report-jobs-fab { background: #15803d;" in shell
     assert "body.dark-theme .report-jobs-failed .report-jobs-fab { background: #991b1b;" in shell
     assert "body.monochrome-dark-theme .report-jobs-done .report-jobs-fab { background: #3f3f46;" in shell
+
+
+def test_add_user_network_failure_returns_an_error_response():
+    src = (ROOT / "web/static_src/js/admin.ts").read_text()
+    api = src.split("async function api", 1)[1].split("function $(", 1)[0]
+    assert "Could not reach the server." in api
+    assert "catch" in api
+
+
+def test_semantic_text_tokens_are_dark_enough_on_their_tints():
+    tokens = (ROOT / "web/static_src/css/tokens.css").read_text()
+    light = tokens.split(":root {", 1)[1].split("body.dark-theme {", 1)[0]
+    assert "--primary: #1d4ed8;" in light
+    assert "--primary-fill: #2563eb;" in light
+    assert "--success: #15803d;" in light
+    assert "--error: #b91c1c;" in light
+    assert "--warning: #b45309;" in light
+    dark = tokens.split("body.dark-theme {", 1)[1].split("body.monochrome-theme {", 1)[0]
+    assert "--error: #f87171;" in dark
+    mono_dark = tokens.split("body.monochrome-dark-theme {", 1)[1].split(
+        "body.monochrome-dark-theme .badge-admin", 1
+    )[0]
+    assert "--error: #f87171;" in mono_dark
