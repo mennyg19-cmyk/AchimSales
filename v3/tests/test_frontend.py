@@ -24,7 +24,9 @@ def _cfg(tmp_path) -> Config:
 
 def test_tokens_match_live_primary_blue():
     tokens = (_SRC / "css" / "tokens.css").read_text(encoding="utf-8")
-    assert "--primary: #2563eb" in tokens   # live-blue, NOT the green test app
+    root = tokens.split(":root {", 1)[1].split("body.dark-theme {", 1)[0]
+    assert "--primary-fill: #2563eb;" in root  # filled controls stay live-blue, not the green test app
+    assert "--primary: #1d4ed8;" in root
     assert "--bottom-nav-height: 84px" in tokens
 
 
