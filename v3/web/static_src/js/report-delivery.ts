@@ -229,7 +229,7 @@ export async function pollEmailJob(jobId: string): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, hiddenPollMs(1000)));
   }
-  emailMsg("Still processing — check the outbox shortly.", false);
+  emailMsg("Still processing. Stay on this page or open Recent Reports to check the send.", false);
 }
 
 // -- schedule: same wizard as the Schedules page ----------------------------
@@ -270,7 +270,13 @@ export function openScheduleWizard(): void {
       params: collectParams(),
       layout: serializeLayout(),
     }));
-  } catch { /* private mode */ }
+  } catch {
+    setStatus(
+      "Could not start a schedule from this report (browser storage is blocked). Open Schedules and set the filters by hand.",
+      "error",
+    );
+    return;
+  }
   const page = attr("data-schedules-page") || "/schedules";
   const join = page.includes("?") ? "&" : "?";
   window.location.href = `${page}${join}from_report=1`;

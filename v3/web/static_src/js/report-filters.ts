@@ -5,7 +5,7 @@ import {
   selectedCustomers, customerOptions, setCustomerOptions,
   customerPickerOpen, setCustomerPickerOpen,
   customerHandlersBound, setCustomerHandlersBound,
-  lookupPollTimer, setLookupPollTimer,
+  setLookupPollTimer,
   pendingSalesman, setPendingSalesman,
   previewTimer, setPreviewTimer,
   pendingLayout, setPendingLayout,
@@ -22,7 +22,9 @@ import {
 import type { Column, ColFilter, LookupRow, Payload, SavedLayout, Tab, ViewState } from "./report-core";
 
 import { rebuild } from "./report-grid";
-import { hiddenPollMs } from "./dialog";
+import { watchHiddenPoll, type PollStop } from "./dialog";
+
+let lookupPollStop: PollStop | null = null;
 
 interface OpDef { op: string; label: string; }
 const TEXT_OPS: OpDef[] = [
@@ -497,7 +499,9 @@ export function pollLookupStatus(): void {
     if (!s) return;
     if (s.status === "ready" || (s.cached_row_count || 0) > 0) {
       setLookupStatusText("");
-      if (lookupPollTimer) { window.clearInterval(lookupPollTimer); setLookupPollTimer(null); }
+      lookupPollStop?.();
+      lookupPollStop = null;
+      setLookupPollTimer(null);
       await loadSalesmen();
       await loadCustomers();
       return;
@@ -506,8 +510,10 @@ export function pollLookupStatus(): void {
     else if (s.status === "error") setLookupStatusText("(using cached list)");
     else if (!s.configured) setLookupStatusText("");
   };
-  tick();
-  setLookupPollTimer( window.setInterval(tick, hiddenPollMs(2500)));
+  void tick();
+  lookupPollStop?.();
+  lookupPollStop = watchHiddenPoll(() => { void tick(); }, 2500);
+  setLookupPollTimer(1);
 }
 
 export async function initLookups(): Promise<void> {

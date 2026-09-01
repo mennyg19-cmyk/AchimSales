@@ -165,6 +165,30 @@ export class SearchablePicker {
     }
   }
 
+  private onOptionKey(e: KeyboardEvent, cb: HTMLInputElement): void {
+    const boxes = [...this.list.querySelectorAll<HTMLInputElement>("input[type='checkbox']")];
+    const i = boxes.indexOf(cb);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.close();
+      this.search.focus();
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      boxes[(i + 1) % boxes.length]?.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      boxes[(i - 1 + boxes.length) % boxes.length]?.focus();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      boxes[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      boxes[boxes.length - 1]?.focus();
+    }
+  }
+
   private renderOptions(): void {
     const q = this.search.value.trim().toLowerCase();
     const matches = q
@@ -179,6 +203,7 @@ export class SearchablePicker {
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = this.selected.has(item.key);
+      cb.addEventListener("keydown", (e) => this.onOptionKey(e, cb));
       cb.addEventListener("change", () => {
         if (cb.checked) this.selected.set(item.key, item.name);
         else this.selected.delete(item.key);

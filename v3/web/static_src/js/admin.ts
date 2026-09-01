@@ -5,10 +5,15 @@
  * privilege-guarded server-side; this is purely UX.
  */
 
+import { openDialog, type DialogClose } from "./dialog";
+
 const root = document.getElementById("adminUsers");
 const usersUrl = root?.getAttribute("data-users-url") || "";
 const csrf = root?.getAttribute("data-csrf") || "";
 const salesmenBase = usersUrl.replace(/\/users$/, "/salesmen");
+
+let closeUserDlg: DialogClose | null = null;
+let closeSmDlg: DialogClose | null = null;
 
 function headers(): Record<string, string> {
   return { "Content-Type": "application/json", "X-CSRF-Token": csrf };
@@ -89,7 +94,13 @@ function openUserModal(tr: HTMLTableRowElement): void {
   });
 
   setMsg("euMsg", "");
-  show("editUserModal");
+  const modal = $("editUserModal");
+  if (!modal) return;
+  closeUserDlg?.();
+  closeUserDlg = openDialog(modal, {
+    initial: $("euRole"),
+    onClose: () => { closeUserDlg = null; },
+  });
 }
 
 async function saveUser(): Promise<void> {
@@ -157,7 +168,13 @@ function openSmModal(tr: HTMLTableRowElement): void {
   (($("esDisplay") as HTMLInputElement)).value = tr.dataset.display || "";
   (($("esEmail") as HTMLInputElement)).value = tr.dataset.email || "";
   setMsg("esMsg", "");
-  show("editSmModal");
+  const modal = $("editSmModal");
+  if (!modal) return;
+  closeSmDlg?.();
+  closeSmDlg = openDialog(modal, {
+    initial: $("esNumber"),
+    onClose: () => { closeSmDlg = null; },
+  });
 }
 
 async function saveSm(): Promise<void> {
@@ -172,22 +189,21 @@ async function saveSm(): Promise<void> {
   else setMsg("esMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
 }
 
-// --- helpers ----------------------------------------------------------------
-function show(id: string): void {
-  const el = $(id);
-  if (!el) return;
-  el.hidden = false;
-  el.style.display = "flex";
-}
-function hide(id: string): void {
-  const el = $(id);
-  if (!el) return;
-  el.hidden = true;
-  el.style.display = "none";
-}
 function setMsg(id: string, text: string): void {
   const el = $(id);
-  if (el) el.textContent = text;
+  if (!el) return;
+  el.textContent = text;
+  el.setAttribute("role", text ? "alert" : "status");
+}
+
+function closeUserModal(): void {
+  closeUserDlg?.();
+  closeUserDlg = null;
+}
+
+function closeSmModal(): void {
+  closeSmDlg?.();
+  closeSmDlg = null;
 }
 
 function initEvents(): void {
@@ -198,9 +214,9 @@ function initEvents(): void {
     } else if (t.closest(".btn-edit-sm")) {
       openSmModal(t.closest("tr") as HTMLTableRowElement);
     } else if (t.closest("[data-close-user]") || t.id === "editUserModal") {
-      hide("editUserModal");
+      closeUserModal();
     } else if (t.closest("[data-close-sm]") || t.id === "editSmModal") {
-      hide("editSmModal");
+      closeSmModal();
     }
   });
   $("euSave")?.addEventListener("click", saveUser);

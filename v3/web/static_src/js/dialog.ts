@@ -1,6 +1,7 @@
-/** Dialog focus trap, Escape, and restore. Used by help, email, schedule, admin. */
+/** Dialog focus trap, Escape, inert background, and restore. */
 
 export type DialogClose = () => void;
+export type PollStop = () => void;
 
 const FOCUSABLE = [
   "a[href]", "button:not([disabled])", "input:not([disabled])",
@@ -16,6 +17,47 @@ function focusables(root: HTMLElement): HTMLElement[] {
   });
 }
 
+function setInertAround(overlay: HTMLElement, on: boolean): void {
+  let node: HTMLElement | null = overlay;
+  while (node && node !== document.body) {
+    const parent = node.parentElement;
+    if (!parent) break;
+    for (const sib of parent.children) {
+      if (sib === node || !(sib instanceof HTMLElement)) continue;
+      if (on) sib.setAttribute("inert", "");
+      else sib.removeAttribute("inert");
+    }
+    node = parent;
+  }
+}
+
+export function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+export function scrollElementIntoView(
+  el: HTMLElement,
+  opts?: ScrollIntoViewOptions,
+): void {
+  const behavior = prefersReducedMotion() ? "auto" : (opts?.behavior || "auto");
+  el.scrollIntoView({ ...opts, behavior });
+}
+
+export function watchHiddenPoll(fn: () => void, visibleMs: number): PollStop {
+  let timer = 0;
+  const arm = () => {
+    if (timer) window.clearInterval(timer);
+    timer = window.setInterval(fn, hiddenPollMs(visibleMs));
+  };
+  arm();
+  document.addEventListener("visibilitychange", arm);
+  return () => {
+    if (timer) window.clearInterval(timer);
+    timer = 0;
+    document.removeEventListener("visibilitychange", arm);
+  };
+}
+
 export function openDialog(overlay: HTMLElement, opts?: {
   initial?: HTMLElement | null;
   onClose?: () => void;
@@ -28,6 +70,8 @@ export function openDialog(overlay: HTMLElement, opts?: {
   const panel = overlay.querySelector<HTMLElement>(
     "[role='dialog'], .modal, .help-popup-content",
   ) || overlay;
+  panel.setAttribute("aria-modal", "true");
+  setInertAround(overlay, true);
 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -53,6 +97,7 @@ export function openDialog(overlay: HTMLElement, opts?: {
     overlay.hidden = true;
     overlay.style.display = "none";
     overlay.setAttribute("aria-hidden", "true");
+    setInertAround(overlay, false);
     document.removeEventListener("keydown", onKey, true);
     opts?.onClose?.();
     previously?.focus?.();

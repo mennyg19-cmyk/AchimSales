@@ -6,6 +6,24 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 8 UI/accessibility (2026-09-01)
+
+**What to test:**
+- `openDialog` is used by admin, SharePoint, login, Customer Last Order, and report email. Background gets `inert`. Reduced-motion scroll uses `auto`. Hidden-tab pollers reschedule on `visibilitychange` (`dialog.ts`, page modules).
+- Email-now timeout copy does not say “check the outbox” (`report-delivery.ts`).
+- Missing `from_report` draft shows an error on Schedules; blocked sessionStorage does not navigate (`master_wizard.ts`, `report-delivery.ts`).
+- Tabulator MIT text is vendored and linked from Settings (`TABULATOR-LICENSE.txt`).
+- Source checks in `test_phase8_a11y.py`. Browser matrix (roles, widths, themes, flows) is the phase gate, not this file.
+
+**Expected behavior:**
+- Dialogs trap focus, Escape closes, opener is restored.
+- Admin/dashboard tables scroll inside `.table-scroll` at 320px.
+- Settings/dashboard save failures announce in a live region.
+
+**Test files:** `v3/tests/test_phase8_a11y.py`
+
+---
+
 ## Phase 7 one-site persistence (2026-09-01)
 
 **What to test:**

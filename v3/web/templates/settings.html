@@ -14,6 +14,7 @@
      data-vis-url="{{ url_for('settings.set_report_visibility') }}"
      data-excl-url="{{ url_for('settings.set_exclusion') }}"
      data-csrf="{{ csrf_token() }}">
+<p id="settingsLive" class="form-msg" role="status" aria-live="polite" hidden></p>
 
 <details class="settings-cat" open>
     <summary>You</summary>
@@ -40,6 +41,11 @@
             </label>
             <button type="submit" class="btn btn-primary btn-sm">Save</button>
         </form>
+    </section>
+    <section class="settings-card">
+        <h2 class="section-title">Open source</h2>
+        <p class="flag-desc">Report tables use <a href="https://github.com/olifolkerd/tabulator">Tabulator</a> 6.3.1 (MIT).
+            <a href="{{ url_for('static', filename='vendor/TABULATOR-LICENSE.txt') }}">License text</a>.</p>
     </section>
     <section class="settings-card">
         <h2 class="section-title">Customer exclusions</h2>

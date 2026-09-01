@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 Phase 8: report.ts cycles stay
+**What I had to decide:** Split `report-*.ts` circular imports now, or prove boot order in the running report page.
+**Options I considered:** (1) Split the cycle this phase. (2) Keep the cycle; the bundled report page load is the proof.
+**What I chose:** (2).
+**Why:** The plan allows either. A split is a large risk next to dialog/a11y work. The existing bundle already boots.
+**Status:** DECIDED — Phase 8.
+
 ## 2026-09-01 Phase 7: close the repo review gate
 **What I had to decide:** Whether Loop C nits and trust-boundary observations reopen Phase 7 before closing the repo gate.
 **Options I considered:** (1) Fix them now and re-run Loops A/B/C. (2) Close the repo gate at `99ba689`; leave nits/observations recorded; keep the live Azure drill BLOCKED; do not start Phase 8 in this session.

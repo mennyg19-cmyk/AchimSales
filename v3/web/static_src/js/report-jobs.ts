@@ -21,7 +21,7 @@ import {
 } from "./report-core";
 import type { Column, ColFilter, LookupRow, Payload, SavedLayout, Tab, ViewState } from "./report-core";
 
-import { bindMenu, hiddenPollMs } from "./dialog";
+import { bindMenu, hiddenPollMs, scrollElementIntoView, watchHiddenPoll, type PollStop } from "./dialog";
 import { buildTable, captureActive, fitTableHeight, loadPayload, loadPayloadPreserving, renderTabs, syncColumnsButton, toggleColumnsPanel } from "./report-grid";
 import { collectParams } from "./report-filters";
 import { applyLayout, applyPendingOrDefaultLayout, serializeLayout } from "./report-views";
@@ -76,7 +76,7 @@ interface ExportRow {
   filename: string; size_bytes: number; built_at: string; ready: boolean; error: string;
 }
 
-let exportsPollTimer: number | null = null;
+let exportsPollStop: PollStop | null = null;
 const autoDownloaded = new Set<string>();
 
 export function downloadExportUrl(id: string): string {
@@ -153,11 +153,11 @@ export async function loadExports(): Promise<void> {
   renderExports(rows);
   // Keep polling the list while anything is still building.
   const building = rows.some((r) => r.status === "queued" || r.status === "running");
-  if (building && exportsPollTimer == null) {
-    exportsPollTimer = window.setInterval(loadExports, hiddenPollMs(2000));
-  } else if (!building && exportsPollTimer != null) {
-    window.clearInterval(exportsPollTimer);
-    exportsPollTimer = null;
+  if (building && exportsPollStop == null) {
+    exportsPollStop = watchHiddenPoll(() => { void loadExports(); }, 2000);
+  } else if (!building && exportsPollStop != null) {
+    exportsPollStop();
+    exportsPollStop = null;
   }
 }
 
@@ -207,7 +207,7 @@ export function showExportsPanel(): void {
   if (!panel) return;
   panel.hidden = false;
   loadExports();
-  panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  scrollElementIntoView(panel, { block: "nearest", behavior: "smooth" });
 }
 
 export function setExportBuildingStatus(): void {
@@ -436,6 +436,7 @@ export function toggleExportMenu(e: MouseEvent): void {
   if (!opening) { closeExportMenu(); return; }
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
+  menu.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   setTimeout(() => document.addEventListener("click", onExportMenuOutside, true), 0);
 }
 
@@ -462,6 +463,7 @@ export function toggleMoreMenu(e: MouseEvent): void {
   if (!opening) { closeMoreMenu(); return; }
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
+  menu.querySelector<HTMLElement>("[role='menuitem']")?.focus();
   setTimeout(() => document.addEventListener("click", onMoreMenuOutside, true), 0);
 }
 

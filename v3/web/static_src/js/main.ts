@@ -13,6 +13,7 @@ declare global {
     triggerDashRefresh?: () => void;
     openHelp: (key: string) => void;
     closeHelp: (e?: Event) => void;
+    closeExternalLogin?: () => void;
   }
 }
 
@@ -513,6 +514,27 @@ function initReportJobsBar(): void {
   });
 }
 
+function initExternalLogin(): void {
+  const btn = document.getElementById("externalLoginBtn");
+  const modal = document.getElementById("externalLoginModal");
+  if (!btn || !modal) return;
+  let closeDlg: (() => void) | null = null;
+  const close = () => {
+    closeDlg?.();
+    closeDlg = null;
+  };
+  (window as Window).closeExternalLogin = close;
+  btn.addEventListener("click", () => {
+    closeDlg = openDialog(modal, {
+      initial: modal.querySelector<HTMLElement>("input[name='email']"),
+      onClose: () => { closeDlg = null; },
+    });
+  });
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (typeof feather !== "undefined") feather.replace();
   document.addEventListener("click", onClick);
@@ -523,6 +545,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initNotificationBadges();
   initReportJobsBar();
   initPullToRefresh();
+  initExternalLogin();
   document.getElementById("helpCloseBtn")?.addEventListener("click", () => closeHelp());
   document.getElementById("helpOverlay")?.addEventListener("click", (e) => closeHelp(e));
   document.querySelector(".help-popup-content")?.addEventListener("click", (e) => e.stopPropagation());

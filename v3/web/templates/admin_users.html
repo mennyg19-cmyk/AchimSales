@@ -31,6 +31,7 @@
 
 <section class="settings-card">
   <input type="search" id="userSearch" class="user-search" placeholder="Search users by email or name\u2026">
+  <div class="table-scroll">
   <table class="simple-table" id="userTable">
     <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Flags</th><th></th></tr></thead>
     <tbody>
@@ -52,10 +53,12 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 
 <section class="settings-card">
   <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
+  <div class="table-scroll">
   <table class="simple-table" id="salesmanTable">
     <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Active in dropdowns</th><th></th></tr></thead>
     <tbody>
@@ -75,9 +78,8 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
-
-<!-- Edit user modal -->
 <div class="modal-overlay" id="editUserModal" hidden
      role="presentation"
      data-csrf="{{ csrf_token() }}">

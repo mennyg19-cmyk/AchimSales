@@ -96,7 +96,7 @@
 .customer-pills:empty { display: none; }
 .customer-chip {
     background: var(--primary-light); color: var(--primary); border: none; cursor: pointer;
-    padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+    padding: 8px 12px; min-height: 44px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
 }
 .customer-options {
     max-height: 240px; overflow-y: auto; border: 1px solid var(--border);
@@ -458,7 +458,7 @@
 }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .modal-head h2 { margin: 0; font-size: 16px; color: var(--text); }
-.modal-close { border: none; background: none; font-size: 20px; line-height: 1; color: var(--text-muted); cursor: pointer; }
+.modal-close { border: none; background: none; font-size: 20px; line-height: 1; color: var(--text-muted); cursor: pointer; min-width: 44px; min-height: 44px; }
 .modal-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .modal-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text); }
 .modal-field input, .modal-field select { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font-size: 14px; }

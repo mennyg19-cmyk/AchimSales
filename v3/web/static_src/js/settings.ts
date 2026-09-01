@@ -3,6 +3,14 @@
  * Optimistic UI with rollback if the request fails.
  */
 
+function announce(text: string, isError = true): void {
+  const el = document.getElementById("settingsLive");
+  if (!el) return;
+  el.hidden = !text;
+  el.textContent = text;
+  el.setAttribute("role", isError ? "alert" : "status");
+}
+
 function hub(): HTMLElement | null {
   return document.getElementById("settingsHub");
 }
@@ -47,7 +55,7 @@ function initFlagToggles(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !enabled;
-        window.alert("Could not save that setting.");
+        announce("Could not save that setting.");
       } finally {
         box.disabled = false;
       }
@@ -69,7 +77,7 @@ function initVisibilityToggles(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !enabled;
-        window.alert("Could not save report visibility.");
+        announce("Could not save report visibility.");
       } finally {
         box.disabled = false;
       }
@@ -100,7 +108,7 @@ function initExclusions(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !included;
-        window.alert("Could not save that exclusion.");
+        announce("Could not save that exclusion.");
       } finally {
         box.disabled = false;
       }

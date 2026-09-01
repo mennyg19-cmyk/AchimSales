@@ -1,6 +1,6 @@
 // Master schedule wizard (admin page).
 
-import { hiddenPollMs } from "./dialog";
+import { scrollElementIntoView, watchHiddenPoll, type PollStop } from "./dialog";
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename, previewFolder } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
@@ -17,7 +17,7 @@ let emailSalesmanPicker: SearchablePicker | null = null;
 let customerPicker: SearchablePicker | null = null;
 let salesmanEmailOptions: SalesmanEmailRow[] = [];
 let lookupsStarted = false;
-let lookupPollTimer: number | null = null;
+let lookupPollStop: PollStop | null = null;
 let pendingSalesmen: string[] = [];
 let pendingLayout: Record<string, unknown> = {};
 let pendingEmailSalesmen: string[] = [];
@@ -513,10 +513,8 @@ async function loadCustomers(): Promise<void> {
 }
 
 function stopLookupPoll(): void {
-  if (lookupPollTimer != null) {
-    window.clearInterval(lookupPollTimer);
-    lookupPollTimer = null;
-  }
+  lookupPollStop?.();
+  lookupPollStop = null;
 }
 
 function pollLookupStatus(): void {
@@ -556,7 +554,7 @@ function pollLookupStatus(): void {
   };
   void tick();
   stopLookupPoll();
-  lookupPollTimer = window.setInterval(() => { void tick(); }, hiddenPollMs(2500));
+  lookupPollStop = watchHiddenPoll(() => { void tick(); }, 2500);
 }
 
 async function ensureLookups(): Promise<void> {
@@ -666,7 +664,7 @@ function openWizard(): void {
   if (!wiz) return;
   wiz.hidden = false;
   document.getElementById("msEmpty")?.setAttribute("hidden", "");
-  wiz.scrollIntoView({ behavior: "smooth", block: "start" });
+  scrollElementIntoView(wiz, { behavior: "smooth", block: "start" });
   void initOdPicker();
 }
 
@@ -822,9 +820,15 @@ async function consumeReportDraft(): Promise<void> {
   }
   sessionStorage.removeItem(REPORT_DRAFT_KEY);
   history.replaceState(null, "", location.pathname + location.hash);
-  if (!draft?.report_key) return;
+  if (!draft?.report_key) {
+    masterMsg("Could not copy this report into a schedule. Open the report and tap Schedule from report again, or set the filters here by hand.", true);
+    return;
+  }
   const form = masterForm();
-  if (!form) return;
+  if (!form) {
+    masterMsg("Could not open the schedule wizard for that report. Add a schedule here and set the filters by hand.", true);
+    return;
+  }
   form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {
     r.checked = r.value === draft!.report_key;
   });

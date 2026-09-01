@@ -16,5 +16,6 @@
     padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     font-size: 14px; color: var(--text); background: var(--bg-card);
 }
-.auth-field input:focus, .auth-field select:focus { outline: none; border-color: var(--border-focus); }
+#externalLoginModal[hidden] { display: none !important; }
+
 
