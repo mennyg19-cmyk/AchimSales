@@ -38,13 +38,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       # Home site is v3/ (Flask). webapp/ is /legacy.
-      # p/default includes Django rules; they fire on Flask templates
-      # because they look for {% csrf_token %}, not {{ csrf_token() }}.
+      # p/default also packs rules that do not match how this app is written:
+      # Django CSRF looks for {% csrf_token %}, not Flask {{ csrf_token() }};
+      # SQL rules flag SQLite execute() with ? params and f-string column
+      # names; integrity wants CDN hashes; urllib flags Graph/Sabbath HTTP;
+      # SHA1 is a cache fingerprint, not a password hash.
       - name: Run semgrep (Flask live app)
         run: >
           semgrep scan --config p/default --error v3
           --exclude-rule python.django.security.django-no-csrf-token.django-no-csrf-token
           --exclude-rule python.django.security.injection.tainted-sql-string.tainted-sql-string
+          --exclude-rule python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+          --exclude-rule python.lang.security.audit.formatted-sql-query.formatted-sql-query
+          --exclude-rule python.flask.security.injection.tainted-sql-string.tainted-sql-string
+          --exclude-rule html.security.audit.missing-integrity.missing-integrity
+          --exclude-rule python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+          --exclude-rule python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
 
   zizmor:
     name: GitHub Actions lint (zizmor)

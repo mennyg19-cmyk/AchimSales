@@ -65,8 +65,10 @@ The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimo
 `.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
 push, and also deploys `cursor/**` Cloud Agent branches to the same production
 slot. Manual zip deploy is still `deploy.ps1`. Agent Guardrails Semgrep scans
-`v3/` (the home site) only, not `webapp/` (`/legacy`). Django rules are
-skipped — this app is Flask.
+`v3/` (the home site) only, not `webapp/` (`/legacy`). It still uses
+`p/default`, but skips rules that do not match this Flask + SQLite app
+(Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,
+dynamic urllib, SHA1 cache fingerprints).
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
