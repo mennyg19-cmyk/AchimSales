@@ -66,7 +66,6 @@ def test_number4_odata_puts_prices_before_salesman():
 
 def test_number4_odata_moves_new_month_before_trailing():
     tab = _attach_number4_defaults({
-        "key": "by_item_12_months",
         "name": "By Item (12 Months)",
         "columns": [
             "Item #", "Jul-25 Qty", "Total Qty", "Total $", "Avg Price",
