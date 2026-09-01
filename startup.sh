@@ -31,7 +31,19 @@ THREADS="${GUNICORN_THREADS:-8}"
 # "could not build" in the browser. Override via the GUNICORN_TIMEOUT app setting.
 TIMEOUT="${GUNICORN_TIMEOUT:-230}"
 PORT="${PORT:-8000}"
+# Same as v3/web/config.py: strip + lowercase. Unknown values refuse boot.
 APP_ENV="${APP_ENV:-prod}"
+APP_ENV="$(printf '%s' "${APP_ENV}" | tr '[:upper:]' '[:lower:]')"
+APP_ENV="${APP_ENV#"${APP_ENV%%[![:space:]]*}"}"
+APP_ENV="${APP_ENV%"${APP_ENV##*[![:space:]]}"}"
+if [ -z "${APP_ENV}" ]; then
+  APP_ENV=prod
+fi
+if [ "${APP_ENV}" != "dev" ] && [ "${APP_ENV}" != "prod" ]; then
+  echo "startup: APP_ENV must be 'dev' or 'prod', got ${APP_ENV}"
+  exit 1
+fi
+export APP_ENV
 LS_BIN="${LITESTREAM_BIN:-/home/bin/litestream}"
 LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
 # sha256 of litestream-v0.3.13-linux-amd64.tar.gz (GitHub release asset).

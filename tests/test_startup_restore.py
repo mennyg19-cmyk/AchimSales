@@ -140,6 +140,74 @@ def test_prod_without_litestream_refuses_boot(tmp_path: Path):
     assert "Litestream is required" in out
 
 
+def test_prod_mixed_case_app_env_still_requires_serving_path(tmp_path: Path):
+    root = _stub_wwwroot(tmp_path)
+    env = _base_env(
+        tmp_path,
+        root,
+        APP_ENV="Prod",
+        LITESTREAM_BIN=str(tmp_path / "missing-litestream"),
+        PRECIOUS_DB_PATH=str(tmp_path / "data" / "test.db"),
+        LITESTREAM_AZURE_PATH="test-precious.db",
+    )
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1
+    assert "SITE_PRECIOUS_DB_PATH or BETA_PRECIOUS_DB_PATH is required" in out
+    assert "litestream not active; launching" not in out
+
+
+def test_prod_padded_app_env_still_requires_litestream(tmp_path: Path):
+    root = tmp_path / "wwwroot"
+    root.mkdir()
+    env = _base_env(
+        tmp_path,
+        root,
+        APP_ENV=" prod ",
+        LITESTREAM_BIN=str(tmp_path / "missing-litestream"),
+        SITE_PRECIOUS_DB_PATH=str(tmp_path / "data" / "precious.db"),
+        LITESTREAM_AZURE_ACCOUNT_KEY="test-key",
+        LITESTREAM_AZURE_ACCOUNT_NAME="acct",
+        LITESTREAM_AZURE_CONTAINER="container",
+        LITESTREAM_AZURE_SITE_PATH="site-precious.db",
+    )
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1
+    assert "Litestream is required" in out
+    assert "litestream not active; launching" not in out
+
+
+def test_unknown_app_env_refuses_boot(tmp_path: Path):
+    root = _stub_wwwroot(tmp_path)
+    env = _base_env(
+        tmp_path,
+        root,
+        APP_ENV="staging",
+        SITE_PRECIOUS_DB_PATH=str(tmp_path / "data" / "precious.db"),
+    )
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1
+    assert "APP_ENV must be 'dev' or 'prod'" in out
+
+
+def test_dev_without_litestream_does_not_use_prod_gates(tmp_path: Path):
+    root = _stub_wwwroot(tmp_path)
+    tools = root / "tools"
+    tools.mkdir()
+    supervise = tools / "supervise-web.sh"
+    supervise.write_text("#!/bin/sh\necho supervise-ok\nexit 0\n", encoding="utf-8")
+    supervise.chmod(supervise.stat().st_mode | 0o111)
+    env = _base_env(tmp_path, root, APP_ENV="DEV")
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0
+    assert "supervise-ok" in out
+    assert "SITE_PRECIOUS_DB_PATH or BETA_PRECIOUS_DB_PATH is required" not in out
+    assert "Litestream is required" not in out
+
+
 def test_prod_home_path_refuses_boot(tmp_path: Path):
     root = _stub_wwwroot(tmp_path)
     env = _base_env(
