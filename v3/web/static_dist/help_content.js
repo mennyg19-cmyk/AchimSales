@@ -282,7 +282,8 @@ var HELP = {
     "schedules-email": {
         title: "Send Email",
         body: "When this is checked, the report will be emailed to the usual recipients after it finishes running.<br><br>" +
-              "If it's unchecked, the report will still be generated and saved to the shared folder, but no email will be sent."
+              "If it's unchecked, the report will still be generated and saved to the shared folder, but no email will be sent.<br><br>" +
+              "Personal schedules on the home site send a named saved view (not Default). Company schedules use the 5-step setup under Settings."
     },
 
     "schedules-customer": {

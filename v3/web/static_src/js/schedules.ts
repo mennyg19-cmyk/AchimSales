@@ -2,6 +2,7 @@
 
 import { esc, jsonHeaders } from "./http";
 import { bindMasterWizard } from "./master_wizard";
+import { bindPersonalWizard } from "./personal_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
 
 type RunLogRow = {
@@ -205,6 +206,7 @@ function bindSortableTables(): void {
 document.addEventListener("DOMContentLoaded", () => {
   bindRowActions();
   bindSortableTables();
+  bindPersonalWizard();
   bindMasterWizard();
   bindSharePointPicker();
 });

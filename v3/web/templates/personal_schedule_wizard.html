@@ -1,0 +1,172 @@
+{# 3-step personal wizard: named view → when → where. #}
+<div id="psWizard" class="ms-wizard" hidden
+     data-create-url="{{ url_for('schedules.create_schedule') }}"
+     data-update-url-tpl="{{ url_for('schedules.update_schedule', schedule_id=0) }}"
+     data-views-url="{{ url_for('schedules.list_schedulable_views') }}"
+     data-privileged="{{ '1' if is_privileged else '' }}"
+     data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
+     data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
+     data-od-status-url="{{ url_for('reports.onedrive_status') }}"
+     {% if has_sharepoint %}
+     data-sp-folders-url="{{ url_for('reports.sharepoint_folders') }}"
+     data-sp-status-url="{{ url_for('reports.sharepoint_status') }}"
+     {% endif %}
+     data-csrf="{{ csrf_token() }}">
+    <input type="hidden" id="psEditingId" value="">
+
+    <div class="ms-wizard-head">
+        <h2 id="psFormTitle" class="ms-wizard-title">Add a schedule</h2>
+        <p class="ms-wizard-hint">Pick a saved view, then when it should run, then where it goes.</p>
+        <ol class="ms-steps" aria-label="Steps">
+            <li class="ms-step is-active" data-step="1"><span class="ms-step-num">1</span> View</li>
+            <li class="ms-step" data-step="2"><span class="ms-step-num">2</span> When</li>
+            <li class="ms-step" data-step="3"><span class="ms-step-num">3</span> Where</li>
+        </ol>
+    </div>
+
+    <form id="psForm" class="ms-wizard-body" novalidate>
+        <section class="ms-pane" data-pane="1">
+            <h3 class="ms-pane-title" tabindex="-1">Which saved view should go out?</h3>
+            <p class="ms-pane-help">Named views only. Default, company views, and custom date ranges are not on this list.</p>
+            <div id="psViewList" class="ms-report-grid" role="radiogroup" aria-label="Saved view"></div>
+            <p id="psViewEmpty" class="ms-pane-help" hidden>No named views yet. Open a report, save a view, then come back.</p>
+        </section>
+
+        <section class="ms-pane" data-pane="2" hidden>
+            <h3 class="ms-pane-title" tabindex="-1">How often should it run?</h3>
+            <div class="ms-choice-row" role="radiogroup" aria-label="How often">
+                <label class="ms-choice"><input type="radio" name="freq" value="daily" checked> Every day</label>
+                <label class="ms-choice"><input type="radio" name="freq" value="weekly"> Every week</label>
+                <label class="ms-choice"><input type="radio" name="freq" value="monthly"> Every month</label>
+            </div>
+
+            <div class="ms-field ms-field-block" id="psWeekdays" hidden>
+                <span>Which days?</span>
+                <div class="sched-day-grid" role="group" aria-label="Weekdays">
+                    {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
+                    <label class="sched-day-chip"><input type="checkbox" name="weekday" value="{{ i }}"> {{ d }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="ms-field ms-field-block" id="psMonthday" hidden>
+                <span>Which days of the month?</span>
+                <div class="sched-day-grid sched-month-grid" role="group" aria-label="Days of month">
+                    {% for d in range(1, 29) %}
+                    <label class="sched-day-chip"><input type="checkbox" name="monthday" value="{{ d }}"> {{ d }}</label>
+                    {% endfor %}
+                    <label class="sched-day-chip sched-day-chip-wide">
+                        <input type="checkbox" name="monthday" value="-1"> Last day
+                    </label>
+                </div>
+                <span class="ms-field-hint">Tap one or more. Days 1–28 and last day only.</span>
+            </div>
+
+            <label class="ms-field ms-field-block">
+                <span>What time? (Eastern time)</span>
+                <input type="time" name="time" value="08:00" required>
+            </label>
+            <p class="ms-pane-help">Eastern time is New York time — the same clock the office uses.</p>
+        </section>
+
+        <section class="ms-pane ms-where" data-pane="3" hidden>
+            <h3 class="ms-pane-title" tabindex="-1">Where should it go?</h3>
+            <p class="ms-pane-help">Name the file, then pick Email and/or a folder.</p>
+            <label class="ms-field ms-field-block">
+                <span>Filename template</span>
+                <input type="text" name="filename_template" id="psFilename"
+                       placeholder="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}" value="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}">
+                <span class="ms-field-hint">Insert:
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{Report}">Report name</button>
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{Schedule}">Schedule name</button>
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{MM}">MM</button>
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{Month}">Month</button>
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{Period}">Period</button>
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{DD}">DD</button>
+                    <button type="button" class="fn-token js-ps-fn-token" data-token="{Weekday}">Weekday</button>
+                </span>
+                <span class="ms-filename-preview">Will save as <strong id="psFilenamePreview"></strong></span>
+            </label>
+
+            <label class="ms-choice" id="psEmailOwnerRow">
+                <input type="checkbox" id="psEmailOwner" checked>
+                Email to <span id="psOwnerName">{{ current_user_name }}</span>
+            </label>
+            {% if is_privileged %}
+            <label class="ms-field ms-field-block" id="psExtrasBox">
+                <span>Also email (optional)</span>
+                <input type="text" id="psExtras" placeholder="other@achimonline.com">
+            </label>
+            {% endif %}
+
+            <div class="ms-dest-toggles" role="group" aria-label="Folder">
+                <label class="ms-choice"><input type="checkbox" id="psWantOnedrive"> OneDrive</label>
+                {% if has_sharepoint %}
+                <label class="ms-choice"><input type="checkbox" id="psWantSharepoint"> SharePoint</label>
+                {% endif %}
+            </div>
+            <div class="ms-field ms-field-block" id="psOdSection" hidden>
+                <span>OneDrive folder <em id="psOdStatus" class="lookup-status"></em></span>
+                <div id="psOdBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="psOdPicker" class="sp-picker"></div>
+                <div id="psOdSelected" class="sp-selected"></div>
+            </div>
+            {% if has_sharepoint %}
+            <label class="ms-field ms-field-block ms-field-sp" id="psSpSection" hidden>
+                <span>SharePoint folder</span>
+                <div class="sp-input-row">
+                    <input type="text" name="sharepoint_path" id="spPathInput"
+                           placeholder="Salesman Report/Customer Activity/{Month} {YYYY}">
+                    <button type="button" id="spBrowseBtn" class="btn btn-sm btn-outline">Browse…</button>
+                    <button type="button" id="spClearBtn" class="btn btn-sm btn-outline" title="Clear">&times;</button>
+                </div>
+            </label>
+            {% endif %}
+
+            <label class="ms-choice">
+                <input type="checkbox" id="psNoDataMe" name="email_on_no_data">
+                Email me when there is no data
+            </label>
+            {% if is_privileged %}
+            <label class="ms-choice">
+                <input type="checkbox" id="psNoDataTest" name="email_on_no_data_me_only">
+                Email test addresses when there is no data
+            </label>
+            {% endif %}
+        </section>
+
+        <div class="ms-wizard-foot">
+            <button type="button" class="btn btn-outline" id="psCancelBtn">Cancel</button>
+            <div class="ms-wizard-nav">
+                <button type="button" class="btn btn-outline" id="psBackBtn" hidden>Back</button>
+                <button type="button" class="btn btn-primary" id="psNextBtn">Next</button>
+                <button type="submit" class="btn btn-primary" id="psSubmitBtn" hidden>Save schedule</button>
+            </div>
+            <span id="psMsg" class="ms-msg" role="status" aria-live="polite" hidden></span>
+        </div>
+    </form>
+</div>
+
+{% if has_sharepoint %}
+<div id="spPickerOverlay" class="sp-picker-overlay" style="display:none">
+    <div class="sp-picker-modal" role="dialog" aria-modal="true" aria-label="Choose SharePoint folder">
+        <div class="sp-picker-header">
+            <h3>Choose SharePoint folder</h3>
+            <button type="button" class="sp-picker-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="sp-picker-breadcrumb" id="spPickerCrumb"></div>
+        <div class="sp-picker-body" id="spPickerBody"></div>
+        <div class="sp-picker-footer">
+            <div class="sp-picker-current">
+                <span class="sp-picker-current-label">Selected:</span>
+                <span class="sp-picker-current-path" id="spPickerCurrentPath"></span>
+            </div>
+            <div class="sp-picker-actions">
+                <button type="button" class="btn btn-outline sp-picker-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary sp-picker-select">Select this folder</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}

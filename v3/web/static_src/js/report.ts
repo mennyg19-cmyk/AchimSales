@@ -1718,6 +1718,7 @@ function toggleMoreMenu(e: MouseEvent): void {
   if (!opening) { closeMoreMenu(); return; }
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
+  syncScheduleButton();
   setTimeout(() => document.addEventListener("click", onMoreMenuOutside, true), 0);
 }
 
@@ -1793,6 +1794,83 @@ const DEFAULT_VIEW_ID = "default";
 const COMPANY_VIEW_PREFIX = "c-";
 let companyDefaultLayout: SavedLayout | null = null;
 let companyDefaultParams: Record<string, unknown> = {};
+
+type LoadedNamedView = {
+  id: number;
+  name: string;
+  paramsSnap: string;
+  layoutSnap: string;
+  layoutReady: boolean;
+};
+let loadedNamedView: LoadedNamedView | null = null;
+
+function stableJson(v: unknown): string {
+  return JSON.stringify(v ?? null);
+}
+
+function isCustomPeriod(params: Record<string, unknown> | null | undefined): boolean {
+  const raw = params || {};
+  const period = String(raw.period || "").trim().toLowerCase();
+  if (period === "custom") return true;
+  if (period) return false;
+  return !!(raw.from && raw.to);
+}
+
+function isNamedPersonalPreset(preset: { id?: number | string; name?: string }): boolean {
+  if (preset.id == null || isDefaultViewId(preset.id) || isCompanyViewId(preset.id)) return false;
+  const name = (preset.name || "").trim();
+  return !!name && name.toLowerCase() !== "default";
+}
+
+function rememberNamedView(preset: {
+  id?: number | string; name?: string;
+  params?: Record<string, unknown>;
+}): void {
+  const key = attr("data-report-key");
+  if (key === "customer_activity" || !isNamedPersonalPreset(preset) || isCustomPeriod(preset.params)) {
+    loadedNamedView = null;
+    syncScheduleButton();
+    return;
+  }
+  loadedNamedView = {
+    id: Number(preset.id),
+    name: String(preset.name || ""),
+    paramsSnap: stableJson(collectParams()),
+    layoutSnap: "",
+    layoutReady: false,
+  };
+  syncScheduleButton();
+}
+
+function isLoadedViewDirty(): boolean {
+  if (!loadedNamedView) return false;
+  if (stableJson(collectParams()) !== loadedNamedView.paramsSnap) return true;
+  if (!loadedNamedView.layoutReady || !isReportShown()) return false;
+  return stableJson(serializeLayout()) !== loadedNamedView.layoutSnap;
+}
+
+function syncScheduleButton(): void {
+  const btn = $("scheduleBtn") as HTMLButtonElement | null;
+  const hint = $("scheduleHint");
+  if (!btn) return;
+  const key = attr("data-report-key");
+  let note = "";
+  let on = false;
+  if (key === "customer_activity") {
+    note = "Customer Activity isn’t on the schedule list yet.";
+  } else if (!loadedNamedView) {
+    note = "Load a named saved view (not Default) to schedule it.";
+  } else if (isLoadedViewDirty()) {
+    note = "Save this view first. Unsaved changes aren’t scheduled.";
+  } else {
+    on = true;
+  }
+  btn.disabled = !on;
+  if (hint) {
+    hint.textContent = note;
+    hint.hidden = !note;
+  }
+}
 
 function hasFilter(id: string): boolean {
   return !!$(id);
@@ -2273,12 +2351,23 @@ async function saveView(): Promise<void> {
           body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
         });
     if (!res.ok) throw new Error();
+    const data = await res.json().catch(() => ({}));
     if (overwrite) setStatus(`Updated “${trimmed}”.`);
     else {
-      editingPresetId = null;
+      editingPresetId = (data as any).id ?? null;
       editingPresetName = trimmed;
       setStatus(`Saved “${trimmed}”.`);
     }
+    rememberNamedView({
+      id: editingPresetId == null ? undefined : editingPresetId,
+      name: trimmed,
+      params: collectParams(),
+    });
+    if (loadedNamedView && isReportShown()) {
+      loadedNamedView.layoutSnap = stableJson(serializeLayout());
+      loadedNamedView.layoutReady = true;
+    }
+    syncScheduleButton();
   } catch {
     setStatus("Could not save this view. Please try again.", "error");
   }
@@ -2342,9 +2431,14 @@ function applyPendingOrDefaultLayout(): void {
   if (pendingLayout) {
     applyLayout(pendingLayout);
     pendingLayout = null;
-    return;
+  } else if (layoutIsUsable(companyDefaultLayout)) {
+    applyLayout(companyDefaultLayout);
   }
-  if (layoutIsUsable(companyDefaultLayout)) applyLayout(companyDefaultLayout);
+  if (loadedNamedView && isReportShown()) {
+    loadedNamedView.layoutSnap = stableJson(serializeLayout());
+    loadedNamedView.layoutReady = true;
+  }
+  syncScheduleButton();
 }
 
 async function loadCompanyDefault(): Promise<void> {
@@ -2472,11 +2566,17 @@ function loadPreset(preset: {
     editingPresetId = null;
     editingPresetName = null;
   }
+  rememberNamedView(preset);
   if (opts?.run === false) {
     if (isReportShown() && pendingLayout) {
       applyLayout(pendingLayout);
       pendingLayout = null;
     }
+    if (loadedNamedView && isReportShown()) {
+      loadedNamedView.layoutSnap = stableJson(serializeLayout());
+      loadedNamedView.layoutReady = true;
+    }
+    syncScheduleButton();
     return;
   }
   run();
@@ -2490,6 +2590,8 @@ async function autoOpenPresetIfRequested(): Promise<void> {
     if (!view) return;
     if (view?.params) applyParamsObject(view.params);
     if (view?.layout) pendingLayout = view.layout;
+    loadedNamedView = null;
+    syncScheduleButton();
     autoRunRequested = true;
     return;
   }
@@ -2499,14 +2601,17 @@ async function autoOpenPresetIfRequested(): Promise<void> {
     await loadCompanyDefault();
     applyParamsObject(companyDefaultParams);
     pendingLayout = companyDefaultLayout;
+    loadedNamedView = null;
+    syncScheduleButton();
     autoRunRequested = true;
     return;
   }
   const preset = await getJSON<any>(presetUrl(id));
-  // Apply the preset's saved filters too (don't rely on the home-page URL also
-  // duplicating them into the query string) and then its layout.
   if (preset?.params) applyParamsObject(preset.params);
   if (preset?.layout) pendingLayout = preset.layout;
+  rememberNamedView({
+    id: Number(id), name: preset?.name, params: preset?.params, layout: preset?.layout,
+  });
   autoRunRequested = true;
 }
 
@@ -2721,6 +2826,11 @@ const scheduleOd = makeSpPicker({
   picker: "schedOdPicker", selected: "schedOdSelected", status: "schedOdStatus",
   statusAttr: "data-od-status-url", foldersAttr: "data-od-folders-url", rootLabel: "OneDrive",
 });
+const scheduleSp = makeSpPicker({
+  section: "schedSpSection", breadcrumb: "schedSpBreadcrumb",
+  picker: "schedSpPicker", selected: "schedSpSelected", status: "schedSpStatus",
+  statusAttr: "data-sp-status-url", foldersAttr: "data-sp-folders-url", rootLabel: "SharePoint",
+});
 
 function schedMsg(text: string, isError: boolean): void {
   const el = $("schedMsg");
@@ -2767,11 +2877,10 @@ async function keepCurrentRun(): Promise<void> {
 function openScheduleModal(): void {
   const modal = $("scheduleModal");
   if (!modal) return;
-  (($("schedRecipients") as HTMLInputElement)).value = "";
-  const cc = $("schedCc") as HTMLInputElement | null;
-  const bcc = $("schedBcc") as HTMLInputElement | null;
-  if (cc) cc.value = "";
-  if (bcc) bcc.value = "";
+  const owner = $("schedEmailOwner") as HTMLInputElement | null;
+  if (owner) owner.checked = true;
+  const rec = $("schedRecipients") as HTMLInputElement | null;
+  if (rec) rec.value = "";
   const noRec = $("schedNoDataRecipients") as HTMLInputElement | null;
   const noMe = $("schedNoDataMeOnly") as HTMLInputElement | null;
   if (noRec) noRec.checked = false;
@@ -2783,6 +2892,7 @@ function openScheduleModal(): void {
   syncCadenceFields();
   modal.hidden = false;
   scheduleOd.init();
+  if (attr("data-has-sharepoint") === "1") scheduleSp.init();
 }
 
 function updateSchedFilenamePreview(): void {
@@ -2814,18 +2924,21 @@ function collectCadence(): { ok: boolean; cadence?: any; error?: string } {
   return { ok: true, cadence };
 }
 
-function collectScheduleRecipients(): { to: string; cc: string; bcc: string } {
-  return {
-    to: (($("schedRecipients") as HTMLInputElement)).value.trim(),
-    cc: (($("schedCc") as HTMLInputElement | null)?.value || "").trim(),
-    bcc: (($("schedBcc") as HTMLInputElement | null)?.value || "").trim(),
-  };
+function collectScheduleRecipients(): { extras: string } {
+  return { extras: (($("schedRecipients") as HTMLInputElement | null)?.value || "").trim() };
 }
 
 async function saveSchedule(): Promise<void> {
-  const { to, cc, bcc } = collectScheduleRecipients();
-  if (!to && !cc && !bcc && !scheduleOd.path()) {
-    schedMsg("Enter recipients or pick a OneDrive folder.", true);
+  if (!loadedNamedView || isLoadedViewDirty()) {
+    schedMsg("Load a named saved view and save any edits first.", true);
+    return;
+  }
+  const emailOn = !!($("schedEmailOwner") as HTMLInputElement | null)?.checked;
+  const extras = collectScheduleRecipients().extras;
+  const odPath = scheduleOd.path() || "";
+  const spPath = attr("data-has-sharepoint") === "1" ? (scheduleSp.path() || "") : "";
+  if (!emailOn && !odPath && !spPath) {
+    schedMsg("Pick Email to the owner or a folder.", true);
     return;
   }
   const cad = collectCadence();
@@ -2833,26 +2946,29 @@ async function saveSchedule(): Promise<void> {
   const btn = $("schedSave") as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
   schedMsg("Saving…", false);
-  const params: Record<string, unknown> = {
-    ...collectParams(),
-    email_cc: cc,
-    email_bcc: bcc,
+  const privileged = attr("data-is-privileged") === "1";
+  const body: Record<string, unknown> = {
+    saved_report_id: loadedNamedView.id,
+    cadence: cad.cadence,
+    email_to_owner: emailOn,
+    filename_template: (($("schedFilename") as HTMLInputElement | null)?.value || "").trim(),
     email_on_no_data: !!($("schedNoDataRecipients") as HTMLInputElement | null)?.checked,
-    email_on_no_data_me_only: !!($("schedNoDataMeOnly") as HTMLInputElement | null)?.checked,
+    onedrive_path: spPath ? "" : odPath,
+    sharepoint_path: spPath,
+    folder_kind: spPath ? "sharepoint" : (odPath ? "onedrive" : ""),
   };
+  if (privileged) {
+    body.recipients = extras;
+    body.email_on_no_data_me_only = !!($("schedNoDataMeOnly") as HTMLInputElement | null)?.checked;
+  }
   try {
     const res = await fetch(attr("data-schedules-url"), {
       method: "POST", headers: csrfHeaders(),
-      body: JSON.stringify({
-        report_key: attr("data-report-key"), recipients: to,
-        sharepoint_path: scheduleOd.path() || "", cadence: cad.cadence,
-        filename_template: (($("schedFilename") as HTMLInputElement | null)?.value || "").trim(),
-        params, layout: serializeLayout(), view_name: "Custom",
-      }),
+      body: JSON.stringify(body),
     });
     if (res.status !== 201) {
       const e = await res.json().catch(() => ({}));
-      throw new Error((e as any).error || "Could not save the schedule.");
+      throw new Error((e as any).error || (e as any).description || "Could not save the schedule.");
     }
     schedMsg("Schedule saved. Manage it under Schedules.", false);
     setTimeout(closeScheduleModal, 1400);
@@ -2936,8 +3052,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   $("scheduleModal")?.addEventListener("click", (e) => { if (e.target === $("scheduleModal")) closeScheduleModal(); });
   $("previewBtn")?.addEventListener("click", () => { closeMoreMenu(); showApiPreview(); });
-  $("filterForm")?.addEventListener("input", refreshPreviewIfOpen);
-  $("filterForm")?.addEventListener("change", refreshPreviewIfOpen);
+  $("filterForm")?.addEventListener("input", () => { refreshPreviewIfOpen(); syncScheduleButton(); });
+  $("filterForm")?.addEventListener("change", () => { refreshPreviewIfOpen(); syncScheduleButton(); });
   setToolbarEnabled(false);
   loadExports();  // pick up any in-flight exports started before a navigation/reload
   await Promise.all([initLookups(), loadCompanyDefault()]);

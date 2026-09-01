@@ -1192,3 +1192,67 @@ def test_tick_flushes_pending_fail_notices(tmp_path):
     assert flushed == [1]
 
 
+def test_schedulable_view_rules():
+    from web.data.repositories.saved_reports import SavedReport
+    from web.scheduling.personal_views import is_custom_date_params, is_schedulable_saved_view
+
+    def preset(**kw):
+        base = dict(id=1, user_id=1, report_key="ordered", name="Last month",
+                    params={"period": "last_month"}, layout={}, created_at="")
+        base.update(kw)
+        return SavedReport(**base)
+
+    assert is_schedulable_saved_view(preset())
+    assert not is_schedulable_saved_view(preset(name="Default"))
+    assert not is_schedulable_saved_view(preset(report_key="customer_activity"))
+    assert is_custom_date_params({"period": "custom"})
+    assert is_custom_date_params({"from": "2026-01-01", "to": "2026-01-31"})
+    assert not is_custom_date_params({"period": "last_month", "from": "x", "to": "y"})
+    assert not is_schedulable_saved_view(preset(params={"period": "custom"}))
+
+
+def test_convert_personal_schedules_snapshots_default_and_strips_extras(stack):
+    db, _runner = stack
+    from web.data.repositories.saved_reports import SavedReportRepository
+    from web.scheduling.personal_views import convert_personal_schedules, is_schedulable_saved_view
+
+    users = UserRepository(db)
+    uid = users.upsert("rep@x.com", display_name="Rep", role="salesman").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={"period": "last_month"}, layout={"order": ["summary"]},
+        cadence={"freq": "daily", "time": "08:00"},
+        recipients="a@x.com, extra@x.com", view_name="Default")
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Office nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "06:00"}, recipients="team@x.com")
+    assert convert_personal_schedules(db) == 1
+    row = ScheduleRepository(db).get(sid, uid)
+    assert row.view_name != "Default"
+    assert row.recipients == "rep@x.com"
+    saved = SavedReportRepository(db).get_by_name(uid, "ordered", row.view_name)
+    assert saved is not None and is_schedulable_saved_view(saved)
+    assert convert_personal_schedules(db) == 0
+    master = MasterScheduleRepository(db).get(mid)
+    assert master.view_name == "Default"
+    assert master.recipients == "team@x.com"
+
+
+def test_convert_keeps_custom_date_view_off_picker(stack):
+    db, _runner = stack
+    from web.data.repositories.saved_reports import SavedReportRepository
+    from web.scheduling.personal_views import convert_personal_schedules, is_schedulable_saved_view
+
+    users = UserRepository(db)
+    uid = users.upsert("admin@x.com", display_name="Admin", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"from": "2026-01-01", "to": "2026-01-31"}, layout={},
+        cadence={"freq": "daily", "time": "08:00"},
+        recipients="admin@x.com", view_name="Default")
+    convert_personal_schedules(db)
+    row = ScheduleRepository(db).get(sid, uid)
+    saved = SavedReportRepository(db).get_by_name(uid, "ordered", row.view_name)
+    assert saved is not None
+    assert not is_schedulable_saved_view(saved)
+
+

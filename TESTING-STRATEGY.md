@@ -2,6 +2,26 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Schedules from named saved views
+
+**What to test:**
+- A named period view can be scheduled; Default, company views, custom from/to, and Customer Activity cannot.
+- Create from another user’s view (admin) sets owner to that user and recipients to their email.
+- Salesman update cannot add extra emails or SharePoint.
+- Conversion creates a saved view for a Default personal schedule and keeps it running; company rows are untouched.
+- Empty eligible-view list means Add is disabled (API returns no views).
+
+**Expected behavior:**
+- POST /api/schedules requires a saved_report_id (or equivalent) that is schedulable.
+- Privileged list of views is grouped by owner.
+
+**Edge cases:**
+- Custom period views stay off the picker after conversion.
+- Editing a converted custom-date schedule still saves When/Where (same view id is allowed).
+- Non-privileged extra recipients on create are ignored; owner email is kept.
+
+**Test file:** `v3/tests/test_scheduling.py`
+
 A cheaper model can use this file as a guide to run the full test suite without deep context.
 
 ---

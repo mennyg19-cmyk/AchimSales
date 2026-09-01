@@ -241,6 +241,15 @@
 .toolbar-dropdown-item:hover:not(:disabled) { background: var(--bg); color: var(--primary); }
 .toolbar-dropdown-item:disabled { opacity: 0.45; cursor: not-allowed; }
 .toolbar-dropdown-item svg { width: 15px; height: 15px; flex: 0 0 auto; color: var(--text-muted); }
+.toolbar-dropdown-hint {
+    margin: 4px 10px 6px; font-size: 12px; color: var(--text-muted); line-height: 1.35;
+}
+
+.sched-owner-head {
+    font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--text);
+}
+.sched-owner-head:first-child { margin-top: 0; }
+.sched-owner-head .muted { font-weight: 500; font-size: 13px; }
 
 .filter-run-btn { flex: 0 0 auto; align-self: flex-end; white-space: nowrap; }
 .filter-run-group { display: flex; flex: 0 0 auto; align-self: flex-end; gap: 8px; }

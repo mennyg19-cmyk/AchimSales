@@ -121,6 +121,7 @@
             <button type="button" id="scheduleBtn" class="toolbar-dropdown-item" disabled role="menuitem" title="Schedule recurring delivery of this view">
                 <i data-feather="calendar"></i> <span>Schedule</span>
             </button>
+            <p id="scheduleHint" class="toolbar-dropdown-hint" hidden></p>
             {% if is_developer %}
             <button type="button" id="previewBtn" class="toolbar-dropdown-item" role="menuitem" title="Show the body that would be sent to the Reporting API">
                 <i data-feather="code"></i> <span>API preview</span>
@@ -204,6 +205,9 @@
      data-schedules-page="{{ url_for('schedules.schedules_page') }}"
      data-csrf="{{ csrf_token() }}"
      data-user-email="{{ user_email }}"
+     data-user-name="{{ user_name }}"
+     data-is-privileged="{{ '1' if is_privileged else '' }}"
+     data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
      data-hide-commissions="{{ '1' if hide_commissions else '' }}"
      hidden></div>
 
@@ -240,23 +244,23 @@
 <div id="scheduleModal" class="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
         <div class="modal-head">
-            <h2 id="schedTitle">Schedule this report</h2>
+            <h2 id="schedTitle">Schedule this view</h2>
             <button type="button" id="schedClose" class="modal-close" aria-label="Close">&times;</button>
         </div>
         <div class="modal-body">
-            <p class="muted" style="font-size:13px;margin:0 0 10px;">Saves your current filters and layout. Date period on the schedule replaces any date filters in the view.</p>
-            <label class="modal-field">
-                <span>Recipients (To)</span>
-                <input type="text" id="schedRecipients" placeholder="name@achimonline.com, other@achimonline.com">
+            <p class="muted" style="font-size:13px;margin:0 0 10px;">Sends the named saved view that is loaded. Save any edits to the view first.</p>
+            <label class="modal-field flag-row">
+                <input type="checkbox" id="schedEmailOwner" checked>
+                <span>Email to {{ user_name }}</span>
             </label>
+            {% if is_privileged %}
             <label class="modal-field">
-                <span>CC (optional)</span>
-                <input type="text" id="schedCc" placeholder="cc@achimonline.com">
+                <span>Also email (optional)</span>
+                <input type="text" id="schedRecipients" placeholder="other@achimonline.com">
             </label>
-            <label class="modal-field">
-                <span>BCC (optional)</span>
-                <input type="text" id="schedBcc" placeholder="bcc@achimonline.com">
-            </label>
+            {% else %}
+            <input type="hidden" id="schedRecipients" value="">
+            {% endif %}
             <div class="modal-field-row">
                 <label class="modal-field">
                     <span>Frequency</span>
@@ -310,14 +314,24 @@
                 <div id="schedOdPicker" class="sp-picker"></div>
                 <div id="schedOdSelected" class="sp-selected"></div>
             </div>
+            {% if has_sharepoint %}
+            <div class="modal-field" id="schedSpSection" hidden>
+                <span>Or save to SharePoint <em id="schedSpStatus" class="lookup-status"></em></span>
+                <div id="schedSpBreadcrumb" class="sp-breadcrumb"></div>
+                <div id="schedSpPicker" class="sp-picker"></div>
+                <div id="schedSpSelected" class="sp-selected"></div>
+            </div>
+            {% endif %}
             <label class="modal-field flag-row">
                 <input type="checkbox" id="schedNoDataRecipients">
-                <span>Email recipients when there is no data</span>
+                <span>Email me when there is no data</span>
             </label>
+            {% if is_privileged %}
             <label class="modal-field flag-row">
                 <input type="checkbox" id="schedNoDataMeOnly">
-                <span>Email only me when there is no data</span>
+                <span>Email test addresses when there is no data</span>
             </label>
+            {% endif %}
             <div id="schedMsg" class="modal-msg" hidden></div>
         </div>
         <div class="modal-foot">

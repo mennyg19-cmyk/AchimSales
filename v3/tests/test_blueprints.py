@@ -105,6 +105,16 @@ def _grant_company_views(app, email="admin@x.com"):
     repo.update(u.id, can_see_company_views=True)
 
 
+def _named_view(client, *, name="Last month", report="ordered", params=None, layout=None):
+    resp = client.post(f"/api/reports/{report}/presets", json={
+        "name": name,
+        "params": params if params is not None else {"period": "last_month"},
+        "layout": layout or {},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    return resp.get_json()["id"]
+
+
 def test_reports_list_requires_login(tmp_path):
     app = _make_app(tmp_path)
     resp = app.test_client().get("/")
@@ -964,22 +974,23 @@ def test_salesman_without_flag_does_not_see_company_views(tmp_path):
     assert "Company views" not in home
 
 
-def test_schedule_create_default_view_shows_on_page(tmp_path):
+def test_schedule_create_named_view_shows_on_page(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app)
+    vid = _named_view(client)
     created = client.post("/api/schedules", json={
-        "report_key": "ordered", "recipients": "a@x.com",
-        "cadence": {"freq": "daily", "time": "08:00"}, "params": {},
-        "layout": {}, "view_name": "Default"},
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"}},
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
     html = client.get("/schedules").get_data(as_text=True)
     assert "<th>View</th>" in html
-    assert 'data-view-name="Default"' in html
+    assert 'data-view-name="Last month"' in html
+    assert 'id="psWizard"' in html
 
 
-def test_schedule_from_layout_snapshot_is_custom(tmp_path):
+def test_schedule_from_layout_snapshot_is_rejected(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app)
@@ -988,9 +999,7 @@ def test_schedule_from_layout_snapshot_is_custom(tmp_path):
         "cadence": {"freq": "daily", "time": "08:00"},
         "layout": {"order": ["summary"], "views": {"summary": {"hidden": []}}}},
         headers={"X-CSRF-Token": _CSRF})
-    assert created.status_code == 201
-    html = client.get("/schedules").get_data(as_text=True)
-    assert 'data-view-name="Custom"' in html
+    assert created.status_code == 400
 
 
 def test_email_now_enqueues_and_delivers(tmp_path):
@@ -1090,10 +1099,11 @@ def test_schedule_create_run_history_and_delete(tmp_path):
     app = _make_app(tmp_path, rows_by_report=_ordered_rows())
     client = app.test_client()
     _login(client, app)
+    vid = _named_view(client, params={"period": "all_time"})
     created = client.post("/api/schedules", json={
-        "report_key": "ordered", "recipients": "a@x.com",
-        "cadence": {"freq": "daily", "time": "08:00"}, "params": {"period": "all_time"},
-        "layout": {}}, headers={"X-CSRF-Token": _CSRF})
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
     sid = created.get_json()["id"]
 
@@ -1122,8 +1132,11 @@ def test_schedule_requires_recipient_or_sharepoint(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app)
+    vid = _named_view(client)
     resp = client.post("/api/schedules", json={
-        "report_key": "ordered", "cadence": {"freq": "daily", "time": "08:00"}},
+        "saved_report_id": vid,
+        "email_to_owner": False,
+        "cadence": {"freq": "daily", "time": "08:00"}},
         headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 400
 
@@ -1132,8 +1145,9 @@ def test_schedule_rejects_bad_cadence(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
     _login(client, app)
+    vid = _named_view(client)
     resp = client.post("/api/schedules", json={
-        "report_key": "ordered", "recipients": "a@x.com", "cadence": {"freq": "yearly"}},
+        "saved_report_id": vid, "cadence": {"freq": "yearly"}},
         headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 400
 
@@ -1141,14 +1155,18 @@ def test_schedule_rejects_bad_cadence(tmp_path):
 def test_schedule_is_owner_scoped(tmp_path):
     app = _make_app(tmp_path)
     owner = app.test_client()
-    _login(owner, app)
+    _login(owner, app, email="rep@x.com", role="salesman")
+    vid = _named_view(owner)
     sid = owner.post("/api/schedules", json={
-        "report_key": "ordered", "recipients": "a@x.com",
+        "saved_report_id": vid,
         "cadence": {"freq": "daily", "time": "08:00"}},
         headers={"X-CSRF-Token": _CSRF}).get_json()["id"]
     other = app.test_client()
-    _login(other, app, email="rep@x.com", role="admin")
+    _login(other, app, email="other@x.com", role="salesman")
     assert other.delete(f"/api/schedules/{sid}", headers={"X-CSRF-Token": _CSRF}).status_code == 404
+    admin = app.test_client()
+    _login(admin, app)
+    assert admin.delete(f"/api/schedules/{sid}", headers={"X-CSRF-Token": _CSRF}).status_code == 200
 
 
 def test_schedules_page_company_section_admin_only(tmp_path):
@@ -1156,35 +1174,157 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     admin = app.test_client()
     _login(admin, app)
     admin_html = admin.get("/schedules").get_data(as_text=True)
-    assert "My schedules" in admin_html
-    assert "Company schedules" in admin_html
-    assert "msWizard" in admin_html
+    assert "My schedules" in admin_html or "Personal schedules" in admin_html
+    assert "psWizard" in admin_html
     assert "Add a schedule" in admin_html
+    assert "id=\"companySchedulesTable\"" not in admin_html
+    assert "Keep private" not in admin_html
+    company = admin.get("/settings/company-schedules")
+    assert company.status_code == 200
+    company_html = company.get_data(as_text=True)
+    assert "Company schedules" in company_html
+    assert "msWizard" in company_html
 
     rep = app.test_client()
     _login(rep, app, email="rep@x.com", role="salesman")
     rep_html = rep.get("/schedules").get_data(as_text=True)
     assert "My schedules" in rep_html
     assert "Add a schedule" in rep_html
-    assert "msWizard" in rep_html
-    assert "Company schedules" not in rep_html
+    assert "psWizard" in rep_html
+    assert "id=\"companySchedulesTable\"" not in rep_html
     assert "Keep private" not in rep_html
     assert "Run as a manager" not in rep_html
+    assert rep.get("/settings/company-schedules").status_code == 403
+    mgr = app.test_client()
+    _login(mgr, app, email="mgr@x.com", role="manager")
+    assert mgr.get("/settings/company-schedules").status_code == 403
 
 
 def test_personal_schedule_row_has_edit(tmp_path):
     app = _make_app(tmp_path)
     c = app.test_client()
     _login(c, app, email="rep@x.com", role="salesman")
+    vid = _named_view(c)
     created = c.post("/api/schedules", json={
-        "report_key": "ordered", "recipients": "a@x.com",
+        "saved_report_id": vid,
         "cadence": {"freq": "daily", "time": "08:00"}},
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
     html = c.get("/schedules").get_data(as_text=True)
     assert "js-edit" in html
     assert 'data-kind="personal"' in html
-    assert "data-personal-update-url-tpl" in html
+    assert "data-update-url-tpl" in html
+    assert 'id="psStartBtn"' in html
+    assert 'title="Save a named view on a report first"' not in html
+
+
+def test_schedules_add_disabled_without_named_views(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app, email="rep@x.com", role="salesman")
+    html = c.get("/schedules").get_data(as_text=True)
+    assert 'id="psStartBtn"' in html
+    assert 'title="Save a named view on a report first"' in html
+    views = c.get("/api/schedules/views").get_json()
+    assert not any(g["views"] for g in views["groups"])
+
+
+def test_schedule_views_hide_default_custom_and_customer_activity(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app)
+    _named_view(c, name="Last month", params={"period": "last_month"})
+    c.post("/api/reports/ordered/presets", json={
+        "name": "Custom range", "params": {"period": "custom", "from": "2026-01-01", "to": "2026-01-31"},
+        "layout": {},
+    }, headers={"X-CSRF-Token": _CSRF})
+    c.post("/api/reports/customer_activity/presets", json={
+        "name": "My activity", "params": {}, "layout": {},
+    }, headers={"X-CSRF-Token": _CSRF})
+    names = [v["name"] for g in c.get("/api/schedules/views").get_json()["groups"] for v in g["views"]]
+    assert "Last month" in names
+    assert "Custom range" not in names
+    assert "My activity" not in names
+
+
+def test_edit_converted_custom_date_schedule_keeps_view(tmp_path):
+    """Converted custom from/to rows stay off the picker but When/Where still save."""
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="rep@x.com", role="salesman")
+    db = app.config["DB"]
+    from web.data.repositories.saved_reports import SavedReportRepository
+    from web.data.repositories.schedules import ScheduleRepository
+    from web.scheduling.personal_views import convert_personal_schedules
+    uid = UserRepository(db).get_by_email("rep@x.com").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"from": "2026-01-01", "to": "2026-01-31"}, layout={},
+        cadence={"freq": "daily", "time": "08:00"},
+        recipients="rep@x.com", view_name="Default")
+    convert_personal_schedules(db)
+    row = ScheduleRepository(db).get(sid, uid)
+    saved = SavedReportRepository(db).get_by_name(uid, "ordered", row.view_name)
+    assert saved is not None
+    listed = [
+        v["id"] for g in client.get("/api/schedules/views").get_json()["groups"]
+        for v in g["views"]
+    ]
+    assert saved.id not in listed
+    resp = client.put(f"/api/schedules/{sid}", json={
+        "saved_report_id": saved.id,
+        "cadence": {"freq": "weekly", "time": "09:00", "weekdays": [1]},
+        "email_to_owner": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    updated = ScheduleRepository(db).get(sid, uid)
+    assert updated.cadence["freq"] == "weekly"
+    assert updated.view_name == row.view_name
+
+
+def test_admin_schedule_from_other_user_view_mails_owner(tmp_path):
+    app = _make_app(tmp_path)
+    rep = app.test_client()
+    _login(rep, app, email="john@x.com", role="salesman")
+    vid = _named_view(rep, name="John last month")
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "recipients": "extra@x.com",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    assert created.get_json()["owner_user_id"] == UserRepository(app.config["DB"]).get_by_email("john@x.com").id
+    from web.data.repositories.schedules import ScheduleRepository
+    row = ScheduleRepository(app.config["DB"]).get_any(created.get_json()["id"])
+    assert "john@x.com" in row.recipients
+    assert "extra@x.com" in row.recipients
+    html = admin.get("/schedules").get_data(as_text=True)
+    assert "John last month" in html
+    assert "john@x.com" in html
+
+
+def test_salesman_cannot_add_extra_schedule_emails(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app, email="rep@x.com", role="salesman")
+    vid = _named_view(c)
+    created = c.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "recipients": "other@x.com",
+        "sharepoint_path": "Secret/Folder",
+        "email_on_no_data_me_only": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import ScheduleRepository
+    uid = UserRepository(app.config["DB"]).get_by_email("rep@x.com").id
+    row = ScheduleRepository(app.config["DB"]).get(created.get_json()["id"], uid)
+    assert row.recipients == "rep@x.com"
+    assert row.sharepoint_path == ""
+    assert row.params.get("email_on_no_data_me_only") is False
+
 
 
 def test_master_schedule_admin_only(tmp_path):
@@ -1201,7 +1341,7 @@ def test_master_schedule_admin_only(tmp_path):
     _login(admin, app)
     redirected = admin.get("/master-schedules")
     assert redirected.status_code == 302
-    assert redirected.headers["Location"].endswith("/schedules#company")
+    assert redirected.headers["Location"].endswith("/settings/company-schedules")
     created = admin.post("/api/master-schedules", json={
         "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
         "cadence": {"freq": "daily", "time": "06:00"},
@@ -1214,7 +1354,7 @@ def test_master_schedule_admin_only(tmp_path):
         }},
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
-    page = admin.get("/schedules").get_data(as_text=True)
+    page = admin.get("/settings/company-schedules").get_data(as_text=True)
     assert "Nightly" in page
     assert "Company schedules" in page
     assert "Recent run log" in page
@@ -1256,7 +1396,7 @@ def test_company_schedules_list_sorted_by_name(tmp_path):
             "cadence": {"freq": "daily", "time": "06:00"}, "is_shared": True,
         }, headers={"X-CSRF-Token": _CSRF})
         assert created.status_code == 201
-    page = client.get("/schedules").get_data(as_text=True)
+    page = client.get("/settings/company-schedules").get_data(as_text=True)
     assert 'id="companySchedulesTable"' in page
     assert "js-sortable" in page
     assert page.find("Apple daily") < page.find("Zebra nightly")
@@ -1317,7 +1457,7 @@ def test_master_schedule_lookups_admin_only(tmp_path):
     assert {r["key"] for r in sm} >= {"MKolko", "AGrossman"}
     mgr = app.test_client()
     _login(mgr, app, email="mgr@x.com", role="manager")
-    assert mgr.get("/api/master-schedules/lookups/salesmen").status_code == 200
+    assert mgr.get("/api/master-schedules/lookups/salesmen").status_code == 403
     sm_emails = admin.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
     assert sm_emails == [{"email": "m@x.com", "key": "MKolko", "name": "MKolko"}]
     cust = admin.get("/api/master-schedules/lookups/customers").get_json()["customers"]
@@ -1326,7 +1466,7 @@ def test_master_schedule_lookups_admin_only(tmp_path):
     assert st["cached_row_count"] == 2
 
 
-def test_manager_company_schedule_edit_and_share(tmp_path):
+def test_manager_cannot_edit_company_schedules(tmp_path):
     app = _make_app(tmp_path)
     admin = app.test_client()
     _login(admin, app)
@@ -1340,45 +1480,17 @@ def test_manager_company_schedule_edit_and_share(tmp_path):
     mgr = app.test_client()
     _login(mgr, app, email="mgr@x.com", role="manager")
     page = mgr.get("/schedules").get_data(as_text=True)
-    assert "Company schedules" in page
-    assert "Admin nightly" in page
-    assert "Speak to an admin." in page
+    assert "id=\"companySchedulesTable\"" not in page
+    assert "Admin nightly" not in page
+    assert mgr.get("/settings/company-schedules").status_code == 403
     assert mgr.put(f"/api/master-schedules/{admin_id}", json={
         "name": "Hacked", "report_key": "ordered", "recipients": "x@x.com",
         "cadence": {"freq": "daily", "time": "06:00"},
     }, headers={"X-CSRF-Token": _CSRF}).status_code == 403
-
-    own = mgr.post("/api/master-schedules", json={
+    assert mgr.post("/api/master-schedules", json={
         "name": "Mgr shared", "report_key": "ordered", "recipients": "m@x.com",
         "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
-    }, headers={"X-CSRF-Token": _CSRF})
-    assert own.status_code == 201
-    own_id = own.get_json()["id"]
-    assert mgr.put(f"/api/master-schedules/{own_id}", json={
-        "name": "Mgr shared edited", "report_key": "ordered", "recipients": "m@x.com",
-        "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
-    }, headers={"X-CSRF-Token": _CSRF}).status_code == 200
-
-    private = mgr.post("/api/master-schedules", json={
-        "name": "Mgr private", "report_key": "ordered", "recipients": "m@x.com",
-        "cadence": {"freq": "daily", "time": "08:00"}, "is_shared": False,
-    }, headers={"X-CSRF-Token": _CSRF})
-    assert private.status_code == 201
-    assert "Mgr private" not in admin.get("/schedules").get_data(as_text=True)
-    mgr_html = mgr.get("/schedules").get_data(as_text=True)
-    assert "Mgr private" in mgr_html
-    assert "Mgr shared edited" in mgr_html
-
-    other = app.test_client()
-    _login(other, app, email="mgr2@x.com", role="manager")
-    assert other.put(f"/api/master-schedules/{own_id}", json={
-        "name": "Nope", "report_key": "ordered", "recipients": "x@x.com",
-        "cadence": {"freq": "daily", "time": "07:00"},
     }, headers={"X-CSRF-Token": _CSRF}).status_code == 403
-    other_html = other.get("/schedules").get_data(as_text=True)
-    assert "Mgr shared edited" in other_html
-    assert "Mgr private" not in other_html
-    assert "Speak to an admin." in other_html
 
 
 def test_master_schedule_put_keeps_layout_when_wizard_sends_empty(tmp_path):
@@ -1482,6 +1594,7 @@ def test_settings_links_company_schedules_without_master_card(tmp_path):
     _login(admin, app)
     html = admin.get("/settings").get_data(as_text=True)
     assert "Company schedules" in html
+    assert "/settings/company-schedules" in html
     assert "admin-sched-card" not in html
     assert "Set up / manage schedules" not in html
 
@@ -1596,11 +1709,11 @@ def test_schedule_copy_is_inactive_duplicate(tmp_path):
     app = _make_app(tmp_path, rows_by_report=_ordered_rows())
     client = app.test_client()
     _login(client, app)
+    vid = _named_view(client, params={"period": "yesterday"})
     created = client.post("/api/schedules", json={
-        "report_key": "ordered", "recipients": "a@x.com",
+        "saved_report_id": vid,
         "cadence": {"freq": "daily", "time": "08:00"},
-        "filename_template": "{Report}_{Period}",
-        "params": {"period": "yesterday"}},
+        "filename_template": "{Report}_{Period}"},
         headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 201
     sid = created.get_json()["id"]
@@ -1615,7 +1728,7 @@ def test_schedule_copy_is_inactive_duplicate(tmp_path):
     clone = repo.get(copy_id, uid)
     assert original.is_active is True
     assert clone.is_active is False
-    assert clone.recipients == "a@x.com"
+    assert clone.recipients == "admin@x.com"
     assert clone.filename_template == "{Report}_{Period}"
     assert clone.params["period"] == "yesterday"
 
@@ -1660,7 +1773,7 @@ def test_master_schedule_copy_is_inactive_unique_name(tmp_path):
     again = client.post(f"/api/master-schedules/{sid}/copy", headers={"X-CSRF-Token": _CSRF})
     assert again.status_code == 201
     assert repo.get(again.get_json()["id"]).name == "CopySrc Ordered (copy 2)"
-    html = client.get("/schedules").get_data(as_text=True)
+    html = client.get("/settings/company-schedules").get_data(as_text=True)
     assert f"/api/master-schedules/{sid}/copy" in html
 
 
@@ -1699,21 +1812,10 @@ def test_master_schedule_copy_forbidden_unless_can_edit(tmp_path):
                     headers={"X-CSRF-Token": _CSRF}).status_code == 403
     mgr_html = mgr.get("/schedules").get_data(as_text=True)
     assert f"/api/master-schedules/{admin_id}/copy" not in mgr_html
-
-    own = mgr.post("/api/master-schedules", json={
+    assert mgr.post("/api/master-schedules", json={
         "name": "Mgr copyable", "report_key": "ordered", "recipients": "m@x.com",
         "cadence": {"freq": "daily", "time": "07:00"}, "is_shared": True,
-    }, headers={"X-CSRF-Token": _CSRF})
-    assert own.status_code == 201
-    own_id = own.get_json()["id"]
-    copied = mgr.post(f"/api/master-schedules/{own_id}/copy",
-                      headers={"X-CSRF-Token": _CSRF})
-    assert copied.status_code == 201
-    from web.data.repositories.schedules import MasterScheduleRepository
-    clone = MasterScheduleRepository(app.config["DB"]).get(copied.get_json()["id"])
-    assert clone.name == "Mgr copyable (copy)"
-    assert clone.is_active is False
-    assert f"/api/master-schedules/{own_id}/copy" in mgr.get("/schedules").get_data(as_text=True)
+    }, headers={"X-CSRF-Token": _CSRF}).status_code == 403
 
     rep = app.test_client()
     _login(rep, app, email="rep@x.com", role="salesman")

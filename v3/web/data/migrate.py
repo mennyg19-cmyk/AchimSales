@@ -94,6 +94,9 @@ def migrate(db: Database) -> dict[str, list[str]]:
     """Apply both databases' migrations. Returns {db_name: [applied versions]}."""
     precious = apply_migrations(db.precious_path, _MIGRATIONS_ROOT / "precious")
     _ensure_users_company_views_column(db.precious_path)
+    from web.scheduling.personal_views import convert_personal_schedules
+
+    convert_personal_schedules(db)
     return {
         "precious": precious,
         "cache": migrate_cache_only(db),

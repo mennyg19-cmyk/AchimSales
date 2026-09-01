@@ -299,7 +299,10 @@ def report_view(report_key: str):
         status_options=STATUS_OPTIONS, year_options=_year_options(),
         n4_mode_options=N4_MODE_OPTIONS,
         is_developer=(p.role == ROLE_DEVELOPER),
+        is_privileged=authz.is_privileged(p),
         user_email=p.email,
+        user_name=p.name or p.email,
+        has_sharepoint=authz.is_privileged(p) and authz.has_sharepoint_access(p),
         hide_commissions=not authz.may_see_commissions(p),
         can_edit_default=authz.can_see_company_schedules(p),
     )

@@ -262,6 +262,13 @@ class ScheduleRepository:
             ).fetchall()
             return [Schedule.from_row(r) for r in rows]
 
+    def list_all(self) -> list[Schedule]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM schedules ORDER BY owner_user_id, created_at DESC",
+            ).fetchall()
+            return [Schedule.from_row(r) for r in rows]
+
     def get(self, schedule_id: int, owner_user_id: int) -> Schedule | None:
         with self.db.precious() as conn:
             row = conn.execute(

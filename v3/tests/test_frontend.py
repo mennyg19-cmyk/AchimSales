@@ -193,6 +193,9 @@ def test_report_viewer_meeting_ux():
     assert 'group.label = "Company views"' in wiz_js
     sched = (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in sched
+    assert 'personal_schedule_wizard.html' in sched
+    personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
+    assert 'id="psWizard"' in personal
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
 

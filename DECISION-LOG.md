@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-01 Schedules: 3-step from saved views; old wizard to Settings
+**What you asked for:** Rework scheduling. Move the current wizard to the developer dashboard. Schedules page becomes Choose a view → When → Where. Grill answered the rest.
+**What I chose:** Salesmen and managers only schedule named saved views (no Default, no company views, no custom from/to, Customer Activity out for now). Admin/dev can pick others’ views grouped by user; the schedule belongs to that person (**Email to {name}**). Extra emails, SharePoint, and test-list-on-no-data are admin/dev only. One-time conversion snapshots personal schedules into saved views; company schedules stay as-is under Settings → Company schedules (admin/dev only). More → Schedule only when a named view is loaded and not dirty. Filename template stays on Where. No Review step.
+**Why:** You grilled and locked those answers. Managers using the 3-step means the 5-step cannot stay on the main Schedules page.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-01 Number 4 months stay before the trailing block; By Item gets dollars
 **What you asked for:** September months must sit with the other months, before Total Qty / Total $ / Avg Price / Book Price / Salesman. By Item was missing Total $, Avg Price, and Book Price, and was out of order.
 **What I chose:** Same trailing block on all four tabs: Total Qty, Total $, Avg Price, Book Price, Salesman. Month qty/$ (including a new Sep the SP or saved Default appended after Salesman) sort into calendar order before that block. By Item is no longer quantity-only. builder_version 5.

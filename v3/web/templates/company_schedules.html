@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Company schedules{% endblock %}
+
+{% block content %}
+<div class="page-head page-head-row">
+    <div>
+        <h1 class="page-title">Company schedules</h1>
+        <p class="page-subtitle">
+            Shared automatic reports. The 5-step setup (report, when, options, where, review).
+            <a href="{{ url_for('schedules.schedules_page') }}">Personal schedules</a>
+        </p>
+    </div>
+    <div class="page-head-actions">
+        <button type="button" class="btn btn-primary" id="msStartBtn">
+            <i data-feather="plus" style="width:14px;height:14px;"></i>
+            Add a schedule
+        </button>
+    </div>
+</div>
+
+{% if test_mode_on %}
+<div class="alert alert-warn" role="status">
+    Test mode is on. Company schedule mail goes to {{ test_emails|join(', ') }}. SharePoint is not written. Salesman splits still run, to this list.
+    <a href="{{ url_for('settings.settings_page') }}">Settings</a>
+</div>
+{% endif %}
+
+<details class="run-log-panel" id="runLogPanel"
+         data-recent-url="{{ url_for('schedules.recent_runs') }}?kind=company">
+    <summary class="run-log-summary">
+        Recent run log
+        <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>
+    </summary>
+    <div id="runLogBody">
+    {% if recent_runs %}
+    <div class="table-wrap run-log-table-wrap">
+        <table class="data-table run-log-table">
+            <thead>
+                <tr>
+                    <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
+                </tr>
+            </thead>
+            <tbody id="runLogRows">
+                {% for r in recent_runs %}
+                <tr>
+                    <td class="run-log-when">{{ r.finished_at or r.started_at or '—' }}</td>
+                    <td>
+                        <span class="mini-flag">{{ r.kind }}</span>
+                        {{ r.title }}
+                    </td>
+                    <td>
+                        <span class="badge {% if r.status == 'success' %}badge-success{% elif r.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
+                            {{ r.status|title }}
+                        </span>
+                    </td>
+                    <td>{{ r.rows if r.rows is not none else '—' }}</td>
+                    <td class="run-log-msg">{{ r.message or '—' }}</td>
+                    <td><a class="btn btn-sm btn-outline" href="{{ r.history_url }}">History</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="run-log-empty">No company schedule runs yet. Use Run now or wait for the next cadence.</p>
+    {% endif %}
+    </div>
+</details>
+
+{% include "master_schedules.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/schedules.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

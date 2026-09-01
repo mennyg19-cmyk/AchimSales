@@ -578,6 +578,9 @@ def _onedrive_user(sched, schedule_type: str, identity: str) -> str:
     if not path:
         return ""
     if schedule_type == PERSONAL:
+        kind = str((getattr(sched, "params", None) or {}).get("folder_kind") or "")
+        if kind == "sharepoint":
+            return ""
         return identity
     kind = str((getattr(sched, "params", None) or {}).get("folder_kind") or "")
     if kind == "onedrive":

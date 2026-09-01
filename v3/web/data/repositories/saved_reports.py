@@ -64,6 +64,28 @@ class SavedReportRepository:
             ).fetchall()
             return [SavedReport.from_row(r) for r in rows]
 
+    def list_all(self) -> list[SavedReport]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_reports ORDER BY user_id, report_key, name",
+            ).fetchall()
+            return [SavedReport.from_row(r) for r in rows]
+
+    def get_any(self, preset_id: int) -> SavedReport | None:
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT * FROM saved_reports WHERE id=?", (preset_id,),
+            ).fetchone()
+            return SavedReport.from_row(row) if row else None
+
+    def get_by_name(self, user_id: int, report_key: str, name: str) -> SavedReport | None:
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT * FROM saved_reports WHERE user_id=? AND report_key=? AND name=?",
+                (user_id, report_key, name.strip()),
+            ).fetchone()
+            return SavedReport.from_row(row) if row else None
+
     def get(self, preset_id: int, user_id: int) -> SavedReport | None:
         with self.db.precious() as conn:
             row = conn.execute(

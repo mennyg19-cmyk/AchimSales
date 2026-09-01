@@ -1,8 +1,7 @@
-"""Schedules: personal recurring deliveries + shared company schedules.
+"""Schedules: personal deliveries from saved views + company (Settings) schedules.
 
-Personal schedules are owner-scoped. Company (master) schedules are visible to
-admins, developers, and managers; managers can edit only rows they created or
-that run in their book. Sales reps never see the company list.
+Personal schedules are 3-step (named view → when → where). Company (master)
+schedules live under Settings for admins and developers only.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from web.data.repositories.report_defaults import (
     view_and_layout_for_create,
     view_and_layout_for_update,
 )
+from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -28,7 +28,8 @@ from web.data.repositories.schedules import (
     ScheduleRunRepository,
 )
 from web.data.repositories.salesmen import SalesmanRepository
-from web.data.repositories.users import UserRepository
+from web.data.repositories.users import User, UserRepository
+from web.scheduling.personal_views import is_schedulable_saved_view
 from web.scheduling import cadence as C
 from web.scheduling.jobs import enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
@@ -65,26 +66,10 @@ def _require_admin(p):
         abort(403, description="Admins only")
 
 
-def _require_company_viewer(p):
-    if not _authz().can_see_company_schedules(p):
-        abort(403, description="Company schedules are for managers and admins.")
-
-
 def _require_master_edit(p, sched):
     if not _authz().can_edit_master(
             p, owner_user_id=sched.owner_user_id, run_as_user_id=sched.run_as_user_id):
         abort(403, description="You can't edit this schedule. Ask an admin.")
-
-
-def _require_master_visible(p, sched):
-    """Shared: managers/admins. Private: owner (or admin)."""
-    if sched.is_shared:
-        _require_company_viewer(p)
-        return
-    uid = _uid(p.email)
-    if sched.owner_user_id == uid or _authz().is_privileged(p):
-        return
-    abort(404, description="Unknown master schedule")
 
 
 def _repo() -> ScheduleRepository:
@@ -176,6 +161,118 @@ def _clean_recipients(body: dict, *, sharepoint_path: str,
     return ", ".join(valid)
 
 
+def _saved_reports() -> SavedReportRepository:
+    return SavedReportRepository(_db())
+
+
+def _users() -> UserRepository:
+    return UserRepository(_db())
+
+
+def _load_schedulable_view(body: dict, p, *, privileged: bool,
+                           existing=None) -> SavedReport:
+    raw_id = body.get("saved_report_id")
+    try:
+        preset_id = int(raw_id)
+    except (TypeError, ValueError):
+        abort(400, description="Pick a saved view to schedule.")
+    uid = _uid(p.email)
+    preset = (
+        _saved_reports().get_any(preset_id) if privileged
+        else _saved_reports().get(preset_id, uid)
+    )
+    if preset is None:
+        abort(404, description="Unknown saved view")
+    if not privileged and preset.user_id != uid:
+        abort(404, description="Unknown saved view")
+    # Converted custom from/to views stay off the picker but must still be
+    # editable (When / Where) when they are already on this schedule.
+    if existing is not None and preset.user_id == existing.owner_user_id:
+        current = _saved_reports().get_by_name(
+            existing.owner_user_id, existing.report_key,
+            normalize_view_name(getattr(existing, "view_name", None)))
+        if current is not None and current.id == preset.id:
+            return preset
+    if existing is not None and preset.user_id != existing.owner_user_id:
+        abort(400, description="Pick one of this person's saved views.")
+    if not is_schedulable_saved_view(preset):
+        abort(400, description="That view can't be scheduled (custom dates, Default, or this report is not on the list).")
+    return preset
+
+
+def _personal_folder_and_kind(p, body: dict, *, privileged: bool) -> tuple[str, dict]:
+    """OneDrive for everyone; SharePoint path only if privileged chose it."""
+    params_extra: dict = {}
+    od = (body.get("onedrive_path") or "").strip()
+    if privileged:
+        sp = _check_sharepoint(p, body)
+        want_sp = bool(sp) or str(body.get("folder_kind") or "") == "sharepoint"
+        if want_sp and sp:
+            params_extra["folder_kind"] = "sharepoint"
+            return sp, params_extra
+    if not privileged:
+        body = dict(body)
+        body["sharepoint_path"] = ""
+    folder = od or _check_personal_folder(body)
+    if folder:
+        params_extra["folder_kind"] = "onedrive"
+    return folder, params_extra
+
+
+def _recipients_for_view_schedule(body: dict, owner: User, *, privileged: bool,
+                                  folder: str) -> str:
+    want_email = body.get("email_to_owner")
+    if want_email is None:
+        want_email = True
+    extras = split_recipients((body.get("recipients") or "").strip()) if privileged else []
+    owner_email = (owner.email or "").strip()
+    to: list[str] = []
+    if want_email and owner_email:
+        to.append(owner_email)
+    if privileged:
+        mine = owner_email.lower()
+        to.extend(e for e in extras if e.lower() != mine)
+    if not to and not folder:
+        abort(400, description="A schedule needs Email to the owner or a OneDrive folder.")
+    return ", ".join(to)
+
+
+def _delivery_params(body: dict, view_params: dict, *, privileged: bool) -> dict:
+    params = dict(view_params or {})
+    params["email_on_no_data"] = bool(body.get("email_on_no_data"))
+    params["email_on_no_data_me_only"] = (
+        bool(body.get("email_on_no_data_me_only")) if privileged else False
+    )
+    if privileged:
+        params["email_cc"] = (body.get("email_cc") or "").strip()
+        params["email_bcc"] = (body.get("email_bcc") or "").strip()
+    else:
+        params.pop("email_cc", None)
+        params.pop("email_bcc", None)
+    return params
+
+
+def _personal_or_404(schedule_id: int, p):
+    uid = _uid(p.email)
+    sched = _repo().get(schedule_id, uid)
+    if sched is not None:
+        return sched
+    if _authz().is_privileged(p):
+        sched = _repo().get_any(schedule_id)
+        if sched is not None:
+            return sched
+    abort(404, description="Unknown schedule")
+
+
+def _report_title(report_key: str) -> str:
+    spec = registry.get(report_key)
+    return spec.title if spec else report_key
+
+
+def _view_is_visible(p, report_key: str) -> bool:
+    return _authz().can_view_report(p, report_key)
+
+
 def _drain_if_dev():
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
@@ -191,10 +288,12 @@ def schedules_page():
     uid = _uid(p.email)
     authz = _authz()
     is_privileged = authz.is_privileged(p)
-    can_see_company = authz.can_see_company_schedules(p)
+    rows = _repo().list_all() if is_privileged else _repo().list_for_user(uid)
+    users = {u.id: u for u in _users().list_all()}
     items = []
-    for s in _repo().list_for_user(uid):
+    for s in rows:
         spec = registry.get(s.report_key)
+        owner = users.get(s.owner_user_id)
         items.append({
             "id": s.id, "report_key": s.report_key,
             "name": spec.title if spec else s.report_key,
@@ -206,51 +305,69 @@ def schedules_page():
             "filename_template": getattr(s, "filename_template", "") or "",
             "kind": "personal",
             "view_name": normalize_view_name(getattr(s, "view_name", None)),
+            "owner_user_id": s.owner_user_id,
+            "owner_name": (owner.display_name or owner.email) if owner else "Unknown",
+            "owner_email": owner.email if owner else "",
         })
-    for s in _master().list_private_for_user(uid):
-        spec = registry.get(s.report_key)
-        items.append({
-            "id": s.id, "report_key": s.report_key, "name": s.name,
-            "report_title": (s.name or (spec.title if spec else s.report_key)),
-            "cadence": C.describe(s.cadence), "cadence_raw": s.cadence or {},
-            "params": s.params or {}, "recipients": s.recipients,
-            "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
-            "last_run": _runs().last_run_at(s.id, MASTER),
-            "filename_template": getattr(s, "filename_template", "") or "",
-            "kind": "master", "run_as_user_id": s.run_as_user_id,
-            "view_name": normalize_view_name(getattr(s, "view_name", None)),
-        })
-    personal_reports = [
-        {"key": s.key, "title": s.title}
-        for s in registry.built_reports()
-        if (not s.in_app) and authz.can_view_report(p, s.key)
-    ]
-    from report_engine.dates import today_eastern
-    year_now = today_eastern().year
+    items.sort(key=lambda r: (r["owner_name"].lower(), r["report_title"].lower()))
+    saved = _saved_reports()
+    for row in items:
+        preset = saved.get_by_name(
+            row["owner_user_id"], row["report_key"], row["view_name"])
+        row["saved_report_id"] = preset.id if preset else ""
+        row["folder_kind"] = (row["params"] or {}).get("folder_kind") or "onedrive"
+    groups = _group_personal_rows(items, is_privileged)
     context = {
         "active_tab": "schedules", "schedules": items,
+        "schedule_groups": groups,
         "is_admin": is_privileged, "is_privileged": is_privileged,
-        "can_see_company": can_see_company,
-        "has_sharepoint": authz.has_sharepoint_access(p),
-        "personal_reports": personal_reports,
-        "built_reports": personal_reports,
-        "personal_report_filters": {k: list(v) for k, v in _MASTER_REPORT_FILTERS.items()},
-        "report_filters": _MASTER_REPORT_FILTERS,
-        "period_options": _PERIOD_OPTIONS,
-        "status_options": [(v, label) for v, label in _STATUS_OPTIONS if v],
-        "year_options": list(range(year_now, year_now - 5, -1)),
-        "managers": _manager_options() if is_privileged else [],
+        "can_see_company": False,
+        "has_sharepoint": is_privileged and authz.has_sharepoint_access(p),
+        "has_schedulable_views": _has_schedulable_views(p, is_privileged),
+        "current_user_name": p.name or p.email,
+        "views_url": url_for("schedules.list_schedulable_views"),
     }
-    if can_see_company:
-        context.update(_master_page_context(p, uid))
-    else:
-        context["master_schedules"] = []
-    context["recent_runs"] = _viewer_run_log(p)
+    context["recent_runs"] = _viewer_run_log(p, is_privileged)
     from web.data.repositories.app_settings import AppSettingsRepository
     test_settings = AppSettingsRepository(current_app.config["DB"])
-    context["test_mode_on"] = can_see_company and test_settings.is_schedule_test_mode()
-    context["test_emails"] = test_settings.test_emails() if context["test_mode_on"] else []
+    context["test_mode_on"] = False
+    context["test_emails"] = []
+    if is_privileged:
+        context["test_mode_on"] = test_settings.is_schedule_test_mode()
+        context["test_emails"] = test_settings.test_emails() if context["test_mode_on"] else []
+        context["company_schedules_url"] = url_for("schedules.company_schedules_page")
     return render_template("schedules.html", **context)
+
+
+def _has_schedulable_views(p, privileged: bool) -> bool:
+    uid = _uid(p.email)
+    presets = _saved_reports().list_all() if privileged else _saved_reports().list_for_user(uid)
+    return any(
+        is_schedulable_saved_view(v) and _view_is_visible(p, v.report_key)
+        for v in presets
+    )
+
+
+def _group_personal_rows(items: list[dict], is_privileged: bool) -> list[dict]:
+    if not is_privileged:
+        return [{"owner_name": "", "owner_email": "", "schedules": items}]
+    groups: list[dict] = []
+    by_owner: dict[int, list] = {}
+    order: list[int] = []
+    for row in items:
+        oid = row["owner_user_id"]
+        if oid not in by_owner:
+            by_owner[oid] = []
+            order.append(oid)
+        by_owner[oid].append(row)
+    for oid in order:
+        rows = by_owner[oid]
+        groups.append({
+            "owner_name": rows[0]["owner_name"],
+            "owner_email": rows[0]["owner_email"],
+            "schedules": rows,
+        })
+    return groups
 
 
 def _recent_run_log(*, personal_ids: set[int], include_master: bool,
@@ -265,9 +382,12 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
         personal_titles[sid] = spec.title if spec else sched.report_key
     master_titles = {}
     if include_master:
-        for s in _master().list_shared():
-            master_titles[s.id] = s.name or s.report_key
-        if viewer_id:
+        if viewer_id is None:
+            for s in _master().list_all():
+                master_titles[s.id] = s.name or s.report_key
+        else:
+            for s in _master().list_shared():
+                master_titles[s.id] = s.name or s.report_key
             for s in _master().list_private_for_user(viewer_id):
                 master_titles[s.id] = s.name or s.report_key
 
@@ -304,11 +424,15 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
     return out
 
 
-def _viewer_run_log(p) -> list[dict]:
+def _viewer_run_log(p, is_privileged: bool = False) -> list[dict]:
     uid = _uid(p.email)
+    if is_privileged:
+        personal_ids = {s.id for s in _repo().list_all()}
+    else:
+        personal_ids = {s.id for s in _repo().list_for_user(uid)}
     return _recent_run_log(
-        personal_ids={s.id for s in _repo().list_for_user(uid)},
-        include_master=_authz().can_see_company_schedules(p),
+        personal_ids=personal_ids,
+        include_master=False,
         viewer=p, viewer_id=uid,
     )
 
@@ -316,7 +440,11 @@ def _viewer_run_log(p) -> list[dict]:
 @schedules_bp.get("/api/schedules/recent-runs")
 @require_login
 def recent_runs():
-    return jsonify({"runs": _viewer_run_log(_principal())})
+    p = _principal()
+    if request.args.get("kind") == "company":
+        _require_admin(p)
+        return jsonify({"runs": _company_run_log()})
+    return jsonify({"runs": _viewer_run_log(p, _authz().is_privileged(p))})
 
 
 @schedules_bp.post("/api/schedules")
@@ -324,24 +452,29 @@ def recent_runs():
 def create_schedule():
     p = _principal()
     body = request.get_json(silent=True) or {}
-    report_key = (body.get("report_key") or "").strip()
-    _validate_report(p, report_key)
+    privileged = _authz().is_privileged(p)
+    preset = _load_schedulable_view(body, p, privileged=privileged)
+    owner = _users().get_by_id(preset.user_id)
+    if owner is None:
+        abort(400, description="That view has no owner.")
     cadence = _parse_cadence(body)
-    folder = _check_personal_folder(body)
-    recipients = _clean_recipients(body, sharepoint_path=folder, folder_label="OneDrive folder")
-    view_name, layout = view_and_layout_for_create(body)
+    folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
+    recipients = _recipients_for_view_schedule(
+        body, owner, privileged=privileged, folder=folder)
+    params = _delivery_params(body, preset.params, privileged=privileged)
+    params.update(folder_extra)
     sid = _repo().create(
-        _uid(p.email), report_key, params=body.get("params") or {},
-        layout=layout, cadence=cadence,
+        owner.id, preset.report_key, params=params,
+        layout=preset.layout or {}, cadence=cadence,
         recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
         filename_template=(body.get("filename_template") or "").strip(),
-        view_name=view_name,
+        view_name=preset.name,
     )
-    created = _repo().get(sid, _uid(p.email))
+    created = _repo().get(sid, owner.id)
     if created:
         _hold_if_due(_repo(), created, PERSONAL)
-    return jsonify({"id": sid}), 201
+    return jsonify({"id": sid, "owner_user_id": owner.id}), 201
 
 
 @schedules_bp.put("/api/schedules/<int:schedule_id>")
@@ -349,16 +482,42 @@ def create_schedule():
 def update_schedule(schedule_id: int):
     p = _principal()
     body = request.get_json(silent=True) or {}
+    privileged = _authz().is_privileged(p)
+    existing = _personal_or_404(schedule_id, p)
+    owner = _users().get_by_id(existing.owner_user_id)
+    if owner is None:
+        abort(400, description="That schedule has no owner.")
+    if "saved_report_id" in body:
+        preset = _load_schedulable_view(
+            body, p, privileged=privileged, existing=existing)
+        if preset.user_id != existing.owner_user_id:
+            abort(400, description="Pick one of this person's saved views.")
+        view_name, layout, view_params = preset.name, preset.layout or {}, preset.params or {}
+    else:
+        view_name = existing.view_name
+        layout = existing.layout or {}
+        view_params = existing.params or {}
+        # Keep report filters from the view; drop old delivery keys then re-apply.
+        view_params = {
+            k: v for k, v in view_params.items()
+            if k not in {
+                "email_on_no_data", "email_on_no_data_me_only",
+                "email_cc", "email_bcc", "folder_kind",
+            }
+        }
+        backed = _saved_reports().get_by_name(
+            existing.owner_user_id, existing.report_key, normalize_view_name(view_name))
+        if backed is not None:
+            view_params = dict(backed.params or {})
+            layout = backed.layout or layout
     cadence = _parse_cadence(body)
-    folder = _check_personal_folder(body)
-    recipients = _clean_recipients(body, sharepoint_path=folder, folder_label="OneDrive folder")
-    existing = _repo().get(schedule_id, _uid(p.email))
-    if existing is None:
-        abort(404, description="Unknown schedule")
-    view_name, layout = view_and_layout_for_update(
-        body, getattr(existing, "view_name", None), existing.layout)
+    folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
+    recipients = _recipients_for_view_schedule(
+        body, owner, privileged=privileged, folder=folder)
+    params = _delivery_params(body, view_params, privileged=privileged)
+    params.update(folder_extra)
     ok = _repo().update(
-        schedule_id, _uid(p.email), params=body.get("params") or {},
+        schedule_id, existing.owner_user_id, params=params,
         layout=layout, cadence=cadence,
         recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
@@ -367,7 +526,7 @@ def update_schedule(schedule_id: int):
     )
     if not ok:
         abort(404, description="Unknown schedule")
-    updated = _repo().get(schedule_id, _uid(p.email))
+    updated = _repo().get(schedule_id, existing.owner_user_id)
     if updated:
         _hold_if_due(_repo(), updated, PERSONAL)
     return jsonify({"updated": True})
@@ -377,13 +536,13 @@ def update_schedule(schedule_id: int):
 @require_login
 def toggle_schedule(schedule_id: int):
     p = _principal()
+    existing = _personal_or_404(schedule_id, p)
     body = request.get_json(silent=True) or {}
-    uid = _uid(p.email)
     active = bool(body.get("active"))
-    if not _repo().set_active(schedule_id, uid, active):
+    if not _repo().set_active(schedule_id, existing.owner_user_id, active):
         abort(404, description="Unknown schedule")
     if active:
-        sched = _repo().get(schedule_id, uid)
+        sched = _repo().get(schedule_id, existing.owner_user_id)
         if sched:
             _hold_if_due(_repo(), sched, PERSONAL)
     return jsonify({"active": active})
@@ -393,7 +552,8 @@ def toggle_schedule(schedule_id: int):
 @require_login
 def delete_schedule(schedule_id: int):
     p = _principal()
-    if not _repo().delete(schedule_id, _uid(p.email)):
+    existing = _personal_or_404(schedule_id, p)
+    if not _repo().delete(schedule_id, existing.owner_user_id):
         abort(404, description="Unknown schedule")
     return jsonify({"deleted": True})
 
@@ -402,12 +562,11 @@ def delete_schedule(schedule_id: int):
 @require_login
 def run_schedule(schedule_id: int):
     p = _principal()
-    uid = _uid(p.email)
-    if _repo().get(schedule_id, uid) is None:
-        abort(404, description="Unknown schedule")
-    job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
-                                  schedule_id=schedule_id, schedule_type=PERSONAL,
-                                  owner_user_id=uid, ignore_sabbath=True)
+    existing = _personal_or_404(schedule_id, p)
+    job_id = enqueue_schedule_run(
+        current_app.config["JOB_REPO"],
+        schedule_id=schedule_id, schedule_type=PERSONAL,
+        owner_user_id=existing.owner_user_id, ignore_sabbath=True)
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202
 
@@ -415,33 +574,63 @@ def run_schedule(schedule_id: int):
 @schedules_bp.post("/api/schedules/<int:schedule_id>/copy")
 @require_login
 def copy_schedule(schedule_id: int):
-    """Duplicate a personal schedule so the user can tweak one field."""
+    """Duplicate a personal schedule so the owner can tweak one field."""
     p = _principal()
-    uid = _uid(p.email)
-    src = _repo().get(schedule_id, uid)
-    if src is None:
-        abort(404, description="Unknown schedule")
+    src = _personal_or_404(schedule_id, p)
     sid = _repo().create(
-        uid, src.report_key, params=dict(src.params or {}),
+        src.owner_user_id, src.report_key, params=dict(src.params or {}),
         layout=dict(src.layout or {}), cadence=dict(src.cadence or {}),
         recipients=src.recipients, sharepoint_path=src.sharepoint_path,
         start_date=src.start_date, end_date=src.end_date,
         filename_template=getattr(src, "filename_template", "") or "",
         view_name=normalize_view_name(getattr(src, "view_name", None)),
     )
-    # Leave the copy inactive so it doesn't double-fire until edited.
-    _repo().set_active(sid, uid, False)
+    _repo().set_active(sid, src.owner_user_id, False)
     return jsonify({"id": sid}), 201
+
+
+@schedules_bp.get("/api/schedules/views")
+@require_login
+def list_schedulable_views():
+    p = _principal()
+    privileged = _authz().is_privileged(p)
+    uid = _uid(p.email)
+    users = {u.id: u for u in _users().list_all() if u.is_active}
+    presets = _saved_reports().list_all() if privileged else _saved_reports().list_for_user(uid)
+    groups: dict[int, dict] = {}
+    order: list[int] = []
+    for row in presets:
+        if not is_schedulable_saved_view(row):
+            continue
+        if not _view_is_visible(p, row.report_key):
+            continue
+        owner = users.get(row.user_id)
+        if owner is None:
+            continue
+        if owner.id not in groups:
+            groups[owner.id] = {
+                "user_id": owner.id,
+                "name": owner.display_name or owner.email,
+                "email": owner.email,
+                "views": [],
+            }
+            order.append(owner.id)
+        groups[owner.id]["views"].append({
+            "id": row.id,
+            "name": row.name,
+            "report_key": row.report_key,
+            "report_title": _report_title(row.report_key),
+        })
+    out = [groups[i] for i in order if groups[i]["views"]]
+    out.sort(key=lambda g: g["name"].lower())
+    return jsonify({"groups": out})
 
 
 @schedules_bp.get("/schedules/<int:schedule_id>/history")
 @require_login
 def schedule_history(schedule_id: int):
     p = _principal()
-    uid = _uid(p.email)
-    sched = _repo().get(schedule_id, uid)
-    if sched is None:
-        abort(404, description="Unknown schedule")
+    sched = _personal_or_404(schedule_id, p)
     spec = registry.get(sched.report_key)
     runs = _runs().list_for_schedule(schedule_id, PERSONAL)
     return render_template(
@@ -456,10 +645,10 @@ def schedule_history(schedule_id: int):
 @require_login
 def master_history(schedule_id: int):
     p = _principal()
+    _require_admin(p)
     sched = _master().get(schedule_id)
     if sched is None:
         abort(404, description="Unknown master schedule")
-    _require_master_visible(p, sched)
     spec = registry.get(sched.report_key)
     title = sched.name or (spec.title if spec else sched.report_key)
     runs = _runs().list_for_schedule(schedule_id, MASTER)
@@ -638,10 +827,10 @@ def _scoped_salesmen(p, rows: list[dict]) -> list[dict]:
     return [r for r in rows if salesman_key(r.get("key")) in keys]
 
 
-def _master_page_context(p, uid: int) -> dict:
+def _master_page_context(p) -> dict:
     authz = _authz()
     items = []
-    for s in _master().list_shared():
+    for s in _master().list_all():
         spec = registry.get(s.report_key)
         can_edit = authz.can_edit_master(
             p, owner_user_id=s.owner_user_id, run_as_user_id=s.run_as_user_id)
@@ -655,7 +844,7 @@ def _master_page_context(p, uid: int) -> dict:
             "last_run": _runs().last_run_at(s.id, MASTER),
             "can_edit": can_edit,
             "filename_template": getattr(s, "filename_template", "") or "",
-            "is_shared": True,
+            "is_shared": bool(s.is_shared),
             "owner_user_id": s.owner_user_id,
             "run_as_user_id": s.run_as_user_id,
             "view_name": normalize_view_name(getattr(s, "view_name", None)),
@@ -675,22 +864,51 @@ def _master_page_context(p, uid: int) -> dict:
         "period_options": _PERIOD_OPTIONS,
         "status_options": _STATUS_OPTIONS,
         "year_options": list(range(year_now, year_now - 5, -1)),
+        "managers": _manager_options(),
     }
+
+
+def _company_run_log() -> list[dict]:
+    return _recent_run_log(
+        personal_ids=set(), include_master=True, viewer_id=None)
+
+
+@schedules_bp.get("/settings/company-schedules")
+@require_login
+def company_schedules_page():
+    p = _principal()
+    _require_admin(p)
+    authz = _authz()
+    ctx = _master_page_context(p)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    test_settings = AppSettingsRepository(current_app.config["DB"])
+    ctx.update({
+        "active_tab": "settings",
+        "is_admin": True,
+        "is_privileged": True,
+        "can_see_company": True,
+        "company_page": True,
+        "has_sharepoint": authz.has_sharepoint_access(p),
+        "test_mode_on": test_settings.is_schedule_test_mode(),
+        "test_emails": test_settings.test_emails() if test_settings.is_schedule_test_mode() else [],
+        "recent_runs": _company_run_log(),
+    })
+    return render_template("company_schedules.html", **ctx)
 
 
 @schedules_bp.get("/master-schedules")
 @require_login
 def master_page():
     p = _principal()
-    _require_company_viewer(p)
-    return redirect(url_for("schedules.schedules_page") + "#company")
+    _require_admin(p)
+    return redirect(url_for("schedules.company_schedules_page"))
 
 
 @schedules_bp.get("/api/master-schedules/lookups/status")
 @require_login
 def master_lookup_status():
     """Warm-up progress for the customer_master-backed dropdowns."""
-    _require_company_viewer(_principal())
+    _require_admin(_principal())
     return jsonify(_lookups().status())
 
 
@@ -699,7 +917,7 @@ def master_lookup_status():
 def master_lookup_salesmen():
     """Salesmen from customer_master (same source as report filter dropdowns)."""
     p = _principal()
-    _require_company_viewer(p)
+    _require_admin(p)
     return jsonify({"salesmen": _scoped_salesmen(p, _lookups().salesmen())})
 
 
@@ -708,7 +926,7 @@ def master_lookup_salesmen():
 def master_lookup_salesmen_emails():
     """Raw SalesGroup values that also have an email in the salesmen table."""
     p = _principal()
-    _require_company_viewer(p)
+    _require_admin(p)
     salesmen = _scoped_salesmen(p, _lookups().salesmen())
     emails = SalesmanRepository(_db()).emails_by_keys([r["key"] for r in salesmen])
     return jsonify({"salesmen": [
@@ -723,7 +941,7 @@ def master_lookup_salesmen_emails():
 def master_lookup_customers():
     """Customers from customer_master (optional ?salesman= filter)."""
     p = _principal()
-    _require_company_viewer(p)
+    _require_admin(p)
     salesman = (request.args.get("salesman") or "").strip() or None
     rows = _lookups().customers(salesman)
     keys = _authz().visible_salesman_keys(p)
@@ -736,7 +954,7 @@ def master_lookup_customers():
 @require_login
 def create_master():
     p = _principal()
-    _require_company_viewer(p)
+    _require_admin(p)
     body = request.get_json(silent=True) or {}
     report_key = (body.get("report_key") or "").strip()
     _validate_report(p, report_key, allow_in_app=False)
@@ -775,7 +993,7 @@ def create_master():
 def copy_master(schedule_id: int):
     """Duplicate a company schedule so the user can tweak one field."""
     p = _principal()
-    _require_company_viewer(p)
+    _require_admin(p)
     src = _master().get(schedule_id)
     if src is None:
         abort(404, description="Unknown master schedule")
@@ -788,7 +1006,7 @@ def copy_master(schedule_id: int):
 @require_login
 def update_master(schedule_id: int):
     p = _principal()
-    _require_company_viewer(p)
+    _require_admin(p)
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
@@ -838,6 +1056,7 @@ def update_master(schedule_id: int):
 @require_login
 def toggle_master(schedule_id: int):
     p = _principal()
+    _require_admin(p)
     sched = _master().get(schedule_id)
     if sched is None:
         abort(404, description="Unknown master schedule")
@@ -857,6 +1076,7 @@ def toggle_master(schedule_id: int):
 @require_login
 def delete_master(schedule_id: int):
     p = _principal()
+    _require_admin(p)
     sched = _master().get(schedule_id)
     if sched is None:
         abort(404, description="Unknown master schedule")
@@ -872,10 +1092,11 @@ def delete_master(schedule_id: int):
 @require_login
 def run_master(schedule_id: int):
     p = _principal()
+    _require_admin(p)
     sched = _master().get(schedule_id)
     if sched is None:
         abort(404, description="Unknown master schedule")
-    _require_master_visible(p, sched)
+    _require_master_edit(p, sched)
     job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
                                   schedule_id=schedule_id, schedule_type=MASTER,
                                   ignore_sabbath=True)

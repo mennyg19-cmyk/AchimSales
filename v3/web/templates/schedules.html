@@ -1,15 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Schedules{% endblock %}
-{% block container_class %}{% if not can_see_company %}container-narrow{% endif %}{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
 
 {% block content %}
 <div class="page-head page-head-row">
     <div>
         <h1 class="page-title">Schedules</h1>
-        <p class="page-subtitle">Recurring deliveries. Set one up here, or from a report with More → Schedule (keeps that view’s layout).</p>
+        <p class="page-subtitle">
+            Recurring deliveries from a named saved view. Or open a report, load that view, and use More → Schedule.
+            {% if is_privileged %}
+            <a href="{{ url_for('schedules.company_schedules_page') }}">Company schedules</a> are in Settings.
+            {% endif %}
+        </p>
     </div>
     <div class="page-head-actions">
-        <button type="button" class="btn btn-primary" id="msStartBtn">
+        <button type="button" class="btn btn-primary" id="psStartBtn"
+                {% if not has_schedulable_views %}disabled title="Save a named view on a report first"{% endif %}>
             <i data-feather="plus" style="width:14px;height:14px;"></i>
             Add a schedule
         </button>
@@ -65,50 +71,55 @@
     </div>
 </details>
 
-{% include "master_schedules.html" %}
+{% include "personal_schedule_wizard.html" %}
 
 <section id="personal">
 <div class="page-head">
-    <h2 class="page-title">My schedules</h2>
+    <h2 class="page-title">{% if is_privileged %}Personal schedules{% else %}My schedules{% endif %}</h2>
     <p class="page-subtitle">
-        Your own automatic reports. Email anyone and/or save to your OneDrive.
-        Layout starts as the report Default — use Schedule from a report page to lock a custom view, or pick a saved view in the wizard.
+        Each row is a named saved view on a timer. Email goes to the person who owns the view.
     </p>
 </div>
 
 {% if schedules %}
-<div class="table-wrap" id="schedulesRoot" data-csrf="{{ csrf_token() }}">
+<div id="schedulesRoot" data-csrf="{{ csrf_token() }}">
+    {% for g in schedule_groups %}
+    {% if is_privileged %}
+    <h3 class="sched-owner-head">{{ g.owner_name }} <span class="muted">{{ g.owner_email }}</span></h3>
+    {% endif %}
+    <div class="table-wrap">
     <table class="data-table">
         <thead>
             <tr>
-                <th>Report</th><th>View</th><th>Cadence</th><th>Recipients</th><th>OneDrive</th>
+                <th>Report</th><th>View</th><th>Cadence</th><th>Recipients</th><th>Folder</th>
                 <th>Last run</th><th>Active</th><th>Actions</th>
             </tr>
         </thead>
         <tbody>
-            {% for s in schedules %}
-            {% set is_master = s.kind == 'master' %}
+            {% for s in g.schedules %}
             <tr data-id="{{ s.id }}"
-                data-kind="{{ s.kind }}"
-                data-name="{{ s.name or s.report_title }}"
+                data-kind="personal"
+                data-name="{{ s.report_title }}"
                 data-report-key="{{ s.report_key }}"
                 data-cadence='{{ (s.cadence_raw or {})|tojson }}'
                 data-params='{{ (s.params or {})|tojson }}'
                 data-recipients="{{ s.recipients }}"
                 data-sharepoint-path="{{ s.sharepoint_path }}"
                 data-filename-template="{{ s.filename_template or '' }}"
-                data-run-as="{{ s.run_as_user_id or '' }}"
-                data-is-shared="0"
-                data-view-name="{{ s.view_name or 'Default' }}">
+                data-view-name="{{ s.view_name or '' }}"
+                data-saved-report-id="{{ s.saved_report_id or '' }}"
+                data-owner-name="{{ s.owner_name }}"
+                data-owner-email="{{ s.owner_email }}"
+                data-folder-kind="{{ s.folder_kind or 'onedrive' }}">
                 <td>{{ s.report_title }}</td>
-                <td>{{ s.view_name or 'Default' }}</td>
+                <td>{{ s.view_name or '—' }}</td>
                 <td>{{ s.cadence }}</td>
                 <td>{{ s.recipients or '—' }}</td>
                 <td>{{ s.sharepoint_path or '—' }}</td>
                 <td>{{ s.last_run or 'never' }}</td>
                 <td>
                     <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"
-                            data-url="{% if is_master %}{{ url_for('schedules.toggle_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}{% endif %}"
+                            data-url="{{ url_for('schedules.toggle_schedule', schedule_id=s.id) }}"
                             data-active="{{ 'false' if s.is_active else 'true' }}">
                         {{ 'On' if s.is_active else 'Off' }}
                     </button>
@@ -116,23 +127,25 @@
                 <td class="row-actions">
                     <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
                     <button type="button" class="btn btn-sm btn-outline js-run"
-                            data-url="{% if is_master %}{{ url_for('schedules.run_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.run_schedule', schedule_id=s.id) }}{% endif %}">Run now</button>
+                            data-url="{{ url_for('schedules.run_schedule', schedule_id=s.id) }}">Run now</button>
                     <button type="button" class="btn btn-sm btn-outline js-copy"
-                            data-url="{% if is_master %}{{ url_for('schedules.copy_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.copy_schedule', schedule_id=s.id) }}{% endif %}">Copy</button>
-                    <a class="btn btn-sm btn-outline" href="{% if is_master %}{{ url_for('schedules.master_history', schedule_id=s.id) }}{% else %}{{ url_for('schedules.schedule_history', schedule_id=s.id) }}{% endif %}">History</a>
+                            data-url="{{ url_for('schedules.copy_schedule', schedule_id=s.id) }}">Copy</button>
+                    <a class="btn btn-sm btn-outline" href="{{ url_for('schedules.schedule_history', schedule_id=s.id) }}">History</a>
                     <button type="button" class="btn btn-sm btn-outline js-delete"
-                            data-url="{% if is_master %}{{ url_for('schedules.delete_master', schedule_id=s.id) }}{% else %}{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}{% endif %}"
+                            data-url="{{ url_for('schedules.delete_schedule', schedule_id=s.id) }}"
                             data-confirm="Delete this schedule?">Delete</button>
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
+    {% endfor %}
 </div>
 {% else %}
 <div class="empty-state" id="psEmpty">
     <i data-feather="clock"></i>
-    <p>No personal schedules yet. Tap <strong>Add a schedule</strong> above, or open a report and use More → Schedule.</p>
+    <p>No personal schedules yet. Save a named view on a report, then tap <strong>Add a schedule</strong>.</p>
 </div>
 {% endif %}
 </section>
