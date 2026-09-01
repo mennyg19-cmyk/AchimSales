@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 Phase 7: close the repo review gate
+**What I had to decide:** Whether Loop C nits and trust-boundary observations reopen Phase 7 before closing the repo gate.
+**Options I considered:** (1) Fix them now and re-run Loops A/B/C. (2) Close the repo gate at `99ba689`; leave nits/observations recorded; keep the live Azure drill BLOCKED; do not start Phase 8 in this session.
+**What I chose:** (2).
+**Why:** Loops A/B/C and trust-boundary all PASS with zero blocking findings. Reviewers marked the leftover notes non-blocking. Protocol ships the gate after Loop C unless B/C fixes were huge. The live empty-disk drill is an owner action, not a repo-test fail.
+**Status:** DECIDED — Phase 7 repo gate closed. Live Azure empty-disk drill remains BLOCKED.
+
 ## 2026-09-01 Phase 7: one-site persistence
 **What I had to decide:** Canonical env names, whether `is_beta` flips, which replica startup restores, what counts as DB identity/sentinel, and whether the `/home` `/test` seed stays.
 **Options I considered:** (1) Rename Azure in-place to SITE_* only, drop BETA_* now. (2) SITE_* canonical, keep BETA_* aliases; restore only that file; identity = `users` >= 1 plus `app_settings.site_db_role=home` after migrate; drop the `/home` seed; never fall back to `LITESTREAM_AZURE_PATH`. (3) Keep restoring both PRECIOUS_* and BETA_* until the live drill.

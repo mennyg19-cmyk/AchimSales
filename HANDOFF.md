@@ -2,26 +2,30 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 7 implementation on this branch. Review gate not started. Draft PR #1. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 8 until the Phase 7 review gate passes (live Azure drill stays owner BLOCKED).
+**Status:** Phase 7 repo review gate **closed** at `99ba689`. Draft PR #1. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 8 until the next session picks it up from this handoff. Live Azure empty-disk drill stays owner BLOCKED (not a repo-gate fail).
 
 ## What's done
 
-- Q1–Q11 logged. Phases 0–6 closed.
-- Phase 7 repo work:
+- Q1–Q11 logged. Phases 0–6 closed. Phase 6 gate commit `63242a5`.
+- Phase 7 implementation `ba51088` plus review fixes through `99ba689`:
   - Canonical `SITE_PRECIOUS_DB_PATH` / `SITE_CACHE_DB_PATH` / `LITESTREAM_AZURE_SITE_PATH`. `BETA_*` aliases still work.
-  - `is_beta=True` unchanged (`session` cookie, reports-only).
+  - `is_beta=True` unchanged (`session` cookie, reports-only). Do not flip `is_beta`.
   - `startup.sh` restores/replicates only the serving file. Leftover `/test` `PRECIOUS_DB_PATH` is not required. `/home` one-time seed removed.
+  - `APP_ENV` strip+lowercase matches Flask. Unknown values refuse boot.
+  - Prod paths must be absolute; `os.path.realpath` before the `/home` guard (covers `..`, relative, symlink).
   - `litestream.yml` is one database.
   - Prod refuses missing/zero-byte/corrupt/no-users serving DBs. After migrate: required tables, latest schema, `app_settings.site_db_role=home`.
   - Pre-0016 sqlite with one user migrates through 0016+.
-  - Prod `/readyz` uses `PRAGMA quick_check`.
-- Local: v3 pytest 736; root 158.
+  - Prod `/readyz` uses `PRAGMA quick_check`. JSON stays `{status: not_ready}`.
+- Phase 7 reviews at `99ba689`: Loop A re-pass 3 PASS; Loop B PASS; Loop C PASS (nits only); trust-boundary PASS (zero blocking).
+- Platform on `99ba689`: CI 15/15 green (push + PR checks).
+- Last local suites at `99ba689`: v3 pytest 741; root 165; restore-preflight 16.
 
 ## What's next
 
-1. Phase 7 self-review leftover + Loops A/B/C + trust-boundary (restore/readiness is fail-closed).
+1. Phase 8 (UI/accessibility and browser verification). Write EXPECTED in `.scratch/phase-plan.md` before any Phase 8 edit.
 2. Owner still needs GitHub Environment `production` required reviewers.
-3. Live Azure empty-disk restore drill stays BLOCKED.
+3. Live Azure empty-disk Litestream restore drill (Phase 7 live gate) stays BLOCKED.
 
 ## Open / BLOCKED
 
@@ -46,3 +50,4 @@ Last updated: 2026-09-01
 - Company Send now: view-only managers MAY send (Q9). Do not tighten `run_master`.
 - EmailService with `db=` filters recipients. Tests that actually send need company domain, approved addresses, or Settings test emails.
 - `jobs.created_at` is SQLite `datetime('now')`. `schedule_runs.started_at` is Python ISO.
+- Loop C nits (startup.sh nesting, `_env_str_first` dup, test `result`) and trust N1–N3 are non-blocking; do not reopen Phase 7 for them.
