@@ -18,16 +18,16 @@ function focusables(root: HTMLElement): HTMLElement[] {
 }
 
 function setInertAround(overlay: HTMLElement, on: boolean): void {
-  let node: HTMLElement | null = overlay;
-  while (node && node !== document.body) {
-    const parent = node.parentElement;
-    if (!parent) break;
-    for (const sib of parent.children) {
-      if (sib === node || !(sib instanceof HTMLElement)) continue;
+  let current: HTMLElement | null = overlay;
+  while (current !== null && current !== document.body) {
+    const host: HTMLElement | null = current.parentElement;
+    if (host === null) break;
+    for (const sib of Array.from(host.children)) {
+      if (sib === current || !(sib instanceof HTMLElement)) continue;
       if (on) sib.setAttribute("inert", "");
       else sib.removeAttribute("inert");
     }
-    node = parent;
+    current = host;
   }
 }
 

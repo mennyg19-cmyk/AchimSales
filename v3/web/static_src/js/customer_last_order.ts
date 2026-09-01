@@ -18,6 +18,8 @@ function initPrevOrder(): void {
   const listEl = document.getElementById("prevOrderList");
   const loadingEl = document.getElementById("prevOrderLoading");
   if (!btn || !modal || !listEl || !loadingEl) return;
+  const list = listEl;
+  const loading = loadingEl;
 
   let loaded = false;
   let closeDlg: DialogClose | null = null;
@@ -31,7 +33,7 @@ function initPrevOrder(): void {
     fetch(recentUrl).then((r) => r.json()).then((data) => {
       const orders = (data && data.orders) || [];
       if (!orders.length) {
-        loadingEl.textContent = "No recent orders found for this customer.";
+        loading.textContent = "No recent orders found for this customer.";
         return;
       }
       let html = "";
@@ -42,21 +44,21 @@ function initPrevOrder(): void {
           + (checked ? " checked" : "") + `><span class="prev-order-num">${esc(o.order_number)}</span>`
           + `<span class="muted"> &middot; ${esc(o.order_date)}</span>${po}</label>`;
       });
-      listEl.innerHTML = html;
-      listEl.removeAttribute("hidden");
-      loadingEl.style.display = "none";
+      list.innerHTML = html;
+      list.removeAttribute("hidden");
+      loading.style.display = "none";
       loaded = true;
     }).catch(() => {
-      loadingEl.textContent = "Could not load recent orders. Try again.";
+      loading.textContent = "Could not load recent orders. Try again.";
     });
   }
 
   function apply(): void {
-    const checks = listEl.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked');
+    const checks = list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked');
     const nums = [...checks].map((c) => c.value);
     if (!nums.length) {
-      loadingEl.textContent = "Pick at least one order.";
-      loadingEl.removeAttribute("hidden");
+      loading.textContent = "Pick at least one order.";
+      loading.removeAttribute("hidden");
       return;
     }
     window.location.href = `${window.location.pathname}?orders=${encodeURIComponent(nums.join(","))}`;
