@@ -1,0 +1,8 @@
+# Keep the default rules. This only ignores one test-tab string that
+# generic-api-key treats as a secret because the field is named "key".
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Number 4 test tab names, not API keys"
+regexes = ['''by_item_12_months''']
