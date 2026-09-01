@@ -646,4 +646,3 @@ class ScheduleRunner:
             row_count=combined.row_count,
             deliveries=deliveries or combined.deliveries,
         )
-

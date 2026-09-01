@@ -186,4 +186,3 @@ def put_company_view(report_key: str):
 
 
 # --- delivery: email now + SharePoint picker -------------------------------- #
-

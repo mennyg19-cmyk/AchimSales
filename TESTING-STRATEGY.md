@@ -16,7 +16,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Expected behavior:**
 - Parity matrix in `REPORT-PARITY.md` matches the registry.
-- `pip install --require-hashes -r requirements.txt` is the Production set once the lock exists.
+- `pip install --require-hashes -r requirements.txt` is the Production and CI set (`requirements.in` is the range source).
 
 **Test files:** `v3/tests/test_phase9_parity.py`, existing `v3/tests/test_report_*.py`
 

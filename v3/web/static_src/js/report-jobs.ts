@@ -5,7 +5,6 @@ import {
   selectedCustomers, customerOptions, setCustomerOptions,
   customerPickerOpen, setCustomerPickerOpen,
   customerHandlersBound, setCustomerHandlersBound,
-  lookupPollTimer, setLookupPollTimer,
   pendingSalesman, setPendingSalesman,
   previewTimer, setPreviewTimer,
   pendingLayout, setPendingLayout,
@@ -502,4 +501,3 @@ export function updateControlsSummary(): void {
   if (selectedCustomers.size) parts.push(`${selectedCustomers.size} customer${selectedCustomers.size > 1 ? "s" : ""}`);
   el.textContent = parts.filter(Boolean).join("  ·  ");
 }
-

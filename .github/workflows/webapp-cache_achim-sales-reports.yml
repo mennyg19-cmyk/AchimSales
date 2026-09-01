@@ -114,7 +114,7 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install test dependencies
-        run: pip install -r v3/requirements.txt -r requirements.txt
+        run: pip install --require-hashes -r requirements.txt
       - name: v3 pytest
         run: |
           cd v3
@@ -143,8 +143,8 @@ jobs:
           npm ci
           npx tsc --noEmit
           npm run build
-      - name: Generated JS/CSS matches the build
-        run: git diff --exit-code -- v3/web/static_dist/js/*.js v3/web/static_dist/css/*.css
+      - name: Generated static files match the build
+        run: git diff --exit-code -- v3/web/static_dist/
 
   restore-preflight:
     name: Restore preflight
@@ -189,31 +189,13 @@ jobs:
           python-version: "3.10"
       - name: Compile WSGI and v3 web
         run: python -m compileall -q wsgi.py wsgi_dispatch.py app.py v3/web
+      - name: Stage Production allowlist
+        run: python tools/build_artifact.py --out "$RUNNER_TEMP/achim-artifact"
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-app
-          path: |
-            app.py
-            wsgi.py
-            wsgi_dispatch.py
-            gunicorn.conf.py
-            startup.sh
-            litestream.yml
-            requirements.txt
-            report_registry.json
-            v3/
-            core/
-            data/
-            reports/
-            runbooks/
-            config/
-            !v3/node_modules/
-            !v3/web/static_src/
-            !**/*.map
-            !**/__pycache__/
-            !**/.pytest_cache/
-            !v3/tests/
+          path: ${{ runner.temp }}/achim-artifact
 
   deploy:
     name: Deploy Production

@@ -25,10 +25,9 @@ set -u
 ROOT="${STARTUP_ROOT:-/home/site/wwwroot}"
 WORKERS="${WEB_CONCURRENCY:-2}"
 THREADS="${GUNICORN_THREADS:-8}"
-# 230s aligns with Azure App Service's front-end idle cap. Big report exports
-# build the .xlsx synchronously in-request (openpyxl styles every cell), so a
-# short worker timeout would kill the worker mid-build and surface as a generic
-# "could not build" in the browser. Override via the GUNICORN_TIMEOUT app setting.
+# 230s aligns with Azure App Service's front-end idle cap. Excel exports run
+# in the job worker, not in a Gunicorn request. Keep this timeout for long
+# HTTP responses (large HTML/JSON). Override via GUNICORN_TIMEOUT.
 TIMEOUT="${GUNICORN_TIMEOUT:-230}"
 PORT="${PORT:-8000}"
 # Same as v3/web/config.py: strip + lowercase. Unknown values refuse boot.
@@ -58,7 +57,7 @@ SUPERVISE_CMD="bash ${ROOT}/tools/supervise-web.sh"
 
 # 1. Defensive dependency install (Oryx usually already did this on deploy).
 if [ -z "${STARTUP_SKIP_PIP:-}" ]; then
-  pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
+  pip install -q --require-hashes -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
 fi
 
 # Canonical SITE_* from BETA_* aliases (Azure still has BETA_* today).

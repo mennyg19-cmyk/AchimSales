@@ -608,4 +608,3 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .muted { color: var(--text-muted); }
 .clo-provisional { font-size: 12px; margin: 0 0 8px; display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
 .data-table td.num, .data-table th.num { text-align: right; }
-

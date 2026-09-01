@@ -5,7 +5,6 @@ import {
   selectedCustomers, customerOptions, setCustomerOptions,
   customerPickerOpen, setCustomerPickerOpen,
   customerHandlersBound, setCustomerHandlersBound,
-  lookupPollTimer, setLookupPollTimer,
   pendingSalesman, setPendingSalesman,
   previewTimer, setPreviewTimer,
   pendingLayout, setPendingLayout,

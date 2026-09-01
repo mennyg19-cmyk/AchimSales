@@ -1,67 +1,58 @@
-# Deploy the webapp to Azure App Service via zip.
-# Prod setup: built-in Python 3.10 runtime, gunicorn app:app.
+# Emergency zip deploy to Azure App Service. Prefer the GitHub Action on
+# webapp-cache. This script runs the same local checks CI does, then zips
+# the same allowlist (tools/build_artifact.py).
 #
 # Usage:
-#   .\deploy.ps1   # build zip, deploy, wait for site to restart
+#   .\deploy.ps1
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
+$py = $null
+foreach ($candidate in @("python", "py")) {
+    if (Get-Command $candidate -ErrorAction SilentlyContinue) {
+        $py = $candidate
+        break
+    }
+}
+if (-not $py) { throw "python is required (same as CI)" }
+
+if (Get-Command npm -ErrorAction SilentlyContinue) {
+    Push-Location (Join-Path $scriptDir "v3")
+    try {
+        npm ci
+        npx tsc --noEmit
+        if ($LASTEXITCODE -ne 0) { throw "tsc --noEmit failed" }
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
+    } finally {
+        Pop-Location
+    }
+    git diff --exit-code -- v3/web/static_dist/
+    if ($LASTEXITCODE -ne 0) { throw "v3/web/static_dist does not match npm run build" }
+}
+
+$env:PYTHONPATH = $scriptDir
+& $py -m pytest v3/tests tests -q --tb=short
+if ($LASTEXITCODE -ne 0) { throw "pytest failed (exit $LASTEXITCODE)" }
+
 $zipPath = Join-Path $scriptDir "app.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-# Files/dirs to keep out of the deployment zip. Anything not in the prod
-# runtime path (runbooks/, tests/, local-only tooling, secrets).
-$exclude = @(
-    ".env", ".env.example", "app.zip",
-    "deploy.ps1", "deploy-runbook.ps1",
-    ".azure", ".pytest_cache", ".git", ".cursor", ".codegraph", ".scratch",
-    ".dockerignore", "Dockerfile",
-    "tests", "logs", "runbooks", "webapp-cache",
-    "SETUP_INSTRUCTIONS.txt",
-    "_history_backup", "_report_output", "__pycache__",
-    "app.db", "AchimReportsApp.zip", "_server.log",
-    "outbox"
-)
-$excludeExt = @(".md")
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
-try {
-    Get-ChildItem -Path $scriptDir -Recurse -File | Where-Object {
-        $rel = $_.FullName.Substring($scriptDir.Length + 1)
-        $parts = $rel -split '\\'
-        $skip = $false
-        foreach ($part in $parts) {
-            foreach ($ex in $exclude) {
-                if ($part -eq $ex) { $skip = $true; break }
-            }
-            if ($skip) { break }
-        }
-        if (-not $skip) {
-            foreach ($ext in $excludeExt) {
-                if ($_.Extension -eq $ext) { $skip = $true; break }
-            }
-        }
-        -not $skip
-    } | ForEach-Object {
-        $rel = $_.FullName.Substring($scriptDir.Length + 1)
-        $entryName = $rel -replace '\\', '/'
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName) | Out-Null
-    }
-
-    # Oryx builder expects requirements.txt at the zip root (already in the tree).
-} finally {
-    $zip.Dispose()
-}
+& $py (Join-Path $scriptDir "tools\build_artifact.py") --zip $zipPath
+if ($LASTEXITCODE -ne 0) { throw "build_artifact.py failed" }
 
 $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
-Write-Host "Built app.zip ($zipSize MB)" -ForegroundColor DarkGray
+Write-Host "Built app.zip ($zipSize MB) from tools/artifact-allowlist.txt"
 
-Write-Host "Deploying to Azure App Service (achim-sales-reports)..." -ForegroundColor Cyan
+Write-Host "Deploying to Azure App Service (achim-sales-reports)..."
 az webapp deploy --name achim-sales-reports --resource-group AchimReportsApp --type zip --src-path $zipPath
 if ($LASTEXITCODE -ne 0) { throw "az webapp deploy failed (exit $LASTEXITCODE)" }
 
 Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-Write-Host "Done! Live at https://reports.achimonline.com" -ForegroundColor Green
+
+$health = Invoke-WebRequest -Uri "https://reports.achimonline.com/healthz" -UseBasicParsing
+if ($health.StatusCode -ne 200) { throw "/healthz returned $($health.StatusCode)" }
+Write-Host "Smoke: /healthz $($health.StatusCode)"
+Write-Host "Done. Live at https://reports.achimonline.com"

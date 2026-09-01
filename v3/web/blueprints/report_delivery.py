@@ -107,4 +107,3 @@ def onedrive_folders():
         return jsonify({"path": path, "folders": od.list_folders(p.email, path)})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"path": path, "folders": [], "error": graph_error_message(exc, what="OneDrive")}), 502
-

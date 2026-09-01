@@ -33,7 +33,9 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install test dependencies
-        run: pip install -r v3/requirements.txt -r requirements.txt
+        run: pip install --require-hashes -r requirements.txt
+      - name: Trailing whitespace
+        run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD
       - name: v3 pytest
         run: |
           cd v3
@@ -60,5 +62,5 @@ jobs:
           npm ci
           npx tsc --noEmit
           npm run build
-      - name: Generated JS/CSS matches the build
-        run: git diff --exit-code -- v3/web/static_dist/js/*.js v3/web/static_dist/css/*.css
+      - name: Generated static files match the build
+        run: git diff --exit-code -- v3/web/static_dist/

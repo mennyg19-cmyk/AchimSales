@@ -65,8 +65,9 @@ push, or on manual dispatch from `webapp-cache` only (any other ref is skipped).
 The deploy job uses GitHub Environment `production`
 (https://reports.achimonline.com). Required reviewers for that Environment are
 set in the GitHub repo settings, not in YAML. Cloud Agent `cursor/**` branches
-do not deploy to the Azure Production slot. Manual zip deploy is still
-`deploy.ps1`.
+do not deploy to the Azure Production slot. Emergency zip deploy is
+`deploy.ps1`, which runs the same pytest/frontend checks it can find and
+zips `tools/artifact-allowlist.txt` via `tools/build_artifact.py`.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
@@ -103,7 +104,7 @@ python app.py             # run locally on port 5001
 ### Local CLI
 
 ```
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.txt
 cp .env.example .env      # fill in credentials
 python run.py ordered
 ```
@@ -160,9 +161,9 @@ wsgi.py                   # gunicorn wsgi:application
 wsgi_dispatch.py          # /beta bookmark 302
 run.py                    # CLI entry point for all reports
 deploy.ps1                # Deploy to Azure App Service
-requirements.txt          # production pip list
+requirements.txt          # hashed pip lock (source: requirements.in)
 report_registry.json      # Report definitions for universal_runbook
-.env.example              # Environment variable template
+.env.example              # CLI/Automation env template; web settings: v3/.env.example
 
 config/                   # salesman/commission maps
 core/                     # D365 + Graph + Excel helpers (CLI/runbooks)

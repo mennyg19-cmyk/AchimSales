@@ -1,5 +1,19 @@
 # Decision Log
 
+## 2026-09-01 Phase 9: hashed Python lock
+**What I had to decide:** Pin hashes on the Azure 3.10 set, or keep version ranges.
+**Options I considered:** (1) Leave ranges. (2) `pip-compile --generate-hashes` from `requirements.in`; CI/startup install that file with `--require-hashes`.
+**What I chose:** (2). Resolver ran on this environment's Python 3.12; CI still installs on 3.10 (wheels in the lock include multiple tags).
+**Why:** Phase 9.3 requires a hashed lock and testing the exact deployed set.
+**Status:** DECIDED — Phase 9.
+
+## 2026-09-01 Phase 9: one allowlisted zip
+**What I had to decide:** Keep CI's path glob (missing `tools/supervise-web.sh`) or one builder that CI and `deploy.ps1` share.
+**Options I considered:** (1) Leave two zip recipes. (2) `tools/build_artifact.py` + `tools/artifact-allowlist.txt`; include `supervise-web.sh` so App Service boot works.
+**What I chose:** (2).
+**Why:** `startup.sh` execs that script. The Action glob never shipped it. Emergency zip must match CI.
+**Status:** DECIDED — Phase 9.
+
 ## 2026-09-01 Phase 9: how to prove report parity
 **What I had to decide:** Live Excel vs Production, copy archive `tools/parity` into this repo, or structural + fixture evidence against the isolated archive.
 **Options I considered:** (1) Run the old live-vs-`/test` Excel harness (needs cookies and `/test`). (2) Copy `tools/parity` into this branch. (3) Isolated archive `b14d725` + current builders/tests; live SQL/Excel marked BLOCKED until Reporting API/staging.

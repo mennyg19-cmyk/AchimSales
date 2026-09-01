@@ -215,4 +215,3 @@ def customer_last_order_export(account: str):
         as_attachment=True,
         download_name=f"Last_Order_{safe}.xlsx",
     )
-

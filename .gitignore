@@ -40,15 +40,3 @@ test-results/
 azlogs*/
 v3logs*/
 logs_tmp/
-
-# v2 (test/) app
-test/app.db
-test/outbox/
-!test/outbox/.gitkeep
-test/data/fixtures/*.xlsx
-test/data/fixtures/*.csv
-!test/data/fixtures/.gitkeep
-
-# Rebuild app local databases (never committed)
-.rebuild-data/
-rebuild/.rebuild-data/

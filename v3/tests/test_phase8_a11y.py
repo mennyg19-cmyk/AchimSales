@@ -47,6 +47,9 @@ def test_shell_and_lookup_pollers_use_watch_hidden_poll():
     assert "hiddenPollMs" not in main
     filters = (ROOT / "web/static_src/js/report-filters.ts").read_text()
     assert "setLookupPollTimer" not in filters
+    core = (ROOT / "web/static_src/js/report-core.ts").read_text()
+    assert "lookupPollTimer" not in core
+    assert "setLookupPollTimer" not in core
     dash = (ROOT / "web/static_src/js/dashboard.ts").read_text()
     announce = dash.split("function announceDash", 1)[1].split("// --- dashboard list", 1)[0]
     assert 'setAttribute("role", text ? "alert" : "status")' in announce

@@ -1,24 +1,2 @@
-# v3 Sales Reports - runtime dependencies
-# Pinned ranges match the repo-root production requirements.txt.
-Flask>=3.1,<4
-Jinja2>=3.1,<4
-msal>=1.31,<2
-python-dotenv>=1.0,<2
-requests>=2.31,<3
-gunicorn>=22.0,<24
-
-# Data / reporting
-pandas>=2.0,<3
-openpyxl>=3.1,<4
-
-# Background scheduling (in-process, single B1 instance)
-APScheduler>=3.10,<4
-
-# Microsoft Graph (SharePoint + email) reuse live app registration
-azure-identity>=1.15,<2
-
-# tzdata: cross-platform IANA zoneinfo fallback for slim Docker images
-tzdata>=2024.1
-
-# --- dev / test only ---
-pytest>=8.0,<9
+# Install the hashed lock at repo root. Do not add a second pin list.
+-r ../requirements.txt

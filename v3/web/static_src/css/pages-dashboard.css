@@ -28,4 +28,3 @@
 .status-failure { background: var(--error-light); color: var(--error); }
 .status-running, .status-queued { background: var(--primary-light); color: var(--primary); }
 .status-cancelled { background: var(--bg); color: var(--text-muted); }
-

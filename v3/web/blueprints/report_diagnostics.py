@@ -483,4 +483,3 @@ def _db_file_identity(path) -> dict:
         except OSError:
             out[label] = None
     return out
-

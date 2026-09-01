@@ -5,7 +5,6 @@ import {
   selectedCustomers, customerOptions, setCustomerOptions,
   customerPickerOpen, setCustomerPickerOpen,
   customerHandlersBound, setCustomerHandlersBound,
-  lookupPollTimer, setLookupPollTimer,
   pendingSalesman, setPendingSalesman,
   previewTimer, setPreviewTimer,
   pendingLayout, setPendingLayout,
@@ -407,4 +406,3 @@ export async function autoOpenPresetIfRequested(): Promise<void> {
   if (preset?.layout) setPendingLayout(preset.layout);
   setAutoRunRequested( true);
 }
-

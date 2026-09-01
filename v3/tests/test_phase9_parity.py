@@ -39,3 +39,9 @@ def test_no_in_app_email_distribution_module():
         and "node_modules" not in path.parts
     ]
     assert hits == []
+
+
+def test_hashed_lock_has_hashes():
+    text = (V3_ROOT.parent / "requirements.txt").read_text()
+    assert "--hash=sha256:" in text
+    assert "Flask>=" not in text

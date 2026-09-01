@@ -2,20 +2,19 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 8 UI/accessibility **CLOSED**. Draft PR #1. Keep draft. Do not merge or deploy Production. Phase 9 is next.
+**Status:** Phase 9 implementation done; **review gate next**. Draft PR #1. Keep draft. Do not merge or deploy Production. Do not start Phase 10 until Loops A/B/C (and trust-boundary if triggered) are green.
 
 ## What's done
 
-- Q1–Q11 logged. Phases 0–8 closed.
-- Phase 7 gate `99ba689` / docs `10096e4`. Live Azure empty-disk drill remains owner BLOCKED.
-- Phase 8 implementation + browser matrix. Loop A PASS (`bc-1e484f45`). Loop B PASS (`bc-d6bce7e4` independent). Loop C PASS then nits at `6960dca`. Loop C re-pass PASS (`bc-51d83eae`). Trust-boundary N/A. Parent ponytail-review: Lean already. Ship. CI 15/15 on `6960dca`.
-- Leftover non-blocking: five live-region helpers (by design); dead `lookupPollTimer` export/imports (Phase 9 hygiene).
+- Q1–Q11 logged. Phases 0–8 closed. Phase 8 gate `6960dca` / HANDOFF `39f78b3`.
+- Phase 9.1/9.2: `REPORT-PARITY.md` vs isolated archive `b14d725`. Live SQL totals and live Automation send list owner BLOCKED.
+- Phase 9.3: one artifact builder (`tools/build_artifact.py` includes `tools/supervise-web.sh`), hashed `requirements.txt`, `deploy.ps1` uses that zip, `git diff --check` clean, `REPOSITORY-REVIEW.md` status rewritten, env templates, dead lookup timer gone.
 
 ## What's next
 
-1. Phase 9: report/feature parity vs isolated archive `b14d725`, then docs/hygiene (one artifact builder, hashed deps, `git diff --check`).
-2. Do not restore `webapp/` or `rebuild/` into this repo. Isolated worktree: `/tmp/achim-archive-restore`.
-3. Q6 stays retired (in-app email distributions). Live SQL totals need Reporting API; local env is unset.
+1. Phase 9 review gate: self-review, ponytail-review, Loop A then B then C. Trust-boundary only if reviewers say auth/roles were touched (this phase is docs/hygiene/artifact).
+2. Live SQL/Excel totals and live Azure Automation schedule list stay owner BLOCKED.
+3. Phase 10 is go-live. Do not merge.
 
 ## Open / BLOCKED
 
@@ -24,6 +23,8 @@ Last updated: 2026-09-01
 - Production merge/deploy.
 - Live Litestream empty-disk restore (Phase 7 live gate).
 - `LIVE_DB_PATH` / `flask import-live-users` until import evidence exists.
+- Live Reporting API totals vs Production Excel.
+- Live Azure Automation job list.
 
 ## Gotchas
 
@@ -34,3 +35,4 @@ Last updated: 2026-09-01
 - Python: `/workspace/.venv/bin/python`. Frontend: `cd v3 && npx tsc --noEmit && npm run build`.
 - Never stage `.venv/` or `.scratch/`.
 - Do not edit migrations `0016`–`0027`.
+- CI install is `pip install --require-hashes -r requirements.txt`. Ranges live in `requirements.in`.
