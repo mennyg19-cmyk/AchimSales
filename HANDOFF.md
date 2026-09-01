@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 9 implementation done; **review gate next**. Draft PR #1. Keep draft. Do not merge or deploy Production. Do not start Phase 10 until Loops A/B/C (and trust-boundary if triggered) are green.
+**Status:** Phase 9 implementation done; **review gate waits on CI** (`36aaa72` lock fix). Draft PR #1. Keep draft. Do not merge or deploy Production.
 
 ## What's done
 
