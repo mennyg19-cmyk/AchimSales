@@ -3,6 +3,9 @@
 Automated sales reporting from Dynamics 365 F&O. The web app uses the SQL
 Reporting API. CLI and Azure Automation jobs may still use OData.
 
+Web report tabs, columns, role defaults, and approved diffs vs archive
+`b14d725`: `REPORT-PARITY.md`.
+
 ## Reports
 
 | Report | CLI Command | Output Directory |

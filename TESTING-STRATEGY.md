@@ -6,6 +6,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 9 report parity and hygiene (2026-09-01)
+
+**What to test:**
+- Built web reports are the eight retained keys; Customer Aging stays BACKLOG (`test_phase9_parity.py`).
+- Ordered Summary includes `CustomerAccount`. Invoiced commission fraction/per-invoice rate tests stay in `test_report_invoiced.py`. Number 4 YTD tabs stay in `test_report_number_4.py`.
+- No in-app email-distribution module under `v3/`.
+- Artifact allowlist includes `tools/supervise-web.sh` (App Service boot). Generated `v3/web/static_dist/` matches `npm run build` including vendor/help files.
+
+**Expected behavior:**
+- Parity matrix in `REPORT-PARITY.md` matches the registry.
+- `pip install --require-hashes -r requirements.txt` is the Production set once the lock exists.
+
+**Test files:** `v3/tests/test_phase9_parity.py`, existing `v3/tests/test_report_*.py`
+
+---
+
 ## Phase 8 UI/accessibility (2026-09-01)
 
 **What to test:**

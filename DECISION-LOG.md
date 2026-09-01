@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 Phase 9: how to prove report parity
+**What I had to decide:** Live Excel vs Production, copy archive `tools/parity` into this repo, or structural + fixture evidence against the isolated archive.
+**Options I considered:** (1) Run the old live-vs-`/test` Excel harness (needs cookies and `/test`). (2) Copy `tools/parity` into this branch. (3) Isolated archive `b14d725` + current builders/tests; live SQL/Excel marked BLOCKED until Reporting API/staging.
+**What I chose:** (3). Q6 stays retired. Customer Aging stays web BACKLOG. Azure Automation live job list stays owner BLOCKED; repo runbook + `report_registry.json` match the archive.
+**Why:** Plan forbids mounting old apps. Local Reporting API is unset. Old harness compared `/test`, which is gone.
+**Status:** DECIDED — Phase 9. Live SQL totals and live Automation send list remain BLOCKED.
+
 ## 2026-09-01 Phase 8: report.ts cycles stay
 **What I had to decide:** Split `report-*.ts` circular imports now, or prove boot order in the running report page.
 **Options I considered:** (1) Split the cycle this phase. (2) Keep the cycle; the bundled report page load is the proof.
