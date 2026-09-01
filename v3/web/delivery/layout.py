@@ -22,7 +22,7 @@ import copy
 from typing import Any
 
 from report_engine.lib import iso_date
-from report_engine.reports.number_4 import place_price_columns
+from report_engine.reports.number_4 import order_number4_columns
 
 _NUMERIC_TYPES = {"money", "int", "percent"}
 
@@ -106,17 +106,18 @@ def _reorder_and_hide(columns: list, v: dict) -> list:
     hidden = set(v.get("hidden") or [])
     order = [f for f in (v.get("order") or []) if f]
     visible = [c for c in columns if _field_of(c) not in hidden]
-    if not order:
-        return visible
     by_field = {_field_of(c): c for c in visible}
-    ordered = [by_field[f] for f in order if f in by_field]
-    # Append any visible columns the saved order didn't mention (new since save).
-    seen = set(order)
-    ordered.extend(c for c in visible if _field_of(c) not in seen)
-    # Number 4: Avg Price and Book Price stay immediately before Salesman,
-    # even when a saved Default still has Book Price last.
-    ordered_fields = place_price_columns([_field_of(c) for c in ordered])
-    return [by_field[f] for f in ordered_fields if f in by_field]
+    if order:
+        ordered = [by_field[f] for f in order if f in by_field]
+        seen = set(order)
+        ordered.extend(c for c in visible if _field_of(c) not in seen)
+        fields = [_field_of(c) for c in ordered]
+    else:
+        fields = [_field_of(c) for c in visible]
+    # Number 4: months (including a new Sep the SP put after Salesman) stay
+    # before Total Qty / Total $ / Avg Price / Book Price / Salesman.
+    fields = order_number4_columns(fields)
+    return [by_field[f] for f in fields if f in by_field]
 
 
 def _filter_rows_legacy(rows: list, header_filters: list) -> list:

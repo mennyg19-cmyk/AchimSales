@@ -46,9 +46,9 @@ REGISTRY: tuple[ReportSpec, ...] = (
     ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=8, salesman_default=True),
     ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
-    # v3: Avg Price and Book Price sit before Salesman. Cached v3 payloads
-    # still have Book Price last.
-    ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=4),
+    # v3: months before Total Qty / $ / Avg / Book / Salesman on all tabs.
+    # Cached v4 payloads still had Sep after Salesman and By Item without $.
+    ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=5),
     ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT, in_app=True),
     ReportSpec(

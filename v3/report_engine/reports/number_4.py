@@ -4,9 +4,10 @@ Source: the two rolling-12 stored procedures (rpt.usp_customer_item_sales_
 rolling_12 / rpt.usp_item_customer_sales_rolling_12). The SPs return the
 finished pivot: one row per Customer+Item (or Item+Customer) with a Qty and $
 column for each of the last 12 months, plus Total Qty / Total $ / Avg Price /
-Book Price / Salesman. This builder types those columns, puts Avg Price and
-Book Price immediately before Salesman, derives a YTD slice from the same
-pivot (Jan through the as-of month), and strips money from the By Item tabs.
+Book Price / Salesman. This builder types those columns, puts every month
+column before that trailing block (a new month the SP appended after Salesman
+still belongs with the other months), and fills missing Total $ / Avg Price /
+Book Price on both By Customer and By Item.
 
 There is no YTD stored procedure. YTD months are always a subset of the
 rolling-12 window, so the YTD tabs drop prior-year month columns and
@@ -27,12 +28,12 @@ from report_engine.lib import num, salesman_key
 # Fixed trailing columns; everything else ending in "Qty" or "$" is a month.
 AVG_PRICE = "Avg Price"
 BOOK_PRICE = "Book Price"
+SALESMAN_COLUMN = "Salesman"
+ITEM_GROUP = "Item #"
 _MONEY_HEADERS = {"Total $", AVG_PRICE, BOOK_PRICE}
 _INT_HEADERS = {"Total Qty"}
 _PRICE_COLUMNS = (AVG_PRICE, BOOK_PRICE)
-
-SALESMAN_COLUMN = "Salesman"
-ITEM_GROUP = "Item #"
+_TRAILING = ("Total Qty", "Total $", AVG_PRICE, BOOK_PRICE, SALESMAN_COLUMN)
 
 # SP / Excel aliases → the headers the grid and writer already use.
 _HEADER_ALIASES = {
@@ -58,17 +59,6 @@ def canonical_header(header: str) -> str:
     return _HEADER_ALIASES.get(_fold_header(key), key)
 
 
-def place_price_columns(fields: Sequence[str]) -> list[str]:
-    """Avg Price then Book Price sit immediately before Salesman."""
-    fields = list(fields)
-    prices = [f for f in _PRICE_COLUMNS if f in fields]
-    if not prices or SALESMAN_COLUMN not in fields:
-        return fields
-    rest = [f for f in fields if f not in _PRICE_COLUMNS]
-    at = rest.index(SALESMAN_COLUMN)
-    return rest[:at] + prices + rest[at:]
-
-
 def _dedupe_headers(headers: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -78,39 +68,6 @@ def _dedupe_headers(headers: Iterable[str]) -> list[str]:
         seen.add(header)
         out.append(header)
     return out
-
-
-def _fill_avg_price(row: dict) -> None:
-    if row.get(AVG_PRICE) not in (None, ""):
-        return
-    total_qty = num(row.get("Total Qty"))
-    total_dol = num(row.get("Total $"))
-    row[AVG_PRICE] = round(total_dol / total_qty, 2) if total_qty else 0.0
-
-
-def ensure_prices_before_salesman(view: View) -> View:
-    """Rename aliases, add missing price columns, put them before Salesman."""
-    headers, rows = view
-    headers = _dedupe_headers(canonical_header(h) for h in headers)
-    for col in _PRICE_COLUMNS:
-        if col not in headers:
-            headers.append(col)
-    headers = place_price_columns(headers)
-    new_rows = []
-    for raw in rows:
-        row = {canonical_header(k): v for k, v in raw.items()}
-        _fill_avg_price(row)
-        if BOOK_PRICE not in row:
-            row[BOOK_PRICE] = None
-        new_rows.append(row)
-    return headers, new_rows
-
-
-def canonicalize_view(view: View) -> View:
-    headers, rows = view
-    headers = _dedupe_headers(canonical_header(h) for h in headers)
-    rows = [{canonical_header(k): v for k, v in row.items()} for row in rows]
-    return headers, rows
 
 
 def _column_type(header: str) -> str:
@@ -164,6 +121,83 @@ def parse_month_header(header: str) -> tuple[int, int] | None:
     return yy, mon
 
 
+def _looks_like_number4(fields: Sequence[str]) -> bool:
+    return any(f in fields for f in _PRICE_COLUMNS) or any(
+        parse_month_header(f) is not None for f in fields
+    )
+
+
+def _month_sort_key(header: str) -> tuple[int, int, int]:
+    ym = parse_month_header(header)
+    if ym is None:
+        return (9999, 99, 9)
+    return (ym[0], ym[1], 1 if is_money_header(header) else 0)
+
+
+def order_number4_columns(fields: Sequence[str]) -> list[str]:
+    """Months first (calendar order), then Total Qty / Total $ / Avg / Book / Salesman.
+
+    Only runs on Number 4-shaped column lists so Ordered's Salesman column
+    is not dragged to the end.
+    """
+    fields = list(fields)
+    if not _looks_like_number4(fields):
+        return fields
+    trailing_set = set(_TRAILING)
+    lead: list[str] = []
+    months: list[str] = []
+    for field in fields:
+        if field in trailing_set:
+            continue
+        if parse_month_header(field) is not None:
+            months.append(field)
+        else:
+            lead.append(field)
+    months.sort(key=_month_sort_key)
+    trailing = [field for field in _TRAILING if field in fields]
+    return lead + months + trailing
+
+
+def place_price_columns(fields: Sequence[str]) -> list[str]:
+    """Layout/OData helper: same Number 4 trailing order as the builder."""
+    return order_number4_columns(fields)
+
+
+def _fill_avg_price(row: dict) -> None:
+    if row.get(AVG_PRICE) not in (None, ""):
+        return
+    total_qty = num(row.get("Total Qty"))
+    total_dol = num(row.get("Total $"))
+    row[AVG_PRICE] = round(total_dol / total_qty, 2) if total_qty else 0.0
+
+
+def prepare_number4_view(view: View) -> View:
+    """Rename aliases, add missing money trailers, months before the trailing block."""
+    headers, rows = view
+    headers = _dedupe_headers(canonical_header(h) for h in headers)
+    for col in ("Total $", AVG_PRICE, BOOK_PRICE):
+        if col not in headers:
+            headers.append(col)
+    headers = order_number4_columns(headers)
+    month_dol = [h for h in headers if parse_month_header(h) and is_money_header(h)]
+    month_qty = [h for h in headers if parse_month_header(h) and not is_money_header(h)]
+    new_rows = []
+    for raw in rows:
+        row = {canonical_header(k): v for k, v in raw.items()}
+        if row.get("Total $") in (None, "") and month_dol:
+            row["Total $"] = round(sum(num(row.get(h)) for h in month_dol), 2)
+        if row.get("Total Qty") in (None, "") and month_qty:
+            row["Total Qty"] = round(sum(num(row.get(h)) for h in month_qty), 2)
+        _fill_avg_price(row)
+        if BOOK_PRICE not in row:
+            row[BOOK_PRICE] = None
+        new_rows.append(row)
+    return headers, new_rows
+
+
+ensure_prices_before_salesman = prepare_number4_view
+
+
 def clean_rows(rows: Iterable[dict]) -> list[dict]:
     """Coerce Qty/$ cells to floats so on-screen and Excel totals are numeric.
 
@@ -191,13 +225,6 @@ def filter_rows_by_salesman(rows: list[dict], visible_keys) -> list[dict]:
     return [r for r in rows if salesman_key(str(r.get(SALESMAN_COLUMN, ""))) in normalized]
 
 
-def strip_money(view: View) -> View:
-    """By Item is quantity-only: drop month $, Total $, Avg Price, Book Price."""
-    headers, rows = view
-    keep = [h for h in headers if not is_money_header(h)]
-    return keep, [{h: row.get(h) for h in keep} for row in rows]
-
-
 def ytd_view(view: View, as_of: date) -> View:
     """Keep Jan..as_of month columns and recalc totals; drop idle rows."""
     headers, rows = view
@@ -211,6 +238,7 @@ def ytd_view(view: View, as_of: date) -> View:
         if ym[0] == as_of.year and ym[1] <= as_of.month:
             kept_months.append(header)
             new_headers.append(header)
+    new_headers = order_number4_columns(new_headers)
 
     qty_months = [h for h in kept_months if _column_type(h) == "int"]
     dol_months = [h for h in kept_months if _column_type(h) == "money"]
@@ -253,11 +281,11 @@ def build(
     as_of = as_of or today_eastern()
     tabs = []
     if by_customer is not None:
-        by_customer = ensure_prices_before_salesman(by_customer)
+        by_customer = prepare_number4_view(by_customer)
         tabs.append(_tab("by_customer", "By Customer (12 Months)", by_customer))
         tabs.append(_tab("by_customer_ytd", "By Customer (YTD)", ytd_view(by_customer, as_of)))
     if by_item is not None:
-        by_item = canonicalize_view(by_item)
-        tabs.append(_tab("by_item", "By Item (12 Months)", strip_money(by_item)))
-        tabs.append(_tab("by_item_ytd", "By Item (YTD)", strip_money(ytd_view(by_item, as_of))))
+        by_item = prepare_number4_view(by_item)
+        tabs.append(_tab("by_item", "By Item (12 Months)", by_item))
+        tabs.append(_tab("by_item_ytd", "By Item (YTD)", ytd_view(by_item, as_of)))
     return tabs

@@ -292,15 +292,54 @@ function headerMenu(tab: Tab): any[] {
   ];
 }
 
-function placePriceColumns(cols: Column[]): Column[] {
-  const priceNames = ["Avg Price", "Book Price"];
-  const prices = priceNames.filter((f) => cols.some((c) => c.field === f));
-  if (!prices.length || !cols.some((c) => c.field === "Salesman")) return cols;
+const NUMBER4_TRAILING = ["Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"];
+const MONTH_ABBR: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+function isMonthField(field: string): boolean {
+  if (NUMBER4_TRAILING.includes(field)) return false;
+  return monthSortKey(field)[0] !== 9999;
+}
+
+function monthSortKey(field: string): [number, number, number] {
+  const labeled = field.match(/^([A-Za-z]{3,9})[-/ ]+(\d{2,4}) (Qty|\$)$/);
+  if (labeled) {
+    const mon = MONTH_ABBR[labeled[1].slice(0, 3).toLowerCase()] || 99;
+    let yy = parseInt(labeled[2], 10);
+    if (yy < 100) yy += 2000;
+    return [yy, mon, labeled[3] === "$" ? 1 : 0];
+  }
+  const iso = field.match(/^(\d{4})-(\d{2}) (Qty|\$)$/);
+  if (iso) {
+    return [parseInt(iso[1], 10), parseInt(iso[2], 10), iso[3] === "$" ? 1 : 0];
+  }
+  return [9999, 99, 9];
+}
+
+function looksLikeNumber4(cols: Column[]): boolean {
+  return cols.some((c) => c.field === "Avg Price" || c.field === "Book Price" || isMonthField(c.field));
+}
+
+function orderNumber4Columns(cols: Column[]): Column[] {
+  if (!looksLikeNumber4(cols)) return cols;
+  const trailingSet = new Set(NUMBER4_TRAILING);
   const byField = new Map(cols.map((c) => [c.field, c]));
-  const rest = cols.filter((c) => !priceNames.includes(c.field));
-  const at = rest.findIndex((c) => c.field === "Salesman");
-  if (at < 0) return cols;
-  return [...rest.slice(0, at), ...prices.map((f) => byField.get(f)!), ...rest.slice(at)];
+  const lead: Column[] = [];
+  const months: Column[] = [];
+  for (const col of cols) {
+    if (trailingSet.has(col.field)) continue;
+    if (isMonthField(col.field)) months.push(col);
+    else lead.push(col);
+  }
+  months.sort((a, b) => {
+    const ka = monthSortKey(a.field);
+    const kb = monthSortKey(b.field);
+    return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2];
+  });
+  const trailing = NUMBER4_TRAILING.map((f) => byField.get(f)).filter(Boolean) as Column[];
+  return [...lead, ...months, ...trailing];
 }
 
 function buildColumns(tab: Tab): any[] {
@@ -317,7 +356,7 @@ function buildColumns(tab: Tab): any[] {
       ...tab.columns.filter((c) => !savedSet.has(c.field)),
     ];
   }
-  ordered = placePriceColumns(ordered);
+  ordered = orderNumber4Columns(ordered);
   return ordered.map((c, i) => ({
     title: c.header,
     field: c.field,

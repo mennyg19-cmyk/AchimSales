@@ -1,7 +1,8 @@
-"""Number 4 builder: dynamic-column typing, YTD slice, By Item money strip.
+"""Number 4 builder: dynamic-column typing, YTD slice, trailing-column order.
 
 The rolling-12 SPs return the finished pivot (a Qty and $ column per month).
-YTD is that same pivot with prior-year months dropped. By Item drops money.
+YTD is that same pivot with prior-year months dropped. All four tabs keep
+month qty/$, then Total Qty, Total $, Avg Price, Book Price, Salesman.
 """
 
 from datetime import date
@@ -48,15 +49,48 @@ def test_parse_month_header_ignores_totals():
     assert B.parse_month_header("Book Price") is None
 
 
-def test_columns_keep_the_sps_own_order_minus_money_on_by_item():
+def _fields(tab):
+    return [c["field"] for c in tab["columns"]]
+
+
+def _assert_trailing(fields):
+    assert fields[-5:] == list(B._TRAILING)
+
+
+def test_by_item_keeps_money_in_the_same_order_as_by_customer():
     headers = ["Item #", "Item Name", "Customer #", "Customer Name",
                "Jul-25 Qty", "Jul-25 $", "Total Qty", "Total $",
                "Avg Price", "Book Price", "Salesman"]
     tab = B.build(by_item=(headers, B.clean_rows([{h: "" for h in headers}])),
                   as_of=AS_OF)[0]
-    assert [c["field"] for c in tab["columns"]] == [
+    fields = _fields(tab)
+    assert fields == [
         "Item #", "Item Name", "Customer #", "Customer Name",
-        "Jul-25 Qty", "Total Qty", "Salesman"]
+        "Jul-25 Qty", "Jul-25 $",
+        "Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"]
+    _assert_trailing(fields)
+
+
+def test_new_month_after_salesman_moves_before_the_trailing_block():
+    headers = [
+        "Item #", "Item Name", "Jul-25 Qty", "Jul-25 $",
+        "Total Qty", "Total $", "Avg Price", "Book Price", "Salesman",
+        "Sep-26 Qty", "Sep-26 $",
+    ]
+    row = {h: 1 for h in headers}
+    row.update({"Item #": "A", "Item Name": "W", "Salesman": "S"})
+    tab = B.build(by_item=(headers, [row]), as_of=AS_OF)[0]
+    assert _fields(tab) == [
+        "Item #", "Item Name",
+        "Jul-25 Qty", "Jul-25 $", "Sep-26 Qty", "Sep-26 $",
+        "Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"]
+
+
+def test_order_number4_leaves_non_number4_headers_alone():
+    ordered = ["Customer", "Salesman", "Amount"]
+    assert B.order_number4_columns(ordered) == ordered
+    averages = ["Item #", "Item Name", "12-Month Qty", "Avg/Month", "Avg/Week"]
+    assert B.order_number4_columns(averages) == averages
 
 
 def test_clean_rows_coerces_string_numbers_and_keeps_text():
@@ -98,26 +132,29 @@ def test_empty_view_keeps_its_headers():
     # because they come from the API's column list, not from the rows.
     tabs = B.build(by_customer=_view([]), as_of=AS_OF)
     assert tabs[0]["rows"] == []
-    assert [c["field"] for c in tabs[0]["columns"]] == list(_row().keys())
+    assert _fields(tabs[0]) == [
+        "Customer #", "Customer Name", "Item #", "Item Name",
+        "Jul-25 Qty", "Jul-25 $", "Dec-25 Qty", "Dec-25 $",
+        "Jun-26 Qty", "Jun-26 $",
+        "Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"]
 
 
-def test_by_item_tabs_have_no_money():
+def test_by_item_tabs_keep_money_and_trailing_order():
     tabs = B.build(by_item=_view([_row()]), as_of=AS_OF)
     for tab in tabs:
-        fields = [c["field"] for c in tab["columns"]]
-        assert all(c["type"] != "money" for c in tab["columns"])
-        assert "Total $" not in fields
-        assert "Avg Price" not in fields
-        assert "Book Price" not in fields
-        assert not any(f.endswith("$") for f in fields)
-        assert "Total Qty" in fields
+        fields = _fields(tab)
+        _assert_trailing(fields)
+        assert "Total $" in fields
+        assert "Avg Price" in fields
+        assert "Book Price" in fields
+        assert "Jun-26 $" in fields
         assert "Jun-26 Qty" in fields
 
 
 def test_by_customer_puts_avg_and_book_price_before_salesman():
     tab = B.build(by_customer=_view([_row()]), as_of=AS_OF)[0]
-    fields = [c["field"] for c in tab["columns"]]
-    assert fields[-3:] == ["Avg Price", "Book Price", "Salesman"]
+    fields = _fields(tab)
+    _assert_trailing(fields)
     assert fields.index("Avg Price") < fields.index("Book Price") < fields.index("Salesman")
 
 
@@ -126,8 +163,8 @@ def test_aliased_and_missing_prices_are_added_before_salesman():
     row = {"Customer #": "100", "Item #": "A", "Total Qty": "2", "Total $": "10",
            "AvgPrice": "", "Salesman": "S"}
     tab = B.build(by_customer=(headers, [row]), as_of=AS_OF)[0]
-    fields = [c["field"] for c in tab["columns"]]
-    assert fields[-3:] == ["Avg Price", "Book Price", "Salesman"]
+    fields = _fields(tab)
+    _assert_trailing(fields)
     assert tab["rows"][0]["Avg Price"] == 5.0
     assert "Book Price" in tab["rows"][0]
 

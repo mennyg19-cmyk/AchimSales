@@ -79,7 +79,7 @@ class Number4ReportRunner(BaseReportRunner):
             item_filename = f"Number_4_Report_Item_{date_tag}{test_tag}.xlsx"
             item_path = get_output_path(REPORT_NAME, "", item_filename, sub_report="By Item")
             log.info("Writing By Item: %s", item_path)
-            write_by_item(agg_12, labels_12, qty_12, agg_ytd, labels_ytd, qty_ytd, item_path)
+            write_by_item(agg_12, labels_12, qty_12, dol_12, agg_ytd, labels_ytd, qty_ytd, dol_ytd, item_path)
 
             cust_filename = f"Number_4_Report_Customer_{date_tag}{test_tag}.xlsx"
             cust_path = get_output_path(REPORT_NAME, "", cust_filename, sub_report="By Customer")

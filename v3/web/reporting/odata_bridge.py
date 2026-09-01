@@ -106,7 +106,7 @@ def _is_summary_row(row: dict) -> bool:
 
 def _attach_number4_defaults(tab: dict) -> dict:
     """Group by item; drop Excel TOTALS rows so the grid grouping is clean."""
-    from report_engine.reports.number_4 import canonical_header, place_price_columns
+    from report_engine.reports.number_4 import canonical_header, order_number4_columns
 
     out = dict(tab)
     out["default_group"] = ["Item #"]
@@ -114,7 +114,9 @@ def _attach_number4_defaults(tab: dict) -> dict:
     out["rows"] = rows
     cols = out.get("columns") or []
     if cols and isinstance(cols[0], str):
-        out["columns"] = place_price_columns(canonical_header(c) for c in cols)
+        out["columns"] = order_number4_columns(
+            canonical_header(c) for c in cols
+        )
     return out
 
 

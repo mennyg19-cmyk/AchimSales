@@ -3,7 +3,7 @@ Number 4 Report - By Customer Excel writer (streaming / write_only mode).
 
 Writes sections per customer with item rows, TOTALS per customer, and GRAND TOTALS.
 Two sheets: "12 Months" and "Year to Date".
-Interleaves qty and $ columns per month (unlike By Item which only shows qty).
+Interleaves qty and $ columns per month.
 """
 
 import logging

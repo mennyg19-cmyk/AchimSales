@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-01 Number 4 months stay before the trailing block; By Item gets dollars
+**What you asked for:** September months must sit with the other months, before Total Qty / Total $ / Avg Price / Book Price / Salesman. By Item was missing Total $, Avg Price, and Book Price, and was out of order.
+**What I chose:** Same trailing block on all four tabs: Total Qty, Total $, Avg Price, Book Price, Salesman. Month qty/$ (including a new Sep the SP or saved Default appended after Salesman) sort into calendar order before that block. By Item is no longer quantity-only. builder_version 5.
+**Why:** The rolling-12 SP appends the new month after Salesman, and a saved Default does the same. Moving only Avg/Book left Sep after Salesman. You overrode the old By Item qty-only choice.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-01 Number 4 Avg Price and Book Price sit before Salesman
 **What you asked for:** Two more Number 4 fields, Avg price and Book price, added before the salesman column.
 **What I chose:** By Customer tabs show **Avg Price**, then **Book Price**, then **Salesman**. By Item stays quantity-only. SP aliases (AvgPrice / BookPrice) are renamed. Missing Avg Price is Total $ / Total Qty. Missing Book Price still gets a column. Saved Default order cannot leave Book Price after Salesman (grid + email). Live Excel By Customer writer matches. builder_version 4.

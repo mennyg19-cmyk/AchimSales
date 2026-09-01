@@ -62,3 +62,18 @@ def test_number4_odata_puts_prices_before_salesman():
         "rows": [{"Total $": 10, "Avg Price": 2, "Salesman": "S", "Book Price": 3}],
     })
     assert tab["columns"] == ["Total $", "Avg Price", "Book Price", "Salesman"]
+
+
+def test_number4_odata_moves_new_month_before_trailing():
+    tab = _attach_number4_defaults({
+        "key": "by_item_12_months",
+        "name": "By Item (12 Months)",
+        "columns": [
+            "Item #", "Jul-25 Qty", "Total Qty", "Total $", "Avg Price",
+            "Book Price", "Salesman", "Sep-26 Qty", "Sep-26 $",
+        ],
+        "rows": [{"Item #": "ITM-A", "Total Qty": 2}],
+    })
+    assert tab["columns"] == [
+        "Item #", "Jul-25 Qty", "Sep-26 Qty", "Sep-26 $",
+        "Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"]

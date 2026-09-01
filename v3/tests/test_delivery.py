@@ -143,6 +143,32 @@ def test_apply_layout_puts_number4_prices_before_salesman():
     assert fields == ["Total $", "Avg Price", "Book Price", "Salesman"]
 
 
+def test_apply_layout_moves_new_month_before_number4_trailing():
+    payload = {"tabs": [{
+        "key": "by_item", "name": "By Item",
+        "columns": [
+            {"field": "Item #", "header": "Item #", "type": "text"},
+            {"field": "Jul-25 Qty", "header": "Jul-25 Qty", "type": "int"},
+            {"field": "Total Qty", "header": "Total Qty", "type": "int"},
+            {"field": "Total $", "header": "Total $", "type": "money"},
+            {"field": "Avg Price", "header": "Avg Price", "type": "money"},
+            {"field": "Book Price", "header": "Book Price", "type": "money"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Sep-26 Qty", "header": "Sep-26 Qty", "type": "int"},
+            {"field": "Sep-26 $", "header": "Sep-26 $", "type": "money"},
+        ],
+        "rows": [{}],
+    }]}
+    layout = {"views": {"by_item": {
+        "order": ["Item #", "Jul-25 Qty", "Total Qty", "Total $", "Avg Price",
+                  "Book Price", "Salesman", "Sep-26 Qty", "Sep-26 $"],
+    }}}
+    fields = [c["field"] for c in apply_layout(payload, layout)["tabs"][0]["columns"]]
+    assert fields == [
+        "Item #", "Jul-25 Qty", "Sep-26 Qty", "Sep-26 $",
+        "Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"]
+
+
 def test_apply_layout_noop_without_views():
     assert apply_layout(_payload(), None) == _payload()
     assert apply_layout(_payload(), {"views": {}}) == _payload()

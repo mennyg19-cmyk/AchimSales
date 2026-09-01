@@ -188,29 +188,29 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`
 
-## Number 4: YTD tabs, By Item no money, group by item
+## Number 4: YTD tabs, trailing columns, group by item
 
 **What to test:**
 - Both mode builds four tabs (By Customer 12 months + YTD, By Item 12 months + YTD).
-- By Item tabs have no money columns; By Customer still has month $ / Total $ / Avg Price / Book Price immediately before Salesman.
+- All four tabs keep month qty/$, then Total Qty, Total $, Avg Price, Book Price, Salesman.
+- A month the SP (or saved Default) appended after Salesman still sits with the other months, before that trailing block.
 - YTD keeps current-year months only and recalculates Total Qty / Total $ / Avg Price.
-- Saved Default / email cannot leave Book Price after Salesman.
-- Excel By Item headers are quantity-only; By Customer Excel has Avg Price, Book Price, then Salesman.
 - YTD drops rows with no current-year qty or dollars.
 - Every tab sets `default_group` to Item #.
-- Excel By Item headers are quantity-only.
+- Live Excel By Item and By Customer share the same trailing headers.
 - OData extra_files dicts are read as paths; Item/Customer sheet names do not collide.
+- Ordered / Item Averages column lists are not reordered.
 
 **Expected behavior:**
-- Mode By Item → two qty-only tabs. Mode By Customer → two tabs with dollars. Both → four tabs.
-- By Customer trailing columns are Total Qty, Total $, Avg Price, Book Price, Salesman.
+- Mode By Item → two tabs with dollars. Mode By Customer → two tabs with dollars. Both → four tabs.
+- Trailing columns on every Number 4 tab: Total Qty, Total $, Avg Price, Book Price, Salesman.
 - Grouping starts on Item # until the user changes it.
 
 **Edge cases:**
-- Empty view still keeps headers.
+- Empty view still keeps headers, months in calendar order.
 - Prior-year-only rows appear on 12 Months and vanish on YTD.
 - SP aliases AvgPrice / BookPrice become Avg Price / Book Price.
-- Saved Default with Book Price after Salesman still emails and shows them before Salesman.
+- Saved Default with Sep after Salesman still emails and shows Sep before Total Qty.
 
 **Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_odata_number4.py`, `v3/tests/test_delivery.py`, `tests/test_number_4.py`
 

@@ -26,16 +26,16 @@ var HELP = {
 
     "report-number_4": {
         title: "Number 4 Report",
-        body: "Shows sold quantities (and dollars on By Customer) for each month, grouped by item.<br><br>" +
-              "Each view has two tabs: rolling 12 months, and year to date. By Item is quantities only — no dollar columns. By Customer keeps monthly dollars, totals, average price, and book price.<br><br>" +
+        body: "Shows sold quantities and dollars for each month, grouped by item.<br><br>" +
+              "Each view has two tabs: rolling 12 months, and year to date. By Item and By Customer both have monthly qty and $, then Total Qty, Total $, Avg Price, Book Price, and Salesman. Month columns sit before that trailing block.<br><br>" +
               "Pick By Customer, By Item, or Both. Both shows all four tabs."
     },
 
     "param-n4-mode": {
         title: "View",
         body: "How to organize the rows.<br><br>" +
-              "<b>By Customer</b> — customer + item rows with dollars; two tabs (12 months and YTD).<br>" +
-              "<b>By Item</b> — the same rows with items first, quantities only; two tabs (12 months and YTD).<br>" +
+              "<b>By Customer</b> — customer + item rows; two tabs (12 months and YTD).<br>" +
+              "<b>By Item</b> — the same columns with items first; two tabs (12 months and YTD).<br>" +
               "<b>Both</b> — all four tabs. Rows start grouped by item."
     },
 
