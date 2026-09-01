@@ -2,19 +2,20 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 8 UI/accessibility **Loops A and B PASS**. Loop C PASS with three nits; nit fixes are in the next commit. Draft PR #1. Keep draft. Do not merge or deploy Production. Loop C re-pass next, then close the Phase 8 gate. Do not start Phase 9 until that re-pass is green.
+**Status:** Phase 8 UI/accessibility **CLOSED**. Draft PR #1. Keep draft. Do not merge or deploy Production. Phase 9 is next.
 
 ## What's done
 
-- Q1–Q11 logged. Phases 0–7 closed. Phase 7 gate `99ba689` / docs `10096e4`.
-- Phase 8 implementation + browser matrix. Loop A PASS after two FAIL cycles (`def0df8`, `6e7755c`). Token-test `c4b913b`. Loop B PASS. CI 15/15 on `c4b913b`.
-- Loop C nits: shell pollers now `watchHiddenPoll`; lookup poll no longer writes dead `lookupPollTimer`; dash live region resets `role` when cleared. Five live-region helpers left as-is (different role/live contracts).
+- Q1–Q11 logged. Phases 0–8 closed.
+- Phase 7 gate `99ba689` / docs `10096e4`. Live Azure empty-disk drill remains owner BLOCKED.
+- Phase 8 implementation + browser matrix. Loop A PASS (`bc-1e484f45`). Loop B PASS (`bc-d6bce7e4` independent). Loop C PASS then nits at `6960dca`. Loop C re-pass PASS (`bc-51d83eae`). Trust-boundary N/A. Parent ponytail-review: Lean already. Ship. CI 15/15 on `6960dca`.
+- Leftover non-blocking: five live-region helpers (by design); dead `lookupPollTimer` export/imports (Phase 9 hygiene).
 
 ## What's next
 
-1. Fresh Loop C re-pass (`claude-sonnet-5-thinking-high`, not resume). If green, close Phase 8 and start Phase 9.
-2. Trust-boundary N/A (presentation/client only).
-3. Live Azure empty-disk drill stays owner BLOCKED.
+1. Phase 9: report/feature parity vs isolated archive `b14d725`, then docs/hygiene (one artifact builder, hashed deps, `git diff --check`).
+2. Do not restore `webapp/` or `rebuild/` into this repo. Isolated worktree: `/tmp/achim-archive-restore`.
+3. Q6 stays retired (in-app email distributions). Live SQL totals need Reporting API; local env is unset.
 
 ## Open / BLOCKED
 
