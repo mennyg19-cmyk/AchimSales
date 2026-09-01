@@ -142,7 +142,7 @@ class Config:
                              (cache_label, self.cache_db_path)):
                 if _is_unc(p):
                     problems.append(f"{label} must be local disk, not a UNC/SMB share: {p}")
-                elif not _is_absolute_posix(p):
+                elif not p.is_absolute():
                     problems.append(
                         f"{label} must be an absolute local-disk path in prod: {p}"
                     )
@@ -168,13 +168,9 @@ def _is_unc(path: Path) -> bool:
     return s.startswith("\\\\") or s.startswith("//")
 
 
-def _normalized_posix(path: Path) -> str:
-    """Collapse . and .. without requiring the file to exist."""
-    return os.path.normpath(str(path).replace("\\", "/")).replace("\\", "/")
-
-
-def _is_absolute_posix(path: Path) -> bool:
-    return os.path.isabs(_normalized_posix(path))
+def _effective_posix(path: Path) -> str:
+    """Follow existing symlinks and collapse .. . The file does not have to exist."""
+    return os.path.realpath(os.path.abspath(str(path))).replace("\\", "/")
 
 
 def _is_app_service_home(path: Path) -> bool:
@@ -182,10 +178,9 @@ def _is_app_service_home(path: Path) -> bool:
     SQLite WAL can't coordinate readers/writers across processes on SMB -- the
     background job worker silently stops seeing jobs the web workers enqueue.
     Keep precious.db/cache.db on local disk (e.g. /tmp/v3data); Litestream gives
-    precious.db its durability. (This is the bug _is_unc missed: the share shows
-    up as a plain /home path, not a // UNC.) Collapse /tmp/../home/... so a
-    traversal cannot hide on the share."""
-    return _normalized_posix(path).startswith("/home/")
+    precious.db its durability. Resolve through symlinks and /tmp/../home/... so
+    neither a traversal nor a linked parent can hide on the share."""
+    return _effective_posix(path).startswith("/home/")
 
 
 def load_config(*, is_beta: bool = False) -> Config:

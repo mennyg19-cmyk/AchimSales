@@ -262,6 +262,28 @@ def test_prod_relative_serving_path_refuses_boot(tmp_path: Path):
     assert "must be absolute" in out
 
 
+def test_prod_symlink_to_home_refuses_boot(tmp_path: Path):
+    wrap = tmp_path / "wrap"
+    wrap.mkdir()
+    (wrap / "to-home").symlink_to("/home")
+    serving = wrap / "to-home" / "site" / "v3data" / "precious.db"
+    root = _stub_wwwroot(tmp_path)
+    env = _base_env(
+        tmp_path,
+        root,
+        LITESTREAM_BIN=str(tmp_path / "missing-litestream"),
+        SITE_PRECIOUS_DB_PATH=str(serving),
+        LITESTREAM_AZURE_ACCOUNT_KEY="test-key",
+        LITESTREAM_AZURE_ACCOUNT_NAME="acct",
+        LITESTREAM_AZURE_CONTAINER="container",
+        LITESTREAM_AZURE_SITE_PATH="site-precious.db",
+    )
+    proc = _run_startup(env, tmp_path)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 1
+    assert "serving db on /home" in out
+
+
 def test_prod_bad_litestream_checksum_refuses_boot(tmp_path: Path):
     root = tmp_path / "wwwroot"
     root.mkdir()

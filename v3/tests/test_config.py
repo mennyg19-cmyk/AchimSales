@@ -1,5 +1,6 @@
 """Security: the app must fail closed on insecure production config (rule 6)."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -88,6 +89,21 @@ def test_prod_rejects_home_share_via_dotdot():
 def test_prod_rejects_relative_db_path():
     with pytest.raises(ConfigError, match="absolute local-disk path"):
         _cfg(precious_db_path=Path("./.data/precious.db")).validate()
+
+
+def test_prod_rejects_home_share_via_symlink(tmp_path):
+    wrap = tmp_path / "wrap"
+    wrap.mkdir()
+    (wrap / "to-home").symlink_to("/home")
+    with pytest.raises(ConfigError, match="/home share"):
+        _cfg(precious_db_path=wrap / "to-home" / "site" / "v3data" / "precious.db").validate()
+
+
+def test_prod_rejects_backslash_cache_path_on_posix():
+    if os.name == "nt":
+        pytest.skip("backslash is a path separator on Windows")
+    with pytest.raises(ConfigError, match="absolute local-disk path"):
+        _cfg(cache_db_path=Path(r"\tmp\v3data\cache.db")).validate()
 
 
 def test_prod_accepts_local_tmp_db_path():
