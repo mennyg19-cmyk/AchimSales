@@ -21,7 +21,7 @@ function announceDash(text: string): void {
   if (!live) return;
   live.hidden = !text;
   live.textContent = text;
-  if (text) live.setAttribute("role", "alert");
+  live.setAttribute("role", text ? "alert" : "status");
 }
 
 // --- dashboard list ---------------------------------------------------------

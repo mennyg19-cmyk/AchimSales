@@ -4,7 +4,7 @@
  * page-loading overlay, and custom pull-to-refresh. Behavior matches live.
  */
 
-import { hiddenPollMs, openDialog } from "./dialog";
+import { openDialog, watchHiddenPoll } from "./dialog";
 
 declare const feather: { replace: () => void } | undefined;
 
@@ -259,12 +259,7 @@ function initNotificationBadges(): void {
     }
   }
   poll();
-  const tick = () => { void poll(); };
-  let timer = window.setInterval(tick, hiddenPollMs(30000));
-  document.addEventListener("visibilitychange", () => {
-    window.clearInterval(timer);
-    timer = window.setInterval(tick, hiddenPollMs(30000));
-  });
+  watchHiddenPoll(() => { void poll(); }, 30000);
 }
 
 interface ActiveReportJob {
@@ -506,12 +501,7 @@ function initReportJobsBar(): void {
     }
   }
   poll();
-  const tickJobs = () => { void poll(); };
-  let jobTimer = window.setInterval(tickJobs, hiddenPollMs(5000));
-  document.addEventListener("visibilitychange", () => {
-    window.clearInterval(jobTimer);
-    jobTimer = window.setInterval(tickJobs, hiddenPollMs(5000));
-  });
+  watchHiddenPoll(() => { void poll(); }, 5000);
 }
 
 function initExternalLogin(): void {

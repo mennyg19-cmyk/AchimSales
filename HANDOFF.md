@@ -2,23 +2,18 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 8 UI/accessibility **implementation done**. Loop A re-pass FAIL (network Add user + badge contrast). Fixes in the working tree. Draft PR #1. Keep draft. Do not merge or deploy Production. Fresh Loop A re-pass2 next; then B/C. Do not start Phase 9.
+**Status:** Phase 8 UI/accessibility **Loops A and B PASS**. Loop C PASS with three nits; nit fixes are in the next commit. Draft PR #1. Keep draft. Do not merge or deploy Production. Loop C re-pass next, then close the Phase 8 gate. Do not start Phase 9 until that re-pass is green.
 
 ## What's done
 
 - Q1–Q11 logged. Phases 0–7 closed. Phase 7 gate `99ba689` / docs `10096e4`.
-- Phase 8:
-  - Shared `openDialog` (inert, trap, Escape, restore).
-  - Contrast: dark text primary vs `--primary-fill` for buttons; commission headers `#1a5a94`.
-  - 44px leftover filter/close/menu targets. Table wraps cannot grow the document.
-  - CLO pick-page lookup retry uses `watchHiddenPoll` (no inline script).
-  - Missing `from_report` draft opens the wizard so the alert is visible (`679bded`).
-  - Browser matrix (Playwright + ComputerUse video). Reporting API unset → run fails closed with a visible error.
+- Phase 8 implementation + browser matrix. Loop A PASS after two FAIL cycles (`def0df8`, `6e7755c`). Token-test `c4b913b`. Loop B PASS. CI 15/15 on `c4b913b`.
+- Loop C nits: shell pollers now `watchHiddenPoll`; lookup poll no longer writes dead `lookupPollTimer`; dash live region resets `role` when cleared. Five live-region helpers left as-is (different role/live contracts).
 
 ## What's next
 
-1. Fresh Loop A re-pass (`gpt-5.6-sol-high`, not resume). Then B/C (`claude-sonnet-5-thinking-high`). Trust-boundary only if a reviewer says auth/roles were newly touched.
-2. Do not start Phase 9 until that review gate passes.
+1. Fresh Loop C re-pass (`claude-sonnet-5-thinking-high`, not resume). If green, close Phase 8 and start Phase 9.
+2. Trust-boundary N/A (presentation/client only).
 3. Live Azure empty-disk drill stays owner BLOCKED.
 
 ## Open / BLOCKED

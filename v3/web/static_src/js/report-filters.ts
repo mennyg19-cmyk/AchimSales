@@ -5,7 +5,6 @@ import {
   selectedCustomers, customerOptions, setCustomerOptions,
   customerPickerOpen, setCustomerPickerOpen,
   customerHandlersBound, setCustomerHandlersBound,
-  setLookupPollTimer,
   pendingSalesman, setPendingSalesman,
   previewTimer, setPreviewTimer,
   pendingLayout, setPendingLayout,
@@ -557,7 +556,6 @@ export function pollLookupStatus(): void {
       setLookupStatusText("");
       lookupPollStop?.();
       lookupPollStop = null;
-      setLookupPollTimer(null);
       await loadSalesmen();
       await loadCustomers();
       return;
@@ -569,7 +567,6 @@ export function pollLookupStatus(): void {
   void tick();
   lookupPollStop?.();
   lookupPollStop = watchHiddenPoll(() => { void tick(); }, 2500);
-  setLookupPollTimer(1);
 }
 
 export async function initLookups(): Promise<void> {

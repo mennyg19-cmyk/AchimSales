@@ -18,7 +18,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Light text `--primary` is `#1d4ed8` so chips/status on `--primary-light` stay ≥4.5:1; fill stays `#2563eb`. Light success/error/warning and dark error tokens are the darker/lighter values that pass on their tint surfaces. Admin `api()` turns a dropped network request into a 503 JSON error so Add user still announces.
 - Monochrome-dark `--primary` is light zinc (`#d4d4d8`) on cards; `--primary-fill` stays `#52525b`. Done/failed report-job fabs use darker greens/reds (`#15803d` / `#b91c1c`, with dark-theme overrides) so white labels stay ≥4.5:1.
 - Export/More `bindMenu` closes on Tab as well as Escape and returns focus to the button. Report-page customer picker Arrow/Enter/Escape matches `SearchablePicker`.
-- Admin `#addUserMsg`, report `#emailMsg`, dashboard refresh/timeout `#dashLive`, and schedule Send now `#scheduleLive` announce failures.
+- Shell notification and recent-job pollers use `watchHiddenPoll`. Lookup polling no longer writes the unused `lookupPollTimer` sentinel. Dashboard live region resets `role` to `status` when cleared.
 - Missing `from_report` draft calls `openWizard()` then `masterMsg` so the alert is not trapped in a hidden wizard.
 - Customer Last Order pick-page lookup retries use `watchHiddenPoll` in `customer_last_order.ts`.
 

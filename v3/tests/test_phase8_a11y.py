@@ -41,6 +41,17 @@ def test_dialog_helper_inerts_background():
     assert "watchHiddenPoll" in src
 
 
+def test_shell_and_lookup_pollers_use_watch_hidden_poll():
+    main = (ROOT / "web/static_src/js/main.ts").read_text()
+    assert main.count("watchHiddenPoll(") >= 2
+    assert "hiddenPollMs" not in main
+    filters = (ROOT / "web/static_src/js/report-filters.ts").read_text()
+    assert "setLookupPollTimer" not in filters
+    dash = (ROOT / "web/static_src/js/dashboard.ts").read_text()
+    announce = dash.split("function announceDash", 1)[1].split("// --- dashboard list", 1)[0]
+    assert 'setAttribute("role", text ? "alert" : "status")' in announce
+
+
 def test_schedule_draft_failure_has_an_error_string():
     src = (ROOT / "web/static_src/js/master_wizard.ts").read_text()
     assert "Could not copy this report into a schedule" in src
