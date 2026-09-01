@@ -336,15 +336,22 @@ class EmailService:
 
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
                 sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
-        # "Success" means every REQUESTED target was actually delivered. An email
-        # target is delivered when recipients exist and the send didn't hard-fail
-        # (the .eml + outbox row is the delivery record when Graph/SMTP are
-        # unconfigured). A requested SharePoint upload that failed makes the whole
-        # delivery fail — otherwise a SharePoint-only send could look successful
-        # while nothing was actually delivered.
+        # Email that already reached an inbox is success even if a folder
+        # upload failed. Failing that used to make the scheduler retry and
+        # Graph would send a second copy (test-mode Test folder is the usual case).
+        # SharePoint-only sends still fail when the upload fails.
         sp_requested = bool(sp_path)
+        mail_went_out = bool(recipients) and (
+            sent or channel in ("graph", "smtp", "outbox")
+        )
         if not error and sp_requested and not sp_saved:
-            error = sp_error or "SharePoint upload failed"
+            sp_miss = sp_error or "SharePoint upload failed"
+            if mail_went_out:
+                # Inbox already has the mail. Failing here makes the scheduler
+                # retry and Graph sends a second copy to the test list.
+                sp_error = sp_error or sp_miss
+            else:
+                error = sp_miss
         email_delivered = bool(recipients) and not error
         ok = (email_delivered or sp_saved) and not error
         status = "sent" if (ok and sent) else ("outbox" if ok else "failed")

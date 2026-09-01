@@ -44,6 +44,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Catch-up window fail then regular success is one run, no `[FAIL]`.
 - Tick flushes held notices.
 - Runbook: fail then success is one heartbeat; `main()` wraps retry.
+- `[TEST]` mail that already went out, then Test-folder upload fails: no second Graph send, no `[FAIL]`.
 
 **Expected behavior:**
 - One status email per schedule run. Fail then success is not `[FAIL]` plus a later pass.
@@ -180,7 +181,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Live Daily/YTD/Monthly folders are never written while test mode is on.
 
 **Edge cases:**
-- Requested live SharePoint path that fails still fails the whole delivery (unchanged).
+- Email already sent + folder upload failed: delivery stays ok. Scheduler must not send a second copy.
+- SharePoint-only (no recipients) still fails when the upload fails.
 - Graph 413 on a small attachment retries without the file, uploads to `Test` if needed, and includes the download link.
 - Chunked upload with no `webUrl` in the session response still gets a URL (GET item, then org view link).
 

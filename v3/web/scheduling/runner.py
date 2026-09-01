@@ -57,6 +57,10 @@ _RECOVERED_RETRY_REASON = "an earlier worker run failed or was interrupted"
 _PRIOR_FAIL_REASON = "an earlier run of this schedule failed today"
 
 
+def _inbox_already_got_mail(result: DeliveryResult) -> bool:
+    return bool(result.sent_via_smtp or result.send_channel in ("graph", "smtp"))
+
+
 def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str]:
     reasons = "; ".join(
         str(err).strip() for err in prior_errors if str(err).strip()
@@ -344,6 +348,8 @@ class ScheduleRunner:
                         body_text=send_body,
                     )
                 if not outcome.result.ok:
+                    if _inbox_already_got_mail(outcome.result):
+                        return outcome
                     raise RuntimeError(outcome.result.error or "delivery failed")
                 return outcome
             except Exception as exc:

@@ -956,6 +956,53 @@ def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypat
     assert "retried and succeeded" in sent["body_text"]
 
 
+def test_runner_does_not_resend_when_mail_already_went_out(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    AppSettingsRepository(db).set_schedule_test(enabled=True, emails=["menny@x.com"])
+
+    class FakeEmail:
+        def __init__(self):
+            self.notices = []
+
+        def send_notice(self, **kwargs):
+            self.notices.append(kwargs)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = 0
+            self.email = FakeEmail()
+
+        def run_and_deliver(self, **kwargs):
+            self.calls += 1
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=False, error="SharePoint upload failed",
+                    recipients=["menny@x.com"], sent_via_smtp=True,
+                    send_channel="graph",
+                ),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"},
+        recipients="customers@x.com",
+        sharepoint_path="Direct Reports/Invoiced Report/Daily")
+    runner.run(mid, MASTER)
+    assert delivery.calls == 1
+    assert delivery.email.notices == []
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "success"
+
+
 def test_recovered_run_skips_when_already_sent_today(tmp_path, monkeypatch):
     monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
     db = Database(tmp_path / "p.db", tmp_path / "c.db")

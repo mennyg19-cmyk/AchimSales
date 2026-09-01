@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 Test-list double mail after folder upload fail
+**What you asked for:** It's the test emails that are failing and then succeeding that I'm seeing double emails for.
+**What I had to decide:** Whether a Test-folder (or live folder) upload fail should still fail the whole send after Graph already delivered.
+**What I chose:** If the inbox already got the mail, delivery is ok. The scheduler must not retry Graph. Folder error stays on the result. SharePoint-only sends still fail when the upload fails.
+**Why:** Test mode always uploads to `Direct Reports/Test`. Graph would send, the Test upload would fail, the runner retried, and the test list got a second copy (and sometimes `[FAIL]` too).
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-01 One status email when a schedule fails then succeeds
 **What you asked for:** I'm still getting failure and success emails for the same schedule runs.
 **What I had to decide:** The one-mail hold lived on a diverged branch and was overwritten when later `cursor/**` deploys took production.

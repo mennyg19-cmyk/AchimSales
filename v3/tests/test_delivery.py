@@ -346,7 +346,7 @@ def test_sharepoint_only_failure_fails_the_delivery(email):
     assert "graph 500" in (res.error or "") or "SharePoint" in (res.error or "")
 
 
-def test_email_ok_but_sharepoint_failure_still_fails(email):
+def test_email_sent_keeps_ok_when_sharepoint_fails(email):
     svc, *_ = email
     def boom(*a, **k):
         raise RuntimeError("graph down")
@@ -354,8 +354,26 @@ def test_email_ok_but_sharepoint_failure_still_fails(email):
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="",
                       report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
                       sharepoint_path="Ordered/Daily")
-    # A requested target failed -> the whole delivery is a failure (surfaced to the job).
-    assert res.ok is False
+    assert res.ok is True
+    assert res.sharepoint_saved is False
+    assert "graph down" in (res.sharepoint_error or "")
+
+
+def test_graph_send_then_sharepoint_fail_does_not_mark_failed(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+
+    def boom(*a, **k):
+        raise RuntimeError("Test folder 500")
+    svc.sharepoint.upload_file = boom  # type: ignore[method-assign]
+    res = svc.deliver(subject="[TEST] Nightly", recipients_raw="menny@x.com",
+                      body_text="", report_name="Ordered", filename="r.xlsx",
+                      xlsx_bytes=b"x", sharepoint_path=TEST_SHAREPOINT_FOLDER)
+    assert res.ok is True
+    assert res.send_channel == "graph"
+    assert len(graph.calls) == 1
+    assert res.sharepoint_saved is False
+    assert "Test folder 500" in (res.sharepoint_error or "")
 
 
 def test_sharepoint_rejects_path_traversal(tmp_path):
