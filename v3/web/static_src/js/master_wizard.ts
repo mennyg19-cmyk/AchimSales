@@ -821,11 +821,13 @@ async function consumeReportDraft(): Promise<void> {
   sessionStorage.removeItem(REPORT_DRAFT_KEY);
   history.replaceState(null, "", location.pathname + location.hash);
   if (!draft?.report_key) {
+    openWizard();
     masterMsg("Could not copy this report into a schedule. Open the report and tap Schedule from report again, or set the filters here by hand.", true);
     return;
   }
   const form = masterForm();
   if (!form) {
+    openWizard();
     masterMsg("Could not open the schedule wizard for that report. Add a schedule here and set the filters by hand.", true);
     return;
   }

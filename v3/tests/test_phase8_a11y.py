@@ -73,3 +73,11 @@ def test_customer_last_order_pick_uses_bundled_script():
     src = (ROOT / "web/static_src/js/customer_last_order.ts").read_text()
     assert "watchHiddenPoll" in src
     assert "initPick" in src
+
+
+def test_from_report_failure_opens_the_wizard():
+    src = (ROOT / "web/static_src/js/master_wizard.ts").read_text()
+    chunk = src.split("async function consumeReportDraft", 1)[1].split("export function bindMasterWizard", 1)[0]
+    fail = chunk.split("if (!draft?.report_key)", 1)[1].split("const form = masterForm()", 1)[0]
+    assert "openWizard()" in fail
+    assert "Could not copy this report into a schedule" in fail
