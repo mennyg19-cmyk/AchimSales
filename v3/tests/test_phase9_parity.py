@@ -45,3 +45,6 @@ def test_hashed_lock_has_hashes():
     text = (V3_ROOT.parent / "requirements.txt").read_text()
     assert "--hash=sha256:" in text
     assert "Flask>=" not in text
+    # pytest 8 on Python 3.10 pulls these; an unhashed extra fails CI install.
+    assert "\nexceptiongroup==" in text
+    assert "\ntomli==" in text

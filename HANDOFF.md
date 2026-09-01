@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 9 implementation done; **review gate waits on CI** (`36aaa72` lock fix). Draft PR #1. Keep draft. Do not merge or deploy Production.
+**Status:** Phase 9 implementation done; **review gate waits on CI** (hashed lock must install on Python 3.10, including pytest extras). Draft PR #1. Keep draft. Do not merge or deploy Production.
 
 ## What's done
 

@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 Phase 9: hash pytest's 3.10 extras
+**What I had to decide:** Leave pytest's Python 3.10 extras as transitive unpinned deps, or pin them in the hashed lock.
+**Options I considered:** (1) Compile the lock on 3.10 only. (2) Pin `exceptiongroup` and `tomli` in `requirements.in` so a 3.12 compile still hashes them. (3) Drop `--require-hashes` in CI.
+**What I chose:** (2).
+**Why:** CI failed after the pandas/numpy cap: pytest 8.4.2 on 3.10 pulls `exceptiongroup>=1` with no pin/hash. Azure is also 3.10. Compiling on this 3.12 VM omits those extras unless they are direct pins.
+**Status:** DECIDED — Phase 9.
+
 ## 2026-09-01 Phase 9: hashed Python lock
 **What I had to decide:** Pin hashes on the Azure 3.10 set, or keep version ranges.
 **Options I considered:** (1) Leave ranges. (2) `pip-compile --generate-hashes` from `requirements.in`; CI/startup install that file with `--require-hashes`.
