@@ -377,7 +377,10 @@ export function ensureCustomerHandlers(): void {
     if (customerPickerOpen && !inside(e.target as Node)) closeCustomerOptions();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && customerPickerOpen) closeCustomerOptions();
+    if (e.key === "Escape" && customerPickerOpen) {
+      e.preventDefault();
+      closeCustomerOptions();
+    }
   });
   window.addEventListener("scroll", positionCustomerOptions, true);
   window.addEventListener("resize", positionCustomerOptions);
@@ -395,28 +398,79 @@ export function ensureCustomerInput(): HTMLInputElement | null {
   search.className = "customer-search";
   search.placeholder = host.dataset.placeholder || "All customers";
   search.setAttribute("role", "combobox");
+  search.setAttribute("aria-autocomplete", "list");
+  search.setAttribute("aria-expanded", "false");
+  search.setAttribute("aria-haspopup", "listbox");
   search.addEventListener("focus", () => { setCustomerPickerOpen(true); renderCustomerOptions(); });
   search.addEventListener("input", () => { setCustomerPickerOpen(true); renderCustomerOptions(); });
+  search.addEventListener("keydown", onCustomerSearchKey);
   host.appendChild(search);
   const list = document.createElement("div");
   list.className = "customer-options";
+  list.id = "report-customer-options";
   list.hidden = true;
+  list.setAttribute("role", "listbox");
+  search.setAttribute("aria-controls", list.id);
   host.appendChild(list);
   return search;
 }
 
+function onCustomerSearchKey(e: KeyboardEvent): void {
+  if (e.key === "Escape") {
+    closeCustomerOptions();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "Enter") {
+    e.preventDefault();
+    setCustomerPickerOpen(true);
+    renderCustomerOptions();
+    const list = $("customerPicker")?.querySelector<HTMLElement>(".customer-options");
+    if (!list) return;
+    list.querySelector<HTMLInputElement>("input[type='checkbox']")?.focus();
+  }
+}
+
+function onCustomerOptionKey(e: KeyboardEvent, cb: HTMLInputElement, list: HTMLElement): void {
+  const boxes = [...list.querySelectorAll<HTMLInputElement>("input[type='checkbox']")];
+  const i = boxes.indexOf(cb);
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeCustomerOptions();
+    return;
+  }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    boxes[(i + 1) % boxes.length]?.focus();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    boxes[(i - 1 + boxes.length) % boxes.length]?.focus();
+  } else if (e.key === "Home") {
+    e.preventDefault();
+    boxes[0]?.focus();
+  } else if (e.key === "End") {
+    e.preventDefault();
+    boxes[boxes.length - 1]?.focus();
+  }
+}
+
 export function closeCustomerOptions(): void {
-  setCustomerPickerOpen( false);
-  const list = $("customerPicker")?.querySelector<HTMLElement>(".customer-options");
+  const host = $("customerPicker");
+  const search = host?.querySelector<HTMLInputElement>(".customer-search");
+  const list = host?.querySelector<HTMLElement>(".customer-options");
+  const returnToSearch = !!(list && document.activeElement && list.contains(document.activeElement));
+  setCustomerPickerOpen(false);
   if (list) list.hidden = true;
+  search?.setAttribute("aria-expanded", "false");
+  if (returnToSearch) search?.focus();
 }
 
 /** Render the open dropdown of matching customers (checkbox per row). */
 export function renderCustomerOptions(): void {
   const host = $("customerPicker");
   const search = ensureCustomerInput();
-  const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!host || !search || !list) return;
+  const listEl = host?.querySelector<HTMLElement>(".customer-options");
+  if (!host || !search || !listEl) return;
+  const list = listEl;
   if (!customerPickerOpen) { list.hidden = true; return; }
 
   const q = search.value.trim().toLowerCase();
@@ -433,6 +487,7 @@ export function renderCustomerOptions(): void {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = selectedCustomers.has(c.key);
+    cb.addEventListener("keydown", (e) => onCustomerOptionKey(e, cb, list));
     cb.addEventListener("change", () => {
       if (cb.checked) selectedCustomers.set(c.key, c.name);
       else selectedCustomers.delete(c.key);
@@ -452,6 +507,7 @@ export function renderCustomerOptions(): void {
     list.appendChild(empty);
   }
   list.hidden = false;
+  search.setAttribute("aria-expanded", "true");
   positionCustomerOptions();
 }
 

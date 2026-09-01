@@ -125,6 +125,8 @@ export function emailMsg(text: string, isError: boolean): void {
   el.textContent = text;
   el.hidden = !text;
   el.className = "modal-msg" + (isError ? " modal-msg-error" : "");
+  el.setAttribute("role", isError ? "alert" : "status");
+  el.setAttribute("aria-live", isError ? "assertive" : "polite");
 }
 
 let closeEmailDlg: (() => void) | null = null;

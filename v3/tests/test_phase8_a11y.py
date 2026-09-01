@@ -81,3 +81,51 @@ def test_from_report_failure_opens_the_wizard():
     fail = chunk.split("if (!draft?.report_key)", 1)[1].split("const form = masterForm()", 1)[0]
     assert "openWizard()" in fail
     assert "Could not copy this report into a schedule" in fail
+
+
+def test_menus_close_on_tab_and_restore_button():
+    src = (ROOT / "web/static_src/js/dialog.ts").read_text()
+    bind = src.split("export function bindMenu", 1)[1].split("export function hiddenPollMs", 1)[0]
+    assert 'e.key === "Escape" || e.key === "Tab"' in bind
+    assert "btn.focus()" in bind
+
+
+def test_report_customer_picker_matches_searchable_keyboard():
+    src = (ROOT / "web/static_src/js/report-filters.ts").read_text()
+    keys = src.split("function onCustomerSearchKey", 1)[1].split("export function renderCustomerPills", 1)[0]
+    assert 'e.key === "ArrowDown" || e.key === "Enter"' in keys
+    assert "onCustomerOptionKey" in src
+    assert "returnToSearch" in src
+    assert "search?.focus()" in src
+
+
+def test_failure_live_regions_cover_admin_email_dashboard_schedules():
+    users = (ROOT / "web/templates/admin_users.html").read_text()
+    assert 'id="addUserMsg" role="alert" aria-live="assertive"' in users
+    report = (ROOT / "web/templates/report_view.html").read_text()
+    email_tag = report.split('id="emailMsg"', 1)[1].split(">", 1)[0]
+    assert 'role="status"' in email_tag
+    assert 'aria-live="polite"' in email_tag
+    delivery = (ROOT / "web/static_src/js/report-delivery.ts").read_text()
+    fn = delivery.split("export function emailMsg", 1)[1].split("let closeEmailDlg", 1)[0]
+    assert 'setAttribute("role", isError ? "alert" : "status")' in fn
+    dash = (ROOT / "web/static_src/js/dashboard.ts").read_text()
+    assert "Could not refresh dashboard data." in dash
+    assert "Dashboard refresh timed out. Try again." in dash
+    sched_html = (ROOT / "web/templates/schedules.html").read_text()
+    assert 'id="scheduleLive" class="form-msg" role="alert" aria-live="assertive"' in sched_html
+    sched = (ROOT / "web/static_src/js/schedules.ts").read_text()
+    assert "Could not send this schedule now." in sched
+
+
+def test_monochrome_dark_primary_and_job_fabs_meet_fill_split():
+    tokens = (ROOT / "web/static_src/css/tokens.css").read_text()
+    mono_dark = tokens.split("body.monochrome-dark-theme {", 1)[1].split(
+        "body.monochrome-dark-theme .badge-admin", 1
+    )[0]
+    assert "--primary: #d4d4d8;" in mono_dark
+    assert "--primary-fill: #52525b;" in mono_dark
+    shell = (ROOT / "web/static_src/css/shell.css").read_text()
+    assert ".report-jobs-done .report-jobs-fab { background: #15803d;" in shell
+    assert "body.dark-theme .report-jobs-failed .report-jobs-fab { background: #991b1b;" in shell
+    assert "body.monochrome-dark-theme .report-jobs-done .report-jobs-fab { background: #3f3f46;" in shell

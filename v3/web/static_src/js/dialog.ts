@@ -117,7 +117,7 @@ export function bindMenu(btn: HTMLElement, menu: HTMLElement): void {
     const list = items();
     if (!list.length) return;
     const i = list.indexOf(document.activeElement as HTMLElement);
-    if (e.key === "Escape") {
+    if (e.key === "Escape" || e.key === "Tab") {
       e.preventDefault();
       menu.hidden = true;
       btn.setAttribute("aria-expanded", "false");

@@ -28,6 +28,13 @@ async function act(url: string, method: string, body?: unknown): Promise<boolean
   }
 }
 
+function announceSchedule(text: string): void {
+  const live = document.getElementById("scheduleLive");
+  if (!live) return;
+  live.hidden = !text;
+  live.textContent = text;
+}
+
 function badgeClass(status: string): string {
   if (status === "success") return "badge badge-success";
   if (status === "failure") return "badge badge-error";
@@ -136,12 +143,14 @@ function bindRowActions(): void {
       const ok = await act(b.dataset.url!, "POST", {});
       b.textContent = ok ? "Queued" : "Failed";
       if (ok) {
+        announceSchedule("");
         await refreshRunLog();
         void pollRunLog(beforeIds).finally(() => {
           b.disabled = false;
           b.textContent = "Send now";
         });
       } else {
+        announceSchedule("Could not send this schedule now.");
         setTimeout(() => { b.disabled = false; b.textContent = "Send now"; }, 2500);
       }
     });

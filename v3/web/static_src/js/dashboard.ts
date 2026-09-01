@@ -16,6 +16,14 @@ function headers(csrf: string): Record<string, string> {
   return { "Content-Type": "application/json", "X-CSRF-Token": csrf };
 }
 
+function announceDash(text: string): void {
+  const live = document.getElementById("dashLive");
+  if (!live) return;
+  live.hidden = !text;
+  live.textContent = text;
+  if (text) live.setAttribute("role", "alert");
+}
+
 // --- dashboard list ---------------------------------------------------------
 function initDashboard(): void {
   const root = document.getElementById("dashRoot");
@@ -43,7 +51,13 @@ function initDashboard(): void {
     btn.disabled = true;
     btn.textContent = "Refreshing\u2026";
     const before = (await fetch(statusUrl).then((r) => r.json()).catch(() => ({}))).last_refreshed;
-    await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
+    const posted = await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
+    if (!posted || !posted.ok) {
+      announceDash("Could not refresh dashboard data.");
+      btn.disabled = false;
+      btn.textContent = "Refresh data";
+      return;
+    }
     let tries = 0;
     let stopPoll: PollStop | null = null;
     const poll = async (): Promise<void> => {
@@ -56,6 +70,7 @@ function initDashboard(): void {
       }
       if (tries >= 40) {
         stopPoll?.();
+        announceDash("Dashboard refresh timed out. Try again.");
         if (btn) { btn.disabled = false; btn.textContent = "Refresh data"; }
       }
     };
@@ -81,12 +96,7 @@ function initExclusionToggle(): void {
     }).catch(() => null);
     if (!resp || !resp.ok) {
       box.checked = !box.checked;
-      const live = document.getElementById("dashLive");
-      if (live) {
-        live.hidden = false;
-        live.textContent = "Could not save that dashboard setting.";
-        live.setAttribute("role", "alert");
-      }
+      announceDash("Could not save that dashboard setting.");
     }
     box.disabled = false;
   });
