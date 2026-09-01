@@ -1,5 +1,5 @@
 # Files and directory prefixes copied into the App Service / emergency zip.
-# Excludes are applied while walking directories (see tools/build_artifact.py).
+# Directory walks keep git-tracked files only (see tools/build_artifact.py).
 app.py
 wsgi.py
 wsgi_dispatch.py

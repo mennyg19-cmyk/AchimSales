@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 Phase 9: artifact packs git-tracked files only
+**What I had to decide:** Exclude `.env`/`.db` by name, or intersect the allowlist with `git ls-files`.
+**Options I considered:** (1) Skip-list of known junk. (2) Git-tracked files only; fail if `git ls-files` fails.
+**What I chose:** (2).
+**Why:** Loop A F1. An emergency zip from a dirty checkout must not ship local secrets or SQLite. A skip-list misses unknown junk. CI already builds from a clean checkout.
+**Status:** DECIDED — Phase 9.
+
 ## 2026-09-01 Phase 9: hash pytest's 3.10 extras
 **What I had to decide:** Leave pytest's Python 3.10 extras as transitive unpinned deps, or pin them in the hashed lock.
 **Options I considered:** (1) Compile the lock on 3.10 only. (2) Pin `exceptiongroup` and `tomli` in `requirements.in` so a 3.12 compile still hashes them. (3) Drop `--require-hashes` in CI.

@@ -12,7 +12,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Built web reports are the eight retained keys; Customer Aging stays BACKLOG (`test_phase9_parity.py`).
 - Ordered Summary includes `CustomerAccount`. Invoiced commission fraction/per-invoice rate tests stay in `test_report_invoiced.py`. Number 4 YTD tabs stay in `test_report_number_4.py`.
 - No in-app email-distribution module under `v3/`.
-- Artifact allowlist includes `tools/supervise-web.sh` (App Service boot). Generated `v3/web/static_dist/` matches `npm run build` including vendor/help files.
+- Artifact allowlist includes `tools/supervise-web.sh` (App Service boot). Zip is git-tracked files only (ignored `.env` / local `.db` stay out). Generated `v3/web/static_dist/` matches `npm run build` including vendor/help files.
+- `deploy.ps1` requires npm, splits v3/root pytest like CI (no combined `v3/tests tests`).
 
 **Expected behavior:**
 - Parity matrix in `REPORT-PARITY.md` matches the registry.

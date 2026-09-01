@@ -66,8 +66,9 @@ The deploy job uses GitHub Environment `production`
 (https://reports.achimonline.com). Required reviewers for that Environment are
 set in the GitHub repo settings, not in YAML. Cloud Agent `cursor/**` branches
 do not deploy to the Azure Production slot. Emergency zip deploy is
-`deploy.ps1`, which runs the same pytest/frontend checks it can find and
-zips `tools/artifact-allowlist.txt` via `tools/build_artifact.py`.
+`deploy.ps1`, which requires python and npm, runs the same frontend/static
+and split pytest commands CI uses, then zips git-tracked allowlist files
+via `tools/build_artifact.py`.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 

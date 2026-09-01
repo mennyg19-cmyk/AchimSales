@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 9 implementation done; **review gate waits on CI** (rebuild `schedules.js.map` after the EOF trim). Draft PR #1. Keep draft. Do not merge or deploy Production.
+**Status:** Phase 9 Loop A FAIL findings fixed (tracked-only zip, `deploy.ps1` pytest/npm). Re-pass next. Draft PR #1. Keep draft. Do not merge or deploy Production.
 
 ## What's done
 

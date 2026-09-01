@@ -17,25 +17,34 @@ foreach ($candidate in @("python", "py")) {
     }
 }
 if (-not $py) { throw "python is required (same as CI)" }
-
-if (Get-Command npm -ErrorAction SilentlyContinue) {
-    Push-Location (Join-Path $scriptDir "v3")
-    try {
-        npm ci
-        npx tsc --noEmit
-        if ($LASTEXITCODE -ne 0) { throw "tsc --noEmit failed" }
-        npm run build
-        if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
-    } finally {
-        Pop-Location
-    }
-    git diff --exit-code -- v3/web/static_dist/
-    if ($LASTEXITCODE -ne 0) { throw "v3/web/static_dist does not match npm run build" }
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw "npm is required (same as CI)"
 }
 
+Push-Location (Join-Path $scriptDir "v3")
+try {
+    npm ci
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+    npx tsc --noEmit
+    if ($LASTEXITCODE -ne 0) { throw "tsc --noEmit failed" }
+    npm run build
+    if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
+} finally {
+    Pop-Location
+}
+git diff --exit-code -- v3/web/static_dist/
+if ($LASTEXITCODE -ne 0) { throw "v3/web/static_dist does not match npm run build" }
+
+Push-Location (Join-Path $scriptDir "v3")
+try {
+    & $py -m pytest tests -q --tb=short
+    if ($LASTEXITCODE -ne 0) { throw "v3 pytest failed (exit $LASTEXITCODE)" }
+} finally {
+    Pop-Location
+}
 $env:PYTHONPATH = $scriptDir
-& $py -m pytest v3/tests tests -q --tb=short
-if ($LASTEXITCODE -ne 0) { throw "pytest failed (exit $LASTEXITCODE)" }
+& $py -m pytest tests -q --tb=short
+if ($LASTEXITCODE -ne 0) { throw "root pytest failed (exit $LASTEXITCODE)" }
 
 $zipPath = Join-Path $scriptDir "app.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }

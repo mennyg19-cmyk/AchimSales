@@ -1,12 +1,14 @@
 """Copy the Production allowlist into a directory or zip.
 
 CI and deploy.ps1 must use this file. Do not invent a second exclude list.
+Packs git-tracked files only so a dirty checkout cannot ship .env or local DBs.
 """
 
 from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import time
 import zipfile
 from pathlib import Path
@@ -25,14 +27,27 @@ SKIP_DIR_NAMES = {
 SKIP_SUFFIXES = {".map", ".pyc"}
 
 
-def _includes() -> list[str]:
+def _includes(allowlist_path: Path | None = None) -> list[str]:
+    path = allowlist_path or ALLOWLIST
     lines: list[str] = []
-    for raw in ALLOWLIST.read_text(encoding="utf-8").splitlines():
+    for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         lines.append(line.rstrip("/"))
     return lines
+
+
+def _git_tracked(root: Path) -> set[str]:
+    proc = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z"],
+        check=False,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", errors="replace").strip() or f"exit {proc.returncode}"
+        raise RuntimeError(f"artifact builder needs a git checkout (git ls-files failed: {err})")
+    return {p.replace("\\", "/") for p in proc.stdout.decode("utf-8").split("\0") if p}
 
 
 def _should_skip(rel: Path) -> bool:
@@ -43,17 +58,24 @@ def _should_skip(rel: Path) -> bool:
     return False
 
 
-def iter_artifact_files(root: Path | None = None) -> list[Path]:
-    """Repo-relative paths that belong in the deploy artifact."""
+def iter_artifact_files(
+    root: Path | None = None,
+    *,
+    allowlist_path: Path | None = None,
+) -> list[Path]:
+    """Repo-relative git-tracked paths that belong in the deploy artifact."""
     root = root or ROOT
+    tracked = _git_tracked(root)
     out: list[Path] = []
     seen: set[Path] = set()
-    for item in _includes():
+    for item in _includes(allowlist_path):
         path = root / item
         if not path.exists():
             raise FileNotFoundError(f"allowlist path missing: {item}")
         if path.is_file():
             rel = Path(item)
+            if rel.as_posix() not in tracked:
+                continue
             if rel not in seen:
                 out.append(rel)
                 seen.add(rel)
@@ -63,6 +85,8 @@ def iter_artifact_files(root: Path | None = None) -> list[Path]:
                 continue
             rel = found.relative_to(root)
             if _should_skip(rel) or rel in seen:
+                continue
+            if rel.as_posix() not in tracked:
                 continue
             out.append(rel)
             seen.add(rel)
