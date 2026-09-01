@@ -15,6 +15,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Tabulator MIT text is vendored and linked from Settings (`TABULATOR-LICENSE.txt`).
 - Source checks in `test_phase8_a11y.py`. Browser matrix (roles, widths, themes, flows) is the phase gate, not this file.
 - Dark theme uses `--primary` for text (`#60a5fa`) and `--primary-fill` (`#2563eb`) for filled buttons so white labels stay ≥4.5:1. Commission card headers stay `#1a5a94` on white text. Filter/close leftovers are 44px (`col-filter-btn`, `group-pill-x`).
+- Missing `from_report` draft calls `openWizard()` then `masterMsg` so the alert is not trapped in a hidden wizard.
+- Customer Last Order pick-page lookup retries use `watchHiddenPoll` in `customer_last_order.ts`.
 
 **Expected behavior:**
 - Dialogs trap focus, Escape closes, opener is restored.
