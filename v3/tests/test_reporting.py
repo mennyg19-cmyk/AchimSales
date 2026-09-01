@@ -125,9 +125,8 @@ def test_cache_key_isolates_scope():
 
 
 def test_cache_key_changes_with_every_component():
-    k = lambda **o: build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
-                                    builder_version=1, params={"a": 1}, **o)
-    baseline = k()
+    baseline = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                               builder_version=1, params={"a": 1})
     assert baseline != build_cache_key(report_key="invoiced", identity="u", scope_token="ALL",
                                        builder_version=1, params={"a": 1})
     assert baseline != build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
@@ -203,6 +202,65 @@ def test_runner_rejects_non_dict_payload(db):
     with pytest.raises(TypeError):
         runner.run(report_key="ordered", identity="u", visible_salesman_keys=None,
                    builder_version=1, params={}, builder=lambda p, v: ["not", "a", "dict"])
+
+
+def test_cancel_after_put_drops_cache(db):
+    from web.jobs.worker import JobCancelled
+
+    cache = ReportCache(db)
+    runner = ReportRunner(cache)
+    n = {"calls": 0}
+
+    def cancel():
+        n["calls"] += 1
+        return n["calls"] >= 2
+
+    with pytest.raises(JobCancelled):
+        runner.run(
+            report_key="ordered", identity="u", visible_salesman_keys=None,
+            builder_version=1, params={},
+            builder=lambda p, v: {"tabs": [{"name": "T", "rows": [{"v": 1}]}]},
+            cancel_check=cancel,
+        )
+    key = build_cache_key(
+        report_key="ordered", identity="u",
+        scope_token=canonical_scope_token(None),
+        builder_version=1, params={},
+    )
+    assert cache.get(key) is None
+    assert n["calls"] == 2
+
+
+def test_cache_strips_nan_and_inf(db):
+    cache = ReportCache(db)
+    key = build_cache_key(report_key="ordered", identity="u", scope_token="ALL",
+                          builder_version=1, params={})
+    cache.put(key, "ordered", {"n": float("nan"), "i": float("inf"), "ok": 1.5})
+    payload = cache.get(key).payload
+    assert payload["n"] is None
+    assert payload["i"] is None
+    assert payload["ok"] == 1.5
+
+
+def test_master_exports_expire_after_90_days(db):
+    from web.data.repositories.exports import (
+        EXPORT_TYPE_MASTER, EXPORT_TYPE_ONE_TIME, ExportRepository,
+    )
+    repo = ExportRepository(db)
+    repo.put("old-master", "ordered", "o.xlsx", b"PK", export_type=EXPORT_TYPE_MASTER)
+    repo.put("mid-master", "ordered", "m.xlsx", b"PK", export_type=EXPORT_TYPE_MASTER)
+    repo.put("mid-one", "ordered", "x.xlsx", b"PK", export_type=EXPORT_TYPE_ONE_TIME)
+    with db.cache() as conn:
+        conn.execute(
+            "UPDATE report_exports SET built_at=datetime('now','-91 days') WHERE job_id='old-master'"
+        )
+        conn.execute(
+            "UPDATE report_exports SET built_at=datetime('now','-10 days') WHERE job_id IN ('mid-master','mid-one')"
+        )
+    assert repo.prune() >= 2
+    assert repo.content("old-master") is None
+    assert repo.content("mid-one") is None
+    assert repo.content("mid-master") is not None
 
 
 def test_cache_prune_removes_old_rows(db):

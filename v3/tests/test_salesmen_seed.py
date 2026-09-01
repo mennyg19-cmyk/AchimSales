@@ -62,11 +62,16 @@ def test_keys_with_email_prefers_salesgroup_display_name(db):
     assert repo.keys_with_email() == ["mkolko", "REdwards"]
 
 
-def test_reads_live_config_xlsx_if_present(db):
-    if not SEED.DEFAULT_XLSX.is_file():
-        pytest.skip("live salesman_map.xlsx not present in this checkout")
-    seeds = SEED.read_seeds_from_xlsx()
-    assert seeds, "expected at least one salesman row"
-    assert any(s.number for s in seeds)
-    n = SEED.seed_from_xlsx(db)
-    assert n == SalesmanRepository(db).count() > 0
+def test_reads_xlsx_roundtrip(db, tmp_path):
+    from openpyxl import Workbook
+
+    path = tmp_path / "salesman_map.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Key", "Number", "FullName", "DisplayName", "Email", "Commission %"])
+    ws.append(["REdwards", "080", "Reggie Edwards", "REdwards", "r@x.com", 0.05])
+    wb.save(path)
+    seeds = SEED.read_seeds_from_xlsx(path)
+    assert seeds and seeds[0].number == "080" and seeds[0].email == "r@x.com"
+    assert SEED.seed_from_xlsx(db, path) == 1
+    assert SalesmanRepository(db).count() == 1

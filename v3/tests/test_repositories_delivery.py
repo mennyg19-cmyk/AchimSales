@@ -107,6 +107,61 @@ def test_schedule_runs_history_and_last_run(db, user_id):
     assert runs.last_run_at(sid, PERSONAL) is not None
 
 
+def test_last_run_at_ignores_manual_trigger(db, user_id):
+    sched = ScheduleRepository(db)
+    sid = sched.create(user_id, "ordered", params={}, layout={}, cadence={})
+    runs = ScheduleRunRepository(db)
+    clock = runs.start(
+        sid, PERSONAL, started_at="2026-06-01T12:00:00+00:00", trigger="scheduled")
+    runs.finish(clock, status="success", rows=1)
+    later = runs.start(
+        sid, PERSONAL, started_at="2026-06-01T18:00:00+00:00", trigger="manual")
+    runs.finish(later, status="success", rows=1)
+    assert runs.last_run_at(sid, PERSONAL) == "2026-06-01T12:00:00+00:00"
+
+
+def test_last_run_at_ignores_legacy_trigger(db, user_id):
+    from datetime import datetime, timezone
+
+    from web.scheduling import cadence as C
+
+    sched = ScheduleRepository(db)
+    sid = sched.create(user_id, "ordered", params={}, layout={}, cadence={})
+    runs = ScheduleRunRepository(db)
+    legacy = runs.start(
+        sid, PERSONAL, started_at="2026-06-01T12:00:00+00:00", trigger="legacy")
+    runs.finish(legacy, status="success", rows=1)
+    assert runs.last_run_at(sid, PERSONAL) is None
+    cad = {"freq": "daily", "time": "08:00"}
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    assert C.due_now(cad, runs.last_run_at(sid, PERSONAL), now) is True
+    assert C.due_now(cad, "2026-06-01T12:00:00+00:00", now) is False
+
+
+def test_schedule_run_prune_personal_30_master_90(db, user_id):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime(2026, 8, 31, tzinfo=timezone.utc)
+    personal = ScheduleRepository(db)
+    sid = personal.create(user_id, "ordered", params={}, layout={}, cadence={})
+    master = MasterScheduleRepository(db)
+    mid = master.create("ordered", "Nightly", params={}, layout={}, cadence={})
+    runs = ScheduleRunRepository(db)
+    old_p = runs.start(
+        sid, PERSONAL, started_at=(now - timedelta(days=40)).isoformat(), trigger="scheduled")
+    new_p = runs.start(
+        sid, PERSONAL, started_at=(now - timedelta(days=5)).isoformat(), trigger="scheduled")
+    old_m = runs.start(
+        mid, MASTER, started_at=(now - timedelta(days=100)).isoformat(), trigger="scheduled")
+    new_m = runs.start(
+        mid, MASTER, started_at=(now - timedelta(days=40)).isoformat(), trigger="scheduled")
+    assert runs.prune(now=now) == 2
+    assert runs.get(old_p) is None
+    assert runs.get(new_p) is not None
+    assert runs.get(old_m) is None
+    assert runs.get(new_m) is not None
+
+
 def test_master_schedule_crud(db):
     repo = MasterScheduleRepository(db)
     mid = repo.create("invoiced", "Nightly invoiced", params={}, layout={},

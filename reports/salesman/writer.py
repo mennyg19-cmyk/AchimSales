@@ -15,6 +15,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from core.excel_styles import BORDER_THIN, FILL_HEADER_BLUE, FILL_TOTALS, FMT_CURRENCY, FONT_HEADER
+from core.excel_writer import neutralize_excel_value
 
 log = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ def _write_salesman_header_row(ws, sort_num: int, sm_num: str, sm_name: str) -> 
     row = ws.max_row + 1
     vals = [sort_num, sm_num, sm_name] + [None] * 12
     for c in range(1, 16):
-        cell = ws.cell(row=row, column=c, value=vals[c - 1] if c <= 3 else None)
+        cell = ws.cell(row=row, column=c, value=_excel_val(vals[c - 1]) if c <= 3 else None)
         cell.border = BORDER_THIN
         if c in (4, 5, 6, 8, 9, 10, 12, 13, 14):
             cell.number_format = FMT_CURRENCY
@@ -166,8 +167,8 @@ def _write_salesman_header_row(ws, sort_num: int, sm_num: str, sm_name: str) -> 
 def _write_data_row_monthly(ws, sort_num: int, r: dict) -> None:
     row = ws.max_row + 1
     ws.cell(row=row, column=1, value=sort_num)
-    ws.cell(row=row, column=2, value=r.get("Cust. #", ""))
-    ws.cell(row=row, column=3, value=r.get("Customer Name", ""))
+    ws.cell(row=row, column=2, value=_excel_val(r.get("Cust. #", "")))
+    ws.cell(row=row, column=3, value=_excel_val(r.get("Customer Name", "")))
 
     money_vals = [
         r.get("Sales_Current", 0), r.get("Sales_Prior", 0),
@@ -197,7 +198,7 @@ def _write_totals_row_monthly(ws, sort_num: int, grp: pd.DataFrame, sm_name: str
     row = ws.max_row + 1
     ws.cell(row=row, column=1, value=sort_num)
     ws.cell(row=row, column=2, value="Total for:")
-    ws.cell(row=row, column=3, value=sm_name)
+    ws.cell(row=row, column=3, value=_excel_val(sm_name))
     for c in range(1, 16):
         ws.cell(row=row, column=c).fill = FILL_TOTALS
         ws.cell(row=row, column=c).border = BORDER_THIN
@@ -276,7 +277,7 @@ def _excel_val(v) -> None | int | float | str:
         return None
     if isinstance(v, str) and v.strip().lower() == "nan":
         return None
-    return v
+    return neutralize_excel_value(v)
 
 
 def _as_num(v):
@@ -317,5 +318,3 @@ def _apply_color_bands(ws, start_row: int, end_row: int) -> None:
                 cell.font = Font(name=base_font.name, size=base_font.sz, bold=is_bold, color="FF0000")
             else:
                 cell.font = Font(name=base_font.name, size=base_font.sz, bold=is_bold, color=band)
-
-

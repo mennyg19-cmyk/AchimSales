@@ -26,10 +26,9 @@ def _msal_app(cfg: Config):
 
 
 def _redirect_uri(cfg: Config) -> str:
-    root = request.url_root.rstrip("/")
-    if request.headers.get("X-Forwarded-Proto") == "https" and root.startswith("http://"):
-        root = "https://" + root[7:]
-    return root + cfg.redirect_path
+    from web.auth.public_origin import public_origin
+
+    return public_origin().rstrip("/") + cfg.redirect_path
 
 
 def build_login_url(cfg: Config) -> str:
@@ -47,11 +46,13 @@ def complete_login(cfg: Config) -> dict:
         return {"error": "No auth flow in session. Start login again."}
     try:
         result = _msal_app(cfg).acquire_token_by_auth_code_flow(flow, request.values.to_dict())
-    except Exception as e:  # noqa: BLE001 - surface a safe message, log the detail
+    except Exception:  # noqa: BLE001 - never echo library internals to the browser
         log.exception("MSAL token acquisition failed")
-        return {"error": f"Sign-in failed: {e}"}
+        return {"error": "Sign-in failed. Start login again."}
     if "error" in result:
-        return {"error": result.get("error_description") or result["error"]}
+        # Log the error code only. Entra error_description can carry secrets.
+        log.warning("Microsoft sign-in failed: %s", result.get("error") or "unknown")
+        return {"error": "Sign-in failed. Start login again."}
     claims = result.get("id_token_claims") or {}
     email = (claims.get("preferred_username") or claims.get("email") or claims.get("upn") or "").strip().lower()
     if not email:

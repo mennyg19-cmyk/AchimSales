@@ -121,13 +121,13 @@ def _basic_facts():
         {"InvoiceNumber": "INV1", "CustomerAccount": "100", "CustomerName": "Acme",
          "InvoiceDate": "2026-04-10", "amount": "100", "Tariff Charges": "10",
          "Freight Charges": "5", "CC Charges": "2", "salesman": "REdwards",
-         "Total Invoice": "117"},
+         "Total Invoice": "117", "commission": "0.05"},
         {"InvoiceNumber": "INV2", "CustomerAccount": "100", "CustomerName": "Acme",
          "InvoiceDate": "2026-04-12", "amount": "50", "salesman": "REdwards",
-         "Total Invoice": "50"},
+         "Total Invoice": "50", "commission": "0.05"},
         {"InvoiceNumber": "CRD1", "CustomerAccount": "100", "CustomerName": "Acme",
          "InvoiceDate": "2026-04-15", "amount": "-20", "salesman": "REdwards",
-         "Total Invoice": "-20"},
+         "Total Invoice": "-20", "commission": "0.05"},
     ])
 
 
@@ -257,9 +257,11 @@ def test_commissions_monthly_pivot_math():
     facts = S.to_facts([
         {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
          "amount": "1000", "Tariff Charges": "100", "Freight Charges": "50",
-         "CC Charges": "25", "salesman": "REdwards", "Total Invoice": "1175"},
+         "CC Charges": "25", "salesman": "REdwards", "Total Invoice": "1175",
+         "commission": "0.05"},
         {"InvoiceNumber": "CRD1", "CustomerAccount": "1", "InvoiceDate": "2026-04-20",
-         "amount": "-200", "salesman": "REdwards", "Total Invoice": "-200"},
+         "amount": "-200", "salesman": "REdwards", "Total Invoice": "-200",
+         "commission": "0.05"},
     ])
     tabs = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
                                 ytd_facts=facts, year=2026, end_month=4))
@@ -280,10 +282,76 @@ def test_commissions_monthly_pivot_math():
 def test_adapter_reads_commission_rate_as_fraction():
     # A fraction passes through untouched...
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "0.06"}).commission_pct == 0.06
-    # ...and a whole percent (6) is normalized to 0.06 (guards a 100x mistake).
+    # ...a whole percent above 1 is normalized; exactly 1 is 100%.
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "6"}).commission_pct == 0.06
-    # Blank/zero -> no rate (builder will fall back to the master).
+    assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "1"}).commission_pct == 1.0
+    # Blank/zero is 0% (builder does not fall back to the salesman table for money).
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1"}).commission_pct == 0.0
+
+
+def test_commissions_apply_each_months_own_rate():
+    # Two rates in one year must not apply the later/higher rate to earlier months.
+    facts = S.to_facts([
+        {"InvoiceNumber": "JAN1", "CustomerAccount": "1", "InvoiceDate": "2026-01-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0.05"},
+        {"InvoiceNumber": "APR1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0.10"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    sm = comm["salesmen"][0]
+    assert sm["monthly"][0]["commission"] == 50.0   # Jan 1000 * 5%
+    assert sm["monthly"][3]["commission"] == 100.0  # Apr 1000 * 10%
+    assert sm["ytd"]["commission"] == 150.0
+    assert sm["commission_pct"] == 0.05  # table leftover, not the last invoice
+
+
+def test_zero_sp_commission_pays_zero_and_keeps_table_percent():
+    facts = S.to_facts([
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    sm = comm["salesmen"][0]
+    assert sm["ytd"]["commission"] == 0.0
+    assert sm["commission_pct"] == 0.05
+
+
+def test_commission_one_means_one_hundred_percent():
+    facts = S.to_facts([
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "1"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    sm = comm["salesmen"][0]
+    assert sm["ytd"]["commission"] == 1000.0
+    assert sm["commission_pct"] == 0.05
+
+
+def test_commission_card_number_uses_current_bucket():
+    facts = S.to_facts([
+        {"InvoiceNumber": "A", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "100", "salesman": "REdwards", "Total Invoice": "100",
+         "commission": "0.05"},
+        {"InvoiceNumber": "B", "CustomerAccount": "2", "InvoiceDate": "2026-04-11",
+         "amount": "200", "salesman": "MKolko", "Total Invoice": "200",
+         "commission": "0.03"},
+    ])
+    salesmen = {
+        salesman_key("REdwards"): _sm("redwards", "10", "Robert Edwards", 0.05),
+        salesman_key("MKolko"): _sm("mkolko", "20", "M Kolko", 0.03),
+    }
+    comm = _tabs_by_key(B.build(facts, salesmen=salesmen,
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    by_name = {s["salesman_name"]: s for s in comm["salesmen"]}
+    assert by_name["Robert Edwards"]["salesman_number"] == "10"
+    assert by_name["M Kolko"]["salesman_number"] == "20"
 
 
 def test_commissions_use_sp_rate_over_master():
@@ -296,8 +364,8 @@ def test_commissions_use_sp_rate_over_master():
     comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
                                 ytd_facts=facts, year=2026, end_month=4))["commissions"]
     sm = comm["salesmen"][0]
-    assert sm["commission_pct"] == 0.10
-    assert sm["ytd"]["commission"] == 100.0   # 1000 net * 0.10
+    assert sm["commission_pct"] == 0.05  # leftover salesman-table %
+    assert sm["ytd"]["commission"] == 100.0   # 1000 net * SP 0.10
 
 
 def test_commissions_use_sp_rate_without_master_entry():
@@ -310,7 +378,7 @@ def test_commissions_use_sp_rate_without_master_entry():
     comm = _tabs_by_key(B.build(facts, salesmen={},
                                 ytd_facts=facts, year=2026, end_month=3))["commissions"]
     sm = comm["salesmen"][0]
-    assert sm["commission_pct"] == 0.04
+    assert sm["commission_pct"] == 0.0  # no salesman-table row
     assert sm["ytd"]["commission"] == 80.0    # 2000 net * 0.04
 
 
@@ -319,6 +387,38 @@ def test_commissions_simple_fallback_without_ytd():
     comm = tabs["commissions"]
     assert comm.get("layout") != "commission_cards"
     assert comm["columns"] == B.COMMISSION_COLS
+
+
+def test_commissions_simple_uses_each_invoice_rate():
+    facts = S.to_facts([
+        {"InvoiceNumber": "A", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0.05"},
+        {"InvoiceNumber": "B", "CustomerAccount": "1", "InvoiceDate": "2026-04-11",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+         "commission": "0"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]
+    row = next(r for r in comm["rows"] if r.get("CustomerAccount") == "1")
+    assert row["Commissions"] == 50.0
+    assert row["Percent"] == 0.05
+
+
+def test_commissions_simple_does_not_reuse_dollars_across_names():
+    facts = S.to_facts([
+        {"InvoiceNumber": "A", "CustomerAccount": "1", "CustomerName": "Old Name",
+         "InvoiceDate": "2026-04-10", "amount": "1000", "salesman": "REdwards",
+         "Total Invoice": "1000", "commission": "0.05"},
+        {"InvoiceNumber": "B", "CustomerAccount": "1", "CustomerName": "New Name",
+         "InvoiceDate": "2026-04-11", "amount": "1000", "salesman": "REdwards",
+         "Total Invoice": "1000", "commission": "0"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]
+    by_name = {r["CustomerName"]: r for r in comm["rows"] if r.get("CustomerName")}
+    assert by_name["Old Name"]["Commissions"] == 50.0
+    assert by_name["New Name"]["Commissions"] == 0.0
+    assert by_name["Old Name"]["Percent"] == 0.05
+    assert by_name["New Name"]["Percent"] == 0.05
 
 
 def test_unresolved_salesman_is_unassigned():

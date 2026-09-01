@@ -1,19 +1,11 @@
-# v3 - Sales Reports (clean rebuild)
+# v3 - Sales Reports
 
-A from-scratch rebuild of the D365 Sales Reports web app. **Pixel- and
-navigation-identical to the LIVE app** (`webapp/`), with corrected/centralized
-internals: one shared report engine, a single authorization layer, durable jobs,
-a tokenized CSS system, and Litestream-backed SQLite tuned for a single Azure
-App Service B1 instance.
+The Flask site at `/`. One report engine, one authorization layer, durable jobs,
+Litestream-backed SQLite.
 
-> Status: **in active rebuild.** Not yet wired to production. See
-> [`REVIEW-LOG.md`](REVIEW-LOG.md) for what needs human sign-off and current progress.
-
-## Authoritative documents
-
-- Build plan: `.cursor/plans/v3_rebuild_plan_81336296.plan.md` (opus48, reconciled with gpt55).
-- Agent rules / non-negotiables: `.cursor/rules/v3-rebuild.mdc`.
-- Audit inputs: `test/docs/v2-audit-and-rebuild-*.md`.
+> Status: production home at `/` (this tree). Leftover decisions:
+> [`DECISION-LOG.md`](../DECISION-LOG.md) and
+> [`REPOSITORY-REVIEW.md`](../REPOSITORY-REVIEW.md).
 
 ## Layout
 
@@ -47,7 +39,8 @@ pytest
 ## Persistence
 
 `precious.db` (users, permissions, salesmen, presets, schedules, run history,
-notifications, jobs) lives on **local disk** and is replicated to Azure Blob by
-**Litestream** - never on Azure Files/SMB. `cache.db` (D365 mirror + report
-payload cache) is disposable. Postgres is a documented off-ramp behind repository
-interfaces, required only before running more than one instance.
+notifications, jobs) lives on **local disk** (`SITE_PRECIOUS_DB_PATH`, Azure
+alias `BETA_PRECIOUS_DB_PATH`) and is replicated to Azure Blob by **Litestream**
+- never on Azure Files/SMB. `cache.db` is disposable. Postgres is a documented
+off-ramp behind repository interfaces, required only before running more than
+one instance.

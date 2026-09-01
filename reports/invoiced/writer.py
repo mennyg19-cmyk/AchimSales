@@ -26,7 +26,12 @@ from core.excel_styles import (
     FMT_CURRENCY,
     FONT_HEADER,
 )
-from core.excel_writer import autosize_columns, format_money_columns, strip_datetime_tz
+from core.excel_writer import (
+    autosize_columns,
+    format_money_columns,
+    neutralize_excel_value,
+    strip_datetime_tz,
+)
 
 log = logging.getLogger(__name__)
 
@@ -158,7 +163,7 @@ def _write_commissions_sheet_simple(wb: Workbook, comm_df: pd.DataFrame) -> None
     for sm_num, grp in commissioned.groupby("SalesmanNumber", sort=True):
         sm_name = grp["SalesmanName"].iloc[0] if "SalesmanName" in grp.columns else ""
         pct = grp["Percent"].iloc[0]
-        ws.cell(row=row, column=1, value=f"Salesman #{sm_num} - {sm_name}")
+        ws.cell(row=row, column=1, value=neutralize_excel_value(f"Salesman #{sm_num} - {sm_name}"))
         ws.cell(row=row, column=1).font = Font(bold=True, size=11)
         ws.cell(row=row, column=3, value=f"{pct:.0%}")
         row += 1
@@ -215,7 +220,7 @@ def _write_data_sheet(wb: Workbook, title: str, df: pd.DataFrame, is_first: bool
                 v = ""
             elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
                 v = 0.0
-            ws.cell(row=r_idx + 2, column=c_idx, value=v)
+            ws.cell(row=r_idx + 2, column=c_idx, value=neutralize_excel_value(v))
 
     totals_row = num_rows + 2
     money_cols = {"SubTotal Invoices", "Total Tariff Charges", "Total Freight Charges",
@@ -429,7 +434,7 @@ def _write_commissions_sheet(
         ws.row_dimensions[r0 + 8].height = 15.0
         ws.row_dimensions[r0 + 9].height = 15.0
 
-        ws.cell(r0, 2).value = f"{smn} - {name}".strip(" -")
+        ws.cell(r0, 2).value = neutralize_excel_value(f"{smn} - {name}".strip(" -"))
         ws.cell(r0, ytd_col).value = "YTD Total"
 
         for mi in range(1, num_months + 1):
@@ -570,7 +575,7 @@ def _write_data_sheet_streaming(
                 v = ""
             elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
                 v = 0.0
-            cell = WriteOnlyCell(ws, value=v)
+            cell = WriteOnlyCell(ws, value=neutralize_excel_value(v))
             if money_flags[c_idx] and isinstance(v, (int, float)):
                 cell.number_format = FMT_CURRENCY
             row_cells.append(cell)
@@ -626,7 +631,7 @@ def _write_commissions_sheet_simple_streaming(wb: Workbook, comm_df: pd.DataFram
     for sm_num, grp in commissioned.groupby("SalesmanNumber", sort=True):
         sm_name = grp["SalesmanName"].iloc[0] if "SalesmanName" in grp.columns else ""
         pct = grp["Percent"].iloc[0]
-        hdr = WriteOnlyCell(ws, value=f"Salesman #{sm_num} - {sm_name}")
+        hdr = WriteOnlyCell(ws, value=neutralize_excel_value(f"Salesman #{sm_num} - {sm_name}"))
         hdr.font = Font(bold=True, size=11)
         ws.append([hdr, None, f"{pct:.0%}"])
 
@@ -697,7 +702,7 @@ def _write_commissions_sheet_streaming(
 
     def _styled_cell(value, style_id):
         st = built_styles[style_id]
-        cell = WriteOnlyCell(ws, value=value)
+        cell = WriteOnlyCell(ws, value=neutralize_excel_value(value))
         cell.font = st["font"]
         cell.fill = st["fill"]
         cell.border = st["border"]

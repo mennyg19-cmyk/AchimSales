@@ -117,6 +117,7 @@ BY_SALESMAN_COLS = [
     _FF_COL, *_AGG_QTY_COLS, *_AGG_DOL_COLS,
 ]
 SUMMARY_COLS = [
+    {"field": "CustomerAccount",          "header": "CustomerAccount",          "type": "text"},
     {"field": "Customer Name",            "header": "Customer Name",            "type": "text"},
     {"field": "Salesman",                 "header": "Salesman",                 "type": "text"},
     {"field": "Item Number",              "header": "Item Number",              "type": "text"},
@@ -277,13 +278,15 @@ def _by_ordered_desc(row: dict) -> float:
 def _build_summary(lines: list[dict]) -> dict:
     grouped: dict[tuple, dict] = {}
     for ln in lines:
-        cust = ln["CustomerName"] or ln["CustomerAccount"] or "(blank)"
+        account = ln["CustomerAccount"] or "(blank)"
         item = ln["Item#"] or "(blank)"
-        k = (cust, item)
+        k = (account, item)
         g = grouped.get(k)
         if g is None:
             g = grouped[k] = {
-                "Customer Name": cust, "Salesman": ln["Salesman"],
+                "CustomerAccount": account,
+                "Customer Name": ln["CustomerName"] or account,
+                "Salesman": ln["Salesman"],
                 "Item Number": item, "Line Description": ln["ItemName"],
                 "purchid": ln["purchid"],
                 "ExpectedArrivalDate": ln["ExpectedArrivalDate"],
@@ -309,8 +312,8 @@ def _build_summary(lines: list[dict]) -> dict:
         "summary", "Summary", SUMMARY_COLS, list(grouped.values()),
         stub=(),
         default_layout={
-            "group_levels": ["Customer Name"],
-            "sort_levels": [{"field": "Customer Name", "dir": "asc"},
+            "group_levels": ["CustomerAccount"],
+            "sort_levels": [{"field": "CustomerAccount", "dir": "asc"},
                             {"field": "Item Number", "dir": "asc"}],
         },
     )

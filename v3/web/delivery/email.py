@@ -26,7 +26,8 @@ from uuid import uuid4
 
 from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
-from web.delivery.graph_mail import GraphMailError, GraphMailer
+from web.delivery.graph_mail import GraphMailError, GraphMailer, GraphUnknownError
+from web.delivery.graph_token import GraphTokenCache
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.delivery.onedrive import OneDriveService
 
@@ -34,6 +35,21 @@ log = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _XLSX_MIME = "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_COMPANY_DOMAIN = "achimonline.com"
+
+
+def split_recipients(raw: str) -> list[str]:
+    parts = [x.strip() for x in re.split(r"[,;]", raw or "") if x.strip()]
+    return [p for p in parts if _EMAIL_RE.match(p)]
+
+
+def is_company_address(email: str) -> bool:
+    host = (email or "").strip().lower().rsplit("@", 1)
+    if len(host) != 2:
+        return False
+    domain = host[1]
+    return domain == _COMPANY_DOMAIN or domain.endswith("." + _COMPANY_DOMAIN)
+
 
 # Graph sendMail tops out around 4 MB for the whole JSON message; base64 adds
 # ~33%. Keep the raw workbook under 2.5 MB or Graph rejects the send (the
@@ -42,11 +58,6 @@ MAX_GRAPH_ATTACH_BYTES = 2_500_000
 
 # Same blue as the app header / primary buttons (tokens.css --primary).
 _BTN_BG = "#2563eb"
-
-
-def split_recipients(raw: str) -> list[str]:
-    parts = [x.strip() for x in re.split(r"[,;]", raw or "") if x.strip()]
-    return [p for p in parts if _EMAIL_RE.match(p)]
 
 
 def _slug(s: str) -> str:
@@ -139,16 +150,20 @@ class DeliveryResult:
     sharepoint_url: str | None = None
     sharepoint_error: str | None = None
     outbox_id: int | None = None
+    unknown: bool = False
 
 
 class EmailService:
     def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService,
-                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None):
+                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None,
+                 tokens: GraphTokenCache | None = None, db=None):
         self.cfg = cfg
         self.outbox = outbox
         self.sharepoint = sharepoint
         self.onedrive = onedrive
         self._graph = graph
+        self._tokens = tokens
+        self._db = db
 
     def _graph_mailer(self) -> GraphMailer | None:
         if self._graph is not None:
@@ -156,7 +171,10 @@ class EmailService:
         if not (self.cfg.tenant_id and self.cfg.client_id and self.cfg.client_secret
                 and self.cfg.email_from):
             return None
-        return GraphMailer(self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret)
+        return GraphMailer(
+            self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret,
+            tokens=self._tokens,
+        )
 
     def send_notice(self, *, to: list[str], subject: str, body_text: str) -> None:
         """Plain mail, no workbook. Used for failure alerts."""
@@ -173,12 +191,20 @@ class EmailService:
                 report_name: str, filename: str = "", xlsx_bytes: bytes | None = None,
                 sharepoint_path: str | None = None,
                 onedrive_user: str | None = None,
-                cc_raw: str = "", bcc_raw: str = "") -> DeliveryResult:
-        recipients = split_recipients(recipients_raw)
-        cc = split_recipients(cc_raw)
-        bcc = split_recipients(bcc_raw)
+                cc_raw: str = "", bcc_raw: str = "",
+                skip_email: bool = False, skip_folder: bool = False,
+                idempotency_key: str = "") -> DeliveryResult:
+        raw_to = split_recipients(recipients_raw)
+        raw_cc = split_recipients(cc_raw)
+        raw_bcc = split_recipients(bcc_raw)
+        recipients = self._sendable(raw_to)
+        cc = self._sendable(raw_cc)
+        bcc = self._sendable(raw_bcc)
         folder_path = (sharepoint_path or "").strip() or None
         if not recipients and not folder_path:
+            if raw_to or raw_cc or raw_bcc:
+                from web.data.repositories.external_recipients import APPROVAL_NEEDED
+                return DeliveryResult(ok=False, error=APPROVAL_NEEDED)
             return DeliveryResult(ok=False, error="No valid recipients.")
 
         attach = xlsx_bytes if _graph_attachable(xlsx_bytes) else None
@@ -192,8 +218,13 @@ class EmailService:
 
         # Upload first so a link-only email (YTD / other large workbooks) can
         # include the SharePoint or OneDrive URL instead of a rejected Graph send.
-        sp_saved, sp_url, sp_err = self._maybe_folder(
-            upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
+        if skip_folder:
+            # Already uploaded on a prior attempt; do not PUT again.
+            sp_saved, sp_url, sp_err = bool(folder_path), None, None
+            upload_path = None
+        else:
+            sp_saved, sp_url, sp_err = self._maybe_folder(
+                upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
         record_path = folder_path or (upload_path if sp_saved else None)
         if not folder_path:
             sp_err = None if not sp_saved else sp_err
@@ -206,16 +237,26 @@ class EmailService:
 
         sent = False
         channel = ""
-        if recipients or cc or bcc:
+        if skip_email:
+            sent = True
+            channel = "skipped"
+        elif recipients or cc or bcc:
             graph = self._graph_mailer()
             if graph is not None:
                 try:
                     self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
                         filename, attach, body_html=body_html,
+                        idempotency_key=idempotency_key,
                     )
                     sent = True
                     channel = "graph"
+                except GraphUnknownError as exc:
+                    log.exception("Graph send outcome unknown")
+                    return self._record(subject, recipients, filename, eml_name, sent=False,
+                                        channel="", sp_path=record_path, sp_saved=sp_saved,
+                                        sp_url=sp_url, sp_error=sp_err,
+                                        error=str(exc), unknown=True)
                 except GraphMailError as exc:
                     log.exception("Graph send failed")
                     return self._record(subject, recipients, filename, eml_name, sent=False,
@@ -242,6 +283,12 @@ class EmailService:
         return result
 
     # -- internals ----------------------------------------------------------
+
+    def _sendable(self, addresses: list[str]) -> list[str]:
+        if self._db is None:
+            return addresses
+        from web.data.repositories.external_recipients import ExternalRecipientRepository
+        return ExternalRecipientRepository(self._db).sendable(addresses)
 
     def _compose(self, subject, recipients, body_text, report_name, filename, xlsx_bytes,
                  cc=None, bcc=None, body_html=None):
@@ -281,13 +328,15 @@ class EmailService:
             s.send_message(msg, from_addr=self.cfg.email_from, to_addrs=recipients)
 
     def _graph_send(self, graph, recipients, cc, bcc, subject, body, filename, attach,
-                    body_html=None):
+                    body_html=None, idempotency_key=""):
         to = recipients or [self.cfg.email_from]
         try:
             graph.send(
                 sender=self.cfg.email_from, to=to, subject=subject, body_text=body,
                 body_html=body_html, filename=filename if attach else "",
                 xlsx_bytes=attach, cc=cc or None, bcc=bcc or None,
+                internet_message_id=idempotency_key,
+                client_request_id=idempotency_key,
             )
         except GraphMailError as exc:
             if attach is None or not _is_size_rejection(exc):
@@ -302,6 +351,8 @@ class EmailService:
                 sender=self.cfg.email_from, to=to, subject=subject, body_text=retry_body,
                 body_html=None, filename="", xlsx_bytes=None,
                 cc=cc or None, bcc=bcc or None,
+                internet_message_id=idempotency_key,
+                client_request_id=idempotency_key,
             )
 
     def _maybe_folder(self, path, filename, xlsx_bytes, *, onedrive_user: str | None):
@@ -320,19 +371,30 @@ class EmailService:
             return False, None, str(exc)
 
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
-                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
+                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="",
+                unknown=False) -> DeliveryResult:
         # "Success" means every REQUESTED target was actually delivered. An email
         # target is delivered when recipients exist and the send didn't hard-fail
         # (the .eml + outbox row is the delivery record when Graph/SMTP are
         # unconfigured). A requested SharePoint upload that failed makes the whole
         # delivery fail — otherwise a SharePoint-only send could look successful
         # while nothing was actually delivered.
-        sp_requested = bool(sp_path)
-        if not error and sp_requested and not sp_saved:
+        # Prod: an .eml on disk is not a received email. Dev/tests still treat
+        # the outbox file as the delivery record so the pipeline can run offline.
+        if unknown:
+            error = error or (
+                "Connection lost after submitting mail to Microsoft Graph. "
+                "Confirm whether it arrived; do not retry automatically."
+            )
+        if not error and sp_path and not sp_saved:
             error = sp_error or "SharePoint upload failed"
-        email_delivered = bool(recipients) and not error
-        ok = (email_delivered or sp_saved) and not error
+        if self.cfg.is_prod and recipients and not sent and not error:
+            error = "Mail is not configured; wrote an outbox file but nobody received it"
+        email_delivered = bool(recipients) and not error and (sent or not self.cfg.is_prod)
+        ok = (email_delivered or sp_saved) and not error and not unknown
         status = "sent" if (ok and sent) else ("outbox" if ok else "failed")
+        if unknown:
+            status = "unknown"
         if not channel and recipients and ok and not sent:
             channel = "outbox"
         outbox_id = self.outbox.enqueue(
@@ -345,4 +407,5 @@ class EmailService:
             ok=ok, error=error, recipients=recipients, eml_name=eml_name,
             sent_via_smtp=sent, send_channel=channel, sharepoint_saved=sp_saved,
             sharepoint_url=sp_url, sharepoint_error=sp_error, outbox_id=outbox_id,
+            unknown=unknown,
         )

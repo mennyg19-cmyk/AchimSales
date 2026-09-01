@@ -228,6 +228,18 @@ def test_heshy_layout_keeps_full_data_only_hides_line_and_tolerates_missing_ship
     assert names == sorted(names)
 
 
+def test_summary_groups_by_customer_account_not_name():
+    rows = [
+        dict(_rows()[0], CustomerAccount="100", customername="Acme"),
+        dict(_rows()[0], SalesOrderNumber="SO3", CustomerAccount="200",
+             customername="Acme", Item="ITM-A"),
+    ]
+    summary = next(t for t in B.build(S.to_facts_ordered_report(rows)) if t["key"] == "summary")
+    accounts = {r["CustomerAccount"] for r in summary["rows"]}
+    assert accounts == {"100", "200"}
+    assert any(c["field"] == "CustomerAccount" for c in summary["columns"])
+
+
 def test_summary_remainder_uses_sp_shipping_dollars():
     with_amt = dict(_rows()[0], ShippingDollars="12.34")
     f = S.to_fact_ordered_report(with_amt)

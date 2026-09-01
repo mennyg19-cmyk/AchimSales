@@ -16,7 +16,7 @@ from __future__ import annotations
 from report_engine import registry
 from report_engine.lib import salesman_key
 from report_engine.registry import ReportStatus
-from web.auth.principal import _PRIVILEGED, ROLE_MANAGER, Principal
+from web.auth.principal import _PRIVILEGED, ROLE_DEVELOPER, ROLE_MANAGER, Principal
 from web.data.connection import Database
 from web.data.repositories.users import User, UserRepository
 
@@ -51,6 +51,45 @@ class Authorization:
     def is_manager(self, p: Principal | None) -> bool:
         u = self._active_user(p)
         return bool(u and u.role == ROLE_MANAGER)
+
+    def is_developer(self, p: Principal | None) -> bool:
+        """Live developer check for the current identity. Impersonating a
+        salesman is not a developer — tools stay hidden until impersonation ends."""
+        u = self._active_user(p)
+        return bool(u and u.role == ROLE_DEVELOPER)
+
+    def actor_is_developer(self, p: Principal | None) -> bool:
+        """The real logged-in person is a developer (impersonation uses real_email)."""
+        u = self._actor_user(p)
+        return bool(u and u.role == ROLE_DEVELOPER)
+
+    def assert_developer(self, p: Principal | None) -> None:
+        if not self.is_developer(p):
+            raise Forbidden("Developer role required")
+
+    def _actor_user(self, p: Principal | None) -> User | None:
+        """The real logged-in person. During impersonation that is real_email."""
+        if p is None:
+            return None
+        email = (p.real_email if p.impersonating and p.real_email else p.email) or ""
+        if not email:
+            return None
+        u = self.users.get_by_email(email)
+        return u if (u and u.is_active) else None
+
+    def session_allowed(self, p: Principal | None) -> bool:
+        """May this session keep using the app?
+
+        Own session: identity must still be an active user.
+        Impersonation: the real actor must still be an active admin/developer;
+        the target may be inactive (developer diagnostic).
+        """
+        if p is None or not p.email:
+            return False
+        if p.impersonating:
+            actor = self._actor_user(p)
+            return bool(actor and self._is_privileged(actor))
+        return self._active_user(p) is not None
 
     def can_see_company_schedules(self, p: Principal | None) -> bool:
         """Admins, developers, and managers see the shared company list."""

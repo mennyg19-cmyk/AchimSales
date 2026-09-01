@@ -1,8 +1,10 @@
 # D365 Sales Reports
 
-Automated sales reporting from Dynamics 365 F&O via OData. Reports run on
-scheduled Azure Automation jobs, on demand via a Flask web app, or locally
-from the CLI.
+Automated sales reporting from Dynamics 365 F&O. The web app uses the SQL
+Reporting API. CLI and Azure Automation jobs may still use OData.
+
+Web report tabs, columns, role defaults, and approved diffs vs archive
+`b14d725`: `REPORT-PARITY.md`.
 
 ## Reports
 
@@ -59,10 +61,36 @@ The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimo
 
 **Production branch is `webapp-cache`.** GitHub Action
 `.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
-push, and also deploys `cursor/**` Cloud Agent branches to the same production
-slot. Manual zip deploy is still `deploy.ps1`.
+push, or on manual dispatch from `webapp-cache` only (any other ref is skipped).
+The deploy job uses GitHub Environment `production`
+(https://reports.achimonline.com). Required reviewers for that Environment are
+set in the GitHub repo settings, not in YAML. Cloud Agent `cursor/**` branches
+do not deploy to the Azure Production slot. Emergency zip deploy is
+`deploy.ps1`, which requires python and npm, runs the same frontend/static
+and split pytest commands CI uses, then zips git-tracked allowlist files
+via `tools/build_artifact.py`.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
+
+Boot is three processes, one App Service instance (SQLite):
+
+1. Litestream restore + replicate (outer durability).
+2. `python -m web.bootstrap` — migrations and seeds. Failure exits before traffic.
+3. `tools/supervise-web.sh` starts Gunicorn (HTTP only) and
+   `python -m web.worker_main` (job claiming, scheduler, lookup mirror,
+   heartbeats). If either sibling exits, the other is stopped so Azure restarts
+   the unit. Report jobs run in a killable child with a 45-minute cap. The
+   worker heartbeat keeps ticking during that wait. A worker restart (including
+   SIGTERM) requeues report/export/mirror jobs and cancels in-flight
+   `schedule.run` / `report.deliver` so mail is not sent twice. Email and
+   folder sends are persisted as separate legs (`prepared`, `sending`,
+   `accepted`, `sent`, `failed`, `unknown`). If the connection drops after
+   Graph may have accepted `sendMail`, that leg is `unknown` and is not
+   retried. Settings test emails get a `[UNKNOWN]` notice; History (scheduled)
+   and Schedules (email-now) have "I received it" / "Send again".
+
+`/healthz` is process liveness. `/readyz` is 503 until bootstrap has succeeded
+and (in prod) the worker and scheduler heartbeats are fresh.
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** everyone can pick (Daily Ordered, Heshy Open Orders).
@@ -77,48 +105,26 @@ python app.py             # run locally on port 5001
 ### Local CLI
 
 ```
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.txt
 cp .env.example .env      # fill in credentials
 python run.py ordered
 ```
 
-### Live vs /test vs /legacy vs /test-next
+### Site layout
 
-| Mount | Code | Role |
-|-------|------|------|
-| `/` | `v3/` (`is_beta`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
-| `/legacy` | `webapp/` | Former Live — OData, Excel-first, email distributions |
-| `/test` | `v3/` | SQL sandbox — direct link only |
-| `/beta` | — | Redirects to `/` (old bookmarks) |
-| `/test-next` | `rebuild/` | Rebuild preview — retire after home is stable |
+| Path | Code | Role |
+|------|------|------|
+| `/` | `v3/` (`is_beta=True`) | Site home — reports from the SQL Reporting API. |
+| `/beta` | — | Redirects to the same path without `/beta` (old bookmarks) |
 
-Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
-Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings). Sales by State is SQL only and is not in that list.
+Microsoft login and magic links run on this app (`/login`, `/login/start`, `/auth/callback`). People admin creates accounts; Microsoft sign-in does not auto-provision. Magic-link tokens are stored as hashes. One-time copy of leftover Live users: `flask import-live-users`. Every visible web report uses the SQL Reporting API. If SQL is missing, the run fails; there is no OData fallback in the web app. CLI and Azure Automation may still use OData under `reports/`, `core/`, `data/`, and `runbooks/`.
 
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
-On the home site, **Settings** is the control panel (same ~800px width as Live): You,
-People, Reports, Delivery, History, and (developers) Database explorer,
-notification diagnostic, and beta SQL/OData sources. Live Email Distributions
-stay on Live only. Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
-and is restored/replicated by Litestream (same as `/test`), so Settings like
-schedule test mode survive an App Service recycle.
+On the home site, **Settings** is the control panel: You, People, Reports, Delivery, History, and (developers) Database explorer and notification diagnostic. In-app Live email distributions were not ported; Azure Automation runbooks still send. The sqlite file is on local disk (`SITE_PRECIOUS_DB_PATH`, Azure alias `BETA_PRECIOUS_DB_PATH`) and is restored/replicated by Litestream, so Settings like schedule test mode survive an App Service recycle. Rollback: keep Azure `BETA_*` settings and redeploy the previous commit; the leftover `/test` replica (`LITESTREAM_AZURE_PATH`) is unused, not deleted. Forward migrations only.
 
-### Live vs /test parity
-
-Compares Excel from legacy live (`/legacy`, OData) and `/test` (Reporting API) with the same
-params. Writes a per-report diff under `.scratch/parity/<stamp>/`.
-
-```powershell
-# After signing in in the browser, copy cookie values:
-#   session     -> PARITY_LIVE_COOKIE
-#   v3_session  -> PARITY_TEST_COOKIE
-$env:PARITY_LIVE_COOKIE = "..."
-$env:PARITY_TEST_COOKIE = "..."
-python -m tools.parity
-python -m tools.parity --report invoiced
-```
+`/legacy`, `/test`, and `/test-next` are gone. Rollback: `git checkout archive/pre-cleanup-2026-08-27`.
 
 ### OneDrive deployment mirror
 
@@ -146,77 +152,30 @@ See `.env.example` for all required variables. Key groups:
   - `Sites.ReadWrite.All` — list/write the SharePoint site in `SP_SITE_URL` (or `Sites.Selected` plus a site grant)
   A 401 from the folder picker is usually a rejected token (secret expired, or consent never granted). A 403 is a valid token that still cannot read that drive.
 - **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)
-- **Web App**: `FLASK_SECRET_KEY`, `DEV_BYPASS_AUTH`
+- **Web App**: `FLASK_SECRET_KEY`, `SITE_PRECIOUS_DB_PATH` (alias `BETA_PRECIOUS_DB_PATH`). `AUTH_MODE=dev` is refused when `APP_ENV=prod`.
 
 ## Directory Structure
 
 ```
-scripts/
-  app.py                    # Azure App Service / local entry point (gunicorn)
-  run.py                    # CLI entry point for all reports
-  deploy.ps1                # Deploy webapp to Azure App Service
-  requirements.txt          # Python deps for CLI / runbooks
-  report_registry.json      # Report definitions for universal_runbook
-  .env.example              # Environment variable template
+app.py                    # local: python app.py (same WSGI as Azure)
+wsgi.py                   # gunicorn wsgi:application
+wsgi_dispatch.py          # /beta bookmark 302
+run.py                    # CLI entry point for all reports
+deploy.ps1                # Deploy to Azure App Service
+requirements.txt          # hashed pip lock (source: requirements.in)
+report_registry.json      # Report definitions for universal_runbook
+.env.example              # CLI/Automation env template; web settings: v3/.env.example
 
-  config/
-    settings.py             # Central config (Azure Automation vars + .env)
-    paths.py                # Output path resolution
-    salesman_map.py         # Salesman lookup (delegates to Excel)
-    salesman_excel.py       # Loads salesman data from salesman_map.xlsx
-    salesman_map.xlsx       # Editable salesman/subscription data
-    commission_map.py       # Commission rates by salesman
-
-  core/
-    auth.py                 # MSAL auth (D365 + Graph tokens)
-    odata.py                # OData v4 client with pagination
-    http.py                 # Shared HTTP session with retries
-    dates.py                # US Eastern date utilities + period parsing
-    columns.py              # Column detection + numeric conversion
-    excel_styles.py         # Shared Excel styling constants
-    excel_writer.py         # Shared Excel writing utilities
-    email_report.py         # Send reports by email (Graph or SMTP)
-    logging.py              # Structured logging setup
-    validation.py           # DataFrame validation before Excel write
-
-  data/
-    field_maps.py           # OData field rename maps + $select lists
-    d365_entities.py        # Entity-specific D365 fetch functions
-
-  reports/
-    base.py                 # Abstract base runner with CLI arg parsing
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report
-    customer_activity/      # Customer Activity Report
-    customer_aging/         # Customer Aging Report
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced / Shipped Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report (By Item + By Customer)
-    customer_activity/      # Customer Activity Report
-
-  runbooks/
-    universal_runbook.py    # Self-contained Azure Automation runbook
-
+config/                   # salesman/commission maps
+core/                     # D365 + Graph + Excel helpers (CLI/runbooks)
+data/                     # OData field maps
+reports/                  # CLI report runners
+runbooks/                 # Azure Automation
+tests/                    # root tests (Excel formula, WSGI)
+v3/                       # Flask site at /
+  web/                    # App factory, auth, reports UI, jobs
+  report_engine/          # SQL report math
   tests/
-    conftest.py             # Shared pytest fixtures
-    test_ordered_builder.py
-    test_invoiced_loader.py
-    test_salesman_builder.py
-    compare_reports.py      # Cell-by-cell Excel comparison tool
-
-  webapp/                   # Flask web app (deployed to Azure App Service)
-    app.py                  # Flask app factory
-    blueprints/             # Route handlers (auth, reports, dashboard, settings, api)
-    services/               # D365 data access, authorization
-    templates/              # Jinja2 HTML templates
-    static/                 # JS, CSS, manifest
-    db.py                   # SQLite database (users, settings, history)
-    config.py               # Web-specific config
-    report_api.py           # Bridge to report runners
-    requirements.txt        # Web app deps (adds Flask, gunicorn)
 ```
 
 ## Rule Preferences
@@ -225,8 +184,9 @@ Standing choices when rules disagree (also used by agents):
 
 | Topic | Choice |
 |-------|--------|
-| After a requested product change | **Commit + push.** `webapp-cache` and `cursor/**` pushes deploy via GitHub Action. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
+| After a requested product change | **Commit + push.** Production deploys only from `webapp-cache`. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
+| Home-site flag | Keep `is_beta=True` (`session` cookie, reports-only). Canonical DB env is `SITE_PRECIOUS_DB_PATH` (alias `BETA_PRECIOUS_DB_PATH` until Azure is renamed). Same for `SITE_CACHE_DB_PATH` and `LITESTREAM_AZURE_SITE_PATH`. Do not flip `is_beta` to False. |
 
 ## D365 Entity Reference
 

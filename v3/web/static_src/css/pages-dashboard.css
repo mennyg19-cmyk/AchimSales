@@ -1,0 +1,30 @@
+/* Split from pages.css. */
+
+/* -- Dashboard -- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat-card { padding: 18px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
+
+/* Dashboard tiles + table */
+.dash-tiles { margin-bottom: 20px; }
+.dash-tile { cursor: pointer; text-align: left; transition: border-color 0.12s, transform 0.06s; }
+.dash-tile:hover { border-color: var(--primary); }
+.dash-tile:active { transform: scale(0.98); }
+.dash-tile.tile-active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-light); }
+.dash-tile .stat-label { color: var(--text-muted); font-size: 13px; font-weight: 600; }
+.row-excluded { opacity: 0.55; }
+.cust-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px; }
+.cust-metric-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
+.cust-metric-value { font-size: 20px; font-weight: 700; color: var(--text); }
+.stat-label { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+
+/* -- Simple tables (dashboard / settings) -- */
+.simple-table { width: 100%; border-collapse: collapse; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; font-size: 14px; }
+.simple-table th, .simple-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.simple-table th { background: var(--bg); color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+.simple-table tr:last-child td { border-bottom: none; }
+.status-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; text-transform: uppercase; }
+.status-success { background: var(--success-light); color: var(--success); }
+.status-failure { background: var(--error-light); color: var(--error); }
+.status-running, .status-queued { background: var(--primary-light); color: var(--primary); }
+.status-cancelled { background: var(--bg); color: var(--text-muted); }

@@ -15,6 +15,7 @@ from web.data.connection import Database
 
 OVERDUE = "overdue_customer"
 REPORT_READY = "report_ready"
+DELIVERY_UNKNOWN = "delivery_unknown"
 
 
 @dataclass(frozen=True)

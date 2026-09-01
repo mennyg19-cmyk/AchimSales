@@ -69,11 +69,15 @@ def test_blank_period_with_dates_still_omits_dates():
     assert "CreatedDateTimeTo" not in out
 
 
-def test_custom_with_invalid_dates_omits_rather_than_raises():
-    out = P.translate("ordered", {"period": "custom", "start_date": "not-a-date",
-                                  "end_date": "also-bad"})
-    assert "CreatedDateTimeFrom" not in out
-    assert "CreatedDateTimeTo" not in out
+def test_custom_with_invalid_dates_raises():
+    with pytest.raises(ValueError, match="Invalid custom date range"):
+        P.translate("ordered", {"period": "custom", "start_date": "not-a-date",
+                                "end_date": "also-bad"})
+
+
+def test_custom_with_missing_dates_raises():
+    with pytest.raises(ValueError, match="Custom period needs"):
+        P.translate("ordered", {"period": "custom"})
 
 
 def test_invoiced_same_day_window_uses_end_of_day():

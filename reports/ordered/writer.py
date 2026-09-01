@@ -30,6 +30,7 @@ from core.excel_styles import (
 from core.excel_writer import (
     STREAMING_ROW_THRESHOLD,
     make_streaming_cell,
+    neutralize_excel_value,
     strip_datetime_tz,
 )
 from reports.ordered.builder import AGG_COLS, FULL_DATA_ORDER, SUMMARY_COLS
@@ -84,8 +85,9 @@ def _fulfillment_score(grp: pd.DataFrame) -> pd.Series:
 
 
 def _build_summary_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Build Summary tab: aggregate by Customer + Item Number, total per customer."""
+    """Build Summary tab: aggregate by CustomerAccount + Item Number, total per account."""
     df = df.copy()
+    df["Customer Account"] = df.get("CustomerAccount", "").fillna("").astype(str).str.strip()
     df["Customer Name"] = df.get("CustomerName", df.get("CustomerAccount", "")).fillna("").astype(str).str.strip()
     df["Salesman"] = df.get("Salesman", "").fillna("").astype(str).str.strip()
     df["Item Number"] = df.get("Item#", "").fillna("").astype(str).str.strip()
@@ -101,9 +103,10 @@ def _build_summary_data(df: pd.DataFrame) -> pd.DataFrame:
     agg_dict = {k: "sum" for k in sum_keys if k in df.columns}
     agg_dict["Line Description"] = "first"
     agg_dict["Salesman"] = "first"
+    agg_dict["Customer Name"] = "first"
 
     grouped = (
-        df.groupby(["Customer Name", "Item Number"], dropna=False, sort=True)
+        df.groupby(["Customer Account", "Item Number"], dropna=False, sort=True)
         .agg(agg_dict)
         .reset_index()
     )
@@ -115,13 +118,15 @@ def _build_summary_data(df: pd.DataFrame) -> pd.DataFrame:
     grouped["Net Price"] = ext_ord / qty_ord.replace(0, float("nan"))
     grouped["Net Price"] = grouped["Net Price"].fillna(0)
 
-    grouped = grouped.sort_values(["Customer Name", "Item Number"], na_position="last").reset_index(drop=True)
+    grouped = grouped.sort_values(["Customer Account", "Item Number"], na_position="last").reset_index(drop=True)
 
     rows = []
-    for cust, grp in grouped.groupby("Customer Name", dropna=False, sort=True):
+    for account, grp in grouped.groupby("Customer Account", dropna=False, sort=True):
+        cust_name = str(grp["Customer Name"].iloc[0]) if "Customer Name" in grp.columns else str(account)
         for _, r in grp.iterrows():
             rows.append({
-                "Customer Name": cust,
+                "Customer Account": account,
+                "Customer Name": r.get("Customer Name", cust_name),
                 "Salesman": r.get("Salesman", ""),
                 "Item Number": r.get("Item Number", ""),
                 "Line Description": r.get("Line Description", ""),
@@ -135,7 +140,8 @@ def _build_summary_data(df: pd.DataFrame) -> pd.DataFrame:
                 "_is_spacer": False,
             })
         total = {c: to_number(grp[c]).sum() if c in grp.columns else 0 for c in sum_keys}
-        total["Customer Name"] = str(cust)
+        total["Customer Account"] = str(account)
+        total["Customer Name"] = cust_name
         total["Salesman"] = grp["Salesman"].iloc[0] if "Salesman" in grp.columns else ""
         total["Item Number"] = "TOTALS"
         total["Line Description"] = ""
@@ -156,6 +162,7 @@ def _build_summary_data(df: pd.DataFrame) -> pd.DataFrame:
             except (TypeError, ValueError):
                 pass
     grand_row = {
+        "Customer Account": "",
         "Customer Name": "GRAND TOTAL",
         "Salesman": "",
         "Item Number": "",
@@ -188,7 +195,7 @@ def _write_summary_sheet(ws, summary_df: pd.DataFrame, is_write_only: bool = Fal
         for _, row in summary_df.iterrows():
             cells = []
             for col in write_cols:
-                v = row.get(col, "")
+                v = neutralize_excel_value(row.get(col, ""))
                 cell = WriteOnlyCell(ws, value=v)
                 if row.get("_is_total"):
                     cell.fill = FILL_TOTAL_ROW
@@ -208,7 +215,7 @@ def _write_summary_sheet(ws, summary_df: pd.DataFrame, is_write_only: bool = Fal
             cell.font = FONT_HEADER
         for r_idx, (_, row) in enumerate(summary_df.iterrows(), 2):
             for c_idx, col in enumerate(write_cols, 1):
-                v = row.get(col, "")
+                v = neutralize_excel_value(row.get(col, ""))
                 cell = ws.cell(row=r_idx, column=c_idx, value=v)
                 if row.get("_is_total"):
                     cell.fill = FILL_TOTAL_ROW

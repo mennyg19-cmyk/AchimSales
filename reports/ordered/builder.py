@@ -31,7 +31,7 @@ FULL_DATA_ORDER = [
 ]
 
 SUMMARY_COLS = [
-    "Customer Name", "Salesman", "Item Number", "Line Description",
+    "Customer Account", "Customer Name", "Salesman", "Item Number", "Line Description",
     "QtyOrdered", "QtyCancelled", "QtyRemainder",
     "Net Price", "Extended Price - Ordered", "Extended Price Remainder",
 ]

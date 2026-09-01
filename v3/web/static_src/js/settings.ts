@@ -1,7 +1,15 @@
 /**
- * Settings hub: flags, schedule test mode, exclusions, report visibility,
- * beta sources. Optimistic UI with rollback if the request fails.
+ * Settings hub: flags, schedule test mode, exclusions, report visibility.
+ * Optimistic UI with rollback if the request fails.
  */
+
+function announce(text: string, isError = true): void {
+  const el = document.getElementById("settingsLive");
+  if (!el) return;
+  el.hidden = !text;
+  el.textContent = text;
+  el.setAttribute("role", isError ? "alert" : "status");
+}
 
 function hub(): HTMLElement | null {
   return document.getElementById("settingsHub");
@@ -47,6 +55,7 @@ function initFlagToggles(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !enabled;
+        announce("Could not save that setting.");
       } finally {
         box.disabled = false;
       }
@@ -68,6 +77,7 @@ function initVisibilityToggles(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !enabled;
+        announce("Could not save report visibility.");
       } finally {
         box.disabled = false;
       }
@@ -98,32 +108,9 @@ function initExclusions(): void {
         if (!resp.ok) throw new Error(String(resp.status));
       } catch {
         box.checked = !included;
+        announce("Could not save that exclusion.");
       } finally {
         box.disabled = false;
-      }
-    });
-  });
-}
-
-function initBetaSources(): void {
-  const root = hub();
-  const url = root?.getAttribute("data-beta-url") || "";
-  const msg = document.getElementById("betaSourcesMsg");
-  if (!root || !url) return;
-  root.querySelectorAll<HTMLSelectElement>(".beta-source-select").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const report_key = sel.getAttribute("data-key") || "";
-      const source = sel.value;
-      sel.disabled = true;
-      try {
-        const resp = await postJson(url, { report_key, source });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error((data as { error?: string }).error || String(resp.status));
-        if (msg) { msg.hidden = false; msg.textContent = `${report_key} → ${source}`; }
-      } catch (err) {
-        if (msg) { msg.hidden = false; msg.textContent = err instanceof Error ? err.message : "Could not save."; }
-      } finally {
-        sel.disabled = false;
       }
     });
   });
@@ -234,7 +221,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initFlagToggles();
   initVisibilityToggles();
   initExclusions();
-  initBetaSources();
   initScheduleTest();
 });
 

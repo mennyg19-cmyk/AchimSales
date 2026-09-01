@@ -2,8 +2,8 @@
 {% block title %}{{ report.title }}{% endblock %}
 
 {% block head %}
-<link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
-<script src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+<link href="{{ url_for('static', filename='vendor/tabulator.min.css') }}?v={{ asset_v }}" rel="stylesheet">
+<script src="{{ url_for('static', filename='vendor/tabulator.min.js') }}?v={{ asset_v }}"></script>
 {% endblock %}
 
 {% block content %}
@@ -118,7 +118,7 @@
             <i data-feather="more-horizontal"></i> <span>More</span>
         </button>
         <div id="moreMenu" class="toolbar-dropdown" hidden role="menu">
-            <button type="button" id="scheduleBtn" class="toolbar-dropdown-item" disabled role="menuitem" title="Schedule recurring delivery of this view">
+            <button type="button" id="scheduleBtn" class="toolbar-dropdown-item" role="menuitem" title="Schedule recurring delivery of this view">
                 <i data-feather="calendar"></i> <span>Schedule</span>
             </button>
             {% if is_developer %}
@@ -131,7 +131,7 @@
 </div>
 
 <div class="report-status-row">
-    <div id="reportStatus" class="report-status" hidden>
+    <div id="reportStatus" class="report-status" hidden role="status" aria-live="polite">
         <span id="reportStatusText" class="report-status-text"></span>
         <button type="button" id="cancelRunBtn" class="btn btn-outline btn-sm" hidden title="Stop this run">Cancel</button>
     </div>
@@ -144,7 +144,7 @@
 
 <div id="reportSurface" class="report-surface" hidden>
     <div class="report-tabbar">
-        <div id="reportTabs" class="report-tabs"></div>
+        <div id="reportTabs" class="report-tabs" role="tablist" aria-label="Report tabs"></div>
         <div class="report-tabbar-right">
             <div id="reportMeta" class="report-meta"></div>
             <div class="report-result-actions" aria-label="Actions for this result">
@@ -168,7 +168,7 @@
         </div>
     </div>
     <div id="groupPills" class="group-pills" hidden></div>
-    <div class="report-table-scroll">
+    <div class="report-table-scroll" id="reportPanel" role="tabpanel">
         <div id="reportTable"></div>
     </div>
 </div>
@@ -216,7 +216,8 @@
         <div class="modal-body">
             <label class="modal-field">
                 <span>Recipients</span>
-                <input type="text" id="emailRecipients" placeholder="name@achimonline.com, other@achimonline.com">
+                <input type="text" id="emailRecipients" aria-label="Email recipients"
+                       placeholder="name@achimonline.com, other@achimonline.com">
             </label>
             <label class="modal-field">
                 <span>Subject</span>
@@ -228,7 +229,7 @@
                 <div id="spPicker" class="sp-picker"></div>
                 <div id="spSelected" class="sp-selected"></div>
             </div>
-            <div id="emailMsg" class="modal-msg" hidden></div>
+            <div id="emailMsg" class="modal-msg" role="status" aria-live="polite" hidden></div>
         </div>
         <div class="modal-foot">
             <button type="button" id="emailCancel" class="btn btn-outline">Cancel</button>
@@ -237,95 +238,6 @@
     </div>
 </div>
 
-<div id="scheduleModal" class="modal-overlay" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedTitle">
-        <div class="modal-head">
-            <h2 id="schedTitle">Schedule this report</h2>
-            <button type="button" id="schedClose" class="modal-close" aria-label="Close">&times;</button>
-        </div>
-        <div class="modal-body">
-            <p class="muted" style="font-size:13px;margin:0 0 10px;">Saves your current filters and layout. Date period on the schedule replaces any date filters in the view.</p>
-            <label class="modal-field">
-                <span>Recipients (To)</span>
-                <input type="text" id="schedRecipients" placeholder="name@achimonline.com, other@achimonline.com">
-            </label>
-            <label class="modal-field">
-                <span>CC (optional)</span>
-                <input type="text" id="schedCc" placeholder="cc@achimonline.com">
-            </label>
-            <label class="modal-field">
-                <span>BCC (optional)</span>
-                <input type="text" id="schedBcc" placeholder="bcc@achimonline.com">
-            </label>
-            <div class="modal-field-row">
-                <label class="modal-field">
-                    <span>Frequency</span>
-                    <select id="schedFreq">
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="monthly">Monthly</option>
-                    </select>
-                </label>
-                <label class="modal-field">
-                    <span>Time</span>
-                    <input type="time" id="schedTime" value="08:00">
-                </label>
-            </div>
-            <div class="modal-field" id="schedWeekdays" hidden>
-                <span>Days of week</span>
-                <div class="sched-weekdays">
-                    {% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
-                    <label class="sched-day"><input type="checkbox" value="{{ i }}"> {{ d }}</label>
-                    {% endfor %}
-                </div>
-            </div>
-            <label class="modal-field" id="schedMonthdayField" hidden>
-                <span>Day of month</span>
-                <select id="schedMonthday">
-                    {% for d in range(1, 29) %}
-                    <option value="{{ d }}">{{ d }}</option>
-                    {% endfor %}
-                    <option value="-1">Last day of month</option>
-                </select>
-            </label>
-            <label class="modal-field">
-                <span>Filename template</span>
-                <input type="text" id="schedFilename" placeholder="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}"
-                       value="{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}">
-                <span class="muted" style="font-size:12px;">Tokens:
-                    <button type="button" class="fn-token js-fn-token" data-token="{Report}">Report name</button>
-                    <button type="button" class="fn-token js-fn-token" data-token="{Schedule}">Schedule name</button>
-                    <button type="button" class="fn-token js-fn-token" data-token="{MM}">MM</button>
-                    <button type="button" class="fn-token js-fn-token" data-token="{Month}">Month</button>
-                    <button type="button" class="fn-token js-fn-token" data-token="{YYYY}">YYYY</button>
-                    <button type="button" class="fn-token js-fn-token" data-token="{Period}">Period</button>
-                    <button type="button" class="fn-token js-fn-token" data-token="{DD}">DD</button>
-                    <button type="button" class="fn-token js-fn-token" data-token="{Weekday}">Weekday</button>
-                </span>
-                <span class="ms-filename-preview">Will save as <strong id="schedFilenamePreview"></strong></span>
-            </label>
-            <div class="modal-field" id="schedOdSection" hidden>
-                <span>Also save to my OneDrive <em id="schedOdStatus" class="lookup-status"></em></span>
-                <div id="schedOdBreadcrumb" class="sp-breadcrumb"></div>
-                <div id="schedOdPicker" class="sp-picker"></div>
-                <div id="schedOdSelected" class="sp-selected"></div>
-            </div>
-            <label class="modal-field flag-row">
-                <input type="checkbox" id="schedNoDataRecipients">
-                <span>Email recipients when there is no data</span>
-            </label>
-            <label class="modal-field flag-row">
-                <input type="checkbox" id="schedNoDataMeOnly">
-                <span>Email only me when there is no data</span>
-            </label>
-            <div id="schedMsg" class="modal-msg" hidden></div>
-        </div>
-        <div class="modal-foot">
-            <button type="button" id="schedCancel" class="btn btn-outline">Cancel</button>
-            <button type="button" id="schedSave" class="btn btn-primary">Save schedule</button>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}

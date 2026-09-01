@@ -18,7 +18,7 @@ import re
 
 from web.auth.authorization import Authorization
 from web.data.repositories.exports import ExportRepository
-from web.data.repositories.jobs import JobRepository
+from web.data.repositories.jobs import JobRepository, kept_until_state
 from web.delivery.layout import apply_layout, expand_clones
 from web.jobs.worker import Handler, JobContext
 from web.reporting.cache import ReportCache
@@ -102,6 +102,27 @@ def enqueue_export(job_repo: JobRepository, *, owner_user_id: int | None, source
     )
 
 
+def load_source_payload(source, job_repo: JobRepository, cache: ReportCache):
+    """Kept payload while live; ordinary cache if never kept; None if expired."""
+    state = kept_until_state(source.kept_until)
+    if state == "expired":
+        return None
+    if state == "live":
+        return job_repo.get_kept_payload(source.id)
+    cached = cache.get(source.result_ref)
+    return None if cached is None else cached.payload
+
+
+def source_result_available(source, job_repo: JobRepository, cache: ReportCache,
+                            now=None) -> bool:
+    state = kept_until_state(source.kept_until, now)
+    if state == "expired":
+        return False
+    if state == "live":
+        return job_repo.has_kept_payload(source.id)
+    return cache.exists(source.result_ref)
+
+
 def make_export_handler(cache: ReportCache, exports: ExportRepository,
                         job_repo: JobRepository, authz: Authorization) -> Handler:
     def handler(ctx: JobContext) -> str:
@@ -116,14 +137,13 @@ def make_export_handler(cache: ReportCache, exports: ExportRepository,
         source = job_repo.get(p["source_job_id"])
         if source is None or source.owner_user_id != ctx.job.owner_user_id:
             raise RuntimeError("Source report not found")
-        cached = cache.get(source.result_ref)
-        if cached is None:
+        payload = load_source_payload(source, job_repo, cache)
+        if payload is None:
             raise RuntimeError("Report result expired; re-run the report, then export")
         run_params = (source.params.get("params") or {}) if isinstance(source.params, dict) else {}
         ctx.set_progress(25)
 
         layout = p.get("layout") if isinstance(p.get("layout"), dict) else None
-        payload = cached.payload
         if not authz.may_see_commissions(principal):
             payload = drop_commissions_tab(payload)
         if layout:

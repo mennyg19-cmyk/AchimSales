@@ -61,7 +61,8 @@ Closes the cheap-model failure mode of improvising when the ask is vague. Run **
 5. Success words alone with no concrete target: *better, polish, improve, clean up, make nice, smarter, more solid*
 6. Scope could be **MVP vs full** and that choice is unstated
 
-**Pass all six** → implement on Everyday tier (Terra).  
+**Pass all six** → implement on Everyday tier (Terra).
+
 **Fail any** → mini-grill or full grill until goal, constraints, chosen approach, and validation exist; record in `.scratch/grill-notes.md` (or protocol artifact). Then build.
 
 **Conflict (Rule Preference):** product ambiguity → grill wins over fix-don't-suggest; clear bugfix with known expected behavior → build wins.

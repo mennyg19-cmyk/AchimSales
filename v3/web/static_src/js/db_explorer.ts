@@ -76,10 +76,14 @@ async function loadRows(table: string, page: number): Promise<void> {
       const td = document.createElement("td");
       const input = document.createElement("input");
       input.className = "dbx-cell";
+      input.setAttribute("aria-label", c.name);
       input.value = row[c.name] == null ? "" : String(row[c.name]);
+      input.addEventListener("focus", () => {
+        input.dataset.prev = input.value;
+      });
       input.addEventListener("change", () => {
         if (!pk) return;
-        void saveCell(table, c.name, row[pk], input.value);
+        void saveCell(table, c.name, row[pk], input.value, input);
       });
       td.appendChild(input);
       tr.appendChild(td);
@@ -90,6 +94,7 @@ async function loadRows(table: string, page: number): Promise<void> {
       del.type = "button";
       del.className = "btn btn-outline btn-sm";
       del.textContent = "Delete";
+      del.setAttribute("aria-label", "Delete this row");
       del.addEventListener("click", () => {
         if (!window.confirm("Delete this row?")) return;
         void deleteRow(table, row[pk], () => loadRows(table, page));
@@ -124,14 +129,35 @@ async function loadRows(table: string, page: number): Promise<void> {
   }
 }
 
-async function saveCell(table: string, column: string, pk: unknown, value: string): Promise<void> {
+async function saveCell(
+  table: string, column: string, pk: unknown, value: string, input: HTMLInputElement,
+): Promise<void> {
+  const prev = input.dataset.prev ?? "";
   const url = attr("data-cell-url").replace("__T__", encodeURIComponent(table));
   const resp = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf() },
     body: JSON.stringify({ db: dbName(), column, pk, value }),
   });
-  if (!resp.ok) show("Could not save cell.");
+  if (!resp.ok) {
+    input.value = prev;
+    show("Could not save cell. Value restored.");
+    return;
+  }
+  show("Saved. Undo restores the previous value.");
+  const undo = document.createElement("button");
+  undo.type = "button";
+  undo.className = "btn btn-outline btn-sm";
+  undo.textContent = "Undo";
+  undo.addEventListener("click", () => {
+    input.value = prev;
+    void saveCell(table, column, pk, prev, input);
+  });
+  const msg = document.getElementById("dbxMsg");
+  if (msg) {
+    msg.appendChild(document.createTextNode(" "));
+    msg.appendChild(undo);
+  }
 }
 
 async function deleteRow(table: string, pk: unknown, after: () => void): Promise<void> {

@@ -1,5 +1,6 @@
 // SharePoint folder picker for the master-schedules page.
 
+import { openDialog, type DialogClose } from "./dialog";
 import { esc } from "./http";
 import { stripReportsHome } from "./filename_preview";
 
@@ -10,6 +11,7 @@ import { stripReportsHome } from "./filename_preview";
 let spResolver: ((path: string | null) => void) | null = null;
 let spCurrentPath = "";
 let spRootLabel = "Direct Reports";
+let closeSpDlg: DialogClose | null = null;
 
 function spOverlay(): HTMLElement | null {
   return document.getElementById("spPickerOverlay");
@@ -122,9 +124,11 @@ async function spLoadPath(path: string): Promise<void> {
 }
 
 function spClose(value: string | null): void {
-  const ov = spOverlay();
-  if (ov) ov.style.display = "none";
-  if (spResolver) { const r = spResolver; spResolver = null; r(value); }
+  const r = spResolver;
+  spResolver = null;
+  closeSpDlg?.();
+  closeSpDlg = null;
+  r?.(value);
 }
 
 async function openSharePointPicker(initialPath: string): Promise<string | null> {
@@ -146,9 +150,19 @@ async function openSharePointPicker(initialPath: string): Promise<string | null>
     }
   } catch { /* use default */ }
 
-  ov.style.display = "flex";
   return new Promise((resolve) => {
     spResolver = resolve;
+    closeSpDlg?.();
+    closeSpDlg = openDialog(ov, {
+      onClose: () => {
+        closeSpDlg = null;
+        if (spResolver) {
+          const r = spResolver;
+          spResolver = null;
+          r(null);
+        }
+      },
+    });
     spLoadPath(initialPath);
   });
 }
@@ -184,4 +198,3 @@ export function bindSharePointPicker(): void {
   ov.querySelector(".sp-picker-select")?.addEventListener("click", () => spClose(spCurrentPath));
   ov.addEventListener("click", (e) => { if (e.target === ov) spClose(null); });
 }
-

@@ -21,11 +21,22 @@ from web.reporting.runner import ReportRunner
 
 
 @dataclass
+class PreparedWorkbook:
+    row_count: int
+    xlsx: bytes | None
+    filename: str
+    folder: str
+    skipped_empty: bool = False
+    skip_reason: str = ""
+
+
+@dataclass
 class DeliveryOutcome:
     result: DeliveryResult
     row_count: int
     # Optional per-leg details for fan-out runs (kind, recipients, salesman, …).
     deliveries: list[dict] | None = None
+    unknown_attempt_key: str = ""
 
 
 class DeliveryService:
@@ -34,6 +45,56 @@ class DeliveryService:
         self.runner = runner
         self.builder_resolver = builder_resolver
         self.email = email
+
+    def prepare(self, *, report_key: str, identity: str,
+                visible_salesman_keys: Iterable[str] | None,
+                builder_version: int, params: dict, layout: dict,
+                report_name: str, sharepoint_path: str = "",
+                filename_template: str = "", schedule_name: str = "",
+                email_on_empty: bool = True, cancel_check=None,
+                when=None) -> PreparedWorkbook:
+        """Build the workbook before any external send is marked sending."""
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
+        builder = self.builder_resolver(report_key)
+        run_params = dict(params or {})
+        if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
+            run_params["_skip_commissions"] = True
+        outcome = self.runner.run(
+            report_key=report_key, identity=identity,
+            visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
+            params=run_params, builder=builder, force_refresh=True,
+            cancel_check=cancel_check,
+        )
+        payload = apply_layout(expand_clones(outcome.payload, layout), layout)
+        facts = payload.get("row_count")
+        rows = facts if isinstance(facts, int) else sum(
+            len(t.get("rows") or []) for t in payload.get("tabs") or [])
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
+        if rows == 0 and not email_on_empty:
+            return PreparedWorkbook(
+                row_count=0, xlsx=None, filename="", folder="",
+                skipped_empty=True,
+                skip_reason="No data — email/folder delivery skipped (no-data checkbox off).",
+            )
+        xlsx = build_workbook(payload, layout)
+        filename = resolve_filename_template(
+            filename_template, report_name=report_name, params=params or {},
+            schedule_name=schedule_name, when=when,
+        )
+        folder = strip_reports_home(resolve_folder_template(
+            sharepoint_path, report_name=report_name, params=params or {},
+            schedule_name=schedule_name, when=when,
+        ))
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
+        return PreparedWorkbook(
+            row_count=rows, xlsx=xlsx, filename=filename, folder=folder,
+        )
 
     def run_and_deliver(self, *, report_key: str, identity: str,
                         visible_salesman_keys: Iterable[str] | None,
@@ -45,54 +106,48 @@ class DeliveryService:
                         cc_raw: str = "", bcc_raw: str = "",
                         email_on_empty: bool = True,
                         empty_recipients_override: str | None = None,
-                        schedule_name: str = "") -> DeliveryOutcome:
-        builder = self.builder_resolver(report_key)
-        run_params = dict(params or {})
-        if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
-            run_params["_skip_commissions"] = True
-        outcome = self.runner.run(
+                        schedule_name: str = "",
+                        skip_email: bool = False, skip_folder: bool = False,
+                        idempotency_key: str = "",
+                        cancel_check=None, when=None) -> DeliveryOutcome:
+        built = self.prepare(
             report_key=report_key, identity=identity,
-            visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
-            params=run_params, builder=builder, force_refresh=True,
+            visible_salesman_keys=visible_salesman_keys,
+            builder_version=builder_version, params=params, layout=layout,
+            report_name=report_name, sharepoint_path=sharepoint_path,
+            filename_template=filename_template, schedule_name=schedule_name,
+            email_on_empty=email_on_empty, cancel_check=cancel_check,
+            when=when,
         )
-        payload = apply_layout(expand_clones(outcome.payload, layout), layout)
-        rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
-        if rows == 0 and not email_on_empty:
+        if built.skipped_empty:
             return DeliveryOutcome(
-                result=DeliveryResult(
-                    ok=True,
-                    error="No data — email/folder delivery skipped (no-data checkbox off).",
-                ),
+                result=DeliveryResult(ok=True, error=built.skip_reason),
                 row_count=0,
             )
-        xlsx = build_workbook(payload, layout)
-        filename = resolve_filename_template(
-            filename_template, report_name=report_name, params=params or {},
-            schedule_name=schedule_name,
-        )
-        folder = strip_reports_home(resolve_folder_template(
-            sharepoint_path, report_name=report_name, params=params or {},
-            schedule_name=schedule_name,
-        ))
         to = recipients
         cc = cc_raw
         bcc = bcc_raw
-        if rows == 0 and empty_recipients_override:
+        if built.row_count == 0 and empty_recipients_override:
             to = empty_recipients_override
             cc = ""
             bcc = ""
         result = self.email.deliver(
             subject=subject or report_name, recipients_raw=to, body_text=body_text,
-            report_name=report_name, filename=filename, xlsx_bytes=xlsx,
-            sharepoint_path=folder or None,
+            report_name=report_name, filename=built.filename, xlsx_bytes=built.xlsx,
+            sharepoint_path=built.folder or None,
             onedrive_user=(onedrive_user or "").strip() or None,
             cc_raw=cc or "", bcc_raw=bcc or "",
+            skip_email=skip_email, skip_folder=skip_folder,
+            idempotency_key=idempotency_key,
         )
-        return DeliveryOutcome(result=result, row_count=rows)
+        return DeliveryOutcome(result=result, row_count=built.row_count)
 
     def send_no_data_notice(self, *, recipients: str, subject: str, body_text: str,
-                            report_name: str) -> DeliveryOutcome:
+                            report_name: str, cancel_check=None) -> DeliveryOutcome:
         """Text-only mail when a split salesman file has no rows. No workbook."""
+        if cancel_check and cancel_check():
+            from web.jobs.worker import JobCancelled
+            raise JobCancelled()
         result = self.email.deliver(
             subject=subject, recipients_raw=recipients, body_text=body_text,
             report_name=report_name, filename="", xlsx_bytes=None,

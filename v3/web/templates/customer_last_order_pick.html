@@ -13,6 +13,7 @@
 
 <div class="settings-card"
      data-customers-url="{{ url_for('reports.customer_last_order_customers') }}"
+     data-salesmen-url="{{ url_for('reports.customer_last_order_salesmen') }}"
      data-view-url="{{ url_for('reports.customer_last_order_view', account='__ACCT__') }}">
     {% if show_salesman_picker %}
     <label class="modal-field">
@@ -32,7 +33,7 @@
         <input type="text" id="cloSearch" placeholder="Search by name or account&hellip;" autocomplete="off">
     </label>
 
-    <div id="cloList" class="customer-pick-list" role="listbox" aria-label="Customers">
+    <div id="cloList" class="customer-pick-list" role="list" aria-label="Customers">
         <div class="empty-state" style="padding:16px;">
             <i data-feather="loader" width="22" height="22"></i>
             <p style="margin-top:8px;">Loading customers&hellip;</p>
@@ -42,101 +43,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-(function () {
-    "use strict";
-    var card = document.querySelector(".settings-card[data-customers-url]");
-    if (!card) return;
-    var customersUrl = card.getAttribute("data-customers-url");
-    var viewTpl = card.getAttribute("data-view-url");
-    var listEl = document.getElementById("cloList");
-    var searchEl = document.getElementById("cloSearch");
-    var salesmanEl = document.getElementById("cloSalesman");
-
-    var all = [];
-    var attempts = 0;
-
-    function esc(s) {
-        return String(s == null ? "" : s)
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    }
-    function viewUrl(acct) { return viewTpl.replace("__ACCT__", encodeURIComponent(acct)); }
-
-    function render(term) {
-        term = (term || "").trim().toLowerCase();
-        var rows = all;
-        if (term) {
-            rows = rows.filter(function (c) {
-                return (c.key || "").toLowerCase().indexOf(term) !== -1
-                    || (c.name || "").toLowerCase().indexOf(term) !== -1;
-            });
-        }
-        if (!rows.length) {
-            listEl.innerHTML = '<div class="empty-state" style="padding:16px;">'
-                + '<i data-feather="search" width="22" height="22"></i>'
-                + '<p style="margin-top:8px;">No customers match.</p></div>';
-            if (typeof feather !== "undefined") feather.replace();
-            return;
-        }
-        var max = Math.min(rows.length, 200), html = "";
-        for (var i = 0; i < max; i++) {
-            var c = rows[i];
-            html += '<a href="' + viewUrl(c.key) + '" class="customer-pick-row">'
-                + '<span class="customer-pick-acct">' + esc(c.key) + '</span>'
-                + '<span class="customer-pick-name">' + esc(c.name || "") + '</span></a>';
-        }
-        if (rows.length > max) {
-            html += '<div class="customer-pick-more">Showing ' + max + ' of ' + rows.length
-                + '. Refine your search to narrow down.</div>';
-        }
-        listEl.innerHTML = html;
-    }
-
-    function load() {
-        var url = customersUrl;
-        if (salesmanEl && salesmanEl.value) url += "?salesman=" + encodeURIComponent(salesmanEl.value);
-        fetch(url).then(function (r) { return r.json(); }).then(function (data) {
-            all = (data && data.customers) || [];
-            if (!all.length && attempts < 15) {
-                attempts++;
-                setTimeout(load, 1500);  // lookups warming on a background thread
-                return;
-            }
-            render(searchEl.value);
-        }).catch(function () {
-            listEl.innerHTML = '<div class="empty-state" style="padding:16px;">'
-                + '<p>Could not load customers. Please try again.</p></div>';
-        });
-    }
-
-    var smAttempts = 0;
-    function loadSalesmen() {
-        fetch("{{ url_for('reports.customer_last_order_salesmen') }}")
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                var rows = data.salesmen || [];
-                if (!rows.length && smAttempts < 15) {
-                    smAttempts++;
-                    setTimeout(loadSalesmen, 1500);
-                    return;
-                }
-                rows.forEach(function (s) {
-                    var opt = document.createElement("option");
-                    opt.value = s.key; opt.textContent = s.name;
-                    salesmanEl.appendChild(opt);
-                });
-            })
-            .catch(function () {
-                if (smAttempts < 15) { smAttempts++; setTimeout(loadSalesmen, 1500); }
-            });
-    }
-    if (salesmanEl) {
-        loadSalesmen();
-        salesmanEl.addEventListener("change", function () { attempts = 0; load(); });
-    }
-    searchEl.addEventListener("input", function () { render(searchEl.value); });
-    load();
-})();
-</script>
+<script src="{{ url_for('static', filename='js/customer_last_order.js') }}?v={{ asset_v }}"></script>
 {% endblock %}

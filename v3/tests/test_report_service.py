@@ -396,6 +396,110 @@ def test_scope_filters_facts_to_visible_keys():
     # Empty scope: sees nothing
     out_empty = svc.builder_for("ordered")({}, set())
     assert out_empty["row_count"] == 0
+    for tab in out_empty["tabs"]:
+        assert tab["rows"] == []
+
+
+def test_ordered_scope_applies_to_every_tab():
+    rows = [
+        {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "A",
+         "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open",
+         "SalesGroup": "REdwards"},
+        {"SalesOrderNumber": "SO2", "CustomerAccount": "200", "Item": "B",
+         "QuantityOrdered": "3", "Ordered $": "30", "SalesStatus": "Open",
+         "SalesGroup": "JSmith"},
+    ]
+    out = _svc({"ordered_report": rows}).builder_for("ordered")({}, {"redwards"})
+    assert out["tabs"], "expected tabs"
+    for tab in out["tabs"]:
+        blob = str(tab.get("rows") or [])
+        assert "SO2" not in blob
+        assert "JSmith" not in blob
+
+
+def test_invoiced_scope_applies_to_every_tab():
+    rows = [
+        {"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
+         "Amount": "100", "SalesGroup": "REdwards"},
+        {"Invoice": "I2", "InvoiceAccount": "200", "InvoiceDate": "2026-03-02",
+         "Amount": "200", "SalesGroup": "JSmith"},
+    ]
+    out = _svc({"invoiced_report": rows}).builder_for("invoiced")({"year": "2026"}, {"redwards"})
+    assert out["tabs"]
+    for tab in out["tabs"]:
+        blob = str(tab.get("rows") or [])
+        assert "I2" not in blob
+        assert "JSmith" not in blob
+
+
+def test_salesman_scope_applies_to_every_tab():
+    mine = {
+        "SalesmanId": "10", "SalesmanName": "REdwards",
+        "CustomerAccount": "100", "CustomerName": "Acme",
+        "Mar This Year": 1000, "Mar Last Year": 500,
+        "Full Year This Year": 1000, "Full Year Last Year": 500,
+    }
+    other = dict(mine, SalesmanName="JSmith", SalesmanId="20", CustomerAccount="200")
+    out = _svc({"monthly_salesman_yoy": [mine, other]}).builder_for("salesman")(
+        {"year": "2026"}, {"redwards"})
+    assert out["tabs"]
+    for tab in out["tabs"]:
+        blob = str(tab.get("rows") or [])
+        assert "JSmith" not in blob
+        assert "200" not in blob
+
+
+def test_number_4_scope_applies_to_every_tab():
+    other_c = dict(_N4_CUSTOMER_ROW, **{"Customer #": "200", "Salesman": "JSmith"})
+    other_i = dict(_N4_ITEM_ROW, **{"Customer #": "200", "Salesman": "JSmith"})
+    svc = _svc({
+        "customer_item_sales_rolling_12": [_N4_CUSTOMER_ROW, other_c],
+        "item_customer_sales_rolling_12": [_N4_ITEM_ROW, other_i],
+    })
+    out = svc.builder_for("number_4")({"mode": "both"}, {"redwards"})
+    assert len(out["tabs"]) >= 2
+    for tab in out["tabs"]:
+        blob = str(tab.get("rows") or [])
+        assert "JSmith" not in blob
+        assert "'200'" not in blob and '"200"' not in blob
+
+
+def test_customer_activity_scope_applies_to_every_tab():
+    rows = [
+        {"Salesman": "REdwards", "Customer Account": "100", "Customer Name": "Acme",
+         "Last Order Date": "2026-03-01", "PO #": "P1", "Sales Order Number": "SO1"},
+        {"Salesman": "JSmith", "Customer Account": "200", "Customer Name": "Beta",
+         "Last Order Date": "2026-03-02", "PO #": "P2", "Sales Order Number": "SO2"},
+    ]
+    out = _svc({"customer_activity": rows}).builder_for("customer_activity")({}, {"redwards"})
+    assert out["tabs"]
+    for tab in out["tabs"]:
+        blob = str(tab.get("rows") or [])
+        assert "200" not in blob
+        assert "JSmith" not in blob
+
+
+def test_item_averages_uses_sql_item_sp():
+    svc = _svc({"item_customer_sales_rolling_12": [
+        {"Item #": "A", "Item Name": "Alpha", "Total Qty": 12},
+    ]})
+    out = svc.builder_for("item_averages")({}, {"redwards"})
+    assert svc.client.calls == ["item_customer_sales_rolling_12"]
+    assert out["report_key"] == "item_averages"
+    assert out["tabs"][0]["key"] == "item_averages"
+
+
+def test_sales_by_state_keeps_every_tab_when_scoped():
+    svc = _svc({
+        "sales_by_state_summary": [{"State": "New York", "SalesAmount": 10}],
+        "sales_by_state_new_york_city": [{"Customer_Name": "Acme", "Amount": 10.5}],
+        "sales_by_state_filtered": [
+            {"Customer Account": "100", "Amount": -5, "Invoice Date": "2025-01-06"},
+        ],
+    })
+    out = svc.builder_for("sales_by_state")({}, {"redwards"})
+    assert [t["name"] for t in out["tabs"]] == ["Summary", "New York City", "Detail"]
+    assert out["tabs"][0]["rows"]
 
 
 class _DateWindowClient:

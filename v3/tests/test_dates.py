@@ -64,15 +64,31 @@ def test_start_is_clamped_to_go_live():
     assert p.start_date == D365_GO_LIVE
 
 
+def test_month_and_week_alias_seeded_periods():
+    assert parse_period("month", today=date(2026, 5, 3)) == parse_period(
+        "last_month", today=date(2026, 5, 3))
+    assert parse_period("week", today=_TODAY) == parse_period("last_7_days", today=_TODAY)
+
+
 def test_unknown_period_raises():
     with pytest.raises(ValueError, match="Unknown period"):
         parse_period("bogus", today=_TODAY)
 
 
-def test_custom_range_reversed_is_swapped_and_clamped():
-    p = parse_custom_range("2026-03-10", "2026-02-01")
-    assert p.start_date == date(2026, 2, 1)
-    assert p.end_date == date(2026, 3, 10)
+def test_custom_range_reversed_is_rejected():
+    with pytest.raises(ValueError, match="after end date"):
+        parse_custom_range("2026-03-10", "2026-02-01")
+
+
+def test_custom_range_before_go_live_is_rejected_after_clamp():
+    with pytest.raises(ValueError, match="after end date"):
+        parse_custom_range("2024-01-01", "2024-12-31")
+
+
+def test_custom_range_clamps_start_when_end_is_after_go_live():
+    p = parse_custom_range("2024-12-01", "2025-02-01")
+    assert p.start_date == D365_GO_LIVE
+    assert p.end_date == date(2025, 2, 1)
 
 
 def test_sp_datetime_start_and_end_of_day():

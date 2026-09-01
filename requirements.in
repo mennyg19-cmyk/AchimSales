@@ -1,0 +1,17 @@
+Flask>=3.1,<4
+msal>=1.31,<2
+python-dotenv>=1.0,<2
+# Azure App Service and CI are Python 3.10. pandas 2.3+ and numpy 2.3+ need 3.11+.
+pandas>=2.0,<2.3
+numpy>=1.26,<2.3
+openpyxl>=3.1,<4
+requests>=2.31,<3
+gunicorn>=22.0,<24
+azure-identity>=1.15,<2
+APScheduler>=3.10,<4
+tzdata>=2024.1
+pytest>=7.0,<9
+# pytest extras on Azure/CI Python 3.10. Stdlib on 3.11+. Pin here so a
+# lock compiled on 3.12 still hashes them for --require-hashes.
+exceptiongroup>=1,<2
+tomli>=2,<3

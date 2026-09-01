@@ -4,6 +4,8 @@
  * page-loading overlay, and custom pull-to-refresh. Behavior matches live.
  */
 
+import { openDialog, watchHiddenPoll } from "./dialog";
+
 declare const feather: { replace: () => void } | undefined;
 
 declare global {
@@ -11,6 +13,7 @@ declare global {
     triggerDashRefresh?: () => void;
     openHelp: (key: string) => void;
     closeHelp: (e?: Event) => void;
+    closeExternalLogin?: () => void;
   }
 }
 
@@ -22,6 +25,8 @@ declare const HELP: Record<string, HelpEntry> | undefined;
 
 let navPending = false;
 
+let closeHelpDialog: (() => void) | null = null;
+
 function openHelp(key: string): void {
   const entry = typeof HELP !== "undefined" && HELP[key];
   if (!entry) return;
@@ -31,13 +36,21 @@ function openHelp(key: string): void {
   if (!title || !body || !overlay) return;
   title.textContent = entry.title;
   body.innerHTML = entry.body;
-  overlay.style.display = "flex";
+  closeHelpDialog = openDialog(overlay, {
+    initial: document.getElementById("helpCloseBtn"),
+  });
 }
 
 function closeHelp(e?: Event): void {
   const overlay = document.getElementById("helpOverlay");
   if (!overlay) return;
   if (e && e.target && e.target !== overlay) return;
+  if (closeHelpDialog) {
+    closeHelpDialog();
+    closeHelpDialog = null;
+    return;
+  }
+  overlay.hidden = true;
   overlay.style.display = "none";
 }
 
@@ -246,7 +259,7 @@ function initNotificationBadges(): void {
     }
   }
   poll();
-  setInterval(poll, 30000);
+  watchHiddenPoll(() => { void poll(); }, 30000);
 }
 
 interface ActiveReportJob {
@@ -282,8 +295,9 @@ function formatJobWhen(iso: string | null | undefined): string {
  * Header "Recent Reports" opens the same list. The pill shrinks to an icon.
  */
 function initReportJobsBar(): void {
-  const bar = document.getElementById("reportJobsBar");
-  if (!bar) return;
+  const found = document.getElementById("reportJobsBar");
+  if (!found) return;
+  const bar: HTMLElement = found;
   const activeUrl = bar.getAttribute("data-active-url") || "";
   const reportUrlTpl = bar.getAttribute("data-report-url") || "";
   const keepUrlTpl = bar.getAttribute("data-keep-url") || "";
@@ -487,7 +501,28 @@ function initReportJobsBar(): void {
     }
   }
   poll();
-  setInterval(poll, 5000);
+  watchHiddenPoll(() => { void poll(); }, 5000);
+}
+
+function initExternalLogin(): void {
+  const btn = document.getElementById("externalLoginBtn");
+  const modal = document.getElementById("externalLoginModal");
+  if (!btn || !modal) return;
+  let closeDlg: (() => void) | null = null;
+  const close = () => {
+    closeDlg?.();
+    closeDlg = null;
+  };
+  (window as Window).closeExternalLogin = close;
+  btn.addEventListener("click", () => {
+    closeDlg = openDialog(modal, {
+      initial: modal.querySelector<HTMLElement>("input[name='email']"),
+      onClose: () => { closeDlg = null; },
+    });
+  });
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close();
+  });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -500,6 +535,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initNotificationBadges();
   initReportJobsBar();
   initPullToRefresh();
+  initExternalLogin();
+  document.getElementById("helpCloseBtn")?.addEventListener("click", () => closeHelp());
+  document.getElementById("helpOverlay")?.addEventListener("click", (e) => closeHelp(e));
+  document.querySelector(".help-popup-content")?.addEventListener("click", (e) => e.stopPropagation());
 });
 
 window.addEventListener("pageshow", () => {

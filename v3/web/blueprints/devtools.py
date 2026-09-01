@@ -8,7 +8,6 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from web.auth.decorators import require_login
-from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.dashboard.notifications import diagnose_overdue, generate_overdue_notifications
 from web.data.repositories.users import UserRepository
@@ -18,7 +17,7 @@ devtools_bp = Blueprint("devtools", __name__)
 
 def _require_developer():
     p = current_principal()
-    if p is None or p.role != ROLE_DEVELOPER:
+    if p is None or not current_app.config["AUTHZ"].is_developer(p):
         return jsonify({"error": "Forbidden"}), 403
     return None
 

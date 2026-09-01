@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from web.config import Config
+from web.delivery.graph_token import GraphTokenCache, GraphTokenError
 
 log = logging.getLogger(__name__)
 
@@ -58,10 +59,10 @@ _MOCK_TREE: dict[str, list[str]] = {
 
 
 class SharePointService:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, tokens: GraphTokenCache | None = None):
         self.cfg = cfg
         self._root = f"{cfg.sp_drive_root}/{REPORTS_SUBFOLDER}".strip("/")
-        self._token: str | None = None
+        self._tokens = tokens
         self._drive_id: str | None = None
 
     def is_configured(self) -> bool:
@@ -102,7 +103,8 @@ class SharePointService:
         out.sort(key=lambda f: f["name"].lower())
         return out
 
-    def upload_file(self, rel_folder: str, filename: str, content: bytes) -> dict[str, Any]:
+    def upload_file(self, rel_folder: str, filename: str, content: bytes,
+                    resume_url: str = "", on_session=None) -> dict[str, Any]:
         rel_folder = strip_reports_home(rel_folder)
         _validate_segments(rel_folder)
         _validate_segments(filename)
@@ -112,6 +114,42 @@ class SharePointService:
                      filename, len(content), rel_folder)
             return {"webUrl": f"mock://{rel_folder}/{filename}", "name": filename,
                     "id": f"mock-{rel_folder}-{filename}".replace(" ", "_"), "mock": True}
+        try:
+            return self._upload_once(
+                rel_folder, filename, content, resume_url=resume_url, on_session=on_session)
+        except Exception as exc:
+            if _http_status(exc) == 401:
+                self._tokens_obj().clear()
+                return self._upload_once(
+                    rel_folder, filename, content, resume_url=resume_url, on_session=on_session)
+            raise
+
+    def get_file(self, rel_folder: str, filename: str) -> dict[str, Any] | None:
+        """Return id/webUrl if the file exists, else None. Used to verify a prior PUT."""
+        rel_folder = strip_reports_home(rel_folder)
+        _validate_segments(rel_folder)
+        _validate_segments(filename)
+        if not self.is_configured():
+            return None
+        import requests
+
+        path = f"{self._abs(rel_folder)}/{quote(filename)}"
+        url = f"{self._drive_base()}/root:/{path}"
+        r = requests.get(url, headers={"Authorization": f"Bearer {self._get_token()}"},
+                         timeout=TIMEOUT)
+        if r.status_code == 404:
+            return None
+        if r.status_code == 401:
+            self._tokens_obj().clear()
+            r = requests.get(url, headers={"Authorization": f"Bearer {self._get_token()}"},
+                             timeout=TIMEOUT)
+            if r.status_code == 404:
+                return None
+        r.raise_for_status()
+        body = r.json()
+        return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
+
+    def _upload_once(self, rel_folder, filename, content, *, resume_url="", on_session=None):
         import requests
 
         from web.delivery.graph_upload import upload_drive_item
@@ -125,6 +163,7 @@ class SharePointService:
             session_url=f"{base}/root:/{path}:/createUploadSession",
             headers={"Authorization": f"Bearer {self._get_token()}"},
             content=content, put_timeout=UPLOAD_TIMEOUT,
+            resume_url=resume_url, on_session=on_session,
         )
         return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
 
@@ -140,19 +179,17 @@ class SharePointService:
         rel_enc = "/".join(quote(s) for s in segments)
         return f"{root_enc}/{rel_enc}" if rel_enc else root_enc
 
-    def _get_token(self) -> str:
-        if self._token:
-            return self._token
-        import requests
+    def _tokens_obj(self) -> GraphTokenCache:
+        if self._tokens is None:
+            self._tokens = GraphTokenCache(
+                self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret)
+        return self._tokens
 
-        url = f"https://login.microsoftonline.com/{self.cfg.tenant_id}/oauth2/v2.0/token"
-        r = requests.post(url, data={
-            "client_id": self.cfg.client_id, "client_secret": self.cfg.client_secret,
-            "scope": "https://graph.microsoft.com/.default", "grant_type": "client_credentials",
-        }, timeout=TIMEOUT)
-        r.raise_for_status()
-        self._token = r.json()["access_token"]
-        return self._token
+    def _get_token(self) -> str:
+        try:
+            return self._tokens_obj().get()
+        except GraphTokenError as exc:
+            raise RuntimeError("Could not get a Microsoft Graph token.") from exc
 
     def _drive_base(self) -> str:
         return f"{GRAPH_BASE}/drives/{self._resolve_drive_id()}"
@@ -176,7 +213,9 @@ class SharePointService:
             if site.ok:
                 site_id = site.json()["id"]
             else:
-                log.warning("SP_SITE_URL resolved to 404 (%s), falling back to search", site_ref)
+                raise RuntimeError(
+                    f"SP_SITE_URL could not be resolved ({site.status_code} for {site_ref})"
+                )
 
         if site_id is None:
             r = requests.get(f"{GRAPH_BASE}/sites?search=achim", headers=headers, timeout=TIMEOUT)
@@ -239,6 +278,14 @@ def _validate_segments(rel_path: str) -> list[str]:
             raise ValueError(f"illegal character in SharePoint path segment: {raw!r}")
         segments.append(seg)
     return segments
+
+
+def _http_status(exc: BaseException) -> int | None:
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None)
+    if code is not None:
+        return int(code)
+    return None
 
 
 def _mock_folders(rel_path: str) -> list[dict]:

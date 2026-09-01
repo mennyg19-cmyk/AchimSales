@@ -52,12 +52,11 @@ def _resolve_window(params: dict) -> tuple[date | None, date | None]:
         return (None, None)
     if period == "custom":
         if not (start_raw and end_raw):
-            return (None, None)
+            raise ValueError("Custom period needs start_date and end_date")
         try:
             p = parse_custom_range(start_raw, end_raw)
-        except ValueError:
-            # Unparseable custom dates -> omit the filter rather than 500.
-            return (None, None)
+        except ValueError as exc:
+            raise ValueError(f"Invalid custom date range: {exc}") from exc
         return p.start_date, p.end_date
     p = parse_period(period)
     return p.start_date, p.end_date

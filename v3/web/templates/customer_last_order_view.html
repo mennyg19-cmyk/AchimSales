@@ -16,7 +16,7 @@
 
 {% if error %}
 <div class="settings-card">
-    <p style="color:var(--danger);">Could not load order data: {{ error }}</p>
+    <p style="color:var(--error);">Could not load order data: {{ error }}</p>
 </div>
 {% elif not view or not view.primary %}
 <div class="settings-card">
@@ -172,85 +172,6 @@
 
 {% block scripts %}
 {% if view and view.primary %}
-<script>
-(function () {
-    "use strict";
-    var card = document.querySelector(".settings-card[data-recent-url]");
-    if (!card) return;
-    var recentUrl = card.getAttribute("data-recent-url");
-    var selected = (card.getAttribute("data-selected") || "").split(",").filter(Boolean);
-
-    var btn = document.getElementById("addPrevOrderBtn");
-    var modal = document.getElementById("prevOrderModal");
-    var listEl = document.getElementById("prevOrderList");
-    var loadingEl = document.getElementById("prevOrderLoading");
-    var loaded = false;
-
-    function esc(s) {
-        return String(s == null ? "" : s)
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    }
-    function open() { modal.removeAttribute("hidden"); document.body.style.overflow = "hidden"; if (!loaded) loadOrders(); }
-    function close() { modal.setAttribute("hidden", ""); document.body.style.overflow = ""; }
-
-    function loadOrders() {
-        fetch(recentUrl).then(function (r) { return r.json(); }).then(function (data) {
-            var orders = (data && data.orders) || [];
-            if (!orders.length) { loadingEl.textContent = "No recent orders found for this customer."; return; }
-            var html = "";
-            orders.forEach(function (o) {
-                var checked = selected.indexOf(o.order_number) !== -1;
-                var po = o.customer_req ? '<span class="muted"> &middot; PO ' + esc(o.customer_req) + "</span>" : "";
-                html += '<label class="prev-order-row"><input type="checkbox" value="' + esc(o.order_number) + '"'
-                    + (checked ? " checked" : "") + '><span class="prev-order-num">' + esc(o.order_number) + "</span>"
-                    + '<span class="muted"> &middot; ' + esc(o.order_date) + "</span>" + po + "</label>";
-            });
-            listEl.innerHTML = html;
-            listEl.removeAttribute("hidden");
-            loadingEl.style.display = "none";
-            loaded = true;
-        }).catch(function () { loadingEl.textContent = "Could not load recent orders. Try again."; });
-    }
-
-    function apply() {
-        var checks = listEl.querySelectorAll('input[type="checkbox"]:checked');
-        var nums = [];
-        for (var i = 0; i < checks.length; i++) nums.push(checks[i].value);
-        if (!nums.length) { alert("Pick at least one order."); return; }
-        window.location.href = window.location.pathname + "?orders=" + encodeURIComponent(nums.join(","));
-    }
-
-    if (btn && modal) {
-        btn.addEventListener("click", open);
-        document.getElementById("prevOrderClose").addEventListener("click", close);
-        document.getElementById("prevOrderCancel").addEventListener("click", close);
-        document.getElementById("prevOrderApply").addEventListener("click", apply);
-        modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
-        document.addEventListener("keydown", function (e) {
-            if (e.key === "Escape" && !modal.hasAttribute("hidden")) close();
-        });
-    }
-
-    var exportBtn = document.getElementById("cloExportBtn");
-    var exportModal = document.getElementById("cloExportModal");
-    function openExport() {
-        if (exportModal) { exportModal.removeAttribute("hidden"); document.body.style.overflow = "hidden"; }
-    }
-    function closeExport() {
-        if (exportModal) { exportModal.setAttribute("hidden", ""); document.body.style.overflow = ""; }
-    }
-    if (exportBtn && exportModal) {
-        exportBtn.addEventListener("click", openExport);
-        document.getElementById("cloExportClose").addEventListener("click", closeExport);
-        document.getElementById("cloExportCancel").addEventListener("click", closeExport);
-        exportModal.addEventListener("click", function (e) { if (e.target === exportModal) closeExport(); });
-        ["cloExportXlsx", "cloExportPdf"].forEach(function (id) {
-            var a = document.getElementById(id);
-            if (a) a.addEventListener("click", function () { setTimeout(closeExport, 200); });
-        });
-    }
-})();
-</script>
+<script src="{{ url_for('static', filename='js/customer_last_order.js') }}?v={{ asset_v }}"></script>
 {% endif %}
 {% endblock %}

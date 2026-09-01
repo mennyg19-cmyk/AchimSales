@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from flask import session
 
 from web.auth.principal import Principal
@@ -20,19 +22,31 @@ def login(principal: Principal) -> None:
 
 def logout() -> None:
     session.pop(_SESSION_KEY, None)
+    session.pop("user", None)
 
 
-def sync_role(role: str) -> None:
-    """Refresh the cached role on the stored principal.
+def safe_internal_path(path: str, *, fallback: str = "/") -> str:
+    """Same-app relative path only. Rejects protocol-relative and backslash tricks."""
+    raw = path or ""
+    if not raw.startswith("/") or raw.startswith("//"):
+        return fallback
+    if "\\" in raw or "%5c" in raw.lower():
+        return fallback
+    return raw
 
-    The session is trusted only for identity; role/scope are re-resolved from the
-    DB on every security check. But presentation (the role badge, the settings
-    page sections, nav gating) reads the cached session role, which is captured
-    at login. Without this, a role change (e.g. seeding someone to developer)
-    only shows up after the user logs out and back in. We call this per-request
-    so the UI reflects the live DB role immediately - no re-login needed.
-    """
+
+def login_redirect(next_path: str = "/") -> str:
+    safe = safe_internal_path(next_path, fallback="/")
+    return f"/login?next={quote(safe, safe='/?=&')}"
+
+
+def refresh_from_db(*, role: str, is_dev: bool | None) -> None:
+    # Presentation cache only. Authorization re-reads role from the DB.
     data = session.get(_SESSION_KEY)
-    if isinstance(data, dict) and data.get("role") != role:
-        data = {**data, "role": role}
-        session[_SESSION_KEY] = data
+    if not isinstance(data, dict):
+        return
+    updated = {**data, "role": role}
+    if is_dev is not None:
+        updated["is_dev"] = is_dev
+    if updated != data:
+        session[_SESSION_KEY] = updated

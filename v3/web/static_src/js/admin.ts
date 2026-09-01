@@ -5,17 +5,29 @@
  * privilege-guarded server-side; this is purely UX.
  */
 
+import { openDialog, type DialogClose } from "./dialog";
+
 const root = document.getElementById("adminUsers");
 const usersUrl = root?.getAttribute("data-users-url") || "";
 const csrf = root?.getAttribute("data-csrf") || "";
 const salesmenBase = usersUrl.replace(/\/users$/, "/salesmen");
+
+let closeUserDlg: DialogClose | null = null;
+let closeSmDlg: DialogClose | null = null;
 
 function headers(): Record<string, string> {
   return { "Content-Type": "application/json", "X-CSRF-Token": csrf };
 }
 
 async function api(url: string, method: string, body?: unknown): Promise<Response> {
-  return fetch(url, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  try {
+    return await fetch(url, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined });
+  } catch {
+    return new Response(JSON.stringify({ error: "Could not reach the server." }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }
 
 function $(id: string): HTMLElement | null {
@@ -70,7 +82,6 @@ function openUserModal(tr: HTMLTableRowElement): void {
   (($("euActive") as HTMLInputElement)).checked = tr.dataset.active === "1";
   (($("euDashboard") as HTMLInputElement)).checked = tr.dataset.dashboard === "1";
   (($("euSharepoint") as HTMLInputElement)).checked = tr.dataset.sharepoint === "1";
-  (($("euTest") as HTMLInputElement)).checked = tr.dataset.test === "1";
   (($("euExternal") as HTMLInputElement)).checked = tr.dataset.external === "1";
 
   // Load current per-salesman + per-report access so the modal reflects the
@@ -90,7 +101,13 @@ function openUserModal(tr: HTMLTableRowElement): void {
   });
 
   setMsg("euMsg", "");
-  show("editUserModal");
+  const modal = $("editUserModal");
+  if (!modal) return;
+  closeUserDlg?.();
+  closeUserDlg = openDialog(modal, {
+    initial: $("euRole"),
+    onClose: () => { closeUserDlg = null; },
+  });
 }
 
 async function saveUser(): Promise<void> {
@@ -98,7 +115,7 @@ async function saveUser(): Promise<void> {
   const resp = await api(`${usersUrl}/${editingUserId}`, "PUT", {
     role: (($("euRole") as HTMLSelectElement)).value,
     is_active: checked("euActive"), dashboard_enabled: checked("euDashboard"),
-    sharepoint_access: checked("euSharepoint"), test_access: checked("euTest"),
+    sharepoint_access: checked("euSharepoint"),
     is_external: checked("euExternal"),
   });
   if (!resp.ok) {
@@ -108,13 +125,21 @@ async function saveUser(): Promise<void> {
   const keys = Array.from(
     document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
   ).map((c) => c.value);
-  await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+  const scopeResp = await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+  if (!scopeResp.ok) {
+    setMsg("euMsg", "User saved, but salesman access did not save. Try again.");
+    return;
+  }
 
   const reportPosts = Array.from(
     document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
   ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
     { report_key: sel.getAttribute("data-report"), access: sel.value }));
-  await Promise.all(reportPosts);
+  const reportResps = await Promise.all(reportPosts);
+  if (reportResps.some((r) => !r.ok)) {
+    setMsg("euMsg", "User saved, but a report-access change did not save. Try again.");
+    return;
+  }
   window.location.reload();
 }
 
@@ -137,6 +162,7 @@ function initSalesmen(): void {
       const resp = await api(`${salesmenBase}/${encodeURIComponent(key)}`, "PUT",
         { is_active: box.checked });
       if (!resp.ok) box.checked = !box.checked;
+      if (!resp.ok) window.alert("Could not update salesman.");
       box.disabled = false;
     });
   });
@@ -149,7 +175,13 @@ function openSmModal(tr: HTMLTableRowElement): void {
   (($("esDisplay") as HTMLInputElement)).value = tr.dataset.display || "";
   (($("esEmail") as HTMLInputElement)).value = tr.dataset.email || "";
   setMsg("esMsg", "");
-  show("editSmModal");
+  const modal = $("editSmModal");
+  if (!modal) return;
+  closeSmDlg?.();
+  closeSmDlg = openDialog(modal, {
+    initial: $("esNumber"),
+    onClose: () => { closeSmDlg = null; },
+  });
 }
 
 async function saveSm(): Promise<void> {
@@ -164,18 +196,21 @@ async function saveSm(): Promise<void> {
   else setMsg("esMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
 }
 
-// --- helpers ----------------------------------------------------------------
-function show(id: string): void {
-  const el = $(id);
-  if (el) el.style.display = "flex";
-}
-function hide(id: string): void {
-  const el = $(id);
-  if (el) el.style.display = "none";
-}
 function setMsg(id: string, text: string): void {
   const el = $(id);
-  if (el) el.textContent = text;
+  if (!el) return;
+  el.textContent = text;
+  el.setAttribute("role", text ? "alert" : "status");
+}
+
+function closeUserModal(): void {
+  closeUserDlg?.();
+  closeUserDlg = null;
+}
+
+function closeSmModal(): void {
+  closeSmDlg?.();
+  closeSmDlg = null;
 }
 
 function initEvents(): void {
@@ -186,9 +221,9 @@ function initEvents(): void {
     } else if (t.closest(".btn-edit-sm")) {
       openSmModal(t.closest("tr") as HTMLTableRowElement);
     } else if (t.closest("[data-close-user]") || t.id === "editUserModal") {
-      hide("editUserModal");
+      closeUserModal();
     } else if (t.closest("[data-close-sm]") || t.id === "editSmModal") {
-      hide("editSmModal");
+      closeSmModal();
     }
   });
   $("euSave")?.addEventListener("click", saveUser);

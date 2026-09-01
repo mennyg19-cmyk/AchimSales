@@ -16,6 +16,12 @@ from web.data.connection import Database, _connect
 _MIGRATIONS_ROOT = Path(__file__).resolve().parent / "migrations"
 
 
+def precious_migration_stems() -> list[str]:
+    """Ordered stems of precious/*.sql (e.g. 0001_initial)."""
+    d = _MIGRATIONS_ROOT / "precious"
+    return [f.stem for f in sorted(d.glob("*.sql"))] if d.exists() else []
+
+
 def _ensure_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS schema_migrations ("

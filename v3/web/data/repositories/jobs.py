@@ -16,8 +16,19 @@ from datetime import datetime, timezone
 from typing import Any
 
 from web.data.connection import Database
+from web.jobs.limits import (
+    ADMISSION_EXEMPT_TYPES,
+    MAX_QUEUE_AGE_SECONDS,
+    MAX_QUEUED_JOBS,
+    PRIORITY_SQL,
+    UNSAFE_RECOVERY_TYPES,
+)
 
 _ACTIVE = ("queued", "running")
+
+
+class QueueAdmissionError(Exception):
+    """Interactive enqueue refused because the durable queue is backed up."""
 
 # How many times crash-recovery will requeue a job before giving up on it. A job
 # that keeps dying mid-run (an out-of-memory report the OS SIGKILLs never gets to
@@ -31,10 +42,35 @@ _RETRY_EXHAUSTED_ERROR = (
     "memory. Try a smaller date range or fewer customers, or export instead of "
     "viewing on screen."
 )
+_UNSAFE_ORPHAN_ERROR = (
+    "Worker died while this delivery was running; not retried."
+)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def kept_until_is_live(kept_until: str | None, now: datetime | None = None) -> bool:
+    if not kept_until:
+        return False
+    try:
+        dt = datetime.fromisoformat(kept_until)
+    except ValueError:
+        return False
+    now = now or datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return dt > now
+
+
+def kept_until_state(kept_until: str | None, now: datetime | None = None) -> str:
+    """none = never kept; live = still inside the keep window; expired = was kept."""
+    if not kept_until:
+        return "none"
+    return "live" if kept_until_is_live(kept_until, now) else "expired"
 
 
 @dataclass(frozen=True)
@@ -69,19 +105,24 @@ class Job:
 class JobRepository:
     def __init__(self, db: Database):
         self.db = db
+        self.interrupted_unknown: list = []
 
     def enqueue(self, job_type: str, *, owner_user_id: int | None = None,
                 dedup_key: str | None = None, params: dict[str, Any] | None = None) -> str:
         """Create a job, or return the existing active job id for the same dedup_key."""
+        if dedup_key:
+            with self.db.precious() as conn:
+                existing = self._active_id_for_dedup(conn, dedup_key)
+                if existing:
+                    return existing
+        if job_type not in ADMISSION_EXEMPT_TYPES:
+            self._assert_admission()
         job_id = uuid.uuid4().hex
         with self.db.precious() as conn:
             if dedup_key:
-                existing = conn.execute(
-                    "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
-                    (dedup_key, *_ACTIVE),
-                ).fetchone()
+                existing = self._active_id_for_dedup(conn, dedup_key)
                 if existing:
-                    return existing["id"]
+                    return existing
             try:
                 conn.execute(
                     "INSERT INTO jobs(id, type, status, owner_user_id, dedup_key, params_json)"
@@ -90,14 +131,49 @@ class JobRepository:
                 )
             except sqlite3.IntegrityError:
                 # Lost a race against a concurrent enqueue with the same dedup_key.
-                row = conn.execute(
-                    "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
-                    (dedup_key, *_ACTIVE),
-                ).fetchone()
-                if row:
-                    return row["id"]
+                existing = self._active_id_for_dedup(conn, dedup_key) if dedup_key else None
+                if existing:
+                    return existing
                 raise
         return job_id
+
+    def _active_id_for_dedup(self, conn, dedup_key: str) -> str | None:
+        row = conn.execute(
+            "SELECT id FROM jobs WHERE dedup_key = ? AND status IN (?, ?)",
+            (dedup_key, *_ACTIVE),
+        ).fetchone()
+        return row["id"] if row else None
+
+    def _assert_admission(self) -> None:
+        """Refuse interactive work when the queue is already too deep or too old.
+
+        Clock `schedule.run` (and worker-owned mirror refreshes) skip this so
+        exports cannot starve deliveries.
+        """
+        with self.db.precious() as conn:
+            queued = conn.execute(
+                "SELECT COUNT(*) AS n FROM jobs WHERE status='queued'"
+            ).fetchone()["n"]
+            oldest = conn.execute(
+                "SELECT MIN(created_at) AS t FROM jobs WHERE status='queued'"
+            ).fetchone()["t"]
+        if queued >= MAX_QUEUED_JOBS:
+            raise QueueAdmissionError(
+                "The report queue is busy. Try again in a few minutes."
+            )
+        if queued and oldest:
+            try:
+                created = datetime.fromisoformat(str(oldest))
+            except ValueError:
+                created = None
+            if created is not None:
+                if created.tzinfo is not None:
+                    created = created.astimezone(timezone.utc).replace(tzinfo=None)
+                age = (datetime.now(timezone.utc).replace(tzinfo=None) - created).total_seconds()
+                if age > MAX_QUEUE_AGE_SECONDS:
+                    raise QueueAdmissionError(
+                        "The report queue is backed up. Try again in a few minutes."
+                    )
 
     def get(self, job_id: str) -> Job | None:
         with self.db.precious() as conn:
@@ -105,10 +181,15 @@ class JobRepository:
             return Job.from_row(row) if row else None
 
     def claim_next(self) -> Job | None:
-        """Atomically move the oldest queued job to running and return it."""
+        """Atomically move the next queued job to running.
+
+        Scheduled deliveries win over interactive exports so a busy viewer
+        cannot starve the clock.
+        """
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+                f"SELECT * FROM jobs WHERE status = 'queued' "
+                f"ORDER BY {PRIORITY_SQL}, created_at LIMIT 1"
             ).fetchone()
             if not row:
                 return None
@@ -141,35 +222,41 @@ class JobRepository:
                 (error, _now(), job_id),
             )
 
-    def cancel(self, job_id: str) -> bool:
+    def cancel(self, job_id: str, *, error: str = "") -> bool:
         """Cancel a queued OR running job. Returns True if it was active to cancel.
 
-        A queued job never starts. A running job can't be yanked out of its
-        upstream call mid-flight (e.g. a slow Reporting API request that hasn't
-        returned yet), so that worker thread keeps going until the call ends -
-        but marking the row 'cancelled' lets the screen stop waiting on it right
-        away, and `mark_success`/`mark_failure` are guarded to 'running' so when
-        the call finally finishes it can't overwrite the cancellation.
+        A queued job never starts. A running job's child is killed by the
+        worker on timeout; this row update is what the UI sees. mark_success
+        / mark_failure are guarded to 'running' so a late child cannot
+        overwrite the cancellation.
         """
         with self.db.precious() as conn:
-            updated = conn.execute(
-                "UPDATE jobs SET status='cancelled', finished_at=?"
-                " WHERE id=? AND status IN (?, ?)",
-                (_now(), job_id, *_ACTIVE),
-            )
+            if error:
+                updated = conn.execute(
+                    "UPDATE jobs SET status='cancelled', error=?, finished_at=?"
+                    " WHERE id=? AND status IN (?, ?)",
+                    (error, _now(), job_id, *_ACTIVE),
+                )
+            else:
+                updated = conn.execute(
+                    "UPDATE jobs SET status='cancelled', finished_at=?"
+                    " WHERE id=? AND status IN (?, ?)",
+                    (_now(), job_id, *_ACTIVE),
+                )
             return updated.rowcount == 1
 
     def recover_orphans(self, running_older_than_seconds: float | None = None,
                         max_retries: int = _MAX_RECOVERY_RETRIES) -> int:
-        """Requeue 'running' jobs (orphaned by a crash) so work survives restarts,
-        but only up to `max_retries` times.
+        """Requeue safe 'running' jobs orphaned by a crash; cancel side-effect jobs.
 
-        Called at worker startup (single instance => nothing is truly running when
-        we boot) and usable as a periodic stale-job reaper. A job that has already
-        used up its retries is marked 'failure' instead of being requeued again,
-        so a run that keeps killing its process (e.g. an OOM report) can never
-        loop forever and take the site down with it. Returns the count requeued
-        (not the ones failed). Clears the dedup block an orphaned row would hold.
+        Called at worker startup (single instance => the previous worker is gone)
+        and usable as a periodic stale-job reaper. Report/export/mirror work is
+        requeued up to `max_retries` times. `schedule.run` and `report.deliver`
+        are cancelled even at the retry cap so a restart cannot send the same
+        mail twice. A safe job that already used up its retries is marked
+        'failure' instead of requeued. Returns the count requeued (not cancelled
+        or failed). mark_success is guarded to 'running', so a surviving child
+        cannot resurrect a cancelled delivery.
         """
         where = "status='running'"
         cutoff_params: tuple = ()
@@ -180,21 +267,30 @@ class JobRepository:
             ).isoformat()
             where += " AND (started_at IS NULL OR started_at < ?)"
             cutoff_params = (cutoff,)
+        unsafe = tuple(sorted(UNSAFE_RECOVERY_TYPES))
+        in_sql = ",".join("?" * len(unsafe))
         with self.db.precious() as conn:
-            # Jobs that already exhausted their retries: fail them so they stop
-            # being requeued (and crashing) on every restart.
+            # Side-effect jobs first: never requeue, never the report OOM failure.
+            conn.execute(
+                f"UPDATE jobs SET status='cancelled', error=?, finished_at=?"
+                f" WHERE {where} AND type IN ({in_sql})",
+                (_UNSAFE_ORPHAN_ERROR, _now(), *cutoff_params, *unsafe),
+            )
+            # Safe jobs that already exhausted retries: fail so they stop looping.
             conn.execute(
                 f"UPDATE jobs SET status='failure', error=?, finished_at=?"
-                f" WHERE {where} AND attempts >= ?",
-                (_RETRY_EXHAUSTED_ERROR, _now(), *cutoff_params, max_retries),
+                f" WHERE {where} AND attempts >= ? AND type NOT IN ({in_sql})",
+                (_RETRY_EXHAUSTED_ERROR, _now(), *cutoff_params, max_retries, *unsafe),
             )
-            # The rest: requeue and count this attempt.
             cur = conn.execute(
                 f"UPDATE jobs SET status='queued', started_at=NULL, progress=0,"
-                f" attempts=attempts+1 WHERE {where}",
-                cutoff_params,
+                f" attempts=attempts+1 WHERE {where} AND type NOT IN ({in_sql})",
+                (*cutoff_params, *unsafe),
             )
-            return cur.rowcount
+            requeued = cur.rowcount
+        from web.data.repositories.delivery_legs import DeliveryLegRepository
+        self.interrupted_unknown = DeliveryLegRepository(self.db).interrupt_orphaned_legs()
+        return requeued
 
     def status_summary(self, active_limit: int = 20) -> dict:
         """Counts of jobs by status plus the currently active (queued/running)
@@ -249,9 +345,9 @@ class JobRepository:
             return [dict(r) for r in rows]
 
     def keep_run(self, job_id: str, owner_user_id: int, *, kept_until: str,
-                 name: str = "", cap: int = 5) -> bool:
-        """Mark a finished run as Kept until kept_until. Enforces per-user cap by
-        clearing kept_until on the oldest Kept runs beyond ``cap``."""
+                 name: str = "", cap: int = 5, payload_json: str | None = None) -> bool:
+        """Mark a finished run as Kept until kept_until. Copies the payload into
+        precious when given so recycle/cache prune cannot drop a Kept run."""
         label = (name or "").strip()[:80]
         with self.db.precious() as conn:
             cur = conn.execute(
@@ -261,11 +357,20 @@ class JobRepository:
             )
             if cur.rowcount != 1:
                 return False
+            if payload_json:
+                conn.execute(
+                    "INSERT INTO kept_run_payloads(job_id, payload_json, copied_at)"
+                    " VALUES (?, ?, ?)"
+                    " ON CONFLICT(job_id) DO UPDATE SET"
+                    "   payload_json=excluded.payload_json, copied_at=excluded.copied_at",
+                    (job_id, payload_json, _now()),
+                )
             rows = conn.execute(
                 "SELECT id FROM jobs WHERE owner_user_id=? AND type='report.run'"
                 " AND kept_until IS NOT NULL AND kept_until != ''"
+                " AND kept_until > ?"
                 " ORDER BY kept_until DESC, finished_at DESC",
-                (owner_user_id,),
+                (owner_user_id, _now()),
             ).fetchall()
             if len(rows) > cap:
                 drop_ids = [r["id"] for r in rows[cap:]]
@@ -273,4 +378,96 @@ class JobRepository:
                     "UPDATE jobs SET kept_until=NULL, keep_name='' WHERE id=?",
                     [(i,) for i in drop_ids],
                 )
+                conn.executemany(
+                    "DELETE FROM kept_run_payloads WHERE job_id=?",
+                    [(i,) for i in drop_ids],
+                )
             return True
+
+    def get_kept_payload(self, job_id: str) -> dict | None:
+        """Payload copied at Keep this run, or None if never kept / already dropped."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM kept_run_payloads WHERE job_id=?",
+                (job_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            data = json.loads(row["payload_json"])
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    def has_kept_payload(self, job_id: str) -> bool:
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM kept_run_payloads WHERE job_id=? LIMIT 1",
+                (job_id,),
+            ).fetchone()
+        return row is not None
+
+    def fail_hung(self, older_than_seconds: float, *,
+                  error: str = "Timed out (hung job cap)") -> int:
+        """Cancel long-running jobs the child killer missed. Does not requeue
+        (that would double-send). mark_success is guarded to status='running'."""
+        cutoff = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() - older_than_seconds,
+            tz=timezone.utc,
+        ).isoformat()
+        with self.db.precious() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status='cancelled', error=?, finished_at=?"
+                " WHERE status='running' AND started_at IS NOT NULL AND started_at < ?",
+                (error, _now(), cutoff),
+            )
+            return cur.rowcount
+
+    def prune_expired_kept(self, now: datetime | None = None) -> int:
+        """Drop kept payloads whose window has ended. Leave kept_until as a
+        tombstone so result/export cannot fall through to a later cache hit."""
+        now = now or datetime.now(timezone.utc)
+        cutoff = now.isoformat() if now.tzinfo else now.replace(tzinfo=timezone.utc).isoformat()
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT id FROM jobs"
+                " WHERE kept_until IS NOT NULL AND kept_until != '' AND kept_until < ?",
+                (cutoff,),
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+            if not ids:
+                return 0
+            conn.executemany(
+                "DELETE FROM kept_run_payloads WHERE job_id=?", [(i,) for i in ids],
+            )
+            return len(ids)
+
+    def prune(self, older_than_days: int = 90) -> int:
+        """Drop finished jobs older than 90 days. Skip queued/running and still-kept."""
+        self.prune_expired_kept()
+        days = max(1, int(older_than_days))
+        modifier = f"-{days} days"
+        cutoff = datetime.now(timezone.utc).isoformat()
+        with self.db.precious() as conn:
+            conn.execute(
+                """
+                DELETE FROM kept_run_payloads
+                WHERE job_id IN (
+                    SELECT id FROM jobs
+                    WHERE created_at < datetime('now', ?)
+                      AND status NOT IN ('queued', 'running')
+                      AND (kept_until IS NULL OR kept_until = '' OR kept_until < ?)
+                )
+                """,
+                (modifier, cutoff),
+            )
+            cur = conn.execute(
+                """
+                DELETE FROM jobs
+                WHERE created_at < datetime('now', ?)
+                  AND status NOT IN ('queued', 'running')
+                  AND (kept_until IS NULL OR kept_until = '' OR kept_until < ?)
+                """,
+                (modifier, cutoff),
+            )
+            return int(cur.rowcount or 0)

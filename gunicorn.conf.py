@@ -1,20 +1,17 @@
 """Gunicorn config for the Azure App Service container.
 
-Background-work ownership (the live email-distribution loop and v3's job
-worker/scheduler) is NOT elected here anymore. post_fork runs immediately after
-fork, before the worker's import path is fully set up, so starting the loop from
-here was unreliable (the import could fail silently, leaving the loop running in
-NO worker). Election now happens via an exclusive file lock taken from each
-app's create_app/bootstrap (after imports), which is dependable:
+HTTP only. Job claiming and the scheduler run in ``python -m web.worker_main``,
+started beside Gunicorn by tools/supervise-web.sh.
 
-  - live app: webapp.app._start_email_distribution_check (flock)
-  - v3:       web._is_background_leader (flock)
-
-This file is kept (and passed via --config) so future gunicorn hooks have a home.
+Access-log redaction is installed from the shared filter after the worker
+loads the app (v3 is already on sys.path). create_app also installs it;
+the installer skips a second copy of the same filter class.
 """
 
-from __future__ import annotations
 
-import logging
-
-log = logging.getLogger("gunicorn.conf")
+def post_worker_init(worker):  # noqa: ARG001
+    try:
+        from web.auth.log_redact import install_magic_link_log_redaction
+    except ImportError:
+        return
+    install_magic_link_log_redaction()

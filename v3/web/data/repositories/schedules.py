@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from web.data.connection import Database
 
@@ -483,12 +483,13 @@ class ScheduleRunRepository:
         self.db = db
 
     def start(self, schedule_id: int | None, schedule_type: str = PERSONAL,
-              started_at: str | None = None) -> int:
+              started_at: str | None = None, trigger: str = "scheduled") -> int:
+        kind = trigger if trigger in ("manual", "legacy", "unknown") else "scheduled"
         with self.db.precious() as conn:
             cur = conn.execute(
-                "INSERT INTO schedule_runs(schedule_id, schedule_type, status, started_at)"
-                " VALUES (?, ?, 'running', ?)",
-                (schedule_id, schedule_type, started_at or _now()),
+                "INSERT INTO schedule_runs(schedule_id, schedule_type, status, started_at, trigger)"
+                " VALUES (?, ?, 'running', ?, ?)",
+                (schedule_id, schedule_type, started_at or _now(), kind),
             )
             return cur.lastrowid
 
@@ -525,11 +526,16 @@ class ScheduleRunRepository:
             return [ScheduleRun.from_row(r) for r in rows]
 
     def last_run_at(self, schedule_id: int, schedule_type: str = PERSONAL) -> str | None:
-        """Most recent started_at for due-time calculation by the cron tick."""
+        """Most recent started_at for due-time calculation by the cron tick.
+
+        Manual Send now, leftover 0019 rows (`legacy`), and unknown rows are
+        ignored so they cannot eat the scheduled slot.
+        """
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT MAX(started_at) AS t FROM schedule_runs"
-                " WHERE schedule_id=? AND schedule_type=?",
+                " WHERE schedule_id=? AND schedule_type=?"
+                " AND IFNULL(trigger, 'scheduled') NOT IN ('manual', 'legacy', 'unknown')",
                 (schedule_id, schedule_type),
             ).fetchone()
             return row["t"] if row else None
@@ -543,3 +549,23 @@ class ScheduleRunRepository:
                 (schedule_id, schedule_type),
             ).fetchone()
             return row["t"] if row else None
+
+    def prune(self, now: datetime | None = None) -> int:
+        """Drop old run rows. Personal 30 days, master 90."""
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        personal_cut = (now - timedelta(days=30)).isoformat()
+        master_cut = (now - timedelta(days=90)).isoformat()
+        with self.db.precious() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM schedule_runs
+                WHERE started_at < CASE
+                    WHEN schedule_type = ? THEN ?
+                    ELSE ?
+                END
+                """,
+                (MASTER, master_cut, personal_cut),
+            )
+            return int(cur.rowcount or 0)

@@ -18,7 +18,6 @@ class User:
     is_external: bool
     dashboard_enabled: bool
     sharepoint_access: bool
-    test_access: bool
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "User":
@@ -26,7 +25,7 @@ class User:
             id=r["id"], email=r["email"], display_name=r["display_name"], role=r["role"],
             is_active=bool(r["is_active"]), is_external=bool(r["is_external"]),
             dashboard_enabled=bool(r["dashboard_enabled"]),
-            sharepoint_access=bool(r["sharepoint_access"]), test_access=bool(r["test_access"]),
+            sharepoint_access=bool(r["sharepoint_access"]),
         )
 
 
@@ -55,7 +54,7 @@ class UserRepository:
 
     # --- admin operations ---------------------------------------------------
 
-    _FLAGS = ("is_active", "is_external", "dashboard_enabled", "sharepoint_access", "test_access")
+    _FLAGS = ("is_active", "is_external", "dashboard_enabled", "sharepoint_access")
 
     def list_all(self) -> list[User]:
         with self.db.precious() as conn:

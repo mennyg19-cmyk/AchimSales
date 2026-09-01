@@ -28,6 +28,13 @@ async function act(url: string, method: string, body?: unknown): Promise<boolean
   }
 }
 
+function announceSchedule(text: string): void {
+  const live = document.getElementById("scheduleLive");
+  if (!live) return;
+  live.hidden = !text;
+  live.textContent = text;
+}
+
 function badgeClass(status: string): string {
   if (status === "success") return "badge badge-success";
   if (status === "failure") return "badge badge-error";
@@ -44,7 +51,7 @@ function renderRunLog(runs: RunLogRow[]): void {
     count.hidden = runs.length === 0;
   }
   if (!runs.length) {
-    body.innerHTML = `<p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>`;
+    body.innerHTML = `<p class="run-log-empty">No schedule runs yet. Use Send now or wait for the next cadence.</p>`;
     return;
   }
   const rows = runs.map((r) => {
@@ -115,21 +122,36 @@ function bindRowActions(): void {
   });
   document.querySelectorAll<HTMLButtonElement>(".js-run").forEach((b) => {
     b.addEventListener("click", async () => {
+      const row = b.closest("tr");
+      const name = row?.getAttribute("data-name") || "this schedule";
+      const recips = row?.getAttribute("data-recipients") || "(none)";
+      const folder = row?.getAttribute("data-sharepoint-path") || "(none)";
+      const testOn = document.getElementById("runLogPanel")?.getAttribute("data-test-mode") === "1";
+      const lines = [
+        `Send “${name}” now?`,
+        "",
+        `Recipients: ${recips}`,
+        `Folder: ${folder}`,
+        testOn ? "Test mode is on — company mail goes to the test list." : "Live send (including during Shabbos).",
+      ];
+      if (!window.confirm(lines.join("\n"))) return;
       b.disabled = true;
-      b.textContent = "Running…";
+      b.textContent = "Sending…";
       document.getElementById("runLogPanel")?.setAttribute("open", "");
       const before = await refreshRunLog();
       const beforeIds = new Set(before.map((r) => r.id));
       const ok = await act(b.dataset.url!, "POST", {});
       b.textContent = ok ? "Queued" : "Failed";
       if (ok) {
+        announceSchedule("");
         await refreshRunLog();
         void pollRunLog(beforeIds).finally(() => {
           b.disabled = false;
-          b.textContent = "Run now";
+          b.textContent = "Send now";
         });
       } else {
-        setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
+        announceSchedule("Could not send this schedule now.");
+        setTimeout(() => { b.disabled = false; b.textContent = "Send now"; }, 2500);
       }
     });
   });

@@ -1,5 +1,6 @@
 // Master schedule wizard (admin page).
 
+import { scrollElementIntoView, watchHiddenPoll, type PollStop } from "./dialog";
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename, previewFolder } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
@@ -16,7 +17,7 @@ let emailSalesmanPicker: SearchablePicker | null = null;
 let customerPicker: SearchablePicker | null = null;
 let salesmanEmailOptions: SalesmanEmailRow[] = [];
 let lookupsStarted = false;
-let lookupPollTimer: number | null = null;
+let lookupPollStop: PollStop | null = null;
 let pendingSalesmen: string[] = [];
 let pendingLayout: Record<string, unknown> = {};
 let pendingEmailSalesmen: string[] = [];
@@ -335,6 +336,7 @@ function collectExtraParams(): Record<string, unknown> {
     email_bcc: (document.getElementById("msBcc") as HTMLInputElement | null)?.value.trim() || "",
     email_on_no_data: !!(document.getElementById("msNoDataAll") as HTMLInputElement | null)?.checked,
     email_on_no_data_me_only: !!(document.getElementById("msNoDataMe") as HTMLInputElement | null)?.checked,
+    skip_sabbath: (document.getElementById("msSkipSabbath") as HTMLInputElement | null)?.checked !== false,
   };
 }
 
@@ -403,6 +405,7 @@ function fillReview(form: HTMLFormElement): void {
   if (isPrivileged() && runAsLabel) rows.push(["Run as", runAsLabel]);
   if (extra.email_on_no_data) rows.push(["No data", "email recipients"]);
   if (extra.email_on_no_data_me_only) rows.push(["No data", "email test addresses"]);
+  rows.push(["Skip Shabbos", extra.skip_sabbath === false ? "no" : "yes"]);
   review.innerHTML = rows.map(([k, v]) =>
     `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
 }
@@ -510,10 +513,8 @@ async function loadCustomers(): Promise<void> {
 }
 
 function stopLookupPoll(): void {
-  if (lookupPollTimer != null) {
-    window.clearInterval(lookupPollTimer);
-    lookupPollTimer = null;
-  }
+  lookupPollStop?.();
+  lookupPollStop = null;
 }
 
 function pollLookupStatus(): void {
@@ -553,7 +554,7 @@ function pollLookupStatus(): void {
   };
   void tick();
   stopLookupPoll();
-  lookupPollTimer = window.setInterval(() => { void tick(); }, 2500);
+  lookupPollStop = watchHiddenPoll(() => { void tick(); }, 2500);
 }
 
 async function ensureLookups(): Promise<void> {
@@ -663,7 +664,7 @@ function openWizard(): void {
   if (!wiz) return;
   wiz.hidden = false;
   document.getElementById("msEmpty")?.setAttribute("hidden", "");
-  wiz.scrollIntoView({ behavior: "smooth", block: "start" });
+  scrollElementIntoView(wiz, { behavior: "smooth", block: "start" });
   void initOdPicker();
 }
 
@@ -768,6 +769,8 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   const noMe = document.getElementById("msNoDataMe") as HTMLInputElement | null;
   if (noAll) noAll.checked = !!params.email_on_no_data;
   if (noMe) noMe.checked = !!params.email_on_no_data_me_only;
+  const skipSab = document.getElementById("msSkipSabbath") as HTMLInputElement | null;
+  if (skipSab) skipSab.checked = params.skip_sabbath !== false;
   const useOd = folderKind === "onedrive" || (!shared && folderKind !== "sharepoint" && !!folderPath);
   const hasEmail = !!(row.dataset.recipients || "").trim()
     || !!params.email_to_salesmen || !!params.split_by_salesman
@@ -797,6 +800,59 @@ async function enterEditMode(row: HTMLTableRowElement): Promise<void> {
   await ensureLookups();
   await loadSavedViews(selectedReportKey(form));
   restoreSavedViewSelect(row.dataset.viewName || "Default");
+  updateMsFilenamePreview();
+  updateMsFolderPreview();
+}
+
+const REPORT_DRAFT_KEY = "v3-schedule-from-report";
+
+async function consumeReportDraft(): Promise<void> {
+  if (new URLSearchParams(location.search).get("from_report") !== "1") return;
+  let draft: {
+    report_key?: string;
+    params?: Record<string, unknown>;
+    layout?: Record<string, unknown>;
+  } | null = null;
+  try {
+    draft = JSON.parse(sessionStorage.getItem(REPORT_DRAFT_KEY) || "null");
+  } catch {
+    draft = null;
+  }
+  sessionStorage.removeItem(REPORT_DRAFT_KEY);
+  history.replaceState(null, "", location.pathname + location.hash);
+  if (!draft?.report_key) {
+    openWizard();
+    masterMsg("Could not copy this report into a schedule. Open the report and tap Schedule from report again, or set the filters here by hand.", true);
+    return;
+  }
+  const form = masterForm();
+  if (!form) {
+    openWizard();
+    masterMsg("Could not open the schedule wizard for that report. Add a schedule here and set the filters by hand.", true);
+    return;
+  }
+  form.querySelectorAll<HTMLInputElement>('input[name="report_key"]').forEach((r) => {
+    r.checked = r.value === draft!.report_key;
+  });
+  const params = draft.params || {};
+  const periodEl = form.elements.namedItem("period") as HTMLSelectElement | null;
+  if (periodEl) periodEl.value = String(params.period || "");
+  const yearEl = form.elements.namedItem("year") as HTMLSelectElement | null;
+  if (yearEl && params.year != null) yearEl.value = String(params.year);
+  ensurePickers();
+  statusPicker?.setSelected(asStringList(params.status));
+  pendingSalesmen = asStringList(params.salesman);
+  salesmanPicker?.setSelected(pendingSalesmen);
+  pendingCustomers = asStringList(params.customers);
+  customerPicker?.setSelected(pendingCustomers);
+  pendingLayout = (draft.layout && typeof draft.layout === "object") ? draft.layout : {};
+  suggestName(form);
+  openWizard();
+  showStep(3);
+  syncParamsVisibility(form);
+  await ensureLookups();
+  await loadSavedViews(draft.report_key);
+  restoreSavedViewSelect("Custom");
   updateMsFilenamePreview();
   updateMsFolderPreview();
 }
@@ -997,6 +1053,7 @@ export function bindMasterWizard(): void {
   updateMsFolderPreview();
 
   showStep(1);
+  void consumeReportDraft();
 }
 
 async function initOdPicker(): Promise<void> {

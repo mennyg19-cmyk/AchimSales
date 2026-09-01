@@ -22,7 +22,7 @@ def _cfg(tmp_path, **over) -> Config:
         tenant_id="", client_id="", client_secret="",
         reporting_api_base_url="", reporting_api_key="",
         precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
-        litestream_blob_url="", new_app_marker=True, outbox_dir=tmp_path / "outbox",
+        litestream_blob_url="", outbox_dir=tmp_path / "outbox",
     )
     base.update(over)
     return Config(**base)
@@ -143,6 +143,91 @@ def email(tmp_path):
 def test_split_recipients_filters_invalid():
     assert split_recipients("a@x.com; bad, b@y.com") == ["a@x.com", "b@y.com"]
     assert split_recipients("") == []
+
+
+def test_prod_outbox_only_is_not_success(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, app_env="prod")
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="hi",
+        report_name="Ordered", filename="ordered.xlsx", xlsx_bytes=b"PK\x03\x04",
+    )
+    assert res.ok is False
+    assert "nobody received" in res.error
+    assert (cfg.outbox_dir / res.eml_name).exists()
+    row = OutboxRepository(db).get(res.outbox_id)
+    assert row and row.status == "failed"
+
+
+def test_cancel_after_workbook_skips_mail(tmp_path, monkeypatch):
+    from web.delivery.service import DeliveryService
+    from web.jobs.worker import JobCancelled
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}], "rows": [{"a": 1}]}]}
+    runner = ReportRunner(ReportCache(db))
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    delivered = {"n": 0}
+
+    def fake_deliver(**kwargs):
+        delivered["n"] += 1
+        return DeliveryResult(ok=True, recipients=["a@x.com"])
+
+    email.deliver = fake_deliver  # type: ignore[method-assign]
+    built = {"xlsx": False}
+
+    def fake_workbook(payload, layout):
+        built["xlsx"] = True
+        return b"PK"
+
+    monkeypatch.setattr("web.delivery.service.build_workbook", fake_workbook)
+    svc = DeliveryService(runner, lambda key: (lambda params, vk: payload), email)
+
+    def cancel():
+        return built["xlsx"]
+
+    with pytest.raises(JobCancelled):
+        svc.run_and_deliver(
+            report_key="ordered", identity="u@x.com", visible_salesman_keys=None,
+            builder_version=1, params={}, layout={}, recipients="a@x.com",
+            subject="S", report_name="Ordered", sharepoint_path="",
+            cancel_check=cancel,
+        )
+    assert built["xlsx"] is True
+    assert delivered["n"] == 0
+
+
+def test_cancel_no_data_notice_skips_mail(tmp_path):
+    from web.jobs.worker import JobCancelled
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    delivered = {"n": 0}
+
+    def fake_deliver(**kwargs):
+        delivered["n"] += 1
+        return DeliveryResult(ok=True, recipients=["a@x.com"])
+
+    email.deliver = fake_deliver  # type: ignore[method-assign]
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: {}), email)
+    with pytest.raises(JobCancelled):
+        svc.send_no_data_notice(
+            recipients="a@x.com", subject="No Data Found", body_text="none",
+            report_name="Ordered", cancel_check=lambda: True,
+        )
+    assert delivered["n"] == 0
 
 
 def test_email_writes_eml_and_logs_outbox(email):
@@ -422,6 +507,95 @@ def test_upload_drive_item_uses_session_over_4mb():
     assert req.puts[0][0] == "https://upload/session"
 
 
+def test_upload_session_retries_429(monkeypatch):
+    from web.delivery.graph_upload import SIMPLE_UPLOAD_MAX, upload_drive_item
+
+    sleeps = []
+    monkeypatch.setattr("web.delivery.graph_upload.time.sleep", lambda s: sleeps.append(s))
+
+    class _Resp:
+        def __init__(self, status, payload=None, headers=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.headers = headers or {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class _Req:
+        def __init__(self):
+            self.posts = 0
+
+        def put(self, url, **kwargs):
+            return _Resp(200, {"webUrl": "https://sp/file"})
+
+        def post(self, url, **kwargs):
+            self.posts += 1
+            if self.posts == 1:
+                return _Resp(429, {}, {"Retry-After": "5"})
+            return _Resp(200, {"uploadUrl": "https://upload/session"})
+
+    req = _Req()
+    out = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"},
+        content=b"x" * SIMPLE_UPLOAD_MAX, put_timeout=10,
+    )
+    assert out["webUrl"] == "https://sp/file"
+    assert req.posts == 2
+    assert sleeps == [5.0]
+
+
+def test_upload_session_resumes_from_next_expected_range():
+    from web.delivery.graph_upload import SIMPLE_UPLOAD_MAX, CHUNK_SIZE, upload_drive_item
+
+    class _Resp:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.headers = {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class _Req:
+        def __init__(self):
+            self.puts = []
+            self.gets = 0
+
+        def put(self, url, **kwargs):
+            self.puts.append(kwargs.get("headers", {}).get("Content-Range"))
+            if len(self.puts) == 1:
+                return _Resp(500)
+            return _Resp(200, {"webUrl": "https://sp/file", "id": "1"})
+
+        def post(self, url, **kwargs):
+            return _Resp(200, {"uploadUrl": "https://upload/session"})
+
+        def get(self, url, **kwargs):
+            self.gets += 1
+            return _Resp(200, {"nextExpectedRanges": [f"{CHUNK_SIZE}-"]})
+
+    req = _Req()
+    size = SIMPLE_UPLOAD_MAX + CHUNK_SIZE
+    out = upload_drive_item(
+        req, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer t"},
+        content=b"x" * size, put_timeout=10,
+    )
+    assert out["webUrl"] == "https://sp/file"
+    assert req.gets >= 1
+    assert any(r and r.startswith(f"bytes {CHUNK_SIZE}-") for r in req.puts)
+
+
 def test_sharepoint_prod_without_creds_raises(tmp_path):
     sp = SharePointService(_cfg(tmp_path, app_env="prod",
                                 tenant_id="", client_id="", client_secret=""))
@@ -541,3 +715,102 @@ def test_delivery_expands_folder_tokens_and_strips_home(tmp_path, monkeypatch):
     )
     assert outcome.result.ok
     assert seen["sharepoint_path"] == "Salesman Report/Customer Activity/August 2026"
+
+
+def test_is_company_address_allows_subdomains():
+    from web.delivery.email import is_company_address
+    assert is_company_address("a@achimonline.com")
+    assert is_company_address("a@mail.achimonline.com")
+    assert not is_company_address("a@notachimonline.com")
+    assert not is_company_address("a@x.com")
+
+
+def test_deliver_filters_unapproved_when_db_passed(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg), db=db)
+    blocked = svc.deliver(
+        subject="S", recipients_raw="cust@x.com", body_text="",
+        report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+    )
+    assert blocked.ok is False
+    assert "approval" in blocked.error.lower()
+    ok = svc.deliver(
+        subject="S", recipients_raw="a@achimonline.com", body_text="",
+        report_name="R", filename="r.xlsx", xlsx_bytes=b"x",
+    )
+    assert ok.ok is True
+    assert ok.recipients == ["a@achimonline.com"]
+
+
+def test_send_notice_is_not_filtered(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s",
+               email_from="reports@achimonline.com")
+    graph = _FakeGraph()
+    svc = EmailService(cfg, OutboxRepository(db), SharePointService(cfg),
+                       graph=graph, db=db)
+    svc.send_notice(to=["ops@gmail.com"], subject="[FAIL] x", body_text="err")
+    assert graph.calls[0]["to"] == ["ops@gmail.com"]
+
+
+def test_configured_site_url_does_not_search_on_failure(tmp_path, monkeypatch):
+    import requests
+
+    cfg = _cfg(
+        tmp_path, tenant_id="t", client_id="c", client_secret="s",
+        sp_site_url="https://contoso.sharepoint.com/sites/missing",
+    )
+    sp = SharePointService(cfg)
+    monkeypatch.setattr(sp, "_get_token", lambda: "tok")
+    calls = []
+
+    class FakeResp:
+        ok = False
+        status_code = 404
+
+        def json(self):
+            return {}
+
+        def raise_for_status(self):
+            raise RuntimeError("http")
+
+    def fake_get(url, headers=None, timeout=None):
+        calls.append(url)
+        return FakeResp()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    with pytest.raises(RuntimeError, match="SP_SITE_URL"):
+        sp._resolve_drive_id()
+    assert calls
+    assert all("search=" not in u for u in calls)
+
+
+def test_empty_site_url_may_search(tmp_path, monkeypatch):
+    import requests
+
+    cfg = _cfg(tmp_path, tenant_id="t", client_id="c", client_secret="s", sp_site_url="")
+    sp = SharePointService(cfg)
+    monkeypatch.setattr(sp, "_get_token", lambda: "tok")
+    calls = []
+
+    class FakeResp:
+        ok = True
+        status_code = 200
+
+        def json(self):
+            return {"value": []}
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, headers=None, timeout=None):
+        calls.append(url)
+        return FakeResp()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    with pytest.raises(RuntimeError, match="Could not find SharePoint site"):
+        sp._resolve_drive_id()
+    assert any("search=achim" in u for u in calls)

@@ -1,0 +1,18 @@
+# Files and directory prefixes copied into the App Service / emergency zip.
+# Directory walks keep git-tracked files only (see tools/build_artifact.py).
+app.py
+wsgi.py
+wsgi_dispatch.py
+gunicorn.conf.py
+startup.sh
+litestream.yml
+requirements.txt
+report_registry.json
+run.py
+tools/supervise-web.sh
+v3/
+core/
+data/
+reports/
+runbooks/
+config/

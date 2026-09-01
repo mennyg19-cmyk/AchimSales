@@ -156,30 +156,27 @@ def _year_of(row: dict) -> int | None:
     return None
 
 
-def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
-    """Highest commission rate the SP sent per salesman key (rows should agree;
-    max ignores blank/zero rows like credits). Empty when the SP sends none."""
-    rates: dict[str, float] = {}
+def _customer_salesman_key(row: dict) -> tuple[str, str, str, str]:
+    return (row.get("CustomerAccount") or "", row.get("CustomerName") or "",
+            row.get("Salesman") or "", row.get("SalesmanName") or "")
+
+
+def _commission_dollars_by_customer(rows: Iterable[dict]) -> dict[tuple[str, str, str, str], float]:
+    """Sum each invoice's own SP rate. Same grouping as `_summary_by_customer`."""
+    dollars: dict[tuple[str, str, str, str], float] = {}
     for r in rows:
-        sg = r.get("_sales_group") or ""
-        if not sg:
+        if not (r.get("_sales_group") or ""):
             continue
+        key = _customer_salesman_key(r)
         rate = num(r.get("_commission_pct"))
-        key = salesman_key(sg)
-        if rate > rates.get(key, 0.0):
-            rates[key] = rate
-    return rates
+        base = num(r.get("SubTotal Invoices")) + num(r.get("Tariff Charges"))
+        dollars[key] = dollars.get(key, 0.0) + base * rate
+    return dollars
 
 
-def _commission_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
-                     row_rates: Mapping[str, float]) -> float:
-    """The rate to use for one salesman: the SP's per-row rate when present,
-    otherwise the salesman master. Both are fractions (0.06 = 6%)."""
-    key = salesman_key(sales_group)
-    row_rate = row_rates.get(key, 0.0)
-    if row_rate > 0:
-        return row_rate
-    sm = salesmen.get(key)
+def _display_commission_pct(sales_group: str, salesmen: Mapping[str, SalesmanFact]) -> float:
+    """Commissions-tab % box: leftover salesman-table rate, not invoice stamps."""
+    sm = salesmen.get(salesman_key(sales_group))
     return sm.commission_pct if sm else 0.0
 
 
@@ -226,8 +223,7 @@ def _summary_by_customer(raw: Sequence[dict]) -> dict:
     buckets: dict[tuple, dict] = {}
     invoices_seen: dict[tuple, set] = {}
     for r in raw:
-        key = (r.get("CustomerAccount") or "", r.get("CustomerName") or "",
-               r.get("Salesman") or "", r.get("SalesmanName") or "")
+        key = _customer_salesman_key(r)
         b = buckets.get(key)
         if b is None:
             b = {
@@ -265,15 +261,12 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
     if not 1 <= end_month <= 12:
         end_month = 12
 
-    row_rates = _row_rates_by_salesman(ytd_rows)
     by_sm: dict[str, dict] = {}
     for r in ytd_rows:
         sg = r.get("_sales_group") or ""
         if not sg:
             continue
-        rate = _commission_rate(sg, salesmen, row_rates)
-        if rate <= 0:
-            continue
+        rate = num(r.get("_commission_pct"))
         # Guard against a caller passing a wider window than Jan 1..period end:
         # only count rows in the report year (LIVE fetches exactly that window).
         if _year_of(r) != year:
@@ -286,25 +279,33 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         bucket = by_sm.setdefault(bucket_key, {
             "label": r.get("Salesman") or sg,
             "name": r.get("SalesmanName") or (sm.full_name or sm.display_name if sm else "") or sg,
-            "pct": rate,
             "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, misc=0.0,
-                             credits=0.0)
+                             credits=0.0, commission=0.0)
                         for _ in range(end_month)],
         })
         slot = bucket["monthly"][m - 1]
         if r.get("_is_credit"):
-            slot["credits"] += num(r.get("Total Invoice"))
+            crd = num(r.get("Total Invoice"))
+            slot["credits"] += crd
+            slot["commission"] += crd * rate
         else:
-            slot["subtotal"] += num(r.get("SubTotal Invoices"))
-            slot["tariff"] += num(r.get("Tariff Charges"))
-            slot["freight"] += num(r.get("Freight Charges"))
-            slot["cc"] += num(r.get("CC Charges"))
-            slot["misc"] += num(r.get("Misc Charges"))
+            sub = num(r.get("SubTotal Invoices"))
+            tar = num(r.get("Tariff Charges"))
+            fre = num(r.get("Freight Charges"))
+            cc = num(r.get("CC Charges"))
+            misc = num(r.get("Misc Charges"))
+            slot["subtotal"] += sub
+            slot["tariff"] += tar
+            slot["freight"] += fre
+            slot["cc"] += cc
+            slot["misc"] += misc
+            slot["commission"] += (sub + tar + misc) * rate
 
     salesmen_out: list[dict] = []
     for bucket_key in sorted(by_sm, key=lambda k: by_sm[k]["name"].lower()):
         bucket = by_sm[bucket_key]
-        pct = bucket["pct"]
+        sm = salesmen.get(bucket_key)
+        pct = sm.commission_pct if sm else 0.0
         ytd = dict(subtotal_invoices=0.0, tariff_charges=0.0, freight_charges=0.0,
                    cc_charges=0.0, misc_charges=0.0, total_invoices=0.0, credits=0.0,
                    net_commission=0.0, commission=0.0)
@@ -318,7 +319,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             crd = round(slot["credits"], 2)
             ti = round(sub + tar + fre + cc + misc, 2)
             net = round(ti + crd - fre - cc, 2)
-            comm = net * pct  # kept UNrounded; YTD sums these (matches LIVE)
+            comm = round(slot["commission"], 2)
             monthly_out.append({
                 "month": idx + 1, "month_label": _MONTH_LABELS[idx],
                 "subtotal_invoices": sub, "tariff_charges": tar,
@@ -334,7 +335,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             ytd["total_invoices"] += ti
             ytd["credits"] += crd
             ytd["net_commission"] += net
-            ytd["commission"] += comm
+            ytd["commission"] += slot["commission"]
         for k in ytd:
             ytd[k] = round(ytd[k], 2)
         ytd["total_payable"] = ytd["commission"]
@@ -395,16 +396,16 @@ def _commissions_flat_table(salesmen_out: list[dict], grand: dict,
 
 def _commissions_simple(summary_rows: Sequence[dict],
                         salesmen: Mapping[str, SalesmanFact],
-                        row_rates: Mapping[str, float]) -> dict:
+                        dollars: Mapping[tuple[str, str, str, str], float]) -> dict:
     rows: list[dict] = []
     for r in summary_rows:
         sg = r.get("_sales_group") or ""
-        pct = _commission_rate(sg, salesmen, row_rates) if sg else 0.0
+        key = _customer_salesman_key(r)
         base = round(num(r.get("SubTotal Invoices")) + num(r.get("Total Tariff Charges")), 2)
         out = _public(r)
-        out["Percent"] = pct
+        out["Percent"] = _display_commission_pct(sg, salesmen) if sg else 0.0
         out["Commission Base"] = base
-        out["Commissions"] = round(base * pct, 2)
+        out["Commissions"] = round(dollars.get(key, 0.0), 2)
         rows.append(out)
     rows.sort(key=lambda r: -num(r.get("Commissions")))
     return {"key": "commissions", "name": "Commissions",
@@ -519,7 +520,8 @@ def build(facts: Iterable[InvoiceChargeFact], *,
             ytd_rows = [_enriched(f, salesmen) for f in ytd_facts]
             commissions = _commissions_monthly(ytd_rows, salesmen, year=year, end_month=end_month)
         else:
-            commissions = _commissions_simple(summary["rows"], salesmen, _row_rates_by_salesman(raw))
+            commissions = _commissions_simple(
+                summary["rows"], salesmen, _commission_dollars_by_customer(raw))
 
     summary["rows"] = [_public(r) for r in summary["rows"]]
 

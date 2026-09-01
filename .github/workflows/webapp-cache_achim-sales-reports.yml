@@ -4,13 +4,13 @@
 
 name: Build and deploy Python app to Azure Web App - achim-sales-reports
 
-# Production slot. webapp-cache is the usual deploy branch; cursor/** is so
-# Cloud Agents can ship the same way when they push their working branch.
+# Production slot. Only the reviewed production branch deploys here.
+# Cloud Agent cursor/** branches must not ship straight to Azure Production.
+# GitHub Actions has no workflow-level timeout; every job sets timeout-minutes.
 on:
   push:
     branches:
       - webapp-cache
-      - "cursor/**"
   workflow_dispatch:
 
 # Name bumped so the 2026-08-26 ghost "queued" runs (cannot cancel or delete)
@@ -19,67 +19,202 @@ concurrency:
   group: deploy-achim-sales-reports-v2
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  tracked-secrets:
+    name: Forbid tracked session exports
+    if: github.ref == 'refs/heads/webapp-cache'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read #This is required for actions/checkout
-
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python version
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          python-version: '3.10'
+          persist-credentials: false
+      - name: Check index
+        run: bash tools/check-no-tracked-secrets.sh
 
-      # The webapp's real dependencies live in webapp/requirements.txt
-      # (Flask, gunicorn, azure-identity, azure-mgmt-automation, ...).
-      # The root requirements.txt is for the test/runbook side and is missing
-      # the webapp deps. Oryx on App Service runs `pip install -r requirements.txt`
-      # against whatever is at the artifact root, so we copy webapp's
-      # requirements.txt to the root before upload -- mirroring what
-      # `deploy.ps1` does for the manual zip-deploy path.
-      - name: Stage webapp/requirements.txt as root requirements.txt
-        run: cp webapp/requirements.txt requirements.txt
+  gitleaks:
+    name: Secrets scan (gitleaks)
+    if: github.ref == 'refs/heads/webapp-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
-      # 🛠️ Local Build Section (Optional)
-      # Validates that the webapp's deps install cleanly before we ship.
-      - name: Create and Start virtual environment and Install dependencies
+  semgrep:
+    name: Static scan (semgrep)
+    if: github.ref == 'refs/heads/webapp-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      # digest of semgrep/semgrep:latest, 2026-08-25
+      image: semgrep/semgrep@sha256:f1f7b71861c7b28b6e0f661225a2c4f58a484f5d0f182465c6d6b3b22f972ade
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Whole-repo p/default --error is ~130 pre-existing hits. Gate new findings
+      # vs the previous commit (push before SHA, or HEAD^ on manual dispatch).
+      - name: Run semgrep (new findings only)
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          python -m venv antenv
-          source antenv/bin/activate
-          pip install -r requirements.txt
+          baseline=""
+          if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            baseline="$BEFORE_SHA"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            baseline="$(git rev-parse HEAD^)"
+          fi
+          if [ -n "$baseline" ]; then
+            semgrep scan --config p/default --error --baseline-commit "$baseline"
+          else
+            semgrep scan --config p/default
+          fi
 
-      # By default, when you enable GitHub CI/CD integration through the Azure portal, the platform automatically sets the SCM_DO_BUILD_DURING_DEPLOYMENT application setting to true. This triggers the use of Oryx, a build engine that handles application compilation and dependency installation (e.g., pip install) directly on the platform during deployment. Hence, we exclude the antenv virtual environment directory from the deployment artifact to reduce the payload size.
+  zizmor:
+    name: GitHub Actions lint (zizmor)
+    if: github.ref == 'refs/heads/webapp-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+
+  python:
+    name: Python tests
+    if: github.ref == 'refs/heads/webapp-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.10"
+      - name: Install test dependencies
+        run: pip install --require-hashes -r requirements.txt
+      - name: v3 pytest
+        run: |
+          cd v3
+          python -m pytest tests -q --tb=short
+      - name: root pytest
+        run: |
+          PYTHONPATH="$PWD" python -m pytest tests -q --tb=short
+
+  frontend:
+    name: Frontend build
+    if: github.ref == 'refs/heads/webapp-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: v3/package-lock.json
+      - name: Install and build
+        working-directory: v3
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run build
+      - name: Generated static files match the build
+        run: git diff --exit-code -- v3/web/static_dist/
+
+  restore-preflight:
+    name: Restore preflight
+    if: github.ref == 'refs/heads/webapp-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.10"
+      - name: Install pytest
+        run: pip install "pytest>=8.0,<9"
+      - name: Empty-disk and Litestream refuse-boot tests
+        run: |
+          PYTHONPATH="$PWD" python -m pytest tests/test_startup_restore.py --noconftest -q --tb=short
+
+  build:
+    name: Package artifact
+    if: github.ref == 'refs/heads/webapp-cache'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - tracked-secrets
+      - gitleaks
+      - semgrep
+      - zizmor
+      - python
+      - frontend
+      - restore-preflight
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Set up Python version
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.10"
+      - name: Compile WSGI and v3 web
+        run: python -m compileall -q wsgi.py wsgi_dispatch.py app.py v3/web
+      - name: Stage Production allowlist
+        run: python tools/build_artifact.py --out "$RUNNER_TEMP/achim-artifact"
       - name: Upload artifact for deployment jobs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: python-app
-          path: |
-            .
-            !antenv/
-
-      # 🚫 Opting Out of Oryx Build
-      # If you prefer to disable the Oryx build process during deployment, follow these steps:
-      # 1. Remove the SCM_DO_BUILD_DURING_DEPLOYMENT app setting from your Azure App Service Environment variables.
-      # 2. Refer to sample workflows for alternative deployment strategies: https://github.com/Azure/actions-workflow-samples/tree/master/AppService
-      
+          path: ${{ runner.temp }}/achim-artifact
 
   deploy:
+    name: Deploy Production
+    if: github.ref == 'refs/heads/webapp-cache'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: build
-    
+    environment:
+      name: production
+      url: https://reports.achimonline.com
     steps:
       - name: Download artifact from build job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: python-app
-      
-      - name: 'Deploy to Azure Web App'
-        uses: azure/webapps-deploy@v3
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
         id: deploy-to-webapp
         with:
-          app-name: 'achim-sales-reports'
-          slot-name: 'Production'
+          app-name: "achim-sales-reports"
+          slot-name: "Production"
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_6D8853607BB04851AE665DC4FA045E31 }}

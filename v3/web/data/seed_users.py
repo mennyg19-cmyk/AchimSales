@@ -1,19 +1,11 @@
-"""Copy the user directory from the live app into v3's `users` table.
+"""Optional copy of leftover Azure `app.db` users into v3's `users` table.
 
-The live app (webapp/) is the authoritative user directory: it stores every
-authorized account in its SQLite DB (`app_users`: email, role, salesman_key,
-display_name, dashboard_enabled, is_external). v3 mirrors that list on boot so
-the same people - with the same roles - can sign in to /test without being
-re-entered by hand.
+Reads that sqlite file directly (read-only). Roles map 1:1. A user's
+salesman_key is mapped into `user_salesman_access` when that salesman exists
+in v3's `salesmen` table (skipped otherwise — the FK would reject it).
 
-This reads the live DB *file* directly (read-only); it never imports live code,
-so v3 stays decoupled. Roles map 1:1 (admin|developer|manager|salesman). A
-user's salesman_key is mapped into v3's `user_salesman_access` when that salesman
-exists in v3's `salesmen` table (skipped otherwise - the FK would reject it).
-
-Mirror semantics: re-running updates role/flags/display_name to match live, so
-live remains the source of truth for who can sign in. Explicit env admins
-(V3_ADMIN_EMAILS) are applied *after* this and always win.
+Re-running updates role/flags/display_name. Salesman grants are replaced, not
+merged. Explicit env admins (V3_ADMIN_EMAILS) are applied after this and win.
 """
 
 from __future__ import annotations
@@ -36,22 +28,68 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
 
 
+def _tables(conn: sqlite3.Connection) -> set[str]:
+    return {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def _grant_keys_by_email(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    if "user_salesman_access" not in _tables(conn):
+        return {}
+    cols = _columns(conn, "user_salesman_access")
+    if "salesman_key" not in cols:
+        return {}
+    if "user_email" in cols:
+        rows = conn.execute(
+            "SELECT user_email, salesman_key FROM user_salesman_access"
+        )
+    elif "email" in cols:
+        rows = conn.execute(
+            "SELECT email, salesman_key FROM user_salesman_access"
+        )
+    else:
+        return {}
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        email = (r[0] or "").strip().lower()
+        key = (r[1] or "").strip()
+        if email and key:
+            out.setdefault(email, []).append(key)
+    return out
+
+
+class LiveUserSourceError(RuntimeError):
+    """The leftover Live user DB is missing, unreadable, or not a user directory."""
+
+
 def read_live_users(path: Path | str | None = None) -> list[dict]:
-    """Read app_users from the live DB. Returns [] if the file/table is absent."""
+    """Read app_users from the live DB. Raises if the source is unusable.
+
+    An existing file with an empty `app_users` table returns [].
+    """
     path = Path(path) if path is not None else live_db_path()
     if not path.is_file():
-        return []
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        raise LiveUserSourceError(f"Live user DB not found: {path}")
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error as exc:
+        raise LiveUserSourceError(f"Cannot read live user DB {path}: {exc}") from exc
     conn.row_factory = sqlite3.Row
     try:
+        if "app_users" not in _tables(conn):
+            raise LiveUserSourceError(f"{path} has no app_users table")
         cols = _columns(conn, "app_users")
         if "email" not in cols:
-            return []
+            raise LiveUserSourceError(f"{path} app_users has no email column")
         wanted = [c for c in ("email", "role", "salesman_key", "display_name",
                               "dashboard_enabled", "is_external") if c in cols]
         rows = conn.execute(f"SELECT {', '.join(wanted)} FROM app_users").fetchall()
-    except sqlite3.Error:
-        return []
+        try:
+            grants = _grant_keys_by_email(conn)
+        except sqlite3.Error:
+            grants = {}
+    except sqlite3.Error as exc:
+        raise LiveUserSourceError(f"Cannot read live user DB {path}: {exc}") from exc
     finally:
         conn.close()
 
@@ -62,10 +100,18 @@ def read_live_users(path: Path | str | None = None) -> list[dict]:
         if not email or "@" not in email:
             continue
         role = (d.get("role") or "").strip().lower()
+        keys: list[str] = []
+        primary = (d.get("salesman_key") or "").strip()
+        if primary:
+            keys.append(primary)
+        for key in grants.get(email, []):
+            if key not in keys:
+                keys.append(key)
         out.append({
             "email": email,
             "role": role if role in VALID_ROLES else ROLE_SALESMAN,
-            "salesman_key": (d.get("salesman_key") or "").strip() or None,
+            "salesman_key": primary or None,
+            "salesman_keys": keys,
             "display_name": (d.get("display_name") or "").strip(),
             "dashboard_enabled": 1 if d.get("dashboard_enabled") else 0,
             "is_external": 1 if d.get("is_external") else 0,
@@ -73,10 +119,11 @@ def read_live_users(path: Path | str | None = None) -> list[dict]:
     return out
 
 
-def copy_live_users(db: Database, users: list[dict]) -> int:
-    """Upsert live users into v3. Returns the number of users written."""
+def copy_live_users(db: Database, users: list[dict]) -> tuple[int, int]:
+    """Upsert live users into v3. Returns (users written, grants written)."""
     if not users:
-        return 0
+        return 0, 0
+    grants_written = 0
     with db.precious() as conn:
         existing_salesmen = {r[0] for r in conn.execute("SELECT key FROM salesmen")}
         for u in users:
@@ -91,18 +138,23 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
                 (u["email"], u["display_name"], u["role"],
                  u["is_external"], u["dashboard_enabled"]),
             )
-            key = _normalize_salesman_key(u["salesman_key"] or "")
-            if key and key in existing_salesmen:
-                uid = conn.execute(
-                    "SELECT id FROM users WHERE email = ?", (u["email"],)
-                ).fetchone()["id"]
+            uid = conn.execute(
+                "SELECT id FROM users WHERE email = ?", (u["email"],)
+            ).fetchone()["id"]
+            conn.execute("DELETE FROM user_salesman_access WHERE user_id = ?", (uid,))
+            seen: set[str] = set()
+            raw_keys = u.get("salesman_keys")
+            if raw_keys is None and u.get("salesman_key"):
+                raw_keys = [u["salesman_key"]]
+            for raw in raw_keys or []:
+                key = _normalize_salesman_key(raw or "")
+                if not key or key not in existing_salesmen or key in seen:
+                    continue
+                seen.add(key)
                 conn.execute(
                     "INSERT OR IGNORE INTO user_salesman_access(user_id, salesman_key)"
                     " VALUES (?, ?)",
                     (uid, key),
                 )
-    return len(users)
-
-
-def seed_users_from_live(db: Database, path: Path | str | None = None) -> int:
-    return copy_live_users(db, read_live_users(path))
+                grants_written += 1
+    return len(users), grants_written

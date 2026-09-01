@@ -15,6 +15,7 @@ from flask import Flask, abort, request, session
 _SESSION_KEY = "_csrf_token"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 _EXEMPT_ENDPOINTS = {"health.healthz", "auth.callback"}
+_EXEMPT_PATHS = {"/auth/callback"}
 
 
 def csrf_token() -> str:
@@ -30,6 +31,8 @@ def _validate() -> None:
     if request.method in _SAFE_METHODS:
         return
     if (request.endpoint or "") in _EXEMPT_ENDPOINTS:
+        return
+    if request.path.rstrip("/") in _EXEMPT_PATHS:
         return
     expected = session.get(_SESSION_KEY)
     sent = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")

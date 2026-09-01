@@ -1,11 +1,11 @@
-"""WSGI path routing: Beta at /, Live at /legacy, /beta redirects, Entra at /auth."""
+"""WSGI path routing: v3 at /, old /beta bookmarks redirect."""
 
 from __future__ import annotations
 
 from werkzeug.test import Client
 from werkzeug.wrappers import Response
 
-from wsgi_dispatch import mount_beta_as_home
+from wsgi_dispatch import PrefixRedirectMiddleware
 
 
 def _named(name: str):
@@ -23,36 +23,37 @@ def _named(name: str):
 
 
 def _client():
-    return Client(
-        mount_beta_as_home(
-            _named("beta"),
-            _named("live"),
-            {"/test": _named("test")},
-        ),
-        Response,
-    )
+    return Client(PrefixRedirectMiddleware(_named("home"), "/beta"), Response)
 
 
-def test_root_is_beta():
+def test_root_is_home():
     resp = _client().get("/")
     assert resp.status_code == 200
-    assert resp.get_data(as_text=True).startswith("beta|")
-    assert "|pi=/" in resp.get_data(as_text=True) or "|pi=" in resp.get_data(as_text=True)
+    assert resp.get_data(as_text=True).startswith("home|")
 
 
-def test_legacy_is_live_with_script_name():
-    resp = _client().get("/legacy/reports")
+def test_login_hits_home_app():
+    resp = _client().get("/login?next=/", follow_redirects=False)
     assert resp.status_code == 200
     text = resp.get_data(as_text=True)
-    assert text.startswith("live|")
-    assert "sn=/legacy" in text
-    assert "pi=/reports" in text
+    assert text.startswith("home|")
+    assert "pi=/login" in text
 
 
-def test_legacy_bare_redirects_to_slash():
-    resp = _client().get("/legacy", follow_redirects=False)
-    assert resp.status_code == 302
-    assert resp.headers["Location"] == "/legacy/"
+def test_auth_callback_hits_home():
+    resp = _client().get("/auth/callback")
+    assert resp.status_code == 200
+    text = resp.get_data(as_text=True)
+    assert text.startswith("home|")
+    assert "pi=/auth/callback" in text
+
+
+def test_login_start_hits_home():
+    resp = _client().get("/login/start?next=/", follow_redirects=False)
+    assert resp.status_code == 200
+    text = resp.get_data(as_text=True)
+    assert text.startswith("home|")
+    assert "pi=/login/start" in text
 
 
 def test_beta_prefix_redirects():
@@ -62,45 +63,3 @@ def test_beta_prefix_redirects():
     resp2 = _client().get("/beta", follow_redirects=False)
     assert resp2.status_code == 302
     assert resp2.headers["Location"] == "/"
-
-
-def test_auth_callback_hits_live_at_root():
-    resp = _client().get("/auth/callback")
-    assert resp.status_code == 200
-    text = resp.get_data(as_text=True)
-    assert text.startswith("live|")
-    assert "sn=" in text
-    assert "pi=/auth/callback" in text
-    # Must not be under /legacy — Entra URI is /auth/callback.
-    assert "sn=/legacy" not in text
-
-
-def test_login_hits_home_app():
-    resp = _client().get("/login?next=/", follow_redirects=False)
-    assert resp.status_code == 200
-    assert resp.get_data(as_text=True).startswith("beta|")
-    assert "pi=/login" in resp.get_data(as_text=True)
-
-
-def test_login_start_goes_to_live():
-    resp = _client().get("/login/start?next=/", follow_redirects=False)
-    assert resp.status_code == 307
-    assert resp.headers["Location"] == "/legacy/login/start?next=/"
-
-
-def test_role_picker_hits_home_app():
-    resp = _client().get("/dev/role-picker", follow_redirects=False)
-    assert resp.status_code == 200
-    text = resp.get_data(as_text=True)
-    assert text.startswith("beta|")
-    assert "pi=/dev/role-picker" in text
-    assert "sn=/legacy" not in text
-
-
-def test_test_mount_unchanged():
-    resp = _client().get("/test/healthz")
-    assert resp.status_code == 200
-    text = resp.get_data(as_text=True)
-    assert text.startswith("test|")
-    assert "sn=/test" in text
-    assert "pi=/healthz" in text

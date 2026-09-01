@@ -73,6 +73,22 @@ def test_overdue_notifications_generated_and_deduped(db):
     assert len(items) == 1 and items[0].payload["customer_account"] == "100"
 
 
+def test_rebuild_customers_only_writes_accounts_without_order_metrics(db):
+    repo = DashboardRepository(db)
+    svc = MirrorService(
+        customers_fetch=lambda: [_Cust("100", "Acme", "REdwards")],
+        orders_fetch=lambda: [_Order("100", "2026-05-01")],
+        repo=repo,
+    )
+    n = svc.rebuild_customers_only()
+    assert n == 1
+    row = repo.get("100")
+    assert row.customer_name == "Acme"
+    assert row.sales_group == "REdwards"
+    assert row.order_count == 0
+    assert row.last_order_date is None
+
+
 def test_rebuild_is_full_replace(db):
     repo = DashboardRepository(db)
     svc = MirrorService(

@@ -17,10 +17,10 @@ from flask import (
 from report_engine import registry
 from report_engine.lib import salesman_key
 from web.auth.decorators import require_login
-from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.data.repositories.app_settings import AppSettingsRepository
 from web.data.repositories.exclusions import ExclusionRepository
+from web.data.repositories.external_recipients import ExternalRecipientRepository
 from web.data.repositories.feature_flags import DEFAULTS as FLAG_DEFAULTS
 from web.data.repositories.feature_flags import FeatureFlagRepository
 from web.data.repositories.preferences import PreferencesRepository
@@ -52,7 +52,7 @@ def _require_admin():
 
 
 def _is_developer(p) -> bool:
-    return p.role == ROLE_DEVELOPER
+    return current_app.config["AUTHZ"].is_developer(p)
 
 
 @settings_bp.get("/settings")
@@ -65,6 +65,7 @@ def settings_page():
     reports = []
     test_mode_on = False
     test_emails: list[str] = []
+    pending_recipients: list[dict] = []
     if is_admin:
         current = _flags().all()
         flags = [
@@ -74,6 +75,8 @@ def settings_page():
         settings = AppSettingsRepository(current_app.config["DB"])
         test_mode_on = settings.is_schedule_test_mode()
         test_emails = settings.test_emails()
+        pending_recipients = ExternalRecipientRepository(
+            current_app.config["DB"]).list_pending()
         vis = ReportConfigRepository(current_app.config["DB"]).all()
         reports = [
             {"key": s.key, "title": s.title, "enabled": vis.get(s.key, True)}
@@ -82,21 +85,12 @@ def settings_page():
     uid = _uid(p.email)
     excluded = ExclusionRepository(current_app.config["DB"]).get(uid) if uid else set()
     customers = _exclusion_customers(p, excluded)
-    beta_sources = {}
-    if _is_developer(p):
-        try:
-            from web.beta_sources import get_sources
-            beta_sources = get_sources()
-        except Exception:  # noqa: BLE001 - page still renders
-            current_app.logger.exception("beta sources load failed")
-            from web.beta_sources import default_sources
-            beta_sources = default_sources()
     return render_template(
         "settings.html", active_tab="settings", profile=p, flags=flags,
         test_mode_on=test_mode_on, test_emails=test_emails,
+        pending_recipients=pending_recipients,
         is_admin=is_admin, is_developer=_is_developer(p),
         reports=reports, customers=customers, excluded=excluded,
-        beta_sources=beta_sources,
     )
 
 
@@ -215,32 +209,6 @@ def set_exclusion():
     return jsonify({"customer_account": account, "excluded": excluded})
 
 
-@settings_bp.get("/api/dev/beta-sources")
-@require_login
-def get_beta_sources():
-    if not _is_developer(current_principal()):
-        return jsonify({"error": "Forbidden"}), 403
-    from web.beta_sources import get_sources
-    return jsonify({"sources": get_sources()})
-
-
-@settings_bp.post("/api/dev/beta-sources")
-@require_login
-def set_beta_source():
-    if not _is_developer(current_principal()):
-        return jsonify({"error": "Forbidden"}), 403
-    body = request.get_json(silent=True) or {}
-    key = (body.get("report_key") or "").strip()
-    source = (body.get("source") or "").strip().lower()
-    from web.beta_sources import set_source
-    try:
-        set_source(key, source)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    from web.beta_sources import get_source
-    return jsonify({"report_key": key, "source": get_source(key)})
-
-
 @settings_bp.post("/settings/theme")
 @require_login
 def set_theme():
@@ -252,6 +220,29 @@ def set_theme():
     if uid is not None:
         _prefs().set(uid, theme=theme)
     flash(f"Theme set to {theme}.", "success")
+    return redirect(url_for("settings.settings_page"))
+
+
+@settings_bp.post("/settings/external-recipients")
+@require_login
+def decide_external_recipient():
+    if _require_admin() is None:
+        return jsonify({"error": "Forbidden"}), 403
+    p = current_principal()
+    email = (request.form.get("email") or "").strip()
+    action = (request.form.get("action") or "").strip().lower()
+    if action not in ("approve", "reject"):
+        flash("Choose approve or reject.", "error")
+        return redirect(url_for("settings.settings_page"))
+    ok = ExternalRecipientRepository(current_app.config["DB"]).decide(
+        email, "approved" if action == "approve" else "rejected", _uid(p.email),
+    )
+    if not ok:
+        flash("Unknown address.", "error")
+    elif action == "approve":
+        flash(f"Approved {email}.", "success")
+    else:
+        flash(f"Rejected {email}.", "success")
     return redirect(url_for("settings.settings_page"))
 
 

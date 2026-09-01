@@ -1,15 +1,32 @@
-"""Health / readiness endpoint.
+"""Health / readiness endpoints.
 
-Rule 9 / security: returns the MINIMUM needed for a load balancer or Azure health
-probe. It must NOT leak auth mode, secrets, paths, or any operational detail
+Rule 9 / security: liveness returns the MINIMUM needed for a load balancer.
+It must NOT leak auth mode, secrets, paths, or any operational detail
 (the live `/healthz` leaked config - we do not repeat that).
+
+`/healthz` is liveness (process up). `/readyz` is readiness: precious.db in
+prod (nonzero + `PRAGMA quick_check`), no failed Litestream restore, bootstrap
+did not fail, and (prod) worker + scheduler heartbeats are fresh.
 """
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, url_for
+from pathlib import Path
+
+from flask import Blueprint, current_app, jsonify, url_for
+
+from web.data.precious_integrity import file_quick_check_ok
+
+from web.jobs.limits import (
+    SCHEDULER_HEARTBEAT_STALE_SECONDS,
+    WORKER_HEARTBEAT_STALE_SECONDS,
+)
 
 health_bp = Blueprint("health", __name__)
+
+
+def bootstrap_failed_marker(cfg) -> Path:
+    return Path(cfg.precious_db_path).with_name(".bootstrap-failed")
 
 
 @health_bp.get("/healthz")
@@ -17,14 +34,49 @@ def healthz():
     return {"status": "ok"}, 200
 
 
+@health_bp.get("/readyz")
+def readyz():
+    cfg = current_app.config.get("APP_CONFIG")
+    if cfg is None:
+        return {"status": "not_ready"}, 503
+    if bootstrap_failed_marker(cfg).is_file():
+        return {"status": "not_ready"}, 503
+    if getattr(cfg, "is_prod", False):
+        if not file_quick_check_ok(Path(cfg.precious_db_path)):
+            return {"status": "not_ready"}, 503
+        marker = Path(cfg.precious_db_path).with_name(".litestream-restore-failed")
+        if marker.is_file():
+            return {"status": "not_ready"}, 503
+        if not _heartbeats_fresh(current_app):
+            return {"status": "not_ready"}, 503
+    return {"status": "ok"}, 200
+
+
+def _heartbeats_fresh(app) -> bool:
+    from web.data.repositories.app_settings import AppSettingsRepository
+
+    db = app.config.get("DB")
+    if db is None:
+        return False
+    try:
+        settings = AppSettingsRepository(db)
+        worker_age = settings.heartbeat_age_seconds("worker_heartbeat")
+        sched_age = settings.heartbeat_age_seconds("scheduler_heartbeat")
+    except Exception:  # noqa: BLE001 - missing schema or locked DB is not ready
+        return False
+    if worker_age is None or worker_age > WORKER_HEARTBEAT_STALE_SECONDS:
+        return False
+    if sched_age is None or sched_age > SCHEDULER_HEARTBEAT_STALE_SECONDS:
+        return False
+    return True
+
+
 @health_bp.get("/manifest.json")
 def manifest():
     """Mount-aware PWA manifest.
 
-    The app can be served under a prefix (e.g. /test via DispatcherMiddleware),
-    so start_url/scope/icons are resolved with url_for instead of being hardcoded
-    to "/". A static manifest would point the installed app at the wrong origin
-    path and break launch + offline scope under the prefix.
+    start_url/scope/icons use url_for so a future URL prefix cannot point the
+    installed app at the wrong path.
     """
     return jsonify({
         "name": "Achim Sales Reports",

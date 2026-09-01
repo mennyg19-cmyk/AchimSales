@@ -20,7 +20,7 @@ EXPORT_TYPE_MASTER = "master"
 RETENTION_SECONDS = {
     EXPORT_TYPE_ONE_TIME: 7 * 86400,     # 7 days
     EXPORT_TYPE_SCHEDULED: 30 * 86400,   # 30 days
-    EXPORT_TYPE_MASTER: None,            # never prune
+    EXPORT_TYPE_MASTER: 90 * 86400,      # 90 days (never-expire filled the B1 disk)
 }
 
 

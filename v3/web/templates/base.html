@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Sales">
@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
     <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}?v={{ asset_v }}">
-    <script src="https://unpkg.com/feather-icons@4.29.2/dist/feather.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/feather.min.js') }}?v={{ asset_v }}"></script>
     <script src="{{ url_for('static', filename='help_content.js') }}?v={{ asset_v }}"></script>
     {% block head %}{% endblock %}
 </head>
@@ -22,8 +22,6 @@
     <header class="app-header">
         <div class="header-left">
             <a href="{{ nav.reports }}" class="header-logo">Sales Reports</a>
-            {% if new_app_marker and app_env != 'prod' %}<span class="badge badge-salesman" style="margin-left:8px;">v3</span>{% endif %}
-            {% if is_beta %}<span class="badge badge-admin" style="margin-left:8px;">Beta</span>{% endif %}
         </div>
         <div class="header-right">
             {% if user._dev and user.role not in ('admin', 'developer') %}
@@ -38,6 +36,7 @@
                     title="Recent and kept report runs"><span class="prev-runs-full">Recent Reports</span><span class="prev-runs-short">Recent</span></button>
             <button type="button" id="themeToggleBtn" class="btn btn-sm btn-outline btn-icon"
                     title="Switch theme (light / dark / monochrome)"
+                    aria-label="Switch theme"
                     data-url="{{ url_for('settings.set_preferences') }}" data-csrf="{{ csrf_token() }}">
                 <i data-feather="{{ {'dark': 'moon', 'monochrome': 'aperture', 'monochrome_dark': 'disc'}.get(theme, 'sun') }}" style="width:16px;height:16px;"></i>
             </button>
@@ -78,7 +77,7 @@
 
     {% if user %}
     <nav class="bottom-nav" {% if nav.notifications and nav.notifications != '#' %}data-notifications-url="{{ nav.notifications }}"{% endif %}>
-        <a href="{{ nav.reports }}" class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}">
+        <a href="{{ nav.reports }}" class="bottom-nav-item {% if active_tab == 'reports' %}active{% endif %}" {% if active_tab == 'reports' %}aria-current="page"{% endif %}>
             <div class="bottom-nav-icon">
                 <i data-feather="file-text"></i>
                 <span class="nav-badge" id="badgeReports" style="display:none;"></span>
@@ -86,7 +85,7 @@
             <span class="bottom-nav-label">Reports</span>
         </a>
         {% if not is_beta and (dashboard_enabled or user.role in ('admin', 'developer')) %}
-        <a href="{{ nav.dashboard }}" class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}">
+        <a href="{{ nav.dashboard }}" class="bottom-nav-item {% if active_tab == 'dashboard' %}active{% endif %}" {% if active_tab == 'dashboard' %}aria-current="page"{% endif %}>
             <div class="bottom-nav-icon">
                 <i data-feather="bar-chart-2"></i>
                 <span class="nav-badge" id="badgeDashboard" style="display:none;"></span>
@@ -94,21 +93,13 @@
             <span class="bottom-nav-label">Dashboard</span>
         </a>
         {% endif %}
-        <a href="{{ nav.schedules }}" class="bottom-nav-item {% if active_tab == 'schedules' %}active{% endif %}">
+        <a href="{{ nav.schedules }}" class="bottom-nav-item {% if active_tab == 'schedules' %}active{% endif %}" {% if active_tab == 'schedules' %}aria-current="page"{% endif %}>
             <div class="bottom-nav-icon">
                 <i data-feather="clock"></i>
             </div>
             <span class="bottom-nav-label">Schedules</span>
         </a>
-        {% if test_site_enabled %}
-        <a href="/test/" class="bottom-nav-item" target="_blank">
-            <div class="bottom-nav-icon">
-                <i data-feather="external-link"></i>
-            </div>
-            <span class="bottom-nav-label">Test Site</span>
-        </a>
-        {% endif %}
-        <a href="{{ nav.settings }}" class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}">
+        <a href="{{ nav.settings }}" class="bottom-nav-item {% if active_tab == 'settings' %}active{% endif %}" {% if active_tab == 'settings' %}aria-current="page"{% endif %}>
             <div class="bottom-nav-icon">
                 <i data-feather="settings"></i>
             </div>
@@ -117,11 +108,11 @@
     </nav>
     {% endif %}
 
-    <div id="helpOverlay" class="help-popup-overlay" style="display:none;" onclick="closeHelp(event)">
-        <div class="help-popup-content" onclick="event.stopPropagation()">
+    <div id="helpOverlay" class="help-popup-overlay" hidden role="presentation">
+        <div class="help-popup-content" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
             <div class="help-popup-header">
                 <h3 id="helpTitle"></h3>
-                <button class="help-popup-close" onclick="closeHelp()">&times;</button>
+                <button type="button" class="help-popup-close" id="helpCloseBtn" aria-label="Close help">&times;</button>
             </div>
             <div id="helpBody" class="help-popup-body"></div>
         </div>

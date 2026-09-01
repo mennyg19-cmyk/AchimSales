@@ -43,16 +43,13 @@ def _sales_group_label(raw: Mapping) -> str:
 def _commission_fraction(raw: Mapping) -> float:
     """The salesman's commission rate from the SP, normalized to a fraction.
 
-    The master stores rates as fractions (0.06 = 6%) and the live math does
-    net * rate, so we keep that convention. A real rate is well under 100%, so
-    if the SP ever sends a whole percent (6 instead of 0.06) we divide by 100 -
-    that guard only fires above 1.0, so a genuine fraction passes through
-    untouched. (See REVIEW-LOG: unit confirmed once a live call is captured.)
+    The column is a fraction: 0.05 = 5%, 1 = 100%. Whole percents above 100
+    basis points (6 meaning 6%) are divided by 100. Exactly 1 stays 100%.
     """
     pct = num(first_of(raw, "commission", "Commission", "CommissionPct", "Commission %"))
     if pct <= 0:
         return 0.0
-    return pct / 100 if pct > 1 else pct
+    return pct / 100.0 if pct > 1 else pct
 
 
 def to_fact(raw: Mapping) -> InvoiceChargeFact:

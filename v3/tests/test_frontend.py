@@ -18,13 +18,15 @@ def _cfg(tmp_path) -> Config:
         tenant_id="", client_id="", client_secret="",
         reporting_api_base_url="", reporting_api_key="",
         precious_db_path=tmp_path / "p.db", cache_db_path=tmp_path / "c.db",
-        litestream_blob_url="", new_app_marker=True,
+        litestream_blob_url="",
     )
 
 
 def test_tokens_match_live_primary_blue():
     tokens = (_SRC / "css" / "tokens.css").read_text(encoding="utf-8")
-    assert "--primary: #2563eb" in tokens   # live-blue, NOT the green test app
+    root = tokens.split(":root {", 1)[1].split("body.dark-theme {", 1)[0]
+    assert "--primary-fill: #2563eb;" in root  # filled controls stay live-blue, not the green test app
+    assert "--primary: #1d4ed8;" in root
     assert "--bottom-nav-height: 84px" in tokens
 
 
@@ -95,7 +97,7 @@ def test_beta_base_html_skips_missing_dashboard_endpoints(tmp_path):
     assert "Dashboard" not in html
     assert "Schedules" in html
     assert "data-notifications-url" not in html
-    assert "Beta" in html
+    assert ">Beta<" not in html
 
 
 def test_beta_report_view_keeps_schedule_and_run(tmp_path):
@@ -150,14 +152,18 @@ def test_switch_user_hidden_for_non_dev(tmp_path):
     assert 'title="Switch user"' not in html
 
 
-def test_test_site_nav_is_gated_off_by_default(tmp_path):
+def test_test_site_nav_is_gone(tmp_path):
     app = create_app(_cfg(tmp_path))
     html = _render(app, user={"name": "A", "role": "admin", "_dev": False})
     assert "Test Site" not in html
+    assert 'href="/test/"' not in html
 
 
 def test_report_viewer_meeting_ux():
-    src = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    src = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((_SRC / "js").glob("report*.ts"))
+    )
     assert "Rename tab" in src
     assert 'textContent = "Delete"' in src
     assert "Add subgroup" in src
@@ -176,7 +182,13 @@ def test_report_viewer_meeting_ux():
     assert "function applySalesman(" in src
     assert "fulfillmentFillCss" in src
     assert 'col.field === "Fulfillment %"' in src
-    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    css = "\n".join(
+        (_SRC / "css" / name).read_text(encoding="utf-8")
+        for name in (
+            "pages-auth.css", "pages-report.css", "pages-schedules.css",
+            "pages-dashboard.css", "pages-settings.css",
+        )
+    )
     assert ".group-pill" in css
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="groupPills"' in html

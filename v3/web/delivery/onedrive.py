@@ -16,7 +16,8 @@ from typing import Any
 from urllib.parse import quote
 
 from web.config import Config
-from web.delivery.sharepoint import _validate_segments
+from web.delivery.graph_token import GraphTokenCache, GraphTokenError
+from web.delivery.sharepoint import _http_status, _validate_segments
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +35,9 @@ _MOCK_TREE: dict[str, list[str]] = {
 
 
 class OneDriveService:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, tokens: GraphTokenCache | None = None):
         self.cfg = cfg
-        self._token: str | None = None
+        self._tokens = tokens
 
     def is_configured(self) -> bool:
         return bool(self.cfg.tenant_id and self.cfg.client_id
@@ -70,7 +71,7 @@ class OneDriveService:
         return out
 
     def upload_file(self, user_email: str, rel_folder: str, filename: str,
-                    content: bytes) -> dict[str, Any]:
+                    content: bytes, resume_url: str = "", on_session=None) -> dict[str, Any]:
         user = _user_key(user_email)
         _validate_segments(rel_folder)
         _validate_segments(filename)
@@ -80,6 +81,44 @@ class OneDriveService:
                      filename, len(content), user, rel_folder)
             return {"webUrl": f"mock-od://{user}/{rel_folder}/{filename}",
                     "name": filename, "id": f"mock-od-{filename}", "mock": True}
+        try:
+            return self._upload_once(
+                user, rel_folder, filename, content,
+                resume_url=resume_url, on_session=on_session)
+        except Exception as exc:
+            if _http_status(exc) == 401:
+                self._tokens_obj().clear()
+                return self._upload_once(
+                    user, rel_folder, filename, content,
+                    resume_url=resume_url, on_session=on_session)
+            raise
+
+    def get_file(self, user_email: str, rel_folder: str, filename: str) -> dict[str, Any] | None:
+        user = _user_key(user_email)
+        _validate_segments(rel_folder)
+        _validate_segments(filename)
+        if not self.is_configured():
+            return None
+        import requests
+
+        folder = _enc_path(rel_folder)
+        if folder:
+            url = f"{self._drive_root(user)}:{folder}/{quote(filename)}"
+        else:
+            url = f"{self._drive_root(user)}:/{quote(filename)}"
+        r = requests.get(url, headers=self._headers(), timeout=TIMEOUT)
+        if r.status_code == 404:
+            return None
+        if r.status_code == 401:
+            self._tokens_obj().clear()
+            r = requests.get(url, headers=self._headers(), timeout=TIMEOUT)
+            if r.status_code == 404:
+                return None
+        r.raise_for_status()
+        body = r.json()
+        return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
+
+    def _upload_once(self, user, rel_folder, filename, content, *, resume_url="", on_session=None):
         import requests
 
         from web.delivery.graph_upload import upload_drive_item
@@ -96,6 +135,7 @@ class OneDriveService:
             session_url=f"{item}:/createUploadSession",
             headers=self._headers(),
             content=content, put_timeout=UPLOAD_TIMEOUT,
+            resume_url=resume_url, on_session=on_session,
         )
         return {"webUrl": body.get("webUrl"), "name": body.get("name"), "id": body.get("id")}
 
@@ -105,19 +145,17 @@ class OneDriveService:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._get_token()}"}
 
-    def _get_token(self) -> str:
-        if self._token:
-            return self._token
-        import requests
+    def _tokens_obj(self) -> GraphTokenCache:
+        if self._tokens is None:
+            self._tokens = GraphTokenCache(
+                self.cfg.tenant_id, self.cfg.client_id, self.cfg.client_secret)
+        return self._tokens
 
-        url = f"https://login.microsoftonline.com/{self.cfg.tenant_id}/oauth2/v2.0/token"
-        r = requests.post(url, data={
-            "client_id": self.cfg.client_id, "client_secret": self.cfg.client_secret,
-            "scope": "https://graph.microsoft.com/.default", "grant_type": "client_credentials",
-        }, timeout=TIMEOUT)
-        r.raise_for_status()
-        self._token = r.json()["access_token"]
-        return self._token
+    def _get_token(self) -> str:
+        try:
+            return self._tokens_obj().get()
+        except GraphTokenError as exc:
+            raise RuntimeError("Could not get a Microsoft Graph token.") from exc
 
     def _ensure_folder(self, user: str, rel_path: str) -> None:
         import requests

@@ -4,7 +4,9 @@ Cache-scope safety (REVIEW-LOG section 2): the key is derived from
 (report_key, identity, scope_token, builder_version, params). Because the
 principal's scope_token is part of the key, two users with different scope can
 NEVER read each other's cached payload - different scope => different key. This
-function is the ONLY place a report cache key is built.
+function is the ONLY place a report cache key is built. Keys no longer include
+a per-report origin token; existing cache rows from the hybrid era miss and
+expire through the normal prune.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -42,6 +45,22 @@ def canonical_scope_token(visible_salesman_keys: Iterable[str] | None) -> str:
 def _stable_hash(value: Any) -> str:
     canonical = json.dumps(value or {}, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha1(canonical.encode("utf-8")).hexdigest()
+
+
+def _json_safe(value: Any) -> Any:
+    """Replace NaN/Inf so cache JSON stays standard (allow_nan=False)."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    try:
+        if value != value:  # NaN, including numpy
+            return None
+    except Exception:  # noqa: BLE001
+        pass
+    return value
 
 
 def build_cache_key(*, report_key: str, identity: str, scope_token: str,
@@ -145,13 +164,22 @@ class ReportCache:
 
     def _insert(self, cache_key: str, report_key: str, payload: dict) -> None:
         now = datetime.now(timezone.utc).isoformat()
+        blob = json.dumps(_json_safe(payload), default=str, allow_nan=False)
         with self.db.cache() as conn:
             conn.execute(
                 "INSERT INTO report_payload_cache(cache_key, report_key, payload_json, built_at)"
                 " VALUES (?, ?, ?, ?)"
                 " ON CONFLICT(cache_key) DO UPDATE SET"
                 "   payload_json=excluded.payload_json, built_at=excluded.built_at",
-                (cache_key, report_key, json.dumps(payload, default=str), now),
+                (cache_key, report_key, blob, now),
+            )
+
+    def drop(self, cache_key: str) -> None:
+        """Remove one cache row. Used when a run is cancelled after a put."""
+        with self.db.cache() as conn:
+            conn.execute(
+                "DELETE FROM report_payload_cache WHERE cache_key = ?",
+                (cache_key,),
             )
 
     def prune(self, older_than_seconds: float) -> int:

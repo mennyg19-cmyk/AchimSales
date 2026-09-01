@@ -4,6 +4,8 @@
  * by both the dashboard list and the customer-detail page (exclusion toggle).
  */
 
+import { watchHiddenPoll, type PollStop } from "./dialog";
+
 declare global {
   interface Window {
     triggerDashRefresh?: () => void;
@@ -12,6 +14,14 @@ declare global {
 
 function headers(csrf: string): Record<string, string> {
   return { "Content-Type": "application/json", "X-CSRF-Token": csrf };
+}
+
+function announceDash(text: string): void {
+  const live = document.getElementById("dashLive");
+  if (!live) return;
+  live.hidden = !text;
+  live.textContent = text;
+  live.setAttribute("role", text ? "alert" : "status");
 }
 
 // --- dashboard list ---------------------------------------------------------
@@ -41,19 +51,30 @@ function initDashboard(): void {
     btn.disabled = true;
     btn.textContent = "Refreshing\u2026";
     const before = (await fetch(statusUrl).then((r) => r.json()).catch(() => ({}))).last_refreshed;
-    await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
+    const posted = await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
+    if (!posted || !posted.ok) {
+      announceDash("Could not refresh dashboard data.");
+      btn.disabled = false;
+      btn.textContent = "Refresh data";
+      return;
+    }
     let tries = 0;
+    let stopPoll: PollStop | null = null;
     const poll = async (): Promise<void> => {
       tries += 1;
       const s = await fetch(statusUrl).then((r) => r.json()).catch(() => ({}));
       if (s.last_refreshed && s.last_refreshed !== before) {
+        stopPoll?.();
         window.location.reload();
         return;
       }
-      if (tries < 40) setTimeout(poll, 3000);
-      else if (btn) { btn.disabled = false; btn.textContent = "Refresh data"; }
+      if (tries >= 40) {
+        stopPoll?.();
+        announceDash("Dashboard refresh timed out. Try again.");
+        if (btn) { btn.disabled = false; btn.textContent = "Refresh data"; }
+      }
     };
-    setTimeout(poll, 3000);
+    stopPoll = watchHiddenPoll(() => { void poll(); }, 3000);
   }
   if (btn) btn.addEventListener("click", doRefresh);
   window.triggerDashRefresh = doRefresh; // hook for pull-to-refresh
@@ -73,7 +94,10 @@ function initExclusionToggle(): void {
       method: "POST", headers: headers(csrf),
       body: JSON.stringify({ customer_account: account, excluded: !box.checked }),
     }).catch(() => null);
-    if (!resp || !resp.ok) box.checked = !box.checked; // rollback
+    if (!resp || !resp.ok) {
+      box.checked = !box.checked;
+      announceDash("Could not save that dashboard setting.");
+    }
     box.disabled = false;
   });
 }

@@ -106,5 +106,3 @@ def get_graph_token(tenant_id: str, client_id: str, client_secret: str) -> str:
     )
     log.info("Graph token acquired")
     return result["access_token"]
-
-

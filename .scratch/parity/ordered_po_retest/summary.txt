@@ -1,8 +1,0 @@
-﻿SP window: 2026-07-15 .. 2026-07-17
-row_count: 3392
-has_CustomerRequisition_col: true (2nd column after SalesOrderNumber)
-po_filled: 3392
-po_blank: 0
-pct_filled: 100.0
-code: to_fact_ordered_report maps CustomerRequisition -> PO #
-unit tests: 10 passed
