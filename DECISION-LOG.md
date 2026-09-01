@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-01 Drop Django Semgrep rules on the Flask app
+**What you asked for:** Why is Semgrep flagging Django if this site is Flask? Drop those rules.
+**What I chose:** Agent Guardrails still scans `v3/` with `p/default`, but skips the Django CSRF and Django SQL rules. Flask already uses `{{ csrf_token() }}`.
+**Why:** `p/default` runs every framework pack. The Django CSRF rule wants `{% csrf_token %}` and does not recognize Flask’s helper.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-01 Semgrep scans the live app only
 **What you asked for:** Is there a way to only have Semgrep scan the current live app?
 **What I chose:** Agent Guardrails Semgrep runs on `v3/` (home site). It no longer scans `webapp/` (`/legacy`).

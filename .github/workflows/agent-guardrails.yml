@@ -37,10 +37,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      # Home site is v3/. webapp/ is /legacy and is ~126 old p/default hits
-      # (Django CSRF on Flask forms, CDN integrity). Scan the live app only.
-      - name: Run semgrep (language-agnostic defaults)
-        run: semgrep scan --config p/default --error v3
+      # Home site is v3/ (Flask). webapp/ is /legacy.
+      # p/default includes Django rules; they fire on Flask templates
+      # because they look for {% csrf_token %}, not {{ csrf_token() }}.
+      - name: Run semgrep (Flask live app)
+        run: >
+          semgrep scan --config p/default --error v3
+          --exclude-rule python.django.security.django-no-csrf-token.django-no-csrf-token
+          --exclude-rule python.django.security.injection.tainted-sql-string.tainted-sql-string
 
   zizmor:
     name: GitHub Actions lint (zizmor)
