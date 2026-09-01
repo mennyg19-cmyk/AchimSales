@@ -5,8 +5,8 @@ It must NOT leak auth mode, secrets, paths, or any operational detail
 (the live `/healthz` leaked config - we do not repeat that).
 
 `/healthz` is liveness (process up). `/readyz` is readiness: precious.db in
-prod, no failed Litestream restore, bootstrap did not fail, and (prod) worker
-+ scheduler heartbeats are fresh.
+prod (nonzero + `PRAGMA quick_check`), no failed Litestream restore, bootstrap
+did not fail, and (prod) worker + scheduler heartbeats are fresh.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, url_for
+
+from web.data.precious_integrity import file_quick_check_ok
 
 from web.jobs.limits import (
     SCHEDULER_HEARTBEAT_STALE_SECONDS,
@@ -40,7 +42,7 @@ def readyz():
     if bootstrap_failed_marker(cfg).is_file():
         return {"status": "not_ready"}, 503
     if getattr(cfg, "is_prod", False):
-        if not Path(cfg.precious_db_path).is_file():
+        if not file_quick_check_ok(Path(cfg.precious_db_path)):
             return {"status": "not_ready"}, 503
         marker = Path(cfg.precious_db_path).with_name(".litestream-restore-failed")
         if marker.is_file():

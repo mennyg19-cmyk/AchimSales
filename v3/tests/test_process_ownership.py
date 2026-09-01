@@ -75,6 +75,38 @@ def test_bootstrap_cli_migrates_and_does_not_start_worker(tmp_path):
     assert app.config["JOB_WORKER"].running is False
 
 
+def test_prod_bootstrap_refuses_empty_precious(tmp_path):
+    app = create_app(_cfg(tmp_path, is_prod=True))
+    result = app.test_cli_runner().invoke(args=["bootstrap"])
+    assert result.exit_code != 0
+    marker = tmp_path / ".bootstrap-failed"
+    assert marker.is_file()
+
+
+def test_prod_bootstrap_refuses_schema_without_users(tmp_path):
+    app = create_app(_cfg(tmp_path, is_prod=True))
+    migrate(app.config["DB"])
+    result = app.test_cli_runner().invoke(args=["bootstrap"])
+    assert result.exit_code != 0
+
+
+def test_prod_bootstrap_accepts_restored_users(tmp_path):
+    app = create_app(_cfg(tmp_path, is_prod=True))
+    migrate(app.config["DB"])
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "INSERT INTO users(email, display_name, role, is_active)"
+            " VALUES ('ops@achimonline.com','Ops','admin',1)"
+        )
+    result = app.test_cli_runner().invoke(args=["bootstrap"])
+    assert result.exit_code == 0, result.output
+    with app.config["DB"].precious() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='site_db_role'"
+        ).fetchone()
+    assert row[0] == "home"
+
+
 def test_run_bootstrap_is_migrate_and_seed_only():
     src = inspect.getsource(run_bootstrap)
     assert "worker.start" not in src

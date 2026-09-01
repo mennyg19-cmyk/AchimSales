@@ -6,6 +6,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ---
 
+## Phase 7 one-site persistence (2026-09-01)
+
+**What to test:**
+- Home-site config prefers `SITE_PRECIOUS_DB_PATH` over `BETA_PRECIOUS_DB_PATH`. BETA still works when SITE is unset. Prod home requires an explicit SITE/BETA path and `LITESTREAM_AZURE_SITE_PATH` or `LITESTREAM_AZURE_BETA_PATH`. `LITESTREAM_AZURE_PATH` / `PRECIOUS_DB_PATH` are not enough (`test_config.py`).
+- `startup.sh` refuses prod boot when the serving path is missing, on `/home`, replica settings are missing, Litestream is missing, restore leaves an empty/zero-byte/corrupt file, or integrity (`users` >= 1) fails. BETA alias restores only that file, not `PRECIOUS_DB_PATH` (`tests/test_startup_restore.py`). Restore-preflight runs this file with `--noconftest`.
+- Before migrate: missing/zero-byte/corrupt/no-users fail. After migrate: required tables, latest schema, `site_db_role=home`. A sqlite stopped at 0015 with one user migrates through 0016+ (`test_precious_integrity.py`).
+- Prod bootstrap refuses empty/schema-only DBs and writes `.bootstrap-failed`. A restored user row boots and sets the sentinel (`test_process_ownership.py`).
+- Prod `/readyz` is 503 for missing, zero-byte, or corrupt sqlite. JSON stays `{status: not_ready}` (`test_smoke.py`). Live Azure empty-disk drill is not in CI.
+
+**Expected behavior:**
+- One serving sqlite and one Blob replica. Empty/corrupt/stale files never become a fresh Production site.
+- `is_beta=True` and the `session` cookie stay.
+
+**Test files:** `v3/tests/test_config.py`, `v3/tests/test_precious_integrity.py`, `v3/tests/test_process_ownership.py`, `v3/tests/test_smoke.py`, `tests/test_startup_restore.py`
+
+---
+
 ## Phase 6 report and schedule defects (2026-08-31)
 
 **What to test:**
@@ -677,7 +694,7 @@ Superseded 2026-08-27: `webapp/` and extra mounts are gone. See **Single site at
 - Re-seeding the Azure import does not duplicate rows.
 
 **Expected behavior:**
-- Beta `app_settings` (test mode + emails) survive App Service recycle via Litestream replica `LITESTREAM_AZURE_BETA_PATH`.
+- Home-site `app_settings` (test mode + emails) survive App Service recycle via the serving Litestream replica (`LITESTREAM_AZURE_SITE_PATH` / `LITESTREAM_AZURE_BETA_PATH` alias).
 
 **Test file:** `v3/tests/test_schedule_seed.py`
 

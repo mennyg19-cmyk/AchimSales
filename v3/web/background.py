@@ -32,14 +32,19 @@ def home_app() -> Flask:
 def run_bootstrap(app: Flask) -> None:
     """Migrations and one-time seeds. No worker, scheduler, or threads."""
     from web.data.migrate import migrate
+    from web.data.precious_integrity import assert_after_migrate, assert_before_migrate
 
     db = app.config["DB"]
+    cfg = app.config["APP_CONFIG"]
+    if getattr(cfg, "is_prod", False):
+        assert_before_migrate(cfg.precious_db_path)
     migrate(db)
+    if getattr(cfg, "is_prod", False):
+        assert_after_migrate(cfg.precious_db_path)
     _seed_feature_flags(app, db)
     _seed_report_config(app, db)
     _seed_admins(app, db)
     _seed_developers(app, db)
-    cfg = app.config["APP_CONFIG"]
     if getattr(cfg, "is_beta", False):
         _seed_master_schedules(app, db, _LIVE_RUNBOOK_SCHEDULES, inactive=True)
     else:

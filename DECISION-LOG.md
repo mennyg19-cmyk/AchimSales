@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 Phase 7: one-site persistence
+**What I had to decide:** Canonical env names, whether `is_beta` flips, which replica startup restores, what counts as DB identity/sentinel, and whether the `/home` `/test` seed stays.
+**Options I considered:** (1) Rename Azure in-place to SITE_* only, drop BETA_* now. (2) SITE_* canonical, keep BETA_* aliases; restore only that file; identity = `users` >= 1 plus `app_settings.site_db_role=home` after migrate; drop the `/home` seed; never fall back to `LITESTREAM_AZURE_PATH`. (3) Keep restoring both PRECIOUS_* and BETA_* until the live drill.
+**What I chose:** (2). `is_beta=True` stays. Live Azure empty-disk restore drill stays owner BLOCKED.
+**Why:** The plan prefers `SITE_PRECIOUS_DB_PATH`. Azure still has BETA_* so dropping the alias would empty the home site. Flipping `is_beta` would switch the cookie and point at the leftover `/test` path. Restoring `PRECIOUS_DB_PATH` from `LITESTREAM_AZURE_PATH` is the obsolete `/test` replica. An empty sqlite would pass `quick_check` and migrate into a blank Production site; requiring at least one `users` row blocks that. Writing a new product table is unnecessary — `app_settings` already exists (0001/0005).
+**Status:** DECIDED — Phase 7. Live Azure empty-disk drill remains BLOCKED.
+
 ## 2026-08-31 Phase 6: company Send now stays on visibility (Q9)
 **What I had to decide:** The Phase 6 plan bullet says require operate/edit permission for company Send now. Q9 already chose the opposite.
 **Options I considered:** (1) Tighten `run_master` to `can_edit_master`. (2) Leave Send now on `_require_master_visible` so a view-only manager can still fire it.
@@ -56,10 +63,11 @@
 **Why:** Phase 4 gate forbids ThreadPoolExecutor / scheduler / poller / lookup threads in Flask/Gunicorn. Home site has dashboard refresh off, so a customer-only mirror job is what keeps salesman/customer dropdowns populated. No new framework.
 **Status:** DECIDED — Phase 4 implementation.
 
-## Still BLOCKED (owner, not Phase 4)
+## Still BLOCKED (owner)
 - GitHub Environment `production` required reviewers (Environment does not exist yet; only `github-pages`).
 - Access-log review of the cookie-file window.
-- Production merge/deploy; live Litestream empty-disk drill.
+- Production merge/deploy.
+- Live Azure empty-disk Litestream restore drill (Phase 7 live gate).
 - `LIVE_DB_PATH` / `flask import-live-users` until import evidence exists.
 
 Q1–Q11 and Phase 0–3 decisions: DECISION-LOG-ARCHIVE.md

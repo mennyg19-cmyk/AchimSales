@@ -1,50 +1,48 @@
 # Session Handoff
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
-**Status:** Phase 6 review gate **closed** at `d22986f`. Draft PR #1. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 7 until the next session picks it up from this handoff.
+**Status:** Phase 7 implementation on this branch. Review gate not started. Draft PR #1. Keep the PR draft. Do not merge or deploy Production. Do not start Phase 8 until the Phase 7 review gate passes (live Azure drill stays owner BLOCKED).
 
 ## What's done
 
-- Q1–Q11 logged. Phases 0–5 closed. Phase 5 gate commit `f71b80a`.
-- Phase 6 implementation `9680ba8` plus review fixes through `d22986f`:
-  - Commission cards use the current bucket. SP `commission` is a fraction (`1` = 100%). Invoice SP `0` stays $0. Tab % still shows leftover `salesmen.commission_pct`. No-YTD fallback uses each invoice's own rate on the same customer/salesman grouping as the summary.
-  - Custom interval start after end is rejected. Company `skip_sabbath=false` persists.
-  - Forward `0026` marks leftover `scheduled` runs `legacy`. `last_run_at` ignores manual/legacy/unknown.
-  - Expired kept runs are denied. Payload prune leaves `kept_until` as a tombstone. Result/export share `load_source_payload` / `source_result_available`. Tick prune matches Q10.
-  - Configured `SP_SITE_URL` that cannot resolve fails closed (no tenant search).
-  - Q9: view-only managers still MAY company Send now. That plan bullet was not implemented.
-  - Reconcile diagnostics and `claim-once` are developer POST+CSRF. GET is 405.
-  - Outside-company To/CC/BCC stay pending until admin/developer approve. `@achimonline.com` and Settings test emails send. Manager approve is 403.
-- Phase 6 reviews at `d22986f`: Loop A re-pass 3 PASS; Loop B PASS; Loop C re-pass PASS; trust-boundary PASS (zero findings).
-- Platform on `d22986f`: push CI `33452034513` / AG `33452034511`; PR CI `33452038102` / AG `33452038125` (success). Loop B local: v3 pytest 717, root 152.
+- Q1–Q11 logged. Phases 0–6 closed.
+- Phase 7 repo work:
+  - Canonical `SITE_PRECIOUS_DB_PATH` / `SITE_CACHE_DB_PATH` / `LITESTREAM_AZURE_SITE_PATH`. `BETA_*` aliases still work.
+  - `is_beta=True` unchanged (`session` cookie, reports-only).
+  - `startup.sh` restores/replicates only the serving file. Leftover `/test` `PRECIOUS_DB_PATH` is not required. `/home` one-time seed removed.
+  - `litestream.yml` is one database.
+  - Prod refuses missing/zero-byte/corrupt/no-users serving DBs. After migrate: required tables, latest schema, `app_settings.site_db_role=home`.
+  - Pre-0016 sqlite with one user migrates through 0016+.
+  - Prod `/readyz` uses `PRAGMA quick_check`.
+- Local: v3 pytest 736; root 158.
 
 ## What's next
 
-1. Phase 7 (one-site persistence). Write EXPECTED in `.scratch/phase-plan.md` before any Phase 7 edit. Keep `is_beta=True` until Phase 7 work says otherwise.
+1. Phase 7 self-review leftover + Loops A/B/C + trust-boundary (restore/readiness is fail-closed).
 2. Owner still needs GitHub Environment `production` required reviewers.
+3. Live Azure empty-disk restore drill stays BLOCKED.
 
 ## Open / BLOCKED
 
 - GitHub Environment `production` required reviewers.
 - Access-log review of the cookie-file window.
 - Production merge/deploy.
-- Live Litestream empty-disk restore.
+- Live Litestream empty-disk restore (Phase 7 live gate).
 - `LIVE_DB_PATH` / `flask import-live-users` until import evidence exists.
 
 ## Gotchas
 
 - Do not check off boxes in `PR1-REMEDIATION-PLAN.md`.
 - Do not restore `webapp/` or `rebuild/`. Preserve `archive/pre-cleanup-2026-08-27`.
-- Keep `is_beta=True` until Phase 7.
+- Keep `is_beta=True`. Do not point home site at `PRECIOUS_DB_PATH` / `LITESTREAM_AZURE_PATH`.
 - `gh` is read-only. PRs via ManagePullRequest. Keep draft. Omit `draft` on `update_pr` to keep draft.
-- Python: `/workspace/.venv/bin/python`. v3 tests: cwd `/workspace/v3`. Root tests: `PYTHONPATH=/workspace` without `--noconftest`.
+- Python: `/workspace/.venv/bin/python`. v3 tests: cwd `/workspace/v3`. Root tests: `PYTHONPATH=/workspace` without `--noconftest`. Restore-preflight: `tests/test_startup_restore.py --noconftest`.
 - Never stage `.venv/` or `.scratch/`.
 - Graph JSON `@odata.type` in `v3/web/delivery/graph_mail.py` is Microsoft Graph, not D365 OData.
 - Do not claim `internetMessageId` or `Client-Request-Id` makes Graph `sendMail` idempotent.
 - Do not edit migrations `0016`–`0027`. Add forward migrations only.
 - New POST forms need nosemgrep on the form tag (Flask `csrf_token()` is not a Django match).
-- SIGTERM still leaves the job `running` for recovery. Timeout and unsafe child death cancel then settle legs.
 - Company Send now: view-only managers MAY send (Q9). Do not tighten `run_master`.
 - EmailService with `db=` filters recipients. Tests that actually send need company domain, approved addresses, or Settings test emails.
 - `jobs.created_at` is SQLite `datetime('now')`. `schedule_runs.started_at` is Python ISO.

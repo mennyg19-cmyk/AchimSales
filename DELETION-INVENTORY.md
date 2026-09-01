@@ -28,6 +28,6 @@ git checkout archive/pre-cleanup-2026-08-27
 | `DECISION-LOG.md`, `TESTING-STRATEGY.md`, `HANDOFF.md`, `REPOSITORY-REVIEW.md` | Current decisions and review | Keep |
 | `.cursor/rules/` | Agent rules | Keep |
 
-`/beta` still 302s to `/`. Home keeps `is_beta=True` (reports-only flags + `BETA_PRECIOUS_DB_PATH`). Beta pill is gone. Test Site nav and order-entry flag are gone.
+`/beta` still 302s to `/`. Home keeps `is_beta=True` (reports-only flags + `SITE_PRECIOUS_DB_PATH` / `BETA_PRECIOUS_DB_PATH` alias). Beta pill is gone. Test Site nav and order-entry flag are gone.
 
 `.scratch/parity-cookies.env` is not in the index on this branch. It remains in `webapp-cache` history from `f286ce2` until a coordinated rewrite. Do not print those values.

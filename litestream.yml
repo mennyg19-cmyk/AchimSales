@@ -1,24 +1,18 @@
-# Litestream replication for v3's precious.db -> Azure Blob.
+# Litestream replication for the one serving precious.db -> Azure Blob.
 #
 # Loaded by startup.sh when LITESTREAM_AZURE_ACCOUNT_KEY is present.
-# APP_ENV=prod refuses to boot if restore leaves precious.db missing.
+# APP_ENV=prod refuses to boot if restore leaves the serving db missing,
+# empty, corrupt, or without users.
 #
 # All values come from app settings (env). ${VAR} is expanded by Litestream.
-# /test and /beta each have their own local sqlite file under /tmp (wiped on
-# recycle). Each needs its own Blob replica or the Beta file is empty after
-# every cold start — settings like schedule test mode appear to "not save".
+# startup.sh copies BETA_* aliases into SITE_* when SITE_* is unset, so Azure
+# can keep the old names until they are renamed. Do not point this file at
+# PRECIOUS_DB_PATH / LITESTREAM_AZURE_PATH (leftover /test replica).
 dbs:
-  - path: ${PRECIOUS_DB_PATH}
+  - path: ${SITE_PRECIOUS_DB_PATH}
     replicas:
       - type: abs
         account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
         account-key: ${LITESTREAM_AZURE_ACCOUNT_KEY}
         bucket: ${LITESTREAM_AZURE_CONTAINER}
-        path: ${LITESTREAM_AZURE_PATH}
-  - path: ${BETA_PRECIOUS_DB_PATH}
-    replicas:
-      - type: abs
-        account-name: ${LITESTREAM_AZURE_ACCOUNT_NAME}
-        account-key: ${LITESTREAM_AZURE_ACCOUNT_KEY}
-        bucket: ${LITESTREAM_AZURE_CONTAINER}
-        path: ${LITESTREAM_AZURE_BETA_PATH}
+        path: ${LITESTREAM_AZURE_SITE_PATH}

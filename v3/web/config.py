@@ -33,6 +33,14 @@ def _env_path_first(names: tuple[str, ...], default: str) -> Path:
     return Path(default).expanduser()
 
 
+def _env_str_first(names: tuple[str, ...]) -> str:
+    for name in names:
+        raw = os.environ.get(name, "").strip()
+        if raw:
+            return raw
+    return ""
+
+
 class ConfigError(RuntimeError):
     """Raised when the environment is unsafe to boot (fail-closed)."""
 
@@ -74,6 +82,10 @@ class Config:
     litestream_azure_account_name: str = ""
     litestream_azure_account_key: str = ""
     litestream_azure_container: str = ""
+    # Blob object path for the one serving replica (SITE_* or BETA_* alias).
+    litestream_azure_replica_path: str = ""
+    # False when home-site prod would otherwise silently use ./.data/beta_precious.db.
+    serving_db_from_env: bool = True
 
     @property
     def is_prod(self) -> bool:
@@ -81,8 +93,8 @@ class Config:
 
     @property
     def reports_only(self) -> bool:
-        """The live site is reports-only. Field name is still is_beta so Azure
-        BETA_PRECIOUS_DB_PATH and the `session` cookie stay unchanged."""
+        """The live site is reports-only. Field name is still is_beta so the
+        `session` cookie stays unchanged. DB path env is SITE_* (BETA_* alias)."""
         return self.is_beta
 
     @property
@@ -114,8 +126,20 @@ class Config:
                 problems.append("LITESTREAM_AZURE_ACCOUNT_NAME required in prod")
             if not self.litestream_azure_container:
                 problems.append("LITESTREAM_AZURE_CONTAINER required in prod")
-            for label, p in (("PRECIOUS_DB_PATH", self.precious_db_path),
-                             ("CACHE_DB_PATH", self.cache_db_path)):
+            precious_label = "SITE_PRECIOUS_DB_PATH" if self.is_beta else "PRECIOUS_DB_PATH"
+            cache_label = "SITE_CACHE_DB_PATH" if self.is_beta else "CACHE_DB_PATH"
+            if self.is_beta:
+                if not self.serving_db_from_env:
+                    problems.append(
+                        "SITE_PRECIOUS_DB_PATH or BETA_PRECIOUS_DB_PATH required in prod"
+                    )
+                if not self.litestream_azure_replica_path:
+                    problems.append(
+                        "LITESTREAM_AZURE_SITE_PATH or LITESTREAM_AZURE_BETA_PATH "
+                        "required in prod (do not use LITESTREAM_AZURE_PATH; that is the leftover /test replica)"
+                    )
+            for label, p in ((precious_label, self.precious_db_path),
+                             (cache_label, self.cache_db_path)):
                 if _is_unc(p):
                     problems.append(f"{label} must be local disk, not a UNC/SMB share: {p}")
                 elif _is_app_service_home(p):
@@ -157,9 +181,9 @@ def load_config(*, is_beta: bool = False) -> Config:
     unconfigured deploy refuses to boot rather than silently running dev auth).
     Local dev must opt in explicitly with APP_ENV=dev (see .env.example).
 
-    ``is_beta`` selects home-site DB path defaults (`BETA_PRECIOUS_DB_PATH`).
-    Do not flip this to False in production: that would use PRECIOUS_DB_PATH
-    and a different cookie name.
+    ``is_beta`` selects the home-site DB path (`SITE_PRECIOUS_DB_PATH`, alias
+    `BETA_PRECIOUS_DB_PATH`). Do not flip this to False in production: that
+    would use PRECIOUS_DB_PATH (leftover /test) and a different cookie name.
     """
     app_env = os.environ.get("APP_ENV", "prod").strip().lower()
     if is_beta:
@@ -201,6 +225,12 @@ def load_config(*, is_beta: bool = False) -> Config:
         litestream_azure_account_name=os.environ.get("LITESTREAM_AZURE_ACCOUNT_NAME", "").strip(),
         litestream_azure_account_key=os.environ.get("LITESTREAM_AZURE_ACCOUNT_KEY", "").strip(),
         litestream_azure_container=os.environ.get("LITESTREAM_AZURE_CONTAINER", "").strip(),
+        litestream_azure_replica_path=_env_str_first(
+            ("LITESTREAM_AZURE_SITE_PATH", "LITESTREAM_AZURE_BETA_PATH")
+        ),
+        serving_db_from_env=any(
+            bool(os.environ.get(n, "").strip()) for n in precious_names
+        ),
         outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),
         # Prefer EMAIL_FROM; fall back to live's EMAIL_FROM_ADDRESS (Azure has that).
         email_from=(

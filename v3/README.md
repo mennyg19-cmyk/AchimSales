@@ -39,7 +39,8 @@ pytest
 ## Persistence
 
 `precious.db` (users, permissions, salesmen, presets, schedules, run history,
-notifications, jobs) lives on **local disk** and is replicated to Azure Blob by
-**Litestream** - never on Azure Files/SMB. `cache.db` (D365 mirror + report
-payload cache) is disposable. Postgres is a documented off-ramp behind repository
-interfaces, required only before running more than one instance.
+notifications, jobs) lives on **local disk** (`SITE_PRECIOUS_DB_PATH`, Azure
+alias `BETA_PRECIOUS_DB_PATH`) and is replicated to Azure Blob by **Litestream**
+- never on Azure Files/SMB. `cache.db` is disposable. Postgres is a documented
+off-ramp behind repository interfaces, required only before running more than
+one instance.

@@ -105,6 +105,24 @@ def test_readyz_503_when_prod_db_missing(tmp_path):
     assert ready.get_json() == {"status": "not_ready"}
 
 
+def test_readyz_503_when_prod_db_corrupt(tmp_path):
+    application = create_app(_prod_cfg(tmp_path))
+    (tmp_path / "precious.db").write_bytes(b"not a sqlite database")
+    client = application.test_client()
+    assert client.get("/healthz").status_code == 200
+    ready = client.get("/readyz")
+    assert ready.status_code == 503
+    assert ready.get_json() == {"status": "not_ready"}
+
+
+def test_readyz_503_when_prod_db_zero_bytes(tmp_path):
+    application = create_app(_prod_cfg(tmp_path))
+    (tmp_path / "precious.db").write_bytes(b"")
+    client = application.test_client()
+    assert client.get("/readyz").status_code == 503
+    assert client.get("/readyz").get_json() == {"status": "not_ready"}
+
+
 def test_readyz_503_when_prod_heartbeats_missing(tmp_path):
     from web.data.migrate import migrate
 

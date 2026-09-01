@@ -117,7 +117,7 @@ Microsoft login and magic links run on this app (`/login`, `/login/start`, `/aut
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
-On the home site, **Settings** is the control panel: You, People, Reports, Delivery, History, and (developers) Database explorer and notification diagnostic. In-app Live email distributions were not ported; Azure Automation runbooks still send. The sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`) and is restored/replicated by Litestream, so Settings like schedule test mode survive an App Service recycle.
+On the home site, **Settings** is the control panel: You, People, Reports, Delivery, History, and (developers) Database explorer and notification diagnostic. In-app Live email distributions were not ported; Azure Automation runbooks still send. The sqlite file is on local disk (`SITE_PRECIOUS_DB_PATH`, Azure alias `BETA_PRECIOUS_DB_PATH`) and is restored/replicated by Litestream, so Settings like schedule test mode survive an App Service recycle. Rollback: keep Azure `BETA_*` settings and redeploy the previous commit; the leftover `/test` replica (`LITESTREAM_AZURE_PATH`) is unused, not deleted. Forward migrations only.
 
 `/legacy`, `/test`, and `/test-next` are gone. Rollback: `git checkout archive/pre-cleanup-2026-08-27`.
 
@@ -147,7 +147,7 @@ See `.env.example` for all required variables. Key groups:
   - `Sites.ReadWrite.All` — list/write the SharePoint site in `SP_SITE_URL` (or `Sites.Selected` plus a site grant)
   A 401 from the folder picker is usually a rejected token (secret expired, or consent never granted). A 403 is a valid token that still cannot read that drive.
 - **Email**: `AMAZON_EMAIL_FROM`, `AMAZON_EMAIL_RECIPIENTS` (customer-filtered Ordered `--email` runs)
-- **Web App**: `FLASK_SECRET_KEY`, `BETA_PRECIOUS_DB_PATH`. `AUTH_MODE=dev` is refused when `APP_ENV=prod`.
+- **Web App**: `FLASK_SECRET_KEY`, `SITE_PRECIOUS_DB_PATH` (alias `BETA_PRECIOUS_DB_PATH`). `AUTH_MODE=dev` is refused when `APP_ENV=prod`.
 
 ## Directory Structure
 
@@ -181,7 +181,7 @@ Standing choices when rules disagree (also used by agents):
 |-------|--------|
 | After a requested product change | **Commit + push.** Production deploys only from `webapp-cache`. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
-| Home-site flag | Keep `is_beta=True` (Azure `BETA_PRECIOUS_DB_PATH` + `session` cookie). `Config.reports_only` is the non-preview name. Do not rename Azure env vars in this PR. |
+| Home-site flag | Keep `is_beta=True` (`session` cookie, reports-only). Canonical DB env is `SITE_PRECIOUS_DB_PATH` (alias `BETA_PRECIOUS_DB_PATH` until Azure is renamed). Same for `SITE_CACHE_DB_PATH` and `LITESTREAM_AZURE_SITE_PATH`. Do not flip `is_beta` to False. |
 
 ## D365 Entity Reference
 
