@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-01 Semgrep scans the live app only
+**What you asked for:** Is there a way to only have Semgrep scan the current live app?
+**What I chose:** Agent Guardrails Semgrep runs on `v3/` (home site). It no longer scans `webapp/` (`/legacy`).
+**Why:** The red check was ~126 hits in the old Live templates. Those are not the app at `/`.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-01 Test-list double mail after folder upload fail
 **What you asked for:** It's the test emails that are failing and then succeeding that I'm seeing double emails for.
 **What I had to decide:** Whether a Test-folder (or live folder) upload fail should still fail the whole send after Graph already delivered.

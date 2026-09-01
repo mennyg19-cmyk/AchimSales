@@ -64,7 +64,8 @@ The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimo
 **Production branch is `webapp-cache`.** GitHub Action
 `.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
 push, and also deploys `cursor/**` Cloud Agent branches to the same production
-slot. Manual zip deploy is still `deploy.ps1`.
+slot. Manual zip deploy is still `deploy.ps1`. Agent Guardrails Semgrep scans
+`v3/` (the home site) only, not `webapp/` (`/legacy`).
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
