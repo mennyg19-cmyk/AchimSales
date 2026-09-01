@@ -3,8 +3,8 @@
 ## 2026-09-01 Phase 9: hashed Python lock
 **What I had to decide:** Pin hashes on the Azure 3.10 set, or keep version ranges.
 **Options I considered:** (1) Leave ranges. (2) `pip-compile --generate-hashes` from `requirements.in`; CI/startup install that file with `--require-hashes`.
-**What I chose:** (2). Resolver ran on this environment's Python 3.12; CI still installs on 3.10 (wheels in the lock include multiple tags).
-**Why:** Phase 9.3 requires a hashed lock and testing the exact deployed set.
+**What I chose:** (2). `requirements.in` caps pandas at `<2.3` so the lock installs on Python 3.10 (Azure and CI). pandas 2.3+ / numpy 2.5 need 3.11+.
+**Why:** Phase 9.3 requires a hashed lock and testing the exact deployed set. The first lock was resolved on 3.12 and CI 3.10 failed on `numpy==2.5.2`.
 **Status:** DECIDED — Phase 9.
 
 ## 2026-09-01 Phase 9: one allowlisted zip

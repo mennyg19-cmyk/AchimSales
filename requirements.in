@@ -1,7 +1,9 @@
 Flask>=3.1,<4
 msal>=1.31,<2
 python-dotenv>=1.0,<2
-pandas>=2.0,<3
+# Azure App Service and CI are Python 3.10. pandas 2.3+ and numpy 2.3+ need 3.11+.
+pandas>=2.0,<2.3
+numpy>=1.26,<2.3
 openpyxl>=3.1,<4
 requests>=2.31,<3
 gunicorn>=22.0,<24
