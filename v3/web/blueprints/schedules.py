@@ -105,12 +105,12 @@ def _lookups():
     return current_app.config["LOOKUP_SERVICE"]
 
 
-def _validate_report(p, report_key: str, *, allow_in_app: bool = True):
+def _validate_report(p, report_key: str, *, allow_in_app: bool = False):
     spec = registry.get(report_key)
     if spec is None or spec.status is not registry.ReportStatus.BUILT:
         abort(404, description="Unknown report")
     if not allow_in_app and spec.in_app:
-        abort(400, description="That report can't be set up as a master schedule.")
+        abort(400, description="That report can't be scheduled.")
     _authz().assert_report_runnable(p, report_key)
     return spec
 

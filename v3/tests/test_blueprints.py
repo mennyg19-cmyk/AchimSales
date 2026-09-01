@@ -1245,6 +1245,23 @@ def test_schedule_rejects_invalid_recipients(tmp_path):
     assert resp.status_code == 400
 
 
+def test_personal_and_company_schedules_reject_customer_last_order(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    personal = client.post("/api/schedules", json={
+        "report_key": "customer_last_order", "recipients": "a@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}, "params": {}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert personal.status_code == 400
+    company = client.post("/api/master-schedules", json={
+        "name": "CLO", "report_key": "customer_last_order",
+        "recipients": "a@x.com",
+        "cadence": {"freq": "daily", "time": "08:00"}, "params": {}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert company.status_code == 400
+
+
 def test_sharepoint_status_and_folders_mock(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()

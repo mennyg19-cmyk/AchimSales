@@ -50,7 +50,7 @@ Tabs: All, then one tab per salesman (Unassigned last). Columns: Salesman (All o
 
 In-app: newest logical order (Order Rank 1); “previous order” merges ranks; ADDON POs already rolled by SP. Line columns: item, description, qty ordered/shipped/cancelled, sales price, total.
 
-Export is **in-request** (`GET /report/customer-last-order/<account>/export?format=xlsx|pdf`), not a `report.export` worker job. Not available on personal or company schedules (`in_app`; company create uses `allow_in_app=False`).
+Export is **in-request** (`GET /report/customer-last-order/<account>/export?format=xlsx|pdf`), not a `report.export` worker job. Personal and company schedule create both pass `allow_in_app=False`, so a crafted POST cannot store it.
 
 ### Item Averages
 

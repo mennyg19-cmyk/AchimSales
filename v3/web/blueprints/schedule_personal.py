@@ -111,7 +111,7 @@ def create_schedule():
     p = _principal()
     body = request.get_json(silent=True) or {}
     report_key = (body.get("report_key") or "").strip()
-    _validate_report(p, report_key)
+    _validate_report(p, report_key, allow_in_app=False)
     cadence = _parse_cadence(body)
     folder = _check_personal_folder(body)
     recipients = _clean_recipients(body, sharepoint_path=folder, folder_label="OneDrive folder")
