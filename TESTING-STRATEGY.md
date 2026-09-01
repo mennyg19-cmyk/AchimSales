@@ -10,6 +10,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **What to test:**
 - Built web reports are the eight retained keys; Customer Aging stays BACKLOG (`test_phase9_parity.py`).
+- `REPORT-PARITY.md` names Sales by State / Salesman columns, CLO in-request export, schedule eligibility, and archive-only old tests/docs.
 - Ordered Summary includes `CustomerAccount`. Invoiced commission fraction/per-invoice rate tests stay in `test_report_invoiced.py`. Number 4 YTD tabs stay in `test_report_number_4.py`.
 - No in-app email-distribution module under `v3/`.
 - Artifact allowlist includes `tools/supervise-web.sh` (App Service boot). Zip is git-tracked files only (ignored `.env` / local `.db` stay out). Generated `v3/web/static_dist/` matches `npm run build` including vendor/help files.

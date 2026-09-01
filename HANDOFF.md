@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 9 Loop A FAIL findings fixed (tracked-only zip, `deploy.ps1` pytest/npm). Re-pass next. Draft PR #1. Keep draft. Do not merge or deploy Production.
+**Status:** Phase 9 Loop A F5 fixed (parity columns, CLO in-request export, schedules, old tests/docs). Fresh re-pass next. Draft PR #1. Keep draft. Do not merge or deploy Production.
 
 ## What's done
 

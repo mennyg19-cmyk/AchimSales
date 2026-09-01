@@ -48,3 +48,13 @@ def test_hashed_lock_has_hashes():
     # pytest 8 on Python 3.10 pulls these; an unhashed extra fails CI install.
     assert "\nexceptiongroup==" in text
     assert "\ntomli==" in text
+
+
+def test_parity_doc_covers_columns_clo_export_and_schedules():
+    text = (V3_ROOT.parent / "REPORT-PARITY.md").read_text()
+    assert "New York City Sales amount" in text
+    assert "Cust. #" in text
+    assert "/report/customer-last-order/<account>/export" in text
+    assert "cannot be scheduled" in text
+    assert "FEATURE-INVENTORY.md" in text
+    assert "worker job" in text

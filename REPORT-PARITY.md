@@ -30,43 +30,58 @@ Tabs (live order): Summary, By Customer, By Item, By Order, By Salesman, Full Da
 
 Shipping / remainder: QtyReleased header is “QTY Shipping”; Released $ header is “Shipping $”; Open $ = Ordered − Shipped − Cancelled; Summary “Extended Price Remainder” is SP `ShippingDollars` only (no fallback math). No QtyShipped column. Fulfillment % on rolled-up tabs, not Summary. ERROR ITEM dropped by item number.
 
-**Approved diff (Q4):** Summary groups by `CustomerAccount` (plus item), not customer name. Archive grouped by name. Test: `test_report_ordered.py` (`CustomerAccount` on summary columns).
+**Approved diff (Q4):** Summary groups by `CustomerAccount` (plus item), not customer name. Archive grouped by name. Test: `test_report_ordered.py` (`CustomerAccount` on summary columns). Personal/company schedules: yes. Worker export via the standard viewer.
 
 ### Invoiced
 
 Tabs: Summary by Customer, Commissions (omitted when `skip_commissions`), Full Details, Credits, Invoices, Audit-Reversals when a ± pair exists, Totals by Salesman when 2+ salesmen. Credits split by `is_credit` / invoice-number substring.
 
-**Approved diffs (Q1–Q3):** SP `commission` is a fraction (`1` = 100%; values **above** 1 divide by 100). Each invoice’s own rate; SP `0` stays $0; no fallback to `salesmen.commission_pct` for dollars. Commissions-tab % box still shows leftover `salesmen.commission_pct`. Tests: `test_commission_one_means_one_hundred_percent`, `test_zero_sp_commission_pays_zero_and_keeps_table_percent`, `test_commissions_use_sp_rate_over_master`.
+**Approved diffs (Q1–Q3):** SP `commission` is a fraction (`1` = 100%; values **above** 1 divide by 100). Each invoice’s own rate; SP `0` stays $0; no fallback to `salesmen.commission_pct` for dollars. Commissions-tab % box still shows leftover `salesmen.commission_pct`. Tests: `test_commission_one_means_one_hundred_percent`, `test_zero_sp_commission_pays_zero_and_keeps_table_percent`, `test_commissions_use_sp_rate_over_master`. Personal/company schedules: yes. Worker export via the standard viewer.
 
 ### Number 4
 
-Tabs: By Customer (12 Months), By Customer (YTD), By Item (12 Months), By Item (YTD). YTD is a slice of the rolling-12 pivot (no YTD SP). By Item drops money columns. Rows group by Item #. Tests: `test_both_views_build_four_tabs_in_order`, `test_ytd_drops_prior_year_months_and_recalcs_totals`.
+Tabs: By Customer (12 Months), By Customer (YTD), By Item (12 Months), By Item (YTD). YTD is a slice of the rolling-12 pivot (no YTD SP). By Item drops money columns. Rows group by Item #. Tests: `test_both_views_build_four_tabs_in_order`, `test_ytd_drops_prior_year_months_and_recalcs_totals`. Personal/company schedules: yes. Worker export via the standard viewer.
 
 ### Customer Activity
 
-Tabs: All, then one tab per salesman (Unassigned last). Columns: Salesman (All only), Customer Account, Customer Name, Last Order Date, PO #, Sales Order Number.
+Tabs: All, then one tab per salesman (Unassigned last). Columns: Salesman (All only), Customer Account, Customer Name, Last Order Date, PO #, Sales Order Number. Personal/company schedules: yes. Worker export via the standard viewer.
 
 ### Customer Last Order
 
 In-app: newest logical order (Order Rank 1); “previous order” merges ranks; ADDON POs already rolled by SP. Line columns: item, description, qty ordered/shipped/cancelled, sales price, total.
 
+Export is **in-request** (`GET /report/customer-last-order/<account>/export?format=xlsx|pdf`), not a `report.export` worker job. Not available on personal or company schedules (`in_app`; company create uses `allow_in_app=False`).
+
 ### Item Averages
 
 One tab. Item #, Item Name, 12-Month Qty, Avg/Month (/12), Avg/Week (/52). No dollar columns. Privileged-only.
+
+Personal/company schedules: allowed for admin/developer only (`privileged_only`). Worker export via the standard viewer.
 
 ### Sales by State
 
 Tabs: Summary, New York City, Detail. Web/SQL only (not in CLI `report_registry.json`).
 
+Columns (`v3/report_engine/reports/sales_by_state.py`):
+- Summary: State, Sales amount, New York City Sales amount
+- New York City: Invoice, Amount, Shipped_From, Source_Address, Customer_Name, State Code, State, Postal Code
+- Detail: Invoice, Invoice Date, Customer Account, Customer Name, Amount, Shipped_From, Source_Address, State Code, State, Postal Code, Delivery Address
+
+Personal/company schedules: yes (not `in_app`). Worker export via the standard viewer.
+
 ### Salesman
 
-Twelve month tabs (Jan–Dec) from `monthly_salesman_yoy`. Inherit-hidden for salesmen.
+Twelve month tabs (Jan–Dec) from `monthly_salesman_yoy`. Inherit-hidden for salesmen. Each month tab has the same 16 columns (`_columns` in `salesman.py`): Sort Number, Salesman, Cust. #, Customer Name, that month this year / last year, $ and % this-year-to-last-year, Jan-thru-month this year / last year, $ and % YTD, full-year this year / last year, $ and % YTD full year.
+
+Personal/company schedules: yes. Worker export via the standard viewer.
 
 ## Exports and company workbooks
 
-Interactive export is a `report.export` worker job (`export_jobs.py`), not in-request. Workbook tests: `test_reporting.py` (`test_export_produces_valid_xlsx`, grouping/subtotals, formula neutralization).
+Standard report viewer (every built key except Customer Last Order): interactive Excel is a `report.export` **worker** job (`export_jobs.py`), not in-request. Workbook tests: `test_reporting.py` (`test_export_produces_valid_xlsx`, grouping/subtotals, formula neutralization).
 
-Company Ordered layouts (`v3/web/scheduling/company_layouts.py`), identical to archive: **Daily Ordered** (yesterday, By Customer first) and **Heshy Open Orders** (Hkaufman, Open order, Full Data).
+Customer Last Order is the exception: Excel/PDF are built inside the GET export route (see that section).
+
+Schedules: personal and company lists are `built_reports()` minus `in_app`, so **Customer Last Order cannot be scheduled**. Item Averages remains admin/developer-only. Company Ordered named layouts (`v3/web/scheduling/company_layouts.py`), identical to archive: **Daily Ordered** (yesterday, By Customer first) and **Heshy Open Orders** (Hkaufman, Open order, Full Data).
 
 ## Other approved diffs (not per-report math)
 
@@ -83,7 +98,7 @@ Company Ordered layouts (`v3/web/scheduling/company_layouts.py`), identical to a
 
 **Azure Automation:** `runbooks/universal_runbook.py` and `report_registry.json` are identical to the archive. Registry keys: ordered, invoiced, salesman, number_4, customer_activity, customer_aging, log_digest. README documents the SharePoint `Direct Reports/` folders. **Live Azure schedule list / that every Automation job still fires is owner BLOCKED** (no Automation API from this environment).
 
-**Deleted routes/tools not needed for support:** `/legacy`, `/test`, `/test-next`, `webapp/`, `rebuild/` exist only on the archive tag. `/beta` stays a 302 (Q7) through Production cutover. Re-run live Excel compare from the isolated worktree; do not copy `tools/parity` into this repo.
+**Deleted routes/tests/tools/docs not needed for support:** `/legacy`, `/test`, `/test-next`, `webapp/`, `rebuild/` exist only on the archive tag. Old `webapp/`/`rebuild/` tests and `FEATURE-INVENTORY.md` stay there; current support tests are `v3/tests/test_report_*.py` plus this file. Do not copy archive `tools/parity` into this repo. Operator docs in-tree: README, HANDOFF, DECISION-LOG, REPOSITORY-REVIEW (snapshot), this matrix. `/beta` stays a 302 (Q7) through Production cutover.
 
 ## Live numeric gate (not this environment)
 
