@@ -64,3 +64,12 @@ def test_leftover_filter_and_close_targets_are_44px():
     assert ".group-pill-x" in report and "min-height: 44px" in report.split(".group-pill-x", 1)[1][:400]
     comm = report.split(".commission-live-table thead th", 1)[1][:200]
     assert "#1a5a94" in comm
+
+
+def test_customer_last_order_pick_uses_bundled_script():
+    html = (ROOT / "web/templates/customer_last_order_pick.html").read_text()
+    assert "customer_last_order.js" in html
+    assert "setTimeout(load" not in html
+    src = (ROOT / "web/static_src/js/customer_last_order.ts").read_text()
+    assert "watchHiddenPoll" in src
+    assert "initPick" in src

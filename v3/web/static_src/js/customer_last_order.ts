@@ -1,11 +1,124 @@
-/** Customer Last Order dialogs: previous-order picker and export. */
+/** Customer Last Order: pick-page lookups plus previous-order/export dialogs. */
 
-import { openDialog, type DialogClose } from "./dialog";
+import { openDialog, watchHiddenPoll, type DialogClose, type PollStop } from "./dialog";
+
+declare const feather: { replace: () => void } | undefined;
 
 function esc(s: unknown): string {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
+function initPick(): void {
+  const card = document.querySelector<HTMLElement>(".settings-card[data-customers-url]");
+  if (!card) return;
+  const customersUrl = card.getAttribute("data-customers-url") || "";
+  const viewTpl = card.getAttribute("data-view-url") || "";
+  const listEl = document.getElementById("cloList");
+  const searchEl = document.getElementById("cloSearch") as HTMLInputElement | null;
+  const salesmanEl = document.getElementById("cloSalesman") as HTMLSelectElement | null;
+  if (!listEl || !searchEl) return;
+  const list = listEl;
+  const search = searchEl;
+
+  type CustomerRow = { key: string; name?: string };
+  let all: CustomerRow[] = [];
+  let attempts = 0;
+  let stop: PollStop | null = null;
+
+  function viewUrl(acct: string): string {
+    return viewTpl.replace("__ACCT__", encodeURIComponent(acct));
+  }
+
+  function render(term: string): void {
+    const needle = (term || "").trim().toLowerCase();
+    let rows = all;
+    if (needle) {
+      rows = rows.filter((c) =>
+        (c.key || "").toLowerCase().includes(needle)
+        || (c.name || "").toLowerCase().includes(needle));
+    }
+    if (!rows.length) {
+      list.innerHTML = '<div class="empty-state" style="padding:16px;">'
+        + '<i data-feather="search" width="22" height="22"></i>'
+        + '<p style="margin-top:8px;">No customers match.</p></div>';
+      feather?.replace();
+      return;
+    }
+    const max = Math.min(rows.length, 200);
+    let html = "";
+    for (let i = 0; i < max; i++) {
+      const c = rows[i];
+      html += '<a href="' + viewUrl(c.key) + '" class="customer-pick-row">'
+        + '<span class="customer-pick-acct">' + esc(c.key) + "</span>"
+        + '<span class="customer-pick-name">' + esc(c.name || "") + "</span></a>";
+    }
+    if (rows.length > max) {
+      html += '<div class="customer-pick-more">Showing ' + max + " of " + rows.length
+        + ". Refine your search to narrow down.</div>";
+    }
+    list.innerHTML = html;
+  }
+
+  function load(): void {
+    let url = customersUrl;
+    if (salesmanEl && salesmanEl.value) {
+      url += "?salesman=" + encodeURIComponent(salesmanEl.value);
+    }
+    fetch(url).then((r) => r.json()).then((data) => {
+      all = (data && data.customers) || [];
+      if (!all.length && attempts < 15) {
+        attempts += 1;
+        if (!stop) stop = watchHiddenPoll(load, 1500);
+        return;
+      }
+      stop?.();
+      stop = null;
+      render(search.value);
+    }).catch(() => {
+      list.innerHTML = '<div class="empty-state" style="padding:16px;">'
+        + "<p>Could not load customers. Please try again.</p></div>";
+    });
+  }
+
+  let smAttempts = 0;
+  let smStop: PollStop | null = null;
+  const salesmenUrl = card.getAttribute("data-salesmen-url") || "";
+  function loadSalesmen(): void {
+    if (!salesmanEl || !salesmenUrl) return;
+    fetch(salesmenUrl)
+      .then((r) => r.json())
+      .then((data) => {
+        const rows = data.salesmen || [];
+        if (!rows.length && smAttempts < 15) {
+          smAttempts += 1;
+          if (!smStop) smStop = watchHiddenPoll(loadSalesmen, 1500);
+          return;
+        }
+        smStop?.();
+        smStop = null;
+        rows.forEach((s: { key: string; name: string }) => {
+          const opt = document.createElement("option");
+          opt.value = s.key;
+          opt.textContent = s.name;
+          salesmanEl.appendChild(opt);
+        });
+      })
+      .catch(() => {
+        if (smAttempts < 15) {
+          smAttempts += 1;
+          if (!smStop) smStop = watchHiddenPoll(loadSalesmen, 1500);
+        }
+      });
+  }
+
+  if (salesmanEl) {
+    loadSalesmen();
+    salesmanEl.addEventListener("change", () => { attempts = 0; load(); });
+  }
+  search.addEventListener("input", () => { render(search.value); });
+  load();
 }
 
 function initPrevOrder(): void {
@@ -101,6 +214,7 @@ function initExport(): void {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initPick();
   initPrevOrder();
   initExport();
 });
