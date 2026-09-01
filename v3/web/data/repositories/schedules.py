@@ -543,3 +543,19 @@ class ScheduleRunRepository:
                 (schedule_id, schedule_type),
             ).fetchone()
             return row["t"] if row else None
+
+    def patch_output_meta(self, run_id: int, output_meta: dict) -> None:
+        with self.db.precious() as conn:
+            conn.execute(
+                "UPDATE schedule_runs SET output_meta=? WHERE id=?",
+                (json.dumps(output_meta or {}), run_id),
+            )
+
+    def list_recent_failures(self, *, limit: int = 80) -> list[ScheduleRun]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT * FROM schedule_runs WHERE status='failure'"
+                " ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [ScheduleRun.from_row(r) for r in rows]

@@ -35,10 +35,14 @@ python run.py invoiced --salesman all --email            # shipped reports for a
 It downloads the codebase from SharePoint, imports the appropriate report
 runner via `report_registry.json`, runs it, uploads the output, and sends a
 heartbeat email. If the whole job fails once (dropped Graph, non-zero exit),
-it waits 30 seconds and runs again before Azure marks it Failed.
+it waits 30 seconds and runs again before Azure marks it Failed. Fail then
+retry-success is one status email (the heartbeat names the failure). Azure
+Automation must call `main()` so that retry wrap runs. git push does not
+publish this file; use `.\deploy-runbook.ps1`.
 
-Home-site company schedules do the same: one extra full delivery, then `[FAIL]`
-mail to the test-email list.
+Home-site company schedules do the same extra delivery. `[FAIL]` mail waits
+15 minutes and is dropped if that schedule later succeeds. The success mail
+names the first failure.
 
 Home-site clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send
 waits for the next scheduled HH:MM, not motzei Shabbos. Yesterday/daily and

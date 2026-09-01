@@ -40,6 +40,7 @@ def make_schedule_run_handler(runner: ScheduleRunner) -> Handler:
             ignore_sabbath=bool(p.get("ignore_sabbath")),
             catch_up_for_date=(p.get("catch_up_for_date") or None),
             include_regular=bool(p.get("include_regular", True)),
+            recovered=ctx.job.attempts > 0,
         )
         return f"run:{run_id}"
 

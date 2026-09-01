@@ -824,7 +824,7 @@ def test_hold_before_slot_still_fires_when_time_arrives(tmp_path):
     assert enqueue_due(db, JobRepository(db), after) == 1
 
 
-def test_runner_failure_mails_test_list_when_test_mode_off(tmp_path, monkeypatch):
+def test_runner_failure_holds_fail_mail_until_flush(tmp_path, monkeypatch):
     monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
@@ -858,6 +858,8 @@ def test_runner_failure_mails_test_list_when_test_mode_off(tmp_path, monkeypatch
         cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
     with pytest.raises(RuntimeError, match="SharePoint dropped"):
         runner.run(mid, MASTER)
+    assert delivery.email.notices == []
+    assert runner.flush_pending_fail_notices(wait_s=0) == 1
     assert delivery.email.notices == [{
         "to": ["menny@x.com"],
         "subject": "[FAIL] Nightly",
@@ -899,6 +901,7 @@ def test_runner_failure_notice_does_not_hide_original_error(tmp_path, monkeypatc
         cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
     with pytest.raises(RuntimeError, match="SharePoint dropped"):
         runner.run(mid, MASTER)
+    runner.flush_pending_fail_notices(wait_s=0)
 
 
 def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypatch):
@@ -918,10 +921,12 @@ def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypat
     class FakeDelivery:
         def __init__(self):
             self.calls = 0
+            self.kwargs = []
             self.email = FakeEmail()
 
         def run_and_deliver(self, **kwargs):
             self.calls += 1
+            self.kwargs.append(kwargs)
             if self.calls == 1:
                 return DeliveryOutcome(
                     result=DeliveryResult(ok=False, error="SharePoint dropped"),
@@ -945,4 +950,198 @@ def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypat
     assert delivery.calls == 2
     assert len(hist) == 1 and hist[0].status == "success"
     assert delivery.email.notices == []
+    sent = delivery.kwargs[1]
+    assert "retried after a failure" in sent["subject"]
+    assert "SharePoint dropped" in sent["body_text"]
+    assert "retried and succeeded" in sent["body_text"]
+
+
+def test_recovered_run_skips_when_already_sent_today(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = 0
+
+        def run_and_deliver(self, **kwargs):
+            self.calls += 1
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["team@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    runner.run(mid, MASTER)
+    assert delivery.calls == 1
+    runner.run(mid, MASTER, recovered=True)
+    assert delivery.calls == 1
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert [row.status for row in hist] == ["skipped", "success"]
+    runner.run(mid, MASTER)
+    assert delivery.calls == 2
+
+
+def test_recovered_run_notes_retry_when_not_already_sent(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.sent = []
+
+        def run_and_deliver(self, **kwargs):
+            self.sent.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["team@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    runner.run(mid, MASTER, recovered=True)
+    assert len(delivery.sent) == 1
+    assert "retried after a failure" in delivery.sent[0]["subject"]
+    assert "earlier worker run failed" in delivery.sent[0]["body_text"]
+
+
+def test_later_success_after_failure_skips_fail_mail(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    AppSettingsRepository(db).set_schedule_test(enabled=False, emails=["menny@x.com"])
+
+    class FakeEmail:
+        def __init__(self):
+            self.notices = []
+
+        def send_notice(self, **kwargs):
+            self.notices.append(kwargs)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = 0
+            self.kwargs = []
+            self.email = FakeEmail()
+
+        def run_and_deliver(self, **kwargs):
+            self.calls += 1
+            self.kwargs.append(kwargs)
+            if self.calls <= 2:
+                return DeliveryOutcome(
+                    result=DeliveryResult(ok=False, error="SharePoint dropped"),
+                    row_count=0,
+                )
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["team@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    with pytest.raises(RuntimeError, match="SharePoint dropped"):
+        runner.run(mid, MASTER)
+    assert delivery.email.notices == []
+    runner.run(mid, MASTER)
+    assert delivery.email.notices == []
+    sent = delivery.kwargs[-1]
+    assert "retried after a failure" in sent["subject"]
+    assert "earlier run of this schedule failed today" in sent["body_text"]
+    assert runner.flush_pending_fail_notices(wait_s=0) == 0
+    assert delivery.email.notices == []
+
+
+def test_catchup_window_fail_then_regular_success_is_one_mail(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.app_settings import AppSettingsRepository
+    AppSettingsRepository(db).set_schedule_test(enabled=False, emails=["menny@x.com"])
+
+    class FakeEmail:
+        def __init__(self):
+            self.notices = []
+
+        def send_notice(self, **kwargs):
+            self.notices.append(kwargs)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = 0
+            self.kwargs = []
+            self.email = FakeEmail()
+
+        def run_and_deliver(self, **kwargs):
+            self.calls += 1
+            self.kwargs.append(kwargs)
+            if self.calls <= 2:
+                return DeliveryOutcome(
+                    result=DeliveryResult(ok=False, error="catch-up boom"),
+                    row_count=0,
+                )
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["team@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={"period": "mtd"}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
+    runner.run(mid, MASTER, catch_up_for_date="2026-01-30")
+    assert delivery.calls >= 3
+    assert delivery.email.notices == []
+    hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
+    assert hist[0].status == "success"
+    assert "later window succeeded" in (hist[0].debug_log or "")
+    success_sends = [
+        k for k in delivery.kwargs if "retried after a failure" in k.get("subject", "")
+    ]
+    assert success_sends
+    assert "catch-up boom" in success_sends[0]["body_text"]
+    assert runner.flush_pending_fail_notices(wait_s=0) == 0
+
+
+def test_tick_flushes_pending_fail_notices(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import make_tick
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    flushed = []
+
+    class FakeRunner:
+        def flush_pending_fail_notices(self):
+            flushed.append(1)
+            return 0
+
+    make_tick(db, JobRepository(db), FakeRunner())()
+    assert flushed == [1]
+
 

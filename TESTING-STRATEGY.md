@@ -36,6 +36,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_reporting.py`
 
+## One status email after fail-then-retry
+
+**What to test:**
+- Home-site: in-process retry success sends no `[FAIL]`; subject names the retry.
+- Home-site: both attempts fail → `[FAIL]` only after flush; a later same-day success drops it.
+- Catch-up window fail then regular success is one run, no `[FAIL]`.
+- Tick flushes held notices.
+- Runbook: fail then success is one heartbeat; `main()` wraps retry.
+
+**Expected behavior:**
+- One status email per schedule run. Fail then success is not `[FAIL]` plus a later pass.
+
+**Edge cases:**
+- Recovered worker job after a successful send today skips a second mail.
+
+**Test file:** `v3/tests/test_scheduling.py`, `tests/test_runbook_retry.py`
+
 ## Ordered Summary Extended Price Cancelled
 
 **What to test:**

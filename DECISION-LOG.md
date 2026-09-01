@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-01 One status email when a schedule fails then succeeds
+**What you asked for:** I'm still getting failure and success emails for the same schedule runs.
+**What I had to decide:** The one-mail hold lived on a diverged branch and was overwritten when later `cursor/**` deploys took production.
+**What I chose:** Re-apply it on the live SHA. Home-site `[FAIL]` waits 15 minutes and is dropped if that schedule succeeds; the success mail names the failure. Azure runbook alerts are buffered and `main()` wraps the retry (Automation starts `main` by name). Runbook file still needs `deploy-runbook.ps1` to publish.
+**Why:** Empty-list Number 4 deploy (and the Ordered/oversized/company-views stack) did not include this hold, so production still mailed `[FAIL]` then the later pass.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-08-31 Number 4 Default ungroup was ignored in email
 **What you asked for:** The Number 4 report, I tried to edit the Default view but in the email it's still grouping by item.
 **What I chose:** A saved `group: []` means ungrouped. Excel only uses the builder’s Item # default when the view never set `group`. Empty list used to fall through to Item #, so Default ungroup (and Email me after ungrouping) still grouped.
