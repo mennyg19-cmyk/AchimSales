@@ -1205,4 +1205,3 @@ def test_tick_prunes_cache_exports_and_fails_hung(tmp_path, monkeypatch):
     assert called["magic"] == 90
     assert called["jobs"] == 90
     assert called["runs"] is True
-

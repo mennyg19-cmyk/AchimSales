@@ -198,4 +198,3 @@ export function bindSharePointPicker(): void {
   ov.querySelector(".sp-picker-select")?.addEventListener("click", () => spClose(spCurrentPath));
   ov.addEventListener("click", (e) => { if (e.target === ov) spClose(null); });
 }
-

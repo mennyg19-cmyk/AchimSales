@@ -318,5 +318,3 @@ def _apply_color_bands(ws, start_row: int, end_row: int) -> None:
                 cell.font = Font(name=base_font.name, size=base_font.sz, bold=is_bold, color="FF0000")
             else:
                 cell.font = Font(name=base_font.name, size=base_font.sz, bold=is_bold, color=band)
-
-
