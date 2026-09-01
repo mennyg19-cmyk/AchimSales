@@ -97,6 +97,16 @@ if [ "${APP_ENV}" = "prod" ]; then
     echo "startup: SITE_PRECIOUS_DB_PATH or BETA_PRECIOUS_DB_PATH is required when APP_ENV=prod"
     exit 1
   fi
+  PRECIOUS_NORM="$(${PYTHON} -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "${PRECIOUS}")" || exit 1
+  PRECIOUS="${PRECIOUS_NORM}"
+  export SITE_PRECIOUS_DB_PATH="${PRECIOUS}"
+  case "${PRECIOUS}" in
+    /*) ;;
+    *)
+      echo "startup: serving db path must be absolute (${PRECIOUS}); refusing prod boot"
+      exit 1
+      ;;
+  esac
   case "${PRECIOUS}" in
     /home/*)
       echo "startup: serving db on /home (${PRECIOUS}); refusing prod boot (SQLite WAL cannot use the Azure Files share)"

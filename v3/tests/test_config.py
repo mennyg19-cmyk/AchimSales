@@ -17,8 +17,8 @@ def _cfg(**over):
         client_secret="s",
         reporting_api_base_url="https://api.example",
         reporting_api_key="k",
-        precious_db_path=Path("./.data/precious.db"),
-        cache_db_path=Path("./.data/cache.db"),
+        precious_db_path=Path("/tmp/v3data/precious.db"),
+        cache_db_path=Path("/tmp/v3data/cache.db"),
         litestream_blob_url="abs://container/precious",
         litestream_azure_account_name="acct",
         litestream_azure_account_key="key",
@@ -78,6 +78,16 @@ def test_prod_rejects_home_share_db_path():
     # there. This is the exact regression that stalled the queue in June 2026.
     with pytest.raises(ConfigError, match="/home share"):
         _cfg(precious_db_path=Path("/home/site/v3data/precious.db")).validate()
+
+
+def test_prod_rejects_home_share_via_dotdot():
+    with pytest.raises(ConfigError, match="/home share"):
+        _cfg(precious_db_path=Path("/tmp/../home/site/v3data/precious.db")).validate()
+
+
+def test_prod_rejects_relative_db_path():
+    with pytest.raises(ConfigError, match="absolute local-disk path"):
+        _cfg(precious_db_path=Path("./.data/precious.db")).validate()
 
 
 def test_prod_accepts_local_tmp_db_path():

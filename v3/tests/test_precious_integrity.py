@@ -33,6 +33,18 @@ def _insert_user(path: Path) -> None:
     conn.close()
 
 
+def test_question_mark_filename_opens_the_named_file(tmp_path):
+    path = tmp_path / "site?copy.db"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+    conn.execute("INSERT INTO users(email) VALUES ('ops@achimonline.com')")
+    conn.commit()
+    conn.close()
+    assert_before_migrate(path)
+    assert not (tmp_path / "site").exists()
+    assert file_quick_check_ok(path) is True
+
+
 def test_missing_file_fails_before_migrate(tmp_path):
     with pytest.raises(PreciousIntegrityError, match="missing"):
         assert_before_migrate(tmp_path / "nope.db")

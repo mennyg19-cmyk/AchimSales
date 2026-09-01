@@ -72,9 +72,9 @@ def _open_ro(path: Path) -> sqlite3.Connection:
         raise PreciousIntegrityError("precious db is missing after restore")
     if path.stat().st_size == 0:
         raise PreciousIntegrityError("precious db is zero bytes after restore")
-    uri = path.resolve().as_posix()
+    uri = path.expanduser().resolve(strict=False).as_uri()
     try:
-        conn = sqlite3.connect(f"file:{uri}?mode=ro", uri=True, timeout=5.0)
+        conn = sqlite3.connect(uri + "?mode=ro", uri=True, timeout=5.0)
     except sqlite3.Error as exc:
         raise PreciousIntegrityError(f"precious db could not be opened: {exc}") from exc
     conn.row_factory = sqlite3.Row
