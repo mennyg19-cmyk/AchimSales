@@ -192,3 +192,28 @@ class TestWriteByItemNoMoney:
         assert "Avg Price" not in headers
         assert "Book Price" not in headers
         assert not any(h and str(h).endswith("$") for h in headers)
+
+
+class TestWriteByCustomerPricesBeforeSalesman:
+
+    def test_headers_put_avg_and_book_price_before_salesman(self, tmp_path):
+        from openpyxl import load_workbook
+
+        from reports.number_4.writer_customer import write_by_customer
+
+        agg = pd.DataFrame([{
+            "Item_#": "A", "Item_Name": "Widget",
+            "CustomerAccount": "100", "CustomerName": "Acme",
+            "Salesman": "S", "2026-03": 5.0, "2026-03_$": 50.0,
+            "Total_Qty": 5.0, "Total_$": 50.0, "Avg_Price": 10.0, "BookPrice": 12.0,
+        }])
+        labels = [("Mar-26 Qty", "Mar-26 $")]
+        out = tmp_path / "n4_cust.xlsx"
+        write_by_customer(agg, labels, ["2026-03"], ["2026-03_$"],
+                          agg, labels, ["2026-03"], ["2026-03_$"], str(out))
+        wb = load_workbook(out, read_only=True)
+        try:
+            headers = [c.value for c in next(wb["12 Months"].iter_rows(max_row=1))]
+        finally:
+            wb.close()
+        assert headers[-5:] == ["Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"]

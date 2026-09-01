@@ -52,3 +52,13 @@ def test_number4_defaults_group_by_item_and_drop_totals():
     })
     assert tab["default_group"] == ["Item #"]
     assert [r["Item #"] for r in tab["rows"]] == ["ITM-A"]
+
+
+def test_number4_odata_puts_prices_before_salesman():
+    tab = _attach_number4_defaults({
+        "key": "by_customer_12_months",
+        "name": "By Customer (12 Months)",
+        "columns": ["Total $", "Avg Price", "Salesman", "Book Price"],
+        "rows": [{"Total $": 10, "Avg Price": 2, "Salesman": "S", "Book Price": 3}],
+    })
+    assert tab["columns"] == ["Total $", "Avg Price", "Book Price", "Salesman"]

@@ -63,7 +63,7 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols, dol_cols):
     for lbl_q, lbl_d in month_labels:
         headers.append(lbl_q)
         headers.append(lbl_d)
-    headers.extend(["Total Qty", "Total $", "Avg Price", "Salesman", "Book Price"])
+    headers.extend(["Total Qty", "Total $", "Avg Price", "Book Price", "Salesman"])
     n_month = len(qty_cols)
 
     qty_set = set()
@@ -75,7 +75,7 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols, dol_cols):
     qty_set.add(summary_start)
     currency_set.add(summary_start + 1)
     currency_set.add(summary_start + 2)
-    currency_set.add(summary_start + 4)
+    currency_set.add(summary_start + 3)
 
     ws.append(styled_row(ws, headers, qty_set, currency_set, fill=FILL_HEADER, bold=True))
 
@@ -109,8 +109,8 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols, dol_cols):
             vals.append(tq)
             vals.append(td)
             vals.append(float(r["Avg_Price"]) if pd.notna(r["Avg_Price"]) else None)
-            vals.append(r.get("Salesman", ""))
             vals.append(float(r["BookPrice"]) if pd.notna(r.get("BookPrice")) else None)
+            vals.append(r.get("Salesman", ""))
             ws.append(styled_row(ws, vals, qty_set, currency_set))
 
         tot_vals = ["TOTALS:", str(cust_account), cust_name, ""]
@@ -122,8 +122,8 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols, dol_cols):
         tot_vals.append(item_total_qty)
         tot_vals.append(item_total_dol)
         tot_vals.append(item_total_dol / item_total_qty if item_total_qty else None)
-        tot_vals.append("")
         tot_vals.append(None)
+        tot_vals.append("")
         grand_total_qty += item_total_qty
         grand_total_dol += item_total_dol
         ws.append(styled_row(ws, tot_vals, qty_set, currency_set, fill=FILL_TOTALS, bold=True))
@@ -136,6 +136,6 @@ def _write_sheet(ws, agg_df, month_labels, qty_cols, dol_cols):
     grand_vals.append(grand_total_qty)
     grand_vals.append(grand_total_dol)
     grand_vals.append(grand_total_dol / grand_total_qty if grand_total_qty else None)
-    grand_vals.append("")
     grand_vals.append(None)
+    grand_vals.append("")
     ws.append(styled_row(ws, grand_vals, qty_set, currency_set, fill=FILL_GRAND, bold=True))

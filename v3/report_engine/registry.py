@@ -46,9 +46,9 @@ REGISTRY: tuple[ReportSpec, ...] = (
     ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=8, salesman_default=True),
     ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
-    # v3: YTD tabs derived from the rolling-12 pivot; By Item drops money;
-    # rows group by Item #. Cached v2 payloads must not be reused.
-    ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=3),
+    # v3: Avg Price and Book Price sit before Salesman. Cached v3 payloads
+    # still have Book Price last.
+    ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=4),
     ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT, salesman_default=True),
     ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT, in_app=True),
     ReportSpec(

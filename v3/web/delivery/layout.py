@@ -22,6 +22,7 @@ import copy
 from typing import Any
 
 from report_engine.lib import iso_date
+from report_engine.reports.number_4 import place_price_columns
 
 _NUMERIC_TYPES = {"money", "int", "percent"}
 
@@ -112,7 +113,10 @@ def _reorder_and_hide(columns: list, v: dict) -> list:
     # Append any visible columns the saved order didn't mention (new since save).
     seen = set(order)
     ordered.extend(c for c in visible if _field_of(c) not in seen)
-    return ordered
+    # Number 4: Avg Price and Book Price stay immediately before Salesman,
+    # even when a saved Default still has Book Price last.
+    ordered_fields = place_price_columns([_field_of(c) for c in ordered])
+    return [by_field[f] for f in ordered_fields if f in by_field]
 
 
 def _filter_rows_legacy(rows: list, header_filters: list) -> list:

@@ -292,6 +292,17 @@ function headerMenu(tab: Tab): any[] {
   ];
 }
 
+function placePriceColumns(cols: Column[]): Column[] {
+  const priceNames = ["Avg Price", "Book Price"];
+  const prices = priceNames.filter((f) => cols.some((c) => c.field === f));
+  if (!prices.length || !cols.some((c) => c.field === "Salesman")) return cols;
+  const byField = new Map(cols.map((c) => [c.field, c]));
+  const rest = cols.filter((c) => !priceNames.includes(c.field));
+  const at = rest.findIndex((c) => c.field === "Salesman");
+  if (at < 0) return cols;
+  return [...rest.slice(0, at), ...prices.map((f) => byField.get(f)!), ...rest.slice(at)];
+}
+
 function buildColumns(tab: Tab): any[] {
   const v = view(tab.key);
   let ordered = tab.columns;
@@ -306,6 +317,7 @@ function buildColumns(tab: Tab): any[] {
       ...tab.columns.filter((c) => !savedSet.has(c.field)),
     ];
   }
+  ordered = placePriceColumns(ordered);
   return ordered.map((c, i) => ({
     title: c.header,
     field: c.field,

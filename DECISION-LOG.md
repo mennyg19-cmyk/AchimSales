@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-01 Number 4 Avg Price and Book Price sit before Salesman
+**What you asked for:** Two more Number 4 fields, Avg price and Book price, added before the salesman column.
+**What I chose:** By Customer tabs show **Avg Price**, then **Book Price**, then **Salesman**. By Item stays quantity-only. SP aliases (AvgPrice / BookPrice) are renamed. Missing Avg Price is Total $ / Total Qty. Missing Book Price still gets a column. Saved Default order cannot leave Book Price after Salesman (grid + email). Live Excel By Customer writer matches. builder_version 4.
+**Why:** Live Excel already had Avg Price before Salesman and Book Price last. The new fields belong together, immediately before Salesman.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-01 Skip remaining noisy Semgrep rules so the check can pass
 **What you asked for:** Yes — keep going until Static scan (semgrep) is green.
 **What I chose:** Still scan `v3/` with `p/default`. Also skip SQLAlchemy/Flask/formatted-SQL, CDN integrity, dynamic urllib, and SHA1. App code is unchanged.

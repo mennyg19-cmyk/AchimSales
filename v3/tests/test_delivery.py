@@ -125,6 +125,24 @@ def test_apply_layout_columnfilters_between():
     assert [r["b"] for r in rows] == [2, 3]
 
 
+def test_apply_layout_puts_number4_prices_before_salesman():
+    payload = {"tabs": [{
+        "key": "by_customer", "name": "By Customer",
+        "columns": [
+            {"field": "Total $", "header": "Total $", "type": "money"},
+            {"field": "Avg Price", "header": "Avg Price", "type": "money"},
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Book Price", "header": "Book Price", "type": "money"},
+        ],
+        "rows": [{"Total $": 10, "Avg Price": 2, "Salesman": "S", "Book Price": 3}],
+    }]}
+    layout = {"views": {"by_customer": {
+        "order": ["Total $", "Avg Price", "Salesman", "Book Price"],
+    }}}
+    fields = [c["field"] for c in apply_layout(payload, layout)["tabs"][0]["columns"]]
+    assert fields == ["Total $", "Avg Price", "Book Price", "Salesman"]
+
+
 def test_apply_layout_noop_without_views():
     assert apply_layout(_payload(), None) == _payload()
     assert apply_layout(_payload(), {"views": {}}) == _payload()

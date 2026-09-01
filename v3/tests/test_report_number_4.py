@@ -16,7 +16,7 @@ def _row(**overrides):
            "Jul-25 Qty": "2", "Jul-25 $": "20",
            "Jun-26 Qty": "1", "Jun-26 $": "10.5",
            "Total Qty": "7", "Total $": "70.5", "Avg Price": "10.0714",
-           "Salesman": "REdwards", "Book Price": "12.50"}
+           "Book Price": "12.50", "Salesman": "REdwards"}
     row.update(overrides)
     return row
 
@@ -26,7 +26,7 @@ AS_OF = date(2026, 8, 25)
 
 def test_month_columns_typed_by_suffix_not_by_name():
     columns = B.columns_for(["Customer #", "Zzz-99 Qty", "Zzz-99 $", "Total Qty",
-                             "Total $", "Avg Price", "Salesman", "Book Price"])
+                             "Total $", "Avg Price", "Book Price", "Salesman"])
     types = {c["field"]: c["type"] for c in columns}
     assert types["Zzz-99 Qty"] == "int"
     assert types["Zzz-99 $"] == "money"
@@ -45,12 +45,13 @@ def test_parse_month_header_ignores_totals():
     assert B.parse_month_header("Total Qty") is None
     assert B.parse_month_header("Total $") is None
     assert B.parse_month_header("Avg Price") is None
+    assert B.parse_month_header("Book Price") is None
 
 
 def test_columns_keep_the_sps_own_order_minus_money_on_by_item():
     headers = ["Item #", "Item Name", "Customer #", "Customer Name",
                "Jul-25 Qty", "Jul-25 $", "Total Qty", "Total $",
-               "Avg Price", "Salesman", "Book Price"]
+               "Avg Price", "Book Price", "Salesman"]
     tab = B.build(by_item=(headers, B.clean_rows([{h: "" for h in headers}])),
                   as_of=AS_OF)[0]
     assert [c["field"] for c in tab["columns"]] == [
@@ -111,6 +112,24 @@ def test_by_item_tabs_have_no_money():
         assert not any(f.endswith("$") for f in fields)
         assert "Total Qty" in fields
         assert "Jun-26 Qty" in fields
+
+
+def test_by_customer_puts_avg_and_book_price_before_salesman():
+    tab = B.build(by_customer=_view([_row()]), as_of=AS_OF)[0]
+    fields = [c["field"] for c in tab["columns"]]
+    assert fields[-3:] == ["Avg Price", "Book Price", "Salesman"]
+    assert fields.index("Avg Price") < fields.index("Book Price") < fields.index("Salesman")
+
+
+def test_aliased_and_missing_prices_are_added_before_salesman():
+    headers = ["Customer #", "Item #", "Total Qty", "Total $", "AvgPrice", "Salesman"]
+    row = {"Customer #": "100", "Item #": "A", "Total Qty": "2", "Total $": "10",
+           "AvgPrice": "", "Salesman": "S"}
+    tab = B.build(by_customer=(headers, [row]), as_of=AS_OF)[0]
+    fields = [c["field"] for c in tab["columns"]]
+    assert fields[-3:] == ["Avg Price", "Book Price", "Salesman"]
+    assert tab["rows"][0]["Avg Price"] == 5.0
+    assert "Book Price" in tab["rows"][0]
 
 
 def test_by_customer_keeps_money():
