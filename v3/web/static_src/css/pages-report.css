@@ -216,7 +216,7 @@
 .toolbar-dropdown[hidden] { display: none !important; }
 .toolbar-dropdown-item {
     display: flex; align-items: center; gap: 8px; width: 100%;
-    padding: 8px 10px; border: none; border-radius: 6px; background: none;
+    padding: 8px 10px; min-height: 44px; border: none; border-radius: 6px; background: none;
     color: var(--text); font-size: 13px; text-align: left; cursor: pointer;
 }
 .toolbar-dropdown-item:hover:not(:disabled) { background: var(--bg); color: var(--primary); }
@@ -280,7 +280,7 @@
 .report-meta { color: var(--text-muted); font-size: 12px; white-space: nowrap; align-self: center; }
 
 /* Natural-width grid scrolls horizontally inside the surface card. */
-.report-table-scroll { width: 100%; overflow-x: auto; background: var(--bg-card); }
+.report-table-scroll { width: 100%; overflow-x: auto; background: var(--bg-card); max-width: 100%; min-width: 0; }
 #reportTable { min-height: 120px; }
 
 /* -- Tabulator theming (drives off the shared light/dark tokens) -- */
@@ -357,7 +357,8 @@
 .col-header-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-filter-btn {
     appearance: none; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 5px;
+    min-width: 44px; min-height: 44px; width: 44px; height: 44px; padding: 0;
+    border: 1px solid transparent; border-radius: 5px;
     background: transparent; color: var(--text-light); cursor: pointer; line-height: 0;
 }
 .col-filter-btn:hover { background: var(--primary-light); color: var(--primary); border-color: var(--border); }
@@ -385,7 +386,7 @@
     border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); padding: 6px; min-width: 180px;
 }
 .tab-context-item {
-    display: block; width: 100%; text-align: left; padding: 8px 10px; border: none;
+    display: block; width: 100%; text-align: left; padding: 8px 10px; min-height: 44px; border: none;
     background: none; color: var(--text); font-size: 13px; border-radius: 6px; cursor: pointer;
 }
 .tab-context-item:hover { background: var(--bg); }
@@ -407,7 +408,8 @@
 }
 .group-pill-x {
     border: none; background: none; color: var(--text-muted); cursor: pointer;
-    font-size: 14px; line-height: 1; padding: 0 2px; border-radius: 4px;
+    font-size: 14px; line-height: 1; padding: 0; border-radius: 4px;
+    min-width: 44px; min-height: 44px;
 }
 .group-pill-x:hover { color: var(--error); background: var(--error-light); }
 
@@ -419,13 +421,14 @@
 }
 .presets-row { display: flex; align-items: center; gap: 6px; }
 .presets-open {
-    flex: 1 1 auto; text-align: left; padding: 8px 10px; border: none; background: none;
+    flex: 1 1 auto; text-align: left; padding: 8px 10px; min-height: 44px; border: none; background: none;
     color: var(--text); font-size: 13px; border-radius: 6px; cursor: pointer;
 }
 .presets-open:hover { background: var(--bg); }
 .presets-edit {
     flex: 0 0 auto; border: none; background: none; color: var(--primary);
     font-size: 12px; font-weight: 600; cursor: pointer; padding: 6px 8px; border-radius: 6px;
+    min-width: 44px; min-height: 44px;
 }
 .presets-edit:hover { background: var(--primary-light); }
 .presets-del {
@@ -496,17 +499,18 @@
   font-family: "Arial Narrow", "Aptos Narrow", Arial, sans-serif;
   font-size: 12px;
   min-width: 640px;
-  background: var(--bg-card);
+  background: #ffffff;
+  color: #1e293b;
 }
 .commission-live-table th,
 .commission-live-table td {
   padding: 4px 8px;
   white-space: nowrap;
   border: 1px solid #94a3b8;
-  color: var(--text);
+  color: #1e293b;
 }
 .commission-live-table thead th {
-  background: #5b9bd5;
+  background: #1a5a94;
   color: #fff;
   font-weight: 700;
   text-align: center;

@@ -14,11 +14,13 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Missing `from_report` draft shows an error on Schedules; blocked sessionStorage does not navigate (`master_wizard.ts`, `report-delivery.ts`).
 - Tabulator MIT text is vendored and linked from Settings (`TABULATOR-LICENSE.txt`).
 - Source checks in `test_phase8_a11y.py`. Browser matrix (roles, widths, themes, flows) is the phase gate, not this file.
+- Dark theme uses `--primary` for text (`#60a5fa`) and `--primary-fill` (`#2563eb`) for filled buttons so white labels stay ≥4.5:1. Commission card headers stay `#1a5a94` on white text. Filter/close leftovers are 44px (`col-filter-btn`, `group-pill-x`).
 
 **Expected behavior:**
 - Dialogs trap focus, Escape closes, opener is restored.
 - Admin/dashboard tables scroll inside `.table-scroll` at 320px.
 - Settings/dashboard save failures announce in a live region.
+- Light/dark/monochrome/monochrome-dark body text and primary buttons meet 4.5:1.
 
 **Test files:** `v3/tests/test_phase8_a11y.py`
 

@@ -120,7 +120,7 @@
     background: var(--border); color: var(--text-muted);
 }
 .ms-step.is-active { color: var(--primary); border-color: var(--primary); background: var(--primary-light); }
-.ms-step.is-active .ms-step-num { background: var(--primary); color: #fff; }
+.ms-step.is-active .ms-step-num { background: var(--primary-fill, var(--primary)); color: var(--on-primary, #fff); }
 .ms-step.is-done { color: var(--success); border-color: var(--success); }
 .ms-step.is-done .ms-step-num { background: var(--success); color: #fff; }
 

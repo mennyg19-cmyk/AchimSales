@@ -5,6 +5,9 @@
 :root {
     --primary: #2563eb;
     --primary-hover: #1d4ed8;
+    --primary-fill: #2563eb;
+    --primary-fill-hover: #1d4ed8;
+    --on-primary: #ffffff;
     --primary-light: #dbeafe;
     --success: #16a34a;
     --success-light: #dcfce7;
@@ -28,10 +31,15 @@
 }
 
 body.dark-theme {
-    --primary: #3b82f6;
-    --primary-hover: #60a5fa;
+    /* Primary is text/icon on dark surfaces. Filled controls use --primary-fill
+       so white label text stays ≥4.5:1 (blue-500 + white does not). */
+    --primary: #60a5fa;
+    --primary-hover: #93c5fd;
+    --primary-fill: #2563eb;
+    --primary-fill-hover: #1d4ed8;
+    --on-primary: #ffffff;
     --primary-light: #1e3a5f;
-    --success: #22c55e;
+    --success: #4ade80;
     --success-light: #14532d;
     --error: #ef4444;
     --error-light: #450a0a;
@@ -66,6 +74,9 @@ body.dark-theme .alert-warn { background: var(--warning-light); color: #fbbf24; 
 body.monochrome-theme {
     --primary: #3f3f46;
     --primary-hover: #27272a;
+    --primary-fill: #3f3f46;
+    --primary-fill-hover: #27272a;
+    --on-primary: #ffffff;
     --primary-light: #e4e4e7;
     --success: #52525b;
     --success-light: #f4f4f5;
@@ -99,6 +110,9 @@ body.monochrome-theme .alert-success { background: var(--success-light); color: 
 body.monochrome-dark-theme {
     --primary: #52525b;
     --primary-hover: #71717a;
+    --primary-fill: #52525b;
+    --primary-fill-hover: #3f3f46;
+    --on-primary: #ffffff;
     --primary-light: #3f3f46;
     --success: #a1a1aa;
     --success-light: #27272a;
@@ -124,3 +138,5 @@ body.monochrome-dark-theme .badge-salesman { background: #27272a; color: #d4d4d8
 body.monochrome-dark-theme .btn-outline { border-color: var(--border); color: var(--text-muted); }
 body.monochrome-dark-theme .alert-success { background: var(--success-light); color: #d4d4d8; border-color: #3f3f46; }
 body.monochrome-dark-theme .alert-error { background: var(--error-light); color: #f87171; border-color: #7f1d1d; }
+body.monochrome-dark-theme .status-running,
+body.monochrome-dark-theme .status-queued { color: #f4f4f5; }
