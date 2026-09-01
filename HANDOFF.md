@@ -2,19 +2,19 @@
 
 Last updated: 2026-09-01
 
-**Status:** Phase 9 personal CLO schedule rejected (`allow_in_app=False`). Fresh Loop A re-pass next. Draft PR #1. Keep draft. Do not merge or deploy Production.
+**Status:** Phase 9 review gate closed at `8900f01`. Draft PR #1. Keep draft. Do not merge or deploy Production. Do not start Phase 10.
 
 ## What's done
 
-- Q1–Q11 logged. Phases 0–8 closed. Phase 8 gate `6960dca` / HANDOFF `39f78b3`.
+- Q1–Q11 logged. Phases 0–9 closed. Phase 8 gate `6960dca` / HANDOFF `39f78b3`.
 - Phase 9.1/9.2: `REPORT-PARITY.md` vs isolated archive `b14d725`. Live SQL totals and live Automation send list owner BLOCKED.
-- Phase 9.3: one artifact builder (`tools/build_artifact.py` includes `tools/supervise-web.sh`), hashed `requirements.txt`, `deploy.ps1` uses that zip, `git diff --check` clean, `REPOSITORY-REVIEW.md` status rewritten, env templates, dead lookup timer gone.
+- Phase 9.3: one artifact builder (`tools/build_artifact.py` includes `tools/supervise-web.sh`), hashed `requirements.txt` (Python 3.10, including pytest extras), `deploy.ps1` matches CI gates, git-tracked-only zip, personal CLO schedules 400.
+- Phase 9 reviews: Loop A PASS (re-pass 3), Loop B PASS, Loop C PASS (two non-blocking nits). Trust-boundary N/A. Parent ponytail: Lean already. Ship. CI 15/15 on `8900f01`.
 
 ## What's next
 
-1. Phase 9 review gate: self-review, ponytail-review, Loop A then B then C. Trust-boundary only if reviewers say auth/roles were touched (this phase is docs/hygiene/artifact).
+1. Phase 10 is go-live. Owner approvals required. Do not merge or deploy Production from this branch.
 2. Live SQL/Excel totals and live Azure Automation schedule list stay owner BLOCKED.
-3. Phase 10 is go-live. Do not merge.
 
 ## Open / BLOCKED
 

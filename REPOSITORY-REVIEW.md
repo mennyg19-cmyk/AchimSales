@@ -2,7 +2,7 @@
 
 Reviewed revision: `330d1bc` (`webapp-cache`, identical to `origin/webapp-cache` on 2026-08-27)
 
-Status: implemented on `cursor/p0-security-containment-adb6` through Phase 8 (see `PR1-REMEDIATION-PLAN.md` and `REPORT-PARITY.md`). This file is the original review snapshot, not an open worklist.
+Status: implemented on `cursor/p0-security-containment-adb6` through Phase 9 (see `PR1-REMEDIATION-PLAN.md` and `REPORT-PARITY.md`). This file is the original review snapshot, not an open worklist.
 
 ## Implementation status (2026-09-01)
 
@@ -27,7 +27,6 @@ Status: implemented on `cursor/p0-security-containment-adb6` through Phase 8 (se
 `is_beta=True` stays (README Rule Preferences). `/beta` 302 stays until cutover (Q7). In-app email distributions stay retired (Q6).
 
 ## Original required outcome
-
 
 - Keep one web site only: the current site served at `/`, formerly called Beta.
 - Remove the **Beta** pill from the top-left header.
