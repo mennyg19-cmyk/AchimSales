@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Personal schedules get CC and BCC
+**What you asked for:** When editing a salesman’s schedule, extra To addresses already exist. Add CC and BCC. The salesman himself still emails only himself.
+**What I had to decide:** Whether CC/BCC belong only on the personal wizard, or also on More → Schedule from a report.
+**What I chose:** Same privileged fields in both places. Company wizard already had CC/BCC; personal Where and the report modal now match. Backend already stored and sent `email_cc` / `email_bcc` for privileged users.
+**Why:** Create-from-report would otherwise be unable to set CC/BCC until you edited the row. Salesman POST still drops those keys.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Drop Excel outline groups; darken innermost footer grey
 **What you asked for:** Roll back collapsible groups in Excel export. The lightest footer grey looks white and needs to be darker.
 **What I chose:** Stop stamping Excel `outline_level`. Footer greys step from the dark end (2-level customer totals use `#9CA3AF`, not `#E5E7EB`). Grid and Excel still share the same RGB.

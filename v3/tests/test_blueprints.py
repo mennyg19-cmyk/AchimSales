@@ -1329,6 +1329,8 @@ def test_salesman_cannot_add_extra_schedule_emails(tmp_path):
         "saved_report_id": vid,
         "cadence": {"freq": "daily", "time": "08:00"},
         "recipients": "other@x.com",
+        "email_cc": "cc@x.com",
+        "email_bcc": "bcc@x.com",
         "sharepoint_path": "Secret/Folder",
         "email_on_no_data_me_only": True,
     }, headers={"X-CSRF-Token": _CSRF})
@@ -1339,6 +1341,49 @@ def test_salesman_cannot_add_extra_schedule_emails(tmp_path):
     assert row.recipients == "rep@x.com"
     assert row.sharepoint_path == ""
     assert row.params.get("email_on_no_data_me_only") is False
+    assert not row.params.get("email_cc")
+    assert not row.params.get("email_bcc")
+    html = c.get("/schedules").get_data(as_text=True)
+    assert 'id="psCc"' not in html
+    assert 'id="psBcc"' not in html
+
+
+def test_admin_can_set_personal_schedule_cc_bcc(tmp_path):
+    app = _make_app(tmp_path)
+    rep = app.test_client()
+    _login(rep, app, email="john@x.com", role="salesman")
+    vid = _named_view(rep, name="John last month")
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "recipients": "extra@x.com",
+        "email_cc": "cc@x.com",
+        "email_bcc": "bcc@x.com",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    from web.data.repositories.schedules import ScheduleRepository
+    sid = created.get_json()["id"]
+    row = ScheduleRepository(app.config["DB"]).get_any(sid)
+    assert "john@x.com" in row.recipients
+    assert "extra@x.com" in row.recipients
+    assert row.params.get("email_cc") == "cc@x.com"
+    assert row.params.get("email_bcc") == "bcc@x.com"
+    updated = admin.put(f"/api/schedules/{sid}", json={
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "email_to_owner": True,
+        "recipients": "extra@x.com",
+        "email_cc": "cc2@x.com",
+        "email_bcc": "",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert updated.status_code == 200, updated.get_data(as_text=True)
+    row = ScheduleRepository(app.config["DB"]).get_any(sid)
+    assert row.params.get("email_cc") == "cc2@x.com"
+    assert not row.params.get("email_bcc")
+    html = admin.get("/schedules").get_data(as_text=True)
+    assert 'id="psCc"' in html
+    assert 'id="psBcc"' in html
 
 
 

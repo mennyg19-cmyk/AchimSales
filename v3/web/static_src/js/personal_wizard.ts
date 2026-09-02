@@ -212,6 +212,17 @@ function destOn(id: string): boolean {
   return !!(document.getElementById(id) as HTMLInputElement | null)?.checked;
 }
 
+function setText(id: string, value: string): void {
+  const el = document.getElementById(id) as HTMLInputElement | null;
+  if (el) el.value = value;
+}
+
+function resetPrivilegedMail(): void {
+  setText("psExtras", "");
+  setText("psCc", "");
+  setText("psBcc", "");
+}
+
 function xorFolders(changed: "od" | "sp"): void {
   if (changed === "od" && destOn("psWantOnedrive")) {
     const sp = document.getElementById("psWantSharepoint") as HTMLInputElement | null;
@@ -243,6 +254,7 @@ function closeWizard(): void {
   const title = document.getElementById("psFormTitle");
   if (title) title.textContent = "Add a schedule";
   lockedView = null;
+  resetPrivilegedMail();
   msg("", false);
   showStep(1);
 }
@@ -306,8 +318,9 @@ async function enterEdit(row: HTMLTableRowElement): Promise<void> {
   const rec = row.dataset.recipients || "";
   const emailCb = document.getElementById("psEmailOwner") as HTMLInputElement | null;
   if (emailCb) emailCb.checked = ownerEmailInRecipients(rec, ownerEmail) || (!rec && !row.dataset.sharepointPath);
-  const extras = document.getElementById("psExtras") as HTMLInputElement | null;
-  if (extras) extras.value = extrasFromRecipients(rec, ownerEmail);
+  setText("psExtras", extrasFromRecipients(rec, ownerEmail));
+  setText("psCc", String(params.email_cc || ""));
+  setText("psBcc", String(params.email_bcc || ""));
   const folder = row.dataset.sharepointPath || "";
   const kind = row.dataset.folderKind || "onedrive";
   const odCb = document.getElementById("psWantOnedrive") as HTMLInputElement | null;
@@ -424,6 +437,7 @@ export function bindPersonalWizard(): void {
     const title = document.getElementById("psFormTitle");
     if (title) title.textContent = "Add a schedule";
     lockedView = null;
+    resetPrivilegedMail();
     void loadViews("").then(() => {
       openWizard();
       showStep(1);
@@ -491,6 +505,8 @@ export function bindPersonalWizard(): void {
     };
     if (privileged()) {
       body.recipients = (document.getElementById("psExtras") as HTMLInputElement | null)?.value.trim() || "";
+      body.email_cc = (document.getElementById("psCc") as HTMLInputElement | null)?.value.trim() || "";
+      body.email_bcc = (document.getElementById("psBcc") as HTMLInputElement | null)?.value.trim() || "";
       body.email_on_no_data_me_only = !!(document.getElementById("psNoDataTest") as HTMLInputElement | null)?.checked;
     }
     const editId = (document.getElementById("psEditingId") as HTMLInputElement).value;

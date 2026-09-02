@@ -258,6 +258,16 @@
                 <span>Also email (optional)</span>
                 <input type="text" id="schedRecipients" placeholder="other@achimonline.com">
             </label>
+            <div class="modal-field-row">
+                <label class="modal-field">
+                    <span>CC (optional)</span>
+                    <input type="text" id="schedCc" placeholder="cc@achimonline.com">
+                </label>
+                <label class="modal-field">
+                    <span>BCC (optional)</span>
+                    <input type="text" id="schedBcc" placeholder="bcc@achimonline.com">
+                </label>
+            </div>
             {% else %}
             <input type="hidden" id="schedRecipients" value="">
             {% endif %}

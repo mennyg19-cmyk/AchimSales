@@ -238,6 +238,22 @@ def test_report_viewer_meeting_ux():
     assert "<th>View</th>" in company
 
 
+def test_personal_and_report_schedule_have_cc_bcc_fields():
+    personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
+    assert 'id="psCc"' in personal
+    assert 'id="psBcc"' in personal
+    wiz_js = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
+    assert "body.email_cc" in wiz_js
+    assert "body.email_bcc" in wiz_js
+    assert "params.email_cc" in wiz_js
+    report_html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert 'id="schedCc"' in report_html
+    assert 'id="schedBcc"' in report_html
+    report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert "body.email_cc" in report_js
+    assert "body.email_bcc" in report_js
+
+
 def test_settings_exclusions_use_customer_picker():
     html = (_V3 / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
     assert 'id="exclPicker"' in html

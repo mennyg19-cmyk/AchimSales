@@ -116,7 +116,8 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 **What to test:**
 - A named saved view can be scheduled, including Customer Activity with no period. Default, company views, and custom from/to cannot.
 - Create from another user’s view (admin) sets owner to that user and recipients to their email.
-- Salesman update cannot add extra emails or SharePoint.
+- Salesman update cannot add extra emails, CC, BCC, or SharePoint.
+- Privileged create/edit of a personal schedule stores optional `email_cc` / `email_bcc`.
 - Conversion creates a saved view for a Default personal schedule and keeps it running; company rows are untouched.
 - Empty eligible-view list means Add is disabled (API returns no views).
 
@@ -127,7 +128,8 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 **Edge cases:**
 - Custom period views stay off the picker after conversion.
 - Editing a converted custom-date schedule still saves When/Where (same view id is allowed).
-- Non-privileged extra recipients on create are ignored; owner email is kept.
+- Non-privileged extra recipients, CC, and BCC on create are ignored; owner email is kept.
+- Privileged POST/PUT on a salesman’s named view keeps CC/BCC on `params`; salesman pages omit those fields.
 
 **Test file:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
 

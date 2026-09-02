@@ -3090,6 +3090,10 @@ function openScheduleModal(): void {
   if (owner) owner.checked = true;
   const rec = $("schedRecipients") as HTMLInputElement | null;
   if (rec) rec.value = "";
+  const cc = $("schedCc") as HTMLInputElement | null;
+  if (cc) cc.value = "";
+  const bcc = $("schedBcc") as HTMLInputElement | null;
+  if (bcc) bcc.value = "";
   const noRec = $("schedNoDataRecipients") as HTMLInputElement | null;
   const noMe = $("schedNoDataMeOnly") as HTMLInputElement | null;
   if (noRec) noRec.checked = false;
@@ -3133,8 +3137,12 @@ function collectCadence(): { ok: boolean; cadence?: any; error?: string } {
   return { ok: true, cadence };
 }
 
-function collectScheduleRecipients(): { extras: string } {
-  return { extras: (($("schedRecipients") as HTMLInputElement | null)?.value || "").trim() };
+function collectScheduleRecipients(): { extras: string; cc: string; bcc: string } {
+  return {
+    extras: (($("schedRecipients") as HTMLInputElement | null)?.value || "").trim(),
+    cc: (($("schedCc") as HTMLInputElement | null)?.value || "").trim(),
+    bcc: (($("schedBcc") as HTMLInputElement | null)?.value || "").trim(),
+  };
 }
 
 async function saveSchedule(): Promise<void> {
@@ -3143,7 +3151,8 @@ async function saveSchedule(): Promise<void> {
     return;
   }
   const emailOn = !!($("schedEmailOwner") as HTMLInputElement | null)?.checked;
-  const extras = collectScheduleRecipients().extras;
+  const rec = collectScheduleRecipients();
+  const extras = rec.extras;
   const odPath = scheduleOd.path() || "";
   const spPath = attr("data-has-sharepoint") === "1" ? (scheduleSp.path() || "") : "";
   if (!emailOn && !odPath && !spPath) {
@@ -3168,6 +3177,8 @@ async function saveSchedule(): Promise<void> {
   };
   if (privileged) {
     body.recipients = extras;
+    body.email_cc = rec.cc;
+    body.email_bcc = rec.bcc;
     body.email_on_no_data_me_only = !!($("schedNoDataMeOnly") as HTMLInputElement | null)?.checked;
   }
   try {
