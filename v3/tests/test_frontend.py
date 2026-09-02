@@ -213,6 +213,19 @@ def test_report_viewer_meeting_ux():
     assert "<th>View</th>" in company
 
 
+def test_settings_exclusions_use_customer_picker():
+    html = (_V3 / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
+    assert 'id="exclPicker"' in html
+    assert 'id="exclPills"' in html
+    assert "data-customers-url" in html
+    assert "data-lookup-status-url" in html
+    assert 'id="exclSearch"' not in html
+    assert "excl-toggle" not in html
+    src = (_SRC / "js" / "settings.ts").read_text(encoding="utf-8")
+    assert "SearchablePicker" in src
+    assert "data-customers-url" in src
+
+
 def test_admin_users_has_company_views_flag():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euCompanyViews"' in html

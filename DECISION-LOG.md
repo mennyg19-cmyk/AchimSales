@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Settings exclusions use the report customer dropdown list
+**What you asked for:** Customer exclusions on Settings should be a dropdown filled from the same endpoint as the report customer picker, scoped to the user.
+**What I had to decide:** Whether Settings should call `/api/reports/ordered/customers` (the report URL) or a settings URL that runs the same lookup + salesman filter.
+**What I chose:** `GET /api/settings/customers` using `LookupService.customers_visible` (same helper as the report picker). The Ordered URL 403s when Ordered is turned off; salesmen can still set exclusions. POST now rejects accounts that are unknown or outside the caller's salesman keys.
+**Why:** You wanted the same list and scope as the report dropdown, not the dashboard mirror checkbox list. Exclusions are not a report action, so they should not depend on Ordered being runnable.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Applying a view showed `_isDuplicate` of undefined
 **What you asked for:** Applying a saved view still worked, but the pink error banner said `Cannot read properties of undefined (reading '_isDuplicate')`.
 **What I chose:** Stop stuffing `generated_at` onto `state.tabs`. Applying a view walks every key on that map to hide extra tabs; the timestamp key is not a tab, so reading `_isDuplicate` threw after the grouping had already been copied in.

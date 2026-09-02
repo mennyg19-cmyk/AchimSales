@@ -755,7 +755,8 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .admin-links { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-links .btn { max-width: 100%; }
 .settings-subhead { font-size: 13px; font-weight: 700; color: var(--text-muted); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.4px; }
-.excl-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; margin-top: 8px; }
+.settings-hub .customer-picker { margin-top: 8px; }
+.settings-hub .customer-pills { padding-bottom: 0; margin-top: 8px; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .beta-source-key { min-width: 0; }
 .beta-source-select { font-size: 13px; padding: 6px 8px; min-height: 44px; max-width: 100%; }

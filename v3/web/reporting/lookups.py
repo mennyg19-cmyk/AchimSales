@@ -167,6 +167,17 @@ class LookupService:
             seen[acct] = {"key": acct, "name": name or acct, "salesman": sg}
         return sorted(seen.values(), key=lambda c: c["name"].lower())
 
+    def customers_visible(self, visible_keys: set[str] | None,
+                          salesman: str | None = None) -> list[dict]:
+        """Report-dropdown customer list, narrowed to the caller's salesman keys.
+
+        ``visible_keys is None`` means unrestricted (admin / developer).
+        """
+        rows = self.customers(salesman)
+        if visible_keys is not None:
+            rows = [c for c in rows if salesman_key(c.get("salesman", "")) in visible_keys]
+        return rows
+
     def customer(self, account: str) -> dict | None:
         """Authoritative customer-master record for one account (key/name/salesman),
         or None when the account is unknown.

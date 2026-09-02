@@ -15,7 +15,6 @@ from flask import (
 )
 
 from report_engine import registry
-from report_engine.lib import salesman_key
 from web.auth.decorators import require_login
 from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
@@ -81,7 +80,6 @@ def settings_page():
         ]
     uid = _uid(p.email)
     excluded = ExclusionRepository(current_app.config["DB"]).get(uid) if uid else set()
-    customers = _exclusion_customers(p, excluded)
     beta_sources = {}
     if _is_developer(p):
         try:
@@ -95,25 +93,23 @@ def settings_page():
         "settings.html", active_tab="settings", profile=p, flags=flags,
         test_mode_on=test_mode_on, test_emails=test_emails,
         is_admin=is_admin, is_developer=_is_developer(p),
-        reports=reports, customers=customers, excluded=excluded,
+        reports=reports, excluded=sorted(excluded),
         beta_sources=beta_sources,
     )
 
 
-def _exclusion_customers(p, excluded: set[str]) -> list[dict]:
-    authz = current_app.config["AUTHZ"]
-    allowed = authz.visible_salesman_keys(p)
-    rows = current_app.config["DASHBOARD_REPO"].all()
-    out = []
-    for r in rows:
-        if allowed is not None and salesman_key(r.sales_group) not in allowed:
-            continue
-        out.append({
-            "account": r.customer_account, "name": r.customer_name,
-            "last_order": r.last_order_date or "",
-            "excluded": r.customer_account in excluded,
-        })
-    return out
+def _lookups():
+    return current_app.config["LOOKUP_SERVICE"]
+
+
+def _can_exclude_account(p, account: str) -> tuple[bool, str, int]:
+    """Same customer-master + salesman scope as the report customer dropdown."""
+    info = _lookups().customer(account)
+    if info is None:
+        return False, "Unknown customer", 400
+    if not current_app.config["AUTHZ"].can_view_customer(p, info.get("salesman")):
+        return False, "Not authorized for this customer", 403
+    return True, "", 200
 
 
 @settings_bp.get("/admin/run-log")
@@ -210,9 +206,22 @@ def set_exclusion():
     account = (body.get("customer_account") or "").strip()
     if not account:
         return jsonify({"error": "customer_account required"}), 400
+    ok, err, status = _can_exclude_account(p, account)
+    if not ok:
+        return jsonify({"error": err}), status
     excluded = bool(body.get("excluded"))
     ExclusionRepository(current_app.config["DB"]).set(uid, account, excluded)
     return jsonify({"customer_account": account, "excluded": excluded})
+
+
+@settings_bp.get("/api/settings/customers")
+@require_login
+def settings_customers():
+    """Same customer list as the report picker (customer master + salesman scope)."""
+    p = current_principal()
+    salesman = (request.args.get("salesman") or "").strip() or None
+    visible = current_app.config["AUTHZ"].visible_salesman_keys(p)
+    return jsonify({"customers": _lookups().customers_visible(visible, salesman)})
 
 
 @settings_bp.get("/api/dev/beta-sources")

@@ -2,6 +2,24 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Settings customer exclusions use the report customer list
+
+**What to test:**
+- Settings HTML uses the searchable picker (`exclPicker`), not the old checkbox list.
+- `GET /api/settings/customers` matches `GET /api/reports/ordered/customers` for the same user.
+- A salesman only sees customers in their salesman scope.
+- POST exclusion of an in-scope account works without dashboard rows.
+- POST of another salesman's customer is 403; unknown account is 400.
+
+**Expected behavior:**
+- Pills are hidden customers. The dropdown is customer master, scoped like the report page.
+
+**Edge cases:**
+- Dashboard-only customers do not appear on Settings.
+- Saved exclusions still serialize into `data-excluded`.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## Applying a view must not throw on `_isDuplicate`
 
 **What to test:**

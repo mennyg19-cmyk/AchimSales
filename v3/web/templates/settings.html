@@ -13,6 +13,9 @@
      data-test-url="{{ url_for('settings.set_schedule_test') }}"
      data-vis-url="{{ url_for('settings.set_report_visibility') }}"
      data-excl-url="{{ url_for('settings.set_exclusion') }}"
+     data-customers-url="{{ url_for('settings.settings_customers') }}"
+     data-lookup-status-url="{{ url_for('reports.lookup_status') }}"
+     data-excluded='{{ excluded | tojson }}'
      data-beta-url="{{ url_for('settings.set_beta_source') }}"
      data-csrf="{{ csrf_token() }}">
 
@@ -44,25 +47,10 @@
     </section>
     <section class="settings-card">
         <h2 class="section-title">Customer exclusions</h2>
-        <p class="flag-desc">Hidden customers skip your dashboard metrics and overdue alerts.</p>
-        <input type="search" id="exclSearch" class="user-search" placeholder="Search customers…" autocomplete="off">
-        <div class="excl-list" id="exclList">
-            {% for c in customers %}
-            <div class="flag-row excl-row" data-name="{{ (c.account ~ ' ' ~ c.name)|lower }}">
-                <label class="switch">
-                    <input type="checkbox" class="excl-toggle" data-account="{{ c.account }}"
-                           {% if not c.excluded %}checked{% endif %}>
-                    <span class="switch-track"></span>
-                </label>
-                <span class="flag-meta">
-                    <span class="flag-name">{{ c.account }} — {{ c.name }}</span>
-                    {% if c.last_order %}<span class="flag-desc">Last order {{ c.last_order }}</span>{% endif %}
-                </span>
-            </div>
-            {% else %}
-            <p class="flag-desc">No customer list yet. Dashboard data fills this after a refresh.</p>
-            {% endfor %}
-        </div>
+        <p class="flag-desc">Pick customers to hide from dashboard metrics and overdue alerts. Same list as the report customer dropdown for your account.</p>
+        <p class="flag-desc" id="exclHint">Loading customers…</p>
+        <div id="exclPicker" class="customer-picker" data-placeholder="Search customers…"></div>
+        <div id="exclPills" class="customer-pills" aria-label="Hidden customers"></div>
     </section>
 </details>
 
