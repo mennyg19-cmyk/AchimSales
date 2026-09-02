@@ -1003,6 +1003,50 @@ def test_company_views_list_put_and_home_cards(tmp_path):
     assert reserved.status_code == 400
 
 
+def test_admin_can_delete_company_view(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    _grant_company_views(app)
+    saved = client.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Daily Ordered", "params": {}, "layout": {}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    view_id = saved.get_json()["id"]
+    gone = client.delete(
+        f"/api/reports/ordered/company-views/{view_id}",
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert gone.status_code == 200
+    listed = client.get("/api/reports/ordered/presets").get_json()
+    assert listed["company"] == []
+    assert client.get(f"/api/reports/ordered/company-views/{view_id}").status_code == 404
+    home = client.get("/").get_data(as_text=True)
+    assert "Daily Ordered" not in home
+
+
+def test_salesman_cannot_delete_company_view(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    _grant_company_views(app)
+    saved = admin.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Keep Me", "params": {}, "layout": {}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    view_id = saved.get_json()["id"]
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    _grant_company_views(app, "rep@x.com")
+    assert rep.delete(
+        f"/api/reports/ordered/company-views/{view_id}",
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert admin.get(f"/api/reports/ordered/company-views/{view_id}").status_code == 200
+
+
 def test_salesman_cannot_edit_company_view(tmp_path):
     app = _make_app(tmp_path)
     admin = app.test_client()

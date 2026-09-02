@@ -2709,8 +2709,19 @@ function appendPresetRow(
     del.title = "Delete this view";
     del.addEventListener("click", async () => {
       if (!window.confirm(`Delete “${preset.name}”?`)) return;
-      await fetch(presetUrl(preset.id!), { method: "DELETE", headers: csrfHeaders() });
+      const url = isCompanyViewId(preset.id)
+        ? companyViewGetUrl(String(preset.id).slice(COMPANY_VIEW_PREFIX.length))
+        : presetUrl(preset.id!);
+      const res = await fetch(url, { method: "DELETE", headers: csrfHeaders() });
+      if (!res.ok) {
+        setStatus("Could not delete this view.", "error");
+        return;
+      }
       row.remove();
+      if (editingPresetId === preset.id) {
+        editingPresetId = null;
+        editingPresetName = null;
+      }
     });
     row.appendChild(del);
   }
@@ -2754,7 +2765,7 @@ async function togglePresetsPanel(): Promise<void> {
     const fold = appendPresetFold(panel, "Company views");
     company.forEach((p) => {
       appendPresetRow(fold, { ...p, id: `${COMPANY_VIEW_PREFIX}${p.id}` }, {
-        canDelete: false, canEdit: !!p.can_edit,
+        canDelete: !!p.can_edit, canEdit: !!p.can_edit,
       });
     });
   }

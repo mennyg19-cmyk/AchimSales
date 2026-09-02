@@ -172,6 +172,8 @@ def test_report_viewer_meeting_ux():
     assert "Only managers and admins can change company views." in src
     assert "Company views" in src
     assert "function collectCompanyViewParams" in src
+    assert "canDelete: !!p.can_edit, canEdit: !!p.can_edit" in src
+    assert "companyViewGetUrl(String(preset.id).slice(COMPANY_VIEW_PREFIX.length))" in src
     assert "function mapPeriodValue" in src
     assert 'v.toLowerCase() === "yesterday" ? "daily"' in src
     assert "function periodIsRunnable" in src

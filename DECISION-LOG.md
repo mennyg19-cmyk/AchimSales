@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Delete company views from Saved views
+**What you asked for:** There is no delete button for company views on the saved views dropdown.
+**What I chose:** Same Delete control as personal views, only for people who can already Edit company views (managers/admins/developers). DELETE `/api/reports/<report>/company-views/<id>`. Salesmen who can see company views still cannot delete them.
+**Why:** Company views had Edit/save but `canDelete` was hardcoded false, and there was no delete API.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Salesman report gets a salesman dropdown
 **What you asked for:** The salesman report should be filterable by salesman; it should be an option.
 **What I had to decide:** Whether to send the dropdown's SalesGroup value to the YoY stored procedure as `SalesmanName`.

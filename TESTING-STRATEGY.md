@@ -2,6 +2,22 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Delete company views from Saved views
+
+**What to test:**
+- Admin/manager DELETE `/api/reports/<key>/company-views/<id>` removes the row, the presets list, and the home card.
+- Salesman with the company-views flag cannot delete (403). Same as Edit.
+- Saved views dropdown shows Delete next to a company view when `can_edit` is true, and that Delete hits the company-view URL (not personal presets).
+
+**Expected behavior:**
+- Managers and admins can delete a company view from Saved views, with the same confirm as personal views.
+- Default stays undeletable.
+
+**Edge cases:**
+- Wrong report_key on the URL → 404; view is not deleted.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## Salesman report is filterable by salesman
 
 **What to test:**
