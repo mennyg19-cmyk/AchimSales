@@ -129,7 +129,7 @@ class SharePointService:
         )
         url = resolve_web_url(
             requests, headers=headers, body=body,
-            get_url=f"{base}/root:/{path}", items_base=f"{base}/items",
+            get_url=f"{base}/root:/{path}:", items_base=f"{base}/items",
             timeout=TIMEOUT,
         )
         if not url:

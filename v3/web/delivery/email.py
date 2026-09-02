@@ -106,9 +106,17 @@ def _download_email_html(intro: str, filename: str, xlsx_bytes: bytes, file_url:
     )
 
 
+def _sharepoint_folder_line(folder_path: str | None, filename: str) -> str:
+    folder = (folder_path or "").strip("/")
+    if not folder or not filename:
+        return ""
+    return f"The workbook is in SharePoint under Direct Reports/{folder}/{filename}."
+
+
 def _email_bodies(
     body_text: str, report_name: str, filename: str,
     xlsx_bytes: bytes | None, attach: bytes | None, file_url: str | None,
+    folder_path: str | None = None,
 ) -> tuple[str, str | None]:
     """Plain text plus optional HTML (download button when the file is too big)."""
     if attach is not None:
@@ -121,7 +129,9 @@ def _email_bodies(
     if file_url:
         text = f"{intro}\n\n{notice}\nDownload it here: {file_url}\n"
         return text, _download_email_html(intro, filename, xlsx_bytes, file_url)
-    text = f"{intro}\n\n{notice}\nDownload it from SharePoint or export it from the app.\n"
+    folder_line = _sharepoint_folder_line(folder_path, filename)
+    fallback = folder_line or "Download it from SharePoint or export it from the app."
+    text = f"{intro}\n\n{notice}\n{fallback}\n"
     return text, None
 
 
@@ -199,7 +209,8 @@ class EmailService:
             sp_err = None if not sp_saved else sp_err
 
         body, body_html = _email_bodies(
-            body_text, report_name, filename, xlsx_bytes, attach, sp_url)
+            body_text, report_name, filename, xlsx_bytes, attach, sp_url,
+            folder_path=upload_path if (sp_saved and not sp_url) else None)
         msg = self._compose(subject, recipients, body, report_name, filename, attach,
                             cc=cc, bcc=bcc, body_html=body_html)
         eml_name = self._write_eml(msg, report_name)
@@ -302,15 +313,18 @@ class EmailService:
                 raise
             log.warning("Graph rejected the attachment (%s); retrying without it", exc)
             url = file_url
+            retry_folder = None
             if not url and xlsx_bytes and filename:
                 saved, url, _err = self._maybe_folder(
                     TEST_SHAREPOINT_FOLDER, filename, xlsx_bytes,
                     onedrive_user=onedrive_user)
-                if saved and url:
+                if saved:
                     file_url = url
+                    if not url:
+                        retry_folder = TEST_SHAREPOINT_FOLDER
             retry_text, retry_html = _email_bodies(
                 intro or report_name, report_name or subject, filename,
-                xlsx_bytes, None, url)
+                xlsx_bytes, None, url, folder_path=retry_folder)
             graph.send(
                 sender=self.cfg.email_from, to=to, subject=subject, body_text=retry_text,
                 body_html=retry_html, filename="", xlsx_bytes=None,

@@ -63,8 +63,11 @@ The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimo
 
 **Production branch is `webapp-cache`.** GitHub Action
 `.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
-push, and also deploys `cursor/**` Cloud Agent branches to the same production
-slot. Manual zip deploy is still `deploy.ps1`. Agent Guardrails Semgrep scans
+push, and also deploys `cursor/**` Cloud Agent branches to the **same production
+slot**. The last successful deploy wins, so a Cloud Agent branch can be what
+https://reports.achimonline.com is actually running while `webapp-cache` lags.
+Check the Azure workflow run for the branch on the site. Manual zip deploy is
+still `deploy.ps1`. Agent Guardrails Semgrep scans
 `v3/` (the home site) only, not `webapp/` (`/legacy`). It still uses
 `p/default`, but skips rules that do not match this Flask + SQLite app
 (Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,

@@ -532,7 +532,7 @@ def test_resolve_web_url_from_body_get_then_create_link():
         req, headers={}, body={"id": "x"},
         get_url="https://g", items_base="https://i", timeout=1,
     ) == "https://from-get"
-    assert req.gets == ["https://g"]
+    assert req.gets == ["https://i/x"]
     assert req.posts == []
 
     req = _Req(get_payload={"id": "x"}, post_payload={"link": {"webUrl": "https://from-link"}})
@@ -542,6 +542,97 @@ def test_resolve_web_url_from_body_get_then_create_link():
     ) == "https://from-link"
     assert req.posts == [("https://i/x/createLink",
                           {"type": "view", "scope": "organization"})]
+
+
+def test_resolve_web_url_gets_item_by_id_when_path_get_fails():
+    from web.delivery.graph_upload import resolve_web_url
+
+    class _Resp:
+        def __init__(self, payload, ok=True):
+            self.ok = ok
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Req:
+        def __init__(self):
+            self.gets = []
+            self.posts = []
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            if url.endswith("/item1"):
+                return _Resp({"id": "item1", "webUrl": "https://sp/n4.xlsx"})
+            return _Resp({}, ok=False)
+
+        def post(self, url, **kwargs):
+            self.posts.append(url)
+            return _Resp({}, ok=False)
+
+    req = _Req()
+    assert resolve_web_url(
+        req, headers={}, body={"id": "item1"},
+        get_url="https://graph/root:/Test/n4.xlsx",
+        items_base="https://graph/items", timeout=1,
+    ) == "https://sp/n4.xlsx"
+    assert req.gets == ["https://graph/items/item1"]
+    assert req.posts == []
+
+
+def test_resolve_web_url_retries_path_get_with_trailing_colon():
+    from web.delivery.graph_upload import resolve_web_url
+
+    class _Resp:
+        def __init__(self, payload, ok=True):
+            self.ok = ok
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Req:
+        def __init__(self):
+            self.gets = []
+
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            if url.endswith(":"):
+                return _Resp({"webUrl": "https://from-colon-path", "id": "z"})
+            return _Resp({}, ok=False)
+
+        def post(self, url, **kwargs):
+            raise AssertionError("createLink should not run")
+
+    req = _Req()
+    body = {"expirationDateTime": "2026-09-02T12:00:00Z", "nextExpectedRanges": []}
+    assert resolve_web_url(
+        req, headers={}, body=body,
+        get_url="https://graph/root:/Direct%20Reports/Test/n4.xlsx",
+        items_base="https://graph/items", timeout=1,
+    ) == "https://from-colon-path"
+    assert "https://graph/root:/Direct%20Reports/Test/n4.xlsx:" in req.gets
+
+
+def test_graph_oversize_upload_without_weburl_names_the_folder(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {"webUrl": None, "name": name, "id": "1"}
+    )
+    big = b"P" * MAX_GRAPH_ATTACH_BYTES
+    res = svc.deliver(
+        subject="Daily 5am Number 4", recipients_raw="a@x.com", body_text="",
+        report_name="Number 4", filename="Daily_5am_Number_4.xlsx",
+        xlsx_bytes=big, sharepoint_path="",
+    )
+    assert res.ok and res.send_channel == "graph"
+    body = graph.calls[0]["body_text"]
+    assert "too large" in body.lower()
+    assert "Direct Reports/Test/Daily_5am_Number_4.xlsx" in body
+    assert graph.calls[0]["body_html"] is None
+    assert res.sharepoint_saved is True
+    assert res.sharepoint_url is None
 
 
 def test_sharepoint_prod_without_creds_raises(tmp_path):

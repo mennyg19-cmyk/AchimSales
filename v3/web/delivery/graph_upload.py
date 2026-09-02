@@ -6,7 +6,10 @@ must use an upload session or Graph rejects the request.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol
+
+log = logging.getLogger(__name__)
 
 SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024
 # Graph requires chunk sizes that are a multiple of 320 KiB (except the last).
@@ -32,6 +35,27 @@ def web_url_from_item(body: dict | None) -> str:
     return ""
 
 
+def _json_dict(response: Any) -> dict:
+    if response is None or not getattr(response, "ok", False):
+        return {}
+    try:
+        data = response.json() if hasattr(response, "json") else {}
+    except Exception:  # noqa: BLE001 - treat as empty; caller tries the next URL
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _path_get_urls(get_url: str) -> list[str]:
+    """Graph item-by-path is `root:/path:` (trailing colon). Callers often omit it."""
+    url = (get_url or "").rstrip("/")
+    if not url:
+        return []
+    urls = [url]
+    if not url.endswith(":"):
+        urls.append(url + ":")
+    return urls
+
+
 def resolve_web_url(
     requests: _Requests, *,
     headers: dict[str, str],
@@ -43,36 +67,55 @@ def resolve_web_url(
     """webUrl from the upload body, else GET the item, else an org view link.
 
     Chunked upload sessions often return {expirationDateTime, nextExpectedRanges}
-    with no webUrl. The file is on the drive; we have to ask for the item.
+    or a driveItem id with no webUrl. Number 4 (~13 MB) always uses the session.
+    GET /items/{id} is the app-only way to read webUrl; createLink often 403s.
     """
     url = web_url_from_item(body)
     if url:
         return url
-    item_id = str((body or {}).get("id") or "")
-    try:
-        r = requests.get(get_url, headers=headers, timeout=timeout)
-        if getattr(r, "ok", False):
-            data = r.json() if hasattr(r, "json") else {}
-            url = web_url_from_item(data)
+    items = (items_base or "").rstrip("/")
+    item_id = str((body or {}).get("id") or "").strip()
+
+    def try_get(target: str) -> dict:
+        if not target:
+            return {}
+        try:
+            return _json_dict(requests.get(target, headers=headers, timeout=timeout))
+        except Exception:  # noqa: BLE001 - try the next candidate
+            return {}
+
+    if item_id and items:
+        url = web_url_from_item(try_get(f"{items}/{item_id}"))
+        if url:
+            return url
+
+    for path_url in _path_get_urls(get_url):
+        data = try_get(path_url)
+        url = web_url_from_item(data)
+        if url:
+            return url
+        item_id = str(data.get("id") or item_id).strip()
+        if item_id and items:
+            url = web_url_from_item(try_get(f"{items}/{item_id}"))
             if url:
                 return url
-            item_id = str(data.get("id") or item_id)
-    except Exception:  # noqa: BLE001 - still try createLink from the upload id
-        pass
-    if not item_id:
+
+    if not item_id or not items:
         return ""
     try:
         r = requests.post(
-            f"{items_base}/{item_id}/createLink",
+            f"{items}/{item_id}/createLink",
             headers={**headers, "Content-Type": "application/json"},
             json={"type": "view", "scope": "organization"},
             timeout=timeout,
         )
         if not getattr(r, "ok", False):
+            log.warning("Graph createLink failed for item %s: %s",
+                        item_id, getattr(r, "status_code", None))
             return ""
-        data = r.json() if hasattr(r, "json") else {}
-        return web_url_from_item(data)
+        return web_url_from_item(_json_dict(r))
     except Exception:  # noqa: BLE001 - caller can still send the mail without a URL
+        log.warning("Graph createLink raised for item %s", item_id, exc_info=True)
         return ""
 
 

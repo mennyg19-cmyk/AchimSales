@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-02 Number 4 oversized mail must include a SharePoint link
+**What you asked for:** This morning's Number 4 test email said the workbook was too large and had no SharePoint link, even though that link worked in a recent test.
+**What I had to decide:** Whether to merge the Sol/Grok review rewrite (`cursor/p0-security-containment-adb6`) onto live at the same time.
+**What I chose:** Fix the missing link on the code that is actually on the site (`cursor/schedule-from-views-89b7`, last Azure deploy). Chunked Graph uploads (Number 4 is ~13 MB) often return an item id with no `webUrl`. We now GET `/items/{id}` first, then retry the path GET with Graph's trailing colon, and only then try `createLink`. If Graph still has no URL after a successful upload, the body names `Direct Reports/Test/{filename}`. Do **not** merge PR #1 onto a `cursor/**` or `webapp-cache` push: that rewrite deletes `/legacy`, splits out the worker, and the PR itself says keep draft until Phase 10. Combining it with live feature work is a conflicted rebase, not a clean merge, and a push would deploy the unfinished rewrite over production.
+**Why:** `webapp-cache` is behind the last `cursor/**` deploy. Production already has the download-button code; this morning's mail still had no URL because we never read `webUrl` from `/items/{id}` after a chunked upload. Merging the review branch now would wipe the live Number 4 / views / mail stack.
+**Status:** DECIDED — shipping the mail-link fix; review rewrite stays on PR #1.
+
+
 ## 2026-09-01 Schedules: 3-step from saved views; old wizard to Settings
 **What you asked for:** Rework scheduling. Move the current wizard to the developer dashboard. Schedules page becomes Choose a view → When → Where. Grill answered the rest.
 **What I chose:** Salesmen and managers only schedule named saved views (no Default, no company views, no custom from/to, Customer Activity out for now). Admin/dev can pick others’ views grouped by user; the schedule belongs to that person (**Email to {name}**). Extra emails, SharePoint, and test-list-on-no-data are admin/dev only. One-time conversion snapshots personal schedules into saved views; company schedules stay as-is under Settings → Company schedules (admin/dev only). More → Schedule only when a named view is loaded and not dirty. Filename template stays on Where. No Review step.

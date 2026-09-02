@@ -204,7 +204,9 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Email already sent + folder upload failed: delivery stays ok. Scheduler must not send a second copy.
 - SharePoint-only (no recipients) still fails when the upload fails.
 - Graph 413 on a small attachment retries without the file, uploads to `Test` if needed, and includes the download link.
-- Chunked upload with no `webUrl` in the session response still gets a URL (GET item, then org view link).
+- Chunked upload with no `webUrl` in the session response still gets a URL: GET `/items/{id}` first (app-only), then path GET with the trailing colon Graph requires (`root:/path:`), then org view link.
+- Path GET without the trailing colon is retried with `:` appended.
+- If the file uploaded but Graph still returned no URL, the body names `Direct Reports/{folder}/{filename}` instead of “download it from SharePoint” with nothing to click.
 
 **Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`
 

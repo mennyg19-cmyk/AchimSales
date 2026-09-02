@@ -98,9 +98,10 @@ class OneDriveService:
             headers=headers,
             content=content, put_timeout=UPLOAD_TIMEOUT,
         )
+        item_get = item if item.endswith(":") else f"{item}:"
         url = resolve_web_url(
             requests, headers=headers, body=body,
-            get_url=item,
+            get_url=item_get,
             items_base=f"{GRAPH_BASE}/users/{quote(user)}/drive/items",
             timeout=TIMEOUT,
         )
