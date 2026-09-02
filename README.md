@@ -74,7 +74,7 @@ dynamic urllib, SHA1 cache fingerprints).
 you can mess with. A **pull request** is “please copy this photocopy into
 `main`.” If `main` moved while you were working, you update your photocopy from
 `main` and then merge. GitHub keeps every old version of `main`, so you can
-roll back. The old name `webapp-cache` was this same official copy.
+roll back. The old name `webapp-cache` was retired after `main` became default.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 

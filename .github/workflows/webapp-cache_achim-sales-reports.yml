@@ -4,14 +4,12 @@
 
 name: Build and deploy Python app to Azure Web App - achim-sales-reports
 
-# Production slot. Only `main` goes live. `webapp-cache` stays in this list
-# for one rename so the current official branch still deploys, then we drop it.
+# Production slot. Only `main` goes live.
 # Cloud Agent `cursor/**` branches do not auto-deploy (that overwrote the site).
 on:
   push:
     branches:
       - main
-      - webapp-cache
   workflow_dispatch:
 
 # Name bumped so the 2026-08-26 ghost "queued" runs (cannot cancel or delete)
