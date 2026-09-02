@@ -1,30 +1,22 @@
-# Remaining click-through (batch 3+)
+# Remaining click-through (batch 4)
 
-Local app: `http://127.0.0.1:5055` — `python3 /workspace/.scratch/golive_serve.py`
-Login: `/login` email `golive-dev@local.test` role **developer**. CSRF is on the form.
+Local app: `http://127.0.0.1:5055`
+Start at `/login`. If already in a session, **Sign Out first**.
 
-Do **not** start rebuild Phase 2–4. Do **not** invent D365 data. If a control needs API data, screenshot the empty/error state and move on.
+REQUIRED: true salesman login this time — Sign Out, then `/login` email `golive-sales@local.test` role **salesman**. Header must **not** say “Viewing as”. After that item, Sign Out and login `golive-dev@local.test` role **developer** for the rest.
 
-Write results to `/workspace/.scratch/click-batch-3.md` (parent will copy to `go-live/`).
+Write `/workspace/.scratch/click-batch-4.md`. Stay under ~7 minutes. No D365 waits >8s.
 
-## Must retest
+## Do these (skipped from batch 3)
 
-1. **P6** open `/settings/company-schedules` directly. Screenshot the table (expect 12 seeded names). Open 5-step wizard far enough to see Report → When → Options → Where → Review. Do not need to save a 13th company schedule unless save is one click and clearly succeeds.
-2. **P3.16 Schedule modal** from `/reports/ordered` **without** `cview`. Wait for Saved views / Default. Open More → Schedule. Screenshot `#scheduleModal` (title “Schedule this view”, filename field, Email to me). If the button is disabled, screenshot the hint text. Then try Saved views → Default if needed.
-3. **P5 save** complete Add a schedule through Save so a row appears on `/schedules`. Then History, Copy (if enabled), toggle on/off. **Run now** is expected to fail locally (no Reporting API) — screenshot the error, do not treat as a product bug.
+1. **Salesman true login:** after Sign Out + `/login/dev` as salesman, screenshot header (no Viewing as). Settings = Profile/Appearance/Exclusions. `/admin/users` → 403 JSON. `/dashboard` — note whether it loads or hides (F2: nav hidden, route may still 200).
+2. **P14** `/impersonate` as developer after re-login. If 404, record that. If it loads, click one user and End if there is an End control.
+3. **P13** `/dev/role-picker` — search golive-sm2, View as, header Viewing as Test Salesman 2 / golive-sm2. Then Sign Out or View as yourself back to golive-dev.
+4. **P7** `/settings` as developer: open exclusions (expect “Customer master is not configured”); feature flags; report visibility toggles; Delivery test-mode + email chips; Developer Beta SQL/OData sources.
+5. **C10** Help overlay on `/` (reports home).
+6. **C6** click the theme control through its cycle (light / dark / mono if present) and screenshot each distinct look. Return to dark if that was the start.
+7. **P4.3** `/report/customer-last-order` — type `a` in customer search; screenshot empty/loading. Do not invent an account.
+8. **P6.7** `/settings/company-schedules` — History on Daily Ordered Report; Run now on one row → expect API-not-set. Screenshot.
+9. **P9** `/dashboard` as developer: empty tiles already seen; screenshot table empty state. If a customer link exists, open it.
 
-## Still unchecked UI
-
-4. **P8.3** Edit `golive-sm2@local.test`: change display name, save. Salesmen master table (likely empty).
-5. **P7** Settings: exclusions picker; feature flags; report visibility; Delivery test-mode chips; Developer Beta SQL/OData sources page.
-6. **P13** `/dev/role-picker` — search, pick golive-sm2, View as. Header “Viewing as”. End via Switch user → yourself or Sign Out + re-login as golive-dev.
-7. **P14** `/impersonate` if the route loads (this mount is AUTH_MODE=dev). If 404, note it.
-8. **C10** Help overlay on reports home.
-9. **C6** theme cycle light → dark → monochrome → monochrome_dark (or whatever the toggle actually does) and back.
-10. **P9** dashboard: empty tiles already seen; open a customer link if any row exists; otherwise screenshot empty table.
-11. **P4.3** type a letter in last-order search; screenshot empty/loading. Do not fake a customer.
-12. **P5.2** after save, privileged table with owner banner.
-13. **P6.7** one master row: History page. Run now → expect API-not-set failure.
-14. **Salesman gate:** login as `golive-sales@local.test` salesman (Sign Out, then `/login/dev` — not only Switch user). Confirm no Users, no Dashboard, Settings = Profile/Appearance/Exclusions. Hit `/admin/users` — expect 403 JSON (F18).
-
-Skip Run report expecting rows. Skip CLO Excel/PDF without a customer account.
+Skip Run report rows. Skip CLO Excel/PDF.
