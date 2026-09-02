@@ -195,6 +195,17 @@ def test_run_poll_result_export_flow(tmp_path):
     assert xlsx.status_code == 200
     assert xlsx.data[:2] == b"PK"  # xlsx is a zip
 
+    admin = UserRepository(app.config["DB"]).get_by_email("admin@x.com")
+    UserRepository(app.config["DB"]).update(admin.id, role="salesman")
+    UserRepository(app.config["DB"]).set_salesman_access(admin.id, ["hkaufman"])
+    with client.session_transaction() as s:
+        s["v3_user"] = {
+            "email": "admin@x.com", "name": "Admin", "role": "salesman", "is_dev": False,
+        }
+    assert client.get(f"/api/reports/exports/{export_id}/download").status_code == 403
+    listing = client.get("/api/reports/exports").get_json()["exports"]
+    assert listing == []
+
     # A different user must not be able to download someone else's export.
     _login(client, app, email="other@x.com", role="admin")
     assert client.get(f"/api/reports/exports/{export_id}/download").status_code == 404
@@ -609,6 +620,24 @@ def test_precious_repair_mutating_actions_require_post(tmp_path):
     assert wiped.status_code == 200
     assert wiped.get_json()["deleted"] >= 1
     assert app.config["JOB_REPO"].get(jid) is None
+
+
+def test_claim_once_mutating_requires_post(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    uid = UserRepository(app.config["DB"]).get_by_email("dev@x.com").id
+    jid = app.config["JOB_REPO"].enqueue(
+        JOB_TYPE, owner_user_id=uid, params={"report_key": "ordered"})
+    assert client.get("/api/reports/diagnostics/claim-once").status_code == 405
+    assert app.config["JOB_REPO"].get(jid).status == "queued"
+    probed = client.post(
+        "/api/reports/diagnostics/claim-once", headers={"X-CSRF-Token": _CSRF})
+    assert probed.status_code == 200
+    body = probed.get_json()
+    assert body["select_found_id"] == jid
+    assert body["reverted"] is True
+    assert app.config["JOB_REPO"].get(jid).status == "queued"
 
 
 def test_admin_unknown_user_access_is_404(tmp_path):

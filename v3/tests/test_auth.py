@@ -500,3 +500,51 @@ def test_role_picker_includes_v3_user_absent_from_live(tmp_path, monkeypatch):
     assert b"New Hire" in page.data
     assert b"newbie@x.com" in page.data
 
+
+def test_beta_adopt_keeps_v3_user_edits(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    u = repo.create("rep@x.com", role="manager", display_name="Renamed",
+                    sales_group="HKaufman")
+    repo.set_salesman_access(u.id, ["hkaufman"])
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "rep@x.com", "name": "Live Rep", "role": "salesman",
+            "salesman_key": "REdwards",
+        }
+        s["_csrf_token"] = "t"
+    assert client.get("/").status_code == 200
+    row = repo.get_by_email("rep@x.com")
+    assert row.display_name == "Renamed"
+    assert row.role == "manager"
+    assert row.sales_group == "HKaufman"
+    assert repo.get_salesman_access(u.id) == {"hkaufman"}
+
+
+def test_stale_dev_cookie_cannot_use_role_picker_or_admin(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    u = repo.upsert("dev@x.com", role="developer", display_name="Dev")
+    repo.update(u.id, role="salesman")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "dev@x.com", "name": "Dev", "role": "developer",
+            "salesman_key": None, "_dev": True, "_dev_name": "Dev",
+            "_dev_email": "dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    picker = client.get("/dev/role-picker")
+    assert picker.status_code == 302
+    assert client.get("/api/admin/users").status_code == 403
+    assert repo.get_by_email("dev@x.com").role == "salesman"
+

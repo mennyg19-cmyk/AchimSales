@@ -178,6 +178,13 @@ def _principal_or_401():
     return p
 
 
+def _require_developer_principal():
+    p = _principal_or_401()
+    if not _authz().is_developer(p):
+        abort(403, description="Developer role required")
+    return p
+
+
 def _user_id(email: str) -> int | None:
     row = UserRepository(current_app.config["DB"]).get_by_email(email)
     return row.id if row else None
@@ -245,22 +252,32 @@ def _owned_job_or_404(job_id: str, uid: int | None):
     return job
 
 
+def _job_scope_ok(p, job) -> bool:
+    """True if p may still see a result built under job.params['visible_keys']."""
+    current_keys = _authz().visible_salesman_keys(p)
+    if current_keys is None:
+        return True
+    job_keys = job.params.get("visible_keys")
+    if job_keys is None:
+        return False
+    normalized_current = {salesman_key(k) for k in current_keys}
+    normalized_job = {salesman_key(k) for k in job_keys}
+    return normalized_job.issubset(normalized_current)
+
+
 def _assert_scope_compatible(p, job):
     """Deny if the user's current scope is narrower than the job's build scope.
 
     Prevents a demoted user from reading a cached result that contains data
     they can no longer access (e.g. admin -> salesman demotion).
     """
-    current_keys = _authz().visible_salesman_keys(p)
-    if current_keys is None:
-        return  # unrestricted user can see everything
-    job_keys = job.params.get("visible_keys")
-    if job_keys is None:
+    if not _job_scope_ok(p, job):
         abort(403, description="Result scope exceeds your current access; please re-run")
-    normalized_current = {salesman_key(k) for k in current_keys}
-    normalized_job = {salesman_key(k) for k in job_keys}
-    if not normalized_job.issubset(normalized_current):
-        abort(403, description="Result scope exceeds your current access; please re-run")
+
+
+def _export_source_job(export_job):
+    sid = (export_job.params or {}).get("source_job_id")
+    return _job_repo().get(sid) if sid else None
 
 
 def _selected_customer_accounts(params: dict) -> list[str]:
@@ -587,6 +604,9 @@ def download_export(export_id: str):
     if job.type != EXPORT_JOB_TYPE:
         abort(404, description="Unknown export")
     _authz().assert_report_runnable(p, job.params.get("report_key"))
+    source = _export_source_job(job)
+    if source is None or not _job_scope_ok(p, source):
+        abort(403, description="Result scope exceeds your current access; please re-run")
     if job.status != "success":
         abort(409, description="Export is not ready yet")
     found = _exports().content(export_id)
@@ -616,6 +636,12 @@ def list_exports():
     jobs = [j for j in _job_repo().list_for_user(uid, limit=100)
             if j.type == EXPORT_JOB_TYPE
             and authz.can_view_report(p, j.params.get("report_key", ""))][:15]
+    scoped = []
+    for j in jobs:
+        source = _export_source_job(j)
+        if source is not None and _job_scope_ok(p, source):
+            scoped.append(j)
+    jobs = scoped
     metas = _exports().metas_for([j.id for j in jobs if j.status == "success"])
     titles = {s.key: s.title for s in registry.built_reports()}
     out = []
@@ -894,9 +920,7 @@ def preview_body(report_key: str):
     API, so the form can surface a live "this is what we'll ask for" panel.
     Developer-only -- the panel is a dev tool, not a user-facing feature.
     """
-    p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    p = _require_developer_principal()
     _built_spec_or_404(report_key)
     _authz().assert_report_runnable(p, report_key)
 
@@ -1001,9 +1025,7 @@ def reporting_api_diagnostics():
     """Admin/developer check: is the Reporting API reachable from the app right
     now, and is the job worker backed up? Answers 'why aren't our calls hitting
     the endpoint' without guessing. Developer-only (exposes the API host)."""
-    p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    p = _require_developer_principal()
     cfg = current_app.config["APP_CONFIG"]
     from web import is_background_leader_process
     worker = current_app.config["JOB_WORKER"]
@@ -1125,22 +1147,22 @@ def _recent_jobs(db, limit: int = 10) -> list[dict]:
     ]
 
 
-@reports_bp.get("/api/reports/diagnostics/claim-once")
+@reports_bp.route("/api/reports/diagnostics/claim-once", methods=["GET", "POST"])
 @require_login
 def claim_once_diagnostic():
     """Developer-only: call the REAL worker.repo.claim_next() from this request
     thread (the poller calls the same method but always gets None). If this
     claims a job, the poller's failure is thread-specific; if it returns None,
-    the method itself is the problem. Safe: any claimed job is immediately set
-    back to 'queued' so the actual handler never runs and nothing is lost."""
-    p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    the method itself is the problem. Safe: a job this request claimed is set
+    back to 'queued' so the actual handler never runs.
+
+    GET is rejected: this writes the jobs table, so CSRF must apply (POST).
+    """
+    p = _require_developer_principal()
+    if request.method == "GET":
+        return jsonify({"error": "Claim-once writes the jobs table; POST required"}), 405
     from datetime import datetime, timezone
     db = current_app.config["DB"]
-    # Replicate claim_next() step by step so we can see WHICH step bails: does the
-    # SELECT find the row, and does the UPDATE (id + status='queued') actually
-    # match it? Then revert so the job is never really claimed.
     with db.precious() as conn:
         sel = conn.execute(
             "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
@@ -1156,11 +1178,14 @@ def claim_once_diagnostic():
                 "SELECT status FROM jobs WHERE id=?", (sel["id"],)
             ).fetchone()
             out["status_after_update"] = verify["status"] if verify else None
-            # Revert no matter what so this is a pure read-only probe.
-            conn.execute(
-                "UPDATE jobs SET status='queued', started_at=NULL WHERE id=?", (sel["id"],)
-            )
-            out["reverted"] = True
+            if upd.rowcount == 1:
+                conn.execute(
+                    "UPDATE jobs SET status='queued', started_at=NULL WHERE id=?",
+                    (sel["id"],),
+                )
+                out["reverted"] = True
+            else:
+                out["reverted"] = False
     return jsonify(out)
 
 
@@ -1179,9 +1204,7 @@ def precious_repair_diagnostic():
     GET may only run check (read-only). Mutating actions require POST so CSRF
     applies — a GET would let a cross-site link wipe queued jobs.
     """
-    p = _principal_or_401()
-    if p.role != ROLE_DEVELOPER:
-        abort(403, description="Developer role required")
+    p = _require_developer_principal()
     db = current_app.config["DB"]
     body = request.get_json(silent=True) or {}
     action = (request.args.get("action") or body.get("action") or "check")

@@ -44,26 +44,33 @@ def adopt_live_identity():
     dev_email = str(live.get("_dev_email") or "").strip().lower()
     impersonating = is_dev and bool(dev_email) and email != dev_email
 
+    db = current_app.config["DB"]
+    users = UserRepository(db)
+    user = users.get_by_email(email)
+    if user is None:
+        persist_role = role if role in VALID_ROLES else "salesman"
+        user = users.create(email, role=persist_role, display_name=display)
+        if persist_role not in ("admin", "developer"):
+            _sync_salesman_scope(users, user.id, live, email, persist_role)
+    elif not impersonating and not (user.display_name or "").strip() and display.strip():
+        users.update(user.id, display_name=display)
+        user = users.get_by_id(user.id) or user
+
+    session_role = role if impersonating else user.role
     existing = current_principal()
     if (
         existing is not None
         and existing.email == email
-        and existing.role == role
+        and existing.role == session_role
         and existing.is_dev == is_dev
         and existing.impersonating == impersonating
     ):
         return existing
 
-    db = current_app.config["DB"]
-    users = UserRepository(db)
-    persist_role = "developer" if is_dev and email == (dev_email or email) else role
-    user = users.create(email, role=persist_role, display_name=display)
-    _sync_salesman_scope(users, user.id, live, email, role)
-
     principal = Principal(
         email=email,
         name=raw_name,
-        role=role,
+        role=session_role,
         is_dev=is_dev,
         impersonating=impersonating,
         real_email=dev_email if impersonating else "",

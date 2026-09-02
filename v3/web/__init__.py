@@ -169,7 +169,7 @@ def _ephemeral_dev_secret(cfg: Config) -> str:
 def _register_context(app: Flask, cfg: Config, db) -> None:
     from flask import request, url_for
 
-    from web.auth.principal import ROLE_SALESMAN
+    from web.auth.principal import ROLE_DEVELOPER, ROLE_SALESMAN
     from web.auth.session import sync_role
 
     def _safe_url(endpoint: str, **kw) -> str:
@@ -198,8 +198,14 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             return
         live = session.get("user")
         if isinstance(live, dict) and live.get("_dev"):
-            # Impersonation: session role is the picked user, not the DB row.
-            return
+            real = str(live.get("_dev_email") or "").strip().lower()
+            actor = users.get_by_email(real) if real else None
+            still_dev = bool(
+                actor and actor.is_active and actor.role == ROLE_DEVELOPER)
+            picked = (p.email or "").strip().lower()
+            if still_dev and picked and picked != real:
+                # Impersonation: session role is the picked user, not the DB row.
+                return
         try:
             row = users.get_by_email(p.email)
             if row is not None and row.is_active:

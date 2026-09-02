@@ -16,7 +16,7 @@ from __future__ import annotations
 from report_engine import registry
 from report_engine.lib import salesman_key
 from report_engine.registry import ReportStatus
-from web.auth.principal import _PRIVILEGED, ROLE_MANAGER, Principal
+from web.auth.principal import _PRIVILEGED, ROLE_DEVELOPER, ROLE_MANAGER, Principal
 from web.data.connection import Database
 from web.data.repositories.users import User, UserRepository
 
@@ -51,6 +51,11 @@ class Authorization:
     def is_manager(self, p: Principal | None) -> bool:
         u = self._active_user(p)
         return bool(u and u.role == ROLE_MANAGER)
+
+    def is_developer(self, p: Principal | None) -> bool:
+        """Live DB role is developer. Never the session/cookie role."""
+        u = self._active_user(p)
+        return bool(u and u.role == ROLE_DEVELOPER)
 
     def can_see_company_schedules(self, p: Principal | None) -> bool:
         """Admins, developers, and managers see the shared company list."""

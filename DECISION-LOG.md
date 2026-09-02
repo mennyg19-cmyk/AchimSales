@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Full review: v3 Users & access wins over Live cookie after first login
+**What you asked for:** Full review of the codebase using the review protocol.
+**What I had to decide:** After Users & access can rename people and set SalesGroup, whether every Live (Beta) page load should copy the Microsoft/Live cookie back onto that row.
+**What I chose:** First Live login still creates the v3 user and copies Live salesman scope. After that, display name, role, SalesGroup, is_external, and salesman-access stay as set in v3. Developer tools and Switch user require a live DB `developer` row, not a `_dev` cookie. Export download re-checks the source run's salesman scope.
+**Why:** Loop B showed production (Beta) login was wiping admin edits, a leftover `_dev` cookie could re-promote a demoted developer, and a demoted admin could still download a company-wide workbook.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Users can be renamed on Users & access
 **What you asked for:** Users need to be possible to be renamed. Don't know why that's closed up.
 **What I had to decide:** Whether rename is the login email or the display name, and whether Entra login / live-directory seed should overwrite an admin rename.

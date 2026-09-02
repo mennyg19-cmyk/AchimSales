@@ -2,6 +2,20 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Live login does not overwrite Users & access; export download re-checks scope
+
+**What to test:**
+- Beta `adopt_live_identity` does not replace an existing v3 display name, role, SalesGroup, or salesman-access from the Live cookie.
+- A demoted developer with a stale `_dev` cookie cannot open `/dev/role-picker` or `/api/admin/users`, and the DB role stays salesman.
+- After an unrestricted run/export, demoting the owner to a scoped salesman 403s download and hides the export from the list.
+- GET `/api/reports/diagnostics/claim-once` is 405; POST with CSRF reverts only a job this request claimed.
+
+**Expected behavior:**
+- Users & access is source of truth after the first v3 row exists. First Live login still creates the row and copies Live scope.
+- Developer-only tools and the role picker use the DB developer role, not the cookie.
+
+**Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
+
 ## Precious-repair mutating actions are POST-only; unknown user access is 404
 
 **What to test:**
@@ -908,15 +922,15 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## v3 master schedule split-email MVP
 
 **What to test:**
-- Admins and managers see company schedules on `/schedules`; salesmen see My schedules plus the shared Add wizard, never the company list.
-- Managers can create/share; they edit only rows they created or that run as them. Other shared rows are read-only with an admin note.
+- Admins and developers see company schedules on `/schedules`; salesmen see My schedules only.
+- Managers see the company list (`can_see_company_schedules`) but POST/PUT/DELETE master rows are privileged-only (`_require_admin`).
 - Private master rows stay off the company list and show under My schedules for the owner.
 - A manager-owned master run is scoped to that manager’s salesman keys. Unscoped (no owner/run-as, or privileged owner) stays unrestricted.
 - Master schedule params persist salesman delivery flags (`split_by_salesman`, `email_to_salesmen`, `email_salesman_keys`).
 - Master schedule delivery sends the full workbook to typed recipients/SharePoint and split salesman-filtered files to `salesmen.email`.
 
 **Expected behavior:**
-- `/master-schedules` redirects managers and admins to `/schedules#company`; salesmen get 403. API create/update stay company-viewer gated; salesmen still 403 on create.
+- `/master-schedules` redirects privileged users to `/schedules#company`; salesmen get 403. Create/update APIs are privileged; managers and salesmen 403 on create.
 - Salesman split emails use raw SalesGroup values for report params and normalized keys only for email lookup.
 
 **Edge cases:**
