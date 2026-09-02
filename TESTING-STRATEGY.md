@@ -2,20 +2,14 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
-## Excel grouped sheets are collapsible (expanded)
+## Excel grouped sheets have no outline groups
 
 **What to test:**
-- Nested groups (Salesman then customer): data rows outline 2, customer banner/total outline 1, salesman banner/total and Grand total outline 0.
-- One group: data outline 1, banner/total outline 0.
-- No row is hidden (`hidden` is false). `summaryBelow` is true.
-- `sheet_format.outlineLevelRow` matches group depth.
+- Grouped Excel sheets do not set `outlineLevelRow` or per-row `outline_level`.
+- Group banners and totals still write; only the +/- gutter is gone.
 
 **Expected behavior:**
-- Excel shows +/- in the gutter. Groups start expanded. Collapsing a customer hides its data; collapsing a salesman hides its customers.
-
-**Edge cases:**
-- Ungrouped sheets are unchanged (no outline).
-- Still write-only streaming — no full-workbook rewrite.
+- Excel does not show collapsible groups.
 
 **Test file:** `v3/tests/test_reporting.py`
 
@@ -25,7 +19,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Group subtotals and Grand total leave Net Price blank (unit price). Extended Price still sums.
 - Cached payloads without `sum: false` still skip the Net Price field by name.
 - Nested Excel banners: outermost group header is the darkest blue; inner is lighter; dark fills use white text.
-- Nested Excel totals: Grand total darkest grey, then outer group, then inner group.
+- Nested Excel totals: Grand total darkest grey, then outer group, then inner group. Inner (customer) grey is `#9CA3AF`, not a near-white wash.
 - Contrast of every header/footer shade against its chosen text is at least 4.5:1 (1–4 group levels).
 - Grid source does not `bottomCalc` Net Price and paints nested groups (`paintNestedGroups`).
 

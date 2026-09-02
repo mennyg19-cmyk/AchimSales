@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Drop Excel outline groups; darken innermost footer grey
+**What you asked for:** Roll back collapsible groups in Excel export. The lightest footer grey looks white and needs to be darker.
+**What I chose:** Stop stamping Excel `outline_level`. Footer greys step from the dark end (2-level customer totals use `#9CA3AF`, not `#E5E7EB`). Grid and Excel still share the same RGB.
+**Why:** The outline gutter was not wanted. Stretching a 2-level group across a 4-step palette jumped to a near-white grey.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Named Customer Activity views can be scheduled without a period
 **What you asked for:** Turn on scheduling for Customer Activity even without a period.
 **What I had to decide:** Whether empty params still count (no Yesterday/MTD/YTD), or only views with a named period.

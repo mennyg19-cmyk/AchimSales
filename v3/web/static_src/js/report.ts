@@ -255,8 +255,8 @@ const NEST_HEADER_SHADES: Rgb[] = [
 const NEST_FOOTER_SHADES: Rgb[] = [
   [107, 114, 128],
   [156, 163, 175],
-  [209, 213, 219],
-  [229, 231, 235],
+  [176, 182, 191],
+  [189, 196, 204],
 ];
 const NEST_GRAND: Rgb = [55, 65, 81];
 const NEST_TEXT_DARK = "#1E293B";
@@ -301,7 +301,10 @@ function nestHeaderColors(level: number, depth: number): { fill: string; text: s
 }
 
 function nestFooterColors(level: number, depth: number, grand: boolean): { fill: string; text: string } {
-  const rgb = grand ? NEST_GRAND : shadeAt(NEST_FOOTER_SHADES, level, depth);
+  let rgb: Rgb;
+  if (grand) rgb = NEST_GRAND;
+  else if (depth <= 1) rgb = NEST_FOOTER_SHADES[0];
+  else rgb = NEST_FOOTER_SHADES[Math.max(0, Math.min(level, NEST_FOOTER_SHADES.length - 1))];
   return { fill: rgbOf(rgb), text: contrastCss(rgb) };
 }
 

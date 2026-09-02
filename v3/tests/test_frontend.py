@@ -210,6 +210,8 @@ def test_report_viewer_meeting_ux():
     assert "function nestHeaderColors" in src
     assert "function nestFooterColors" in src
     assert "NEST_GRAND" in src
+    assert "[229, 231, 235]" not in src
+    assert "[156, 163, 175]" in src
     assert "paintNestedGroups(table)" in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".group-pill" in css
