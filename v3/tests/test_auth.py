@@ -586,3 +586,51 @@ def test_stale_dev_impersonation_cookie_cannot_keep_admin(tmp_path):
     assert repo.get_by_email("dev@x.com").role == "salesman"
     assert repo.get_by_email("boss@x.com").role == "admin"
 
+
+def test_live_developer_first_login_creates_v3_row(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "newdev@x.com", "name": "New Dev", "role": "developer",
+            "salesman_key": None, "_dev": True, "_dev_name": "New Dev",
+            "_dev_email": "newdev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    assert client.get("/").status_code == 200
+    row = repo.get_by_email("newdev@x.com")
+    assert row is not None and row.role == "developer"
+    with client.session_transaction() as s:
+        assert (s.get("user") or {}).get("email") == "newdev@x.com"
+        assert (s.get("v3_user") or {}).get("role") == "developer"
+
+
+def test_stale_impersonation_with_missing_actor_logs_out(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    repo.upsert("boss@x.com", role="admin", display_name="Boss")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "boss@x.com", "name": "Boss (as Ghost)", "role": "admin",
+            "salesman_key": None, "_dev": True, "_dev_name": "Ghost",
+            "_dev_email": "ghost-dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 302
+    assert "/login" in (r.headers.get("Location") or "")
+    with client.session_transaction() as s:
+        assert not s.get("user")
+        assert not s.get("v3_user")
+    assert repo.get_by_email("ghost-dev@x.com") is None
+

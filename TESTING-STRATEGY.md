@@ -8,6 +8,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Beta `adopt_live_identity` does not replace an existing v3 display name, role, SalesGroup, or salesman-access from the Live cookie.
 - A demoted developer with a stale `_dev` cookie cannot open `/dev/role-picker` or `/api/admin/users`, and the DB role stays salesman.
 - A leftover impersonation cookie (`email` = an admin, `_dev` + `_dev_email` of a demoted developer) cannot keep admin access; the session becomes the actor; self-promotion PUT is 403.
+- A Live developer cookie with no v3 row creates the developer (does not 302/logout). Impersonation whose `_dev_email` is missing from v3 still logs out.
 - After an unrestricted run/export, demoting the owner to a scoped salesman 403s download and hides the export from the list.
 - GET `/api/reports/diagnostics/claim-once` is 405; POST with CSRF reverts only a job this request claimed.
 
@@ -15,6 +16,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Users & access is source of truth after the first v3 row exists. First Live login still creates the row and copies Live scope.
 - Developer-only tools and the role picker use the DB developer role, not the cookie.
 - Leftover impersonation after demotion drops to the actor's DB identity (or logs out if the actor row is gone).
+- A developer's first Live login (`_dev` cookie, no v3 row yet) still creates the developer row and does not clear the shared Live session.
 
 **Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
 

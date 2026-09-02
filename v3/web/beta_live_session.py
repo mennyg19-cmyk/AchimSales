@@ -47,30 +47,32 @@ def adopt_live_identity():
     users = UserRepository(db)
     actor = users.get_by_email(dev_email) if dev_email else None
     still_dev = bool(actor and actor.is_active and actor.role == "developer")
+    is_dev = still_dev
+    impersonating = still_dev and bool(dev_email) and email != dev_email
     if cookie_dev and not still_dev:
-        # Leftover Live _dev cookie after demotion/disable: never keep the
-        # impersonated target's identity (they could be an admin).
-        if actor is None:
+        # Leftover impersonation after demotion/disable: never keep the
+        # target's identity. A developer's own first Live login has no v3
+        # row yet — that must still create, not log them out of Live.
+        own_cookie = (not dev_email) or (email == dev_email)
+        if actor is None and not own_cookie:
             from web.auth.session import logout
             session.pop(_LIVE_USER_KEY, None)
             logout()
             return None
-        email = actor.email
-        raw_name = actor.display_name or actor.email
-        display = raw_name
-        role = actor.role
-        live = {
-            "email": email,
-            "name": raw_name,
-            "role": role,
-            "salesman_key": None,
-        }
-        session[_LIVE_USER_KEY] = live
-        is_dev = False
-        impersonating = False
-    else:
-        is_dev = still_dev
-        impersonating = still_dev and bool(dev_email) and email != dev_email
+        if actor is not None:
+            email = actor.email
+            raw_name = actor.display_name or actor.email
+            display = raw_name
+            role = actor.role
+            live = {
+                "email": email,
+                "name": raw_name,
+                "role": role,
+                "salesman_key": None,
+            }
+            session[_LIVE_USER_KEY] = live
+            is_dev = False
+            impersonating = False
 
     user = users.get_by_email(email)
     if user is None:
