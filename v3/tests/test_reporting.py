@@ -383,8 +383,8 @@ def test_export_nested_groups_subtotals_each_level():
 
 
 def test_export_drops_salesman_group_when_file_is_one_rep():
-    """Daily Ordered groups By Customer by salesman then customer. A per-rep
-    file is already one salesman — customers must still sort A-Z."""
+    """Daily Ordered By Customer groups by salesman only. A per-rep file is
+    already one salesman — no salesman banner, and no customer group either."""
     openpyxl = pytest.importorskip("openpyxl")
     from web.reporting.export import build_workbook
     payload = {"tabs": [{
@@ -399,11 +399,17 @@ def test_export_drops_salesman_group_when_file_is_one_rep():
             {"Salesman": "Joe", "CustomerName": "Ann", "Amt": 1},
         ],
     }]}
-    layout = {"views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}
+    layout = {"views": {"by_customer": {
+        "group": ["Salesman"],
+        "sorters": [
+            {"column": "Salesman", "dir": "asc"},
+            {"column": "CustomerName", "dir": "asc"},
+        ],
+    }}}
     wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
     col_a = [c.value for c in wb["By Customer"]["A"]]
     assert "Salesman: Joe" not in col_a
-    assert col_a.index("CustomerName: Ann") < col_a.index("CustomerName: Zed")
+    assert not any(str(v).startswith("CustomerName:") for v in col_a)
 
 
 def test_export_salesman_summary_uses_builder_customer_sort():
@@ -551,6 +557,55 @@ def test_daily_ordered_layout_sorts_summary_customers_within_salesman():
     assert col_c[bos + 1] == "B-1"
     assert col_c[bos + 2] == "B-9"
     assert col_a.index("Customer Name: AMAZON") < col_a.index("Customer Name: ZEBRA")
+
+
+def test_daily_ordered_by_customer_salesman_only_by_order_ungrouped():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    from web.scheduling.company_layouts import DAILY_ORDERED_LAYOUT
+    payload = {"tabs": [
+        {
+            "key": "by_customer", "name": "By Customer",
+            "columns": [
+                {"field": "Salesman", "header": "Salesman", "type": "text"},
+                {"field": "CustomerName", "header": "CustomerName", "type": "text"},
+            ],
+            "rows": [
+                {"Salesman": "REdwards", "CustomerName": "ZEBRA"},
+                {"Salesman": "AGrossman", "CustomerName": "BOSCOV'S"},
+                {"Salesman": "REdwards", "CustomerName": "AMAZON"},
+                {"Salesman": "AGrossman", "CustomerName": "MACY'S"},
+            ],
+            "default_group": ["Salesman"],
+        },
+        {
+            "key": "by_order", "name": "By Order",
+            "columns": [
+                {"field": "Salesman", "header": "Salesman", "type": "text"},
+                {"field": "SalesOrderNumber", "header": "SalesOrderNumber", "type": "text"},
+            ],
+            "rows": [
+                {"Salesman": "REdwards", "SalesOrderNumber": "SO2"},
+                {"Salesman": "AGrossman", "SalesOrderNumber": "SO1"},
+            ],
+            "default_group": ["Salesman"],
+        },
+    ]}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, DAILY_ORDERED_LAYOUT)))
+    cust = [c.value for c in wb["By Customer"]["A"]]
+    names = [c.value for c in wb["By Customer"]["B"]]
+    assert cust.count("Salesman: AGrossman") == 1
+    assert cust.count("Salesman: REdwards") == 1
+    assert not any(str(v).startswith("CustomerName:") for v in cust)
+    ag = cust.index("Salesman: AGrossman")
+    assert names[ag + 1] == "BOSCOV'S"
+    assert names[ag + 2] == "MACY'S"
+    re = cust.index("Salesman: REdwards")
+    assert names[re + 1] == "AMAZON"
+    assert names[re + 2] == "ZEBRA"
+    orders = [c.value for c in wb["By Order"]["A"]]
+    assert not any(str(v).startswith("Salesman:") for v in orders)
+    assert "Grand total" not in orders
 
 
 def test_export_sorts_then_groups_without_customer_totals():

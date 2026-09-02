@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Daily Ordered By Customer is salesman-only; By Order is flat
+**What you asked for:** On the Ordered Daily Ordered view (PR 20), By Customer should not group by customer — only by salesman. By Order should not be grouped at all.
+**What I chose:** Canonical By Customer `group: ["Salesman"]` (still sort salesman then customer). By Order `group: []` so it does not pick up the builder’s salesman default_group. Summary stays salesman then customer.
+**Why:** By Customer is already one row per customer; a customer group banner is noise. By Order is a line list; salesman groups were coming from the builder default, not from an explicit view setting.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Company Ordered views do not store a period
 **What you asked for:** Daily Ordered should group by salesman then customer. Saving the view should not require picking a period; company schedules already run YTD / MTD / yesterday.
 **What I chose:** Daily Ordered canonical params are empty (no period). PUT and the Save this view button strip period / from / to. Edit does not auto-run when there is no period, and Save stays enabled so you can keep the layout without a preview. `yesterday` on old views maps to the dropdown's `daily` (Yesterday). Heshy Open Orders still seeds `period: yesterday` for a UI preview; a save still drops the window. Grouping is Salesman then Customer Name on Summary, Salesman then CustomerName on By Customer.

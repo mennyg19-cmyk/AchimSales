@@ -516,8 +516,8 @@ def _tab_groups_and_sorters(
     default_group when the view never set group at all.
 
     A salesman-split Ordered file has empty default_group (the sheet is already
-    one rep). Daily Ordered still groups By Customer by Salesman then
-    CustomerName — drop the redundant Salesman level so customers sort A-Z.
+    one rep). Daily Ordered groups By Customer by Salesman only — drop that
+    redundant Salesman level on a one-rep file.
     Summary's builder default_layout (Customer Name then Item) fills extra
     sorts when the view did not set sorters, including when default_group is
     already Salesman.

@@ -65,6 +65,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **What to test:**
 - Excel Summary with Daily Ordered layout: salesman banner, then customer banner, customers A-Z (then item) inside each.
+- By Customer: salesman banners only (no CustomerName banners); customers A-Z inside.
+- By Order: no group banners (`group: []` overrides builder default_group Salesman).
 - Customer-only sorters plus a Salesman group still emit consecutive salesman banners.
 - Heshy still groups by order number after a customer sort, with no customer totals.
 - Empty saved `group: []` still means ungroup (Number 4 Default).
@@ -72,7 +74,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `params_without_window` keeps salesman/status and drops period/from/to.
 
 **Expected behavior:**
-- Company Daily Ordered Summary and By Customer are salesman then customer groups, customers A-Z inside. Per-rep files still drop the extra Salesman group.
+- Company Daily Ordered Summary is salesman then customer. By Customer is salesman only. By Order is flat. Per-rep files still drop the extra Salesman group.
 - Company views do not store a date window; schedules own YTD / MTD / yesterday.
 
 **Edge cases:**
@@ -191,14 +193,14 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - `company_views` upsert rejects Default/Custom; GET presets includes `company` **when the user has `can_see_company_views`**.
 - Managers/admins PUT a company view **when they also have the see flag**; salesmen with the flag GET (`can_edit` false) and 403 on PUT.
 - Home page shows a Company views section with `?cview=` links **only for users with the flag**.
-- Boot stamps daily company Ordered schedules with Daily Ordered (salesman then customer). Salesman-split and already-named views are left alone. Heshy open-orders (Hkaufman + Open) gets Heshy Open Orders (Full Data only, hide LineNumber, sort customer then order, group by order).
+- Boot stamps daily company Ordered schedules with Daily Ordered (Summary salesman then customer, By Customer salesman only, By Order ungrouped). Salesman-split and already-named views are left alone. Heshy open-orders (Hkaufman + Open) gets Heshy Open Orders (Full Data only, hide LineNumber, sort customer then order, group by order).
 - Send with that view name uses the live company layout even if the schedule snapshot is stale.
 - Excel nested groups write banners/totals per level. Sort-then-group keeps customer clusters and does not add a customer total when the only group field is order number.
 - Ordered Full Data has CustomerName and ShipDate. Missing SP Ship Date stays blank and still builds.
 
 **Expected behavior:**
 - Saved views lists Default, then company views, then personal. Wizard has a Company views optgroup. Schedules View column shows the stamped names.
-- Daily Ordered emails group Summary and By Customer by salesman, then by customer (A-Z). The Daily Ordered view itself has no period. Heshy’s file is one Full Data sheet, customers together, totals per order, no LineNumber.
+- Daily Ordered emails group Summary by salesman then customer, By Customer by salesman only, and leave By Order ungrouped. The Daily Ordered view itself has no period. Heshy’s file is one Full Data sheet, customers together, totals per order, no LineNumber.
 
 **Edge cases:**
 - Layout `order` listing ShipDate when the column is absent does not fail (`apply_layout` skips unknown fields).

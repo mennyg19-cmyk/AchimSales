@@ -91,7 +91,8 @@ def test_seed_stamps_matching_schedules_and_skips_other_views(tmp_path):
     assert masters.get(daily_id).view_name == DAILY_ORDERED_VIEW
     assert masters.get(nine_id).view_name == DAILY_ORDERED_VIEW
     assert masters.get(daily_id).layout["views"]["by_customer"]["group"] == [
-        "Salesman", "CustomerName"]
+        "Salesman"]
+    assert masters.get(daily_id).layout["views"]["by_order"]["group"] == []
     assert masters.get(split_id).view_name == "Default"
     assert masters.get(hesny_id).view_name == HESHY_OPEN_VIEW
     assert masters.get(hesny_id).layout["order"] == ["full_data"]
