@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from report_engine.lib import salesman_key
 from web.auth.principal import ROLE_DEVELOPER
 from web.data.connection import Database
 
@@ -21,17 +22,19 @@ class User:
     sharepoint_access: bool
     test_access: bool
     can_see_company_views: bool
+    sales_group: str = ""
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "User":
         keys = set(r.keys())
         views = bool(r["can_see_company_views"]) if "can_see_company_views" in keys else False
+        sales_group = r["sales_group"] if "sales_group" in keys else ""
         return cls(
             id=r["id"], email=r["email"], display_name=r["display_name"], role=r["role"],
             is_active=bool(r["is_active"]), is_external=bool(r["is_external"]),
             dashboard_enabled=bool(r["dashboard_enabled"]),
             sharepoint_access=bool(r["sharepoint_access"]), test_access=bool(r["test_access"]),
-            can_see_company_views=views,
+            can_see_company_views=views, sales_group=sales_group or "",
         )
 
 
@@ -89,27 +92,34 @@ class UserRepository:
         return User.from_row(row) if row else None
 
     def create(self, email: str, *, role: str, display_name: str = "",
-               is_external: bool = False) -> User:
+               is_external: bool = False, sales_group: str = "") -> User:
         email = email.lower().strip()
         views_flag = 1 if role == ROLE_DEVELOPER else 0
+        sales_group = (sales_group or "").strip()
         with self.db.precious() as conn:
             conn.execute(
-                "INSERT INTO users(email, display_name, role, is_external, can_see_company_views)"
-                " VALUES (?, ?, ?, ?, ?)"
+                "INSERT INTO users(email, display_name, role, is_external,"
+                " can_see_company_views, sales_group)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT(email) DO UPDATE SET role=excluded.role,"
-                "   display_name=excluded.display_name, is_external=excluded.is_external",
-                (email, display_name, role, 1 if is_external else 0, views_flag),
+                "   display_name=excluded.display_name, is_external=excluded.is_external,"
+                "   sales_group=excluded.sales_group",
+                (email, display_name, role, 1 if is_external else 0, views_flag, sales_group),
             )
             row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         return User.from_row(row)
 
-    def update(self, user_id: int, *, role: str | None = None, **flags: bool) -> None:
-        """Update role and/or any boolean flags. Unknown flag names are ignored."""
+    def update(self, user_id: int, *, role: str | None = None,
+               sales_group: str | None = None, **flags: bool) -> None:
+        """Update role, SalesGroup, and/or any boolean flags. Unknown flag names are ignored."""
         sets: list[str] = []
         vals: list[object] = []
         if role is not None:
             sets.append("role = ?")
             vals.append(role)
+        if sales_group is not None:
+            sets.append("sales_group = ?")
+            vals.append(sales_group.strip())
         for name, value in flags.items():
             if name in self._FLAGS and value is not None:
                 sets.append(f"{name} = ?")
@@ -133,8 +143,13 @@ class UserRepository:
         return {r["salesman_key"] for r in rows}
 
     def set_salesman_access(self, user_id: int, keys: list[str]) -> None:
-        """Replace-all the user's per-salesman grants in one transaction."""
-        clean = sorted({k.strip() for k in keys if k and k.strip()})
+        """Replace-all the user's per-salesman grants in one transaction.
+
+        Keys are stored normalized (`salesman_key`) so `can_view_customer` can
+        membership-test the customer SalesGroup against this set.
+        """
+        clean = sorted({salesman_key(k) for k in keys if k and str(k).strip()})
+        clean = [k for k in clean if k]
         with self.db.precious() as conn:
             conn.execute("DELETE FROM user_salesman_access WHERE user_id = ?", (user_id,))
             conn.executemany(

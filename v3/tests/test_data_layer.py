@@ -50,7 +50,21 @@ def test_user_upsert_round_trip(db):
     u = repo.upsert("Test@Example.com ", display_name="Tester", role="admin")
     assert u.email == "test@example.com"
     assert u.role == "admin"
+    assert u.sales_group == ""
     assert repo.get_by_email("test@example.com").id == u.id
+
+
+def test_sales_group_and_access_without_salesmen_row(db):
+    repo = UserRepository(db)
+    u = repo.create("rep@x.com", role="salesman", sales_group="HKaufman")
+    assert u.sales_group == "HKaufman"
+    repo.set_salesman_access(u.id, ["HKaufman"])
+    assert repo.get_salesman_access(u.id) == {"hkaufman"}
+    with db.precious() as conn:
+        fks = conn.execute("PRAGMA foreign_key_list(user_salesman_access)").fetchall()
+    tables = {r["table"] for r in fks}
+    assert "users" in tables
+    assert "salesmen" not in tables
 
 
 def test_job_queue_lifecycle(db):

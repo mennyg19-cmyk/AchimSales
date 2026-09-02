@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-02 SalesGroup dropdown on the salesman login
+**What you asked for:** Do this slowly. SalesGroup should be a dropdown on the user that updates from the same list as report filters. Does that answer the problem?
+**What I had to decide:** Same URL vs same LookupService; whether managers lose checkboxes; whether to drop the salesmen FK this step.
+**Options I considered:** (1) Reuse `/api/reports/ordered/salesmen` (403 if Ordered is off). (2) Privileged `GET /api/admin/sales-groups` wrapping `LookupService.salesmen()`. (3) Fill the dropdown from the salesmen table (wrong key for the SP).
+**What I chose:** (2). Raw SalesGroup on `users.sales_group`; normalized key in `user_salesman_access`. Dropdown for salesman only; managers keep checkboxes. Drop the access-table FK to `salesmen` so a customer_master group can grant without stubbing a salesman row. Salesmen table stays (number, names, split-mail, commission).
+**Why:** A login is still not a D365 SalesGroup, but a 1:1 salesman login needs the same raw value the report filters send the SP. The report-keyed URL is the wrong gate for Users & access.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Personal schedule columns share one grid
 **What you asked for:** Avi / Heshy / Mendy tables on Personal schedules should line up (same column edges).
 **What I chose:** One table. Owner name is a full-width banner row. `table-layout: fixed` plus a colgroup so View/Recipients wrap instead of shoving Actions around.

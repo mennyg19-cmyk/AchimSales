@@ -94,6 +94,7 @@ def migrate(db: Database) -> dict[str, list[str]]:
     """Apply both databases' migrations. Returns {db_name: [applied versions]}."""
     precious = apply_migrations(db.precious_path, _MIGRATIONS_ROOT / "precious")
     _ensure_users_company_views_column(db.precious_path)
+    _ensure_users_sales_group_column(db.precious_path)
     from web.scheduling.personal_views import convert_personal_schedules
 
     convert_personal_schedules(db)
@@ -128,6 +129,33 @@ def _ensure_users_company_views_column(path: Path) -> None:
         except sqlite3.OperationalError as exc:
             conn.rollback()
             # Parallel gunicorn workers can both see a missing column and ALTER.
+            if "duplicate column name" not in str(exc).lower():
+                raise
+    finally:
+        conn.close()
+
+
+def _ensure_users_sales_group_column(path: Path) -> None:
+    """Add sales_group if 0017 was skipped or the column was lost."""
+    conn = _connect(path)
+    try:
+        tables = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "users" not in tables:
+            return
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+        if "sales_group" in cols:
+            return
+        try:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN sales_group TEXT NOT NULL DEFAULT ''"
+            )
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            conn.rollback()
             if "duplicate column name" not in str(exc).lower():
                 raise
     finally:
