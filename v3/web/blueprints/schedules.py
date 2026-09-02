@@ -14,6 +14,7 @@ from web.auth.decorators import require_login
 from web.auth.principal import ROLE_MANAGER
 from web.auth.session import current_principal
 from web.delivery.email import split_recipients
+from web.delivery.filename_template import DEFAULT_FILENAME_TEMPLATE
 from web.data.repositories.report_defaults import (
     normalize_view_name,
     view_and_layout_for_create,
@@ -112,6 +113,10 @@ def _parse_cadence(body: dict) -> dict:
         return C.normalize(body.get("cadence"))
     except ValueError as exc:
         abort(400, description=str(exc))
+
+
+def _filename_template_for_create(body: dict) -> str:
+    return (body.get("filename_template") or "").strip() or DEFAULT_FILENAME_TEMPLATE
 
 
 def _check_sharepoint(p, body: dict) -> str:
@@ -468,7 +473,7 @@ def create_schedule():
         layout=preset.layout or {}, cadence=cadence,
         recipients=recipients, sharepoint_path=folder,
         start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
-        filename_template=(body.get("filename_template") or "").strip(),
+        filename_template=_filename_template_for_create(body),
         view_name=preset.name,
     )
     created = _repo().get(sid, owner.id)
@@ -975,7 +980,7 @@ def create_master():
     mid = _master().create(
         report_key, name, params=params, layout=layout,
         cadence=cadence, recipients=recipients, sharepoint_path=sp,
-        filename_template=(body.get("filename_template") or "").strip(),
+        filename_template=_filename_template_for_create(body),
         owner_user_id=_uid(p.email),
         is_shared=_parse_is_shared(body),
         run_as_user_id=_parse_run_as(p, body),

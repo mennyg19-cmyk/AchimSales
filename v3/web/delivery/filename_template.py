@@ -37,9 +37,9 @@ _TOKEN_RE = re.compile(r"\{[A-Za-z]+\}")
 # Folder segments keep spaces ("August 2026"). Strip Graph-illegal chars only.
 _FOLDER_BAD = re.compile(r'[\\:*?"<>|#%]')
 
-# Blank templates used to be "{Report}_{YYYY}{MM}{DD}", so Daily 9am and
-# DailyOrderReport both arrived as Ordered_20260817.xlsx.
-DEFAULT_FILENAME_TEMPLATE = "{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}"
+# Blank / new-schedule default. Existing rows that stored a custom template
+# keep that string.
+DEFAULT_FILENAME_TEMPLATE = "{Schedule}_{MM}-{DD}-{YYYY}"
 
 
 def token_values(

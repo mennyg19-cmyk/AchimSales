@@ -584,13 +584,14 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Schedule workbook filenames
 
 **What to test:**
-- Blank `filename_template` uses the schedule name plus Eastern date and time, not just the report type.
-- Two company schedules on the same report get different filenames.
+- Blank `filename_template` uses `{Schedule}_{MM}-{DD}-{YYYY}` (Eastern date, no clock time).
+- New personal and company schedules store that default when the client omits a template.
+- Two company schedules on the same report still get different filenames when their names differ.
 - Missing schedule name falls back to the report title slug.
+- Existing rows that already stored a custom template are unchanged.
 
 **Expected behavior:**
-- `Daily 9am` and `DailyOrderReport` no longer both become `Ordered_YYYYMMDD.xlsx`.
-- Custom templates still expand tokens as written.
+- `Daily 9am` → `Daily_9am_08-17-2026.xlsx`. Custom templates still expand tokens as written.
 
 **Test file:** `v3/tests/test_filename_template.py`
 

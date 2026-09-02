@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 New schedule filename default is MM-DD-YYYY
+**What you asked for:** Filename template on all new schedules should default to `{Schedule}_{MM}-{DD}-{YYYY}`.
+**What I chose:** That is now `DEFAULT_FILENAME_TEMPLATE` (forms, blank resolve, and create-if-omitted). Existing stored templates are not rewritten. Same-day reruns of the same schedule can overwrite the previous file because the clock time is gone.
+**Why:** You asked for that pattern. Time in the old default (`_{HH}{mm}`) is what you dropped.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Personal schedules get CC and BCC
 **What you asked for:** When editing a salesman’s schedule, extra To addresses already exist. Add CC and BCC. The salesman himself still emails only himself.
 **What I had to decide:** Whether CC/BCC belong only on the personal wizard, or also on More → Schedule from a report.

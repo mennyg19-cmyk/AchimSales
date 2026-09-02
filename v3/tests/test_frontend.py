@@ -238,6 +238,22 @@ def test_report_viewer_meeting_ux():
     assert "<th>View</th>" in company
 
 
+def test_new_schedules_default_filename_template():
+    default = "{Schedule}_{MM}-{DD}-{YYYY}"
+    preview = (_SRC / "js" / "filename_preview.ts").read_text(encoding="utf-8")
+    assert f'DEFAULT_FILENAME_TEMPLATE = "{default}"' in preview
+    py = (_V3 / "web" / "delivery" / "filename_template.py").read_text(encoding="utf-8")
+    assert f'DEFAULT_FILENAME_TEMPLATE = "{default}"' in py
+    for rel in (
+        "templates/personal_schedule_wizard.html",
+        "templates/master_schedules.html",
+        "templates/report_view.html",
+    ):
+        html = (_V3 / "web" / rel).read_text(encoding="utf-8")
+        assert default in html
+        assert "{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}" not in html
+
+
 def test_personal_and_report_schedule_have_cc_bcc_fields():
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
     assert 'id="psCc"' in personal

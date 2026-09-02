@@ -223,6 +223,12 @@ function resetPrivilegedMail(): void {
   setText("psBcc", "");
 }
 
+function resetNewScheduleDefaults(): void {
+  resetPrivilegedMail();
+  setText("psFilename", DEFAULT_FILENAME_TEMPLATE);
+  updateFilenamePreview();
+}
+
 function xorFolders(changed: "od" | "sp"): void {
   if (changed === "od" && destOn("psWantOnedrive")) {
     const sp = document.getElementById("psWantSharepoint") as HTMLInputElement | null;
@@ -254,7 +260,7 @@ function closeWizard(): void {
   const title = document.getElementById("psFormTitle");
   if (title) title.textContent = "Add a schedule";
   lockedView = null;
-  resetPrivilegedMail();
+  resetNewScheduleDefaults();
   msg("", false);
   showStep(1);
 }
@@ -437,7 +443,7 @@ export function bindPersonalWizard(): void {
     const title = document.getElementById("psFormTitle");
     if (title) title.textContent = "Add a schedule";
     lockedView = null;
-    resetPrivilegedMail();
+    resetNewScheduleDefaults();
     void loadViews("").then(() => {
       openWizard();
       showStep(1);

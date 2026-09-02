@@ -27,7 +27,7 @@ export function stripReportsHome(path: string): string {
 }
 
 /** Keep in sync with web.delivery.filename_template.DEFAULT_FILENAME_TEMPLATE. */
-export const DEFAULT_FILENAME_TEMPLATE = "{Schedule}_{YYYY}-{MM}-{DD}_{HH}{mm}";
+export const DEFAULT_FILENAME_TEMPLATE = "{Schedule}_{MM}-{DD}-{YYYY}";
 
 export function previewFilename(
   template: string,

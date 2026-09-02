@@ -1318,6 +1318,8 @@ def test_admin_schedule_from_other_user_view_mails_owner(tmp_path):
     html = admin.get("/schedules").get_data(as_text=True)
     assert "John last month" in html
     assert "john@x.com" in html
+    from web.delivery.filename_template import DEFAULT_FILENAME_TEMPLATE
+    assert row.filename_template == DEFAULT_FILENAME_TEMPLATE
 
 
 def test_salesman_cannot_add_extra_schedule_emails(tmp_path):
@@ -1439,6 +1441,8 @@ def test_master_schedule_admin_only(tmp_path):
     assert saved.params["status"] == ["Open order", "Delivered"]
     assert saved.params["email_to_salesmen"] is True
     assert saved.params["split_by_salesman"] is False
+    from web.delivery.filename_template import DEFAULT_FILENAME_TEMPLATE
+    assert saved.filename_template == DEFAULT_FILENAME_TEMPLATE
 
     hist = admin.get(f"/master-schedules/{mid}/history")
     assert hist.status_code == 200

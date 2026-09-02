@@ -3099,7 +3099,7 @@ function openScheduleModal(): void {
   if (noRec) noRec.checked = false;
   if (noMe) noMe.checked = false;
   const fn = $("schedFilename") as HTMLInputElement | null;
-  if (fn && !fn.value) fn.value = DEFAULT_FILENAME_TEMPLATE;
+  if (fn) fn.value = DEFAULT_FILENAME_TEMPLATE;
   updateSchedFilenamePreview();
   schedMsg("", false);
   syncCadenceFields();
