@@ -12,6 +12,7 @@
   <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
   <h1 class="page-title">Users &amp; access</h1>
   <p class="page-subtitle">{{ users|length }} users. Roles and per-salesman scope are enforced live from the database.</p>
+  <p class="form-hint">This list is logins: who can sign in, plus their saved views and personal schedules. The Salesmen table below is the D365 salesman master (number, name, split-mail). Report salesman dropdowns are the SalesGroup values on customers, not this login list. A new hire with no customers yet will not appear there.</p>
 </div>
 
 <details class="settings-card">
@@ -51,7 +52,16 @@
           {% if u.can_see_company_views %}<span class="mini-flag">Company views</span>{% endif %}
           {% if u.is_external %}<span class="mini-flag">External</span>{% endif %}
         </td>
-        <td class="cell-actions"><button type="button" class="btn btn-outline btn-sm btn-edit-user">Edit</button></td>
+        <td class="cell-actions">
+          {% if user and u.email != user.email and ((is_beta and user._dev) or not is_beta) %}
+          <form method="post" class="view-as-form" action="{% if is_beta %}{{ url_for('auth.role_picker') }}{% else %}{{ url_for('auth.impersonate_start') }}{% endif %}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="{% if is_beta %}target_email{% else %}email{% endif %}" value="{{ u.email }}">
+            <button type="submit" class="btn btn-outline btn-sm">View as</button>
+          </form>
+          {% endif %}
+          <button type="button" class="btn btn-outline btn-sm btn-edit-user">Edit</button>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -60,8 +70,9 @@
 
 <section class="settings-card">
   <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
+  <p class="form-hint">D365 salesman master. Active is for per-salesman access checkboxes and name labels. Report filter dropdowns still come from customer SalesGroup in D365, so adding a login does not put someone on those lists.</p>
   <table class="simple-table" id="salesmanTable">
-    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Active in dropdowns</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Active</th><th></th></tr></thead>
     <tbody>
       {% for s in salesmen %}
       <tr data-key="{{ s.key }}" data-number="{{ s.number }}" data-full="{{ s.full_name }}" data-display="{{ s.display_name }}" data-email="{{ s.email }}">

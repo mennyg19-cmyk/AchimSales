@@ -111,6 +111,16 @@
 <div class="report-layout-toolbar" id="layoutToolbar">
     <button type="button" id="columnsBtn" class="btn btn-outline" disabled><i data-feather="columns"></i> <span>Columns</span></button>
     <button type="button" id="resetBtn" class="btn btn-outline" disabled title="Restore the default column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
+    {% if is_privileged %}
+    <label class="view-owner-field" for="viewOwner">Save for
+        <select id="viewOwner">
+            <option value="">Me</option>
+            {% for u in save_for_users|default([]) %}
+            <option value="{{ u.user_id }}">{{ u.name }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {% endif %}
     <button type="button" id="saveViewBtn" class="btn btn-outline" disabled title="Save these filters + layout as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
     <button type="button" id="presetsBtn" class="btn btn-outline" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
     <div class="toolbar-menu" id="moreMenuWrap">

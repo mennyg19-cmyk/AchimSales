@@ -266,6 +266,28 @@ def test_admin_user_crud_and_scope(tmp_path):
     assert deleted.status_code == 200
 
 
+def test_create_user_links_matching_salesman_email(tmp_path):
+    app = _make_app(tmp_path)
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+    SalesmanRepository(app.config["DB"]).upsert_many([
+        SalesmanSeed(raw_key="HGoldberg", number="9", full_name="H Goldberg",
+                     display_name="H Goldberg", email="heshy@x.com"),
+    ])
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/admin/users", json={
+        "email": "heshy@x.com", "role": "salesman", "display_name": "Heshy",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    uid = created.get_json()["id"]
+    keys = client.get(f"/api/admin/users/{uid}/salesman-access").get_json()["keys"]
+    assert keys == ["hgoldberg"]
+    html = client.get("/admin/users").get_data(as_text=True)
+    assert "View as" in html
+    assert "D365 salesman master" in html
+    assert "heshy@x.com" in html
+
+
 def test_admin_report_access_tristate(tmp_path):
     """The per-report override API is tri-state: inherit (clears the row), allow,
     deny. GET returns only the explicit overrides; inherit keys are absent."""
@@ -792,10 +814,94 @@ def test_preset_is_owner_scoped(tmp_path):
                      json={"name": "mine", "params": {}, "layout": {}},
                      headers={"X-CSRF-Token": _CSRF}).get_json()["id"]
     other = app.test_client()
-    _login(other, app, email="other@x.com", role="admin")
+    _login(other, app, email="other@x.com", role="salesman")
     assert other.get(f"/api/reports/presets/{pid}").status_code == 404
     assert other.delete(f"/api/reports/presets/{pid}",
                         headers={"X-CSRF-Token": _CSRF}).status_code == 404
+
+
+def test_admin_can_save_preset_for_another_user(tmp_path):
+    app = _make_app(tmp_path)
+    db = app.config["DB"]
+    john = UserRepository(db).upsert("john@x.com", display_name="John", role="salesman")
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/reports/ordered/presets", json={
+        "name": "John daily", "params": {"period": "yesterday"}, "layout": {},
+        "owner_user_id": john.id,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    body = created.get_json()
+    assert body["owner_user_id"] == john.id
+    pid = body["id"]
+    listed = admin.get("/api/reports/ordered/presets").get_json()
+    assert listed["presets"] == []
+    others = listed["others"]
+    assert len(others) == 1
+    assert others[0]["email"] == "john@x.com"
+    assert others[0]["presets"][0]["name"] == "John daily"
+    assert others[0]["presets"][0]["owner_user_id"] == john.id
+    assert admin.get(f"/api/reports/presets/{pid}").status_code == 200
+    patched = admin.patch(
+        f"/api/reports/presets/{pid}",
+        json={"name": "John yesterday"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert patched.status_code == 200
+    assert patched.get_json()["owner_user_id"] == john.id
+    rep = app.test_client()
+    _login(rep, app, email="john@x.com", role="salesman")
+    mine = rep.get("/api/reports/ordered/presets").get_json()
+    assert [p["name"] for p in mine["presets"]] == ["John yesterday"]
+    assert "others" not in mine
+    assert admin.delete(f"/api/reports/presets/{pid}",
+                        headers={"X-CSRF-Token": _CSRF}).status_code == 200
+    assert rep.get(f"/api/reports/presets/{pid}").status_code == 404
+
+
+def test_salesman_owner_user_id_is_ignored(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    admin_id = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    created = rep.post("/api/reports/ordered/presets", json={
+        "name": "sneaky", "params": {}, "layout": {}, "owner_user_id": admin_id,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    rep_id = UserRepository(app.config["DB"]).get_by_email("rep@x.com").id
+    assert created.get_json()["owner_user_id"] == rep_id
+    listed = admin.get("/api/reports/ordered/presets").get_json()
+    assert listed["presets"] == []
+    names = [p["name"] for g in listed["others"] for p in g["presets"]]
+    assert names == ["sneaky"]
+
+
+def test_admin_report_page_has_save_for_dropdown(tmp_path):
+    app = _make_app(tmp_path)
+    UserRepository(app.config["DB"]).upsert("john@x.com", display_name="John", role="salesman")
+    admin = app.test_client()
+    _login(admin, app)
+    html = admin.get("/reports/ordered").get_data(as_text=True)
+    assert 'id="viewOwner"' in html
+    assert "John" in html
+    rep = app.test_client()
+    _login(rep, app, email="john@x.com", role="salesman")
+    assert 'id="viewOwner"' not in rep.get("/reports/ordered").get_data(as_text=True)
+
+
+def test_admin_cannot_save_preset_for_inactive_user(tmp_path):
+    app = _make_app(tmp_path)
+    db = app.config["DB"]
+    john = UserRepository(db).upsert("john@x.com", display_name="John", role="salesman")
+    UserRepository(db).update(john.id, is_active=False)
+    admin = app.test_client()
+    _login(admin, app)
+    created = admin.post("/api/reports/ordered/presets", json={
+        "name": "nope", "params": {}, "layout": {}, "owner_user_id": john.id,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 400
 
 
 def test_preset_requires_name(tmp_path):

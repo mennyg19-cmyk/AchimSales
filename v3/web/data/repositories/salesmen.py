@@ -94,6 +94,16 @@ class SalesmanRepository:
             cur = conn.execute(f"UPDATE salesmen SET {', '.join(sets)} WHERE key = ?", vals)
             return cur.rowcount > 0
 
+    def keys_for_email(self, email: str) -> list[str]:
+        """Active salesman keys whose split-mail address matches this login."""
+        want = (email or "").strip().lower()
+        if not want:
+            return []
+        return [
+            s.key for s in self.list_all()
+            if s.is_active and (s.email or "").strip().lower() == want
+        ]
+
     def get_email(self, key: str) -> str:
         """Email for a raw or normalized SalesGroup key."""
         norm = salesman_key(key)

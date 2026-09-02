@@ -2,6 +2,26 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Admins save views for other users; Switch user lists v3 logins
+
+**What to test:**
+- Privileged POST `/api/reports/<key>/presets` with `owner_user_id` stores the view on that user. GET presets lists it under `others`, not `presets`. Admin GET/PATCH/DELETE of that id works. The owner sees it in `presets`.
+- Salesman POST with `owner_user_id` still saves as self.
+- Salesman GET/DELETE of someone else's preset is still 404.
+- Role picker merges Live directory with v3 Users & access so a login added only in v3 appears.
+- Creating a salesman/manager whose email matches an active `salesmen.email` auto-grants that salesman key.
+- Report toolbar has `#viewOwner` for privileged users; Saved views source has `others` folds and `syncViewOwner`.
+
+**Expected behavior:**
+- Admins do not need to Switch user to plant a named view. Schedules from that view still belong to the owner (existing schedule test).
+- Report salesman dropdowns stay on customer SalesGroup, not the users table.
+
+**Edge cases:**
+- Inactive owner_user_id → 400.
+- Empty salesman-access is left alone when re-adding a user who already has keys.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_auth.py`, `v3/tests/test_frontend.py`
+
 ## Excel grouped sheets have no outline groups
 
 **What to test:**

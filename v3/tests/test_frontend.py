@@ -184,6 +184,11 @@ def test_report_viewer_meeting_ux():
     assert "function appendPresetFold" in src
     fold = src.split("function appendPresetFold", 1)[1].split("async function togglePresetsPanel", 1)[0]
     assert "wrap.open" not in fold
+    assert "function syncViewOwner" in src
+    assert "owner_user_id" in src
+    assert " — views" in src
+    assert "data?.others" in src
+    assert "for ${ownerLabel}." in src
     assert "autoRunRequested = periodIsRunnable(view?.params)" in src
     assert "params: collectCompanyViewParams()" in src
     assert "Apply this view’s filters (does not run the report)" not in src
@@ -265,6 +270,8 @@ def test_personal_and_report_schedule_have_cc_bcc_fields():
     report_html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="schedCc"' in report_html
     assert 'id="schedBcc"' in report_html
+    assert 'id="viewOwner"' in report_html
+    assert "Save for" in report_html
     report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
     assert "body.email_cc" in report_js
     assert "body.email_bcc" in report_js
@@ -287,6 +294,8 @@ def test_admin_users_has_company_views_flag():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euCompanyViews"' in html
     assert "data-company-views" in html
+    assert "View as" in html
+    assert "D365 salesman master" in html
     src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
     assert "can_see_company_views: checked(\"euCompanyViews\")" in src
     assert 'role === "developer"' in src

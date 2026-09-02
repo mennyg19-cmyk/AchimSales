@@ -120,29 +120,51 @@ def logout_route():
     return redirect(url_for("auth.login_page"))
 
 
+def merge_picker_users(live_rows: list[dict] | None, v3_users: list[User]) -> list[dict]:
+    """Live directory plus anyone added under Users & access."""
+    by_email: dict[str, dict] = {}
+    for row in live_rows or []:
+        email = str(row.get("email") or "").strip().lower()
+        if not email or "@" not in email:
+            continue
+        by_email[email] = {
+            "email": email,
+            "display_name": row.get("display_name") or row.get("name") or email,
+            "role": str(row.get("role") or "salesman").strip().lower(),
+            "salesman_key": row.get("salesman_key") or "",
+        }
+    for user in v3_users:
+        email = (user.email or "").strip().lower()
+        if not email:
+            continue
+        existing = by_email.get(email)
+        if existing is None:
+            by_email[email] = {
+                "email": email,
+                "display_name": user.display_name or email,
+                "role": user.role,
+                "salesman_key": "",
+            }
+            continue
+        if user.display_name:
+            existing["display_name"] = user.display_name
+        existing["role"] = user.role
+    return list(by_email.values())
+
+
 def _role_picker_users() -> list[dict]:
-    """People list for the picker — Live directory first, Beta DB if that fails."""
-    rows = None
+    """People list for the picker: Live directory merged with v3 Users & access."""
+    live_rows = None
     try:
         from webapp.db import get_all_users
 
-        rows = get_all_users()
+        live_rows = get_all_users()
     except ImportError:
-        rows = None
+        live_rows = None
     except Exception:  # noqa: BLE001 - picker still works from Beta's own users table
         current_app.logger.exception("role picker: could not read Live users")
-        rows = None
-    if rows:
-        return rows
-    return [
-        {
-            "email": u.email,
-            "display_name": u.display_name,
-            "role": u.role,
-            "salesman_key": "",
-        }
-        for u in UserRepository(_db()).all_users(include_inactive=True)
-    ]
+        live_rows = None
+    return merge_picker_users(live_rows, UserRepository(_db()).all_users(include_inactive=True))
 
 
 def _group_users(rows: list[dict]) -> dict[str, list]:

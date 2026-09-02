@@ -234,9 +234,11 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         if p is not None:
             user = {
                 "name": p.name,
+                "email": p.email,
                 "role": p.role,
                 "_dev": p.is_dev,
                 "_dev_name": p.real_name or (p.name.split(" (as ")[0] if " (as " in p.name else p.name),
+                "impersonating": p.impersonating,
             }
             try:
                 flag_map = flags.all()

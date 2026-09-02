@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-02 Admins save views for other users without logging in as them
+**What you asked for:** Set up views and schedules for other people without switching into their login. A new salesman user was missing from Switch user and from salesman dropdowns. What is the salesmen table for, and why isn't users enough?
+**What I had to decide:** Whether to merge `users` and `salesmen`, whether login emails should appear in report salesman dropdowns, and where "save for someone else" lives.
+**Options I considered:** (1) Impersonation-only, which is what you called a waste of time. (2) One table for logins and D365 SalesGroup. (3) Keep both tables; let admins save a named view onto another user; Switch user lists v3 logins even when Live's directory is stale.
+**What I chose:** (3). Privileged Save for dropdown on the report toolbar, Saved views folds per owner, View as on Users & access. Switch user / role picker merges Live + v3 users. Creating a salesman/manager whose email matches an active salesman row auto-checks that salesman for access. Report salesman dropdowns stay on customer SalesGroup from D365, not the users table.
+**Why:** A login is not a D365 SalesGroup. Views and schedules hang off users. Dropdown filter values hang off customers. Mixing those would send the wrong key to the stored procedure. Impersonation remains for "see exactly what they see."
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 New schedule filename default is MM-DD-YYYY
 **What you asked for:** Filename template on all new schedules should default to `{Schedule}_{MM}-{DD}-{YYYY}`.
 **What I chose:** That is now `DEFAULT_FILENAME_TEMPLATE` (forms, blank resolve, and create-if-omitted). Existing stored templates are not rewritten. Same-day reruns of the same schedule can overwrite the previous file because the clock time is gone.

@@ -1,9 +1,9 @@
 """Saved-report (preset) repository (precious.db `saved_reports` table).
 
 A preset is a named, per-user shortcut that captures a report's filter params +
-grid layout so the owner can re-open "My March Ordered view" in one click. All
-reads/writes are owner-scoped (user_id) so one user can never see or mutate
-another's presets.
+grid layout so the owner can re-open "My March Ordered view" in one click.
+Reads/writes take a user_id. Salesmen only touch their own rows; admins may use
+get_any / list_all to set up someone else's views.
 """
 
 from __future__ import annotations

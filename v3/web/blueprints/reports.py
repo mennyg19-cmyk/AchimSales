@@ -51,7 +51,7 @@ from web.data.repositories.report_defaults import (
     ReportDefaultRepository,
 )
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
-from web.data.repositories.users import UserRepository
+from web.data.repositories.users import User, UserRepository
 from web.delivery.email import split_recipients
 from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
@@ -150,9 +150,13 @@ def _company_view_dict(v: CompanyView, p) -> dict:
     }
 
 
-def _preset_dict(s: SavedReport) -> dict:
-    return {"id": s.id, "report_key": s.report_key, "name": s.name,
-            "params": s.params, "layout": s.layout, "created_at": s.created_at}
+def _preset_dict(s: SavedReport, owner: User | None = None) -> dict:
+    out = {"id": s.id, "report_key": s.report_key, "name": s.name,
+           "params": s.params, "layout": s.layout, "created_at": s.created_at,
+           "owner_user_id": s.user_id}
+    if owner is not None:
+        out["owner_name"] = owner.display_name or owner.email
+    return out
 
 
 def _default_dict(report_key: str, p, row: ReportDefault | None) -> dict:
@@ -177,6 +181,52 @@ def _principal_or_401():
 def _user_id(email: str) -> int | None:
     row = UserRepository(current_app.config["DB"]).get_by_email(email)
     return row.id if row else None
+
+
+def _users_repo() -> UserRepository:
+    return UserRepository(current_app.config["DB"])
+
+
+def _preset_for_caller(preset_id: int, p) -> SavedReport:
+    """Owner's preset, or any preset when the caller is an admin/developer."""
+    uid = _user_id(p.email)
+    if uid is None:
+        abort(403, description="Unknown user")
+    row = _saved_repo().get(preset_id, uid)
+    if row is None and _authz().is_privileged(p):
+        row = _saved_repo().get_any(preset_id)
+    if row is None or not _authz().can_view_report(p, row.report_key):
+        abort(404, description="Unknown preset")
+    return row
+
+
+def _owner_id_for_new_preset(body: dict, p, *, default_uid: int) -> int:
+    raw = body.get("owner_user_id")
+    if raw in (None, "", 0, "0"):
+        return default_uid
+    if not _authz().is_privileged(p):
+        return default_uid
+    try:
+        want = int(raw)
+    except (TypeError, ValueError):
+        abort(400, description="owner_user_id must be a user id")
+    owner = _users_repo().get_by_id(want)
+    if owner is None or not owner.is_active:
+        abort(400, description="Unknown user")
+    return owner.id
+
+
+def _save_for_users(p) -> list[dict]:
+    if not _authz().is_privileged(p):
+        return []
+    me = (p.email or "").strip().lower()
+    out = []
+    for u in _users_repo().all_users():
+        if (u.email or "").strip().lower() == me:
+            continue
+        out.append({"user_id": u.id, "name": u.display_name or u.email, "email": u.email})
+    out.sort(key=lambda r: r["name"].lower())
+    return out
 
 
 def _built_spec_or_404(report_key: str):
@@ -303,6 +353,7 @@ def report_view(report_key: str):
         is_privileged=authz.is_privileged(p),
         user_email=p.email,
         user_name=p.name or p.email,
+        save_for_users=_save_for_users(p),
         has_sharepoint=authz.is_privileged(p) and authz.has_sharepoint_access(p),
         hide_commissions=not authz.may_see_commissions(p),
         can_edit_default=authz.can_see_company_schedules(p),
@@ -1312,18 +1363,40 @@ def report_presets(report_key: str):
     uid = _user_id(p.email)
     if uid is None:
         abort(403, description="Unknown user")
-    items = [_preset_dict(s) for s in _saved_repo().list_for_user(uid)
-             if s.report_key == report_key]
     authz = _authz()
     company = (
         [_company_view_dict(v, p) for v in _company_views_repo().list_for_report(report_key)]
         if authz.can_see_company_views(p) else []
     )
-    return jsonify({
+    mine = [s for s in _saved_repo().list_for_user(uid) if s.report_key == report_key]
+    payload: dict = {
         "default": _default_dict(report_key, p, _defaults_repo().get(report_key)),
         "company": company,
-        "presets": items,
-    })
+        "presets": [_preset_dict(s) for s in mine],
+    }
+    if authz.is_privileged(p):
+        users = {u.id: u for u in _users_repo().all_users()}
+        grouped: dict[int, dict] = {}
+        order: list[int] = []
+        for row in _saved_repo().list_all():
+            if row.report_key != report_key or row.user_id == uid:
+                continue
+            owner = users.get(row.user_id)
+            if owner is None:
+                continue
+            if owner.id not in grouped:
+                grouped[owner.id] = {
+                    "user_id": owner.id,
+                    "name": owner.display_name or owner.email,
+                    "email": owner.email,
+                    "presets": [],
+                }
+                order.append(owner.id)
+            grouped[owner.id]["presets"].append(_preset_dict(row, owner))
+        others = [grouped[i] for i in order if grouped[i]["presets"]]
+        others.sort(key=lambda g: g["name"].lower())
+        payload["others"] = others
+    return jsonify(payload)
 
 
 @reports_bp.post("/api/reports/<report_key>/presets")
@@ -1341,34 +1414,26 @@ def create_preset(report_key: str):
         abort(400, description="A preset name is required")
     if name.lower() == "default":
         abort(400, description="Default is the company view. Edit it from Saved views.")
-    pid = _saved_repo().create(uid, report_key, name,
+    owner_id = _owner_id_for_new_preset(body, p, default_uid=uid)
+    pid = _saved_repo().create(owner_id, report_key, name,
                                body.get("params") or {}, body.get("layout") or {})
-    return jsonify({"id": pid, "name": name}), 201
+    return jsonify({"id": pid, "name": name, "owner_user_id": owner_id}), 201
 
 
 @reports_bp.get("/api/reports/presets/<int:preset_id>")
 @require_login
 def get_preset(preset_id: int):
     p = _principal_or_401()
-    uid = _user_id(p.email)
-    if uid is None:
-        abort(403, description="Unknown user")
-    s = _saved_repo().get(preset_id, uid)
-    if s is None or not _authz().can_view_report(p, s.report_key):
-        abort(404, description="Unknown preset")
-    return jsonify(_preset_dict(s))
+    s = _preset_for_caller(preset_id, p)
+    owner = _users_repo().get_by_id(s.user_id)
+    return jsonify(_preset_dict(s, owner))
 
 
 @reports_bp.patch("/api/reports/presets/<int:preset_id>")
 @require_login
 def update_preset(preset_id: int):
     p = _principal_or_401()
-    uid = _user_id(p.email)
-    if uid is None:
-        abort(403, description="Unknown user")
-    existing = _saved_repo().get(preset_id, uid)
-    if existing is None or not _authz().can_view_report(p, existing.report_key):
-        abort(404, description="Unknown preset")
+    existing = _preset_for_caller(preset_id, p)
     body = request.get_json(silent=True) or {}
     name = body.get("name")
     if name is not None and not str(name).strip():
@@ -1376,25 +1441,24 @@ def update_preset(preset_id: int):
     if name is not None and str(name).strip().lower() == "default":
         abort(400, description="Default is the company view. Edit it from Saved views.")
     ok = _saved_repo().update(
-        preset_id, uid,
+        preset_id, existing.user_id,
         name=None if name is None else str(name).strip(),
         params=body["params"] if "params" in body else None,
         layout=body["layout"] if "layout" in body else None,
     )
     if not ok:
         abort(400, description="Could not save that view (the name may already be used)")
-    updated = _saved_repo().get(preset_id, uid)
-    return jsonify(_preset_dict(updated) if updated else {"id": preset_id})
+    updated = _saved_repo().get_any(preset_id)
+    owner = _users_repo().get_by_id(existing.user_id)
+    return jsonify(_preset_dict(updated, owner) if updated else {"id": preset_id})
 
 
 @reports_bp.delete("/api/reports/presets/<int:preset_id>")
 @require_login
 def delete_preset(preset_id: int):
     p = _principal_or_401()
-    uid = _user_id(p.email)
-    if uid is None:
-        abort(403, description="Unknown user")
-    if not _saved_repo().delete(preset_id, uid):
+    existing = _preset_for_caller(preset_id, p)
+    if not _saved_repo().delete(preset_id, existing.user_id):
         abort(404, description="Unknown preset")
     return jsonify({"deleted": True})
 

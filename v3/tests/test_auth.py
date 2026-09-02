@@ -438,3 +438,61 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
         assert s["v3_user"]["email"] == "dev@x.com"
         assert not s["v3_user"].get("impersonating")
 
+
+def test_merge_picker_users_adds_v3_only_email():
+    from web.blueprints.auth import merge_picker_users
+
+    def u(uid: int, email: str, name: str, role: str) -> User:
+        return User(
+            id=uid, email=email, display_name=name, role=role,
+            is_active=True, is_external=False, dashboard_enabled=False,
+            sharepoint_access=False, test_access=False, can_see_company_views=False,
+        )
+
+    rows = merge_picker_users(
+        [{"email": "live@x.com", "display_name": "Live Name", "role": "salesman"}],
+        [u(1, "live@x.com", "V3 Name", "admin"), u(2, "new@x.com", "New Hire", "salesman")],
+    )
+    by = {r["email"]: r for r in rows}
+    assert set(by) == {"live@x.com", "new@x.com"}
+    assert by["live@x.com"]["role"] == "admin"
+    assert by["live@x.com"]["display_name"] == "V3 Name"
+    assert by["new@x.com"]["display_name"] == "New Hire"
+    assert by["new@x.com"]["role"] == "salesman"
+
+
+def test_role_picker_includes_v3_user_absent_from_live(tmp_path, monkeypatch):
+    import sys
+    import types
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer", display_name="Dev")
+    UserRepository(application.config["DB"]).upsert(
+        "newbie@x.com", role="salesman", display_name="New Hire")
+
+    live_db = types.ModuleType("webapp.db")
+    live_db.get_all_users = lambda: [
+        {"email": "dev@x.com", "display_name": "Dev", "role": "developer"},
+    ]
+    live_db.get_setting = lambda *a, **k: "light"
+    live_db.get_user_by_email = lambda email: None
+    webapp = types.ModuleType("webapp")
+    webapp.db = live_db
+    monkeypatch.setitem(sys.modules, "webapp", webapp)
+    monkeypatch.setitem(sys.modules, "webapp.db", live_db)
+
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "dev@x.com", "name": "Dev", "role": "developer",
+            "salesman_key": None, "_dev": True, "_dev_name": "Dev", "_dev_email": "dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    page = client.get("/dev/role-picker")
+    assert page.status_code == 200
+    assert b"New Hire" in page.data
+    assert b"newbie@x.com" in page.data
+

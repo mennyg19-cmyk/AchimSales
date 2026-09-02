@@ -12,7 +12,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 
 from report_engine import registry
 from web.auth.decorators import require_login
-from web.auth.principal import VALID_ROLES
+from web.auth.principal import ROLE_ADMIN, ROLE_DEVELOPER, VALID_ROLES
 from web.auth.session import current_principal
 from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
@@ -91,6 +91,10 @@ def create_user():
         return jsonify({"error": "Invalid role"}), 400
     u = _users().create(email, role=role, display_name=(body.get("display_name") or "").strip(),
                         is_external=bool(body.get("is_external")))
+    if role not in (ROLE_ADMIN, ROLE_DEVELOPER) and not _users().get_salesman_access(u.id):
+        matched = _salesmen().keys_for_email(email)
+        if matched:
+            _users().set_salesman_access(u.id, matched)
     return jsonify(_user_dict(u)), 201
 
 

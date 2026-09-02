@@ -2535,14 +2535,21 @@ async function saveView(): Promise<void> {
   const trimmed = name.trim();
   const overwrite = !!(editingPresetId && trimmed === editingPresetName);
   try {
+    const payload: Record<string, unknown> = {
+      name: trimmed, params: collectParams(), layout: serializeLayout(),
+    };
+    if (!overwrite) {
+      const owner = ($("viewOwner") as HTMLSelectElement | null)?.value;
+      if (owner) payload.owner_user_id = Number(owner);
+    }
     const res = overwrite
       ? await fetch(presetUrl(editingPresetId!), {
           method: "PATCH", headers: csrfHeaders(),
-          body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
+          body: JSON.stringify(payload),
         })
       : await fetch(attr("data-presets-url"), {
           method: "POST", headers: csrfHeaders(),
-          body: JSON.stringify({ name: trimmed, params: collectParams(), layout: serializeLayout() }),
+          body: JSON.stringify(payload),
         });
     if (!res.ok) throw new Error();
     const data = await res.json().catch(() => ({}));
@@ -2550,7 +2557,9 @@ async function saveView(): Promise<void> {
     else {
       editingPresetId = (data as any).id ?? null;
       editingPresetName = trimmed;
-      setStatus(`Saved “${trimmed}”.`);
+      const ownerSel = $("viewOwner") as HTMLSelectElement | null;
+      const ownerLabel = ownerSel?.value ? ownerSel.selectedOptions[0]?.textContent?.trim() : "";
+      setStatus(ownerLabel ? `Saved “${trimmed}” for ${ownerLabel}.` : `Saved “${trimmed}”.`);
     }
     rememberNamedView({
       id: editingPresetId == null ? undefined : editingPresetId,
@@ -2652,7 +2661,10 @@ async function loadCompanyDefault(): Promise<void> {
 
 function appendPresetRow(
   panel: HTMLElement,
-  preset: { id?: number | string; name: string; params?: Record<string, unknown>; layout?: SavedLayout; can_edit?: boolean },
+  preset: {
+    id?: number | string; name: string; params?: Record<string, unknown>;
+    layout?: SavedLayout; can_edit?: boolean; owner_user_id?: number;
+  },
   opts: { canDelete: boolean; canEdit: boolean },
 ): void {
   const row = document.createElement("div");
@@ -2722,9 +2734,11 @@ async function togglePresetsPanel(): Promise<void> {
     default?: { name?: string; params?: Record<string, unknown>; layout?: SavedLayout; can_edit?: boolean };
     company?: any[];
     presets: any[];
+    others?: { user_id: number; name: string; email: string; presets: any[] }[];
   }>(attr("data-presets-url"));
   const company = data?.company || [];
   const presets = data?.presets || [];
+  const others = data?.others || [];
   const panel = document.createElement("div");
   panel.id = "presetsPanel";
   panel.className = "presets-panel";
@@ -2744,26 +2758,39 @@ async function togglePresetsPanel(): Promise<void> {
       });
     });
   }
-  if (!presets.length) {
-    if (!company.length) {
-      const empty = document.createElement("div");
-      empty.className = "presets-empty";
-      empty.textContent = "No other saved views yet. Use “Save this view”.";
-      panel.appendChild(empty);
-    }
-  } else {
+  if (!presets.length && !company.length && !others.length) {
+    const empty = document.createElement("div");
+    empty.className = "presets-empty";
+    empty.textContent = "No other saved views yet. Use “Save this view”.";
+    panel.appendChild(empty);
+  }
+  if (presets.length) {
     const fold = appendPresetFold(panel, "My views");
     presets.forEach((p) => {
       appendPresetRow(fold, p, { canDelete: true, canEdit: true });
     });
   }
+  others.forEach((g) => {
+    const fold = appendPresetFold(panel, `${g.name} — views`);
+    (g.presets || []).forEach((p) => {
+      appendPresetRow(fold, p, { canDelete: true, canEdit: true });
+    });
+  });
   ($("presetsBtn") as HTMLElement)?.insertAdjacentElement("afterend", panel);
   setTimeout(() => document.addEventListener("click", onPresetsOutside, true), 0);
+}
+
+function syncViewOwner(preset: { owner_user_id?: number }): void {
+  const el = $("viewOwner") as HTMLSelectElement | null;
+  if (!el) return;
+  const v = preset.owner_user_id == null ? "" : String(preset.owner_user_id);
+  el.value = [...el.options].some((o) => o.value === v) ? v : "";
 }
 
 function loadPreset(preset: {
   id?: number | string; name?: string;
   params?: Record<string, unknown>; layout?: SavedLayout;
+  owner_user_id?: number;
 }, opts?: { run?: boolean; edit?: boolean }): void {
   applyParamsObject(preset.params || {});
   pendingLayout = preset.layout || (isDefaultViewId(preset.id) ? companyDefaultLayout : null);
@@ -2774,6 +2801,7 @@ function loadPreset(preset: {
     editingPresetId = null;
     editingPresetName = null;
   }
+  syncViewOwner(preset);
   rememberNamedView(preset);
   if (opts?.edit) setToolbarEnabled(isReportShown());
   if (opts?.run === false) {
@@ -2821,6 +2849,7 @@ async function autoOpenPresetIfRequested(): Promise<void> {
   rememberNamedView({
     id: Number(id), name: preset?.name, params: preset?.params, layout: preset?.layout,
   });
+  syncViewOwner(preset || {});
   autoRunRequested = true;
 }
 
