@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Ordered group totals skip Net Price; nested groups use shade ladders
+**What you asked for:** Do not total Net Price on group footers. Nested group headers/footers were clashing. Footers should be greys (grand darkest, then salesman, then customer). Headers the same idea in shades of the existing blue. Dark fills need white text.
+**What I had to decide:** Whether to skip only Net Price or every unit-price column, and whether Excel and the grid share one recipe.
+**What I chose:** Skip Net Price by `sum: false` plus a field-name fallback so old cached payloads still behave. Number 4 Avg/Book Price stays summed. Grey footer / blue header ladders: outermost darkest, inner lightest, any group depth. Text color is whichever of white or `#1E293B` has higher contrast (so mid greys do not get unreadable white text). Same RGB in `export.py` and `report.ts`.
+**Why:** Net Price is Extended / Qty; adding it on a salesman footer is a fake number. One fill for every group level made Daily Ordered unreadable. Distinct hues can wait.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Same agent stacks PRs; two agents get two PRs
 **What you asked for:** Put the stacking rule in Cursor rules, and on all repos. Same agent stays on the last open PR. Two agents at once use two PRs.
 **What I chose:** Wrote it in `git-discipline.mdc` (owns git). README Rule Preferences points there. Copied into MasterGenAIInstructions (master + template) so `update-all` can push it to registered local projects. This AchimSales change stays on PR 25.

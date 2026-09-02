@@ -52,6 +52,29 @@ _NUMERIC_TYPES = {"money", "int", "percent"}
 # is deliberately excluded: summing raw percentages is nonsense (the on-screen
 # grid excludes percent bottom-calcs too), so percent total cells stay blank.
 _SUMMABLE_TYPES = {"money", "int"}
+# Unit prices (Extended / Qty). Summing them on a group footer is wrong.
+_NEVER_SUM_FIELDS = frozenset({"Net Price"})
+
+# Nested group colors. Outer = darkest. Keep in sync with report.ts nest* helpers.
+# Discrete shades so every step stays readable (lerp hits a dead zone around 4.5:1).
+_HEADER_SHADES = (
+    (30, 64, 175),     # #1E40AF
+    (37, 99, 235),     # #2563EB (app primary)
+    (96, 165, 250),    # #60A5FA
+    (147, 197, 253),   # #93C5FD
+    (191, 219, 254),   # #BFDBFE
+)
+_FOOTER_SHADES = (
+    (107, 114, 128),   # #6B7280
+    (156, 163, 175),   # #9CA3AF
+    (209, 213, 219),   # #D1D5DB
+    (229, 231, 235),   # #E5E7EB
+)
+_GRAND_GREY = (55, 65, 81)             # #374151
+_TEXT_DARK = "1E293B"
+_TEXT_LIGHT = "FFFFFF"
+_FILL_BY_HEX: dict[str, PatternFill] = {}
+_FONT_BOLD_BY_HEX: dict[str, Font] = {}
 
 # --- Number formats (match the on-screen grid + the live exports) ---
 _FMT = {
@@ -66,7 +89,6 @@ _HEADER_FILL = PatternFill("solid", fgColor="E0E0E0")
 _HEADER_FONT = Font(bold=True)
 _HEADER_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _ZEBRA_FILL = PatternFill("solid", fgColor="F2F2F2")
-_TOTAL_FILL = PatternFill("solid", fgColor="D9D9D9")
 _TOTAL_FONT = Font(bold=True)
 _GROUP_FILL = PatternFill("solid", fgColor="BDD7EE")
 _GROUP_FONT = Font(bold=True)
@@ -83,6 +105,81 @@ _FILL_LIGHT_GREY = PatternFill("solid", fgColor="E8E8E8")
 _SALESMAN_ID_FIELDS = frozenset({
     "Sort Number", "Salesman", "Cust. #", "Customer Name", "SalesmanNumber",
 })
+
+
+def _hex6(rgb: tuple[int, int, int]) -> str:
+    return f"{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+
+
+def _rel_lum(rgb: tuple[int, int, int]) -> float:
+    def _lin(c: int) -> float:
+        x = c / 255.0
+        return x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _lin(rgb[0]) + 0.7152 * _lin(rgb[1]) + 0.0722 * _lin(rgb[2])
+
+
+def _contrast(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
+    hi, lo = _rel_lum(a), _rel_lum(b)
+    if lo > hi:
+        hi, lo = lo, hi
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _contrast_text_hex(rgb: tuple[int, int, int]) -> str:
+    white, dark = (255, 255, 255), (30, 41, 59)
+    return _TEXT_LIGHT if _contrast(rgb, white) >= _contrast(rgb, dark) else _TEXT_DARK
+
+
+def _shade_at(shades: tuple[tuple[int, int, int], ...], level: int, depth: int) -> tuple[int, int, int]:
+    if depth <= 1:
+        return shades[0]
+    last = len(shades) - 1
+    idx = int(round(level * last / (depth - 1)))
+    return shades[max(0, min(idx, last))]
+
+
+def nest_header_rgb(level: int, depth: int) -> tuple[int, int, int]:
+    return _shade_at(_HEADER_SHADES, level, depth)
+
+
+def nest_footer_rgb(level: int, depth: int, *, grand: bool) -> tuple[int, int, int]:
+    if grand:
+        return _GRAND_GREY
+    return _shade_at(_FOOTER_SHADES, level, depth)
+
+
+def _fill_hex(hex6: str) -> PatternFill:
+    fill = _FILL_BY_HEX.get(hex6)
+    if fill is None:
+        fill = PatternFill("solid", fgColor=hex6)
+        _FILL_BY_HEX[hex6] = fill
+    return fill
+
+
+def _font_bold(hex6: str) -> Font:
+    font = _FONT_BOLD_BY_HEX.get(hex6)
+    if font is None:
+        font = Font(bold=True, color=hex6)
+        _FONT_BOLD_BY_HEX[hex6] = font
+    return font
+
+
+def _nest_header_style(level: int, depth: int) -> tuple[PatternFill, Font]:
+    rgb = nest_header_rgb(level, depth)
+    return _fill_hex(_hex6(rgb)), _font_bold(_contrast_text_hex(rgb))
+
+
+def _nest_footer_style(level: int, depth: int, *, grand: bool) -> tuple[PatternFill, Font]:
+    rgb = nest_footer_rgb(level, depth, grand=grand)
+    return _fill_hex(_hex6(rgb)), _font_bold(_contrast_text_hex(rgb))
+
+
+def _col_summable(field: str, ctype: str | None, col: dict | None = None) -> bool:
+    if isinstance(col, dict) and col.get("sum") is False:
+        return False
+    if field in _NEVER_SUM_FIELDS:
+        return False
+    return ctype in _SUMMABLE_TYPES
 
 
 def _fulfillment_fill(score: Any) -> PatternFill | None:
@@ -214,22 +311,28 @@ def _safe_sheet_title(name: str, used: set[str]) -> str:
     return title
 
 
-def _columns_meta(columns: list, rows: list) -> list[tuple[str, str, str | None]]:
-    """Normalise a tab's columns to (header, field, type) triples.
+def _columns_meta(columns: list, rows: list) -> list[tuple[str, str, str | None, bool]]:
+    """Normalise a tab's columns to (header, field, type, summable) tuples.
 
-    Supports the viewer's {"field","header","type"} dicts, plain header strings,
-    or (when no columns are declared) the keys of the first row.
+    Supports the viewer's {"field","header","type","sum"} dicts, plain header
+    strings, or (when no columns are declared) the keys of the first row.
     """
     if columns and isinstance(columns[0], dict):
-        return [(
-            str(c.get("header") or c.get("field") or ""),
-            str(c.get("field") or c.get("header") or ""),
-            c.get("type"),
-        ) for c in columns]
+        out = []
+        for c in columns:
+            field = str(c.get("field") or c.get("header") or "")
+            ctype = c.get("type")
+            out.append((
+                str(c.get("header") or c.get("field") or ""),
+                field,
+                ctype,
+                _col_summable(field, ctype, c),
+            ))
+        return out
     if columns:
-        return [(str(c), str(c), None) for c in columns]
+        return [(str(c), str(c), None, _col_summable(str(c), None)) for c in columns]
     if rows:
-        return [(str(k), str(k), None) for k in rows[0].keys()]
+        return [(str(k), str(k), None, _col_summable(str(k), None)) for k in rows[0].keys()]
     return []
 
 
@@ -239,9 +342,9 @@ def _group_sort_key(value: Any) -> tuple:
     return (0, str(value).lower())
 
 
-def _autosize(ws, metas: list[tuple[str, str, str | None]]) -> None:
+def _autosize(ws, metas: list[tuple[str, str, str | None, bool]]) -> None:
     type_guess = {"money": 14, "int": 10, "percent": 10, "date": 12, "text": 22}
-    for idx, (header, _field, ctype) in enumerate(metas, start=1):
+    for idx, (header, _field, ctype, _summable) in enumerate(metas, start=1):
         guess = type_guess.get(ctype or "text", 16)
         width = min(45, max(len(header) + 3, guess))
         ws.column_dimensions[get_column_letter(idx)].width = width
@@ -268,7 +371,7 @@ def _cell(ws, value: Any, *, fmt: str | None = None, font: Font | None = None,
 
 def _header_cells(ws, metas) -> list[WriteOnlyCell]:
     return [_cell(ws, _safe_text(h), font=_HEADER_FONT, fill=_HEADER_FILL,
-                  align=_HEADER_ALIGN, border=_BORDER) for h, _f, _t in metas]
+                  align=_HEADER_ALIGN, border=_BORDER) for h, _f, _t, _s in metas]
 
 
 def _data_cells(ws, metas, row: dict, acc: dict[str, float],
@@ -287,38 +390,39 @@ def _data_cells(ws, metas, row: dict, acc: dict[str, float],
     """
     bands = salesman_band_by_field or {}
     cells = []
-    for _header, field, ctype in metas:
+    for _header, field, ctype, summable in metas:
         value, fmt = _coerce(row.get(field), ctype)
         font = _salesman_font(field, row.get(field), bands) if salesman_bands else None
         fill = _fulfillment_fill(row.get(field)) if field == "Fulfillment %" else None
         cells.append(_cell(ws, value, fmt=fmt, font=font, fill=fill))
-        if ctype in _SUMMABLE_TYPES:
+        if summable:
             x = _num(row.get(field))
             if x is not None:
                 acc[field] = acc.get(field, 0.0) + x
     return cells
 
 
-def _total_cells(ws, metas, sums: dict[str, float], label: str) -> list[WriteOnlyCell]:
+def _total_cells(ws, metas, sums: dict[str, float], label: str,
+                 *, fill: PatternFill, font: Font) -> list[WriteOnlyCell]:
     # Put the "Total"/"Grand total" label in the first NON-summable column so a
     # numeric first column (e.g. an order number is text, but a money/qty first
     # column isn't) keeps its own subtotal instead of being overwritten by text.
-    label_idx = next((i for i, (_h, _f, t) in enumerate(metas) if t not in _SUMMABLE_TYPES), 0)
+    label_idx = next((i for i, (_h, _f, _t, s) in enumerate(metas) if not s), 0)
     cells = []
-    for i, (_header, field, ctype) in enumerate(metas):
+    for i, (_header, field, ctype, summable) in enumerate(metas):
         if i == label_idx:
             value, fmt = label, None
-        elif ctype in _NUMERIC_TYPES and field in sums:
-            value, fmt = sums[field], _FMT[ctype]
+        elif summable and field in sums:
+            value, fmt = sums[field], _FMT.get(ctype or "", None)
         else:
             value, fmt = None, None
-        cells.append(_cell(ws, value, fmt=fmt, font=_TOTAL_FONT, fill=_TOTAL_FILL, border=_BORDER))
+        cells.append(_cell(ws, value, fmt=fmt, font=font, fill=fill, border=_BORDER))
     return cells
 
 
-def _banner_cells(ws, ncol: int, text: str) -> list[WriteOnlyCell]:
-    cells = [_cell(ws, _safe_text(text), font=_GROUP_FONT, fill=_GROUP_FILL, border=_BORDER)]
-    cells += [_cell(ws, None, font=_GROUP_FONT, fill=_GROUP_FILL, border=_BORDER) for _ in range(ncol - 1)]
+def _banner_cells(ws, ncol: int, text: str, *, fill: PatternFill, font: Font) -> list[WriteOnlyCell]:
+    cells = [_cell(ws, _safe_text(text), font=font, fill=fill, border=_BORDER)]
+    cells += [_cell(ws, None, font=font, fill=fill, border=_BORDER) for _ in range(ncol - 1)]
     return cells
 
 
@@ -372,31 +476,37 @@ def _sort_rows_for_groups(rows: list, group_fields: list[str],
 def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
                   *, salesman_bands: bool,
                   salesman_band_by_field: dict[str, int] | None = None,
-                  parent_acc: dict[str, float] | None = None
+                  parent_acc: dict[str, float] | None = None,
+                  group_level: int = 0, group_depth: int = 1
                   ) -> dict[str, float]:
     """Nested group banners + per-level totals. Innermost level writes data rows."""
     gf = group_fields[0]
     rest = group_fields[1:]
-    glabel = next((h for h, f, _t in metas if f == gf), gf)
+    glabel = next((h for h, f, _t, _s in metas if f == gf), gf)
     ncol = len(metas)
+    banner_fill, banner_font = _nest_header_style(group_level, group_depth)
+    total_fill, total_font = _nest_footer_style(group_level, group_depth, grand=False)
     level: dict[str, float] = {}
     for _key, grp_iter in groupby(rows, key=lambda x: _group_sort_key(x.get(gf))):
         grp = list(grp_iter)
         gval = grp[0].get(gf)
         label = gval if gval not in (None, "") else "(blank)"
-        ws.append(_banner_cells(ws, ncol, f"{glabel}: {label}"))
+        ws.append(_banner_cells(ws, ncol, f"{glabel}: {label}",
+                                fill=banner_fill, font=banner_font))
         sub: dict[str, float] = {}
         if rest:
             _emit_grouped(ws, metas, grp, rest, salesman_bands=salesman_bands,
                           salesman_band_by_field=salesman_band_by_field,
-                          parent_acc=sub)
+                          parent_acc=sub, group_level=group_level + 1,
+                          group_depth=group_depth)
         else:
             for row in grp:
                 ws.append(_data_cells(
                     ws, metas, row, sub, salesman_bands=salesman_bands,
                     salesman_band_by_field=salesman_band_by_field,
                 ))
-        ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}"))
+        ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}",
+                               fill=total_fill, font=total_font))
         for k, val in sub.items():
             level[k] = level.get(k, 0.0) + val
     if parent_acc is not None:
@@ -420,15 +530,18 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
         ws.auto_filter.ref = f"A1:{get_column_letter(ncol)}{len(rows) + 1}"
     ws.append(_header_cells(ws, metas))
 
+    grand_fill, grand_font = _nest_footer_style(0, max(len(group_fields), 1), grand=True)
     if group_fields:
         ordered = _sort_rows_for_groups(rows, group_fields, sorters)
         grand = _emit_grouped(
             ws, metas, ordered, group_fields,
             salesman_bands=salesman_bands,
             salesman_band_by_field=salesman_band_by_field,
+            group_level=0, group_depth=len(group_fields),
         )
         if rows:
-            ws.append(_total_cells(ws, metas, grand, "Grand total"))
+            ws.append(_total_cells(ws, metas, grand, "Grand total",
+                                   fill=grand_fill, font=grand_font))
     else:
         grand: dict[str, float] = {}
         for row in rows:
@@ -437,7 +550,8 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
                 salesman_band_by_field=salesman_band_by_field,
             ))
         if rows:
-            ws.append(_total_cells(ws, metas, grand, "Total"))
+            ws.append(_total_cells(ws, metas, grand, "Total",
+                                   fill=grand_fill, font=grand_font))
 
 
 def _stream_commission(ws, tab: dict) -> None:
@@ -579,7 +693,7 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         v = v if isinstance(v, dict) else {}
         # A group field may be hidden (so absent from metas) yet still present in
         # the row dicts - honour it from the row data, not just visible columns.
-        known = {f for _h, f, _t in metas} | (set(rows[0].keys()) if rows else set())
+        known = {f for _h, f, _t, _s in metas} | (set(rows[0].keys()) if rows else set())
         group_fields, sorters = _tab_groups_and_sorters(tab, v, rows, known)
         salesman_bands = (payload.get("report_key") == "salesman"
                           and tab.get("layout") != "commission_cards")

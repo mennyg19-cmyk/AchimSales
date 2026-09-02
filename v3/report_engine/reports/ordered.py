@@ -129,7 +129,7 @@ SUMMARY_COLS = [
     {"field": "QtyReleased",              "header": "QTY Shipping",             "type": "int"},
     {"field": "QtyCancelled",             "header": "QtyCancelled",             "type": "int"},
     {"field": "QtyLeftToShip",            "header": "Qty left to ship",         "type": "int"},
-    {"field": "Net Price",                "header": "Net Price",                "type": "money"},
+    {"field": "Net Price",                "header": "Net Price",                "type": "money", "sum": False},
     {"field": "Extended Price - Ordered", "header": "Extended Price - Ordered", "type": "money"},
     {"field": "Extended Price Cancelled", "header": "Extended Price Cancelled", "type": "money"},
     {"field": "Extended Price Remainder", "header": "Extended Price Remainder", "type": "money"},

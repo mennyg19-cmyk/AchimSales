@@ -194,8 +194,14 @@ def test_report_viewer_meeting_ux():
     assert "function orderNumber4Columns" in src
     assert "function salesmanBandIndex" in src
     assert "typeof col.band === \"number\"" in src
-    assert "fulfillmentFillCss" in src
-    assert 'col.field === "Fulfillment %"' in src
+    assert "function canSumColumn" in src
+    assert 'c.field === "Net Price"' in src
+    assert "c.sum === false" in src
+    assert "function paintNestedGroups" in src
+    assert "function nestHeaderColors" in src
+    assert "function nestFooterColors" in src
+    assert "NEST_GRAND" in src
+    assert "paintNestedGroups(table)" in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".group-pill" in css
     assert ".presets-fold" in css

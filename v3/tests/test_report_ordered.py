@@ -160,6 +160,9 @@ def test_summary_uses_sp_left_to_ship():
     ]
     assert next(c for c in summary["columns"]
                 if c["field"] == "Extended Price Cancelled")["type"] == "money"
+    net = next(c for c in summary["columns"] if c["field"] == "Net Price")
+    assert net["type"] == "money"
+    assert net["sum"] is False
 
 
 def test_summary_cancelled_sums_same_customer_item():

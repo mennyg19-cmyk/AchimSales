@@ -359,12 +359,11 @@
 .tabulator .tabulator-row.tabulator-row-even { background: var(--bg); }
 .tabulator .tabulator-row.tabulator-selectable:hover { background: var(--primary-light); }
 .tabulator .tabulator-row .tabulator-cell { border-right: 1px solid var(--border); }
-.tabulator .tabulator-row.tabulator-group { background: var(--bg); color: var(--text); font-weight: 700; border-bottom: 1px solid var(--border); }
+.tabulator .tabulator-row.tabulator-group { font-weight: 700; border-bottom: 1px solid var(--border); }
 .tabulator .tabulator-row.tabulator-calcs,
 .tabulator .tabulator-row.tabulator-calcs .tabulator-cell,
 .tabulator .tabulator-footer {
-    background: var(--bg-card) !important; color: var(--text) !important;
-    font-weight: 700; border-top: 2px solid var(--border) !important;
+    font-weight: 700; border-top: 2px solid var(--border);
 }
 .tabulator .tabulator-footer .tabulator-paginator { color: var(--text-muted); }
 /* Header/cell context menu + edit lists. Tabulator's base theme (loaded after

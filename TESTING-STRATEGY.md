@@ -2,6 +2,26 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Ordered group footers skip Net Price; nested groups use shade ladders
+
+**What to test:**
+- Group subtotals and Grand total leave Net Price blank (unit price). Extended Price still sums.
+- Cached payloads without `sum: false` still skip the Net Price field by name.
+- Nested Excel banners: outermost group header is the darkest blue; inner is lighter; dark fills use white text.
+- Nested Excel totals: Grand total darkest grey, then outer group, then inner group.
+- Contrast of every header/footer shade against its chosen text is at least 4.5:1 (1–4 group levels).
+- Grid source does not `bottomCalc` Net Price and paints nested groups (`paintNestedGroups`).
+
+**Expected behavior:**
+- Daily Ordered (Salesman then customer) is the example; any group depth uses the same outer-darkest ladder.
+- Grid and Excel share the same RGB recipe.
+
+**Edge cases:**
+- One group level still shades header vs group total vs grand total.
+- `sum: false` on a column dict also skips summing that field.
+
+**Test file:** `v3/tests/test_reporting.py`, `v3/tests/test_frontend.py`
+
 ## Saved views on the report page start collapsed
 
 **What to test:**
