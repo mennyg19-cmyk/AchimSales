@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Go-live click-through uses local `/test` (dev login)
+**What I had to decide:** Production home is Entra + Beta (no dashboard). This VM has no Microsoft login.
+**What I chose:** Browser pass against local Flask `AUTH_MODE=dev` at the `/test` mount (dashboard on, `v3_session`). Hit live `/healthz` only. Note Beta-only paths (Live login, no dashboard) in the log instead of faking Entra.
+**Why:** User asked for real browser clicks; Entra cannot be completed here.
+**Status:** DECIDED
+
 ## 2026-09-02 Go-live: inventory live v3, do not rebuild from scratch
 **What you asked for:** Plain-English report of today's fixes; database changes if possible; merge into main; then rebuild-protocol multi-model inventory of the entire site; then browser-click every feature autonomously with commit messages; edge cases; check schedules and Excel output.
 **What I had to decide:** (1) Whether rebuild Phase 2–4 (architecture + from-scratch rebuild) starts after inventory. (2) Where test-log commits go after merging #33. (3) Grill before Phase 0.
