@@ -71,6 +71,19 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
 
+## Personal schedules page is full width
+
+**What to test:**
+- `schedules.html` does not set `container-narrow` (same as `company_schedules.html`).
+
+**Expected behavior:**
+- Personal schedules uses the default full-width `.container`, not the 800px reading column.
+
+**Edge cases:**
+- Settings and the report picker stay `container-narrow`.
+
+**Test file:** `v3/tests/test_frontend.py`
+
 ## Applying a view must not throw on `_isDuplicate`
 
 **What to test:**

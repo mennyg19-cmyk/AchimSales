@@ -166,8 +166,8 @@ body {
 }
 
 /* -- Container --
-   Default is full width (dashboard, report viewers, settings, admin tables all
-   want the room). The report picker + schedules pages opt into the narrow,
+   Default is full width (dashboard, report viewers, schedule tables, settings,
+   admin tables all want the room). The report picker opts into the narrow,
    centred reading width with `container-narrow`. */
 .container { width: 100%; margin: 0 auto; padding: 16px; min-width: 0; }
 .container-narrow { max-width: 800px; }

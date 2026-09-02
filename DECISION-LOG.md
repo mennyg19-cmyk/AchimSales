@@ -7,6 +7,12 @@
 **Why:** You reversed the 2026-09-01 hold. Heshy has a named CA view with no period and needs it on the 3-step list and More → Schedule.
 **Status:** DECIDED — shipping this change.
 
+## 2026-09-02 Personal schedules page is full width
+**What you asked for:** Personal schedules should be full width like company schedules.
+**What I chose:** Drop `container-narrow` (800px cap) from the personal schedules template. Company schedules already used the default full-width container.
+**Why:** The actions table is the same kind of wide grid. Capping personal at 800px squeezed the columns; company did not.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Excel grouped rows are collapsible, start expanded
 **What you asked for:** Excel files should group rows so they collapse, default expanded. Skip it if that means rewriting the Excel writer.
 **What I chose:** Keep write-only streaming. Set `outline_level` on each row before append (write-only flushes immediately). Nested: data is the innermost outline; banners/totals sit one level out; grand total ungrouped. `hidden` stays false so Excel opens expanded. `summaryBelow` puts the +/- on the total row.
