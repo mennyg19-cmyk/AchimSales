@@ -2575,6 +2575,17 @@ function appendPresetRow(
   panel.appendChild(row);
 }
 
+function appendPresetFold(panel: HTMLElement, title: string): HTMLElement {
+  const wrap = document.createElement("details");
+  wrap.className = "presets-fold";
+  const head = document.createElement("summary");
+  head.className = "presets-section";
+  head.textContent = title;
+  wrap.appendChild(head);
+  panel.appendChild(wrap);
+  return wrap;
+}
+
 async function togglePresetsPanel(): Promise<void> {
   if ($("presetsPanel")) { closePresetsPanel(); return; }
   const data = await getJSON<{
@@ -2596,12 +2607,9 @@ async function togglePresetsPanel(): Promise<void> {
     can_edit: canEditDefault,
   }, { canDelete: false, canEdit: canEditDefault });
   if (company.length) {
-    const head = document.createElement("div");
-    head.className = "presets-section";
-    head.textContent = "Company views";
-    panel.appendChild(head);
+    const fold = appendPresetFold(panel, "Company views");
     company.forEach((p) => {
-      appendPresetRow(panel, { ...p, id: `${COMPANY_VIEW_PREFIX}${p.id}` }, {
+      appendPresetRow(fold, { ...p, id: `${COMPANY_VIEW_PREFIX}${p.id}` }, {
         canDelete: false, canEdit: !!p.can_edit,
       });
     });
@@ -2614,12 +2622,9 @@ async function togglePresetsPanel(): Promise<void> {
       panel.appendChild(empty);
     }
   } else {
-    const head = document.createElement("div");
-    head.className = "presets-section";
-    head.textContent = "My views";
-    panel.appendChild(head);
+    const fold = appendPresetFold(panel, "My views");
     presets.forEach((p) => {
-      appendPresetRow(panel, p, { canDelete: true, canEdit: true });
+      appendPresetRow(fold, p, { canDelete: true, canEdit: true });
     });
   }
   ($("presetsBtn") as HTMLElement)?.insertAdjacentElement("afterend", panel);

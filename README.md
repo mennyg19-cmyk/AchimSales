@@ -246,6 +246,7 @@ Standing choices when rules disagree (also used by agents):
 | Topic | Choice |
 |-------|--------|
 | After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
+| Follow-up on an open PR | **Same branch / same PR.** Do not open a new Cloud Agent branch and PR for the next small ask. Stack it on the PR that is already open so it can merge together. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
 
 ## D365 Entity Reference

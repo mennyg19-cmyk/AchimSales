@@ -1,5 +1,17 @@
 # Decision Log
 
+## 2026-09-02 Follow-up work stays on the open PR
+**What you asked for:** Do not open a new PR for the next small ask. Put it on PR 25 so it can merge together. You hate extra branches and PRs.
+**What I chose:** Cherry-pick the Saved views collapse onto `cursor/settings-exclusion-dropdown-0ed8` (PR 25) and close PR 26. Standing preference: while a feature PR is open, stack the next request on that same branch.
+**Why:** Splitting every small UI tweak into its own branch made a pile of PRs that you then have to merge one by one.
+**Status:** DECIDED — shipping this change.
+
+## 2026-09-02 Saved views on the report page start collapsed
+**What you asked for:** Default collapse presets on the report page.
+**What I chose:** In the Saved views panel, Company views and My views are collapsed `<details>` groups. Default stays visible. Click a header to expand.
+**Why:** Opening Saved views was dumping every company and personal view at once. Collapsing those groups keeps Default one click away and the long lists tucked away until you want them.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Settings exclusions use the report customer dropdown list
 **What you asked for:** Customer exclusions on Settings should be a dropdown filled from the same endpoint as the report customer picker, scoped to the user.
 **What I had to decide:** Whether Settings should call `/api/reports/ordered/customers` (the report URL) or a settings URL that runs the same lookup + salesman filter.
