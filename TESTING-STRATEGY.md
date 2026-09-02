@@ -7,12 +7,14 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 **What to test:**
 - Beta `adopt_live_identity` does not replace an existing v3 display name, role, SalesGroup, or salesman-access from the Live cookie.
 - A demoted developer with a stale `_dev` cookie cannot open `/dev/role-picker` or `/api/admin/users`, and the DB role stays salesman.
+- A leftover impersonation cookie (`email` = an admin, `_dev` + `_dev_email` of a demoted developer) cannot keep admin access; the session becomes the actor; self-promotion PUT is 403.
 - After an unrestricted run/export, demoting the owner to a scoped salesman 403s download and hides the export from the list.
 - GET `/api/reports/diagnostics/claim-once` is 405; POST with CSRF reverts only a job this request claimed.
 
 **Expected behavior:**
 - Users & access is source of truth after the first v3 row exists. First Live login still creates the row and copies Live scope.
 - Developer-only tools and the role picker use the DB developer role, not the cookie.
+- Leftover impersonation after demotion drops to the actor's DB identity (or logs out if the actor row is gone).
 
 **Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
 
@@ -923,7 +925,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **What to test:**
 - Admins and developers see company schedules on `/schedules`; salesmen see My schedules only.
-- Managers see the company list (`can_see_company_schedules`) but POST/PUT/DELETE master rows are privileged-only (`_require_admin`).
+- Managers do not see the company list; admins and developers do. Create/update APIs are privileged; managers and salesmen 403 on create.
 - Private master rows stay off the company list and show under My schedules for the owner.
 - A manager-owned master run is scoped to that manager’s salesman keys. Unscoped (no owner/run-as, or privileged owner) stays unrestricted.
 - Master schedule params persist salesman delivery flags (`split_by_salesman`, `email_to_salesmen`, `email_salesman_keys`).

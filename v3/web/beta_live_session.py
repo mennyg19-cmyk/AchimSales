@@ -40,12 +40,38 @@ def adopt_live_identity():
     role = str(live.get("role") or "salesman").strip().lower()
     if role not in VALID_ROLES:
         role = "salesman"
-    is_dev = bool(live.get("_dev")) or role == "developer"
+    cookie_dev = bool(live.get("_dev")) or role == "developer"
     dev_email = str(live.get("_dev_email") or "").strip().lower()
-    impersonating = is_dev and bool(dev_email) and email != dev_email
 
     db = current_app.config["DB"]
     users = UserRepository(db)
+    actor = users.get_by_email(dev_email) if dev_email else None
+    still_dev = bool(actor and actor.is_active and actor.role == "developer")
+    if cookie_dev and not still_dev:
+        # Leftover Live _dev cookie after demotion/disable: never keep the
+        # impersonated target's identity (they could be an admin).
+        if actor is None:
+            from web.auth.session import logout
+            session.pop(_LIVE_USER_KEY, None)
+            logout()
+            return None
+        email = actor.email
+        raw_name = actor.display_name or actor.email
+        display = raw_name
+        role = actor.role
+        live = {
+            "email": email,
+            "name": raw_name,
+            "role": role,
+            "salesman_key": None,
+        }
+        session[_LIVE_USER_KEY] = live
+        is_dev = False
+        impersonating = False
+    else:
+        is_dev = still_dev
+        impersonating = still_dev and bool(dev_email) and email != dev_email
+
     user = users.get_by_email(email)
     if user is None:
         persist_role = role if role in VALID_ROLES else "salesman"

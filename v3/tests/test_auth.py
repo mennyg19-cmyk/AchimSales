@@ -548,3 +548,41 @@ def test_stale_dev_cookie_cannot_use_role_picker_or_admin(tmp_path):
     assert client.get("/api/admin/users").status_code == 403
     assert repo.get_by_email("dev@x.com").role == "salesman"
 
+
+def test_stale_dev_impersonation_cookie_cannot_keep_admin(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    dev = repo.upsert("dev@x.com", role="developer", display_name="Dev")
+    boss = repo.upsert("boss@x.com", role="admin", display_name="Boss")
+    repo.update(dev.id, role="salesman")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "boss@x.com", "name": "Boss (as Dev)", "role": "admin",
+            "salesman_key": None, "_dev": True, "_dev_name": "Dev",
+            "_dev_email": "dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    assert client.get("/").status_code == 200
+    with client.session_transaction() as s:
+        v3 = s.get("v3_user") or {}
+        assert v3.get("email") == "dev@x.com"
+        assert v3.get("role") == "salesman"
+        assert not v3.get("impersonating")
+        live = s.get("user") or {}
+        assert live.get("email") == "dev@x.com"
+        assert live.get("_dev") is not True
+        assert not live.get("_dev_email")
+    assert client.get("/api/admin/users").status_code == 403
+    put = client.put(
+        f"/api/admin/users/{dev.id}", json={"role": "developer"},
+        headers={"X-CSRF-Token": "t"},
+    )
+    assert put.status_code == 403
+    assert repo.get_by_email("dev@x.com").role == "salesman"
+    assert repo.get_by_email("boss@x.com").role == "admin"
+
