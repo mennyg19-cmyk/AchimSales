@@ -235,6 +235,10 @@ def test_report_viewer_meeting_ux():
     assert "<th>View</th>" in sched
     assert 'personal_schedule_wizard.html' in sched
     assert "container-narrow" not in sched
+    assert "ps-sched-table" in sched
+    assert "ps-owner-row" in sched
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert "table-layout: fixed" in css
     company_page = (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert "container-narrow" not in company_page
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
@@ -299,3 +303,15 @@ def test_admin_users_has_company_views_flag():
     src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
     assert "can_see_company_views: checked(\"euCompanyViews\")" in src
     assert 'role === "developer"' in src
+
+
+def test_admin_users_has_sales_group_dropdown():
+    html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
+    assert 'id="euSalesGroup"' in html
+    assert 'id="addSalesGroup"' in html
+    assert "data-sales-groups-url" in html
+    assert "data-lookup-status-url" in html
+    src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
+    assert "sales_group: role === \"salesman\"" in src
+    assert "list_sales_groups" not in src
+    assert "data-sales-groups-url" in src

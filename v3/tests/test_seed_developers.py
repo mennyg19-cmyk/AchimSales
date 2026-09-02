@@ -77,3 +77,18 @@ def test_copy_live_users_sets_developer_flag_on_insert_only(tmp_path):
          "display_name": "Dev", "dashboard_enabled": 1, "is_external": 0},
     ])
     assert users.get_by_email("dev@x.com").can_see_company_views is False
+
+
+def test_copy_live_users_grants_salesman_key_without_salesmen_row(tmp_path):
+    from web.data.seed_users import copy_live_users
+
+    app = create_app(_cfg(tmp_path))
+    migrate(app.config["DB"])
+    db = app.config["DB"]
+    copy_live_users(db, [
+        {"email": "hk@x.com", "role": "salesman", "salesman_key": "HKaufman",
+         "display_name": "Heshy", "dashboard_enabled": 0, "is_external": 0},
+    ])
+    users = UserRepository(db)
+    uid = users.get_by_email("hk@x.com").id
+    assert users.get_salesman_access(uid) == {"hkaufman"}

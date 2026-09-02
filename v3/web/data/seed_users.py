@@ -8,8 +8,9 @@ re-entered by hand.
 
 This reads the live DB *file* directly (read-only); it never imports live code,
 so v3 stays decoupled. Roles map 1:1 (admin|developer|manager|salesman). A
-user's salesman_key is mapped into v3's `user_salesman_access` when that salesman
-exists in v3's `salesmen` table (skipped otherwise - the FK would reject it).
+user's salesman_key is mapped into v3's `user_salesman_access` (normalized).
+The access table no longer FKs `salesmen`, so a Live key still grants even when
+that group has no v3 salesman row.
 
 Mirror semantics: re-running updates role/flags/display_name to match live, so
 live remains the source of truth for who can sign in. Explicit env admins
@@ -78,7 +79,6 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
     if not users:
         return 0
     with db.precious() as conn:
-        existing_salesmen = {r[0] for r in conn.execute("SELECT key FROM salesmen")}
         for u in users:
             views_flag = 1 if u["role"] == "developer" else 0
             conn.execute(
@@ -94,7 +94,7 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
                  u["is_external"], u["dashboard_enabled"], views_flag),
             )
             key = _normalize_salesman_key(u["salesman_key"] or "")
-            if key and key in existing_salesmen:
+            if key:
                 uid = conn.execute(
                     "SELECT id FROM users WHERE email = ?", (u["email"],)
                 ).fetchone()["id"]

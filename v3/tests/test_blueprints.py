@@ -334,6 +334,91 @@ def test_admin_users_forbidden_for_salesman(tmp_path):
     _login(client, app, email="rep@x.com", role="salesman")
     assert client.get("/admin/users").status_code == 403
     assert client.get("/api/admin/users").status_code == 403
+    assert client.get("/api/admin/sales-groups").status_code == 403
+
+
+def test_admin_sales_groups_match_report_lookup(tmp_path):
+    rows = [
+        {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "HKaufman"},
+        {"CustomerAccount": "200", "CustomerName": "Globex", "SalesGroup": "REdwards"},
+    ]
+    app = _make_app(tmp_path)
+    _with_lookups(app, rows)
+    client = app.test_client()
+    _login(client, app)
+    admin = client.get("/api/admin/sales-groups").get_json()
+    assert admin["ok"] is True
+    assert {r["key"] for r in admin["items"]} == {"HKaufman", "REdwards"}
+    report = client.get("/api/reports/ordered/salesmen").get_json()["salesmen"]
+    assert {r["key"] for r in report} == {r["key"] for r in admin["items"]}
+
+
+def test_create_salesman_sales_group_grants_without_salesmen_row(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/admin/users", json={
+        "email": "hk@x.com", "role": "salesman", "sales_group": "HKaufman",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    body = created.get_json()
+    uid = body["id"]
+    assert body["sales_group"] == "HKaufman"
+    keys = client.get(f"/api/admin/users/{uid}/salesman-access").get_json()["keys"]
+    assert keys == ["hkaufman"]
+    html = client.get("/admin/users").get_data(as_text=True)
+    assert 'id="euSalesGroup"' in html
+    assert 'id="addSalesGroup"' in html
+    assert "data-sales-groups-url" in html
+
+
+def test_update_salesman_sales_group_sets_normalized_access(tmp_path):
+    app = _make_app(tmp_path)
+    _seed_salesman(app)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/admin/users", json={"email": "rep@x.com", "role": "salesman"},
+                          headers={"X-CSRF-Token": _CSRF})
+    uid = created.get_json()["id"]
+    client.post(f"/api/admin/users/{uid}/salesman-access", json={"keys": ["redwards"]},
+                headers={"X-CSRF-Token": _CSRF})
+    upd = client.put(f"/api/admin/users/{uid}", json={
+        "role": "salesman", "sales_group": "HKaufman",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert upd.status_code == 200
+    assert upd.get_json()["sales_group"] == "HKaufman"
+    keys = client.get(f"/api/admin/users/{uid}/salesman-access").get_json()["keys"]
+    assert keys == ["hkaufman"]
+
+
+def test_update_manager_sales_group_does_not_clobber_access(tmp_path):
+    app = _make_app(tmp_path)
+    _seed_salesman(app)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/admin/users", json={"email": "mgr@x.com", "role": "manager"},
+                          headers={"X-CSRF-Token": _CSRF})
+    uid = created.get_json()["id"]
+    client.post(f"/api/admin/users/{uid}/salesman-access", json={"keys": ["redwards"]},
+                headers={"X-CSRF-Token": _CSRF})
+    upd = client.put(f"/api/admin/users/{uid}", json={
+        "role": "manager", "sales_group": "HKaufman",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert upd.status_code == 200
+    keys = client.get(f"/api/admin/users/{uid}/salesman-access").get_json()["keys"]
+    assert keys == ["redwards"]
+
+
+def test_admin_salesman_access_normalizes_raw_group(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/admin/users", json={"email": "rep@x.com", "role": "salesman"},
+                          headers={"X-CSRF-Token": _CSRF})
+    uid = created.get_json()["id"]
+    scope = client.post(f"/api/admin/users/{uid}/salesman-access",
+                        json={"keys": ["HKaufman"]}, headers={"X-CSRF-Token": _CSRF})
+    assert scope.get_json()["keys"] == ["hkaufman"]
 
 
 def test_admin_salesman_active_toggle(tmp_path):
@@ -1307,6 +1392,29 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     assert mgr.get("/settings/company-schedules").status_code == 403
 
 
+def test_personal_schedules_page_uses_one_table(tmp_path):
+    app = _make_app(tmp_path)
+    avi = app.test_client()
+    _login(avi, app, email="avi@x.com", role="salesman")
+    avi.post("/api/schedules", json={
+        "saved_report_id": _named_view(avi, name="Avi view"),
+        "cadence": {"freq": "daily", "time": "09:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    heshy = app.test_client()
+    _login(heshy, app, email="heshy@x.com", role="salesman")
+    heshy.post("/api/schedules", json={
+        "saved_report_id": _named_view(heshy, name="Heshy view"),
+        "cadence": {"freq": "daily", "time": "08:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    admin = app.test_client()
+    _login(admin, app)
+    html = admin.get("/schedules").get_data(as_text=True)
+    assert html.count("ps-sched-table") == 1
+    assert html.count("ps-owner-row") == 2
+    assert "avi@x.com" in html
+    assert "heshy@x.com" in html
+
+
 def test_personal_schedule_row_has_edit(tmp_path):
     app = _make_app(tmp_path)
     c = app.test_client()
@@ -2209,7 +2317,7 @@ def _grant_clo_salesman(app, *, salesman_group):
     from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
 
     db = app.config["DB"]
-    # The salesman key must exist (user_salesman_access FKs salesmen.key).
+    # Access keys are normalized; the salesmen table is no longer required.
     SalesmanRepository(db).upsert_many([SalesmanSeed(
         raw_key=salesman_group, number="1", full_name=salesman_group,
         display_name=salesman_group)])

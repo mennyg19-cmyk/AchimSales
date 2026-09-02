@@ -263,6 +263,28 @@
 .sched-owner-head:first-child { margin-top: 0; }
 .sched-owner-head .muted { font-weight: 500; font-size: 13px; }
 
+/* One grid for every owner so Report/View/Cadence/… line up down the page. */
+.ps-sched-table { table-layout: fixed; width: 100%; }
+.ps-col-report { width: 10%; }
+.ps-col-view { width: 16%; }
+.ps-col-cadence { width: 12%; }
+.ps-col-recipients { width: 16%; }
+.ps-col-folder { width: 8%; }
+.ps-col-lastrun { width: 11%; }
+.ps-col-active { width: 6%; }
+.ps-col-actions { width: 21%; }
+.ps-sched-table td:nth-child(2),
+.ps-sched-table td:nth-child(4),
+.ps-sched-table td:nth-child(5) {
+    white-space: normal; overflow-wrap: anywhere;
+}
+.ps-owner-row td {
+    background: var(--bg); font-size: 15px; font-weight: 600; color: var(--text);
+    padding-top: 14px; padding-bottom: 14px; white-space: normal;
+}
+.ps-owner-row .muted { font-weight: 500; font-size: 13px; }
+.ps-sched-table .row-actions { flex-wrap: wrap; }
+
 .filter-run-btn { flex: 0 0 auto; align-self: flex-end; white-space: nowrap; }
 .filter-run-group { display: flex; flex: 0 0 auto; align-self: flex-end; gap: 8px; }
 
