@@ -1394,6 +1394,34 @@ function collectParams(): Record<string, unknown> {
   return out;
 }
 
+const VIEW_WINDOW_KEYS = new Set(["period", "start_date", "end_date", "from", "to"]);
+
+function collectCompanyViewParams(): Record<string, unknown> {
+  // Company schedules own YTD / MTD / yesterday. Saving the view must not
+  // stamp the period you used to preview the layout.
+  const out: Record<string, unknown> = {};
+  Object.entries(collectParams()).forEach(([key, val]) => {
+    if (!VIEW_WINDOW_KEYS.has(key)) out[key] = val;
+  });
+  return out;
+}
+
+function mapPeriodValue(raw: string): string {
+  const v = raw.trim();
+  return v.toLowerCase() === "yesterday" ? "daily" : v;
+}
+
+function periodIsRunnable(params?: Record<string, unknown> | null): boolean {
+  const p = String(params?.period || "").trim().toLowerCase();
+  if (!p) return false;
+  if (p === "custom") {
+    const start = String(params?.start_date || params?.from || "").trim();
+    const end = String(params?.end_date || params?.to || "").trim();
+    return !!(start && end);
+  }
+  return true;
+}
+
 function loadPayload(payload: Payload, render = true): void {
   state.tabs = {};
   state.order = [];
@@ -1671,10 +1699,16 @@ async function resumeInFlight(): Promise<boolean> {
 }
 
 function setToolbarEnabled(hasData: boolean): void {
-  (["refreshBtn", "resetBtn", "keepBtn", "columnsBtn", "saveViewBtn", "emailBtn", "scheduleBtn", "exportMenuBtn"] as const).forEach((id) => {
+  (["refreshBtn", "resetBtn", "keepBtn", "columnsBtn", "emailBtn", "scheduleBtn", "exportMenuBtn"] as const).forEach((id) => {
     const b = $(id) as HTMLButtonElement | null;
     if (b) b.disabled = !hasData;
   });
+  const save = $("saveViewBtn") as HTMLButtonElement | null;
+  if (save) {
+    // Company views are layout templates; schedules own YTD/MTD/yesterday.
+    // Edit must be saveable without first running a preview period.
+    save.disabled = !(hasData || (isCompanyViewId(editingPresetId) && !!editingPresetName));
+  }
   const runBtn = $("runBtn") as HTMLButtonElement | null;
   if (runBtn) runBtn.disabled = false;
 }
@@ -2151,7 +2185,13 @@ function applyDeepLink(): void {
   if (![...q.keys()].length) return;
   (["period", "status", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
-    if (el && q.has(name)) el.value = q.get(name) || "";
+    if (!el || !q.has(name)) return;
+    let v = q.get(name) || "";
+    if (name === "period") v = mapPeriodValue(v);
+    if (el.tagName === "SELECT" && v && ![...(el as HTMLSelectElement).options].some((o) => o.value === v)) {
+      return;
+    }
+    el.value = v;
   });
   // The salesman <option>s aren't loaded yet; stash the value and apply it in
   // initLookups() after the list arrives (setting .value now would be lost).
@@ -2256,6 +2296,11 @@ function serializeLayout(): SavedLayout {
   return { active: state.active, order: [...state.order], clones, views };
 }
 
+function layoutForCompanySave(): SavedLayout {
+  if (isReportShown()) return serializeLayout();
+  return pendingLayout && layoutIsUsable(pendingLayout) ? pendingLayout : serializeLayout();
+}
+
 function applyLayout(layout: SavedLayout | null): void {
   if (!layout) return;
   if (Array.isArray(layout.clones)) {
@@ -2334,7 +2379,8 @@ async function saveView(): Promise<void> {
       const res = await fetch(attr("data-company-views-url"), {
         method: "PUT", headers: csrfHeaders(),
         body: JSON.stringify({
-          name: editingPresetName, params: collectParams(), layout: serializeLayout(),
+          name: editingPresetName, params: collectCompanyViewParams(),
+          layout: layoutForCompanySave(),
         }),
       });
       if (!res.ok) throw new Error();
@@ -2390,7 +2436,13 @@ async function saveView(): Promise<void> {
 function applyParamsObject(params: Record<string, unknown>): void {
   (["period", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
-    if (el && params[name] != null) el.value = String(params[name]);
+    if (!el || params[name] == null) return;
+    let v = String(params[name]);
+    if (name === "period") v = mapPeriodValue(v);
+    if (el.tagName === "SELECT" && v && ![...(el as HTMLSelectElement).options].some((o) => o.value === v)) {
+      return;
+    }
+    el.value = v;
   });
   const statusEl = document.querySelector<HTMLSelectElement>('[name="status"]');
   if (statusEl && params.status != null) {
@@ -2495,7 +2547,10 @@ function appendPresetRow(
     edit.addEventListener("click", (ev) => {
       ev.stopPropagation();
       closePresetsPanel();
-      loadPreset(preset, { run: !isReportShown(), edit: true });
+      loadPreset(preset, {
+        run: !isReportShown() && periodIsRunnable(preset.params),
+        edit: true,
+      });
       setStatus(`Editing “${preset.name}”. Change filters or layout, then Save this view.`);
     });
     row.appendChild(edit);
@@ -2581,6 +2636,7 @@ function loadPreset(preset: {
     editingPresetName = null;
   }
   rememberNamedView(preset);
+  if (opts?.edit) setToolbarEnabled(isReportShown());
   if (opts?.run === false) {
     if (isReportShown() && pendingLayout) {
       applyLayout(pendingLayout);
@@ -2606,7 +2662,7 @@ async function autoOpenPresetIfRequested(): Promise<void> {
     if (view?.layout) pendingLayout = view.layout;
     loadedNamedView = null;
     syncScheduleButton();
-    autoRunRequested = true;
+    autoRunRequested = periodIsRunnable(view?.params);
     return;
   }
   const id = q.get("preset");

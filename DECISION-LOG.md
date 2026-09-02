@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Company Ordered views do not store a period
+**What you asked for:** Daily Ordered should group by salesman then customer. Saving the view should not require picking a period; company schedules already run YTD / MTD / yesterday.
+**What I chose:** Daily Ordered canonical params are empty (no period). PUT and the Save this view button strip period / from / to. Edit does not auto-run when there is no period, and Save stays enabled so you can keep the layout without a preview. `yesterday` on old views maps to the dropdown's `daily` (Yesterday). Heshy Open Orders still seeds `period: yesterday` for a UI preview; a save still drops the window. Grouping is Salesman then Customer Name on Summary, Salesman then CustomerName on By Customer.
+**Why:** The view is a layout template. Stamping the preview period made the Yesterday dropdown blank (`yesterday` is not an option), auto-ran an unbounded Ordered fetch, and left Save disabled until that run finished.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Salesman Excel colors follow the field, not the column letter
 **What you asked for:** Fix salesman report formatting on Excel export. Default 2 hides Sort Number and Salesman; the site still colors the month block, but Excel started the purple/green/blue bands at column E instead of C (where that same info now sits).
 **What I had to decide:** Whether to invent a formatting system for every report, or only fix salesman.

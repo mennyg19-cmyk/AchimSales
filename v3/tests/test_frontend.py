@@ -171,6 +171,14 @@ def test_report_viewer_meeting_ux():
     assert "Only managers and admins can change the Default view." in src
     assert "Only managers and admins can change company views." in src
     assert "Company views" in src
+    assert "function collectCompanyViewParams" in src
+    assert "function mapPeriodValue" in src
+    assert 'v.toLowerCase() === "yesterday" ? "daily"' in src
+    assert "function periodIsRunnable" in src
+    assert "function layoutForCompanySave" in src
+    assert "run: !isReportShown() && periodIsRunnable(preset.params)" in src
+    assert "autoRunRequested = periodIsRunnable(view?.params)" in src
+    assert "params: collectCompanyViewParams()" in src
     assert "Apply this view’s filters (does not run the report)" not in src
     cview = src.split("async function autoOpenPresetIfRequested", 1)[1].split("const id = q.get", 1)[0]
     assert "if (!view) return;" in cview

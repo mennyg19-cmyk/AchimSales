@@ -64,19 +64,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Daily Ordered salesman then customer sort
 
 **What to test:**
-- Excel Summary with Daily Ordered layout: one banner per salesman, customers A-Z (then item) inside each.
+- Excel Summary with Daily Ordered layout: salesman banner, then customer banner, customers A-Z (then item) inside each.
 - Customer-only sorters plus a Salesman group still emit consecutive salesman banners.
 - Heshy still groups by order number after a customer sort, with no customer totals.
 - Empty saved `group: []` still means ungroup (Number 4 Default).
+- PUT company view with `period: yesterday` stores params without a period.
+- `params_without_window` keeps salesman/status and drops period/from/to.
 
 **Expected behavior:**
-- Company Daily Ordered Summary and By Customer are salesman groups with customers A-Z inside. Per-rep files still drop the extra Salesman group.
+- Company Daily Ordered Summary and By Customer are salesman then customer groups, customers A-Z inside. Per-rep files still drop the extra Salesman group.
+- Company views do not store a date window; schedules own YTD / MTD / yesterday.
 
 **Edge cases:**
 - Same customer with two item numbers stays together and items sort A-Z.
 - Heshy sorter-first behavior is unchanged.
+- Front-end maps saved `yesterday` to the Yesterday dropdown (`daily`) and does not auto-run a company view with no period.
 
-**Test file:** `v3/tests/test_reporting.py`, `v3/tests/test_company_views.py`
+**Test file:** `v3/tests/test_reporting.py`, `v3/tests/test_company_views.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
 
 ## Number 4 Default group in emailed Excel
 
@@ -194,7 +198,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Expected behavior:**
 - Saved views lists Default, then company views, then personal. Wizard has a Company views optgroup. Schedules View column shows the stamped names.
-- Daily Ordered emails group Summary and By Customer by salesman, then sort customers A-Z inside each salesman. Heshy’s file is one Full Data sheet, customers together, totals per order, no LineNumber.
+- Daily Ordered emails group Summary and By Customer by salesman, then by customer (A-Z). The Daily Ordered view itself has no period. Heshy’s file is one Full Data sheet, customers together, totals per order, no LineNumber.
 
 **Edge cases:**
 - Layout `order` listing ShipDate when the column is absent does not fail (`apply_layout` skips unknown fields).

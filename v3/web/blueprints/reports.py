@@ -44,6 +44,7 @@ from web.auth.decorators import require_login
 from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.data.repositories.company_views import CompanyView, CompanyViewRepository
+from web.scheduling.company_layouts import params_without_window
 from web.data.repositories.report_defaults import (
     DEFAULT_VIEW_NAME,
     ReportDefault,
@@ -1465,7 +1466,8 @@ def put_company_view(report_key: str):
     try:
         row = _company_views_repo().upsert(
             report_key, name,
-            params=body.get("params") if isinstance(body.get("params"), dict) else {},
+            params=params_without_window(
+                body.get("params") if isinstance(body.get("params"), dict) else {}),
             layout=body.get("layout") if isinstance(body.get("layout"), dict) else {},
             updated_by=uid,
         )

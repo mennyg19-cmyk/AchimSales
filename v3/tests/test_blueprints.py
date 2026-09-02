@@ -876,6 +876,7 @@ def test_company_views_list_put_and_home_cards(tmp_path):
     assert listed["company"][0]["name"] == "Daily Ordered"
     one = client.get(f"/api/reports/ordered/company-views/{body['id']}").get_json()
     assert one["layout"]["active"] == "by_customer"
+    assert "period" not in (one.get("params") or {})
     home = client.get("/").get_data(as_text=True)
     assert "Company views" in home and "Daily Ordered" in home
     reserved = client.put(

@@ -13,6 +13,7 @@ from web.scheduling.company_layouts import (
     HESHY_OPEN_VIEW,
     is_daily_company_ordered,
     is_heshy_open_orders,
+    params_without_window,
     seed_canonical_company_views,
 )
 
@@ -98,6 +99,18 @@ def test_seed_stamps_matching_schedules_and_skips_other_views(tmp_path):
 
     views = {v.name: v for v in CompanyViewRepository(db).list_for_report("ordered")}
     assert DAILY_ORDERED_VIEW in views and HESHY_OPEN_VIEW in views
-    assert views[DAILY_ORDERED_VIEW].layout["views"]["summary"]["group"] == ["Salesman"]
+    assert views[DAILY_ORDERED_VIEW].layout["views"]["summary"]["group"] == [
+        "Salesman", "Customer Name"]
     assert views[DAILY_ORDERED_VIEW].layout["views"]["summary"]["sorters"][1]["column"] == "Customer Name"
+    assert views[DAILY_ORDERED_VIEW].params == {}
     assert views[HESHY_OPEN_VIEW].layout["views"]["full_data"]["hidden"] == ["LineNumber"]
+
+
+def test_params_without_window_drops_period_keeps_filters():
+    assert params_without_window({
+        "period": "yesterday", "start_date": "2026-01-01", "end_date": "2026-01-31",
+        "from": "2026-01-01", "to": "2026-01-31",
+        "salesman": "Hkaufman", "status": "Open order",
+    }) == {"salesman": "Hkaufman", "status": "Open order"}
+    assert params_without_window({}) == {}
+    assert params_without_window(None) == {}

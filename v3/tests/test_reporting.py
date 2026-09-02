@@ -544,13 +544,13 @@ def test_daily_ordered_layout_sorts_summary_customers_within_salesman():
     col_a = [c.value for c in wb["Summary"]["A"]]
     col_c = [c.value for c in wb["Summary"]["C"]]
     assert col_a.count("Salesman: AGrossman") == 1
-    assert col_a.index("Salesman: AGrossman") < col_a.index("Salesman: REdwards")
-    ag = col_a.index("Salesman: AGrossman")
-    assert col_c[ag + 1] == "B-1"
-    assert col_c[ag + 2] == "B-9"
-    re = col_a.index("Salesman: REdwards")
-    assert col_a[re + 1] == "AMAZON"
-    assert col_a[re + 2] == "ZEBRA"
+    assert col_a.count("Customer Name: BOSCOV'S") == 1
+    assert col_a.index("Salesman: AGrossman") < col_a.index("Customer Name: BOSCOV'S")
+    assert col_a.index("Customer Name: BOSCOV'S") < col_a.index("Salesman: REdwards")
+    bos = col_a.index("Customer Name: BOSCOV'S")
+    assert col_c[bos + 1] == "B-1"
+    assert col_c[bos + 2] == "B-9"
+    assert col_a.index("Customer Name: AMAZON") < col_a.index("Customer Name: ZEBRA")
 
 
 def test_export_sorts_then_groups_without_customer_totals():

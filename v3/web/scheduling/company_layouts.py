@@ -35,7 +35,7 @@ DAILY_ORDERED_LAYOUT = {
             ],
         },
         "summary": {
-            "group": ["Salesman"],
+            "group": ["Salesman", "Customer Name"],
             "sorters": [
                 {"column": "Salesman", "dir": "asc"},
                 {"column": "Customer Name", "dir": "asc"},
@@ -65,7 +65,7 @@ CANONICAL = (
     {
         "report_key": "ordered",
         "name": DAILY_ORDERED_VIEW,
-        "params": {"period": "yesterday"},
+        "params": {},
         "layout": DAILY_ORDERED_LAYOUT,
     },
     {
@@ -152,3 +152,14 @@ def _stamp(masters: MasterScheduleRepository, sched, view_name: str, layout: dic
     if name and name not in (DEFAULT_VIEW_NAME, CUSTOM_VIEW_NAME, view_name):
         return
     masters.set_view(sched.id, view_name, layout)
+
+
+_WINDOW_KEYS = ("period", "start_date", "end_date", "from", "to")
+
+
+def params_without_window(params: dict | None) -> dict:
+    """Company-view filters minus the date window. Schedules own YTD / MTD / yesterday."""
+    out = dict(params or {})
+    for key in _WINDOW_KEYS:
+        out.pop(key, None)
+    return out
