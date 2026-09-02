@@ -114,6 +114,14 @@ def test_salesman_uses_yoy_sp_params():
     assert "InvoiceDateFrom" not in out
 
 
+def test_salesman_dropdown_is_not_sent_as_salesmanname():
+    """The form salesman value is a SalesGroup key; the YoY SP wants a name."""
+    out = P.translate("salesman", {"year": "2026", "salesman": "REdwards"})
+    assert "SalesmanName" not in out
+    named = P.translate("salesman", {"year": "2026", "SalesmanName": "Reggie Edwards"})
+    assert named["SalesmanName"] == "Reggie Edwards"
+
+
 def test_salesman_defaults_through_month_for_current_year():
     out = P.translate("salesman", {})
     y = today_eastern().year

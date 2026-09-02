@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Salesman report gets a salesman dropdown
+**What you asked for:** The salesman report should be filterable by salesman; it should be an option.
+**What I had to decide:** Whether to send the dropdown's SalesGroup value to the YoY stored procedure as `SalesmanName`.
+**What I chose:** Show the same Salesman dropdown Ordered already uses. Do not send that SalesGroup token as `SalesmanName` (the SP wants a display name). Filter the YoY rows after fetch, matching the pick against master aliases (key, display name, full name, number) and still applying the user's salesman scope.
+**Why:** The run page only exposed Year. Company schedules already had a salesman field for this report, but the on-screen Filters bar did not. Sending `REdwards` as `SalesmanName` can return no rows when the SP stores "Reggie Edwards".
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Admins save views for other users without logging in as them
 **What you asked for:** Set up views and schedules for other people without switching into their login. A new salesman user was missing from Switch user and from salesman dropdowns. What is the salesmen table for, and why isn't users enough?
 **What I had to decide:** Whether to merge `users` and `salesmen`, whether login emails should appear in report salesman dropdowns, and where "save for someone else" lives.

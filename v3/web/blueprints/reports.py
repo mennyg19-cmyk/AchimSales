@@ -67,7 +67,7 @@ reports_bp = Blueprint("reports", __name__)
 REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "ordered": ("period", "status", "customers", "salesman"),
     "invoiced": ("period", "customers", "salesman"),
-    "salesman": ("year",),
+    "salesman": ("year", "salesman"),
     "number_4": ("n4_mode",),
     "item_averages": (),
     "customer_activity": ("salesman",),

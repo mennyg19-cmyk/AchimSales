@@ -679,6 +679,16 @@ def test_report_view_renders_status_and_customer_filters(tmp_path):
     assert 'id="salesmanSelect"' in html
 
 
+def test_salesman_report_view_has_salesman_filter(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/reports/salesman").get_data(as_text=True)
+    assert 'id="yearSelect"' in html
+    assert 'id="salesmanSelect"' in html
+    assert "All salesmen" in html
+
+
 def _with_lookups(app, rows):
     """Replace the app's LookupService with one over a configured fake client
     that returns `rows` for customer_master, and populate it synchronously."""

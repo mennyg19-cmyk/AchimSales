@@ -2,6 +2,24 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Salesman report is filterable by salesman
+
+**What to test:**
+- Salesman report Filters & options includes the same Salesman dropdown as Ordered (All salesmen + list).
+- Picking a SalesGroup keeps only that salesman's YoY rows (match display name / master aliases, not Excel column letters).
+- All salesmen (blank) keeps every in-scope row.
+- A scoped user cannot widen the report by picking someone else.
+- Form `salesman` is not sent to the YoY SP as `SalesmanName`.
+
+**Expected behavior:**
+- Run Salesman, choose a salesman, Run report → only that salesman's customers/tabs rows.
+- Company schedules that already store `salesman` keep working via the same post-filter.
+
+**Edge cases:**
+- Dropdown value is raw SalesGroup (`REdwards`); SP rows often have a display `SalesmanName`.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`, `v3/tests/test_params.py`
+
 ## Admins save views for other users; Switch user lists v3 logins
 
 **What to test:**
