@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Same agent stacks PRs; two agents get two PRs
+**What you asked for:** Put the stacking rule in Cursor rules, and on all repos. Same agent stays on the last open PR. Two agents at once use two PRs.
+**What I chose:** Wrote it in `git-discipline.mdc` (owns git). README Rule Preferences points there. Copied into MasterGenAIInstructions (master + template) so `update-all` can push it to registered local projects. This AchimSales change stays on PR 25.
+**Why:** Extra PRs were coming from Cloud Agent “new branch per task” colliding with you wanting one PR to merge.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Follow-up work stays on the open PR
 **What you asked for:** Do not open a new PR for the next small ask. Put it on PR 25 so it can merge together. You hate extra branches and PRs.
 **What I chose:** Cherry-pick the Saved views collapse onto `cursor/settings-exclusion-dropdown-0ed8` (PR 25) and close PR 26. Standing preference: while a feature PR is open, stack the next request on that same branch.
