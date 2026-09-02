@@ -16,7 +16,6 @@ from flask import (
 
 from report_engine import registry
 from web.auth.decorators import require_login
-from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.data.repositories.app_settings import AppSettingsRepository
 from web.data.repositories.exclusions import ExclusionRepository
@@ -51,7 +50,7 @@ def _require_admin():
 
 
 def _is_developer(p) -> bool:
-    return p.role == ROLE_DEVELOPER
+    return current_app.config["AUTHZ"].is_developer(p)
 
 
 @settings_bp.get("/settings")

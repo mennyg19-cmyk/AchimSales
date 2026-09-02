@@ -29,7 +29,7 @@ def adopt_live_identity():
     from flask import current_app, session
 
     from web.auth.authorization import Authorization
-    from web.auth.session import current_principal, login
+    from web.auth.session import current_principal, login, logout
     from web.data.repositories.users import UserRepository
 
     live = session.get(_LIVE_USER_KEY)
@@ -57,7 +57,6 @@ def adopt_live_identity():
         # row yet — that must still create, not log them out of Live.
         own_cookie = (not dev_email) or (email == dev_email)
         if actor is None and not own_cookie:
-            from web.auth.session import logout
             session.pop(_LIVE_USER_KEY, None)
             logout()
             return None
