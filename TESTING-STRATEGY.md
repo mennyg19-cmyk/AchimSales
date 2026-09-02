@@ -2,6 +2,19 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Only developers mint developers; Add user does not overwrite
+
+**What to test:**
+- Admin PUT own row `role=developer` is 403; DB role stays admin. Admin PUT another user to developer is 403.
+- Admin POST `/api/admin/users` with `role=developer` is 403. Developer POST the same is 201.
+- POST an email that already exists is 409, row unchanged.
+- `/impersonate` (non-beta) is 403 for admin; disabling the real developer mid-impersonation logs out.
+
+**Expected behavior:**
+- Developer is a higher tier than admin. First developers come from `V3_DEVELOPER_EMAILS` or an existing developer. Add user never silently overwrites.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_auth.py`
+
 ## Live login does not overwrite Users & access; export download re-checks scope
 
 **What to test:**

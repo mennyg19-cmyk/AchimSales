@@ -32,6 +32,22 @@ def _guard():
     return None
 
 
+def _role_edit_blocked(target, new_role: str | None):
+    """None if OK; (json, status) if the caller may not apply this role change."""
+    if new_role is None:
+        return None
+    p = current_principal()
+    if target.email == p.email and new_role != target.role:
+        return jsonify({"error": "You cannot change your own role"}), 403
+    authz = current_app.config["AUTHZ"]
+    if ((new_role == ROLE_DEVELOPER or target.role == ROLE_DEVELOPER)
+            and not authz.is_developer(p)):
+        return jsonify({
+            "error": "Only a developer can assign or change the developer role",
+        }), 403
+    return None
+
+
 def _unknown_user(user_id: int):
     """None if the user exists; 404 JSON if not."""
     if _users().get_by_id(user_id) is None:
@@ -104,6 +120,13 @@ def create_user():
     if role not in VALID_ROLES:
         return jsonify({"error": "Invalid role"}), 400
     repo = _users()
+    if repo.get_by_email(email) is not None:
+        return jsonify({"error": "User already exists; edit them instead"}), 409
+    if role == ROLE_DEVELOPER and not current_app.config["AUTHZ"].is_developer(
+            current_principal()):
+        return jsonify({
+            "error": "Only a developer can assign or change the developer role",
+        }), 403
     u = repo.create(
         email, role=role, display_name=(body.get("display_name") or "").strip(),
         is_external=bool(body.get("is_external")),
@@ -132,6 +155,9 @@ def update_user(user_id: int):
     target = repo.get_by_id(user_id)
     if target is None:
         return jsonify({"error": "Unknown user"}), 404
+    blocked_role = _role_edit_blocked(target, role)
+    if blocked_role:
+        return blocked_role
     sales_group = None
     if "sales_group" in body:
         sales_group = str(body.get("sales_group") or "").strip()

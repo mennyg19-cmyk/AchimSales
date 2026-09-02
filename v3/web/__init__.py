@@ -170,7 +170,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
     from flask import request, url_for
 
     from web.auth.principal import ROLE_SALESMAN
-    from web.auth.session import sync_role
+    from web.auth.session import sync_role, logout
 
     def _safe_url(endpoint: str, **kw) -> str:
         # A missing endpoint is logged at WARNING (not silently swallowed) so a
@@ -197,6 +197,11 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         if p is None:
             return
         try:
+            if p.impersonating:
+                real_row = users.get_by_email(p.real_email) if p.real_email else None
+                if not Authorization.is_active_developer_row(real_row):
+                    logout()
+                    return
             live = session.get("user")
             if isinstance(live, dict) and live.get("_dev"):
                 real = str(live.get("_dev_email") or "").strip().lower()

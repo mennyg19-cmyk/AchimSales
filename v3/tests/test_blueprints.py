@@ -266,6 +266,11 @@ def test_admin_user_crud_and_scope(tmp_path):
     assert upd.get_json()["dashboard_enabled"] is True
     assert upd.get_json()["can_see_company_views"] is True
 
+    denied = client.post("/api/admin/users", json={"email": "dev@x.com", "role": "developer"},
+                         headers={"X-CSRF-Token": _CSRF})
+    assert denied.status_code == 403
+
+    _login(client, app, email="devadmin@x.com", role="developer")
     dev = client.post("/api/admin/users", json={"email": "dev@x.com", "role": "developer"},
                       headers={"X-CSRF-Token": _CSRF})
     assert dev.status_code == 201 and dev.get_json()["can_see_company_views"] is True
@@ -350,6 +355,34 @@ def test_admin_report_access_tristate(tmp_path):
                 json={"report_key": "ordered", "allowed": True}, headers={"X-CSRF-Token": _CSRF})
     access = client.get(f"/api/admin/users/{uid}/report-access").get_json()["access"]
     assert access["ordered"] == "allow"
+
+
+def test_admin_cannot_mint_or_self_promote_developer(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    repo = UserRepository(app.config["DB"])
+    admin = repo.get_by_email("admin@x.com")
+    self_put = client.put(
+        f"/api/admin/users/{admin.id}", json={"role": "developer"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert self_put.status_code == 403
+    assert repo.get_by_email("admin@x.com").role == "admin"
+    other = client.post("/api/admin/users", json={
+        "email": "rep@x.com", "role": "salesman",
+    }, headers={"X-CSRF-Token": _CSRF})
+    oid = other.get_json()["id"]
+    promote = client.put(
+        f"/api/admin/users/{oid}", json={"role": "developer"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert promote.status_code == 403
+    assert repo.get_by_id(oid).role == "salesman"
+    clash = client.post("/api/admin/users", json={
+        "email": "rep@x.com", "role": "manager",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert clash.status_code == 409
 
 
 def test_admin_cannot_delete_self(tmp_path):

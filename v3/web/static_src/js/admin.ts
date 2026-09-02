@@ -256,7 +256,7 @@ async function saveUser(): Promise<void> {
 
 async function deleteUser(): Promise<void> {
   if (!editingUserId) return;
-  if (!window.confirm("Delete this user and all their saved data?")) return;
+  if (!window.confirm("Delete this user and all their saved data? To block sign-in without wiping data, Disable them instead.")) return;
   const resp = await api(`${usersUrl}/${editingUserId}`, "DELETE");
   if (resp.ok) window.location.reload();
   else setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Delete failed");

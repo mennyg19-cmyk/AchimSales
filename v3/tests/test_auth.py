@@ -366,6 +366,34 @@ def test_impersonate_start_and_end(app):
         assert s["v3_user"].get("impersonating") is not True
 
 
+def test_impersonate_denied_for_admin(app):
+    db = app.config["DB"]
+    UserRepository(db).upsert("adm@x.com", role="admin")
+    UserRepository(db).upsert("dev@x.com", role="developer")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "adm@x.com", "name": "Adm", "role": "admin", "is_dev": False}
+        s["_csrf_token"] = "t"
+    assert client.get("/impersonate").status_code == 403
+    assert client.post("/impersonate", data={"email": "dev@x.com", "csrf_token": "t"}).status_code == 403
+
+
+def test_impersonation_stops_when_real_developer_disabled(app):
+    db = app.config["DB"]
+    repo = UserRepository(db)
+    dev = repo.upsert("dev@x.com", role="developer")
+    repo.upsert("adm@x.com", role="admin")
+    client = app.test_client()
+    with client.session_transaction() as s:
+        s["v3_user"] = {"email": "dev@x.com", "name": "Dev", "role": "developer", "is_dev": True}
+        s["_csrf_token"] = "t"
+    assert client.post("/impersonate", data={"email": "adm@x.com", "csrf_token": "t"}).status_code == 302
+    repo.update(dev.id, is_active=False)
+    assert client.get("/api/admin/users").status_code == 401
+    with client.session_transaction() as s:
+        assert not s.get("v3_user")
+
+
 def test_impersonate_denied_for_non_privileged(app):
     """Non-privileged users cannot impersonate."""
     db = app.config["DB"]

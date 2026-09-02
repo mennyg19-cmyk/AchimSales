@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Only developers can assign the developer role
+**What you asked for:** Full review of the codebase using the review protocol.
+**What I had to decide:** Whether an admin on Users & access may mint a developer (including themselves), and whether Add user may overwrite an existing email.
+**What I chose:** Only a live DB developer can create or change a developer login. Nobody can change their own role. Add user returns 409 if the email already exists. `/test` impersonation is developer-only and ends if the real developer is disabled. Delete still only removes v3 data (Disable blocks sign-in); the confirm text says so.
+**Why:** Trust-boundary showed an admin could PUT themselves to developer and then write raw sqlite, and Add user ON CONFLICT wiped a developer to salesman with a 201.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Full review: v3 Users & access wins over Live cookie after first login
 **What you asked for:** Full review of the codebase using the review protocol.
 **What I had to decide:** After Users & access can rename people and set SalesGroup, whether every Live (Beta) page load should copy the Microsoft/Live cookie back onto that row.

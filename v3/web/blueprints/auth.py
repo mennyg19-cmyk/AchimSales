@@ -285,8 +285,8 @@ def impersonate_page():
     if p.impersonating:
         abort(400, description="Cannot nest impersonation; end the current session first")
     authz = current_app.config["AUTHZ"]
-    if not authz.is_privileged(p):
-        abort(403, description="Impersonation is developer/admin only")
+    if not authz.is_developer(p):
+        abort(403, description="Impersonation is developer only")
 
     users = UserRepository(_db())
     all_users = users.all_users(include_inactive=True)
@@ -307,8 +307,8 @@ def impersonate_start():
     if p.impersonating:
         abort(400, description="Cannot nest impersonation")
     authz = current_app.config["AUTHZ"]
-    if not authz.is_privileged(p):
-        abort(403, description="Impersonation is developer/admin only")
+    if not authz.is_developer(p):
+        abort(403, description="Impersonation is developer only")
 
     target_email = (request.form.get("email") or "").strip().lower()
     if not target_email:
