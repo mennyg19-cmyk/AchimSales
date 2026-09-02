@@ -151,9 +151,9 @@ Grouped by subsystem. Includes pre–2 Sep fixes still load-bearing for producti
 
 ---
 
-## Post-launch / pending at inventory time (PR #33)
+## PR #33 (merged to `main` 2026-09-02, Azure Action 33690678155 green)
 
-Not on `main` when day report written; merge before treating as live. Automated: **633 passed, 1 skipped** (Flask test client, isolated sqlite — not browser).
+Automated: **633 passed, 1 skipped** (Flask test client, isolated sqlite — not browser).
 
 **Security & login:** GET mutations blocked on precious-repair; Live adopt stops wiping v3 edits; shared active-developer check; impersonation cleanup; export scope on download; claim-once POST-only; admins cannot disable/delete developer (extends minting block).
 
@@ -247,4 +247,4 @@ Full log: `git log --oneline -150 -- v3/` from repo root.
 
 ---
 
-*Generated for live v3 go-live inventory. Update when PR #33 merges to `main` and Azure is green.*
+*Generated for live v3 go-live inventory. PR #33 is on `main`; Azure deploy 33690678155 succeeded.*
