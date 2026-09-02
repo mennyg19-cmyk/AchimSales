@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Official branch is `main`; only `main` auto-deploys
+**What you asked for:** Rename `webapp-cache` to a normal name like `main`. Explain the leftover branches and pull requests.
+**What I chose:** Official branch is `main` (same code that is on the site). Azure deploys only on push to `main`. `cursor/**` Cloud Agent branches no longer auto-deploy, because that is why the shop window kept getting replaced. Leftover `cursor/` branches are old photocopies; the Sol/Grok rewrite stays on PR #1 until we replay live onto it on purpose.
+**Why:** One official notebook. Side copies do not go live until you merge them.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Number 4 oversized mail must include a SharePoint link
 **What you asked for:** This morning's Number 4 test email said the workbook was too large and had no SharePoint link, even though that link worked in a recent test.
 **What I had to decide:** Whether to merge the Sol/Grok review rewrite (`cursor/p0-security-containment-adb6`) onto live at the same time.

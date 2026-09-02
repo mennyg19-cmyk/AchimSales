@@ -81,12 +81,12 @@ If the user says "why isn't this working," run this flow first before broad refa
 
 ### Deploy Targets
 
-<!-- e.g. Vercel project `my-app`: auto-deploy on push to `main`; preview on other branches -->
+Azure App Service `achim-sales-reports` (https://reports.achimonline.com). GitHub Action `.github/workflows/webapp-cache_achim-sales-reports.yml` on push to `main`. Manual fallback: `deploy.ps1`.
 
 ### Production Branch
 
-<!-- Which branch triggers production deploys? -->
+`main` (was `webapp-cache`). Cloud Agent `cursor/**` branches do not auto-deploy.
 
 ### Post-Deploy Checks
 
-<!-- e.g. site loads at URL; GET /api/health returns 200; sign-in → dashboard works -->
+Site loads at https://reports.achimonline.com. GitHub Action “Build and deploy Python app to Azure Web App - achim-sales-reports” is green for the `main` push.

@@ -61,17 +61,20 @@ universal_runbook.py ordered --period daily
 
 The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimonline.com).
 
-**Production branch is `webapp-cache`.** GitHub Action
-`.github/workflows/webapp-cache_achim-sales-reports.yml` deploys that branch on
-push, and also deploys `cursor/**` Cloud Agent branches to the **same production
-slot**. The last successful deploy wins, so a Cloud Agent branch can be what
-https://reports.achimonline.com is actually running while `webapp-cache` lags.
-Check the Azure workflow run for the branch on the site. Manual zip deploy is
-still `deploy.ps1`. Agent Guardrails Semgrep scans
+**Production branch is `main`.** Pushing `main` deploys
+https://reports.achimonline.com. Side branches (including Cloud Agent
+`cursor/**` work) do **not** auto-deploy; they wait for a pull request into
+`main`. Manual zip deploy is still `deploy.ps1`. Agent Guardrails Semgrep scans
 `v3/` (the home site) only, not `webapp/` (`/legacy`). It still uses
 `p/default`, but skips rules that do not match this Flask + SQLite app
 (Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,
 dynamic urllib, SHA1 cache fingerprints).
+
+**Git in one minute:** `main` is the official copy. A **branch** is a photocopy
+you can mess with. A **pull request** is “please copy this photocopy into
+`main`.” If `main` moved while you were working, you update your photocopy from
+`main` and then merge. GitHub keeps every old version of `main`, so you can
+roll back. The old name `webapp-cache` was this same official copy.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
@@ -238,7 +241,7 @@ Standing choices when rules disagree (also used by agents):
 
 | Topic | Choice |
 |-------|--------|
-| After a requested product change | **Commit + push.** `webapp-cache` and `cursor/**` pushes deploy via GitHub Action. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
+| After a requested product change | **Commit + push to `main`** (or merge a PR into `main`). Only `main` auto-deploys. Use `.\deploy.ps1` only when that Action cannot run. Do not leave finished UI/app changes sitting uncommitted/undeployed. |
 | Unrelated dirty tree | Stage only the files for this change; leave parity/scratch/other WIP alone. |
 
 ## D365 Entity Reference
