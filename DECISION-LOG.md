@@ -4,7 +4,7 @@
 **What you asked for:** Full review of the codebase using the review protocol.
 **What I had to decide:** After Users & access can rename people and set SalesGroup, whether every Live (Beta) page load should copy the Microsoft/Live cookie back onto that row.
 **What I chose:** First Live login still creates the v3 user and copies Live salesman scope — including a developer whose Live cookie has `_dev` set and no v3 row yet. After that, display name, role, SalesGroup, is_external, and salesman-access stay as set in v3. Developer tools and Switch user require a live DB `developer` row, not a `_dev` cookie. A leftover impersonation cookie after demotion is treated as the actor's own identity (or logged out if that row is gone). Export download re-checks the source run's salesman scope.
-**Why:** Loop B showed production (Beta) login was wiping admin edits, a leftover `_dev` cookie could re-promote a demoted developer, and a demoted admin could still download a company-wide workbook.
+**Why:** Loop B showed production (Beta) login was wiping admin edits, a leftover `_dev` cookie could re-promote a demoted developer, and a demoted admin could still download a company-wide workbook. Developer-only UI (including Settings beta-sources) now uses the same DB check.
 **Status:** DECIDED — shipping this change.
 
 ## 2026-09-02 Users can be renamed on Users & access
