@@ -11,8 +11,9 @@ from __future__ import annotations
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from report_engine import registry
+from report_engine.lib import salesman_key
 from web.auth.decorators import require_login
-from web.auth.principal import ROLE_ADMIN, ROLE_DEVELOPER, VALID_ROLES
+from web.auth.principal import ROLE_ADMIN, ROLE_DEVELOPER, ROLE_SALESMAN, VALID_ROLES
 from web.auth.session import current_principal
 from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
@@ -45,7 +46,13 @@ def _user_dict(u) -> dict:
         "is_active": u.is_active, "is_external": u.is_external,
         "dashboard_enabled": u.dashboard_enabled, "sharepoint_access": u.sharepoint_access,
         "test_access": u.test_access, "can_see_company_views": u.can_see_company_views,
+        "sales_group": u.sales_group,
     }
+
+
+def _sync_salesman_access_from_group(repo, user_id: int, sales_group: str) -> None:
+    key = salesman_key(sales_group)
+    repo.set_salesman_access(user_id, [key] if key else [])
 
 
 # --- page -------------------------------------------------------------------
@@ -89,13 +96,19 @@ def create_user():
         return jsonify({"error": "Valid email required"}), 400
     if role not in VALID_ROLES:
         return jsonify({"error": "Invalid role"}), 400
-    u = _users().create(email, role=role, display_name=(body.get("display_name") or "").strip(),
-                        is_external=bool(body.get("is_external")))
-    if role not in (ROLE_ADMIN, ROLE_DEVELOPER) and not _users().get_salesman_access(u.id):
+    repo = _users()
+    u = repo.create(
+        email, role=role, display_name=(body.get("display_name") or "").strip(),
+        is_external=bool(body.get("is_external")),
+        sales_group=str(body.get("sales_group") or "").strip(),
+    )
+    if role == ROLE_SALESMAN and u.sales_group:
+        _sync_salesman_access_from_group(repo, u.id, u.sales_group)
+    elif role not in (ROLE_ADMIN, ROLE_DEVELOPER) and not repo.get_salesman_access(u.id):
         matched = _salesmen().keys_for_email(email)
         if matched:
-            _users().set_salesman_access(u.id, matched)
-    return jsonify(_user_dict(u)), 201
+            repo.set_salesman_access(u.id, matched)
+    return jsonify(_user_dict(repo.get_by_id(u.id) or u)), 201
 
 
 @admin_bp.put("/api/admin/users/<int:user_id>")
@@ -109,15 +122,23 @@ def update_user(user_id: int):
     if role is not None and role not in VALID_ROLES:
         return jsonify({"error": "Invalid role"}), 400
     repo = _users()
-    if repo.get_by_id(user_id) is None:
+    target = repo.get_by_id(user_id)
+    if target is None:
         return jsonify({"error": "Unknown user"}), 404
+    sales_group = None
+    if "sales_group" in body:
+        sales_group = str(body.get("sales_group") or "").strip()
     repo.update(
         user_id, role=role,
         is_active=body.get("is_active"), is_external=body.get("is_external"),
         dashboard_enabled=body.get("dashboard_enabled"),
         sharepoint_access=body.get("sharepoint_access"), test_access=body.get("test_access"),
         can_see_company_views=body.get("can_see_company_views"),
+        sales_group=sales_group,
     )
+    new_role = role if role is not None else target.role
+    if sales_group is not None and new_role == ROLE_SALESMAN:
+        _sync_salesman_access_from_group(repo, user_id, sales_group)
     return jsonify(_user_dict(repo.get_by_id(user_id)))
 
 
@@ -160,6 +181,21 @@ def set_salesman_access(user_id: int):
         return jsonify({"error": "keys must be a list"}), 400
     _users().set_salesman_access(user_id, [str(k) for k in keys])
     return jsonify({"keys": sorted(_users().get_salesman_access(user_id))})
+
+
+@admin_bp.get("/api/admin/sales-groups")
+@require_login
+def list_sales_groups():
+    """Same salesman list as report filters (`LookupService.salesmen()`).
+
+    Privileged-only so Users & access is not tied to a report key (Ordered
+    off would 403 `/api/reports/ordered/salesmen`).
+    """
+    blocked = _guard()
+    if blocked:
+        return blocked
+    items = current_app.config["LOOKUP_SERVICE"].salesmen()
+    return jsonify({"ok": True, "items": items})
 
 
 @admin_bp.get("/api/admin/users/<int:user_id>/report-access")

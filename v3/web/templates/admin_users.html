@@ -8,11 +8,13 @@
 {% block content %}
 <div class="page-head" id="adminUsers"
      data-csrf="{{ csrf_token() }}"
-     data-users-url="{{ url_for('admin.list_users') }}">
+     data-users-url="{{ url_for('admin.list_users') }}"
+     data-sales-groups-url="{{ url_for('admin.list_sales_groups') }}"
+     data-lookup-status-url="{{ url_for('reports.lookup_status') }}">
   <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
   <h1 class="page-title">Users &amp; access</h1>
   <p class="page-subtitle">{{ users|length }} users. Roles and per-salesman scope are enforced live from the database.</p>
-  <p class="form-hint">This list is logins: who can sign in, plus their saved views and personal schedules. The Salesmen table below is the D365 salesman master (number, name, split-mail). Report salesman dropdowns are the SalesGroup values on customers, not this login list. A new hire with no customers yet will not appear there.</p>
+  <p class="form-hint">This list is logins: who can sign in, plus their saved views and personal schedules. A salesman login picks a SalesGroup from the same customer list as report filters. The Salesmen table below is still the D365 master (number, name, split-mail). A new hire with no customers yet will not appear in that dropdown.</p>
 </div>
 
 <details class="settings-card">
@@ -21,9 +23,14 @@
     <label class="auth-field"><span class="auth-label">Email</span>
       <input name="email" type="email" required placeholder="name@achimonline.com"></label>
     <label class="auth-field"><span class="auth-label">Role</span>
-      <select name="role">{% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}</select></label>
+      <select name="role" id="addRole">{% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}</select></label>
     <label class="auth-field"><span class="auth-label">Display name</span>
       <input name="display_name" type="text"></label>
+    <div id="addSalesGroupWrap" hidden>
+      <label class="auth-field"><span class="auth-label">SalesGroup</span>
+        <select name="sales_group" id="addSalesGroup"><option value="">— none —</option></select></label>
+      <p class="form-hint" id="addSalesGroupStatus">Same list as report salesman filters. Empty until that salesman has customers in D365.</p>
+    </div>
     <label class="flag-row"><input type="checkbox" name="is_external"> <span>External login</span></label>
     <button type="submit" class="btn btn-primary btn-sm">Add user</button>
     <span class="form-msg" id="addUserMsg"></span>
@@ -40,7 +47,8 @@
           data-active="{{ 1 if u.is_active else 0 }}" data-external="{{ 1 if u.is_external else 0 }}"
           data-dashboard="{{ 1 if u.dashboard_enabled else 0 }}" data-sharepoint="{{ 1 if u.sharepoint_access else 0 }}"
           data-test="{{ 1 if u.test_access else 0 }}"
-          data-company-views="{{ 1 if u.can_see_company_views else 0 }}">
+          data-company-views="{{ 1 if u.can_see_company_views else 0 }}"
+          data-sales-group="{{ u.sales_group }}">
         <td class="cell-email">{{ u.email }}</td>
         <td>{{ u.display_name or '\u2014' }}</td>
         <td>{{ role_badge(u.role) }}</td>
@@ -111,12 +119,22 @@
         <label class="flag-row"><input type="checkbox" id="euExternal"> <span>External login</span></label>
       </div>
 
-      <h4 class="settings-subhead">Per-salesman access</h4>
-      <p class="form-hint">Only applies to non-privileged roles. Admins/developers see all.</p>
-      <div class="access-grid" id="euSalesmen">
-        {% for s in salesmen %}
-        <label class="access-item"><input type="checkbox" value="{{ s.key }}"> {{ s.display_name }} ({{ s.number }})</label>
-        {% endfor %}
+      <div id="euSalesGroupWrap" hidden>
+        <h4 class="settings-subhead">SalesGroup</h4>
+        <p class="form-hint">Same list as report salesman filters (customers in D365). A new hire with no customers yet will not appear until the customer master has them.</p>
+        <label class="auth-field"><span class="auth-label">SalesGroup</span>
+          <select id="euSalesGroup"><option value="">— none —</option></select></label>
+        <p class="form-hint" id="euSalesGroupStatus"></p>
+      </div>
+
+      <div id="euSalesmenWrap">
+        <h4 class="settings-subhead">Per-salesman access</h4>
+        <p class="form-hint">Managers pick every group they can see. Admins/developers see all.</p>
+        <div class="access-grid" id="euSalesmen">
+          {% for s in salesmen %}
+          <label class="access-item"><input type="checkbox" value="{{ s.key }}"> {{ s.display_name }} ({{ s.number }})</label>
+          {% endfor %}
+        </div>
       </div>
 
       <h4 class="settings-subhead">Per-report access</h4>

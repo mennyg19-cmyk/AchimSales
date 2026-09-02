@@ -8,7 +8,17 @@
 const root = document.getElementById("adminUsers");
 const usersUrl = root?.getAttribute("data-users-url") || "";
 const csrf = root?.getAttribute("data-csrf") || "";
+const salesGroupsUrl = root?.getAttribute("data-sales-groups-url") || "";
+const lookupStatusUrl = root?.getAttribute("data-lookup-status-url") || "";
 const salesmenBase = usersUrl.replace(/\/users$/, "/salesmen");
+
+type SalesGroupRow = { key: string; name: string };
+let salesGroups: SalesGroupRow[] = [];
+let lookupPollTimer: number | null = null;
+
+function salesmanKey(sg: string): string {
+  return sg.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
 
 function headers(): Record<string, string> {
   return { "Content-Type": "application/json", "X-CSRF-Token": csrf };
@@ -40,16 +50,127 @@ function initSearch(): void {
 }
 
 // --- add user ---------------------------------------------------------------
+function setHidden(id: string, hidden: boolean): void {
+  const el = $(id);
+  if (el) el.hidden = hidden;
+}
+
+function syncAddRole(role: string): void {
+  setHidden("addSalesGroupWrap", role !== "salesman");
+}
+
+function syncEditRole(role: string): void {
+  setHidden("euSalesGroupWrap", role !== "salesman");
+  setHidden("euSalesmenWrap", role !== "manager");
+}
+
+function fillSalesGroupSelect(sel: HTMLSelectElement | null, keep: string): void {
+  if (!sel) return;
+  const want = keep || sel.value;
+  sel.innerHTML = '<option value="">— none —</option>';
+  salesGroups.forEach((r) => {
+    const o = document.createElement("option");
+    o.value = r.key;
+    o.textContent = r.name;
+    sel.appendChild(o);
+  });
+  if (want && ![...sel.options].some((o) => o.value === want)) {
+    const o = document.createElement("option");
+    o.value = want;
+    o.textContent = want;
+    sel.appendChild(o);
+  }
+  if (!want) {
+    sel.value = "";
+    return;
+  }
+  if ([...sel.options].some((o) => o.value === want)) {
+    sel.value = want;
+    return;
+  }
+  const nk = salesmanKey(want);
+  const byNorm = [...sel.options].find((o) => o.value && salesmanKey(o.value) === nk);
+  if (byNorm) sel.value = byNorm.value;
+}
+
+function setSalesGroupStatus(text: string): void {
+  ["addSalesGroupStatus", "euSalesGroupStatus"].forEach((id) => {
+    const el = $(id);
+    if (el) el.textContent = text;
+  });
+}
+
+async function loadSalesGroups(): Promise<number> {
+  if (!salesGroupsUrl) return 0;
+  try {
+    const resp = await fetch(salesGroupsUrl);
+    if (!resp.ok) return 0;
+    const data = await resp.json().catch(() => ({}));
+    const items = Array.isArray(data.items) ? data.items : [];
+    salesGroups = items.filter((r: SalesGroupRow) => r && r.key);
+  } catch {
+    return 0;
+  }
+  const keepEdit = ($("euSalesGroup") as HTMLSelectElement | null)?.value || "";
+  fillSalesGroupSelect($("addSalesGroup") as HTMLSelectElement, "");
+  fillSalesGroupSelect($("euSalesGroup") as HTMLSelectElement, keepEdit);
+  return salesGroups.length;
+}
+
+function pollSalesGroups(): void {
+  if (!lookupStatusUrl) return;
+  const tick = async () => {
+    try {
+      const resp = await fetch(lookupStatusUrl);
+      if (!resp.ok) return;
+      const s = await resp.json().catch(() => ({}));
+      const ready = s.status === "ready"
+        || (s.cached_row_count || 0) > 0
+        || (s.mirror_row_count || 0) > 0;
+      if (ready) {
+        if (lookupPollTimer != null) {
+          window.clearInterval(lookupPollTimer);
+          lookupPollTimer = null;
+        }
+        setSalesGroupStatus("");
+        await loadSalesGroups();
+        return;
+      }
+      if (s.status === "loading") setSalesGroupStatus("Loading SalesGroups…");
+      else if (s.status === "error") setSalesGroupStatus("Customer master still warming — retrying…");
+      else if (s.configured === false) setSalesGroupStatus("");
+    } catch {
+      /* retry on the next tick */
+    }
+  };
+  tick();
+  lookupPollTimer = window.setInterval(tick, 2500);
+}
+
+function initSalesGroups(): void {
+  loadSalesGroups().then((count) => {
+    if (count > 0) return;
+    pollSalesGroups();
+  }).catch(() => {
+    setSalesGroupStatus("Could not load SalesGroups.");
+  });
+}
+
 function initAddUser(): void {
   const form = $("addUserForm") as HTMLFormElement | null;
   const msg = $("addUserMsg");
   if (!form) return;
+  const roleSel = $("addRole") as HTMLSelectElement | null;
+  roleSel?.addEventListener("change", () => syncAddRole(roleSel.value));
+  if (roleSel) syncAddRole(roleSel.value);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
+    const role = String(fd.get("role") || "");
     const resp = await api(usersUrl, "POST", {
-      email: fd.get("email"), role: fd.get("role"),
+      email: fd.get("email"), role,
       display_name: fd.get("display_name"), is_external: fd.get("is_external") === "on",
+      sales_group: role === "salesman" ? fd.get("sales_group") : "",
     });
     if (resp.ok) {
       window.location.reload();
@@ -66,13 +187,17 @@ function openUserModal(tr: HTMLTableRowElement): void {
   editingUserId = tr.dataset.userId || "";
   const title = $("editUserTitle");
   if (title) title.textContent = `Edit ${tr.dataset.email}`;
-  (($("euRole") as HTMLSelectElement)).value = tr.dataset.role || "salesman";
+  const role = tr.dataset.role || "salesman";
+  (($("euRole") as HTMLSelectElement)).value = role;
   (($("euActive") as HTMLInputElement)).checked = tr.dataset.active === "1";
   (($("euDashboard") as HTMLInputElement)).checked = tr.dataset.dashboard === "1";
   (($("euSharepoint") as HTMLInputElement)).checked = tr.dataset.sharepoint === "1";
   (($("euTest") as HTMLInputElement)).checked = tr.dataset.test === "1";
   (($("euCompanyViews") as HTMLInputElement)).checked = tr.dataset.companyViews === "1";
   (($("euExternal") as HTMLInputElement)).checked = tr.dataset.external === "1";
+  syncEditRole(role);
+  let keepGroup = tr.dataset.salesGroup || "";
+  fillSalesGroupSelect($("euSalesGroup") as HTMLSelectElement, keepGroup);
 
   // Load current per-salesman + per-report access so the modal reflects the
   // user's live state (rather than blank defaults).
@@ -84,6 +209,8 @@ function openUserModal(tr: HTMLTableRowElement): void {
     document.querySelectorAll<HTMLInputElement>("#euSalesmen input").forEach((c) => {
       c.checked = keys.includes(c.value);
     });
+    if (!keepGroup && keys.length === 1) keepGroup = keys[0];
+    fillSalesGroupSelect($("euSalesGroup") as HTMLSelectElement, keepGroup);
     const access: Record<string, string> = reports.access || {};
     document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select").forEach((sel) => {
       sel.value = access[sel.getAttribute("data-report") || ""] || "inherit";
@@ -96,21 +223,26 @@ function openUserModal(tr: HTMLTableRowElement): void {
 
 async function saveUser(): Promise<void> {
   if (!editingUserId) return;
+  const role = (($("euRole") as HTMLSelectElement)).value;
+  const salesGroup = (($("euSalesGroup") as HTMLSelectElement | null))?.value || "";
   const resp = await api(`${usersUrl}/${editingUserId}`, "PUT", {
-    role: (($("euRole") as HTMLSelectElement)).value,
+    role,
     is_active: checked("euActive"), dashboard_enabled: checked("euDashboard"),
     sharepoint_access: checked("euSharepoint"), test_access: checked("euTest"),
     can_see_company_views: checked("euCompanyViews"),
     is_external: checked("euExternal"),
+    sales_group: role === "salesman" ? salesGroup : "",
   });
   if (!resp.ok) {
     setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
     return;
   }
-  const keys = Array.from(
-    document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
-  ).map((c) => c.value);
-  await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+  if (role === "manager") {
+    const keys = Array.from(
+      document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
+    ).map((c) => c.value);
+    await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+  }
 
   const reportPosts = Array.from(
     document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
@@ -197,7 +329,8 @@ function initEvents(): void {
   $("euDelete")?.addEventListener("click", deleteUser);
   $("esSave")?.addEventListener("click", saveSm);
   $("euRole")?.addEventListener("change", () => {
-    const role = ($("euRole") as HTMLSelectElement | null)?.value;
+    const role = ($("euRole") as HTMLSelectElement | null)?.value || "";
+    syncEditRole(role);
     const box = $("euCompanyViews") as HTMLInputElement | null;
     if (role === "developer" && box) box.checked = true;
   });
@@ -207,6 +340,7 @@ if (root) {
   document.addEventListener("DOMContentLoaded", () => {
     initSearch();
     initAddUser();
+    initSalesGroups();
     initSalesmen();
     initEvents();
   });

@@ -82,12 +82,18 @@
 
 {% if schedules %}
 <div id="schedulesRoot" data-csrf="{{ csrf_token() }}">
-    {% for g in schedule_groups %}
-    {% if is_privileged %}
-    <h3 class="sched-owner-head">{{ g.owner_name }} <span class="muted">{{ g.owner_email }}</span></h3>
-    {% endif %}
     <div class="table-wrap">
-    <table class="data-table">
+    <table class="data-table ps-sched-table">
+        <colgroup>
+            <col class="ps-col-report">
+            <col class="ps-col-view">
+            <col class="ps-col-cadence">
+            <col class="ps-col-recipients">
+            <col class="ps-col-folder">
+            <col class="ps-col-lastrun">
+            <col class="ps-col-active">
+            <col class="ps-col-actions">
+        </colgroup>
         <thead>
             <tr>
                 <th>Report</th><th>View</th><th>Cadence</th><th>Recipients</th><th>Folder</th>
@@ -95,6 +101,12 @@
             </tr>
         </thead>
         <tbody>
+            {% for g in schedule_groups %}
+            {% if is_privileged %}
+            <tr class="ps-owner-row">
+                <td colspan="8">{{ g.owner_name }} <span class="muted">{{ g.owner_email }}</span></td>
+            </tr>
+            {% endif %}
             {% for s in g.schedules %}
             <tr data-id="{{ s.id }}"
                 data-kind="personal"
@@ -136,10 +148,10 @@
                 </td>
             </tr>
             {% endfor %}
+            {% endfor %}
         </tbody>
     </table>
     </div>
-    {% endfor %}
 </div>
 {% else %}
 <div class="empty-state" id="psEmpty">

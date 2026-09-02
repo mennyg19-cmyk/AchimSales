@@ -78,6 +78,12 @@ roll back. The old name `webapp-cache` was retired after `main` became default.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
+On Users & access, a **salesman** login picks a **SalesGroup** from the same
+customer-master list as report salesman filters (not the Salesmen table).
+Managers still use the per-salesman checkboxes. The Salesmen table still holds
+number, names, split-mail, and commission. A new hire with no customers yet
+will not appear in that dropdown until D365 has them on a customer.
+
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and
 developers always see and can create, edit, and delete those views (Save for

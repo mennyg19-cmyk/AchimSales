@@ -56,6 +56,36 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`, `v3/tests/test_params.py`
 
+## Salesman login has a SalesGroup dropdown from report lookups
+
+**What to test:**
+- `GET /api/admin/sales-groups` (privileged) returns the same keys as `LookupService.salesmen()` / report salesman filters. Salesman callers get 403.
+- Creating a salesman with `sales_group=HKaufman` stores the raw group and grants normalized access `hkaufman` even when that key is not in `salesmen`.
+- Updating a salesman SalesGroup replaces access; updating a manager with `sales_group` does not clobber checkbox access.
+- `user_salesman_access` still FKs `users`, not `salesmen`. Direct access POST normalizes raw keys.
+- Live user copy grants a salesman_key that is not in `salesmen`.
+- Users & access template has `#addSalesGroup`, `#euSalesGroup`, `data-sales-groups-url`, `data-lookup-status-url`.
+
+**Expected behavior:**
+- Report filters and the user dropdown share customer_master SalesGroup values, not the salesmen table. Managers still use the checkbox grid.
+
+**Edge cases:**
+- Empty SalesGroup on a salesman clears access.
+- Email auto-grant still runs when SalesGroup is omitted.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_data_layer.py`, `v3/tests/test_frontend.py`, `v3/tests/test_seed_developers.py`
+
+## Personal schedules columns line up across owners
+
+**What to test:**
+- Admin `/schedules` with two owners is one `ps-sched-table` and two `ps-owner-row` banners.
+- Template has `table-layout: fixed` colgroup.
+
+**Expected behavior:**
+- Report / View / Cadence / Recipients / Folder / Last run / Active / Actions share one grid. Owner names are banner rows, not separate tables.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## Admins save views for other users; Switch user lists v3 logins
 
 **What to test:**
