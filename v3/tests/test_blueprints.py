@@ -195,9 +195,10 @@ def test_run_poll_result_export_flow(tmp_path):
     assert xlsx.status_code == 200
     assert xlsx.data[:2] == b"PK"  # xlsx is a zip
 
-    admin = UserRepository(app.config["DB"]).get_by_email("admin@x.com")
-    UserRepository(app.config["DB"]).update(admin.id, role="salesman")
-    UserRepository(app.config["DB"]).set_salesman_access(admin.id, ["hkaufman"])
+    users = UserRepository(app.config["DB"])
+    admin = users.get_by_email("admin@x.com")
+    users.update(admin.id, role="salesman")
+    users.set_salesman_access(admin.id, ["hkaufman"])
     with client.session_transaction() as s:
         s["v3_user"] = {
             "email": "admin@x.com", "name": "Admin", "role": "salesman", "is_dev": False,

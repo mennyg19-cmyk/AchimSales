@@ -279,7 +279,7 @@ def _assert_scope_compatible(p, job):
 
 
 def _export_source_job(export_job):
-    sid = (export_job.params or {}).get("source_job_id")
+    sid = export_job.params.get("source_job_id")
     return _job_repo().get(sid) if sid else None
 
 
@@ -642,8 +642,8 @@ def list_exports():
     # metadata/titles (download is already owner+authz gated separately).
     jobs = [j for j in _job_repo().list_for_user(uid, limit=100)
             if j.type == EXPORT_JOB_TYPE
-            and authz.can_view_report(p, j.params.get("report_key", ""))][:15]
-    jobs = [j for j in jobs if _export_in_scope(p, j)]
+            and authz.can_view_report(p, j.params.get("report_key", ""))
+            and _export_in_scope(p, j)][:15]
     metas = _exports().metas_for([j.id for j in jobs if j.status == "success"])
     titles = {s.key: s.title for s in registry.built_reports()}
     out = []
@@ -1209,11 +1209,8 @@ def precious_repair_diagnostic():
     p = _require_developer_principal()
     db = current_app.config["DB"]
     body = request.get_json(silent=True) or {}
-    action = (request.args.get("action") or body.get("action") or "check")
-    if isinstance(action, str):
-        action = action.strip() or "check"
-    else:
-        action = "check"
+    raw = request.args.get("action") or body.get("action") or "check"
+    action = raw.strip() if isinstance(raw, str) else ""
     if request.method == "GET" and action != "check":
         return jsonify({
             "error": "Mutating repair actions require POST",
