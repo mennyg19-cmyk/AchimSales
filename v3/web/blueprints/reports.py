@@ -41,7 +41,6 @@ from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
-from web.auth.principal import ROLE_DEVELOPER
 from web.auth.session import current_principal
 from web.data.repositories.company_views import CompanyView, CompanyViewRepository
 from web.scheduling.company_layouts import params_without_window
@@ -265,6 +264,10 @@ def _job_scope_ok(p, job) -> bool:
     return normalized_job.issubset(normalized_current)
 
 
+def _deny_result_scope():
+    abort(403, description="Result scope exceeds your current access; please re-run")
+
+
 def _assert_scope_compatible(p, job):
     """Deny if the user's current scope is narrower than the job's build scope.
 
@@ -272,12 +275,17 @@ def _assert_scope_compatible(p, job):
     they can no longer access (e.g. admin -> salesman demotion).
     """
     if not _job_scope_ok(p, job):
-        abort(403, description="Result scope exceeds your current access; please re-run")
+        _deny_result_scope()
 
 
 def _export_source_job(export_job):
     sid = (export_job.params or {}).get("source_job_id")
     return _job_repo().get(sid) if sid else None
+
+
+def _export_in_scope(p, export_job) -> bool:
+    source = _export_source_job(export_job)
+    return source is not None and _job_scope_ok(p, source)
 
 
 def _selected_customer_accounts(params: dict) -> list[str]:
@@ -366,7 +374,7 @@ def report_view(report_key: str):
         filters=REPORT_FILTERS.get(report_key, ()), period_options=PERIOD_OPTIONS,
         status_options=STATUS_OPTIONS, year_options=_year_options(),
         n4_mode_options=N4_MODE_OPTIONS,
-        is_developer=(p.role == ROLE_DEVELOPER),
+        is_developer=authz.is_developer(p),
         is_privileged=authz.is_privileged(p),
         user_email=p.email,
         user_name=p.name or p.email,
@@ -604,9 +612,8 @@ def download_export(export_id: str):
     if job.type != EXPORT_JOB_TYPE:
         abort(404, description="Unknown export")
     _authz().assert_report_runnable(p, job.params.get("report_key"))
-    source = _export_source_job(job)
-    if source is None or not _job_scope_ok(p, source):
-        abort(403, description="Result scope exceeds your current access; please re-run")
+    if not _export_in_scope(p, job):
+        _deny_result_scope()
     if job.status != "success":
         abort(409, description="Export is not ready yet")
     found = _exports().content(export_id)
@@ -636,12 +643,7 @@ def list_exports():
     jobs = [j for j in _job_repo().list_for_user(uid, limit=100)
             if j.type == EXPORT_JOB_TYPE
             and authz.can_view_report(p, j.params.get("report_key", ""))][:15]
-    scoped = []
-    for j in jobs:
-        source = _export_source_job(j)
-        if source is not None and _job_scope_ok(p, source):
-            scoped.append(j)
-    jobs = scoped
+    jobs = [j for j in jobs if _export_in_scope(p, j)]
     metas = _exports().metas_for([j.id for j in jobs if j.status == "success"])
     titles = {s.key: s.title for s in registry.built_reports()}
     out = []

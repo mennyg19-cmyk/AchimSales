@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
+from web.auth.principal import ROLE_ADMIN, ROLE_DEVELOPER, VALID_ROLES
+
 log = logging.getLogger(__name__)
 
 _LIVE_USER_KEY = "user"
@@ -26,7 +28,8 @@ def adopt_live_identity():
     """If Live session has a user, adopt it (or refresh if they switched user)."""
     from flask import current_app, session
 
-    from web.auth.principal import VALID_ROLES, Principal
+    from web.auth.principal import Principal
+    from web.auth.authorization import Authorization
     from web.auth.session import current_principal, login
     from web.data.repositories.users import UserRepository
 
@@ -40,13 +43,13 @@ def adopt_live_identity():
     role = str(live.get("role") or "salesman").strip().lower()
     if role not in VALID_ROLES:
         role = "salesman"
-    cookie_dev = bool(live.get("_dev")) or role == "developer"
+    cookie_dev = bool(live.get("_dev")) or role == ROLE_DEVELOPER
     dev_email = str(live.get("_dev_email") or "").strip().lower()
 
     db = current_app.config["DB"]
     users = UserRepository(db)
     actor = users.get_by_email(dev_email) if dev_email else None
-    still_dev = bool(actor and actor.is_active and actor.role == "developer")
+    still_dev = Authorization.is_active_developer_row(actor)
     is_dev = still_dev
     impersonating = still_dev and bool(dev_email) and email != dev_email
     if cookie_dev and not still_dev:
@@ -76,10 +79,9 @@ def adopt_live_identity():
 
     user = users.get_by_email(email)
     if user is None:
-        persist_role = role if role in VALID_ROLES else "salesman"
-        user = users.create(email, role=persist_role, display_name=display)
-        if persist_role not in ("admin", "developer"):
-            _sync_salesman_scope(users, user.id, live, email, persist_role)
+        user = users.create(email, role=role, display_name=display)
+        if role not in (ROLE_ADMIN, ROLE_DEVELOPER):
+            _sync_salesman_scope(users, user.id, live, email, role)
     elif not impersonating and not (user.display_name or "").strip() and display.strip():
         users.update(user.id, display_name=display)
         user = users.get_by_id(user.id) or user
@@ -111,7 +113,7 @@ def adopt_live_identity():
 
 def _sync_salesman_scope(users, user_id: int, live: dict, email: str, role: str) -> None:
     """Copy Live salesman visibility into Beta's user_salesman_access."""
-    if role in ("admin", "developer"):
+    if role in (ROLE_ADMIN, ROLE_DEVELOPER):
         return
     keys: list[str] = []
     sm = (live.get("salesman_key") or "").strip()

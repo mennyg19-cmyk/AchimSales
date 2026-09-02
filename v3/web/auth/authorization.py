@@ -54,8 +54,11 @@ class Authorization:
 
     def is_developer(self, p: Principal | None) -> bool:
         """Live DB role is developer. Never the session/cookie role."""
-        u = self._active_user(p)
-        return bool(u and u.role == ROLE_DEVELOPER)
+        return self.is_active_developer_row(self._active_user(p))
+
+    @staticmethod
+    def is_active_developer_row(user: User | None) -> bool:
+        return bool(user and user.is_active and user.role == ROLE_DEVELOPER)
 
     def can_see_company_schedules(self, p: Principal | None) -> bool:
         """Admins, developers, and managers see the shared company list."""

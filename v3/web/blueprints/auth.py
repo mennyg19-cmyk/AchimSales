@@ -19,7 +19,8 @@ from flask import (
 )
 
 from web.auth import msal_flow
-from web.auth.principal import ROLE_DEVELOPER, VALID_ROLES, Principal
+from web.auth.principal import VALID_ROLES, Principal
+from web.auth.authorization import Authorization
 from web.auth.session import login, logout
 from web.data.repositories.users import User, UserRepository
 
@@ -187,7 +188,7 @@ def role_picker():
     live = session.get("user") if isinstance(session.get("user"), dict) else {}
     dev_email = str(live.get("_dev_email") or p.real_email or p.email).strip().lower()
     actor = UserRepository(_db()).get_by_email(dev_email)
-    if actor is None or not actor.is_active or actor.role != ROLE_DEVELOPER:
+    if not Authorization.is_active_developer_row(actor):
         return redirect(url_for("reports.reports_list"))
     raw_name = str(live.get("_dev_name") or p.real_name or p.name)
     dev_name = raw_name.split(" (as ")[0] if " (as " in raw_name else raw_name
