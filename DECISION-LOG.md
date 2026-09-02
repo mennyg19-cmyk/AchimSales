@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Users can be renamed on Users & access
+**What you asked for:** Users need to be possible to be renamed. Don't know why that's closed up.
+**What I had to decide:** Whether rename is the login email or the display name, and whether Entra login / live-directory seed should overwrite an admin rename.
+**What I chose:** Display name only (email stays the login). Edit user gets the same Display name field as Add user. PUT `/api/admin/users/<id>` accepts `display_name`. Login upsert and live copy fill a blank name only; they keep a name already set in v3.
+**Why:** The edit modal never had a name field, and PUT ignored `display_name`. Entra login and boot seed used to write the Microsoft/live name on every pass, so a rename would not stick.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Admins and developers manage company views and schedule Default
 **What you asked for:** Admins and developers should create, edit, and delete company views, and schedule from Default.
 **What I had to decide:** Whether the Company views flag still gates admins, and whether Default is a personal schedule or a company schedule.
