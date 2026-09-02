@@ -12,8 +12,9 @@ user's salesman_key is mapped into v3's `user_salesman_access` (normalized).
 The access table no longer FKs `salesmen`, so a Live key still grants even when
 that group has no v3 salesman row.
 
-Mirror semantics: re-running updates role/flags/display_name to match live, so
-live remains the source of truth for who can sign in. Explicit env admins
+Mirror semantics: re-running updates role/flags to match live, so live remains
+the source of truth for who can sign in. A v3 display name already set (Users
+& access rename) is kept; live only fills a blank name. Explicit env admins
 (V3_ADMIN_EMAILS) are applied *after* this and always win.
 """
 
@@ -86,7 +87,9 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
                 " is_external, dashboard_enabled, can_see_company_views)"
                 " VALUES (?, ?, ?, 1, ?, ?, ?)"
                 " ON CONFLICT(email) DO UPDATE SET"
-                "   display_name=excluded.display_name,"
+                "   display_name=CASE"
+                "     WHEN users.display_name IS NULL OR users.display_name = ''"
+                "     THEN excluded.display_name ELSE users.display_name END,"
                 "   role=excluded.role,"
                 "   is_external=excluded.is_external,"
                 "   dashboard_enabled=excluded.dashboard_enabled",

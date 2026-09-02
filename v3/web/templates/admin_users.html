@@ -107,6 +107,8 @@
     <div class="modal-head"><h3 id="editUserTitle">Edit user</h3>
       <button type="button" class="modal-close" data-close-user>&times;</button></div>
     <div class="modal-body">
+      <label class="auth-field"><span class="auth-label">Display name</span>
+        <input id="euDisplay" type="text"></label>
       <label class="auth-field"><span class="auth-label">Role</span>
         <select id="euRole">{% for r in roles %}<option value="{{ r }}">{{ r|title }}</option>{% endfor %}</select></label>
       <div class="flag-list" style="margin-top:12px;">

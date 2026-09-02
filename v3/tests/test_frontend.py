@@ -316,6 +316,14 @@ def test_admin_users_has_company_views_flag():
     assert 'role === "developer"' in src
 
 
+def test_admin_users_edit_modal_has_display_name():
+    html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
+    assert 'id="euDisplay"' in html
+    src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
+    assert 'display_name: (($("euDisplay") as HTMLInputElement)).value.trim()' in src
+    assert "tr.dataset.name" in src
+
+
 def test_admin_users_has_sales_group_dropdown():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euSalesGroup"' in html

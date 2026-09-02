@@ -54,6 +54,26 @@ def test_user_upsert_round_trip(db):
     assert repo.get_by_email("test@example.com").id == u.id
 
 
+def test_user_update_renames_display_name(db):
+    repo = UserRepository(db)
+    u = repo.create("rep@x.com", role="salesman", display_name="Old")
+    repo.update(u.id, display_name="New Name")
+    assert repo.get_by_id(u.id).display_name == "New Name"
+    repo.update(u.id, role="manager")
+    assert repo.get_by_id(u.id).display_name == "New Name"
+
+
+def test_user_upsert_keeps_existing_display_name(db):
+    repo = UserRepository(db)
+    repo.upsert("rep@x.com", display_name="Admin Name", role="salesman")
+    again = repo.upsert("rep@x.com", display_name="Entra Name", role="salesman")
+    assert again.display_name == "Admin Name"
+    empty = repo.create("blank@x.com", role="salesman", display_name="")
+    filled = repo.upsert("blank@x.com", display_name="From Login")
+    assert empty.id == filled.id
+    assert filled.display_name == "From Login"
+
+
 def test_sales_group_and_access_without_salesmen_row(db):
     repo = UserRepository(db)
     u = repo.create("rep@x.com", role="salesman", sales_group="HKaufman")

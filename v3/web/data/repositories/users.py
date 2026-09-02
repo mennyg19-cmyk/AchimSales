@@ -57,7 +57,10 @@ class UserRepository:
                 "INSERT INTO users(email, display_name, role, can_see_company_views)"
                 " VALUES (?, ?, ?, ?)"
                 " ON CONFLICT(email) DO UPDATE SET"
-                "   display_name=excluded.display_name WHERE excluded.display_name <> ''",
+                "   display_name=CASE"
+                "     WHEN users.display_name IS NULL OR users.display_name = ''"
+                "     THEN excluded.display_name ELSE users.display_name END"
+                "   WHERE excluded.display_name <> ''",
                 (email, display_name, role, views_flag),
             )
             row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
@@ -110,13 +113,17 @@ class UserRepository:
         return User.from_row(row)
 
     def update(self, user_id: int, *, role: str | None = None,
+               display_name: str | None = None,
                sales_group: str | None = None, **flags: bool) -> None:
-        """Update role, SalesGroup, and/or any boolean flags. Unknown flag names are ignored."""
+        """Update role, display name, SalesGroup, and/or any boolean flags. Unknown flag names are ignored."""
         sets: list[str] = []
         vals: list[object] = []
         if role is not None:
             sets.append("role = ?")
             vals.append(role)
+        if display_name is not None:
+            sets.append("display_name = ?")
+            vals.append(display_name.strip())
         if sales_group is not None:
             sets.append("sales_group = ?")
             vals.append(sales_group.strip())

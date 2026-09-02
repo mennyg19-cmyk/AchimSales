@@ -187,6 +187,7 @@ function openUserModal(tr: HTMLTableRowElement): void {
   editingUserId = tr.dataset.userId || "";
   const title = $("editUserTitle");
   if (title) title.textContent = `Edit ${tr.dataset.email}`;
+  (($("euDisplay") as HTMLInputElement)).value = tr.dataset.name || "";
   const role = tr.dataset.role || "salesman";
   (($("euRole") as HTMLSelectElement)).value = role;
   (($("euActive") as HTMLInputElement)).checked = tr.dataset.active === "1";
@@ -226,6 +227,7 @@ async function saveUser(): Promise<void> {
   const role = (($("euRole") as HTMLSelectElement)).value;
   const salesGroup = (($("euSalesGroup") as HTMLSelectElement | null))?.value || "";
   const resp = await api(`${usersUrl}/${editingUserId}`, "PUT", {
+    display_name: (($("euDisplay") as HTMLInputElement)).value.trim(),
     role,
     is_active: checked("euActive"), dashboard_enabled: checked("euDashboard"),
     sharepoint_access: checked("euSharepoint"), test_access: checked("euTest"),

@@ -128,8 +128,11 @@ def update_user(user_id: int):
     sales_group = None
     if "sales_group" in body:
         sales_group = str(body.get("sales_group") or "").strip()
+    display_name = None
+    if "display_name" in body:
+        display_name = str(body.get("display_name") or "").strip()
     repo.update(
-        user_id, role=role,
+        user_id, role=role, display_name=display_name,
         is_active=body.get("is_active"), is_external=body.get("is_external"),
         dashboard_enabled=body.get("dashboard_enabled"),
         sharepoint_access=body.get("sharepoint_access"), test_access=body.get("test_access"),

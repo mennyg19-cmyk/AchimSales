@@ -266,6 +266,27 @@ def test_admin_user_crud_and_scope(tmp_path):
     assert deleted.status_code == 200
 
 
+def test_admin_can_rename_user(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/admin/users", json={
+        "email": "rep@x.com", "role": "salesman", "display_name": "Old",
+    }, headers={"X-CSRF-Token": _CSRF})
+    uid = created.get_json()["id"]
+    renamed = client.put(f"/api/admin/users/{uid}", json={"display_name": "  New Name  "},
+                         headers={"X-CSRF-Token": _CSRF})
+    assert renamed.status_code == 200
+    assert renamed.get_json()["display_name"] == "New Name"
+    leftover = client.put(f"/api/admin/users/{uid}", json={"role": "manager"},
+                          headers={"X-CSRF-Token": _CSRF})
+    assert leftover.status_code == 200
+    assert leftover.get_json()["display_name"] == "New Name"
+    html = client.get("/admin/users").get_data(as_text=True)
+    assert 'id="euDisplay"' in html
+    assert "New Name" in html
+
+
 def test_create_user_links_matching_salesman_email(tmp_path):
     app = _make_app(tmp_path)
     from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed

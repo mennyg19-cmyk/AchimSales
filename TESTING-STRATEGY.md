@@ -2,6 +2,23 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Users can be renamed on Users & access
+
+**What to test:**
+- PUT `/api/admin/users/<id>` with `display_name` updates the stored name (trimmed). Omitting the key leaves the name.
+- Edit user modal has `#euDisplay`; save sends `display_name`.
+- Login `upsert` and live-user copy do not overwrite a non-empty v3 display name.
+
+**Expected behavior:**
+- Edit a login, change Display name, Save. The Name column shows the new value. Email stays the login identity.
+- Next Entra/dev login and next live-directory seed keep that name.
+
+**Edge cases:**
+- Empty `display_name` on PUT clears the name (table shows a dash; later login can fill it).
+- Add user already had Display name; this only opens Edit.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_data_layer.py`, `v3/tests/test_frontend.py`, `v3/tests/test_seed_developers.py`
+
 ## Admins and developers manage company views and schedule Default
 
 **What to test:**

@@ -77,6 +77,12 @@ def test_copy_live_users_sets_developer_flag_on_insert_only(tmp_path):
          "display_name": "Dev", "dashboard_enabled": 1, "is_external": 0},
     ])
     assert users.get_by_email("dev@x.com").can_see_company_views is False
+    users.update(users.get_by_email("dev@x.com").id, display_name="Renamed Dev")
+    copy_live_users(db, [
+        {"email": "dev@x.com", "role": "developer", "salesman_key": None,
+         "display_name": "Dev", "dashboard_enabled": 1, "is_external": 0},
+    ])
+    assert users.get_by_email("dev@x.com").display_name == "Renamed Dev"
 
 
 def test_copy_live_users_grants_salesman_key_without_salesmen_row(tmp_path):
