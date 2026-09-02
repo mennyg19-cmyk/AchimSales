@@ -6,6 +6,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **What to test:**
 - Admin PUT own row `role=developer` is 403; DB role stays admin. Admin PUT another user to developer is 403.
+- Admin cannot disable or delete a developer row (403); only a developer can.
 - Admin POST `/api/admin/users` with `role=developer` is 403. Developer POST the same is 201.
 - POST an email that already exists is 409, row unchanged.
 - `/impersonate` (non-beta) is 403 for admin; disabling the real developer mid-impersonation logs out.

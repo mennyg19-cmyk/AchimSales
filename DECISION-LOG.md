@@ -3,7 +3,7 @@
 ## 2026-09-02 Only developers can assign the developer role
 **What you asked for:** Full review of the codebase using the review protocol.
 **What I had to decide:** Whether an admin on Users & access may mint a developer (including themselves), and whether Add user may overwrite an existing email.
-**What I chose:** Only a live DB developer can create or change a developer login. Nobody can change their own role. Add user returns 409 if the email already exists. `/test` impersonation is developer-only and ends if the real developer is disabled. Delete still only removes v3 data (Disable blocks sign-in); the confirm text says so.
+**What I chose:** Only a live DB developer can create or change a developer login (including disable and delete). Nobody can change their own role. Add user returns 409 if the email already exists. `/test` impersonation is developer-only and ends if the real developer is disabled. Delete still only removes v3 data (Disable blocks sign-in); the confirm text says so. Admins cannot delete a developer and re-add the email as salesman.
 **Why:** Trust-boundary showed an admin could PUT themselves to developer and then write raw sqlite, and Add user ON CONFLICT wiped a developer to salesman with a 201.
 **Status:** DECIDED — shipping this change.
 

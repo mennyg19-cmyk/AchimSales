@@ -48,6 +48,17 @@ def _role_edit_blocked(target, new_role: str | None):
     return None
 
 
+def _developer_row_blocked(target):
+    """None if OK; 403 if the caller may not mutate a developer login."""
+    if target.role != ROLE_DEVELOPER:
+        return None
+    if not current_app.config["AUTHZ"].is_developer(current_principal()):
+        return jsonify({
+            "error": "Only a developer can change a developer login",
+        }), 403
+    return None
+
+
 def _unknown_user(user_id: int):
     """None if the user exists; 404 JSON if not."""
     if _users().get_by_id(user_id) is None:
@@ -155,6 +166,9 @@ def update_user(user_id: int):
     target = repo.get_by_id(user_id)
     if target is None:
         return jsonify({"error": "Unknown user"}), 404
+    blocked_dev = _developer_row_blocked(target)
+    if blocked_dev:
+        return blocked_dev
     blocked_role = _role_edit_blocked(target, role)
     if blocked_role:
         return blocked_role
@@ -188,6 +202,9 @@ def delete_user(user_id: int):
     target = repo.get_by_id(user_id)
     if target is None:
         return jsonify({"error": "Unknown user"}), 404
+    blocked_dev = _developer_row_blocked(target)
+    if blocked_dev:
+        return blocked_dev
     if target.email == current_principal().email:
         return jsonify({"error": "You cannot delete your own account"}), 400
     repo.delete(user_id)

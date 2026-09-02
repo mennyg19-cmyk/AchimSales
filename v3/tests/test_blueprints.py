@@ -383,6 +383,20 @@ def test_admin_cannot_mint_or_self_promote_developer(tmp_path):
         "email": "rep@x.com", "role": "manager",
     }, headers={"X-CSRF-Token": _CSRF})
     assert clash.status_code == 409
+    _login(client, app, email="seeddev@x.com", role="developer")
+    minted = client.post("/api/admin/users", json={
+        "email": "otherdev@x.com", "role": "developer",
+    }, headers={"X-CSRF-Token": _CSRF})
+    did = minted.get_json()["id"]
+    _login(client, app, email="admin@x.com", role="admin")
+    disable = client.put(
+        f"/api/admin/users/{did}", json={"is_active": False},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert disable.status_code == 403
+    gone = client.delete(f"/api/admin/users/{did}", headers={"X-CSRF-Token": _CSRF})
+    assert gone.status_code == 403
+    assert repo.get_by_email("otherdev@x.com").role == "developer"
 
 
 def test_admin_cannot_delete_self(tmp_path):
