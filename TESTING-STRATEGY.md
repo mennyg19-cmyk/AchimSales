@@ -2,6 +2,20 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Saved views on the report page start collapsed
+
+**What to test:**
+- Company views and My views in the Saved views panel are `<details>` with class `presets-fold`.
+- The fold helper does not set `open`.
+
+**Expected behavior:**
+- Clicking Saved views shows Default. Company views and My views are headers you expand.
+
+**Edge cases:**
+- Empty personal list still shows the “no other saved views” line when there are no company views.
+
+**Test file:** `v3/tests/test_frontend.py`
+
 ## Applying a view must not throw on `_isDuplicate`
 
 **What to test:**

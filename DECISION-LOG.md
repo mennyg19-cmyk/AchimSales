@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Saved views on the report page start collapsed
+**What you asked for:** Default collapse presets on the report page.
+**What I chose:** In the Saved views panel, Company views and My views are collapsed `<details>` groups. Default stays visible. Click a header to expand.
+**Why:** Opening Saved views was dumping every company and personal view at once. Collapsing those groups keeps Default one click away and the long lists tucked away until you want them.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Applying a view showed `_isDuplicate` of undefined
 **What you asked for:** Applying a saved view still worked, but the pink error banner said `Cannot read properties of undefined (reading '_isDuplicate')`.
 **What I chose:** Stop stuffing `generated_at` onto `state.tabs`. Applying a view walks every key on that map to hide extra tabs; the timestamp key is not a tab, so reading `_isDuplicate` threw after the grouping had already been copied in.
