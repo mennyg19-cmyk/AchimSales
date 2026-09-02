@@ -2190,25 +2190,72 @@ def test_report_visibility_api_and_history_pages(tmp_path):
     assert sales.get("/admin/schedule-runs").status_code == 403
 
 
-def test_settings_exclusion_does_not_need_dashboard(tmp_path):
+def _grant_salesman_scope(app, email, salesman_group):
+    from report_engine.lib import salesman_key
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+
+    db = app.config["DB"]
+    SalesmanRepository(db).upsert_many([SalesmanSeed(
+        raw_key=salesman_group, number="1", full_name=salesman_group,
+        display_name=salesman_group)])
+    user = UserRepository(db).upsert(email, display_name="Rep", role="salesman")
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO user_salesman_access(user_id, salesman_key) VALUES (?, ?)",
+            (user.id, salesman_key(salesman_group)))
+
+
+def test_settings_exclusion_uses_customer_master_not_dashboard(tmp_path):
     from web.data.repositories.dashboard import DashboardCustomer, DashboardRepository
     from web.data.repositories.exclusions import ExclusionRepository
+
+    rows = [
+        {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        {"CustomerAccount": "200", "CustomerName": "Globex", "SalesGroup": "JSmith"},
+        {"CustomerAccount": "300", "CustomerName": "Initech", "SalesGroup": "REdwards"},
+    ]
     app = _make_app(tmp_path)
+    _with_lookups(app, rows)
     DashboardRepository(app.config["DB"]).replace_all([
-        DashboardCustomer("100", "Acme", "", "2026-05-01", 5, 30.0, 2.0, 32.0, 5, "active"),
+        DashboardCustomer("999", "DashboardOnly", "REdwards", "2026-05-01", 5, 30.0, 2.0, 32.0, 5, "active"),
     ])
+    _grant_salesman_scope(app, "rep@x.com", "REdwards")
+
     admin = app.test_client()
     _login(admin, app)
-    assert "Acme" in admin.get("/settings").get_data(as_text=True)
+    html = admin.get("/settings").get_data(as_text=True)
+    assert 'id="exclPicker"' in html
+    assert 'id="exclSearch"' not in html
+    assert "/api/settings/customers" in html
+    assert "/api/reports/lookups/status" in html
+    assert "DashboardOnly" not in html
+    settings_cust = admin.get("/api/settings/customers").get_json()["customers"]
+    ordered_cust = admin.get("/api/reports/ordered/customers").get_json()["customers"]
+    assert {c["key"] for c in settings_cust} == {c["key"] for c in ordered_cust} == {"100", "200", "300"}
+
     client = app.test_client()
     _login(client, app, email="rep@x.com", role="salesman")
     assert client.get("/settings").status_code == 200
-    resp = client.post("/api/settings/exclusions",
-                       json={"customer_account": "100", "excluded": True},
-                       headers={"X-CSRF-Token": _CSRF})
-    assert resp.status_code == 200
+    scoped = client.get("/api/settings/customers").get_json()["customers"]
+    assert {c["key"] for c in scoped} == {"100", "300"}
+    assert client.get("/api/reports/ordered/customers").get_json()["customers"] == scoped
+
+    ok = client.post("/api/settings/exclusions",
+                     json={"customer_account": "100", "excluded": True},
+                     headers={"X-CSRF-Token": _CSRF})
+    assert ok.status_code == 200
+    denied = client.post("/api/settings/exclusions",
+                         json={"customer_account": "200", "excluded": True},
+                         headers={"X-CSRF-Token": _CSRF})
+    assert denied.status_code == 403
+    unknown = client.post("/api/settings/exclusions",
+                          json={"customer_account": "999", "excluded": True},
+                          headers={"X-CSRF-Token": _CSRF})
+    assert unknown.status_code == 400
     uid = UserRepository(app.config["DB"]).get_by_email("rep@x.com").id
-    assert "100" in ExclusionRepository(app.config["DB"]).get(uid)
+    assert ExclusionRepository(app.config["DB"]).get(uid) == {"100"}
+    saved = client.get("/settings").get_data(as_text=True)
+    assert '"100"' in saved
 
 
 def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):

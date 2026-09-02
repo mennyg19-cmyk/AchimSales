@@ -6,6 +6,44 @@
 **Why:** The actions table is the same kind of wide grid. Capping personal at 800px squeezed the columns; company did not.
 **Status:** DECIDED — shipping this change.
 
+## 2026-09-02 Excel grouped rows are collapsible, start expanded
+**What you asked for:** Excel files should group rows so they collapse, default expanded. Skip it if that means rewriting the Excel writer.
+**What I chose:** Keep write-only streaming. Set `outline_level` on each row before append (write-only flushes immediately). Nested: data is the innermost outline; banners/totals sit one level out; grand total ungrouped. `hidden` stays false so Excel opens expanded. `summaryBelow` puts the +/- on the total row.
+**Why:** openpyxl write-only already writes row dimensions. No need to switch to a fully-loaded workbook.
+**Status:** DECIDED — shipping this change.
+
+## 2026-09-02 Ordered group totals skip Net Price; nested groups use shade ladders
+**What you asked for:** Do not total Net Price on group footers. Nested group headers/footers were clashing. Footers should be greys (grand darkest, then salesman, then customer). Headers the same idea in shades of the existing blue. Dark fills need white text.
+**What I had to decide:** Whether to skip only Net Price or every unit-price column, and whether Excel and the grid share one recipe.
+**What I chose:** Skip Net Price by `sum: false` plus a field-name fallback so old cached payloads still behave. Number 4 Avg/Book Price stays summed. Grey footer / blue header ladders: outermost darkest, inner lightest, any group depth. Text color is whichever of white or `#1E293B` has higher contrast (so mid greys do not get unreadable white text). Same RGB in `export.py` and `report.ts`.
+**Why:** Net Price is Extended / Qty; adding it on a salesman footer is a fake number. One fill for every group level made Daily Ordered unreadable. Distinct hues can wait.
+**Status:** DECIDED — shipping this change.
+
+## 2026-09-02 Same agent stacks PRs; two agents get two PRs
+**What you asked for:** Put the stacking rule in Cursor rules, and on all repos. Same agent stays on the last open PR. Two agents at once use two PRs.
+**What I chose:** Wrote it in `git-discipline.mdc` (owns git). README Rule Preferences points there. Copied into MasterGenAIInstructions (master + template) so `update-all` can push it to registered local projects. This AchimSales change stays on PR 25.
+**Why:** Extra PRs were coming from Cloud Agent “new branch per task” colliding with you wanting one PR to merge.
+**Status:** DECIDED — shipping this change.
+
+## 2026-09-02 Follow-up work stays on the open PR
+**What you asked for:** Do not open a new PR for the next small ask. Put it on PR 25 so it can merge together. You hate extra branches and PRs.
+**What I chose:** Cherry-pick the Saved views collapse onto `cursor/settings-exclusion-dropdown-0ed8` (PR 25) and close PR 26. Standing preference: while a feature PR is open, stack the next request on that same branch.
+**Why:** Splitting every small UI tweak into its own branch made a pile of PRs that you then have to merge one by one.
+**Status:** DECIDED — shipping this change.
+
+## 2026-09-02 Saved views on the report page start collapsed
+**What you asked for:** Default collapse presets on the report page.
+**What I chose:** In the Saved views panel, Company views and My views are collapsed `<details>` groups. Default stays visible. Click a header to expand.
+**Why:** Opening Saved views was dumping every company and personal view at once. Collapsing those groups keeps Default one click away and the long lists tucked away until you want them.
+**Status:** DECIDED — shipping this change.
+
+## 2026-09-02 Settings exclusions use the report customer dropdown list
+**What you asked for:** Customer exclusions on Settings should be a dropdown filled from the same endpoint as the report customer picker, scoped to the user.
+**What I had to decide:** Whether Settings should call `/api/reports/ordered/customers` (the report URL) or a settings URL that runs the same lookup + salesman filter.
+**What I chose:** `GET /api/settings/customers` using `LookupService.customers_visible` (same helper as the report picker). The Ordered URL 403s when Ordered is turned off; salesmen can still set exclusions. POST now rejects accounts that are unknown or outside the caller's salesman keys.
+**Why:** You wanted the same list and scope as the report dropdown, not the dashboard mirror checkbox list. Exclusions are not a report action, so they should not depend on Ordered being runnable.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Applying a view showed `_isDuplicate` of undefined
 **What you asked for:** Applying a saved view still worked, but the pink error banner said `Cannot read properties of undefined (reading '_isDuplicate')`.
 **What I chose:** Stop stuffing `generated_at` onto `state.tabs`. Applying a view walks every key on that map to hide extra tabs; the timestamp key is not a tab, so reading `_isDuplicate` threw after the grouping had already been copied in.

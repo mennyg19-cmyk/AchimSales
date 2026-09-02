@@ -11,6 +11,16 @@ alwaysApply: true
 - **Merging working branch → production branch is the go-live gate**: requires a clean review loop per `review-protocol.mdc` first. Never merge unreviewed code to production.
 - **Never assume `main` is the production branch** -- check deploy config/README. Document the branch strategy (which branch deploys where) in README on day one; if undocumented, figure it out and write it down before changing anything.
 
+## Pull requests (one agent vs two)
+
+Menny hates a pile of leftover branches and PRs. Default to **one open PR per agent per repo**.
+
+- **Same agent, last PR still open on this repo:** do **not** open a new branch or PR. Check out that branch, stack the new work, push, update that PR. Close any extra PR you opened by mistake and move its commits onto the open one.
+- **Two agents at the same time:** each agent uses its **own** branch and PR. Do not stack agent B onto agent A's PR. Do not share a working branch.
+- **This agent has no open PR on this repo:** one new branch, one new PR, as usual.
+- **Which PR is “mine”:** the open PR this run already registered / last pushed. If this agent has more than one still open, use the newest and close or stack the extras.
+- Leave other people's (or the other agent's) PRs alone unless the user names that PR.
+
 ## Commits
 
 - One logical change = one commit. Commit and push after every completed change; never leave unpushed commits.

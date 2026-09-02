@@ -359,12 +359,11 @@
 .tabulator .tabulator-row.tabulator-row-even { background: var(--bg); }
 .tabulator .tabulator-row.tabulator-selectable:hover { background: var(--primary-light); }
 .tabulator .tabulator-row .tabulator-cell { border-right: 1px solid var(--border); }
-.tabulator .tabulator-row.tabulator-group { background: var(--bg); color: var(--text); font-weight: 700; border-bottom: 1px solid var(--border); }
+.tabulator .tabulator-row.tabulator-group { font-weight: 700; border-bottom: 1px solid var(--border); }
 .tabulator .tabulator-row.tabulator-calcs,
 .tabulator .tabulator-row.tabulator-calcs .tabulator-cell,
 .tabulator .tabulator-footer {
-    background: var(--bg-card) !important; color: var(--text) !important;
-    font-weight: 700; border-top: 2px solid var(--border) !important;
+    font-weight: 700; border-top: 2px solid var(--border);
 }
 .tabulator .tabulator-footer .tabulator-paginator { color: var(--text-muted); }
 /* Header/cell context menu + edit lists. Tabulator's base theme (loaded after
@@ -469,6 +468,15 @@
     padding: 8px 10px 4px; color: var(--text-muted); font-size: 11px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 0.04em;
 }
+.presets-fold { margin: 0; }
+.presets-fold > summary.presets-section {
+    cursor: pointer; list-style: none;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    min-height: 36px;
+}
+.presets-fold > summary.presets-section::-webkit-details-marker { display: none; }
+.presets-fold > summary.presets-section::after { content: "▸"; font-size: 11px; color: var(--text-muted); }
+.presets-fold[open] > summary.presets-section::after { content: "▾"; }
 
 /* -- Email modal + SharePoint picker -- */
 .modal-overlay {
@@ -755,7 +763,8 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .admin-links { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-links .btn { max-width: 100%; }
 .settings-subhead { font-size: 13px; font-weight: 700; color: var(--text-muted); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.4px; }
-.excl-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; margin-top: 8px; }
+.settings-hub .customer-picker { margin-top: 8px; }
+.settings-hub .customer-pills { padding-bottom: 0; margin-top: 8px; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .beta-source-key { min-width: 0; }
 .beta-source-select { font-size: 13px; padding: 6px 8px; min-height: 44px; max-width: 100%; }

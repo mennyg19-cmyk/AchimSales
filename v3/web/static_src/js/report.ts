@@ -23,6 +23,8 @@ interface Column {
   type?: "text" | "money" | "percent" | "int" | "date";
   /** 0=blue month YoY, 1=green YTD, 2=purple full year. Follows the field, not col index. */
   band?: number;
+  /** False = unit price (or similar): show the value, never sum it on group footers. */
+  sum?: boolean;
 }
 
 interface CommissionMonth {
@@ -218,6 +220,12 @@ function isNumericType(t?: string): boolean {
   return t === "money" || t === "int" || t === "percent";
 }
 
+function canSumColumn(c: Column): boolean {
+  if (c.sum === false) return false;
+  if (c.field === "Net Price") return false;
+  return isNumericType(c.type) && c.type !== "percent";
+}
+
 /** Red (0) → yellow (0.5) → green (1). Same RGB as the old Ordered Excel writer. */
 function fulfillmentFillCss(score: number): string {
   const s = Math.max(0, Math.min(1, score));
@@ -233,6 +241,119 @@ function fulfillmentFillCss(score: number): string {
     rgb = yellow.map((x, i) => Math.round(x + (green[i] - x) * t));
   }
   return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+
+// Nested group colors. Outer = darkest. Keep in sync with export.py nest_* helpers.
+type Rgb = [number, number, number];
+const NEST_HEADER_SHADES: Rgb[] = [
+  [30, 64, 175],
+  [37, 99, 235],
+  [96, 165, 250],
+  [147, 197, 253],
+  [191, 219, 254],
+];
+const NEST_FOOTER_SHADES: Rgb[] = [
+  [107, 114, 128],
+  [156, 163, 175],
+  [209, 213, 219],
+  [229, 231, 235],
+];
+const NEST_GRAND: Rgb = [55, 65, 81];
+const NEST_TEXT_DARK = "#1E293B";
+const NEST_TEXT_LIGHT = "#FFFFFF";
+
+function shadeAt(shades: Rgb[], level: number, depth: number): Rgb {
+  if (depth <= 1) return shades[0];
+  const last = shades.length - 1;
+  const idx = Math.round(level * last / (depth - 1));
+  return shades[Math.max(0, Math.min(idx, last))];
+}
+
+function rgbOf(rgb: Rgb): string {
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+
+function relLum(rgb: Rgb): number {
+  const lin = (c: number) => {
+    const x = c / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+}
+
+function contrastRatio(a: Rgb, b: Rgb): number {
+  const l1 = relLum(a);
+  const l2 = relLum(b);
+  const hi = Math.max(l1, l2);
+  const lo = Math.min(l1, l2);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function contrastCss(rgb: Rgb): string {
+  const white: Rgb = [255, 255, 255];
+  const dark: Rgb = [30, 41, 59];
+  return contrastRatio(rgb, white) >= contrastRatio(rgb, dark) ? NEST_TEXT_LIGHT : NEST_TEXT_DARK;
+}
+
+function nestHeaderColors(level: number, depth: number): { fill: string; text: string } {
+  const rgb = shadeAt(NEST_HEADER_SHADES, level, depth);
+  return { fill: rgbOf(rgb), text: contrastCss(rgb) };
+}
+
+function nestFooterColors(level: number, depth: number, grand: boolean): { fill: string; text: string } {
+  const rgb = grand ? NEST_GRAND : shadeAt(NEST_FOOTER_SHADES, level, depth);
+  return { fill: rgbOf(rgb), text: contrastCss(rgb) };
+}
+
+function paintFilledRow(el: HTMLElement, fill: string, text: string): void {
+  const apply = (node: HTMLElement) => {
+    node.style.setProperty("background-color", fill, "important");
+    node.style.setProperty("color", text, "important");
+  };
+  apply(el);
+  el.querySelectorAll<HTMLElement>("*").forEach(apply);
+}
+
+function nestDepth(table: any): number {
+  const groupBy = table?.options?.groupBy;
+  if (Array.isArray(groupBy)) return groupBy.length;
+  return groupBy ? 1 : 0;
+}
+
+function paintNestedGroups(table: any): void {
+  if (!table) return;
+  const depth = Math.max(nestDepth(table), 1);
+  const walk = (groups: any[]) => {
+    for (const g of groups || []) {
+      const inner = g._group || g;
+      const level = Number(inner.level) || 0;
+      const header = (typeof g.getElement === "function" ? g.getElement() : inner.element) as HTMLElement | undefined;
+      if (header) {
+        const c = nestHeaderColors(level, depth);
+        paintFilledRow(header, c.fill, c.text);
+      }
+      const bot = inner.calcs?.bottom;
+      const top = inner.calcs?.top;
+      const footer = nestFooterColors(level, depth, false);
+      for (const calc of [top, bot]) {
+        const calcEl = (calc && (typeof calc.getElement === "function" ? calc.getElement() : calc.element)) as HTMLElement | undefined;
+        if (calcEl) paintFilledRow(calcEl, footer.fill, footer.text);
+      }
+      const subs = typeof g.getSubGroups === "function" ? g.getSubGroups() : [];
+      if (subs?.length) walk(subs);
+    }
+  };
+  try {
+    walk(typeof table.getGroups === "function" ? table.getGroups() : []);
+  } catch {
+    /* table not ready */
+  }
+  const root = table.element as HTMLElement | undefined;
+  if (!root) return;
+  const grand = nestFooterColors(0, depth, true);
+  root.querySelectorAll<HTMLElement>(".tabulator-footer .tabulator-calcs, .tabulator-header .tabulator-calcs").forEach((el) => {
+    paintFilledRow(el, grand.fill, grand.text);
+  });
 }
 
 // --------------------------------------------------------------------------
@@ -380,7 +501,7 @@ function buildColumns(tab: Tab): any[] {
     width: v.widths[c.field],
     titleFormatter: () => columnHeaderEl(tab, c),
     headerMenu: headerMenu(tab),
-    bottomCalc: isNumericType(c.type) && c.type !== "percent" ? "sum" : undefined,
+    bottomCalc: canSumColumn(c) ? "sum" : undefined,
     bottomCalcFormatter: c.type === "money" ? "money" : undefined,
     bottomCalcFormatterParams: c.type === "money" ? { symbol: "$", precision: 2, thousand: "," } : undefined,
     ...formatterFor(c, i),
@@ -763,12 +884,21 @@ function buildTable(tab: Tab): void {
     const field = column.getField();
     if (field) view(tab.key).widths[field] = column.getWidth();
   });
+  table.on("renderComplete", () => {
+    if (state.table !== table) return;
+    paintNestedGroups(table);
+  });
+  table.on("groupVisibilityChanged", () => {
+    if (state.table !== table) return;
+    paintNestedGroups(table);
+  });
   table.on("tableBuilt", () => {
     // A build from a previous tab can fire late; ignore it if we've moved on.
     if (state.table !== table || state.active !== tab.key) return;
     if (v.group.length) table.setGroupBy(v.group);
     applyColumnFilters(); // replay any saved per-column filters
     requestAnimationFrame(fitTableHeight); // size once the grid is laid out
+    paintNestedGroups(table);
   });
   renderMeta(tab);
   renderGroupPills(tab);
@@ -2575,6 +2705,17 @@ function appendPresetRow(
   panel.appendChild(row);
 }
 
+function appendPresetFold(panel: HTMLElement, title: string): HTMLElement {
+  const wrap = document.createElement("details");
+  wrap.className = "presets-fold";
+  const head = document.createElement("summary");
+  head.className = "presets-section";
+  head.textContent = title;
+  wrap.appendChild(head);
+  panel.appendChild(wrap);
+  return wrap;
+}
+
 async function togglePresetsPanel(): Promise<void> {
   if ($("presetsPanel")) { closePresetsPanel(); return; }
   const data = await getJSON<{
@@ -2596,12 +2737,9 @@ async function togglePresetsPanel(): Promise<void> {
     can_edit: canEditDefault,
   }, { canDelete: false, canEdit: canEditDefault });
   if (company.length) {
-    const head = document.createElement("div");
-    head.className = "presets-section";
-    head.textContent = "Company views";
-    panel.appendChild(head);
+    const fold = appendPresetFold(panel, "Company views");
     company.forEach((p) => {
-      appendPresetRow(panel, { ...p, id: `${COMPANY_VIEW_PREFIX}${p.id}` }, {
+      appendPresetRow(fold, { ...p, id: `${COMPANY_VIEW_PREFIX}${p.id}` }, {
         canDelete: false, canEdit: !!p.can_edit,
       });
     });
@@ -2614,12 +2752,9 @@ async function togglePresetsPanel(): Promise<void> {
       panel.appendChild(empty);
     }
   } else {
-    const head = document.createElement("div");
-    head.className = "presets-section";
-    head.textContent = "My views";
-    panel.appendChild(head);
+    const fold = appendPresetFold(panel, "My views");
     presets.forEach((p) => {
-      appendPresetRow(panel, p, { canDelete: true, canEdit: true });
+      appendPresetRow(fold, p, { canDelete: true, canEdit: true });
     });
   }
   ($("presetsBtn") as HTMLElement)?.insertAdjacentElement("afterend", panel);

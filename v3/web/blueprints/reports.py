@@ -822,10 +822,7 @@ def report_customers(report_key: str):
     _authz().assert_report_runnable(p, report_key)
     salesman = (request.args.get("salesman") or "").strip() or None
     visible = _authz().visible_salesman_keys(p)
-    all_custs = _lookups().customers(salesman)
-    if visible is not None:
-        all_custs = [c for c in all_custs if salesman_key(c.get("salesman", "")) in visible]
-    return jsonify({"customers": all_custs})
+    return jsonify({"customers": _lookups().customers_visible(visible, salesman)})
 
 
 @reports_bp.get("/api/reports/<report_key>/years")

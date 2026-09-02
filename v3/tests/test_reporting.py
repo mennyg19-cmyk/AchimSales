@@ -382,6 +382,177 @@ def test_export_nested_groups_subtotals_each_level():
     assert grand[2].value == 10
 
 
+def _cell_fill_hex(cell) -> str:
+    rgb = getattr(cell.fill.fgColor, "rgb", None)
+    return str(rgb)[-6:].upper() if rgb else ""
+
+
+def _cell_font_hex(cell) -> str:
+    color = cell.font.color
+    rgb = getattr(color, "rgb", None) if color is not None else None
+    return str(rgb)[-6:].upper() if rgb else ""
+
+
+def test_export_does_not_sum_net_price_on_group_footers():
+    """Net Price is a unit price. Totals stay blank; dollars still add up."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Customer Name", "header": "Customer Name", "type": "text"},
+            {"field": "Net Price", "header": "Net Price", "type": "money"},
+            {"field": "Extended Price - Ordered", "header": "Extended Price - Ordered", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "Customer Name": "Zed", "Net Price": 2.0, "Extended Price - Ordered": 10},
+            {"Salesman": "A", "Customer Name": "Zed", "Net Price": 3.0, "Extended Price - Ordered": 6},
+            {"Salesman": "A", "Customer Name": "Ann", "Net Price": 4.0, "Extended Price - Ordered": 4},
+            {"Salesman": "B", "Customer Name": "Zed", "Net Price": 5.0, "Extended Price - Ordered": 5},
+        ],
+    }]}
+    layout = {"views": {"t": {"group": ["Salesman", "Customer Name"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    zed = next(row for row in wb["T"].iter_rows() if row[0].value == "Total \u2014 Zed")
+    assert zed[2].value is None
+    assert zed[3].value == 16
+    salesman = next(row for row in wb["T"].iter_rows() if row[0].value == "Total \u2014 A")
+    assert salesman[2].value is None
+    assert salesman[3].value == 20
+    grand = next(row for row in wb["T"].iter_rows() if row[0].value == "Grand total")
+    assert grand[2].value is None
+    assert grand[3].value == 25
+
+
+def test_export_nested_group_shades_outer_darker():
+    """Daily Ordered-style nesting: salesman darker than customer; grand darkest grey."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import (
+        build_workbook, nest_header_rgb, nest_footer_rgb, _hex6, _contrast_text_hex,
+    )
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "CustomerName", "header": "CustomerName", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "CustomerName": "Zed", "Amt": 1},
+            {"Salesman": "A", "CustomerName": "Ann", "Amt": 3},
+            {"Salesman": "B", "CustomerName": "Zed", "Amt": 4},
+        ],
+    }]}
+    layout = {"views": {"t": {"group": ["Salesman", "CustomerName"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    salesman_hdr = next(row for row in wb["T"].iter_rows() if row[0].value == "Salesman: A")
+    customer_hdr = next(row for row in wb["T"].iter_rows() if row[0].value == "CustomerName: Ann")
+    customer_tot = next(row for row in wb["T"].iter_rows() if row[0].value == "Total \u2014 Ann")
+    salesman_tot = next(row for row in wb["T"].iter_rows() if row[0].value == "Total \u2014 A")
+    grand = next(row for row in wb["T"].iter_rows() if row[0].value == "Grand total")
+    assert _cell_fill_hex(salesman_hdr[0]) == _hex6(nest_header_rgb(0, 2))
+    assert _cell_fill_hex(customer_hdr[0]) == _hex6(nest_header_rgb(1, 2))
+    assert _cell_fill_hex(salesman_tot[0]) == _hex6(nest_footer_rgb(0, 2, grand=False))
+    assert _cell_fill_hex(customer_tot[0]) == _hex6(nest_footer_rgb(1, 2, grand=False))
+    assert _cell_fill_hex(grand[0]) == _hex6(nest_footer_rgb(0, 2, grand=True))
+    assert _cell_fill_hex(salesman_hdr[0]) != _cell_fill_hex(customer_hdr[0])
+    assert _cell_fill_hex(grand[0]) != _cell_fill_hex(salesman_tot[0])
+    assert _cell_fill_hex(salesman_tot[0]) != _cell_fill_hex(customer_tot[0])
+    assert _cell_font_hex(salesman_hdr[0]) == _contrast_text_hex(nest_header_rgb(0, 2))
+    assert _cell_font_hex(customer_hdr[0]) == _contrast_text_hex(nest_header_rgb(1, 2))
+    assert _cell_font_hex(grand[0]) == _contrast_text_hex(nest_footer_rgb(0, 2, grand=True))
+    assert _cell_font_hex(salesman_hdr[0]) == "FFFFFF"
+    assert _cell_font_hex(grand[0]) == "FFFFFF"
+
+
+def test_nest_colors_keep_readable_contrast():
+    from web.reporting.export import nest_header_rgb, nest_footer_rgb, _contrast, _contrast_text_hex
+    white, dark = (255, 255, 255), (30, 41, 59)
+    for depth in (1, 2, 3, 4):
+        for level in range(depth):
+            for rgb in (
+                nest_header_rgb(level, depth),
+                nest_footer_rgb(level, depth, grand=False),
+            ):
+                text = (255, 255, 255) if _contrast_text_hex(rgb) == "FFFFFF" else dark
+                assert _contrast(rgb, text) >= 4.5
+        grand = nest_footer_rgb(0, depth, grand=True)
+        text = (255, 255, 255) if _contrast_text_hex(grand) == "FFFFFF" else dark
+        assert _contrast(grand, text) >= 4.5
+        assert _contrast(grand, white) >= 4.5
+
+
+def _row_outline(ws, row) -> tuple[int, bool]:
+    dim = ws.row_dimensions[row[0].row]
+    return int(dim.outline_level or 0), bool(dim.hidden)
+
+
+def test_export_nested_groups_are_collapsible_and_start_expanded():
+    """Excel outline: data is innermost, banners/totals sit one level out, nothing hidden."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "CustomerName", "header": "CustomerName", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "CustomerName": "Zed", "Amt": 1},
+            {"Salesman": "A", "CustomerName": "Ann", "Amt": 3},
+            {"Salesman": "B", "CustomerName": "Zed", "Amt": 4},
+        ],
+    }]}
+    layout = {"views": {"t": {"group": ["Salesman", "CustomerName"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    ws = wb["T"]
+    assert ws.sheet_properties.outlinePr.summaryBelow is True
+    assert ws.sheet_format.outlineLevelRow == 2
+    by_label = {row[0].value: row for row in ws.iter_rows() if row[0].value}
+    salesman_hdr, hidden = _row_outline(ws, by_label["Salesman: A"])
+    assert salesman_hdr == 0 and hidden is False
+    customer_hdr, hidden = _row_outline(ws, by_label["CustomerName: Ann"])
+    assert customer_hdr == 1 and hidden is False
+    customer_tot, hidden = _row_outline(ws, by_label["Total \u2014 Ann"])
+    assert customer_tot == 1 and hidden is False
+    salesman_tot, hidden = _row_outline(ws, by_label["Total \u2014 A"])
+    assert salesman_tot == 0 and hidden is False
+    grand, hidden = _row_outline(ws, by_label["Grand total"])
+    assert grand == 0 and hidden is False
+    data = next(row for row in ws.iter_rows() if row[2].value == 3)
+    data_level, hidden = _row_outline(ws, data)
+    assert data_level == 2 and hidden is False
+    for row in ws.iter_rows():
+        assert ws.row_dimensions[row[0].row].hidden is False
+
+
+def test_export_one_group_outlines_data_only():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "Amt": 1},
+            {"Salesman": "A", "Amt": 2},
+            {"Salesman": "B", "Amt": 3},
+        ],
+    }]}
+    layout = {"views": {"t": {"group": ["Salesman"]}}}
+    ws = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))["T"]
+    assert ws.sheet_format.outlineLevelRow == 1
+    by_label = {row[0].value: row for row in ws.iter_rows() if row[0].value}
+    assert _row_outline(ws, by_label["Salesman: A"])[0] == 0
+    assert _row_outline(ws, by_label["Total \u2014 A"])[0] == 0
+    data = next(row for row in ws.iter_rows() if row[1].value == 1)
+    assert _row_outline(ws, data)[0] == 1
+
+
 def test_export_drops_salesman_group_when_file_is_one_rep():
     """Daily Ordered By Customer groups by salesman only. A per-rep file is
     already one salesman — no salesman banner, and no customer group either."""

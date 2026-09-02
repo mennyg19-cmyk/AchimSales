@@ -3,6 +3,8 @@
  * beta sources. Optimistic UI with rollback if the request fails.
  */
 
+import { SearchablePicker, type PickerItem } from "./searchable_picker";
+
 function hub(): HTMLElement | null {
   return document.getElementById("settingsHub");
 }
@@ -75,33 +77,126 @@ function initVisibilityToggles(): void {
   });
 }
 
+function parseExcluded(root: HTMLElement): string[] {
+  try {
+    const parsed = JSON.parse(root.getAttribute("data-excluded") || "[]");
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function setExclHint(text: string): void {
+  const hint = document.getElementById("exclHint");
+  if (hint) hint.textContent = text;
+}
+
 function initExclusions(): void {
   const root = hub();
-  const url = root?.getAttribute("data-excl-url") || "";
-  const list = document.getElementById("exclList");
-  const search = document.getElementById("exclSearch") as HTMLInputElement | null;
-  if (!root || !url || !list) return;
-  search?.addEventListener("input", () => {
-    const q = search.value.trim().toLowerCase();
-    list.querySelectorAll<HTMLElement>(".excl-row").forEach((row) => {
-      const name = row.getAttribute("data-name") || "";
-      row.hidden = Boolean(q) && !name.includes(q);
-    });
+  const saveUrl = root?.getAttribute("data-excl-url") || "";
+  const customersUrl = root?.getAttribute("data-customers-url") || "";
+  const statusUrl = root?.getAttribute("data-lookup-status-url") || "";
+  const host = document.getElementById("exclPicker");
+  const pills = document.getElementById("exclPills");
+  if (!root || !saveUrl || !customersUrl || !host || !pills) return;
+
+  const excluded = parseExcluded(root);
+  let hydrating = true;
+  let known = new Set<string>();
+  let pollTimer: number | null = null;
+
+  const picker = new SearchablePicker({
+    host,
+    pills,
+    placeholder: "Search customers…",
+    formatOption: (i: PickerItem) => `${i.key} — ${i.name}`,
+    formatPill: (i: PickerItem) => i.name,
+    onChange: () => {
+      if (hydrating) return;
+      const next = new Set(picker.selectedKeys());
+      const added = [...next].filter((k) => !known.has(k));
+      const removed = [...known].filter((k) => !next.has(k));
+      known = next;
+      const persist = (account: string, excluded: boolean, revert: string[]) => {
+        postJson(saveUrl, { customer_account: account, excluded }).then((resp) => {
+          if (resp.ok) return;
+          hydrating = true;
+          picker.setSelected(revert);
+          known = new Set(picker.selectedKeys());
+          hydrating = false;
+        }).catch(() => {
+          hydrating = true;
+          picker.setSelected(revert);
+          known = new Set(picker.selectedKeys());
+          hydrating = false;
+        });
+      };
+      for (const account of added) persist(account, true, [...known].filter((k) => k !== account));
+      for (const account of removed) persist(account, false, [...picker.selectedKeys(), account]);
+    },
   });
-  list.querySelectorAll<HTMLInputElement>(".excl-toggle").forEach((box) => {
-    box.addEventListener("change", async () => {
-      const account = box.getAttribute("data-account") || "";
-      const included = box.checked;
-      box.disabled = true;
-      try {
-        const resp = await postJson(url, { customer_account: account, excluded: !included });
-        if (!resp.ok) throw new Error(String(resp.status));
-      } catch {
-        box.checked = !included;
-      } finally {
-        box.disabled = false;
+
+  const applyExcluded = () => {
+    hydrating = true;
+    picker.setSelected(excluded);
+    known = new Set(picker.selectedKeys());
+    hydrating = false;
+  };
+
+  const loadCustomers = async (): Promise<number> => {
+    const resp = await fetch(customersUrl);
+    if (!resp.ok) return 0;
+    const data = await resp.json().catch(() => ({}));
+    const rows = Array.isArray((data as { customers?: PickerItem[] }).customers)
+      ? (data as { customers: PickerItem[] }).customers
+      : [];
+    picker.setOptions(rows.map((c) => ({ key: c.key, name: c.name })));
+    applyExcluded();
+    if (rows.length) {
+      setExclHint("Search and check customers to hide them.");
+    }
+    return rows.length;
+  };
+
+  const stopPoll = () => {
+    if (pollTimer != null) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  };
+
+  const pollStatus = () => {
+    if (!statusUrl) return;
+    const tick = async () => {
+      const resp = await fetch(statusUrl);
+      if (!resp.ok) return;
+      const s = await resp.json().catch(() => ({})) as {
+        status?: string;
+        cached_row_count?: number;
+        mirror_row_count?: number;
+        configured?: boolean;
+      };
+      const ready = s.status === "ready"
+        || (s.cached_row_count || 0) > 0
+        || (s.mirror_row_count || 0) > 0;
+      if (ready) {
+        stopPoll();
+        await loadCustomers();
+        return;
       }
-    });
+      if (s.status === "loading") setExclHint("Loading customers…");
+      else if (s.status === "error") setExclHint("Customer master still warming — retrying…");
+      else if (s.configured === false) setExclHint("Customer master is not configured.");
+    };
+    tick();
+    pollTimer = window.setInterval(tick, 2500);
+  };
+
+  loadCustomers().then((count) => {
+    if (count > 0) return;
+    pollStatus();
+  }).catch(() => {
+    setExclHint("Could not load customers.");
   });
 }
 

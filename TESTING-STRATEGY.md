@@ -2,6 +2,75 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Excel grouped sheets are collapsible (expanded)
+
+**What to test:**
+- Nested groups (Salesman then customer): data rows outline 2, customer banner/total outline 1, salesman banner/total and Grand total outline 0.
+- One group: data outline 1, banner/total outline 0.
+- No row is hidden (`hidden` is false). `summaryBelow` is true.
+- `sheet_format.outlineLevelRow` matches group depth.
+
+**Expected behavior:**
+- Excel shows +/- in the gutter. Groups start expanded. Collapsing a customer hides its data; collapsing a salesman hides its customers.
+
+**Edge cases:**
+- Ungrouped sheets are unchanged (no outline).
+- Still write-only streaming — no full-workbook rewrite.
+
+**Test file:** `v3/tests/test_reporting.py`
+
+## Ordered group footers skip Net Price; nested groups use shade ladders
+
+**What to test:**
+- Group subtotals and Grand total leave Net Price blank (unit price). Extended Price still sums.
+- Cached payloads without `sum: false` still skip the Net Price field by name.
+- Nested Excel banners: outermost group header is the darkest blue; inner is lighter; dark fills use white text.
+- Nested Excel totals: Grand total darkest grey, then outer group, then inner group.
+- Contrast of every header/footer shade against its chosen text is at least 4.5:1 (1–4 group levels).
+- Grid source does not `bottomCalc` Net Price and paints nested groups (`paintNestedGroups`).
+
+**Expected behavior:**
+- Daily Ordered (Salesman then customer) is the example; any group depth uses the same outer-darkest ladder.
+- Grid and Excel share the same RGB recipe.
+
+**Edge cases:**
+- One group level still shades header vs group total vs grand total.
+- `sum: false` on a column dict also skips summing that field.
+
+**Test file:** `v3/tests/test_reporting.py`, `v3/tests/test_frontend.py`
+
+## Saved views on the report page start collapsed
+
+**What to test:**
+- Company views and My views in the Saved views panel are `<details>` with class `presets-fold`.
+- The fold helper does not set `open`.
+
+**Expected behavior:**
+- Clicking Saved views shows Default. Company views and My views are headers you expand.
+
+**Edge cases:**
+- Empty personal list still shows the “no other saved views” line when there are no company views.
+
+**Test file:** `v3/tests/test_frontend.py`
+
+## Settings customer exclusions use the report customer list
+
+**What to test:**
+- Settings HTML uses the searchable picker (`exclPicker`), not the old checkbox list.
+- `GET /api/settings/customers` matches `GET /api/reports/ordered/customers` for the same user.
+- A salesman only sees customers in their salesman scope.
+- POST exclusion of an in-scope account works without dashboard rows.
+- POST of another salesman's customer is 403; unknown account is 400.
+
+**Expected behavior:**
+- Pills are hidden customers. The dropdown is customer master, scoped like the report page.
+
+**Edge cases:**
+- Dashboard-only customers do not appear on Settings.
+- Saved exclusions still serialize into `data-excluded`.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## Personal schedules page is full width
 
 **What to test:**

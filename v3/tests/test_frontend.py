@@ -180,6 +180,10 @@ def test_report_viewer_meeting_ux():
     assert '!(state.tabs[k] as any)?._isDuplicate' in src
     assert "__generated_at__" not in src
     assert "run: !isReportShown() && periodIsRunnable(preset.params)" in src
+    assert 'className = "presets-fold"' in src
+    assert "function appendPresetFold" in src
+    fold = src.split("function appendPresetFold", 1)[1].split("async function togglePresetsPanel", 1)[0]
+    assert "wrap.open" not in fold
     assert "autoRunRequested = periodIsRunnable(view?.params)" in src
     assert "params: collectCompanyViewParams()" in src
     assert "Apply this view’s filters (does not run the report)" not in src
@@ -190,10 +194,17 @@ def test_report_viewer_meeting_ux():
     assert "function orderNumber4Columns" in src
     assert "function salesmanBandIndex" in src
     assert "typeof col.band === \"number\"" in src
-    assert "fulfillmentFillCss" in src
-    assert 'col.field === "Fulfillment %"' in src
+    assert "function canSumColumn" in src
+    assert 'c.field === "Net Price"' in src
+    assert "c.sum === false" in src
+    assert "function paintNestedGroups" in src
+    assert "function nestHeaderColors" in src
+    assert "function nestFooterColors" in src
+    assert "NEST_GRAND" in src
+    assert "paintNestedGroups(table)" in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".group-pill" in css
+    assert ".presets-fold" in css
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="groupPills"' in html
     assert "data-default-url" in html
@@ -214,6 +225,19 @@ def test_report_viewer_meeting_ux():
     assert 'id="psWizard"' in personal
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
+
+
+def test_settings_exclusions_use_customer_picker():
+    html = (_V3 / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
+    assert 'id="exclPicker"' in html
+    assert 'id="exclPills"' in html
+    assert "data-customers-url" in html
+    assert "data-lookup-status-url" in html
+    assert 'id="exclSearch"' not in html
+    assert "excl-toggle" not in html
+    src = (_SRC / "js" / "settings.ts").read_text(encoding="utf-8")
+    assert "SearchablePicker" in src
+    assert "data-customers-url" in src
 
 
 def test_admin_users_has_company_views_flag():
