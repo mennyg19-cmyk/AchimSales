@@ -101,3 +101,11 @@ class CompanyViewRepository:
         if saved is None:
             raise RuntimeError(f"failed to save company view {report_key}/{stripped}")
         return saved
+
+    def delete(self, view_id: int, report_key: str) -> bool:
+        with self.db.precious() as conn:
+            cur = conn.execute(
+                "DELETE FROM company_views WHERE id=? AND report_key=?",
+                (view_id, report_key),
+            )
+            return cur.rowcount > 0

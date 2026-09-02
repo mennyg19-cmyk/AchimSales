@@ -339,6 +339,49 @@ def _salesman_filter(params: dict | None) -> list[str]:
     return [s.strip() for s in str(raw).split(",") if s.strip()]
 
 
+def _salesman_pick_keys(picks: list[str], salesmen: dict[str, SalesmanFact]) -> set[str]:
+    """SalesGroup dropdown values plus master aliases a YoY row might carry."""
+    wanted: set[str] = set()
+    for pick in picks:
+        pk = salesman_key(pick)
+        if not pk:
+            continue
+        wanted.add(pk)
+        fact = salesmen.get(pk)
+        if fact is None:
+            for key, row in salesmen.items():
+                aliases = {
+                    key,
+                    salesman_key(row.display_name),
+                    salesman_key(row.full_name),
+                    salesman_key(row.number),
+                }
+                if pk in aliases:
+                    fact = row
+                    break
+        if fact:
+            wanted.add(fact.key)
+            wanted.add(salesman_key(fact.display_name))
+            wanted.add(salesman_key(fact.full_name))
+            wanted.add(salesman_key(fact.number))
+    wanted.discard("")
+    return wanted
+
+
+def _salesman_report_scope(params: dict, visible_keys, salesmen: dict[str, SalesmanFact]):
+    """Role scope, narrowed by an optional salesman dropdown pick."""
+    picks = _salesman_filter(params)
+    if not picks:
+        return visible_keys
+    wanted = _salesman_pick_keys(picks, salesmen)
+    if visible_keys is None:
+        return wanted
+    scoped = {salesman_key(k) for k in visible_keys}
+    if not (wanted & scoped) and not any(salesman_key(p) in scoped for p in picks):
+        return set()
+    return wanted
+
+
 def invoiced_skip_commissions(params: dict | None, layout: dict | None = None) -> bool:
     """True when output omits Commissions — fetch the selected period only.
 
@@ -441,8 +484,9 @@ def _orch_salesman(svc: ReportService, params: dict, visible_keys) -> dict:
     """Monthly Salesman YoY from rpt.usp_monthly_salesman_yoy (Total Invoice)."""
     sp = P.translate("salesman", params)
     fetched = svc.client.run_report(P.report_id_for("salesman"), sp)
+    scope = _salesman_report_scope(params, visible_keys, svc._salesmen())
     rows = rpt_salesman.filter_rows_by_salesman(
-        rpt_salesman.clean_rows(fetched.rows), visible_keys)
+        rpt_salesman.clean_rows(fetched.rows), scope)
     tabs = rpt_salesman.build(rows, year=_resolved_year(params))
     return svc._payload("salesman", tabs, len(rows))
 

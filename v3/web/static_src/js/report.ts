@@ -1981,7 +1981,7 @@ let companyDefaultLayout: SavedLayout | null = null;
 let companyDefaultParams: Record<string, unknown> = {};
 
 type LoadedNamedView = {
-  id: number;
+  id: number | string;
   name: string;
   paramsSnap: string;
   layoutSnap: string;
@@ -2011,6 +2011,17 @@ function rememberNamedView(preset: {
   id?: number | string; name?: string;
   params?: Record<string, unknown>;
 }): void {
+  if (isDefaultViewId(preset.id) && attr("data-is-privileged") === "1") {
+    loadedNamedView = {
+      id: DEFAULT_VIEW_ID,
+      name: "Default",
+      paramsSnap: stableJson(collectParams()),
+      layoutSnap: "",
+      layoutReady: false,
+    };
+    syncScheduleButton();
+    return;
+  }
   if (!isNamedPersonalPreset(preset) || isCustomPeriod(preset.params)) {
     loadedNamedView = null;
     syncScheduleButton();
@@ -2028,6 +2039,10 @@ function rememberNamedView(preset: {
 
 function isLoadedViewDirty(): boolean {
   if (!loadedNamedView) return false;
+  if (isDefaultViewId(loadedNamedView.id)) {
+    if (!loadedNamedView.layoutReady || !isReportShown()) return false;
+    return stableJson(serializeLayout()) !== loadedNamedView.layoutSnap;
+  }
   if (stableJson(collectParams()) !== loadedNamedView.paramsSnap) return true;
   if (!loadedNamedView.layoutReady || !isReportShown()) return false;
   return stableJson(serializeLayout()) !== loadedNamedView.layoutSnap;
@@ -2040,7 +2055,9 @@ function syncScheduleButton(): void {
   let note = "";
   let on = false;
   if (!loadedNamedView) {
-    note = "Load a named saved view (not Default) to schedule it.";
+    note = attr("data-is-privileged") === "1"
+      ? "Load Default or a named saved view to schedule it."
+      : "Load a named saved view (not Default) to schedule it.";
   } else if (isLoadedViewDirty()) {
     note = "Save this view first. Unsaved changes aren’t scheduled.";
   } else {
@@ -2482,7 +2499,51 @@ function companyViewGetUrl(id: number | string): string {
   return attr("data-company-view-url").replace(/\/0$/, `/${id}`);
 }
 
+function saveForCompany(): boolean {
+  return (($("viewOwner") as HTMLSelectElement | null)?.value || "") === "company";
+}
+
+async function putCompanyView(name: string): Promise<boolean> {
+  if (attr("data-can-edit-default") !== "1") {
+    setStatus("Only managers and admins can change company views.", "error");
+    return false;
+  }
+  try {
+    const res = await fetch(attr("data-company-views-url"), {
+      method: "PUT", headers: csrfHeaders(),
+      body: JSON.stringify({
+        name, params: collectCompanyViewParams(),
+        layout: layoutForCompanySave(),
+      }),
+    });
+    if (!res.ok) throw new Error();
+    return true;
+  } catch {
+    setStatus("Could not save this company view. Please try again.", "error");
+    return false;
+  }
+}
+
 async function saveView(): Promise<void> {
+  if (isCompanyViewId(editingPresetId) && editingPresetName) {
+    if (await putCompanyView(editingPresetName)) {
+      setStatus(`Updated “${editingPresetName}”.`);
+    }
+    return;
+  }
+  if (saveForCompany()) {
+    const name = window.prompt("Save as a company view:", editingPresetName || "");
+    if (name == null || !name.trim()) return;
+    const trimmed = name.trim();
+    if (trimmed.toLowerCase() === "default") {
+      setStatus("Default is the company Default. Pick another name.", "error");
+      return;
+    }
+    if (await putCompanyView(trimmed)) {
+      setStatus(`Saved company view “${trimmed}”.`);
+    }
+    return;
+  }
   if (isDefaultViewId(editingPresetId) || editingPresetName === "Default") {
     if (attr("data-can-edit-default") !== "1") {
       setStatus("Only managers and admins can change the Default view.", "error");
@@ -2504,26 +2565,6 @@ async function saveView(): Promise<void> {
     }
     return;
   }
-  if (isCompanyViewId(editingPresetId) && editingPresetName) {
-    if (attr("data-can-edit-default") !== "1") {
-      setStatus("Only managers and admins can change company views.", "error");
-      return;
-    }
-    try {
-      const res = await fetch(attr("data-company-views-url"), {
-        method: "PUT", headers: csrfHeaders(),
-        body: JSON.stringify({
-          name: editingPresetName, params: collectCompanyViewParams(),
-          layout: layoutForCompanySave(),
-        }),
-      });
-      if (!res.ok) throw new Error();
-      setStatus(`Updated “${editingPresetName}”.`);
-    } catch {
-      setStatus("Could not save this company view. Please try again.", "error");
-    }
-    return;
-  }
   const suggested = editingPresetName || "";
   const name = window.prompt(
     editingPresetId
@@ -2540,7 +2581,7 @@ async function saveView(): Promise<void> {
     };
     if (!overwrite) {
       const owner = ($("viewOwner") as HTMLSelectElement | null)?.value;
-      if (owner) payload.owner_user_id = Number(owner);
+      if (owner && owner !== "company") payload.owner_user_id = Number(owner);
     }
     const res = overwrite
       ? await fetch(presetUrl(editingPresetId!), {
@@ -2709,8 +2750,19 @@ function appendPresetRow(
     del.title = "Delete this view";
     del.addEventListener("click", async () => {
       if (!window.confirm(`Delete “${preset.name}”?`)) return;
-      await fetch(presetUrl(preset.id!), { method: "DELETE", headers: csrfHeaders() });
+      const url = isCompanyViewId(preset.id)
+        ? companyViewGetUrl(String(preset.id).slice(COMPANY_VIEW_PREFIX.length))
+        : presetUrl(preset.id!);
+      const res = await fetch(url, { method: "DELETE", headers: csrfHeaders() });
+      if (!res.ok) {
+        setStatus("Could not delete this view.", "error");
+        return;
+      }
       row.remove();
+      if (editingPresetId === preset.id) {
+        editingPresetId = null;
+        editingPresetName = null;
+      }
     });
     row.appendChild(del);
   }
@@ -2754,7 +2806,7 @@ async function togglePresetsPanel(): Promise<void> {
     const fold = appendPresetFold(panel, "Company views");
     company.forEach((p) => {
       appendPresetRow(fold, { ...p, id: `${COMPANY_VIEW_PREFIX}${p.id}` }, {
-        canDelete: false, canEdit: !!p.can_edit,
+        canDelete: !!p.can_edit, canEdit: !!p.can_edit,
       });
     });
   }
@@ -2838,8 +2890,7 @@ async function autoOpenPresetIfRequested(): Promise<void> {
     await loadCompanyDefault();
     applyParamsObject(companyDefaultParams);
     pendingLayout = companyDefaultLayout;
-    loadedNamedView = null;
-    syncScheduleButton();
+    rememberNamedView({ id: DEFAULT_VIEW_ID, name: "Default", params: companyDefaultParams });
     autoRunRequested = true;
     return;
   }
@@ -3190,12 +3241,15 @@ async function saveSchedule(): Promise<void> {
   }
   const cad = collectCadence();
   if (!cad.ok) { schedMsg(cad.error || "Invalid cadence.", true); return; }
+  if (isDefaultViewId(loadedNamedView.id) && isCustomPeriod(collectParams())) {
+    schedMsg("Custom date ranges can’t be scheduled.", true);
+    return;
+  }
   const btn = $("schedSave") as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
   schedMsg("Saving…", false);
   const privileged = attr("data-is-privileged") === "1";
   const body: Record<string, unknown> = {
-    saved_report_id: loadedNamedView.id,
     cadence: cad.cadence,
     email_to_owner: emailOn,
     filename_template: (($("schedFilename") as HTMLInputElement | null)?.value || "").trim(),
@@ -3204,6 +3258,13 @@ async function saveSchedule(): Promise<void> {
     sharepoint_path: spPath,
     folder_kind: spPath ? "sharepoint" : (odPath ? "onedrive" : ""),
   };
+  if (isDefaultViewId(loadedNamedView.id)) {
+    body.view_name = "Default";
+    body.report_key = attr("data-report-key");
+    body.params = collectParams();
+  } else {
+    body.saved_report_id = loadedNamedView.id;
+  }
   if (privileged) {
     body.recipients = extras;
     body.email_cc = rec.cc;
@@ -3311,6 +3372,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const resumed = await resumeInFlight();
   if (!resumed) {
     await autoOpenPresetIfRequested();
+    const q = new URLSearchParams(window.location.search);
+    if (!q.get("cview") && !loadedNamedView) {
+      rememberNamedView({ id: DEFAULT_VIEW_ID, name: "Default", params: companyDefaultParams });
+    }
     if (autoRunRequested) { autoRunRequested = false; run(); }
   }
 });

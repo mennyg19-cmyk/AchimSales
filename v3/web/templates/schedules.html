@@ -6,7 +6,7 @@
     <div>
         <h1 class="page-title">Schedules</h1>
         <p class="page-subtitle">
-            Recurring deliveries from a named saved view. Or open a report, load that view, and use More → Schedule.
+            Recurring deliveries from a named saved view{% if is_privileged %} or Default{% endif %}. Or open a report, load that view, and use More → Schedule.
             {% if is_privileged %}
             <a href="{{ url_for('schedules.company_schedules_page') }}">Company schedules</a> are in Settings.
             {% endif %}

@@ -4,7 +4,7 @@ import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 
 type ViewRow = {
-  id: number;
+  id: number | string;
   name: string;
   report_key: string;
   report_title: string;
@@ -46,10 +46,10 @@ function msg(text: string, isError: boolean): void {
 function selectedView(): { view: ViewRow; owner: ViewGroup } | null {
   const checked = formEl()?.querySelector<HTMLInputElement>('input[name="saved_report_id"]:checked');
   if (!checked) return lockedView;
-  const id = Number(checked.value);
-  if (lockedView && lockedView.view.id === id) return lockedView;
+  const raw = checked.value;
+  if (lockedView && String(lockedView.view.id) === raw) return lockedView;
   for (const g of viewCache) {
-    const view = g.views.find((v) => v.id === id);
+    const view = g.views.find((v) => String(v.id) === raw);
     if (view) return { view, owner: g };
   }
   return lockedView;
@@ -156,7 +156,7 @@ function renderViews(groups: ViewGroup[], selectedId: string): void {
   if (!box) return;
   box.innerHTML = "";
   const flat = groups.flatMap((g) => g.views.map((v) => ({ g, v })));
-  const hasLocked = !!(lockedView && !flat.some((x) => x.v.id === lockedView!.view.id));
+  const hasLocked = !!(lockedView && !flat.some((x) => String(x.v.id) === String(lockedView!.view.id)));
   if (!flat.length && !hasLocked) {
     if (empty) empty.hidden = false;
     return;
@@ -288,7 +288,7 @@ async function enterEdit(row: HTMLTableRowElement): Promise<void> {
   if (selectedId && !selectedView()) {
     lockedView = {
       view: {
-        id: Number(selectedId),
+        id: selectedId.startsWith("default:") ? selectedId : Number(selectedId),
         name: row.dataset.viewName || "Imported view",
         report_key: row.dataset.reportKey || "",
         report_title: row.dataset.name || "",
@@ -509,6 +509,10 @@ export function bindPersonalWizard(): void {
       sharepoint_path: spOn ? spPath : "",
       folder_kind: spOn ? "sharepoint" : (odOn ? "onedrive" : ""),
     };
+    if (String(picked.view.id).startsWith("default:")) {
+      body.view_name = "Default";
+      body.report_key = picked.view.report_key;
+    }
     if (privileged()) {
       body.recipients = (document.getElementById("psExtras") as HTMLInputElement | null)?.value.trim() || "";
       body.email_cc = (document.getElementById("psCc") as HTMLInputElement | null)?.value.trim() || "";

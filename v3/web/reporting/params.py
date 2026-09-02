@@ -165,7 +165,10 @@ def translate_salesman(p: dict) -> dict[str, Any]:
     out: dict[str, Any] = {"ReportYear": year, "ThroughMonth": through}
     if sid := _csv(p.get("salesman_id") or p.get("SalesmanId")):
         out["SalesmanId"] = sid
-    if sname := _csv(p.get("salesman") or p.get("SalesmanName")):
+    # Form `salesman` is a SalesGroup dropdown value (same as Ordered). The YoY
+    # SP's SalesmanName is a display name, so the orchestrator post-filters the
+    # pick. Only an explicit SalesmanName goes to the SP.
+    if sname := _csv(p.get("SalesmanName")):
         out["SalesmanName"] = sname
     if acct := _csv(p.get("customer_account") or p.get("CustomerAccount") or p.get("customers")):
         # Single account only; multi-select is post-filtered if needed later.

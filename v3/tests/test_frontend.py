@@ -172,6 +172,8 @@ def test_report_viewer_meeting_ux():
     assert "Only managers and admins can change company views." in src
     assert "Company views" in src
     assert "function collectCompanyViewParams" in src
+    assert "canDelete: !!p.can_edit, canEdit: !!p.can_edit" in src
+    assert "companyViewGetUrl(String(preset.id).slice(COMPANY_VIEW_PREFIX.length))" in src
     assert "function mapPeriodValue" in src
     assert 'v.toLowerCase() === "yesterday" ? "daily"' in src
     assert "function periodIsRunnable" in src
@@ -202,9 +204,14 @@ def test_report_viewer_meeting_ux():
     assert "function canSumColumn" in src
     assert 'c.field === "Net Price"' in src
     assert "c.sum === false" in src
+    assert "function saveForCompany" in src
+    assert "Save as a company view:" in src
+    assert "Load Default or a named saved view to schedule it." in src
+    assert "isDefaultViewId(loadedNamedView.id)" in src
     remember = src.split("function rememberNamedView", 1)[1].split("function isLoadedViewDirty", 1)[0]
     assert 'key === "customer_activity"' not in remember
     assert "isNamedPersonalPreset(preset)" in remember
+    assert "isDefaultViewId(preset.id)" in remember
     assert "isCustomPeriod(preset.params)" in remember
     sync = src.split("function syncScheduleButton", 1)[1].split("function hasFilter", 1)[0]
     assert "customer_activity" not in sync
@@ -243,6 +250,9 @@ def test_report_viewer_meeting_ux():
     assert "container-narrow" not in company_page
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
     assert 'id="psWizard"' in personal
+    assert "Default plus named views." in personal
+    wiz_js = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
+    assert 'startsWith("default:")' in wiz_js
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
 
@@ -276,6 +286,7 @@ def test_personal_and_report_schedule_have_cc_bcc_fields():
     assert 'id="schedBcc"' in report_html
     assert 'id="viewOwner"' in report_html
     assert "Save for" in report_html
+    assert 'option value="company">Company</option>' in report_html
     report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
     assert "body.email_cc" in report_js
     assert "body.email_bcc" in report_js

@@ -16,6 +16,8 @@ from web.auth.session import current_principal
 from web.delivery.email import split_recipients
 from web.delivery.filename_template import DEFAULT_FILENAME_TEMPLATE
 from web.data.repositories.report_defaults import (
+    DEFAULT_VIEW_NAME,
+    ReportDefaultRepository,
     normalize_view_name,
     view_and_layout_for_create,
     view_and_layout_for_update,
@@ -30,7 +32,7 @@ from web.data.repositories.schedules import (
 )
 from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import User, UserRepository
-from web.scheduling.personal_views import is_schedulable_saved_view
+from web.scheduling.personal_views import is_custom_date_params, is_schedulable_saved_view
 from web.scheduling import cadence as C
 from web.scheduling.jobs import enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
@@ -172,6 +174,53 @@ def _saved_reports() -> SavedReportRepository:
 
 def _users() -> UserRepository:
     return UserRepository(_db())
+
+
+_DEFAULT_VIEW_TOKEN = "default:"
+_DELIVERY_PARAM_KEYS = {
+    "email_on_no_data", "email_on_no_data_me_only",
+    "email_cc", "email_bcc", "folder_kind",
+}
+
+
+def _default_view_token(report_key: str) -> str:
+    return f"{_DEFAULT_VIEW_TOKEN}{report_key}"
+
+
+def _parse_default_report_key(body: dict) -> str | None:
+    """Report key when the wizard/API is scheduling Default, else None."""
+    raw = body.get("saved_report_id")
+    if raw is not None and str(raw).strip():
+        token = str(raw).strip()
+        if token.lower() == "default":
+            return (body.get("report_key") or "").strip() or None
+        if token.lower().startswith(_DEFAULT_VIEW_TOKEN):
+            return token.split(":", 1)[1].strip() or None
+        return None
+    if not isinstance(body.get("view_name"), str):
+        return None
+    if normalize_view_name(body.get("view_name")) != DEFAULT_VIEW_NAME:
+        return None
+    return (body.get("report_key") or "").strip() or None
+
+
+def _load_default_schedule(body: dict, p, *, privileged: bool) -> tuple[str, dict]:
+    """report_key + filter params for a Default-view personal schedule."""
+    if not privileged:
+        abort(403, description="Only admins and developers can schedule Default.")
+    report_key = _parse_default_report_key(body)
+    if not report_key:
+        abort(400, description="Pick a report to schedule Default.")
+    _validate_report(p, report_key, allow_in_app=False)
+    incoming = body.get("params") if isinstance(body.get("params"), dict) else None
+    if incoming is not None:
+        params = dict(incoming)
+    else:
+        row = ReportDefaultRepository(_db()).get(report_key)
+        params = dict(row.params) if row else {}
+    if is_custom_date_params(params):
+        abort(400, description="Custom date ranges can't be scheduled.")
+    return report_key, params
 
 
 def _load_schedulable_view(body: dict, p, *, privileged: bool,
@@ -319,7 +368,12 @@ def schedules_page():
     for row in items:
         preset = saved.get_by_name(
             row["owner_user_id"], row["report_key"], row["view_name"])
-        row["saved_report_id"] = preset.id if preset else ""
+        if preset is not None:
+            row["saved_report_id"] = preset.id
+        elif row["view_name"] == DEFAULT_VIEW_NAME:
+            row["saved_report_id"] = _default_view_token(row["report_key"])
+        else:
+            row["saved_report_id"] = ""
         row["folder_kind"] = (row["params"] or {}).get("folder_kind") or "onedrive"
     groups = _group_personal_rows(items, is_privileged)
     context = {
@@ -345,8 +399,10 @@ def schedules_page():
 
 
 def _has_schedulable_views(p, privileged: bool) -> bool:
+    if privileged:
+        return True
     uid = _uid(p.email)
-    presets = _saved_reports().list_all() if privileged else _saved_reports().list_for_user(uid)
+    presets = _saved_reports().list_for_user(uid)
     return any(
         is_schedulable_saved_view(v) and _view_is_visible(p, v.report_key)
         for v in presets
@@ -458,6 +514,30 @@ def create_schedule():
     p = _principal()
     body = request.get_json(silent=True) or {}
     privileged = _authz().is_privileged(p)
+    if _parse_default_report_key(body) is not None:
+        report_key, view_params = _load_default_schedule(
+            body, p, privileged=privileged)
+        owner = _users().get_by_id(_uid(p.email))
+        if owner is None:
+            abort(400, description="That view has no owner.")
+        cadence = _parse_cadence(body)
+        folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
+        recipients = _recipients_for_view_schedule(
+            body, owner, privileged=privileged, folder=folder)
+        params = _delivery_params(body, view_params, privileged=privileged)
+        params.update(folder_extra)
+        sid = _repo().create(
+            owner.id, report_key, params=params,
+            layout={}, cadence=cadence,
+            recipients=recipients, sharepoint_path=folder,
+            start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
+            filename_template=_filename_template_for_create(body),
+            view_name=DEFAULT_VIEW_NAME,
+        )
+        created = _repo().get(sid, owner.id)
+        if created:
+            _hold_if_due(_repo(), created, PERSONAL)
+        return jsonify({"id": sid, "owner_user_id": owner.id}), 201
     preset = _load_schedulable_view(body, p, privileged=privileged)
     owner = _users().get_by_id(preset.user_id)
     if owner is None:
@@ -493,11 +573,25 @@ def update_schedule(schedule_id: int):
     if owner is None:
         abort(400, description="That schedule has no owner.")
     if "saved_report_id" in body:
-        preset = _load_schedulable_view(
-            body, p, privileged=privileged, existing=existing)
-        if preset.user_id != existing.owner_user_id:
-            abort(400, description="Pick one of this person's saved views.")
-        view_name, layout, view_params = preset.name, preset.layout or {}, preset.params or {}
+        if _parse_default_report_key(body) is not None:
+            report_key, incoming_params = _load_default_schedule(
+                body, p, privileged=privileged)
+            if report_key != existing.report_key:
+                abort(400, description="Pick Default for this report.")
+            view_name, layout = DEFAULT_VIEW_NAME, {}
+            if isinstance(body.get("params"), dict):
+                view_params = incoming_params
+            else:
+                view_params = {
+                    k: v for k, v in (existing.params or {}).items()
+                    if k not in _DELIVERY_PARAM_KEYS
+                }
+        else:
+            preset = _load_schedulable_view(
+                body, p, privileged=privileged, existing=existing)
+            if preset.user_id != existing.owner_user_id:
+                abort(400, description="Pick one of this person's saved views.")
+            view_name, layout, view_params = preset.name, preset.layout or {}, preset.params or {}
     else:
         view_name = existing.view_name
         layout = existing.layout or {}
@@ -505,10 +599,7 @@ def update_schedule(schedule_id: int):
         # Keep report filters from the view; drop old delivery keys then re-apply.
         view_params = {
             k: v for k, v in view_params.items()
-            if k not in {
-                "email_on_no_data", "email_on_no_data_me_only",
-                "email_cc", "email_bcc", "folder_kind",
-            }
+            if k not in _DELIVERY_PARAM_KEYS
         }
         backed = _saved_reports().get_by_name(
             existing.owner_user_id, existing.report_key, normalize_view_name(view_name))
@@ -626,6 +717,28 @@ def list_schedulable_views():
             "report_key": row.report_key,
             "report_title": _report_title(row.report_key),
         })
+    if privileged:
+        defaults = []
+        for spec in registry.built_reports():
+            if spec.in_app or not _view_is_visible(p, spec.key):
+                continue
+            defaults.append({
+                "id": _default_view_token(spec.key),
+                "name": DEFAULT_VIEW_NAME,
+                "report_key": spec.key,
+                "report_title": spec.title,
+            })
+        owner = users.get(uid)
+        if defaults and owner is not None:
+            if uid not in groups:
+                groups[uid] = {
+                    "user_id": uid,
+                    "name": owner.display_name or owner.email,
+                    "email": owner.email,
+                    "views": [],
+                }
+                order.insert(0, uid)
+            groups[uid]["views"] = defaults + groups[uid]["views"]
     out = [groups[i] for i in order if groups[i]["views"]]
     out.sort(key=lambda g: g["name"].lower())
     return jsonify({"groups": out})

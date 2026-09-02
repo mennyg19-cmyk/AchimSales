@@ -67,7 +67,7 @@ reports_bp = Blueprint("reports", __name__)
 REPORT_FILTERS: dict[str, tuple[str, ...]] = {
     "ordered": ("period", "status", "customers", "salesman"),
     "invoiced": ("period", "customers", "salesman"),
-    "salesman": ("year",),
+    "salesman": ("year", "salesman"),
     "number_4": ("n4_mode",),
     "item_averages": (),
     "customer_activity": ("salesman",),
@@ -1535,6 +1535,21 @@ def put_company_view(report_key: str):
     except ValueError as exc:
         abort(400, description=str(exc))
     return jsonify(_company_view_dict(row, p))
+
+
+@reports_bp.delete("/api/reports/<report_key>/company-views/<int:view_id>")
+@require_login
+def delete_company_view(report_key: str, view_id: int):
+    p = _principal_or_401()
+    _built_spec_or_404(report_key)
+    _authz().assert_report_runnable(p, report_key)
+    if not _authz().can_see_company_views(p):
+        abort(403, description="You do not have access to company views.")
+    if not _authz().can_see_company_schedules(p):
+        abort(403, description="Only managers and admins can change company views.")
+    if not _company_views_repo().delete(view_id, report_key):
+        abort(404, description="Unknown company view")
+    return jsonify({"deleted": True})
 
 
 # --- delivery: email now + SharePoint picker -------------------------------- #

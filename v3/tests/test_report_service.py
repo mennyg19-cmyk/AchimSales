@@ -312,6 +312,53 @@ def test_number_4_scoped_user_only_sees_their_salesman_rows():
     assert out["row_count"] == 1
 
 
+def _salesman_yoy_row(name, sid, acct="100"):
+    row = {
+        "SalesmanId": sid,
+        "SalesmanName": name,
+        "CustomerAccount": acct,
+        "CustomerName": "Acme",
+        "Full Year This Year": 10,
+        "Full Year Last Year": 5,
+    }
+    for abbr in ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"):
+        row[f"{abbr} This Year"] = 0
+        row[f"{abbr} Last Year"] = 0
+    row["Mar This Year"] = 10
+    row["Mar Last Year"] = 5
+    return row
+
+
+def test_salesman_report_dropdown_keeps_selected_salesman():
+    mine = _salesman_yoy_row("Reggie Edwards", "080")
+    other = _salesman_yoy_row("Other Rep", "099", acct="200")
+    svc = _svc({"monthly_salesman_yoy": [mine, other]})
+    out = svc.builder_for("salesman")({"year": 2026, "salesman": "REdwards"}, None)
+    names = {r["Salesman"] for t in out["tabs"] for r in t["rows"]}
+    assert names == {"Reggie Edwards"}
+    assert out["row_count"] == 1
+    assert "SalesmanName" not in svc.client.params_calls[0][1]
+
+
+def test_salesman_report_all_salesmen_keeps_every_row():
+    mine = _salesman_yoy_row("Reggie Edwards", "080")
+    other = _salesman_yoy_row("Other Rep", "099", acct="200")
+    out = _svc({"monthly_salesman_yoy": [mine, other]}).builder_for("salesman")(
+        {"year": 2026}, None)
+    names = {r["Salesman"] for t in out["tabs"] for r in t["rows"]}
+    assert names == {"Reggie Edwards", "Other Rep"}
+    assert out["row_count"] == 2
+
+
+def test_salesman_report_scoped_user_cannot_pick_another_salesman():
+    mine = _salesman_yoy_row("Reggie Edwards", "080")
+    other = _salesman_yoy_row("Other Rep", "099", acct="200")
+    out = _svc({"monthly_salesman_yoy": [mine, other]}).builder_for("salesman")(
+        {"year": 2026, "salesman": "JSmith"}, {"redwards"})
+    assert out["row_count"] == 0
+
+
 def test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key():
     """The salesman dropdown VALUE must be the raw SalesGroup the SP expects.
     Before the universe warms we return [] (never the normalized master keys)."""
