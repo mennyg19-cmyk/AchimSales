@@ -2,6 +2,23 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Excel grouped sheets are collapsible (expanded)
+
+**What to test:**
+- Nested groups (Salesman then customer): data rows outline 2, customer banner/total outline 1, salesman banner/total and Grand total outline 0.
+- One group: data outline 1, banner/total outline 0.
+- No row is hidden (`hidden` is false). `summaryBelow` is true.
+- `sheet_format.outlineLevelRow` matches group depth.
+
+**Expected behavior:**
+- Excel shows +/- in the gutter. Groups start expanded. Collapsing a customer hides its data; collapsing a salesman hides its customers.
+
+**Edge cases:**
+- Ungrouped sheets are unchanged (no outline).
+- Still write-only streaming — no full-workbook rewrite.
+
+**Test file:** `v3/tests/test_reporting.py`
+
 ## Ordered group footers skip Net Price; nested groups use shade ladders
 
 **What to test:**

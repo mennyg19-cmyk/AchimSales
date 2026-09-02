@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Excel grouped rows are collapsible, start expanded
+**What you asked for:** Excel files should group rows so they collapse, default expanded. Skip it if that means rewriting the Excel writer.
+**What I chose:** Keep write-only streaming. Set `outline_level` on each row before append (write-only flushes immediately). Nested: data is the innermost outline; banners/totals sit one level out; grand total ungrouped. `hidden` stays false so Excel opens expanded. `summaryBelow` puts the +/- on the total row.
+**Why:** openpyxl write-only already writes row dimensions. No need to switch to a fully-loaded workbook.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Ordered group totals skip Net Price; nested groups use shade ladders
 **What you asked for:** Do not total Net Price on group footers. Nested group headers/footers were clashing. Footers should be greys (grand darkest, then salesman, then customer). Headers the same idea in shades of the existing blue. Dark fills need white text.
 **What I had to decide:** Whether to skip only Net Price or every unit-price column, and whether Excel and the grid share one recipe.

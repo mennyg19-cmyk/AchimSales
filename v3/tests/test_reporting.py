@@ -483,6 +483,76 @@ def test_nest_colors_keep_readable_contrast():
         assert _contrast(grand, white) >= 4.5
 
 
+def _row_outline(ws, row) -> tuple[int, bool]:
+    dim = ws.row_dimensions[row[0].row]
+    return int(dim.outline_level or 0), bool(dim.hidden)
+
+
+def test_export_nested_groups_are_collapsible_and_start_expanded():
+    """Excel outline: data is innermost, banners/totals sit one level out, nothing hidden."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "CustomerName", "header": "CustomerName", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "CustomerName": "Zed", "Amt": 1},
+            {"Salesman": "A", "CustomerName": "Ann", "Amt": 3},
+            {"Salesman": "B", "CustomerName": "Zed", "Amt": 4},
+        ],
+    }]}
+    layout = {"views": {"t": {"group": ["Salesman", "CustomerName"]}}}
+    wb = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))
+    ws = wb["T"]
+    assert ws.sheet_properties.outlinePr.summaryBelow is True
+    assert ws.sheet_format.outlineLevelRow == 2
+    by_label = {row[0].value: row for row in ws.iter_rows() if row[0].value}
+    salesman_hdr, hidden = _row_outline(ws, by_label["Salesman: A"])
+    assert salesman_hdr == 0 and hidden is False
+    customer_hdr, hidden = _row_outline(ws, by_label["CustomerName: Ann"])
+    assert customer_hdr == 1 and hidden is False
+    customer_tot, hidden = _row_outline(ws, by_label["Total \u2014 Ann"])
+    assert customer_tot == 1 and hidden is False
+    salesman_tot, hidden = _row_outline(ws, by_label["Total \u2014 A"])
+    assert salesman_tot == 0 and hidden is False
+    grand, hidden = _row_outline(ws, by_label["Grand total"])
+    assert grand == 0 and hidden is False
+    data = next(row for row in ws.iter_rows() if row[2].value == 3)
+    data_level, hidden = _row_outline(ws, data)
+    assert data_level == 2 and hidden is False
+    for row in ws.iter_rows():
+        assert ws.row_dimensions[row[0].row].hidden is False
+
+
+def test_export_one_group_outlines_data_only():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+    payload = {"tabs": [{
+        "key": "t", "name": "T",
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "Amt": 1},
+            {"Salesman": "A", "Amt": 2},
+            {"Salesman": "B", "Amt": 3},
+        ],
+    }]}
+    layout = {"views": {"t": {"group": ["Salesman"]}}}
+    ws = openpyxl.load_workbook(io.BytesIO(build_workbook(payload, layout)))["T"]
+    assert ws.sheet_format.outlineLevelRow == 1
+    by_label = {row[0].value: row for row in ws.iter_rows() if row[0].value}
+    assert _row_outline(ws, by_label["Salesman: A"])[0] == 0
+    assert _row_outline(ws, by_label["Total \u2014 A"])[0] == 0
+    data = next(row for row in ws.iter_rows() if row[1].value == 1)
+    assert _row_outline(ws, data)[0] == 1
+
+
 def test_export_drops_salesman_group_when_file_is_one_rep():
     """Daily Ordered By Customer groups by salesman only. A per-rep file is
     already one salesman — no salesman banner, and no customer group either."""

@@ -4,7 +4,9 @@ One worksheet per tab, formatted to match the look of the live app's exports:
 a bold grey header row, thin cell borders, subtle zebra striping, and real
 Excel number formats per column type (currency, integer, percent, date). When
 a tab is grouped (via the saved/clicked view), each group gets a subtotal line
-and the sheet ends with a grand total - mirroring the legacy test app.
+and the sheet ends with a grand total - mirroring the legacy test app. Grouped
+sheets also get Excel outline levels (expanded) so salesman/customer blocks
+collapse with the +/- gutter.
 
 Payload shape: {"tabs": [{"key", "name", "columns": [...], "rows": [{col: val}],
 "layout"?}]}. ``columns`` is either a list of header strings or a list of
@@ -369,6 +371,16 @@ def _cell(ws, value: Any, *, fmt: str | None = None, font: Font | None = None,
     return c
 
 
+def _append_row(ws, cells, row_n: list[int], outline: int = 0) -> None:
+    """Append one row. Outline must be set before append — write-only streams immediately."""
+    n = row_n[0]
+    level = 0 if outline <= 0 else min(int(outline), 7)
+    if level:
+        ws.row_dimensions[n].outline_level = level
+    ws.append(cells)
+    row_n[0] = n + 1
+
+
 def _header_cells(ws, metas) -> list[WriteOnlyCell]:
     return [_cell(ws, _safe_text(h), font=_HEADER_FONT, fill=_HEADER_FILL,
                   align=_HEADER_ALIGN, border=_BORDER) for h, _f, _t, _s in metas]
@@ -477,7 +489,8 @@ def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
                   *, salesman_bands: bool,
                   salesman_band_by_field: dict[str, int] | None = None,
                   parent_acc: dict[str, float] | None = None,
-                  group_level: int = 0, group_depth: int = 1
+                  group_level: int = 0, group_depth: int = 1,
+                  row_n: list[int] | None = None
                   ) -> dict[str, float]:
     """Nested group banners + per-level totals. Innermost level writes data rows."""
     gf = group_fields[0]
@@ -486,27 +499,31 @@ def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
     ncol = len(metas)
     banner_fill, banner_font = _nest_header_style(group_level, group_depth)
     total_fill, total_font = _nest_footer_style(group_level, group_depth, grand=False)
+    if row_n is None:
+        row_n = [1]
     level: dict[str, float] = {}
     for _key, grp_iter in groupby(rows, key=lambda x: _group_sort_key(x.get(gf))):
         grp = list(grp_iter)
         gval = grp[0].get(gf)
         label = gval if gval not in (None, "") else "(blank)"
-        ws.append(_banner_cells(ws, ncol, f"{glabel}: {label}",
-                                fill=banner_fill, font=banner_font))
+        _append_row(ws, _banner_cells(ws, ncol, f"{glabel}: {label}",
+                                     fill=banner_fill, font=banner_font),
+                    row_n, outline=group_level)
         sub: dict[str, float] = {}
         if rest:
             _emit_grouped(ws, metas, grp, rest, salesman_bands=salesman_bands,
                           salesman_band_by_field=salesman_band_by_field,
                           parent_acc=sub, group_level=group_level + 1,
-                          group_depth=group_depth)
+                          group_depth=group_depth, row_n=row_n)
         else:
             for row in grp:
-                ws.append(_data_cells(
+                _append_row(ws, _data_cells(
                     ws, metas, row, sub, salesman_bands=salesman_bands,
                     salesman_band_by_field=salesman_band_by_field,
-                ))
-        ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}",
-                               fill=total_fill, font=total_font))
+                ), row_n, outline=group_depth)
+        _append_row(ws, _total_cells(ws, metas, sub, f"Total \u2014 {label}",
+                                     fill=total_fill, font=total_font),
+                    row_n, outline=group_level)
         for k, val in sub.items():
             level[k] = level.get(k, 0.0) + val
     if parent_acc is not None:
@@ -524,11 +541,18 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
     ncol = len(metas)
     # Worksheet-level properties are written at save time, so they can be set
     # before appending rows (write-only mode only forbids per-cell random access).
+    # outlinePr / outlineLevelRow must be set before the first append — write-only
+    # flushes sheet properties then.
     ws.freeze_panes = "A2"
     _autosize(ws, metas)
+    if group_fields:
+        ws.sheet_properties.outlinePr.summaryBelow = True
+        ws.sheet_properties.outlinePr.showOutlineSymbols = True
+        ws.sheet_format.outlineLevelRow = min(len(group_fields), 7)
     if not group_fields and rows:
         ws.auto_filter.ref = f"A1:{get_column_letter(ncol)}{len(rows) + 1}"
-    ws.append(_header_cells(ws, metas))
+    row_n = [1]
+    _append_row(ws, _header_cells(ws, metas), row_n)
 
     grand_fill, grand_font = _nest_footer_style(0, max(len(group_fields), 1), grand=True)
     if group_fields:
@@ -538,20 +562,21 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
             salesman_bands=salesman_bands,
             salesman_band_by_field=salesman_band_by_field,
             group_level=0, group_depth=len(group_fields),
+            row_n=row_n,
         )
         if rows:
-            ws.append(_total_cells(ws, metas, grand, "Grand total",
-                                   fill=grand_fill, font=grand_font))
+            _append_row(ws, _total_cells(ws, metas, grand, "Grand total",
+                                         fill=grand_fill, font=grand_font), row_n)
     else:
         grand: dict[str, float] = {}
         for row in rows:
-            ws.append(_data_cells(
+            _append_row(ws, _data_cells(
                 ws, metas, row, grand, salesman_bands=salesman_bands,
                 salesman_band_by_field=salesman_band_by_field,
-            ))
+            ), row_n)
         if rows:
-            ws.append(_total_cells(ws, metas, grand, "Total",
-                                   fill=grand_fill, font=grand_font))
+            _append_row(ws, _total_cells(ws, metas, grand, "Total",
+                                         fill=grand_fill, font=grand_font), row_n)
 
 
 def _stream_commission(ws, tab: dict) -> None:
