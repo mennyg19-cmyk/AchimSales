@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Go-live: inventory live v3, do not rebuild from scratch
+**What you asked for:** Plain-English report of today's fixes; database changes if possible; merge into main; then rebuild-protocol multi-model inventory of the entire site; then browser-click every feature autonomously with commit messages; edge cases; check schedules and Excel output.
+**What I had to decide:** (1) Whether rebuild Phase 2–4 (architecture + from-scratch rebuild) starts after inventory. (2) Where test-log commits go after merging #33. (3) Grill before Phase 0.
+**What I chose:** Phase 0–1 inventory of **live `v3/`** only, then click-through + schedule/Excel verification of the current app. Do **not** start Phase 2–4 rewrite. After #33 is on `main`, inventory and `GO-LIVE-TEST-LOG.md` live on branch `cursor/go-live-verify-551b` so doc/test-log pushes do not redeploy Azure; bugfixes found in that pass merge to `main` when they are real product fixes. Grill skipped: you already ordered the work and said run autonomously. Production sqlite row edits you made in the UI are **not** visible from this VM (no Azure DB access); schema migrations 0017/0018 are listed in `GO-LIVE-DAY-REPORT.md`.
+**Why:** You asked to inventory and test the site that is going live, not to throw it away and rebuild. Protocol Half 2 would start a from-scratch rewrite; that contradicts "this app needs to go live." Test logs on `main` would fire a deploy for markdown.
+**Status:** DECIDED
+
 ## 2026-09-02 Only developers can assign the developer role
 **What you asked for:** Full review of the codebase using the review protocol.
 **What I had to decide:** Whether an admin on Users & access may mint a developer (including themselves), and whether Add user may overwrite an existing email.
