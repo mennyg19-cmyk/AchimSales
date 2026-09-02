@@ -197,6 +197,15 @@ def test_report_viewer_meeting_ux():
     assert "function canSumColumn" in src
     assert 'c.field === "Net Price"' in src
     assert "c.sum === false" in src
+    remember = src.split("function rememberNamedView", 1)[1].split("function isLoadedViewDirty", 1)[0]
+    assert 'key === "customer_activity"' not in remember
+    assert "isNamedPersonalPreset(preset)" in remember
+    assert "isCustomPeriod(preset.params)" in remember
+    sync = src.split("function syncScheduleButton", 1)[1].split("function hasFilter", 1)[0]
+    assert "customer_activity" not in sync
+    assert "on the schedule list yet" not in src
+    toolbar = src.split("function setToolbarEnabled", 1)[1].split("function closeExportMenu", 1)[0]
+    assert "syncScheduleButton()" in toolbar
     assert "function paintNestedGroups" in src
     assert "function nestHeaderColors" in src
     assert "function nestFooterColors" in src

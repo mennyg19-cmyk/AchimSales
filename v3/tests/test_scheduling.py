@@ -1204,7 +1204,10 @@ def test_schedulable_view_rules():
 
     assert is_schedulable_saved_view(preset())
     assert not is_schedulable_saved_view(preset(name="Default"))
-    assert not is_schedulable_saved_view(preset(report_key="customer_activity"))
+    assert is_schedulable_saved_view(preset(
+        report_key="customer_activity", name="My activity", params={}))
+    assert not is_schedulable_saved_view(preset(
+        report_key="customer_activity", name="Default", params={}))
     assert is_custom_date_params({"period": "custom"})
     assert is_custom_date_params({"from": "2026-01-01", "to": "2026-01-31"})
     assert not is_custom_date_params({"period": "last_month", "from": "x", "to": "y"})

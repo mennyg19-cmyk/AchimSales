@@ -1844,6 +1844,7 @@ function setToolbarEnabled(hasData: boolean): void {
   }
   const runBtn = $("runBtn") as HTMLButtonElement | null;
   if (runBtn) runBtn.disabled = false;
+  syncScheduleButton();
 }
 
 // --------------------------------------------------------------------------
@@ -2007,8 +2008,7 @@ function rememberNamedView(preset: {
   id?: number | string; name?: string;
   params?: Record<string, unknown>;
 }): void {
-  const key = attr("data-report-key");
-  if (key === "customer_activity" || !isNamedPersonalPreset(preset) || isCustomPeriod(preset.params)) {
+  if (!isNamedPersonalPreset(preset) || isCustomPeriod(preset.params)) {
     loadedNamedView = null;
     syncScheduleButton();
     return;
@@ -2034,12 +2034,9 @@ function syncScheduleButton(): void {
   const btn = $("scheduleBtn") as HTMLButtonElement | null;
   const hint = $("scheduleHint");
   if (!btn) return;
-  const key = attr("data-report-key");
   let note = "";
   let on = false;
-  if (key === "customer_activity") {
-    note = "Customer Activity isn’t on the schedule list yet.";
-  } else if (!loadedNamedView) {
+  if (!loadedNamedView) {
     note = "Load a named saved view (not Default) to schedule it.";
   } else if (isLoadedViewDirty()) {
     note = "Save this view first. Unsaved changes aren’t scheduled.";

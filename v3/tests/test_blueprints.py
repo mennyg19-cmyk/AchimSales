@@ -1230,7 +1230,7 @@ def test_schedules_add_disabled_without_named_views(tmp_path):
     assert not any(g["views"] for g in views["groups"])
 
 
-def test_schedule_views_hide_default_custom_and_customer_activity(tmp_path):
+def test_schedule_views_hide_default_and_custom_not_customer_activity(tmp_path):
     app = _make_app(tmp_path)
     c = app.test_client()
     _login(c, app)
@@ -1245,7 +1245,21 @@ def test_schedule_views_hide_default_custom_and_customer_activity(tmp_path):
     names = [v["name"] for g in c.get("/api/schedules/views").get_json()["groups"] for v in g["views"]]
     assert "Last month" in names
     assert "Custom range" not in names
-    assert "My activity" not in names
+    assert "My activity" in names
+
+
+def test_schedule_create_customer_activity_named_view(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app, email="rep@x.com", role="salesman")
+    vid = _named_view(c, name="My activity", report="customer_activity", params={})
+    created = c.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    html = c.get("/schedules").get_data(as_text=True)
+    assert 'data-view-name="My activity"' in html
 
 
 def test_edit_converted_custom_date_schedule_keeps_view(tmp_path):

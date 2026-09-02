@@ -196,7 +196,7 @@ def _load_schedulable_view(body: dict, p, *, privileged: bool,
     if existing is not None and preset.user_id != existing.owner_user_id:
         abort(400, description="Pick one of this person's saved views.")
     if not is_schedulable_saved_view(preset):
-        abort(400, description="That view can't be scheduled (custom dates, Default, or this report is not on the list).")
+        abort(400, description="That view can't be scheduled (custom dates or Default).")
     return preset
 
 

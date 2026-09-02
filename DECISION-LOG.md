@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Named Customer Activity views can be scheduled without a period
+**What you asked for:** Turn on scheduling for Customer Activity even without a period.
+**What I had to decide:** Whether empty params still count (no Yesterday/MTD/YTD), or only views with a named period.
+**What I chose:** Named personal Customer Activity views are schedulable. Empty params are not a custom date range. Default, company views, and custom from/to stay off the list. Company monthly CA schedules are unchanged.
+**Why:** You reversed the 2026-09-01 hold. Heshy has a named CA view with no period and needs it on the 3-step list and More → Schedule.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Excel grouped rows are collapsible, start expanded
 **What you asked for:** Excel files should group rows so they collapse, default expanded. Skip it if that means rewriting the Excel writer.
 **What I chose:** Keep write-only streaming. Set `outline_level` on each row before append (write-only flushes immediately). Nested: data is the innermost outline; banners/totals sit one level out; grand total ungrouped. `hidden` stays false so Excel opens expanded. `summaryBelow` puts the +/- on the total row.

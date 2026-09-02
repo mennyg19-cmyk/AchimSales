@@ -9,9 +9,6 @@ from web.data.repositories.saved_reports import SavedReport, SavedReportReposito
 from web.data.repositories.schedules import Schedule, ScheduleRepository, next_copy_name
 from web.data.repositories.users import User, UserRepository
 
-# Left out of the 3-step picker until product says otherwise.
-HIDDEN_REPORT_KEYS = frozenset({"customer_activity"})
-
 
 def is_custom_date_params(params: dict | None) -> bool:
     """True when the view is a custom from/to range, not a named period."""
@@ -25,8 +22,6 @@ def is_custom_date_params(params: dict | None) -> bool:
 
 
 def is_schedulable_saved_view(preset: SavedReport) -> bool:
-    if preset.report_key in HIDDEN_REPORT_KEYS:
-        return False
     if is_custom_date_params(preset.params):
         return False
     name = (preset.name or "").strip()
