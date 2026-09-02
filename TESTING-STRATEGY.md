@@ -2,6 +2,17 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Personal schedules columns line up across owners
+
+**What to test:**
+- Admin `/schedules` with two owners is one `ps-sched-table` and two `ps-owner-row` banners.
+- Template has `table-layout: fixed` colgroup.
+
+**Expected behavior:**
+- Report / View / Cadence / Recipients / Folder / Last run / Active / Actions share one grid. Owner names are banner rows, not separate tables.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## Admins save views for other users; Switch user lists v3 logins
 
 **What to test:**

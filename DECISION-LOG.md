@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Personal schedule columns share one grid
+**What you asked for:** Avi / Heshy / Mendy tables on Personal schedules should line up (same column edges).
+**What I chose:** One table. Owner name is a full-width banner row. `table-layout: fixed` plus a colgroup so View/Recipients wrap instead of shoving Actions around.
+**Why:** Separate tables size columns from their own content, so Avi’s long recipient list shifted every column vs Heshy.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Admins save views for other users without logging in as them
 **What you asked for:** Set up views and schedules for other people without switching into their login. A new salesman user was missing from Switch user and from salesman dropdowns. What is the salesmen table for, and why isn't users enough?
 **What I had to decide:** Whether to merge `users` and `salesmen`, whether login emails should appear in report salesman dropdowns, and where "save for someone else" lives.

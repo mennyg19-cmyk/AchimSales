@@ -1307,6 +1307,29 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     assert mgr.get("/settings/company-schedules").status_code == 403
 
 
+def test_personal_schedules_page_uses_one_table(tmp_path):
+    app = _make_app(tmp_path)
+    avi = app.test_client()
+    _login(avi, app, email="avi@x.com", role="salesman")
+    avi.post("/api/schedules", json={
+        "saved_report_id": _named_view(avi, name="Avi view"),
+        "cadence": {"freq": "daily", "time": "09:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    heshy = app.test_client()
+    _login(heshy, app, email="heshy@x.com", role="salesman")
+    heshy.post("/api/schedules", json={
+        "saved_report_id": _named_view(heshy, name="Heshy view"),
+        "cadence": {"freq": "daily", "time": "08:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    admin = app.test_client()
+    _login(admin, app)
+    html = admin.get("/schedules").get_data(as_text=True)
+    assert html.count("ps-sched-table") == 1
+    assert html.count("ps-owner-row") == 2
+    assert "avi@x.com" in html
+    assert "heshy@x.com" in html
+
+
 def test_personal_schedule_row_has_edit(tmp_path):
     app = _make_app(tmp_path)
     c = app.test_client()

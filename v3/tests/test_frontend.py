@@ -235,6 +235,10 @@ def test_report_viewer_meeting_ux():
     assert "<th>View</th>" in sched
     assert 'personal_schedule_wizard.html' in sched
     assert "container-narrow" not in sched
+    assert "ps-sched-table" in sched
+    assert "ps-owner-row" in sched
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert "table-layout: fixed" in css
     company_page = (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert "container-narrow" not in company_page
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
