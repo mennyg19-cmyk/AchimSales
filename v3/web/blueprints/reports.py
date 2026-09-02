@@ -278,13 +278,9 @@ def _assert_scope_compatible(p, job):
         _deny_result_scope()
 
 
-def _export_source_job(export_job):
-    sid = export_job.params.get("source_job_id")
-    return _job_repo().get(sid) if sid else None
-
-
 def _export_in_scope(p, export_job) -> bool:
-    source = _export_source_job(export_job)
+    sid = export_job.params.get("source_job_id")
+    source = _job_repo().get(sid) if sid else None
     return source is not None and _job_scope_ok(p, source)
 
 

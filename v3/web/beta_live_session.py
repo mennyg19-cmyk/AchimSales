@@ -105,7 +105,7 @@ def adopt_live_identity():
         real_name=str(live.get("_dev_name") or "") if impersonating else "",
     )
     login(principal)
-    log.info("beta adopted live session for %s role=%s impersonating=%s", email, role, impersonating)
+    log.info("beta adopted live session for %s role=%s impersonating=%s", email, session_role, impersonating)
     return principal
 
 
