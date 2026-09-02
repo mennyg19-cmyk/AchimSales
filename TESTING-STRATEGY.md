@@ -2,6 +2,25 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Salesman Excel color bands follow fields, not column letters
+
+**What to test:**
+- Default columns: blue starts at Excel E (first month $), green at the YTD block, purple at full-year.
+- Hide Sort Number + Salesman (Default 2): month $ that used to be E is now C and stays blue; YTD stays green; full-year stays purple; negative $ is red.
+- Reorder a purple field into Excel A: it stays purple; identity columns stay uncolored.
+- Cached payloads with no ``band`` on the column dict still color by field name after hide.
+- Builder stamps ``band`` 0/1/2 on the three metric groups only.
+
+**Expected behavior:**
+- Excel export paints the information (month / YTD / full-year fields), not a fixed Excel letter.
+- Group-by Salesman with those two columns hidden still colors the data row the same way.
+
+**Edge cases:**
+- Commission cards tab is unbanded.
+- Other reports never pick up salesman fonts.
+
+**Test file:** `v3/tests/test_reporting.py`, `v3/tests/test_report_salesman.py`
+
 ## Schedules from named saved views
 
 **What to test:**

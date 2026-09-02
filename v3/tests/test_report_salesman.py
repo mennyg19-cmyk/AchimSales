@@ -91,3 +91,17 @@ def test_column_aliases_are_flexible():
     march = next(t for t in B.build(B.clean_rows([row]), year=2026) if t["name"] == "Mar")
     assert march["rows"][0]["Sales March 2026"] == 10.0
     assert march["rows"][0]["Sales March 2025"] == 5.0
+
+
+def test_month_columns_stamp_color_bands_on_metric_fields():
+    cols = {c["field"]: c.get("band") for c in B._columns(2026, 3)}
+    assert cols["Sort Number"] is None
+    assert cols["Salesman"] is None
+    assert cols["Cust. #"] is None
+    assert cols["Customer Name"] is None
+    assert cols["Sales March 2026"] == 0
+    assert cols["% This Year to Last Year"] == 0
+    assert cols["Sales 2026 Jan Thru March"] == 1
+    assert cols["% This Year to Last Year (YTD)"] == 1
+    assert cols["Sales Year to Date 2026"] == 2
+    assert cols["% This Year to Last Year (YTD Full Year)"] == 2

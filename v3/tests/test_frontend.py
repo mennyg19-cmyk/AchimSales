@@ -177,6 +177,8 @@ def test_report_viewer_meeting_ux():
     assert "if (!out.salesman && pendingSalesman) out.salesman = pendingSalesman;" in src
     assert "function applySalesman(" in src
     assert "function orderNumber4Columns" in src
+    assert "function salesmanBandIndex" in src
+    assert "typeof col.band === \"number\"" in src
     assert "fulfillmentFillCss" in src
     assert 'col.field === "Fulfillment %"' in src
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")

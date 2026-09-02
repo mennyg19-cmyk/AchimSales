@@ -79,6 +79,10 @@ _FONT_BAND_PURPLE = Font(color="800080")
 _FONT_BAND_RED = Font(color="FF0000")
 _BAND_FONTS = (_FONT_BAND_BLUE, _FONT_BAND_GREEN, _FONT_BAND_PURPLE)
 _FILL_LIGHT_GREY = PatternFill("solid", fgColor="E8E8E8")
+# Salesman identity columns never get YoY color bands.
+_SALESMAN_ID_FIELDS = frozenset({
+    "Sort Number", "Salesman", "Cust. #", "Customer Name", "SalesmanNumber",
+})
 
 
 def _fulfillment_fill(score: Any) -> PatternFill | None:
@@ -153,6 +157,52 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _infer_salesman_band(field: str) -> int | None:
+    """0=blue month YoY, 1=green YTD, 2=purple full year. Follows the field name.
+
+    Used when a column dict has no ``band`` (older cached payloads). Must not
+    use Excel column letters — hidden/reordered views move the same field.
+    """
+    if field in _SALESMAN_ID_FIELDS:
+        return None
+    if "(YTD Full Year)" in field or field.startswith("Sales Year to Date "):
+        return 2
+    if "(YTD)" in field or " Jan Thru " in field:
+        return 1
+    if (
+        field.startswith("Sales ")
+        or field in ("$ This Year to Last Year", "% This Year to Last Year")
+    ):
+        return 0
+    return None
+
+
+def _explicit_salesman_bands(columns: list) -> dict[str, int]:
+    """``band`` stamped on salesman column dicts (survives hide/reorder)."""
+    out: dict[str, int] = {}
+    for col in columns or []:
+        if not isinstance(col, dict) or col.get("band") is None:
+            continue
+        field = str(col.get("field") or col.get("header") or "")
+        if not field:
+            continue
+        try:
+            out[field] = min(max(int(col["band"]), 0), 2)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _salesman_font(field: str, raw: Any, bands: dict[str, int]) -> Font | None:
+    idx = bands[field] if field in bands else _infer_salesman_band(field)
+    if idx is None:
+        return None
+    n = _num(raw)
+    if n is not None and n < 0:
+        return _FONT_BAND_RED
+    return _BAND_FONTS[min(idx, 2)]
+
+
 def _safe_sheet_title(name: str, used: set[str]) -> str:
     title = _INVALID_SHEET.sub(" ", (name or "Sheet").strip())[:31] or "Sheet"
     base, n = title, 2
@@ -222,7 +272,8 @@ def _header_cells(ws, metas) -> list[WriteOnlyCell]:
 
 
 def _data_cells(ws, metas, row: dict, acc: dict[str, float],
-                *, salesman_bands: bool = False) -> list[WriteOnlyCell]:
+                *, salesman_bands: bool = False,
+                salesman_band_by_field: dict[str, int] | None = None) -> list[WriteOnlyCell]:
     """Data row cells — styled lightly (number formats only, no borders/zebra).
 
     The live app applies no per-cell borders or zebra on data rows; only headers,
@@ -230,18 +281,16 @@ def _data_cells(ws, metas, row: dict, acc: dict[str, float],
     on every cell is the single biggest speedup for large exports (borders alone
     were ~40% of openpyxl's write-time on a 120k-row grid).
 
-    Salesman month tabs optionally get Live's blue/green/purple font bands
-    (and red for negatives) while still using write-only streaming.
+    Salesman month tabs get blue/green/purple font by field identity (and red
+    for negatives), not by Excel column letter — hidden/reordered views move
+    the same numbers to different letters.
     """
+    bands = salesman_band_by_field or {}
     cells = []
-    for idx, (_header, field, ctype) in enumerate(metas):
+    for _header, field, ctype in metas:
         value, fmt = _coerce(row.get(field), ctype)
-        font = None
+        font = _salesman_font(field, row.get(field), bands) if salesman_bands else None
         fill = _fulfillment_fill(row.get(field)) if field == "Fulfillment %" else None
-        if salesman_bands and idx >= 4:
-            band = _BAND_FONTS[min((idx - 4) // 4, 2)]
-            n = _num(row.get(field))
-            font = _FONT_BAND_RED if n is not None and n < 0 else band
         cells.append(_cell(ws, value, fmt=fmt, font=font, fill=fill))
         if ctype in _SUMMABLE_TYPES:
             x = _num(row.get(field))
@@ -304,7 +353,9 @@ def _sort_rows_for_groups(rows: list, group_fields: list[str],
 
 
 def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
-                  *, salesman_bands: bool, parent_acc: dict[str, float] | None = None
+                  *, salesman_bands: bool,
+                  salesman_band_by_field: dict[str, int] | None = None,
+                  parent_acc: dict[str, float] | None = None
                   ) -> dict[str, float]:
     """Nested group banners + per-level totals. Innermost level writes data rows."""
     gf = group_fields[0]
@@ -320,10 +371,14 @@ def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
         sub: dict[str, float] = {}
         if rest:
             _emit_grouped(ws, metas, grp, rest, salesman_bands=salesman_bands,
+                          salesman_band_by_field=salesman_band_by_field,
                           parent_acc=sub)
         else:
             for row in grp:
-                ws.append(_data_cells(ws, metas, row, sub, salesman_bands=salesman_bands))
+                ws.append(_data_cells(
+                    ws, metas, row, sub, salesman_bands=salesman_bands,
+                    salesman_band_by_field=salesman_band_by_field,
+                ))
         ws.append(_total_cells(ws, metas, sub, f"Total \u2014 {label}"))
         for k, val in sub.items():
             level[k] = level.get(k, 0.0) + val
@@ -334,7 +389,9 @@ def _emit_grouped(ws, metas, rows: list, group_fields: list[str],
 
 
 def _stream_grid(ws, metas, rows: list, group_fields: list[str],
-                 *, salesman_bands: bool = False, sorters: list | None = None) -> None:
+                 *, salesman_bands: bool = False,
+                 salesman_band_by_field: dict[str, int] | None = None,
+                 sorters: list | None = None) -> None:
     if not metas:
         return
     ncol = len(metas)
@@ -348,14 +405,20 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
 
     if group_fields:
         ordered = _sort_rows_for_groups(rows, group_fields, sorters)
-        grand = _emit_grouped(ws, metas, ordered, group_fields,
-                              salesman_bands=salesman_bands)
+        grand = _emit_grouped(
+            ws, metas, ordered, group_fields,
+            salesman_bands=salesman_bands,
+            salesman_band_by_field=salesman_band_by_field,
+        )
         if rows:
             ws.append(_total_cells(ws, metas, grand, "Grand total"))
     else:
         grand: dict[str, float] = {}
         for row in rows:
-            ws.append(_data_cells(ws, metas, row, grand, salesman_bands=salesman_bands))
+            ws.append(_data_cells(
+                ws, metas, row, grand, salesman_bands=salesman_bands,
+                salesman_band_by_field=salesman_band_by_field,
+            ))
         if rows:
             ws.append(_total_cells(ws, metas, grand, "Total"))
 
@@ -458,7 +521,10 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
         group_fields = [g for g in wanted if g in known]
         salesman_bands = (payload.get("report_key") == "salesman"
                           and tab.get("layout") != "commission_cards")
+        band_by_field = (_explicit_salesman_bands(list(tab.get("columns") or []))
+                         if salesman_bands else None)
         _stream_grid(ws, metas, rows, group_fields, salesman_bands=salesman_bands,
+                     salesman_band_by_field=band_by_field,
                      sorters=v.get("sorters") if isinstance(v.get("sorters"), list) else None)
     buffer = BytesIO()
     wb.save(buffer)

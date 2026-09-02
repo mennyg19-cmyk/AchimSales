@@ -514,3 +514,129 @@ def test_export_fulfillment_percent_is_heatmap_filled():
     red = ws["B3"].fill.fgColor.rgb
     assert "C6EFCE" in green.upper() or "C6EFCE" in str(green).upper()
     assert "FFC7CE" in red.upper() or "FFC7CE" in str(red).upper()
+
+
+def _font_rgb(cell) -> str:
+    color = getattr(cell.font, "color", None)
+    rgb = getattr(color, "rgb", None) if color is not None else None
+    return str(rgb or "").upper()
+
+
+def _march_salesman_tab(*, strip_band: bool = False) -> dict:
+    from report_engine.reports import salesman as B
+
+    raw = {
+        "SalesmanId": "10",
+        "SalesmanName": "Robert Edwards",
+        "CustomerAccount": "100",
+        "CustomerName": "Acme",
+        "Jan This Year": 0, "Jan Last Year": 0,
+        "Feb This Year": 200, "Feb Last Year": 0,
+        "Mar This Year": 100, "Mar Last Year": 500,  # month $ delta is negative
+        "Apr This Year": 0, "Apr Last Year": 0,
+        "May This Year": 0, "May Last Year": 0,
+        "Jun This Year": 0, "Jun Last Year": 0,
+        "Jul This Year": 0, "Jul Last Year": 0,
+        "Aug This Year": 0, "Aug Last Year": 0,
+        "Sep This Year": 0, "Sep Last Year": 0,
+        "Oct This Year": 0, "Oct Last Year": 0,
+        "Nov This Year": 0, "Nov Last Year": 0,
+        "Dec This Year": 0, "Dec Last Year": 0,
+        "Full Year This Year": 1200,
+        "Full Year Last Year": 500,
+    }
+    tab = next(t for t in B.build(B.clean_rows([raw]), year=2026) if t["name"] == "Mar")
+    if strip_band:
+        for col in tab["columns"]:
+            col.pop("band", None)
+    return tab
+
+
+def test_export_salesman_bands_follow_fields_when_leading_columns_hidden():
+    """Hiding Sort Number + Salesman used to paint Excel E instead of C."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.delivery.layout import apply_layout
+    from web.reporting.export import build_workbook
+
+    tab = _march_salesman_tab()
+    payload = {"report_key": "salesman", "tabs": [tab]}
+    layout = {"views": {tab["key"]: {
+        "hidden": ["Sort Number", "Salesman"],
+        "group": ["Salesman"],
+    }}}
+    shaped = apply_layout(payload, layout)
+    ws = openpyxl.load_workbook(io.BytesIO(build_workbook(shaped, layout)))[tab["name"]]
+    headers = [c.value for c in ws[1]]
+    assert headers[0] == "Cust. #"
+    assert headers[2] == "Sales March 2026"  # used to be Excel E; now C
+    assert headers[6] == "Sales 2026 Jan Thru March"
+    assert headers[10] == "Sales Year to Date 2026"
+    data = next(
+        row for row in ws.iter_rows(min_row=2)
+        if isinstance(row[2].value, (int, float))
+    )
+    assert _font_rgb(data[2]).endswith("0000CC")   # month TY: blue on C
+    assert _font_rgb(data[6]).endswith("008000")   # YTD: green, not shifted blue
+    assert _font_rgb(data[10]).endswith("800080")  # full year: purple
+    dollar = next(i for i, h in enumerate(headers) if h == "$ This Year to Last Year")
+    assert data[dollar].value == -400.0
+    assert _font_rgb(data[dollar]).endswith("FF0000")
+
+
+def test_export_salesman_bands_follow_reordered_fields():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.delivery.layout import apply_layout
+    from web.reporting.export import build_workbook
+
+    tab = _march_salesman_tab()
+    payload = {"report_key": "salesman", "tabs": [tab]}
+    layout = {"views": {tab["key"]: {"order": [
+        "Sales Year to Date 2026",
+        "Cust. #",
+        "Sales March 2026",
+    ]}}}
+    shaped = apply_layout(payload, layout)
+    ws = openpyxl.load_workbook(io.BytesIO(build_workbook(shaped, layout)))[tab["name"]]
+    assert [c.value for c in ws[1][:3]] == [
+        "Sales Year to Date 2026", "Cust. #", "Sales March 2026",
+    ]
+    assert _font_rgb(ws["A2"]).endswith("800080")  # full-year field stayed purple in A
+    ident = ws["B2"].font.color
+    ident_rgb = str(getattr(ident, "rgb", "") or "").upper()
+    assert not ident_rgb.endswith("0000CC")
+    assert not ident_rgb.endswith("008000")
+    assert not ident_rgb.endswith("800080")
+    assert _font_rgb(ws["C2"]).endswith("0000CC")
+
+
+def test_export_salesman_bands_infer_field_names_without_band_tag():
+    """Cached payloads from before columns carried ``band`` still color by field."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.delivery.layout import apply_layout
+    from web.reporting.export import build_workbook
+
+    tab = _march_salesman_tab(strip_band=True)
+    payload = {"report_key": "salesman", "tabs": [tab]}
+    layout = {"views": {tab["key"]: {"hidden": ["Sort Number", "Salesman"]}}}
+    shaped = apply_layout(payload, layout)
+    ws = openpyxl.load_workbook(io.BytesIO(build_workbook(shaped, layout)))[tab["name"]]
+    assert ws["A1"].value == "Cust. #"
+    assert ws["C1"].value == "Sales March 2026"
+    assert _font_rgb(ws["C2"]).endswith("0000CC")
+    assert _font_rgb(ws["G2"]).endswith("008000")
+
+
+def test_export_salesman_default_columns_still_start_blue_at_e():
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+
+    tab = _march_salesman_tab()
+    ws = openpyxl.load_workbook(io.BytesIO(build_workbook(
+        {"report_key": "salesman", "tabs": [tab]}, None)))[tab["name"]]
+    assert ws["A1"].value == "Sort Number"
+    assert ws["E1"].value == "Sales March 2026"
+    ident = str(getattr(ws["C2"].font.color, "rgb", "") or "").upper()
+    assert not ident.endswith("0000CC")
+    assert _font_rgb(ws["E2"]).endswith("0000CC")
+    assert _font_rgb(ws["I2"]).endswith("008000")
+    assert _font_rgb(ws["M2"]).endswith("800080")

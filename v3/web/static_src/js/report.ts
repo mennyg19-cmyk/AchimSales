@@ -21,6 +21,8 @@ interface Column {
   field: string;
   header: string;
   type?: "text" | "money" | "percent" | "int" | "date";
+  /** 0=blue month YoY, 1=green YTD, 2=purple full year. Follows the field, not col index. */
+  band?: number;
 }
 
 interface CommissionMonth {
@@ -146,10 +148,22 @@ function isoDate(value: unknown): string {
   return s;
 }
 
+const SALESMAN_ID_FIELDS = new Set(["Sort Number", "Salesman", "Cust. #", "Customer Name", "SalesmanNumber"]);
+
+function salesmanBandIndex(col: Column, colIndex: number): number {
+  if (SALESMAN_ID_FIELDS.has(col.field)) return -1;
+  if (typeof col.band === "number" && isFinite(col.band)) {
+    return Math.min(Math.max(Math.trunc(col.band), 0), 2);
+  }
+  // Older cached payloads have no band on the column; fall back to schema index.
+  if (attr("data-report-key") === "salesman" && colIndex >= 4) {
+    return Math.min(Math.floor((colIndex - 4) / 4), 2);
+  }
+  return -1;
+}
+
 function formatterFor(col: Column, colIndex = -1): Record<string, unknown> {
-  const band = attr("data-report-key") === "salesman" && colIndex >= 4
-    ? Math.min(Math.floor((colIndex - 4) / 4), 2)
-    : -1;
+  const band = salesmanBandIndex(col, colIndex);
   const bandColor = band === 0 ? "#0000CC" : band === 1 ? "#008000" : band === 2 ? "#800080" : null;
 
   switch (col.type) {

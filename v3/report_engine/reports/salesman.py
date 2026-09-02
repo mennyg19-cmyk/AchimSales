@@ -112,28 +112,34 @@ def _pct(diff: float, prior: float) -> float:
     return (diff / prior) if prior else 0.0
 
 
+def _col(field: str, ctype: str, band: int | None = None) -> dict:
+    """Viewer/export column. ``band`` is 0=blue month, 1=green YTD, 2=purple full year."""
+    out: dict = {"field": field, "header": field, "type": ctype}
+    if band is not None:
+        out["band"] = band
+    return out
+
+
 def _columns(year: int, month: int) -> list[dict]:
     mon = calendar.month_name[month]
     prior = year - 1
     return [
-        {"field": "Sort Number", "header": "Sort Number", "type": "text"},
-        {"field": "Salesman", "header": "Salesman", "type": "text"},
-        {"field": "Cust. #", "header": "Cust. #", "type": "text"},
-        {"field": "Customer Name", "header": "Customer Name", "type": "text"},
-        {"field": f"Sales {mon} {year}", "header": f"Sales {mon} {year}", "type": "money"},
-        {"field": f"Sales {mon} {prior}", "header": f"Sales {mon} {prior}", "type": "money"},
-        {"field": "$ This Year to Last Year", "header": "$ This Year to Last Year", "type": "money"},
-        {"field": "% This Year to Last Year", "header": "% This Year to Last Year", "type": "percent"},
-        {"field": f"Sales {year} Jan Thru {mon}", "header": f"Sales {year} Jan Thru {mon}", "type": "money"},
-        {"field": f"Sales {prior} Jan Thru {mon}", "header": f"Sales {prior} Jan Thru {mon}", "type": "money"},
-        {"field": "$ This Year to Last Year (YTD)", "header": "$ This Year to Last Year (YTD)", "type": "money"},
-        {"field": "% This Year to Last Year (YTD)", "header": "% This Year to Last Year (YTD)", "type": "percent"},
-        {"field": f"Sales Year to Date {year}", "header": f"Sales Year to Date {year}", "type": "money"},
-        {"field": f"Sales Year to Date {prior}", "header": f"Sales Year to Date {prior}", "type": "money"},
-        {"field": "$ This Year to Last Year (YTD Full Year)",
-         "header": "$ This Year to Last Year (YTD Full Year)", "type": "money"},
-        {"field": "% This Year to Last Year (YTD Full Year)",
-         "header": "% This Year to Last Year (YTD Full Year)", "type": "percent"},
+        _col("Sort Number", "text"),
+        _col("Salesman", "text"),
+        _col("Cust. #", "text"),
+        _col("Customer Name", "text"),
+        _col(f"Sales {mon} {year}", "money", 0),
+        _col(f"Sales {mon} {prior}", "money", 0),
+        _col("$ This Year to Last Year", "money", 0),
+        _col("% This Year to Last Year", "percent", 0),
+        _col(f"Sales {year} Jan Thru {mon}", "money", 1),
+        _col(f"Sales {prior} Jan Thru {mon}", "money", 1),
+        _col("$ This Year to Last Year (YTD)", "money", 1),
+        _col("% This Year to Last Year (YTD)", "percent", 1),
+        _col(f"Sales Year to Date {year}", "money", 2),
+        _col(f"Sales Year to Date {prior}", "money", 2),
+        _col("$ This Year to Last Year (YTD Full Year)", "money", 2),
+        _col("% This Year to Last Year (YTD Full Year)", "percent", 2),
     ]
 
 

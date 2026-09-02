@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Salesman Excel colors follow the field, not the column letter
+**What you asked for:** Fix salesman report formatting on Excel export. Default 2 hides Sort Number and Salesman; the site still colors the month block, but Excel started the purple/green/blue bands at column E instead of C (where that same info now sits).
+**What I had to decide:** Whether to invent a formatting system for every report, or only fix salesman.
+**What I chose:** Salesman only. Stamp `band` 0/1/2 on the month / YTD / full-year fields in the builder. Excel (and the grid) color by that field tag, with a field-name fallback for old cached payloads. Never use exported column index. PR #1 catch-up stays a later job.
+**Why:** You said only this report needs it. The site was already bound to the full column list (hidden columns keep their index); export dropped hidden columns then painted `idx >= 4` among what was left.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Official branch is `main`; only `main` auto-deploys
 **What you asked for:** Rename `webapp-cache` to a normal name like `main`. Explain the leftover branches and pull requests.
 **What I chose:** Official branch is `main` (same code that is on the site). Azure deploys only on push to `main`. `cursor/**` Cloud Agent branches no longer auto-deploy, because that is why the shop window kept getting replaced. Leftover `cursor/` branches are old photocopies; the Sol/Grok rewrite stays on PR #1 until we replay live onto it on purpose.
