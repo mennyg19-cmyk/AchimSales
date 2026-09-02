@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Personal schedules page is full width
+**What you asked for:** Personal schedules should be full width like company schedules.
+**What I chose:** Drop `container-narrow` (800px cap) from the personal schedules template. Company schedules already used the default full-width container.
+**Why:** The actions table is the same kind of wide grid. Capping personal at 800px squeezed the columns; company did not.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Applying a view showed `_isDuplicate` of undefined
 **What you asked for:** Applying a saved view still worked, but the pink error banner said `Cannot read properties of undefined (reading '_isDuplicate')`.
 **What I chose:** Stop stuffing `generated_at` onto `state.tabs`. Applying a view walks every key on that map to hide extra tabs; the timestamp key is not a tab, so reading `_isDuplicate` threw after the grouping had already been copied in.

@@ -207,6 +207,9 @@ def test_report_viewer_meeting_ux():
     sched = (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in sched
     assert 'personal_schedule_wizard.html' in sched
+    assert "container-narrow" not in sched
+    company_page = (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
+    assert "container-narrow" not in company_page
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
     assert 'id="psWizard"' in personal
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
