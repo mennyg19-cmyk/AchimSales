@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-02 Admins and developers manage company views and schedule Default
+**What you asked for:** Admins and developers should create, edit, and delete company views, and schedule from Default.
+**What I had to decide:** Whether the Company views flag still gates admins, and whether Default is a personal schedule or a company schedule.
+**What I chose:** Privileged users (admin/developer) always see and mutate company views; the flag remains for salesmen/managers. Save for **Company** creates a named company view. Default personal schedules (`view_name=Default`, empty layout so send uses live Default) for privileged only. Salesmen/managers still need a named view. Managers keep edit/delete when they have the flag.
+**Why:** Admins in Users & access did not have the flag, so GET/PUT/DELETE company views 403'd. More → Schedule required a named `saved_reports` row, so Default was disabled. Company wizard already had Default; this opens the same layout from the report page and the personal list.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Delete company views from Saved views
 **What you asked for:** There is no delete button for company views on the saved views dropdown.
 **What I chose:** Same Delete control as personal views, only for people who can already Edit company views (managers/admins/developers). DELETE `/api/reports/<report>/company-views/<id>`. Salesmen who can see company views still cannot delete them.

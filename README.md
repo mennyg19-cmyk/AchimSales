@@ -79,15 +79,18 @@ roll back. The old name `webapp-cache` was retired after `main` became default.
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
 Each report has a company **Default** view (the current tab/column layout)
-plus named **company views** (Daily Ordered, Heshy Open Orders) for users with
-the Company views flag (off by default; developers on). Toggle it on Users &
-access. Daily Ordered groups Summary by salesman then customer (A-Z), By
-Customer by salesman only (customers A-Z inside, not grouped), and leaves By
-Order ungrouped. Company views do not store a date window; company schedules
-supply YTD / MTD / yesterday. Managers and admins who can see them edit
-from Saved views. Personal schedules send a **named saved view** (3 steps:
-view, when, where). Company schedules stay on the old 5-step wizard under
-Settings (admins and developers).
+plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and
+developers always see and can create, edit, and delete those views (Save for
+**Company**, or Edit/Delete in Saved views). Other roles need the Company
+views flag (off by default; developers on, unused for admins). Toggle it on
+Users & access. Daily Ordered groups Summary by salesman then customer (A-Z),
+By Customer by salesman only (customers A-Z inside, not grouped), and leaves
+By Order ungrouped. Company views do not store a date window; company
+schedules supply YTD / MTD / yesterday. Managers who have the flag can edit
+them from Saved views. Personal schedules send a **named saved view** (3
+steps: view, when, where). Admins and developers can also schedule **Default**
+from More → Schedule or the personal wizard. Company schedules stay on the
+old 5-step wizard under Settings (admins and developers).
 
 ```powershell
 .\deploy.ps1              # build zip and deploy to Azure

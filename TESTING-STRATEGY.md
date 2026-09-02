@@ -2,6 +2,26 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Admins and developers manage company views and schedule Default
+
+**What to test:**
+- Admin/developer `can_see_company_views` is true even with the flag off. Inactive privileged users still deny.
+- Salesman/manager without the flag still 403 on company-view GET/PUT/DELETE and have an empty `company` presets list.
+- Admin PUT/DELETE company views with the flag off. Developer with the flag off can PUT.
+- Privileged Save for includes Company; `saveView` PUTs `/company-views` for that choice.
+- Privileged POST `/api/schedules` with `saved_report_id=default:ordered` (or `view_name=Default` + `report_key`) creates a personal row with `view_name=Default` and empty layout. Salesman POST is 403.
+- Privileged `/schedules` Add is enabled with no named views; `/api/schedules/views` lists Default per built report. Salesman Add stays disabled.
+
+**Expected behavior:**
+- Admins and developers create/edit/delete company views without the Users & access checkbox.
+- More → Schedule works on Default for them. Filters on the report go onto the schedule; layout stays live Default.
+
+**Edge cases:**
+- Custom from/to on Default still cannot be scheduled.
+- Editing a Default personal schedule keeps `view_name=Default` and does not invent a saved_reports row.
+
+**Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## Delete company views from Saved views
 
 **What to test:**
@@ -168,12 +188,12 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 ## Schedules from named saved views
 
 **What to test:**
-- A named saved view can be scheduled, including Customer Activity with no period. Default, company views, and custom from/to cannot.
+- A named saved view can be scheduled, including Customer Activity with no period. Company views and custom from/to cannot. Default is privileged-only (see “Admins and developers manage company views and schedule Default”).
 - Create from another user’s view (admin) sets owner to that user and recipients to their email.
 - Salesman update cannot add extra emails, CC, BCC, or SharePoint.
 - Privileged create/edit of a personal schedule stores optional `email_cc` / `email_bcc`.
 - Conversion creates a saved view for a Default personal schedule and keeps it running; company rows are untouched.
-- Empty eligible-view list means Add is disabled (API returns no views).
+- Empty eligible-view list means Add is disabled for salesmen (API returns no views). Privileged Add stays on because Default is always listed.
 
 **Expected behavior:**
 - POST /api/schedules requires a saved_report_id (or equivalent) that is schedulable.
@@ -336,9 +356,9 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Company views (Daily Ordered / Heshy Open Orders)
 
 **What to test:**
-- `company_views` upsert rejects Default/Custom; GET presets includes `company` **when the user has `can_see_company_views`**.
-- Managers/admins PUT a company view **when they also have the see flag**; salesmen with the flag GET (`can_edit` false) and 403 on PUT.
-- Home page shows a Company views section with `?cview=` links **only for users with the flag**.
+- `company_views` upsert rejects Default/Custom; GET presets includes `company` **when the user is privileged or has `can_see_company_views`**.
+- Admins/developers PUT without the flag. Managers PUT **when they also have the see flag**; salesmen with the flag GET (`can_edit` false) and 403 on PUT.
+- Home page shows a Company views section with `?cview=` links **for privileged users and anyone with the flag**.
 - Boot stamps daily company Ordered schedules with Daily Ordered (Summary salesman then customer, By Customer salesman only, By Order ungrouped). Salesman-split and already-named views are left alone. Heshy open-orders (Hkaufman + Open) gets Heshy Open Orders (Full Data only, hide LineNumber, sort customer then order, group by order).
 - Send with that view name uses the live company layout even if the schedule snapshot is stale.
 - Excel nested groups write banners/totals per level. Sort-then-group keeps customer clusters and does not add a customer total when the only group field is order number.

@@ -115,6 +115,7 @@
     <label class="view-owner-field" for="viewOwner">Save for
         <select id="viewOwner">
             <option value="">Me</option>
+            <option value="company">Company</option>
             {% for u in save_for_users|default([]) %}
             <option value="{{ u.user_id }}">{{ u.name }}</option>
             {% endfor %}

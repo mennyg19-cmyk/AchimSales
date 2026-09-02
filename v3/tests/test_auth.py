@@ -253,7 +253,7 @@ def test_get_by_email_when_company_views_column_dropped(db):
     assert u is not None and u.can_see_company_views is False
 
 
-def test_company_views_flag_is_the_only_gate(db):
+def test_company_views_flag_is_the_only_gate_for_non_privileged(db):
     authz = Authorization(db)
     users = UserRepository(db)
     users.upsert("sm@b.com", role="salesman")
@@ -262,8 +262,12 @@ def test_company_views_flag_is_the_only_gate(db):
     users.update(users.get_by_email("sm@b.com").id, can_see_company_views=True)
     assert authz.can_see_company_views(p) is True
     users.upsert("admin@b.com", role="admin")
-    assert authz.can_see_company_views(Principal("admin@b.com", "A", "admin")) is False
+    assert authz.can_see_company_views(Principal("admin@b.com", "A", "admin")) is True
+    users.update(users.get_by_email("admin@b.com").id, can_see_company_views=False)
+    assert authz.can_see_company_views(Principal("admin@b.com", "A", "admin")) is True
     users.upsert("dev@b.com", role="developer")
+    assert authz.can_see_company_views(Principal("dev@b.com", "D", "developer")) is True
+    users.update(users.get_by_email("dev@b.com").id, can_see_company_views=False)
     assert authz.can_see_company_views(Principal("dev@b.com", "D", "developer")) is True
     with db.precious() as conn:
         conn.execute("UPDATE users SET is_active=0 WHERE email='dev@b.com'")
