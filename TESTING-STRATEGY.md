@@ -2,6 +2,20 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Applying a view must not throw on `_isDuplicate`
+
+**What to test:**
+- Report viewer source stores `generated_at` on `state.generatedAt`, not as a fake tab key.
+- `applyLayout` uses optional `_isDuplicate` so a missing tab key cannot throw.
+
+**Expected behavior:**
+- Clicking a saved view after a report is on screen does not show the pink `reading '_isDuplicate'` banner.
+
+**Edge cases:**
+- Result payloads omit `generated_at` (current API).
+
+**Test file:** `v3/tests/test_frontend.py`
+
 ## Salesman Excel color bands follow fields, not column letters
 
 **What to test:**

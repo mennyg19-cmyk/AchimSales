@@ -248,7 +248,8 @@ const state: {
   table: any;
   jobId: string | null;
   removed: Set<string>;
-} = { tabs: {}, order: [], catalogOrder: [], active: null, views: {}, table: null, jobId: null, removed: new Set<string>() };
+  generatedAt: string | undefined;
+} = { tabs: {}, order: [], catalogOrder: [], active: null, views: {}, table: null, jobId: null, removed: new Set<string>(), generatedAt: undefined };
 
 function freshView(): ViewState {
   return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [], widths: {} };
@@ -688,7 +689,7 @@ function captureActive(): void {
 function renderMeta(tab: Tab): void {
   const meta = $("reportMeta");
   if (!meta) return;
-  const gen = state.tabs.__generated_at__ as unknown as string | undefined;
+  const gen = state.generatedAt;
   const parts = [`${tab.rows.length.toLocaleString()} rows`];
   if (gen) parts.push(`as of ${gen}`);
   meta.textContent = parts.join(" · ");
@@ -934,6 +935,7 @@ function renderTabs(): void {
   tabsEl.innerHTML = "";
   state.order.forEach((key) => {
     const tab = state.tabs[key];
+    if (!tab) return;
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "report-tab" + (key === state.active ? " active" : "");
@@ -977,6 +979,7 @@ function closeTabMenu(): void {
 function openTabMenuAt(key: string, x: number, y: number): void {
   closeTabMenu();
   const tab = state.tabs[key];
+  if (!tab) return;
   const menu = document.createElement("div");
   menu.className = "tab-context-menu";
   menu.style.left = x + "px";
@@ -1093,7 +1096,7 @@ function toggleColumnsPanel(): void {
   const rect = anchor?.getBoundingClientRect();
   if (rect) { panel.style.top = rect.bottom + 6 + "px"; panel.style.left = rect.left + "px"; }
 
-  const originalKeys = Object.keys(state.tabs).filter((k) => !(state.tabs[k] as any)._isDuplicate);
+  const originalKeys = Object.keys(state.tabs).filter((k) => state.tabs[k] && !(state.tabs[k] as any)._isDuplicate);
   if (originalKeys.length) {
     const heading = document.createElement("div");
     heading.className = "columns-panel-heading";
@@ -1428,7 +1431,7 @@ function loadPayload(payload: Payload, render = true): void {
   state.catalogOrder = [];
   state.views = {};
   state.removed = new Set();
-  (state.tabs as any).__generated_at__ = payload.generated_at;
+  state.generatedAt = payload.generated_at;
   const tabs = attr("data-hide-commissions") === "1"
     ? payload.tabs.filter((t) => t.key !== "commissions")
     : payload.tabs;
@@ -2327,7 +2330,7 @@ function applyLayout(layout: SavedLayout | null): void {
     const wanted = layout.order.filter((k) => state.tabs[k]);
     if (wanted.length) {
       Object.keys(state.tabs).forEach((k) => {
-        if (!wanted.includes(k) && !(state.tabs[k] as any)._isDuplicate) {
+        if (!wanted.includes(k) && !(state.tabs[k] as any)?._isDuplicate) {
           state.removed.add(k);
         }
       });
@@ -2335,7 +2338,8 @@ function applyLayout(layout: SavedLayout | null): void {
     }
   }
   renderTabs();
-  if (state.active) { buildTable(state.tabs[state.active]); syncColumnsButton(state.tabs[state.active]); }
+  const active = state.active ? state.tabs[state.active] : undefined;
+  if (active) { buildTable(active); syncColumnsButton(active); }
 }
 
 function presetUrl(id: number | string): string {

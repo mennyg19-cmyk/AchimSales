@@ -176,6 +176,9 @@ def test_report_viewer_meeting_ux():
     assert 'v.toLowerCase() === "yesterday" ? "daily"' in src
     assert "function periodIsRunnable" in src
     assert "function layoutForCompanySave" in src
+    assert "state.generatedAt = payload.generated_at" in src
+    assert '!(state.tabs[k] as any)?._isDuplicate' in src
+    assert "__generated_at__" not in src
     assert "run: !isReportShown() && periodIsRunnable(preset.params)" in src
     assert "autoRunRequested = periodIsRunnable(view?.params)" in src
     assert "params: collectCompanyViewParams()" in src

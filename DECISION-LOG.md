@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-02 Applying a view showed `_isDuplicate` of undefined
+**What you asked for:** Applying a saved view still worked, but the pink error banner said `Cannot read properties of undefined (reading '_isDuplicate')`.
+**What I chose:** Stop stuffing `generated_at` onto `state.tabs`. Applying a view walks every key on that map to hide extra tabs; the timestamp key is not a tab, so reading `_isDuplicate` threw after the grouping had already been copied in.
+**Why:** The report result never sends `generated_at`, so the extra key was always `undefined`. The table looked fine because the payload had already rendered.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-02 Daily Ordered By Customer is salesman-only; By Order is flat
 **What you asked for:** On the Ordered Daily Ordered view (PR 20), By Customer should not group by customer — only by salesman. By Order should not be grouped at all.
 **What I chose:** Canonical By Customer `group: ["Salesman"]` (still sort salesman then customer). By Order `group: []` so it does not pick up the builder’s salesman default_group. Summary stays salesman then customer.
