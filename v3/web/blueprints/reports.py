@@ -1164,22 +1164,36 @@ def claim_once_diagnostic():
     return jsonify(out)
 
 
-@reports_bp.get("/api/reports/diagnostics/precious-repair")
+@reports_bp.route("/api/reports/diagnostics/precious-repair", methods=["GET", "POST"])
 @require_login
 def precious_repair_diagnostic():
     """Developer-only. The jobs 'status' index disagrees with the table by id
     (a queued row found by status doesn't exist by id) - SQLite corruption from
-    the old /home SMB WAL, carried into the restore. ?action=check reports
-    integrity + index-vs-scan counts. ?action=backup dumps every table to a JSON
-    file on /home (insurance before a wipe). ?action=reindex rebuilds indexes from
-    the real table rows. ?action=delete-ghosts removes the stuck queued rows.
-    ?action=rebuild-jobs drops + recreates the corrupt jobs table. All read the
-    same precious.db the worker uses."""
+    the old /home SMB WAL, carried into the restore. action=check reports
+    integrity + index-vs-scan counts. action=backup dumps every table to a JSON
+    file on /home (insurance before a wipe). action=reindex rebuilds indexes from
+    the real table rows. action=delete-ghosts removes the stuck queued rows.
+    action=rebuild-jobs drops + recreates the corrupt jobs table. All read the
+    same precious.db the worker uses.
+
+    GET may only run check (read-only). Mutating actions require POST so CSRF
+    applies — a GET would let a cross-site link wipe queued jobs.
+    """
     p = _principal_or_401()
     if p.role != ROLE_DEVELOPER:
         abort(403, description="Developer role required")
     db = current_app.config["DB"]
-    action = request.args.get("action", "check")
+    body = request.get_json(silent=True) or {}
+    action = (request.args.get("action") or body.get("action") or "check")
+    if isinstance(action, str):
+        action = action.strip() or "check"
+    else:
+        action = "check"
+    if request.method == "GET" and action != "check":
+        return jsonify({
+            "error": "Mutating repair actions require POST",
+            "action": action,
+        }), 405
     out: dict = {"action": action}
     with db.precious() as conn:
         if action == "check":

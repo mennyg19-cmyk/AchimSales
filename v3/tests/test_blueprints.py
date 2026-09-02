@@ -585,6 +585,49 @@ def test_reporting_api_diagnostics_reports_state(tmp_path):
     assert "by_status" in data["jobs"] and "active" in data["jobs"]
 
 
+def test_precious_repair_mutating_actions_require_post(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    uid = UserRepository(app.config["DB"]).get_by_email("dev@x.com").id
+    jid = app.config["JOB_REPO"].enqueue(
+        JOB_TYPE, owner_user_id=uid, params={"report_key": "ordered"})
+    blocked = client.get("/api/reports/diagnostics/precious-repair?action=delete-ghosts")
+    assert blocked.status_code == 405
+    assert app.config["JOB_REPO"].get(jid).status == "queued"
+    check = client.get("/api/reports/diagnostics/precious-repair")
+    assert check.status_code == 200 and check.get_json()["action"] == "check"
+    assert client.post(
+        "/api/reports/diagnostics/precious-repair",
+        json={"action": "delete-ghosts"},
+    ).status_code == 400
+    wiped = client.post(
+        "/api/reports/diagnostics/precious-repair",
+        json={"action": "delete-ghosts"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert wiped.status_code == 200
+    assert wiped.get_json()["deleted"] >= 1
+    assert app.config["JOB_REPO"].get(jid) is None
+
+
+def test_admin_unknown_user_access_is_404(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    missing = 999999
+    scope = client.post(
+        f"/api/admin/users/{missing}/salesman-access",
+        json={"keys": ["redwards"]}, headers={"X-CSRF-Token": _CSRF})
+    assert scope.status_code == 404
+    reports = client.post(
+        f"/api/admin/users/{missing}/report-access",
+        json={"report_key": "ordered", "access": "allow"},
+        headers={"X-CSRF-Token": _CSRF})
+    assert reports.status_code == 404
+    assert client.get(f"/api/admin/users/{missing}/salesman-access").status_code == 404
+
+
 def test_report_view_renders_cancel_button(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()

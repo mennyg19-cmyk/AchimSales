@@ -32,6 +32,13 @@ def _guard():
     return None
 
 
+def _unknown_user(user_id: int):
+    """None if the user exists; 404 JSON if not."""
+    if _users().get_by_id(user_id) is None:
+        return jsonify({"error": "Unknown user"}), 404
+    return None
+
+
 def _users() -> UserRepository:
     return UserRepository(_db())
 
@@ -169,6 +176,9 @@ def get_salesman_access(user_id: int):
     blocked = _guard()
     if blocked:
         return blocked
+    missing = _unknown_user(user_id)
+    if missing:
+        return missing
     return jsonify({"keys": sorted(_users().get_salesman_access(user_id))})
 
 
@@ -182,6 +192,9 @@ def set_salesman_access(user_id: int):
     keys = body.get("keys") or []
     if not isinstance(keys, list):
         return jsonify({"error": "keys must be a list"}), 400
+    missing = _unknown_user(user_id)
+    if missing:
+        return missing
     _users().set_salesman_access(user_id, [str(k) for k in keys])
     return jsonify({"keys": sorted(_users().get_salesman_access(user_id))})
 
@@ -207,6 +220,9 @@ def get_report_access(user_id: int):
     blocked = _guard()
     if blocked:
         return blocked
+    missing = _unknown_user(user_id)
+    if missing:
+        return missing
     # Only explicit overrides are stored; a key absent here means "inherit".
     overrides = _users().get_report_access(user_id)
     return jsonify({"access": {k: ("allow" if v else "deny") for k, v in overrides.items()}})
@@ -222,6 +238,9 @@ def set_report_access(user_id: int):
     report_key = (body.get("report_key") or "").strip()
     if registry.get(report_key) is None:
         return jsonify({"error": "Unknown report"}), 400
+    missing = _unknown_user(user_id)
+    if missing:
+        return missing
     # Tri-state per the legacy model: inherit (clear the row -> role default),
     # allow, or deny. Back-compat: a bare {allowed: bool} still works.
     access = (body.get("access") or "").strip().lower()

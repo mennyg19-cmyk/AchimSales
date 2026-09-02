@@ -2,6 +2,21 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Precious-repair mutating actions are POST-only; unknown user access is 404
+
+**What to test:**
+- GET `/api/reports/diagnostics/precious-repair?action=delete-ghosts` (developer) is 405 and does not delete queued jobs. GET without action (check) is 200.
+- POST the same action without CSRF is 400; with CSRF it deletes queued jobs.
+- POST `/api/admin/users/<missing-id>/salesman-access` and `report-access` return 404, not 500.
+
+**Expected behavior:**
+- A bookmark or cross-site GET cannot wipe the job queue. Missing user ids fail closed with 404.
+
+**Edge cases:**
+- `action=check` stays GET (read-only PRAGMA). Admin (not developer) still 403 on the diagnostic.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
 ## Users can be renamed on Users & access
 
 **What to test:**
