@@ -219,27 +219,22 @@ export class SearchablePicker {
     if (!matches.some((item) => item.key === this.activeKey)) this.activeKey = null;
     this.list.innerHTML = "";
     matches.forEach((item) => {
-      const row = document.createElement("label");
+      const row = document.createElement("div");
       row.className = "customer-option";
       row.id = `${this.list.id}-option-${item.key}`;
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(this.selected.has(item.key)));
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.tabIndex = -1;
-      cb.checked = this.selected.has(item.key);
-      cb.addEventListener("change", () => {
-        this.activeKey = item.key;
-        if (cb.checked) this.selected.set(item.key, item.name);
-        else this.selected.delete(item.key);
-        this.renderPills();
-        this.renderOptions();
-        this.onChange?.();
-      });
-      row.appendChild(cb);
+      const checkbox = document.createElement("span");
+      checkbox.className = "customer-option-checkbox";
+      checkbox.setAttribute("aria-hidden", "true");
+      row.appendChild(checkbox);
       const text = document.createElement("span");
       text.textContent = this.formatOption(item);
       row.appendChild(text);
+      row.addEventListener("click", () => {
+        this.activeKey = item.key;
+        this.toggle(item);
+      });
       this.list.appendChild(row);
     });
     if (!matches.length) {
