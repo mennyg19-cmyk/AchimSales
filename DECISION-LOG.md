@@ -1,5 +1,39 @@
 # Decision Log
 
+## 2026-09-03 Phase 7.1: staged `SITE_PRECIOUS_DB_PATH` alias
+**What I had to decide:** Next leftover after the 6.9 gate. Remaining Phase 6 items are Q8 and Q9.
+**Options I considered:** (1) Q8 approve-recipients. (2) Q9 company Send now. (3) Phase 7 first bullets: canonical home DB env name `SITE_PRECIOUS_DB_PATH` with a staged dual-read so Azure does not have to flip settings in the same deploy.
+**What I chose:** (3). Canonical home precious name is `SITE_PRECIOUS_DB_PATH`. If set, it wins; otherwise keep `PRECIOUS_DB_PATH`. Same pattern for `SITE_CACHE_DB_PATH` / `CACHE_DB_PATH`. `startup.sh` copies `SITE_*` into the existing `PRECIOUS_DB_PATH` / `CACHE_DB_PATH` env so `litestream.yml` keys stay. Do not unmount `/test`. Do not drop `BETA_*`. Do not change Azure settings from git. Q8/Q9 stay untouched (BLOCKED below).
+**Why:** The plan already prefers `SITE_PRECIOUS_DB_PATH` and a staged `BETA_*`/`PRECIOUS_*` → `SITE_*` migration. Dual-read is reversible. Removing the second `/test` database conflicts with keeping those mounts. Q8 still has no “external” rule. Q9 still conflicts with the leftover “require operate/edit” bullet and with current admin+edit code.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Q8 external-recipient policy
+**What I had to decide:** Phase 6 leftover “Apply external-recipient policy” vs adopted Q8 (users may add; admin/dev must approve).
+**Options I considered:** (1) Invent “external” as not-in-`users.email`. (2) Invent company-domain allowlist. (3) Stop until the owner locks the rule and the approve UX.
+**What I chose:** (3).
+**Why:** Spec gate fails: no definition of external, and v3 has no pending/approve recipient code. Original grill recommended approved-domain plus privileged override, which is not Q8 as adopted.
+**Status:** BLOCKED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Q9 company Send now vs require operate/edit
+**What I had to decide:** Adopted Q9 (view-only managers may trigger company Send now) vs Phase 6 leftover (require operate/edit) vs current `run_master` (`_require_admin` then `_require_master_edit`).
+**Options I considered:** (1) Loosen `POST /api/master-schedules/<id>/run` for managers who can view the schedule. (2) Tick the leftover as done because current code already requires edit (plus admin). (3) Leave the route unchanged until the owner picks Q9 vs fail-closed.
+**What I chose:** (3).
+**Why:** Loosening Send now is a trust-boundary change. Ticking the leftover would paper over Q9. Do not silent-pick.
+**Status:** BLOCKED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.9 gate closed
+**What I chose:** Close Phase 6.9 on `86f2fbc`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero; Agent Guardrails green on HEAD `86f2fbc`; displayed % is salesman-table saved percent; money still `_commission_rate`; invoiced `builder_version` 4. Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.9: show salesman-table saved percent on commission display
 **What I had to decide:** Next Phase 6 leftover after the 6.8 gate.
 **Options I considered:** (1) Q8 approve-recipients (UX still open: what is “external”) / Q9 vs Send now. (2) Original grill “varies” vs adopted Q3 salesman-table saved percent. (3) Implement adopted Q3: the displayed % is the salesman master; money still uses `_commission_rate` (Q1/Q2, including explicit zero).
