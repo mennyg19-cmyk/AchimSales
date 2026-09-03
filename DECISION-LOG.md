@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.7: 44px help/filter/chip/day/close targets
+**What I had to decide:** Next leftover after the 8.6 gate.
+**Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report-page live status (item 8 remainder). (4) Next Phase 8 leftover: 44px targets on remaining help/filter/chip/day/close controls.
+**What I chose:** (4). Bring `.help-btn`, `.modal-close`, `.sp-picker-close`, `.customer-chip` / test-email chips, and `.sched-day-chip` to a 44×44 CSS px minimum hit area (padding is OK; do not blow up the glyph). Keep current look otherwise. Do not start reduced motion, hidden-tab pollers, or report-page live status in this slice.
+**Why:** The leftover names those control kinds. Help is 16px, day chips 34px, closes have no min size. Q8/Q9 and Phase 7 stay blocked.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 8.6 gate closed
+**What I chose:** Close Phase 8.6 on `c9c01a7`. Trust-boundary N/A.
+**Why:** Loop A F1 (queued announced as running) and F2 (silent access/exclusion failures) closed on `c9c01a7`. Fresh Loop A re-pass, Loop B, and Loop C all zero. Agent Guardrails green on HEAD. Named live regions on admin, dashboard, Settings, and schedule Run now. Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.6: live status/error announcements
 **What I had to decide:** Next leftover after the 8.5 gate.
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report-page `#reportStatus` plus jobs FAB (REPOSITORY-REVIEW item 8 remainder). (4) Next Phase 8 leftover: live announcements for admin, dashboard, Settings, and schedule sends.
