@@ -349,7 +349,7 @@ def test_claim_next_prioritizes_schedules_and_delivery_over_exports(db):
     assert jobs.claim_next().id == export
 
 
-def test_scheduler_start_failure_keeps_readiness_red(app, monkeypatch):
+def test_scheduler_start_failure_keeps_readiness_red(tmp_path, monkeypatch):
     class BrokenScheduler:
         def add_cron(self, *args, **kwargs):
             pass
@@ -357,10 +357,17 @@ def test_scheduler_start_failure_keeps_readiness_red(app, monkeypatch):
         def start(self):
             raise RuntimeError("scheduler unavailable")
 
-    from web import _start_scheduler
     from web.jobs import scheduler as scheduler_module
     from web.jobs import status
 
+    cfg = Config(
+        app_env="dev", auth_mode="dev", flask_secret="test-secret",
+        tenant_id="", client_id="", client_secret="", reporting_api_base_url="",
+        reporting_api_key="", precious_db_path=tmp_path / "precious.db",
+        cache_db_path=tmp_path / "cache.db", litestream_blob_url="", new_app_marker=True,
+    )
+    app = create_app(cfg)
+    migrate(app.config["DB"])
     monkeypatch.setattr(scheduler_module, "Scheduler", BrokenScheduler)
     with pytest.raises(RuntimeError, match="scheduler unavailable"):
         start_worker_services(app)
