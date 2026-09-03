@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
+from urllib.parse import quote
 
 _REFRESH_EARLY_SECONDS = 60
 _DEFAULT_RETRY_SECONDS = 1
@@ -144,3 +145,29 @@ def graph_post(url: str, token: Callable[[bool], str], *, payload: Mapping[str, 
         ),
         token,
     )
+
+
+def ensure_drive_folders(
+    segments: list[str],
+    token: Callable[[bool], str],
+    children_url: Callable[[str], str],
+    *,
+    timeout: float,
+    leading_slash: bool = False,
+) -> None:
+    """Create each path segment, treating an already-existing folder as success."""
+    current_enc = ""
+    for part in segments:
+        response = graph_post(
+            children_url(current_enc),
+            token,
+            payload={"name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"},
+            timeout=timeout,
+        )
+        if response.status_code not in (201, 409):
+            response.raise_for_status()
+        encoded = quote(part)
+        if not current_enc:
+            current_enc = f"/{encoded}" if leading_slash else encoded
+        else:
+            current_enc = f"{current_enc}/{encoded}"

@@ -17,7 +17,12 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from web.config import Config
-from web.delivery.graph_auth import cached_app_token, graph_get, graph_post, GraphTokenCache
+from web.delivery.graph_auth import (
+    GraphTokenCache,
+    cached_app_token,
+    ensure_drive_folders,
+    graph_get,
+)
 
 log = logging.getLogger(__name__)
 
@@ -122,13 +127,12 @@ class SharePointService:
             requests,
             put_url=f"{base}/root:/{path}:/content",
             session_url=f"{base}/root:/{path}:/createUploadSession",
-            headers={"Authorization": f"Bearer {self._get_token()}"},
+            headers=self._headers(),
             content=content, put_timeout=UPLOAD_TIMEOUT,
             token=self._get_token,
         )
-        headers = {"Authorization": f"Bearer {self._get_token()}"}
         url = resolve_web_url(
-            requests, headers=headers, body=body,
+            requests, headers=self._headers(), body=body,
             get_url=f"{base}/root:/{path}:", items_base=f"{base}/items",
             timeout=TIMEOUT,
         )
@@ -148,6 +152,9 @@ class SharePointService:
         root_enc = "/".join(quote(s) for s in self._root.split("/") if s)
         rel_enc = "/".join(quote(s) for s in segments)
         return f"{root_enc}/{rel_enc}" if rel_enc else root_enc
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._get_token()}"}
 
     def _get_token(self, refresh: bool = False) -> str:
         return cached_app_token(
@@ -206,18 +213,11 @@ class SharePointService:
         if not segments:
             return
         base = self._drive_base()
-        current_enc = ""
-        for part in segments:
-            url = f"{base}/root:/{current_enc}:/children" if current_enc else f"{base}/root/children"
-            r = graph_post(
-                url, self._get_token,
-                payload={"name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"},
-                timeout=TIMEOUT,
-            )
-            if r.status_code not in (201, 409):
-                r.raise_for_status()
-            seg_enc = quote(part)
-            current_enc = f"{current_enc}/{seg_enc}" if current_enc else seg_enc
+        ensure_drive_folders(
+            segments, self._get_token,
+            lambda enc: f"{base}/root:/{enc}:/children" if enc else f"{base}/root/children",
+            timeout=TIMEOUT,
+        )
 
 
 def _validate_segments(rel_path: str) -> list[str]:

@@ -193,6 +193,10 @@ def upload_drive_item(
             next_start = _next_expected_offset(ranges)
             if next_start is None or next_start >= size:
                 raise
+            log.info(
+                "Graph upload chunk failed at byte %s; resuming existing session at byte %s",
+                start, next_start,
+            )
             resumed = True
             start = next_start
     return last.json() if last is not None else {}

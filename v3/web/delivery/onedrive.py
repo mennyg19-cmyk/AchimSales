@@ -16,7 +16,12 @@ from typing import Any
 from urllib.parse import quote
 
 from web.config import Config
-from web.delivery.graph_auth import cached_app_token, graph_get, graph_post, GraphTokenCache
+from web.delivery.graph_auth import (
+    GraphTokenCache,
+    cached_app_token,
+    ensure_drive_folders,
+    graph_get,
+)
 from web.delivery.sharepoint import _validate_segments
 
 log = logging.getLogger(__name__)
@@ -126,18 +131,12 @@ class OneDriveService:
         segments = _validate_segments(rel_path)
         if not segments:
             return
-        current_enc = ""
-        for part in segments:
-            parent = f"{self._drive_root(user)}:{current_enc}:/children" if current_enc else f"{self._drive_root(user)}/children"
-            r = graph_post(
-                parent, self._get_token,
-                payload={"name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"},
-                timeout=TIMEOUT,
-            )
-            if r.status_code not in (201, 409):
-                r.raise_for_status()
-            seg_enc = quote(part)
-            current_enc = f"{current_enc}/{seg_enc}" if current_enc else f"/{seg_enc}"
+        root = self._drive_root(user)
+        ensure_drive_folders(
+            segments, self._get_token,
+            lambda enc: f"{root}:{enc}:/children" if enc else f"{root}/children",
+            timeout=TIMEOUT, leading_slash=True,
+        )
 
 
 def onedrive_children_url(user_email: str, rel_path: str = "") -> str:
