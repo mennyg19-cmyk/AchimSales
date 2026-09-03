@@ -9,6 +9,7 @@ best-effort guard.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from web.data.connection import Database
 
@@ -58,3 +59,11 @@ class ReportRunLogRepository:
             )
             for r in rows
         ]
+
+    def prune(self, *, older_than_days: int = 90) -> int:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        with self.db.precious() as conn:
+            return conn.execute(
+                "DELETE FROM report_run_log WHERE julianday(created_at) < julianday(?)",
+                (cutoff,),
+            ).rowcount

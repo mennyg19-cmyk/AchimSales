@@ -557,13 +557,45 @@ def test_cleanup_prunes_expired_cache_and_exports_then_marks_success(db):
             "INSERT INTO delivery_legs(job_id, slot_id, kind, status)"
             " VALUES ('new-leg', 'manual:new-leg', 'email', 'sent')"
         )
+        conn.executemany(
+            "INSERT INTO jobs(id, type, status, params_json, kept_until, created_at)"
+            " VALUES (?, 'report.run', ?, '{}', ?, ?)",
+            [
+                ("old-success", "success", None, "2026-06-01T00:00:00"),
+                ("recent-success", "success", None, "2099-01-01T00:00:00"),
+                ("old-queued", "queued", None, "2026-06-01T00:00:00"),
+                ("kept-success", "success", "2099-01-01T00:00:00", "2026-06-01T00:00:00"),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO report_run_log(report_key, status, created_at)"
+            " VALUES ('old-log', 'success', '2026-06-01T00:00:00')"
+        )
+        conn.execute(
+            "INSERT INTO report_run_log(report_key, status, created_at)"
+            " VALUES ('recent-log', 'success', '2099-01-01T00:00:00')"
+        )
+        conn.execute(
+            "INSERT INTO magic_link_tokens(token_hash, email, expires_at, created_at)"
+            " VALUES ('old-token', 'old@x.com', '2026-06-01T00:15:00', '2026-06-01T00:00:00')"
+        )
     assert run_cleanup(db) == {
         "cache_rows": 1,
         "export_rows": 1,
         "delivery_leg_rows": 1,
+        "job_rows": 1,
+        "run_log_rows": 1,
+        "magic_link_token_rows": 1,
     }
     with db.precious() as conn:
         assert conn.execute("SELECT COUNT(*) FROM delivery_legs").fetchone()[0] == 1
+        assert {
+            row["id"] for row in conn.execute("SELECT id FROM jobs").fetchall()
+        } == {"recent-success", "old-queued", "kept-success"}
+        assert {
+            row["report_key"] for row in conn.execute("SELECT report_key FROM report_run_log").fetchall()
+        } == {"recent-log"}
+        assert conn.execute("SELECT COUNT(*) FROM magic_link_tokens").fetchone()[0] == 0
     assert snapshot(db)["last_cleanup"] is not None
 
 

@@ -1303,6 +1303,23 @@ def consume_magic_link_token(token: str) -> str | None:
         conn.close()
 
 
+def prune_magic_link_tokens(max_age_days: int = 90) -> int:
+    """Delete expired magic-link audit rows."""
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+    conn = get_db()
+    try:
+        removed = conn.execute(
+            "DELETE FROM magic_link_tokens WHERE julianday(created_at) < julianday(?)",
+            (cutoff,),
+        ).rowcount
+        conn.commit()
+        return removed
+    finally:
+        conn.close()
+
+
 def delete_user(email: str) -> dict:
     """Delete a user and every row keyed to their email across the DB.
 

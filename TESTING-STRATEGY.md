@@ -1243,3 +1243,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
   A shared key remains while any valid Keep still references it.
 
 **Test file:** `v3/tests/test_jobs.py`
+
+## Phase 6.6 90-day retention cleanup
+**What to test:**
+- Worker cleanup removes terminal jobs, report run-log rows, and v3 magic-link
+  tokens older than 90 days while retaining current jobs, queued jobs, and a
+  terminal job protected by a valid Keep.
+- Live startup cleanup removes 90-day-old `magic_link_tokens` while retaining
+  current tokens.
+
+**Expected behavior:**
+- Cleanup returns the row counts for each new retention target. Delivery legs
+  keep their existing 90-day pruning and readiness does not depend on cleanup.
+
+**Test file:** `v3/tests/test_jobs.py`, `tests/test_magic_links.py`

@@ -53,6 +53,33 @@ def test_magic_link_schema_replaces_plaintext_tokens(monkeypatch, tmp_path):
     assert columns == {"token_hash", "email", "created_at", "expires_at", "consumed_at"}
 
 
+def test_magic_link_cleanup_prunes_old_tokens(monkeypatch, tmp_path):
+    monkeypatch.setattr(live_db, "DB_PATH", str(tmp_path / "live.db"))
+    live_db.init_db()
+    conn = live_db.get_db()
+    try:
+        conn.executemany(
+            "INSERT INTO magic_link_tokens(token_hash, email, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?)",
+            [
+                ("old-token", "old@x.com", "2026-06-01T00:00:00+00:00", "2026-06-01T00:15:00+00:00"),
+                ("recent-token", "recent@x.com", "2099-01-01T00:00:00+00:00", "2099-01-01T00:15:00+00:00"),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert live_db.prune_magic_link_tokens() == 1
+    conn = live_db.get_db()
+    try:
+        assert [row["token_hash"] for row in conn.execute(
+            "SELECT token_hash FROM magic_link_tokens"
+        )] == ["recent-token"]
+    finally:
+        conn.close()
+
+
 def test_magic_link_uses_public_base_url(monkeypatch, tmp_path):
     monkeypatch.setattr(live_db, "DB_PATH", str(tmp_path / "live.db"))
     live_db.init_db()

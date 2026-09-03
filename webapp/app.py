@@ -17,7 +17,7 @@ if _SCRIPTS_DIR not in sys.path:
 from flask import Flask
 
 from webapp.config import FLASK_SECRET
-from webapp.db import init_db, cleanup_stale_running_reports
+from webapp.db import cleanup_stale_running_reports, init_db, prune_magic_link_tokens
 from webapp.helpers import inject_theme
 
 from webapp.blueprints.auth import auth_bp
@@ -80,7 +80,7 @@ def _start_email_distribution_check():
 
 
 def _cleanup_old_reports(max_age_days: int = 7):
-    """Delete report output files older than *max_age_days*."""
+    """Delete old report output files and magic-link tokens."""
     from webapp.config import REPORT_OUTPUT_DIR
     import time
     cutoff = time.time() - (max_age_days * 86400)
@@ -92,6 +92,10 @@ def _cleanup_old_reports(max_age_days: int = 7):
                 log.info("Cleaned up old report file: %s", fname)
     except Exception:
         log.exception("Report cleanup failed")
+    try:
+        prune_magic_link_tokens()
+    except Exception:
+        log.exception("Magic-link token cleanup failed")
 
 
 def create_app() -> Flask:
