@@ -2,6 +2,14 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Developer raw Reporting API passthrough
+
+**What to test:**
+- `GET /api/dev/reporting/<report_id>/run?Param=value` (developer only) returns `{report_id, params, row_count, columns, rows}` exactly as the Reporting API sent them. POST takes the JSON body as params.
+- Admin gets 403. Unconfigured Reporting API gets 503. An API error returns 502 with the error text.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
 ## Salesman dropdowns read the salesmen_master SP
 
 **What to test:**

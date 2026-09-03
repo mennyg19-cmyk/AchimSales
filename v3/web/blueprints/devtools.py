@@ -1,7 +1,9 @@
-"""Developer tools: database explorer (precious + cache) and notification diagnostic."""
+"""Developer tools: database explorer (precious + cache), raw Reporting API
+passthrough, and notification diagnostic."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
@@ -89,6 +91,35 @@ def db_explorer_page():
         "db_explorer.html", active_tab="settings",
         precious_path=str(db.precious_path), cache_path=str(db.cache_path),
     )
+
+
+@devtools_bp.route("/api/dev/reporting/<report_id>/run", methods=["GET", "POST"])
+@require_login
+def api_reporting_raw(report_id: str):
+    """Run one Reporting API SP and return its untouched response.
+
+    GET passes query-string values as SP params (`?SalesGroup=HKaufman`); POST
+    passes the JSON body. Developer-only: this bypasses every adapter and scope
+    filter so you can see the real columns an endpoint returns.
+    """
+    blocked = _require_developer()
+    if blocked:
+        return blocked
+    if request.method == "POST":
+        params = request.get_json(silent=True) or {}
+    else:
+        params = {k: v for k, v in request.args.items()}
+    client = current_app.config["REPORT_SERVICE"].client
+    if not getattr(client, "configured", False):
+        return jsonify({"error": "Reporting API is not configured here"}), 503
+    try:
+        result = client.run_report(report_id, params)
+    except Exception as exc:  # noqa: BLE001 - show the API's error text to the developer
+        return jsonify({"error": str(exc), "report_id": report_id, "params": params}), 502
+    body = {"report_id": report_id, "params": params, "row_count": result.row_count,
+            "columns": result.columns, "rows": result.rows}
+    return current_app.response_class(
+        json.dumps(body, indent=2, default=str), mimetype="application/json")
 
 
 @devtools_bp.get("/api/dev/db/tables")

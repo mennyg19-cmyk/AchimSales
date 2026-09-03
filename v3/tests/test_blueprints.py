@@ -2870,6 +2870,26 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
     assert dev.get("/dev/db-explorer").status_code == 200
     tables = dev.get("/api/dev/db/tables?db=precious").get_json()["tables"]
     assert any(t["name"] == "users" for t in tables)
+
+
+def test_dev_reporting_passthrough_returns_every_column(tmp_path):
+    """Developers can see the raw Reporting API response for any SP, columns
+    intact, with query-string values passed as SP params. Admins get 403."""
+    raw = [{"Salesman": "HKaufman", "SalesmanName": "Heshy", "Email": "h@x.com",
+            "CommissionPercentage": 5}]
+    app = _make_app(tmp_path, rows_by_report={"salesmen_master": raw})
+    app.config["REPORT_SERVICE"].client.configured = True
+    admin = app.test_client()
+    _login(admin, app)
+    assert admin.get("/api/dev/reporting/salesmen_master/run").status_code == 403
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    body = dev.get("/api/dev/reporting/salesmen_master/run?SalesGroup=HKaufman").get_json()
+    assert body["rows"] == raw
+    assert body["row_count"] == 1
+    assert body["params"] == {"SalesGroup": "HKaufman"}
+    app.config["REPORT_SERVICE"].client.configured = False
+    assert dev.get("/api/dev/reporting/salesmen_master/run").status_code == 503
     html = dev.get("/settings").get_data(as_text=True)
     assert "Database explorer" in html and "Beta report data sources" in html
     # SQL-only: not on the Beta source selector. Global visibility still lists it.

@@ -134,7 +134,10 @@ asks for an optional name; the bottom-right pill can be minimized.
 On the home site, **Settings** is the control panel (same ~800px width as Live): You,
 People, Reports, Delivery, History, and (developers) Database explorer,
 notification diagnostic, and beta SQL/OData sources. Live Email Distributions
-stay on Live only. Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
+stay on Live only. Developers can also see any Reporting API SP's raw response
+at `/api/dev/reporting/<report_id>/run` (query string = SP params, e.g.
+`/api/dev/reporting/salesmen_master/run`); nothing is dropped or scoped.
+Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
 and is restored/replicated by Litestream (same as `/test`), so Settings like
 schedule test mode survive an App Service recycle.
 
