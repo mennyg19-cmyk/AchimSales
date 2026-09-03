@@ -23,7 +23,6 @@ from web.data.repositories.report_defaults import (
     view_and_layout_for_update,
 )
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
-from web.data.repositories.jobs import QueueAdmissionError
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -37,6 +36,7 @@ from web.scheduling.personal_views import is_custom_date_params, is_schedulable_
 from web.scheduling import cadence as C
 from web.scheduling.jobs import enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
+from web.queue_admission import enqueue_or_503
 
 schedules_bp = Blueprint("schedules", __name__)
 
@@ -660,13 +660,13 @@ def delete_schedule(schedule_id: int):
 def run_schedule(schedule_id: int):
     p = _principal()
     existing = _personal_or_404(schedule_id, p)
-    try:
-        job_id = enqueue_schedule_run(
+    job_id = enqueue_or_503(
+        lambda: enqueue_schedule_run(
             current_app.config["JOB_REPO"],
             schedule_id=schedule_id, schedule_type=PERSONAL,
-            owner_user_id=existing.owner_user_id, ignore_sabbath=True)
-    except QueueAdmissionError as exc:
-        abort(503, description=str(exc))
+            owner_user_id=existing.owner_user_id, ignore_sabbath=True
+        )
+    )
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202
 
@@ -1219,11 +1219,11 @@ def run_master(schedule_id: int):
     if sched is None:
         abort(404, description="Unknown master schedule")
     _require_master_edit(p, sched)
-    try:
-        job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
-                                      schedule_id=schedule_id, schedule_type=MASTER,
-                                      ignore_sabbath=True)
-    except QueueAdmissionError as exc:
-        abort(503, description=str(exc))
+    job_id = enqueue_or_503(
+        lambda: enqueue_schedule_run(
+            current_app.config["JOB_REPO"], schedule_id=schedule_id,
+            schedule_type=MASTER, ignore_sabbath=True,
+        )
+    )
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202

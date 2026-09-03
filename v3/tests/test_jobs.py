@@ -117,7 +117,8 @@ def test_worker_defaults_to_one_processing_slot(db):
 
 
 def test_background_worker_drains_queue(db):
-    worker = JobWorker(db, max_workers=2, child_argv_factory=_echo_child_argv(db))
+    worker = JobWorker(db, max_workers=2)
+    worker._child_argv_factory = _echo_child_argv(db)
     worker.register("bg", lambda ctx: "")
     jobs = JobRepository(db)
     ids = {jobs.enqueue("bg", params={"i": i}) for i in range(6)}
@@ -307,7 +308,8 @@ def test_status_summary_counts_and_active(db):
 
 def test_background_concurrency_is_bounded(db):
     jobs = JobRepository(db)
-    worker = JobWorker(db, max_workers=2, child_argv_factory=_echo_child_argv(db))
+    worker = JobWorker(db, max_workers=2)
+    worker._child_argv_factory = _echo_child_argv(db)
 
     def busy(ctx):
         time.sleep(0.1)
@@ -327,9 +329,8 @@ def test_background_concurrency_is_bounded(db):
 
 def test_background_timeout_kills_child_and_frees_slot(db):
     jobs = JobRepository(db)
-    worker = JobWorker(
-        db, job_timeout_seconds=0.1, child_argv_factory=_hang_child_argv()
-    )
+    worker = JobWorker(db, job_timeout_seconds=0.1)
+    worker._child_argv_factory = _hang_child_argv()
     worker.register("hang", lambda ctx: "")
     job_id = jobs.enqueue("hang")
 
@@ -352,9 +353,8 @@ def test_background_timeout_kills_child_and_frees_slot(db):
 
 def test_background_timeout_sigkills_child_ignoring_sigterm_and_frees_slot(db):
     jobs = JobRepository(db)
-    worker = JobWorker(
-        db, job_timeout_seconds=0.1, child_argv_factory=_hang_child_argv(ignore_sigterm=True)
-    )
+    worker = JobWorker(db, job_timeout_seconds=0.1)
+    worker._child_argv_factory = _hang_child_argv(ignore_sigterm=True)
     worker.register("hang", lambda ctx: "")
     job_id = jobs.enqueue("hang")
 
@@ -375,9 +375,8 @@ def test_background_timeout_sigkills_child_ignoring_sigterm_and_frees_slot(db):
 
 def test_child_launch_failure_marks_job_failed_and_frees_slot(db):
     jobs = JobRepository(db)
-    worker = JobWorker(
-        db, child_argv_factory=lambda job: ["/path/that/does/not/exist"]
-    )
+    worker = JobWorker(db)
+    worker._child_argv_factory = lambda job: ["/path/that/does/not/exist"]
     worker.register("missing-child", lambda ctx: "")
     job_id = jobs.enqueue("missing-child")
 
@@ -410,7 +409,8 @@ def test_enqueue_refuses_queue_at_depth_limit(db):
 
 def test_background_worker_drains_queue_over_depth_limit(db):
     jobs = JobRepository(db)
-    worker = JobWorker(db, queue_max_depth=1, child_argv_factory=_echo_child_argv(db))
+    worker = JobWorker(db, queue_max_depth=1)
+    worker._child_argv_factory = _echo_child_argv(db)
     worker.register("echo", lambda ctx: "")
     first_id = worker.repo.enqueue("echo")
     with db.precious() as conn:
@@ -433,9 +433,8 @@ def test_background_worker_drains_queue_over_depth_limit(db):
 
 def test_background_worker_expires_over_age_job_and_drains_younger_job(db):
     jobs = JobRepository(db)
-    worker = JobWorker(
-        db, queue_max_age_seconds=1, child_argv_factory=_echo_child_argv(db)
-    )
+    worker = JobWorker(db, queue_max_age_seconds=1)
+    worker._child_argv_factory = _echo_child_argv(db)
     worker.register("echo", lambda ctx: "")
     expired_id = jobs.enqueue("echo")
     younger_id = jobs.enqueue("echo")

@@ -111,7 +111,9 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     service = ReportService(client, salesmen_repo)
     cache = ReportCache(db)
     runner = ReportRunner(cache)
-    worker = JobWorker(db, is_beta=cfg.is_beta)
+    worker = JobWorker(
+        db, is_beta=cfg.is_beta, app_env=cfg.app_env, auth_mode=cfg.auth_mode
+    )
     run_log = ReportRunLogRepository(db)
     worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for, run_log))
 

@@ -43,7 +43,6 @@ from report_engine.reports import customer_last_order as clo
 from web.auth.decorators import require_login
 from web.auth.session import current_principal
 from web.data.repositories.company_views import CompanyView, CompanyViewRepository
-from web.data.repositories.jobs import QueueAdmissionError
 from web.scheduling.company_layouts import params_without_window
 from web.data.repositories.report_defaults import (
     DEFAULT_VIEW_NAME,
@@ -59,6 +58,7 @@ from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
+from web.queue_admission import enqueue_or_503
 
 reports_bp = Blueprint("reports", __name__)
 
@@ -415,14 +415,13 @@ def run_report(report_key: str):
         abort(403, description="Unknown user")
     visible = authz.visible_salesman_keys(p)
     params = _params_for_viewer(p, report_key, params)
-    try:
-        job_id = enqueue_report_run(
+    job_id = enqueue_or_503(
+        lambda: enqueue_report_run(
             _job_repo(), report_key=report_key, identity=p.email,
             visible_salesman_keys=visible, builder_version=spec.builder_version,
             params=params, owner_user_id=uid,
         )
-    except QueueAdmissionError as exc:
-        abort(503, description=str(exc))
+    )
 
     # In prod the background worker drains the queue; only in non-prod (no poller)
     # do we run it inline so a local dev poll resolves without a worker thread.
@@ -591,13 +590,12 @@ def export_report(report_key: str, job_id: str):
     layout = request.get_json(silent=True)
     if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)
         layout = {}
-    try:
-        export_id = enqueue_export(
+    export_id = enqueue_or_503(
+        lambda: enqueue_export(
             _job_repo(), owner_user_id=uid, source_job_id=job_id, report_key=report_key,
             report_name=spec.title, layout=layout,
         )
-    except QueueAdmissionError as exc:
-        abort(503, description=str(exc))
+    )
     # Non-prod has no background poller; drain inline so a local export resolves.
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
@@ -1614,18 +1612,15 @@ def email_now(report_key: str):
     if sharepoint_path and not authz.has_sharepoint_access(p):
         abort(403, description="You don't have SharePoint delivery access.")
 
-    try:
-        job_id = enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
-            "report_key": report_key, "identity": p.email,
-            "visible_keys": _visible_list(authz.visible_salesman_keys(p)),
-            "builder_version": spec.builder_version,
-            "params": _params_for_viewer(p, report_key, body.get("params") or {}),
-            "layout": body.get("layout") or {}, "recipients": recipients,
-            "subject": (body.get("subject") or "").strip(), "report_name": spec.title,
-            "sharepoint_path": sharepoint_path,
-        })
-    except QueueAdmissionError as exc:
-        abort(503, description=str(exc))
+    job_id = enqueue_or_503(lambda: enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
+        "report_key": report_key, "identity": p.email,
+        "visible_keys": _visible_list(authz.visible_salesman_keys(p)),
+        "builder_version": spec.builder_version,
+        "params": _params_for_viewer(p, report_key, body.get("params") or {}),
+        "layout": body.get("layout") or {}, "recipients": recipients,
+        "subject": (body.get("subject") or "").strip(), "report_name": spec.title,
+        "sharepoint_path": sharepoint_path,
+    }))
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
         worker.drain()

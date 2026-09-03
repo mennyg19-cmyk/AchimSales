@@ -40,7 +40,6 @@ class JobContext:
 
 # A handler runs the work and returns a result_ref (e.g. a cache key), or "".
 Handler = Callable[[JobContext], str]
-ChildArgvFactory = Callable[[Job], list[str]]
 DEFAULT_MAX_WORKERS = 1
 DEFAULT_JOB_TIMEOUT_SECONDS = 45 * 60
 _CHILD_STOP_TIMEOUT_SECONDS = 2
@@ -56,7 +55,8 @@ class JobWorker:
         queue_max_depth: int = DEFAULT_QUEUE_MAX_DEPTH,
         queue_max_age_seconds: float = DEFAULT_QUEUE_MAX_AGE_SECONDS,
         is_beta: bool = False,
-        child_argv_factory: ChildArgvFactory | None = None,
+        app_env: str | None = None,
+        auth_mode: str | None = None,
     ):
         self.db = db
         self.repo = JobRepository(
@@ -69,7 +69,9 @@ class JobWorker:
         self.queue_max_depth = max(1, queue_max_depth)
         self.queue_max_age_seconds = max(1, queue_max_age_seconds)
         self.is_beta = is_beta
-        self._child_argv_factory = child_argv_factory
+        self.app_env = app_env
+        self.auth_mode = auth_mode
+        self._child_argv_factory: Callable[[Job], list[str]] | None = None
         self.handlers: dict[str, Handler] = {}
         self._sem = threading.BoundedSemaphore(self.max_workers)
         self._stop = threading.Event()
@@ -216,8 +218,14 @@ class JobWorker:
 
     def _child_env(self) -> dict[str, str]:
         env = os.environ.copy()
-        env.setdefault("APP_ENV", "dev")
-        env.setdefault("AUTH_MODE", "dev")
+        if self.app_env is not None:
+            if "APP_ENV" not in os.environ:
+                log.warning("parent process has no APP_ENV; child will use %s from config", self.app_env)
+            env["APP_ENV"] = self.app_env
+        if self.auth_mode is not None:
+            if "AUTH_MODE" not in os.environ:
+                log.warning("parent process has no AUTH_MODE; child will use %s from config", self.auth_mode)
+            env["AUTH_MODE"] = self.auth_mode
         if self.is_beta:
             env["BETA_PRECIOUS_DB_PATH"] = str(self.db.precious_path)
             env["BETA_CACHE_DB_PATH"] = str(self.db.cache_path)
