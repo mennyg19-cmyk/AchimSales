@@ -961,6 +961,40 @@ def test_sharepoint_get_401_refreshes_token_once(tmp_path, monkeypatch):
     assert token_calls == [False, True]
 
 
+def test_configured_sharepoint_requires_resolvable_site_url(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
+        tmp_path, tenant_id="tenant", client_id="client", client_secret="secret",
+    ))
+    calls = []
+    monkeypatch.setattr(
+        "web.delivery.sharepoint.graph_get",
+        lambda url, *args, **kwargs: calls.append(url),
+    )
+    with pytest.raises(RuntimeError, match="SP_SITE_URL"):
+        service._resolve_drive_id()
+    assert calls == []
+
+
+def test_configured_sharepoint_never_searches_for_a_replacement_site(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
+        tmp_path, tenant_id="tenant", client_id="client", client_secret="secret",
+        sp_site_url="https://contoso.sharepoint.com/sites/reports",
+    ))
+    calls = []
+
+    class NotFound:
+        ok = False
+
+    monkeypatch.setattr(
+        "web.delivery.sharepoint.graph_get",
+        lambda url, *args, **kwargs: calls.append(url) or NotFound(),
+    )
+    with pytest.raises(RuntimeError, match="SP_SITE_URL could not be resolved"):
+        service._resolve_drive_id()
+    assert calls == [f"https://graph.microsoft.com/v1.0/sites/contoso.sharepoint.com:/sites/reports"]
+    assert not any("sites?search=" in url for url in calls)
+
+
 def test_graph_mail_retries_rejected_401_once_with_fresh_token(monkeypatch):
     mailer = GraphMailer("tenant", "client", "secret")
     tokens = iter(["old", "new"])

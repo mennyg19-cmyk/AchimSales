@@ -716,6 +716,30 @@ def test_claim_once_mutating_requires_post(tmp_path):
     assert app.config["JOB_REPO"].get(jid).status == "queued"
 
 
+def test_reconcile_diagnostics_require_developer_post_and_csrf(tmp_path):
+    app = _make_app(tmp_path)
+    paths = (
+        "/api/reports/diagnostics/reconcile-salesman-invoiced",
+        "/api/reports/diagnostics/reconcile-number4-invoiced",
+    )
+    anonymous = app.test_client()
+    for path in paths:
+        assert anonymous.post(path).status_code == 400
+
+    admin = app.test_client()
+    _login(admin, app, email="admin@x.com", role="admin")
+    for path in paths:
+        assert admin.post(path, headers={"X-CSRF-Token": _CSRF}).status_code == 403
+
+    developer = app.test_client()
+    _login(developer, app, email="dev@x.com", role="developer")
+    for path in paths:
+        assert developer.get(path).status_code == 405
+        assert developer.post(path).status_code == 400
+        response = developer.post(f"{path}?k=ignored", headers={"X-CSRF-Token": _CSRF})
+        assert response.status_code == 503
+
+
 def test_admin_unknown_user_access_is_404(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
@@ -1982,6 +2006,42 @@ def test_master_schedule_admin_only(tmp_path):
     assert hist.status_code == 200
     assert "run history" in hist.get_data(as_text=True).lower()
     assert rep.get(f"/master-schedules/{mid}/history").status_code == 403
+
+
+def test_master_schedule_keeps_explicit_skip_sabbath_setting(tmp_path):
+    from web.blueprints.schedules import _normalize_master_params
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    base = {
+        "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"},
+    }
+    created = client.post(
+        "/api/master-schedules",
+        json={**base, "params": {"skip_sabbath": False}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    repo = MasterScheduleRepository(app.config["DB"])
+    assert repo.get(mid).params["skip_sabbath"] is False
+    copied = client.post(
+        f"/api/master-schedules/{mid}/copy", headers={"X-CSRF-Token": _CSRF},
+    )
+    assert copied.status_code == 201
+    assert repo.get(copied.get_json()["id"]).params["skip_sabbath"] is False
+
+    updated = client.put(
+        f"/api/master-schedules/{mid}",
+        json={**base, "params": {"skip_sabbath": True}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert updated.status_code == 200
+    assert repo.get(mid).params["skip_sabbath"] is True
+    assert "skip_sabbath" not in _normalize_master_params({})
 
 
 def test_company_schedules_list_sorted_by_name(tmp_path):

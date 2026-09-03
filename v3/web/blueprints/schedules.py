@@ -893,6 +893,8 @@ def _normalize_master_params(raw: dict | None, *, allow_salesman_delivery: bool 
         s = str(src.get(key) or "").strip()
         if s:
             out[key] = s
+    if "skip_sabbath" in src:
+        out["skip_sabbath"] = _as_bool(src["skip_sabbath"])
     out["email_on_no_data"] = _as_bool(src.get("email_on_no_data"))
     out["email_on_no_data_me_only"] = _as_bool(src.get("email_on_no_data_me_only"))
     kind = str(src.get("folder_kind") or "").strip()

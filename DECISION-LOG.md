@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.1: fail-closed leftovers first
+**What I had to decide:** Phase 6 lists many leftover defects; some need owner product calls (commission display, retention windows, external-recipient policy). This PR's 0019 is delivery_legs, not the old schedule-slot 0019.
+**Options I considered:** (1) Implement the whole Phase 6 list now. (2) Slice 6.1 to already-specified fail-closed leftovers: persist `skip_sabbath=false`, never tenant-search a substitute SharePoint site, move reconcile diagnostics off query-string secrets.
+**What I chose:** (2). Defer commissions, date-interval reject, kept-run expiry, retention prune, external-recipient, and any 0019-legacy slot rewrite.
+**Why:** Those leftovers are specified in `PR1-REMEDIATION-PLAN.md` without a new product choice. The deferred items are business-rule or retention calls.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
 ## 2026-09-03 Phase 5.4: Graph tokens stay in memory with expiry
 **What I chose:** Cache client-credentials tokens in process with `expires_at`, refresh about a minute early, and never write them to sqlite. One 401 clears the cache and retries GET/PUT/upload-session once; sendMail 401 (HTTP reject) may retry the send once. Connection-loss after sendMail stays unknown. 429/503 honor Retry-After once, capped at 60s. Interrupted upload sessions resume from `nextExpectedRanges`.
 **Why:** A new token on every Graph call is waste and 401-after-expiry is a false delivery failure. sendMail after a connection loss is still not safe to retry (5.1).

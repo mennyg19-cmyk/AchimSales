@@ -1076,25 +1076,15 @@ def _database_disk_usage(db) -> dict:
     return {"total": usage.total, "used": usage.used, "free": usage.free}
 
 
-@reports_bp.get("/api/reports/diagnostics/reconcile-salesman-invoiced")
+@reports_bp.post("/api/reports/diagnostics/reconcile-salesman-invoiced")
+@require_login
 def reconcile_salesman_invoiced_diagnostic():
     """One-shot: monthly_salesman_yoy vs invoiced_report Total Invoice.
 
-    Gated by env DIAG_RECONCILE_KEY (?k=...). When the key is unset, returns 404.
     Optional ?scope=ty|ly|all (default all). Split ty/ly avoids App Service 230s
     gateway timeout when both invoiced windows are large.
     """
-    import hmac
-
-    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
-    provided = (request.args.get("k") or "").strip()
-    if (
-        not expected
-        or not provided
-        or len(expected) != len(provided)
-        or not hmac.compare_digest(expected, provided)
-    ):
-        abort(404)
+    _require_developer_principal()
 
     service = current_app.config.get("REPORT_SERVICE")
     client = getattr(service, "client", None) if service is not None else None
@@ -1117,24 +1107,15 @@ def reconcile_salesman_invoiced_diagnostic():
         return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
 
-@reports_bp.get("/api/reports/diagnostics/reconcile-number4-invoiced")
+@reports_bp.post("/api/reports/diagnostics/reconcile-number4-invoiced")
+@require_login
 def reconcile_number4_invoiced_diagnostic():
     """One-shot: Number 4 rolling-12 vs invoiced_report (subtotal + Total Invoice).
 
-    Gated by env DIAG_RECONCILE_KEY (?k=...). Optional ?view=by_customer|by_item,
-    ?month=1..12 (index into the rolling window, 1=oldest) for gateway-safe slices.
+    Optional ?view=by_customer|by_item, ?month=1..12 (index into the rolling
+    window, 1=oldest) for gateway-safe slices.
     """
-    import hmac
-
-    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
-    provided = (request.args.get("k") or "").strip()
-    if (
-        not expected
-        or not provided
-        or len(expected) != len(provided)
-        or not hmac.compare_digest(expected, provided)
-    ):
-        abort(404)
+    _require_developer_principal()
 
     service = current_app.config.get("REPORT_SERVICE")
     client = getattr(service, "client", None) if service is not None else None

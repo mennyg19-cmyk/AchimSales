@@ -170,37 +170,19 @@ class SharePointService:
         if self._drive_id:
             return self._drive_id
         site_url = (self.cfg.sp_site_url or "").strip()
+        if not site_url:
+            raise RuntimeError("SP_SITE_URL is required for configured SharePoint delivery")
 
-        site_id: str | None = None
-
-        if site_url:
-            parsed = urlparse(site_url.rstrip("/"))
-            host = parsed.netloc
-            path = (parsed.path or "").strip("/")
-            site_ref = f"{host}:/{path}" if path else host
-            site = graph_get(f"{GRAPH_BASE}/sites/{site_ref}", self._get_token, timeout=TIMEOUT)
-            if site.ok:
-                site_id = site.json()["id"]
-            else:
-                log.warning("SP_SITE_URL resolved to 404 (%s), falling back to search", site_ref)
-
-        if site_id is None:
-            r = graph_get(f"{GRAPH_BASE}/sites?search=achim", self._get_token, timeout=TIMEOUT)
-            r.raise_for_status()
-            for s in r.json().get("value", []):
-                sid = s.get("id")
-                dr = graph_get(f"{GRAPH_BASE}/sites/{sid}/drive", self._get_token, timeout=TIMEOUT)
-                if dr.status_code != 200:
-                    continue
-                did = dr.json()["id"]
-                test = graph_get(
-                    f"{GRAPH_BASE}/drives/{did}/root:/{self._root}:/children",
-                    self._get_token, timeout=TIMEOUT)
-                if test.status_code == 200:
-                    self._drive_id = did
-                    log.info("resolved SharePoint drive %s via search", did)
-                    return did
-            raise RuntimeError("Could not find SharePoint site with Direct Reports folder")
+        parsed = urlparse(site_url.rstrip("/"))
+        host = parsed.netloc
+        if not host:
+            raise RuntimeError("SP_SITE_URL must be a valid SharePoint site URL")
+        path = (parsed.path or "").strip("/")
+        site_ref = f"{host}:/{path}" if path else host
+        site = graph_get(f"{GRAPH_BASE}/sites/{site_ref}", self._get_token, timeout=TIMEOUT)
+        if not site.ok:
+            raise RuntimeError(f"SP_SITE_URL could not be resolved: {site_url}")
+        site_id = site.json()["id"]
 
         drive = graph_get(f"{GRAPH_BASE}/sites/{site_id}/drive", self._get_token, timeout=TIMEOUT)
         drive.raise_for_status()

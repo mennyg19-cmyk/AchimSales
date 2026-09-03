@@ -1171,3 +1171,20 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - A failed or refused (unconfigured mailer) send is still audited and still consumes the day's run.
 
 **Test files:** `rebuild/tests/test_scheduling.py` (cadence, sabbath, deliveries), `rebuild/tests/test_schedule_routes.py` (authz, CSRF, once-a-day, catch-up after Shabbos, whole-run failure notify, manual run-now + ignore-Shabbos, notification ownership), `rebuild/tests/test_email.py` (failure-notice composition, escaping, audited-when-off).
+
+## Phase 6.1 fail-closed schedule, SharePoint, and diagnostics
+**What to test:**
+- Creating, copying, and updating a company schedule preserve explicit
+  `skip_sabbath: false` or `true`; an omitted key preserves the clock default.
+- Configured SharePoint rejects a missing or unresolvable `SP_SITE_URL` and never
+  queries `sites?search=achim`; non-configured local mock behavior stays intact.
+- Each reconcile diagnostic requires a signed-in developer, POST, and CSRF; it
+  ignores the removed query-string key and denies other roles.
+
+**Expected behavior:**
+- Clock schedules skip Shabbos only when their params omit the key or set it true.
+- Graph delivery only uses the tenant site explicitly configured by `SP_SITE_URL`.
+- Reconciliation remains a developer operation and cannot be triggered by a link.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_delivery.py`,
+`v3/tests/test_sabbath.py`
