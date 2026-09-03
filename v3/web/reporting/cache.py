@@ -168,18 +168,19 @@ class ReportCache:
         protected_keys = protected_keys or set()
         expired_kept_keys = (expired_kept_keys or set()) - protected_keys
         with self.db.cache() as conn:
-            clauses = ["built_at < ?"]
+            delete_conditions = ["built_at < ?"]
             params: list[str] = [cutoff]
             if expired_kept_keys:
                 placeholders = ",".join("?" for _ in expired_kept_keys)
-                clauses.append(f"cache_key IN ({placeholders})")
+                delete_conditions.append(f"cache_key IN ({placeholders})")
                 params.extend(expired_kept_keys)
+            where = f"({' OR '.join(delete_conditions)})"
             if protected_keys:
                 placeholders = ",".join("?" for _ in protected_keys)
-                clauses.append(f"cache_key NOT IN ({placeholders})")
+                where += f" AND cache_key NOT IN ({placeholders})"
                 params.extend(protected_keys)
             cur = conn.execute(
-                f"DELETE FROM report_payload_cache WHERE ({' OR '.join(clauses)})",
+                f"DELETE FROM report_payload_cache WHERE {where}",
                 params,
             )
             return cur.rowcount

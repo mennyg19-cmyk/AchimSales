@@ -569,6 +569,7 @@ def test_cleanup_prunes_expired_cache_and_exports_then_marks_success(db):
 
 def test_cleanup_keeps_old_cache_referenced_by_live_keep(db):
     from web.jobs.cleanup import run_cleanup
+    from web.reporting.cache import ReportCache
 
     jobs = JobRepository(db)
     job_id = jobs.enqueue("report.run")
@@ -590,6 +591,7 @@ def test_cleanup_keeps_old_cache_referenced_by_live_keep(db):
 
 def test_cleanup_prunes_young_cache_referenced_only_by_expired_keep(db):
     from web.jobs.cleanup import run_cleanup
+    from web.reporting.cache import ReportCache
 
     jobs = JobRepository(db)
     job_id = jobs.enqueue("report.run")
