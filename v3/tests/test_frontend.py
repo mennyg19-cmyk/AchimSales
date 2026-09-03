@@ -488,6 +488,9 @@ def test_report_tabs_have_tablist_semantics():
         assert f'"{key}"' in tabs
     assert '"aria-labelledby"' in tabs
     assert 'function reportTabId' in report
+    body = report.split("function reportTabId", 1)[1].split("function renderTabs", 1)[0]
+    assert "encodeURIComponent(key)" in body
+    assert 'replace(/[^A-Za-z0-9_-]/g, "_")' not in body
     assert 'querySelector<HTMLButtonElement>(\'#reportTabs [role="tab"][aria-selected="true"]\')?.focus()' in activate
 
 

@@ -1066,7 +1066,7 @@ function renderCommissionCards(tab: Tab, host: HTMLElement): void {
 // --------------------------------------------------------------------------
 
 function reportTabId(key: string): string {
-  return `report-tab-${key.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+  return `report-tab-${encodeURIComponent(key)}`;
 }
 
 function renderTabs(): void {
