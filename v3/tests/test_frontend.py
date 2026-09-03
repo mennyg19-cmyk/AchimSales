@@ -421,6 +421,8 @@ def test_report_menus_have_keyboard_semantics():
     assert 'caret.setAttribute("aria-haspopup", "menu")' in report
     assert 'menu.setAttribute("role", "menu")' in report
     assert 'b.setAttribute("role", "menuitem")' in report
+    assert 'document.addEventListener("click", closeTabMenu, { once: true })' not in report
+    assert 'document.addEventListener("click", () => closeTabMenu(), { once: true })' in report
     assert 'aria-haspopup="menu"' in html
 
 

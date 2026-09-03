@@ -1203,7 +1203,7 @@ function openTabMenuAt(key: string, x: number, y: number, opener: HTMLButtonElem
   tabMenuOpener = opener;
   opener.setAttribute("aria-expanded", "true");
   bindMenuKeyboard(menu, closeTabMenu);
-  setTimeout(() => document.addEventListener("click", closeTabMenu, { once: true }), 0);
+  setTimeout(() => document.addEventListener("click", () => closeTabMenu(), { once: true }), 0);
 }
 
 function duplicateTab(key: string): void {
