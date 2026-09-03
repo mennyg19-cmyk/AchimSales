@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.5: prune expired Keep payloads, keep live Keep rows
+**What I had to decide:** Next Phase 6 leftover after the 6.4 gate.
+**Options I considered:** (1) Q2 explicit-zero / Q3 varies / Q8 / Q9 vs Send now / 0019-legacy slots / 90-day job history. (2) The named defect: cleanup’s 7-day cache prune ignores Keep, so a 30-day Keep dies at day 8, and expired Keep rows linger until that age cut.
+**What I chose:** (2). Age-prune still deletes unkept rows older than 7 days. Do not delete a cache_key referenced by any job whose `kept_until` is still valid. Do delete a cache_key whose only Keep refs are expired, even if the row is younger than 7 days. Unkept young rows stay. Cleanup must not import the reports blueprint; move or share `_kept_still_valid` next to jobs.
+**Why:** Keep is already 30 days. Result GET already 404s after expiry; leftover cache is the rest of the named bullet. Other leftovers still mix product calls or a Q9 conflict.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.4 gate closed
+**What I chose:** Close Phase 6.4 on `ff00ee7`. Trust-boundary N/A.
+**Why:** Loops A+B zero; Loop C F1 rename then re-pass zero; Agent Guardrails green on HEAD; expired Keep 404s on result GET and export.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.4: refuse result access after Keep expires
 **What I had to decide:** Next Phase 6 leftover after the 6.3 gate.
 **Options I considered:** (1) Q2 explicit-zero / Q3 “varies” display / Q8 external-recipient / Q9 vs Send now / 0019-legacy slots / retention prune. (2) The named defect: `GET /api/reports/result/<job_id>` (and export) serve a cached payload after `kept_until` has passed.
