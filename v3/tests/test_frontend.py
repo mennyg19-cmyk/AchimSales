@@ -392,6 +392,34 @@ def test_settings_exclusions_use_customer_picker():
     assert "data-customers-url" in src
 
 
+def test_phase_8_6_live_status_announcements():
+    admin_html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
+    admin = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
+    for message_id in ("addUserMsg", "euMsg", "esMsg"):
+        assert f'id="{message_id}" role="status" aria-live="polite"' in admin_html
+    assert 'setAttribute("aria-live", isError ? "assertive" : "polite")' in admin
+    assert 'setAttribute("role", isError ? "alert" : "status")' in admin
+
+    dashboard_html = (_V3 / "web" / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    dashboard = (_SRC / "js" / "dashboard.ts").read_text(encoding="utf-8")
+    assert 'id="dashRefreshStatus" role="status" aria-live="polite"' in dashboard_html
+    assert "announceRefresh" in dashboard
+    assert "Could not start the dashboard refresh." in dashboard
+
+    settings_html = (_V3 / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
+    settings = (_SRC / "js" / "settings.ts").read_text(encoding="utf-8")
+    assert 'id="exclHint" role="status" aria-live="polite"' in settings_html
+    assert 'id="testModeMsg" role="status" aria-live="polite"' in settings_html
+    assert 'setExclHint("Could not load customers.", true)' in settings
+
+    schedules = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
+    for rel in ("templates/schedules.html", "templates/company_schedules.html"):
+        html = (_V3 / "web" / rel).read_text(encoding="utf-8")
+        assert 'id="runStatus" role="status" aria-live="polite"' in html
+    assert 'announceRun(ok ? "Schedule run queued."' in schedules
+    assert 'run.status === "failure"' in schedules
+
+
 def test_searchable_picker_has_keyboard_and_combobox_semantics():
     picker = (_SRC / "js" / "searchable_picker.ts").read_text(encoding="utf-8")
     report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")

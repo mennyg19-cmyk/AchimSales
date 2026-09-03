@@ -86,9 +86,12 @@ function parseExcluded(root: HTMLElement): string[] {
   }
 }
 
-function setExclHint(text: string): void {
+function setExclHint(text: string, isError = false): void {
   const hint = document.getElementById("exclHint");
-  if (hint) hint.textContent = text;
+  if (!hint) return;
+  hint.textContent = text;
+  hint.setAttribute("aria-live", isError ? "assertive" : "polite");
+  hint.setAttribute("role", isError ? "alert" : "status");
 }
 
 function initExclusions(): void {
@@ -185,7 +188,7 @@ function initExclusions(): void {
         return;
       }
       if (s.status === "loading") setExclHint("Loading customers…");
-      else if (s.status === "error") setExclHint("Customer master still warming — retrying…");
+      else if (s.status === "error") setExclHint("Customer master still warming — retrying…", true);
       else if (s.configured === false) setExclHint("Customer master is not configured.");
     };
     tick();
@@ -196,7 +199,7 @@ function initExclusions(): void {
     if (count > 0) return;
     pollStatus();
   }).catch(() => {
-    setExclHint("Could not load customers.");
+    setExclHint("Could not load customers.", true);
   });
 }
 
@@ -230,10 +233,12 @@ function initScheduleTest(): void {
   const msg = document.getElementById("testModeMsg");
   if (!toggle || !chips || !form || !input || !url) return;
 
-  const show = (text: string) => {
+  const show = (text: string, isError = false) => {
     if (!msg) return;
     msg.textContent = text;
     msg.hidden = !text;
+    msg.setAttribute("aria-live", isError ? "assertive" : "polite");
+    msg.setAttribute("role", isError ? "alert" : "status");
   };
 
   const save = async (payload: { enabled?: boolean; emails?: string[] }) => {
@@ -257,7 +262,7 @@ function initScheduleTest(): void {
       apply(await save({ emails: next }));
       show("");
     } catch (err) {
-      show(err instanceof Error ? err.message : "Could not update test emails.");
+      show(err instanceof Error ? err.message : "Could not update test emails.", true);
     }
   });
 
@@ -276,7 +281,7 @@ function initScheduleTest(): void {
       input.value = "";
       show("");
     } catch (err) {
-      show(err instanceof Error ? err.message : "Could not add that address.");
+      show(err instanceof Error ? err.message : "Could not add that address.", true);
     }
   });
 
@@ -284,7 +289,7 @@ function initScheduleTest(): void {
     const enabled = toggle.checked;
     if (enabled && emailsFromDom(chips).length === 0) {
       toggle.checked = false;
-      show("Add at least one test email before turning test mode on.");
+      show("Add at least one test email before turning test mode on.", true);
       return;
     }
     toggle.disabled = true;
@@ -293,7 +298,7 @@ function initScheduleTest(): void {
       show(enabled ? "Test mode on. Company schedule mail goes only to the list below." : "");
     } catch (err) {
       toggle.checked = !enabled;
-      show(err instanceof Error ? err.message : "Could not update test mode.");
+      show(err instanceof Error ? err.message : "Could not update test mode.", true);
     } finally {
       toggle.disabled = false;
     }

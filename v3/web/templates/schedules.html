@@ -21,6 +21,8 @@
     </div>
 </div>
 
+<p class="form-msg" id="runStatus" role="status" aria-live="polite"></p>
+
 {% if test_mode_on %}
 <div class="alert alert-warn" role="status">
     Test mode is on. Company schedule mail goes to {{ test_emails|join(', ') }}. SharePoint is not written. Salesman splits still run, to this list.

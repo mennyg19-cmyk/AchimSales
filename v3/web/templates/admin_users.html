@@ -33,7 +33,7 @@
     </div>
     <label class="flag-row"><input type="checkbox" name="is_external"> <span>External login</span></label>
     <button type="submit" class="btn btn-primary btn-sm">Add user</button>
-    <span class="form-msg" id="addUserMsg"></span>
+    <span class="form-msg" id="addUserMsg" role="status" aria-live="polite"></span>
   </form>
 </details>
 
@@ -164,7 +164,7 @@
       <button type="button" class="btn btn-outline btn-sm" data-close-user>Cancel</button>
       <button type="button" class="btn btn-primary btn-sm" id="euSave">Save</button>
     </div>
-    <div class="form-msg" id="euMsg"></div>
+    <div class="form-msg" id="euMsg" role="status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -184,7 +184,7 @@
       <button type="button" class="btn btn-outline btn-sm" data-close-sm>Cancel</button>
       <button type="button" class="btn btn-primary btn-sm" id="esSave">Save</button>
     </div>
-    <div class="form-msg" id="esMsg"></div>
+    <div class="form-msg" id="esMsg" role="status" aria-live="polite"></div>
   </div>
 </div>
 {% endblock %}

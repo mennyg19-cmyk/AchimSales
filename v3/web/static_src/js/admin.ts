@@ -177,7 +177,7 @@ function initAddUser(): void {
     if (resp.ok) {
       window.location.reload();
     } else if (msg) {
-      msg.textContent = (await resp.json().catch(() => ({}))).error || "Failed to add user";
+      setMsg("addUserMsg", (await resp.json().catch(() => ({}))).error || "Failed to add user", true);
     }
   });
 }
@@ -239,7 +239,7 @@ async function saveUser(): Promise<void> {
     sales_group: role === "salesman" ? salesGroup : "",
   });
   if (!resp.ok) {
-    setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
+    setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed", true);
     return;
   }
   if (role === "manager") {
@@ -262,7 +262,7 @@ async function deleteUser(): Promise<void> {
   if (!window.confirm("Delete this user and all their saved data? To block sign-in without wiping data, Disable them instead.")) return;
   const resp = await api(`${usersUrl}/${editingUserId}`, "DELETE");
   if (resp.ok) window.location.reload();
-  else setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Delete failed");
+  else setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Delete failed", true);
 }
 
 // --- salesman edit + active toggle -----------------------------------------
@@ -300,7 +300,7 @@ async function saveSm(): Promise<void> {
     email: (($("esEmail") as HTMLInputElement)).value,
   });
   if (resp.ok) window.location.reload();
-  else setMsg("esMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
+  else setMsg("esMsg", (await resp.json().catch(() => ({}))).error || "Save failed", true);
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -312,9 +312,12 @@ function hide(id: string): void {
   const el = $(id);
   if (el) el.style.display = "none";
 }
-function setMsg(id: string, text: string): void {
+function setMsg(id: string, text: string, isError = false): void {
   const el = $(id);
-  if (el) el.textContent = text;
+  if (!el) return;
+  el.textContent = text;
+  el.setAttribute("aria-live", isError ? "assertive" : "polite");
+  el.setAttribute("role", isError ? "alert" : "status");
 }
 
 function initEvents(): void {

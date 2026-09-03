@@ -47,7 +47,7 @@
     <section class="settings-card">
         <h2 class="section-title">Customer exclusions</h2>
         <p class="flag-desc">Pick customers to hide from dashboard metrics and overdue alerts. Same list as the report customer dropdown for your account.</p>
-        <p class="flag-desc" id="exclHint">Loading customers…</p>
+        <p class="flag-desc" id="exclHint" role="status" aria-live="polite">Loading customers…</p>
         <div id="exclPicker" class="customer-picker" data-placeholder="Search customers…"></div>
         <div id="exclPills" class="customer-pills" aria-label="Hidden customers"></div>
     </section>
@@ -131,7 +131,7 @@
             </label>
             <button type="submit" class="btn btn-outline btn-sm">Add</button>
         </form>
-        <p class="flag-desc test-mode-msg" id="testModeMsg" hidden></p>
+        <p class="flag-desc test-mode-msg" id="testModeMsg" role="status" aria-live="polite" hidden></p>
     </section>
 </details>
 

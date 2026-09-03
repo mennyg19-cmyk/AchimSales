@@ -1398,3 +1398,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated browser keyboard check;
 `cd v3 && npm run build`
+
+## Phase 8.6 live status and error announcements
+**What to test:**
+- Trigger an admin add/edit/delete error and inspect `#addUserMsg`, `#euMsg`, and
+  `#esMsg` for assertive alert semantics.
+- Refresh the dashboard, load Settings exclusions or test-mode feedback, and run a
+  personal or company schedule; inspect their status nodes through queued, running,
+  success, and failure states.
+
+**Expected behavior:**
+- Progress and successful status messages are polite status regions. Errors are
+  assertive alerts, without changing the page appearance.
+
+**Edge cases:**
+- A failed dashboard enqueue restores its button and announces the failure.
+- Run-now polling announces each new state once, while report-page status remains
+  unchanged.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser inspection;
+`cd v3 && npm run build`

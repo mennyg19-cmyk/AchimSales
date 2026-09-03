@@ -93,8 +93,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function pollRunLog(beforeIds: Set<number>): Promise<void> {
+async function pollRunLog(
+  beforeIds: Set<number>,
+  onRunUpdate: (run: RunLogRow) => void,
+): Promise<void> {
   const deadline = Date.now() + 90_000;
+  let announced = "";
   while (Date.now() < deadline) {
     await sleep(1500);
     const runs = await refreshRunLog();
@@ -102,6 +106,11 @@ async function pollRunLog(beforeIds: Set<number>): Promise<void> {
     if (!newest) continue;
     const isNew = !beforeIds.has(newest.id);
     const done = newest.status === "success" || newest.status === "failure";
+    const updateKey = `${newest.id}:${newest.status}`;
+    if (isNew && updateKey !== announced) {
+      announced = updateKey;
+      onRunUpdate(newest);
+    }
     if (isNew && done) return;
     if (isNew && newest.status === "running") continue;
   }
@@ -116,16 +125,30 @@ function bindRowActions(): void {
   });
   document.querySelectorAll<HTMLButtonElement>(".js-run").forEach((b) => {
     b.addEventListener("click", async () => {
+      const runStatus = document.getElementById("runStatus");
+      const announceRun = (text: string, isError = false) => {
+        if (!runStatus) return;
+        runStatus.textContent = text;
+        runStatus.setAttribute("aria-live", isError ? "assertive" : "polite");
+        runStatus.setAttribute("role", isError ? "alert" : "status");
+      };
       b.disabled = true;
       b.textContent = "Running…";
+      announceRun("Schedule run is starting.");
       document.getElementById("runLogPanel")?.setAttribute("open", "");
       const before = await refreshRunLog();
       const beforeIds = new Set(before.map((r) => r.id));
       const ok = await act(b.dataset.url!, "POST", {});
       b.textContent = ok ? "Queued" : "Failed";
+      announceRun(ok ? "Schedule run queued." : "Could not start the schedule run.", !ok);
       if (ok) {
         await refreshRunLog();
-        void pollRunLog(beforeIds).finally(() => {
+        void pollRunLog(beforeIds, (run) => {
+          const label = run.status === "success" ? "completed successfully"
+            : run.status === "failure" ? "failed"
+              : "is running";
+          announceRun(`${run.title} ${label}.`, run.status === "failure");
+        }).finally(() => {
           b.disabled = false;
           b.textContent = "Run now";
         });

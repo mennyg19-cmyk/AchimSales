@@ -36,22 +36,41 @@ function initDashboard(): void {
 
   // Refresh: enqueue, then poll the status until the row count changes.
   const btn = document.getElementById("dashRefreshBtn") as HTMLButtonElement | null;
+  const refreshStatus = document.getElementById("dashRefreshStatus");
+  const announceRefresh = (text: string, isError = false) => {
+    if (!refreshStatus) return;
+    refreshStatus.textContent = text;
+    refreshStatus.setAttribute("aria-live", isError ? "assertive" : "polite");
+    refreshStatus.setAttribute("role", isError ? "alert" : "status");
+  };
   async function doRefresh(): Promise<void> {
     if (!btn) return;
     btn.disabled = true;
     btn.textContent = "Refreshing\u2026";
+    announceRefresh("Refreshing dashboard data.");
     const before = (await fetch(statusUrl).then((r) => r.json()).catch(() => ({}))).last_refreshed;
-    await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
+    const queued = await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
+    if (!queued?.ok) {
+      btn.disabled = false;
+      btn.textContent = "Refresh data";
+      announceRefresh("Could not start the dashboard refresh.", true);
+      return;
+    }
     let tries = 0;
     const poll = async (): Promise<void> => {
       tries += 1;
       const s = await fetch(statusUrl).then((r) => r.json()).catch(() => ({}));
       if (s.last_refreshed && s.last_refreshed !== before) {
+        announceRefresh("Dashboard data refreshed.");
         window.location.reload();
         return;
       }
       if (tries < 40) setTimeout(poll, 3000);
-      else if (btn) { btn.disabled = false; btn.textContent = "Refresh data"; }
+      else if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Refresh data";
+        announceRefresh("Dashboard refresh is taking longer than expected.", true);
+      }
     };
     setTimeout(poll, 3000);
   }
