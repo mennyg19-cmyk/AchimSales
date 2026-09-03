@@ -228,6 +228,17 @@ def test_run_returns_503_when_job_queue_is_full(tmp_path):
     assert run.status_code == 503
 
 
+def test_run_rejects_custom_window_empty_after_go_live_clamp(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"ordered_report": []})
+    client = app.test_client()
+    _login(client, app)
+    response = client.post("/api/reports/ordered/run", json={
+        "period": "custom", "start_date": "2024-01-01", "end_date": "2024-12-31",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert response.status_code == 400
+    assert "D365 go-live" in response.get_json()["error"]
+
+
 def test_run_log_records_and_renders(tmp_path):
     rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
@@ -1024,6 +1035,17 @@ def test_preview_body_shows_sp_params_for_developer(tmp_path):
     assert body["report_id"] == "ordered_report"
     assert body["body"]["SalesGroup"] == "REdwards"
     assert "CreatedDateTimeFrom" in body["body"]
+
+
+def test_preview_body_rejects_custom_window_empty_after_go_live_clamp(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    response = client.post("/api/reports/ordered/preview-body", json={
+        "period": "custom", "start_date": "2024-01-01", "end_date": "2024-12-31",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert response.status_code == 200
+    assert "D365 go-live" in response.get_json()["warning"]
 
 
 def test_preview_body_forbidden_for_non_developer(tmp_path):

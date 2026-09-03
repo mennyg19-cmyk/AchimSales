@@ -6,6 +6,7 @@ import pytest
 
 from report_engine.dates import (
     D365_GO_LIVE,
+    EmptyCustomRangeError,
     month_chunks,
     parse_custom_range,
     parse_period,
@@ -73,6 +74,11 @@ def test_custom_range_reversed_is_swapped_and_clamped():
     p = parse_custom_range("2026-03-10", "2026-02-01")
     assert p.start_date == date(2026, 2, 1)
     assert p.end_date == date(2026, 3, 10)
+
+
+def test_custom_range_before_go_live_raises():
+    with pytest.raises(EmptyCustomRangeError, match="D365 go-live"):
+        parse_custom_range("2024-01-01", "2024-12-31")
 
 
 def test_sp_datetime_start_and_end_of_day():

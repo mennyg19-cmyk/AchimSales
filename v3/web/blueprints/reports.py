@@ -38,6 +38,7 @@ import time
 from urllib.parse import urlencode, urlparse
 
 from report_engine import registry
+from report_engine.dates import EmptyCustomRangeError
 from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
@@ -416,6 +417,10 @@ def run_report(report_key: str):
         abort(403, description="Unknown user")
     visible = authz.visible_salesman_keys(p)
     params = _params_for_viewer(p, report_key, params)
+    try:
+        P.translate(report_key, params)
+    except EmptyCustomRangeError as exc:
+        abort(400, description=str(exc))
     job_id = enqueue_or_503(
         lambda: enqueue_report_run(
             _job_repo(), report_key=report_key, identity=p.email,
@@ -946,7 +951,7 @@ def preview_body(report_key: str):
             "report_id": report_id, "method": "POST", "url": url,
             "body": body, "configured": bool(base and cfg.reporting_api_key),
         })
-    except KeyError as exc:
+    except (KeyError, EmptyCustomRangeError) as exc:
         return jsonify({
             "report_id": None, "method": "POST", "url": None, "body": {},
             "configured": bool(base and cfg.reporting_api_key),

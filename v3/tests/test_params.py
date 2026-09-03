@@ -76,6 +76,13 @@ def test_custom_with_invalid_dates_omits_rather_than_raises():
     assert "CreatedDateTimeTo" not in out
 
 
+def test_custom_range_empty_after_go_live_clamp_raises():
+    with pytest.raises(ValueError, match="D365 go-live"):
+        P.translate("ordered", {
+            "period": "custom", "start_date": "2024-01-01", "end_date": "2024-12-31",
+        })
+
+
 def test_invoiced_same_day_window_uses_end_of_day():
     """A one-day period (Daily / yesterday) must not send From=To at midnight.
 

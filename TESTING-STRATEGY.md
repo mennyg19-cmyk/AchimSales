@@ -1202,3 +1202,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
   from another salesman's aggregation row.
 
 **Test file:** `v3/tests/test_report_invoiced.py`
+
+## Phase 6.3 custom-window validation after D365 clamp
+**What to test:**
+- A reversed 2026 custom range still swaps, while a range ending before D365
+  go-live raises after its start is clamped.
+- Unparseable ISO custom dates still omit date params; an empty post-clamp range
+  raises through the translator and returns 400 from report run and preview.
+
+**Expected behavior:**
+- Valid reversed picker dates keep their inclusive window. A syntactically valid
+  range with no post-go-live dates never becomes all-time or an inverted period.
+
+**Test file:** `v3/tests/test_dates.py`, `v3/tests/test_params.py`,
+`v3/tests/test_blueprints.py`

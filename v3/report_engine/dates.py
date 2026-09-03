@@ -37,6 +37,10 @@ def clamp_start(start: date) -> date:
     return max(start, D365_GO_LIVE)
 
 
+class EmptyCustomRangeError(ValueError):
+    """A custom range has no dates after D365's go-live boundary."""
+
+
 @dataclass(frozen=True)
 class Period:
     """A resolved reporting window (inclusive dates)."""
@@ -88,6 +92,11 @@ def parse_custom_range(start_raw: str, end_raw: str) -> Period:
     if start > end:
         start, end = end, start
     start = clamp_start(start)
+    if start > end:
+        raise EmptyCustomRangeError(
+            f"Custom range ends on {end.isoformat()}, before D365 go-live "
+            f"({D365_GO_LIVE.isoformat()})."
+        )
     return Period(f"{start.isoformat()} to {end.isoformat()}", start, end)
 
 
