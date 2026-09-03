@@ -74,8 +74,8 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
   seed, schedule, or start a thread.
 - The standalone worker bootstraps an isolated SQLite database, starts its
   services, and completes an enqueued durable job.
-- `/healthz` remains a 200 liveness check; `/readyz` stays 503 until both
-  bootstrap completion and a fresh worker heartbeat are stored.
+- `/healthz` remains a 200 liveness check; `/readyz` stays 503 until bootstrap
+  completion plus fresh worker and scheduler heartbeats are stored.
 - `wsgi.py` does not invoke v3/Beta bootstrap during Gunicorn import, and
   `supervise-web.sh` starts both required sibling processes.
 
@@ -105,6 +105,25 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Interactive exports cannot starve scheduled delivery work.
 
 **Test file:** `v3/tests/test_jobs.py`
+
+## Phase 4.4 durable liveness and readiness
+
+**What to test:**
+- `/readyz` requires bootstrap plus fresh worker and scheduler heartbeats; `/healthz`
+  remains exactly `{status: ok}`.
+- Scheduler start writes a heartbeat and process identity; every schedule tick writes
+  its heartbeat even if enqueueing fails.
+- Worker startup and the daily 03:15 America/New_York cleanup prune seven-day cache
+  rows and tiered exports, recording cleanup only after both succeed.
+- Developer diagnostics expose liveness state, oldest active-job age, and disk usage.
+
+**Expected behavior:**
+- A running HTTP process with a dead or stalled worker/scheduler stays live but is not
+  ready. Cleanup state and process identity are observable by developers, not readiness
+  gates or public health endpoints.
+
+**Test file:** `v3/tests/test_smoke.py`, `v3/tests/test_jobs.py`,
+`v3/tests/test_blueprints.py`
 
 ## Only developers mint developers; Add user does not overwrite
 

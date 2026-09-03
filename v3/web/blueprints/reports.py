@@ -32,6 +32,7 @@ from flask import (
 
 import io
 import os
+import shutil
 import socket
 import time
 from urllib.parse import urlencode, urlparse
@@ -1031,11 +1032,20 @@ def reporting_api_diagnostics():
     p = _require_developer_principal()
     cfg = current_app.config["APP_CONFIG"]
     from web import is_worker_process
+    from web.jobs import status
     worker = current_app.config["JOB_WORKER"]
     run_live = request.args.get("live") in ("1", "true", "yes")
+    jobs = _job_repo().status_summary()
+    liveness = status.snapshot(current_app.config["DB"])
+    active_ages = [
+        row["age_seconds"] for row in jobs["active"] if row["age_seconds"] is not None
+    ]
+    liveness["oldest_active_job_age_seconds"] = max(active_ages, default=None)
+    liveness["disk"] = _database_disk_usage(current_app.config["DB"])
     return jsonify({
         "reporting_api": _probe_reporting_api(cfg, run_live=run_live),
-        "jobs": _job_repo().status_summary(),
+        "jobs": jobs,
+        "liveness": liveness,
         "claim_probe": _claim_probe(current_app.config["DB"]),
         "me": {"email": p.email, "user_id": _user_id(p.email), "role": p.role},
         "recent_jobs": _recent_jobs(current_app.config["DB"]),
@@ -1046,6 +1056,14 @@ def reporting_api_diagnostics():
             **worker.health(),
         },
     })
+
+
+def _database_disk_usage(db) -> dict:
+    try:
+        usage = shutil.disk_usage(db.precious_path.parent)
+    except OSError as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return {"total": usage.total, "used": usage.used, "free": usage.free}
 
 
 @reports_bp.get("/api/reports/diagnostics/reconcile-salesman-invoiced")

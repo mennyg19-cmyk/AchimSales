@@ -55,15 +55,35 @@ def test_factory_returns_without_starting_background_services(app):
 
 def test_readyz_requires_bootstrap_and_fresh_worker_heartbeat(app, client):
     from web.data.migrate import migrate
-    from web.jobs.status import beat, mark_bootstrap_finished
+    from web.jobs.status import beat, beat_scheduler, mark_bootstrap_finished
 
     assert client.get("/readyz").status_code == 503
     migrate(app.config["DB"])
     mark_bootstrap_finished(app.config["DB"])
     assert client.get("/readyz").status_code == 503
     beat(app.config["DB"])
+    assert client.get("/readyz").status_code == 503
+    beat_scheduler(app.config["DB"])
     assert client.get("/readyz").status_code == 200
     assert client.get("/readyz").get_json() == {"status": "ready"}
+
+
+def test_readyz_rejects_missing_or_stale_scheduler_heartbeat(app, client):
+    from web.data.migrate import migrate
+    from web.jobs.status import beat, beat_scheduler, mark_bootstrap_finished
+
+    migrate(app.config["DB"])
+    mark_bootstrap_finished(app.config["DB"])
+    beat(app.config["DB"])
+    assert client.get("/readyz").status_code == 503
+    beat_scheduler(app.config["DB"])
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "UPDATE app_settings SET value=datetime('now', '-2 minutes')"
+            " WHERE key='scheduler_heartbeat'"
+        )
+    assert client.get("/readyz").status_code == 503
+    assert client.get("/readyz").get_json() == {"status": "starting"}
 
 
 def test_csrf_blocks_write_without_token(app_with_write_route):

@@ -168,7 +168,10 @@ def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path, monke
     run_worker_app(app)
     try:
         from web import is_worker_process
+        from web.jobs.status import snapshot
         assert is_worker_process() is True
+        identity = snapshot(app.config["DB"])["process_identity"]
+        assert identity["pid"] > 0 and identity["hostname"] and identity["started_at"]
         deadline = time.time() + 5
         while time.time() < deadline and jobs.get(job_id).status != "success":
             time.sleep(0.05)
@@ -492,6 +495,72 @@ def test_scheduler_start_failure_keeps_readiness_red(tmp_path, monkeypatch):
         start_worker_services(app)
     assert app.config["JOB_WORKER"].running is False
     assert status.is_ready(app.config["DB"]) is False
+
+
+def test_schedule_tick_beats_scheduler_when_enqueue_fails(tmp_path, monkeypatch):
+    class FakeScheduler:
+        def __init__(self):
+            self.jobs = {}
+
+        def add_cron(self, job_id, func, **kwargs):
+            self.jobs[job_id] = func
+
+        def start(self):
+            pass
+
+    from web.jobs import scheduler as scheduler_module
+    from web.jobs import status
+    from web.scheduling import tick
+
+    cfg = Config(
+        app_env="dev", auth_mode="dev", flask_secret="test-secret",
+        tenant_id="", client_id="", client_secret="", reporting_api_base_url="",
+        reporting_api_key="", precious_db_path=tmp_path / "precious.db",
+        cache_db_path=tmp_path / "cache.db", litestream_blob_url="", new_app_marker=True,
+    )
+    app = create_app(cfg)
+    migrate(app.config["DB"])
+    monkeypatch.setattr(scheduler_module, "Scheduler", FakeScheduler)
+    monkeypatch.setattr(tick, "make_tick", lambda *args: lambda: (_ for _ in ()).throw(RuntimeError("enqueue failed")))
+    from web import _start_scheduler
+    _start_scheduler(app, app.config["DB"])
+    with pytest.raises(RuntimeError, match="enqueue failed"):
+        app.config["SCHEDULER"].jobs["schedule-tick"]()
+    assert status.snapshot(app.config["DB"])["scheduler_heartbeat_fresh"] is True
+
+
+def test_cleanup_prunes_expired_cache_and_exports_then_marks_success(db):
+    from web.jobs.cleanup import run_cleanup
+    from web.jobs.status import snapshot
+
+    with db.cache() as conn:
+        conn.execute(
+            "INSERT INTO report_payload_cache(cache_key, report_key, payload_json, built_at)"
+            " VALUES ('old-cache', 'ordered', '{}', datetime('now', '-8 days'))"
+        )
+        conn.execute(
+            "INSERT INTO report_exports(job_id, report_key, filename, content, size_bytes, built_at)"
+            " VALUES ('old-export', 'ordered', 'old.xlsx', X'00', 1, datetime('now', '-8 days'))"
+        )
+    assert run_cleanup(db) == {"cache_rows": 1, "export_rows": 1}
+    assert snapshot(db)["last_cleanup"] is not None
+
+
+def test_cleanup_failure_does_not_mark_success(db, monkeypatch):
+    from web.jobs import cleanup
+    from web.jobs.status import snapshot
+
+    class BrokenCache:
+        def __init__(self, db):
+            pass
+
+        def prune(self, **kwargs):
+            raise RuntimeError("cache unavailable")
+
+    monkeypatch.setattr(cleanup, "ReportCache", BrokenCache)
+    with pytest.raises(RuntimeError, match="cache unavailable"):
+        cleanup.run_cleanup(db)
+    assert snapshot(db)["last_cleanup"] is None
 
 
 def test_worker_main_stays_alive_after_service_start_failure(monkeypatch):

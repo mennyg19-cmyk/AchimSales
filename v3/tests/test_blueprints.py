@@ -657,6 +657,9 @@ def test_reporting_api_diagnostics_reports_state(tmp_path):
     assert "by_status" in data["jobs"] and "active" in data["jobs"]
     assert data["worker"]["is_worker"] is False
     assert data["worker"]["started"] is False
+    assert "liveness" in data
+    assert data["liveness"]["oldest_active_job_age_seconds"] is None
+    assert set(data["liveness"]["disk"]) == {"total", "used", "free"}
 
 
 def test_precious_repair_mutating_actions_require_post(tmp_path):

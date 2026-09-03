@@ -458,11 +458,14 @@ def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:
 def _start_scheduler(app: Flask, db) -> None:
     """Start the once-a-minute cron tick that enqueues due schedules."""
     from web.dashboard.jobs import enqueue_refresh
+    from web.jobs import status
+    from web.jobs.cleanup import run_cleanup
     from web.jobs.scheduler import Scheduler
     from web.scheduling.tick import make_tick
 
     job_repo = app.config["JOB_REPO"]
     dashboard_on = app.config["APP_CONFIG"].dashboard_refresh_enabled
+    schedule_tick = make_tick(db, job_repo, app.config.get("SCHEDULE_RUNNER"))
 
     def _tick_mirror():
         try:
@@ -471,19 +474,36 @@ def _start_scheduler(app: Flask, db) -> None:
             app.logger.exception("dashboard mirror tick failed")
 
     scheduler = Scheduler()
+
+    def _schedule_tick():
+        try:
+            schedule_tick()
+        finally:
+            status.beat_scheduler(db)
+
+    def _cleanup():
+        try:
+            run_cleanup(db)
+        except Exception:  # noqa: BLE001 - cleanup must not stop scheduling
+            app.logger.exception("worker cleanup failed")
+
     scheduler.add_cron(
         "schedule-tick",
-        make_tick(db, job_repo, app.config.get("SCHEDULE_RUNNER")),
+        _schedule_tick,
         minute="*",
     )
+    scheduler.add_cron("cache-cleanup", _cleanup, hour=3, minute=15)
     # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence). Skipped
     # entirely when the dashboard refresh is turned off.
     if dashboard_on:
         scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
     scheduler.start()
+    status.beat_scheduler(db)
+    status.write_process_identity(db)
     app.config["SCHEDULER"] = scheduler
     app.logger.info("schedule cron started (dashboard mirror %s)",
                     "on" if dashboard_on else "OFF")
+    _cleanup()
 
     # Prime the mirror on boot if it's empty so the dashboard isn't blank on a
     # cold container (LIVE does an immediate refresh when the cache is empty).

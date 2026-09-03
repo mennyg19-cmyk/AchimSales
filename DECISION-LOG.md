@@ -1,5 +1,47 @@
 # Decision Log
 
+## 2026-09-03 Phase 4.4: readiness response stays generic
+**What I chose:** Keep `/readyz` as `{status: ready}` or `{status: starting}` without naming a stale heartbeat or other operational detail.
+**Why:** Load balancers need only the readiness state; developers have the authenticated diagnostics route for detail.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
+## 2026-09-03 Phase 4.4: external replication lag stays operator-owned
+**What I chose:** Do not invent an in-app Litestream lag metric or add a package. Operators compare Azure Blob last-modified time with local SQLite mtime; replication is absent when `LITESTREAM_AZURE_ACCOUNT_KEY` is unset.
+**Why:** The app cannot reliably observe Azure Blob replication freshness from its process.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
+## 2026-09-03 Phase 4.4: process identity is durable diagnostics, not readiness
+**What I chose:** Store the worker PID, UTC start time, and hostname as JSON in `app_settings` after the scheduler starts. Do not use it to gate `/readyz`.
+**Why:** It helps operators identify the worker without making readiness depend on a static startup record.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
+## 2026-09-03 Phase 4.4: cleanup follows existing cache and export retention
+**What I chose:** Prune seven-day report cache rows and tiered exports once at worker start and daily at 03:15 America/New_York. Record cleanup only after both prune calls succeed.
+**Why:** A 90-day job-history prune belongs to Phase 7. Daily cleanup must not make readiness flap.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
+## 2026-09-03 Phase 4.4: scheduler beats at start and after every tick
+**What I chose:** Beat the scheduler immediately after `scheduler.start()` and in a `finally` wrapper around each minute tick.
+**Why:** A 90-second freshness limit needs a boot beat, and failed enqueueing still proves the scheduler loop ran.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
+## 2026-09-03 Phase 4.4: readiness requires worker and scheduler heartbeats
+**What I chose:** `/readyz` requires bootstrap plus fresh worker and scheduler heartbeats. Cleanup and process identity stay visible only in developer diagnostics.
+**Why:** Cleanup is daily, so requiring it at a 90-second threshold would keep the site red or make it flap.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
 ## 2026-09-03 Phase 4.3: reject fork-after-threads for job children
 **What I had to decide:** Whether the production poller could keep forking after APScheduler had started threads.
 **Options I considered:** (1) Keep `fork()` despite Python's deadlock warning. (2) Start a new interpreter for each claimed job. (3) Use a test-only child command for closure-based handlers.
