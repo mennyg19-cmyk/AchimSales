@@ -62,7 +62,7 @@ body {
 .report-jobs[hidden] { display: none !important; }
 .report-jobs-fab {
     display: inline-flex; align-items: center; gap: 8px; cursor: pointer; border: none;
-    border-radius: 99px; height: 46px; padding: 0 18px; color: #fff;
+    border-radius: 99px; height: 46px; padding: 0 18px; color: var(--primary-foreground);
     background: var(--primary); font-size: 13px; font-weight: 600;
     box-shadow: 0 6px 20px rgba(0,0,0,0.22);
 }
@@ -70,7 +70,7 @@ body {
     width: 46px; padding: 0; justify-content: center; font-size: 14px;
 }
 .report-jobs-failed .report-jobs-fab { background: var(--error, #dc2626); }
-.report-jobs-done .report-jobs-fab { background: var(--success, #16a34a); }
+.report-jobs-done .report-jobs-fab { background: var(--success, #16a34a); color: var(--success-foreground); }
 .report-jobs-panel-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding: 2px 4px 6px; font-size: 12px; font-weight: 700; color: var(--text-muted);
@@ -184,7 +184,7 @@ body {
 /* .btn's display would otherwise beat the browser's [hidden] rule, leaving
    hidden buttons (like the run Cancel button) stuck on screen. */
 .btn[hidden] { display: none !important; }
-.btn-primary { background: var(--primary); color: white; }
+.btn-primary { background: var(--primary); color: var(--primary-foreground); }
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-primary:active { transform: scale(0.96); opacity: 0.8; transition: none; }
 .btn-outline { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }

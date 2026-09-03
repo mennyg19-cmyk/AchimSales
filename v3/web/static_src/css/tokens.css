@@ -4,11 +4,13 @@
 
 :root {
     --primary: #2563eb;
+    --primary-foreground: #ffffff;
     --primary-hover: #1d4ed8;
-    --primary-light: #dbeafe;
-    --success: #16a34a;
+    --primary-light: #eff6ff;
+    --success: #15803d;
+    --success-foreground: #ffffff;
     --success-light: #dcfce7;
-    --error: #dc2626;
+    --error: #b91c1c;
     --error-light: #fef2f2;
     --warning: #f59e0b;
     --warning-light: #fef9c3;
@@ -16,7 +18,7 @@
     --bg-card: #ffffff;
     --text: #1e293b;
     --text-muted: #64748b;
-    --text-light: #94a3b8;
+    --text-light: #64748b;
     --border: #e2e8f0;
     --border-focus: #2563eb;
     --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
@@ -28,10 +30,12 @@
 }
 
 body.dark-theme {
-    --primary: #3b82f6;
+    --primary: #60a5fa;
+    --primary-foreground: #0f172a;
     --primary-hover: #60a5fa;
     --primary-light: #1e3a5f;
-    --success: #22c55e;
+    --success: #4ade80;
+    --success-foreground: #0f172a;
     --success-light: #14532d;
     --error: #ef4444;
     --error-light: #450a0a;
@@ -41,7 +45,7 @@ body.dark-theme {
     --bg-card: #1e293b;
     --text: #e2e8f0;
     --text-muted: #94a3b8;
-    --text-light: #64748b;
+    --text-light: #94a3b8;
     --border: #334155;
     --border-focus: #3b82f6;
     --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
@@ -65,9 +69,11 @@ body.dark-theme .alert-warn { background: var(--warning-light); color: #fbbf24; 
    free. */
 body.monochrome-theme {
     --primary: #3f3f46;
+    --primary-foreground: #ffffff;
     --primary-hover: #27272a;
     --primary-light: #e4e4e7;
     --success: #52525b;
+    --success-foreground: #ffffff;
     --success-light: #f4f4f5;
     --error: #b91c1c;
     --error-light: #fef2f2;
@@ -77,7 +83,7 @@ body.monochrome-theme {
     --bg-card: #ffffff;
     --text: #18181b;
     --text-muted: #52525b;
-    --text-light: #a1a1aa;
+    --text-light: #52525b;
     --border: #e4e4e7;
     --border-focus: #3f3f46;
     --shadow: 0 1px 3px rgba(24,24,27,0.08), 0 1px 2px rgba(24,24,27,0.06);
@@ -97,10 +103,12 @@ body.monochrome-theme .alert-success { background: var(--success-light); color: 
    mid-zinc so the white button text keeps contrast on dark cards; errors keep a
    legible red. */
 body.monochrome-dark-theme {
-    --primary: #52525b;
+    --primary: #a1a1aa;
+    --primary-foreground: #18181b;
     --primary-hover: #71717a;
-    --primary-light: #3f3f46;
+    --primary-light: #27272a;
     --success: #a1a1aa;
+    --success-foreground: #18181b;
     --success-light: #27272a;
     --error: #ef4444;
     --error-light: #450a0a;
@@ -109,8 +117,8 @@ body.monochrome-dark-theme {
     --bg: #18181b;
     --bg-card: #27272a;
     --text: #f4f4f5;
-    --text-muted: #a1a1aa;
-    --text-light: #71717a;
+    --text-muted: #d4d4d8;
+    --text-light: #a1a1aa;
     --border: #3f3f46;
     --border-focus: #a1a1aa;
     --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);

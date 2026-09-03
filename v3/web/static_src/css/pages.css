@@ -668,7 +668,7 @@
   color: var(--text);
 }
 .commission-live-table thead th {
-  background: #5b9bd5;
+  background: #3572a5;
   color: #fff;
   font-weight: 700;
   text-align: center;
@@ -827,7 +827,7 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
     min-height: 44px; align-items: center;
 }
 .dbx-table-btn:hover { background: var(--bg); }
-.dbx-table-btn.is-on { background: var(--primary); color: #fff; }
+.dbx-table-btn.is-on { background: var(--primary); color: var(--primary-foreground); }
 .dbx-cell { min-width: 72px; }
 
 /* Feature-flag toggles */
@@ -878,7 +878,7 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
     border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
     font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle;
 }
-.help-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+.help-btn:hover { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
 
 /* ── Master schedules page (wizard) ── */
 .ms-wizard {
@@ -905,9 +905,9 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
     background: var(--border); color: var(--text-muted);
 }
 .ms-step.is-active { color: var(--primary); border-color: var(--primary); background: var(--primary-light); }
-.ms-step.is-active .ms-step-num { background: var(--primary); color: #fff; }
+.ms-step.is-active .ms-step-num { background: var(--primary); color: var(--primary-foreground); }
 .ms-step.is-done { color: var(--success); border-color: var(--success); }
-.ms-step.is-done .ms-step-num { background: var(--success); color: #fff; }
+.ms-step.is-done .ms-step-num { background: var(--success); color: var(--success-foreground); }
 
 .ms-wizard-body { padding: 18px 20px 8px; }
 .ms-pane[hidden] { display: none !important; }

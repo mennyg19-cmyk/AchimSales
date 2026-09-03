@@ -1346,3 +1346,16 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Tables remain tables. Wide rows scroll inside `.table-wrap`; the document does not scroll sideways or hide row actions.
 
 **Test file:** authenticated browser check; `cd v3 && npm run build`
+
+## Phase 8.3 four-theme contrast
+**What to test:**
+- Each theme's text, muted text, light text, button foreground, and alert colors
+  meet 4.5:1 on the surfaces where they render.
+- Role badges and status pills meet the 3:1 UI-chrome threshold in every theme.
+- The hardcoded commission-table header keeps white text at 4.5:1.
+
+**Expected behavior:**
+- Light, dark, monochrome, and monochrome-dark preserve their existing identities
+  while readable text and button labels remain AA-compliant.
+
+**Test file:** `v3/tests/test_frontend.py`; `cd v3 && npm run build`

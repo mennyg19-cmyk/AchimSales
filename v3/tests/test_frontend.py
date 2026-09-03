@@ -28,6 +28,67 @@ def test_tokens_match_live_primary_blue():
     assert "--bottom-nav-height: 84px" in tokens
 
 
+def _contrast_ratio(foreground: str, background: str) -> float:
+    def luminance(color: str) -> float:
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [
+            channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+_THEME_CONTRAST_PAIRS = (
+    ("light", "#1e293b", "#f8fafc", 4.5), ("light", "#1e293b", "#ffffff", 4.5),
+    ("light", "#64748b", "#f8fafc", 4.5), ("light", "#64748b", "#ffffff", 4.5),
+    ("light", "#2563eb", "#eff6ff", 4.5), ("light", "#ffffff", "#2563eb", 4.5),
+    ("light", "#15803d", "#f0fdf4", 4.5), ("light", "#b91c1c", "#fef2f2", 4.5),
+    ("dark", "#e2e8f0", "#0f172a", 4.5), ("dark", "#e2e8f0", "#1e293b", 4.5),
+    ("dark", "#94a3b8", "#0f172a", 4.5), ("dark", "#94a3b8", "#1e293b", 4.5),
+    ("dark", "#60a5fa", "#1e3a5f", 4.5), ("dark", "#0f172a", "#60a5fa", 4.5),
+    ("dark", "#4ade80", "#14532d", 4.5), ("dark", "#f87171", "#450a0a", 4.5),
+    ("monochrome", "#18181b", "#fafafa", 4.5), ("monochrome", "#18181b", "#ffffff", 4.5),
+    ("monochrome", "#52525b", "#fafafa", 4.5), ("monochrome", "#52525b", "#ffffff", 4.5),
+    ("monochrome", "#3f3f46", "#e4e4e7", 4.5), ("monochrome", "#ffffff", "#3f3f46", 4.5),
+    ("monochrome", "#52525b", "#f4f4f5", 4.5), ("monochrome", "#b91c1c", "#fef2f2", 4.5),
+    ("monochrome-dark", "#f4f4f5", "#18181b", 4.5), ("monochrome-dark", "#f4f4f5", "#27272a", 4.5),
+    ("monochrome-dark", "#d4d4d8", "#18181b", 4.5), ("monochrome-dark", "#d4d4d8", "#27272a", 4.5),
+    ("monochrome-dark", "#a1a1aa", "#18181b", 4.5), ("monochrome-dark", "#a1a1aa", "#27272a", 4.5),
+    ("monochrome-dark", "#a1a1aa", "#27272a", 4.5), ("monochrome-dark", "#18181b", "#a1a1aa", 4.5),
+    ("monochrome-dark", "#d4d4d8", "#27272a", 4.5), ("monochrome-dark", "#f87171", "#450a0a", 4.5),
+    ("all", "#ffffff", "#3572a5", 4.5), ("dark", "#ffffff", "#b45309", 4.5),
+)
+
+
+def test_theme_text_button_and_alert_contrast():
+    for theme, foreground, background, threshold in _THEME_CONTRAST_PAIRS:
+        assert _contrast_ratio(foreground, background) >= threshold, (
+            f"{theme}: {foreground} on {background} must meet {threshold}:1"
+        )
+
+
+def test_theme_badge_and_status_contrast():
+    pairs = (
+        ("light", "#92400e", "#fef3c7"), ("light", "#3730a3", "#e0e7ff"),
+        ("light", "#2563eb", "#eff6ff"), ("light", "#15803d", "#dcfce7"),
+        ("light", "#b91c1c", "#fef2f2"), ("light", "#64748b", "#f8fafc"),
+        ("dark", "#fbbf24", "#422006"), ("dark", "#a5b4fc", "#312e81"),
+        ("dark", "#60a5fa", "#1e3a5f"), ("dark", "#4ade80", "#14532d"),
+        ("dark", "#ef4444", "#450a0a"), ("dark", "#94a3b8", "#0f172a"),
+        ("monochrome", "#fafafa", "#27272a"), ("monochrome", "#27272a", "#e4e4e7"),
+        ("monochrome", "#52525b", "#f4f4f5"), ("monochrome", "#b91c1c", "#fef2f2"),
+        ("monochrome-dark", "#18181b", "#fafafa"), ("monochrome-dark", "#e4e4e7", "#3f3f46"),
+        ("monochrome-dark", "#d4d4d8", "#27272a"), ("monochrome-dark", "#ef4444", "#450a0a"),
+    )
+    for theme, foreground, background in pairs:
+        assert _contrast_ratio(foreground, background) >= 3, (
+            f"{theme}: {foreground} on {background} must meet 3:1"
+        )
+
+
 def test_shell_css_has_core_components():
     shell = (_SRC / "css" / "shell.css").read_text(encoding="utf-8")
     for selector in (".app-header", ".bottom-nav", ".btn-primary", ".page-loading-overlay",
