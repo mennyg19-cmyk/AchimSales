@@ -5,9 +5,9 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 ## Phase 1 containment: headers, legacy bypass, and OData scope
 
 **What to test:**
-- Every configured security header is applied; CSP excludes unpkg and jsDelivr; HSTS appears only in production.
-- `DEV_BYPASS_AUTH=true` still works locally but is refused on Azure or when `APP_ENV=prod`.
-- Empty OData `visible_keys` set empties rows (scoped to nobody, not unrestricted). Recognized salesman keys filter rows. A missing salesman column empties rows when scope is set.
+- Every configured security header is applied; CSP allows unpkg (Feather/Tabulator), excludes jsDelivr and Google Maps; HSTS appears only in production.
+- `DEV_BYPASS_AUTH=true` still works locally but is refused on Azure or when `APP_ENV=prod`. Auth routes call `_dev_bypass_enabled()` live, not a frozen import.
+- Empty OData `visible_keys` set empties rows. Sheet values match via `salesman_key()`. A missing salesman column empties rows when scope is set. Underscore params are not forwarded to Live `run_report`. Preset copy rejects `..` and slashes in the salesman folder name.
 
 **Expected behavior:**
 - Browser responses prevent framing, MIME sniffing, and unscoped third-party execution without overwriting an existing header. Current v3 pages still load Feather/Tabulator from unpkg, so CSP allows `https://unpkg.com` (not jsDelivr, not Google Maps).
