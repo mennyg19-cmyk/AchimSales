@@ -99,7 +99,8 @@ async function pollRunLog(
   while (Date.now() < deadline) {
     // Sleep first (the caller already refreshed the log when queuing the run),
     // then check hidden right before the fetch so a tab flip during the sleep
-    // cannot slip a request through. The `continue`s below rely on this order.
+    // cannot slip a request through. Keep the sleep at the top: the `continue`
+    // branches below would skip an end-of-loop sleep and hammer the endpoint.
     await sleepUntilVisible(1500);
     if (isHidden()) {
       await sleepUntilVisible(deadline - Date.now());
