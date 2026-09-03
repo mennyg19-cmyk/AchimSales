@@ -373,6 +373,29 @@ def test_background_timeout_sigkills_child_ignoring_sigterm_and_frees_slot(db):
         worker.stop()
 
 
+def test_child_launch_failure_marks_job_failed_and_frees_slot(db):
+    jobs = JobRepository(db)
+    worker = JobWorker(
+        db, child_argv_factory=lambda job: ["/path/that/does/not/exist"]
+    )
+    worker.register("missing-child", lambda ctx: "")
+    job_id = jobs.enqueue("missing-child")
+
+    worker.start(poll_interval=0.01)
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and jobs.get(job_id).status != "failure":
+            time.sleep(0.02)
+        failed = jobs.get(job_id)
+        assert failed.status == "failure"
+        assert "failed to start" in failed.error
+        while time.time() < deadline and worker.health()["free_slots"] != 1:
+            time.sleep(0.02)
+        assert worker.health()["free_slots"] == 1
+    finally:
+        worker.stop()
+
+
 def test_enqueue_refuses_queue_at_depth_limit(db):
     worker = JobWorker(db, queue_max_depth=1)
     job_id = worker.repo.enqueue("echo")

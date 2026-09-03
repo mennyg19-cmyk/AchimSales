@@ -186,15 +186,28 @@ class JobWorker:
             self.repo.mark_failure(job.id, f"no handler for job type {job.type!r}")
             self._sem.release()
             return
-        process = subprocess.Popen(self._child_argv(job), env=self._child_env())
-        with self._processes_lock:
-            self._processes[job.id] = process
-        threading.Thread(
-            target=self._await_child,
-            args=(job, process),
-            name=f"job-monitor-{job.id[:8]}",
-            daemon=True,
-        ).start()
+        process: subprocess.Popen | None = None
+        try:
+            process = subprocess.Popen(self._child_argv(job), env=self._child_env())
+            with self._processes_lock:
+                self._processes[job.id] = process
+            threading.Thread(
+                target=self._await_child,
+                args=(job, process),
+                name=f"job-monitor-{job.id[:8]}",
+                daemon=True,
+            ).start()
+        except Exception as exc:  # noqa: BLE001 - a claimed job must become terminal
+            log.exception("job %s (%s) child failed to start", job.id, job.type)
+            if process is not None:
+                with self._processes_lock:
+                    self._processes.pop(job.id, None)
+                try:
+                    self._stop_child(process)
+                except Exception:  # noqa: BLE001 - launch failure still frees capacity
+                    log.exception("job %s child cleanup failed", job.id)
+            self.repo.mark_failure(job.id, f"job child failed to start: {exc}")
+            self._sem.release()
 
     def _child_argv(self, job: Job) -> list[str]:
         if self._child_argv_factory is not None:

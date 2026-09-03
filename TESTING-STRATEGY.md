@@ -92,6 +92,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - The production poller starts a new interpreter for a claimed handler; a timeout
   terminates that child, records a failure explaining the timeout, and frees
   the worker slot.
+- A child command that cannot start records a durable failure and frees its worker slot.
 - The default worker capacity is one. Enqueue rejects new jobs at the named
   depth; the poller still drains queued work and fails rows that exceeded the
   named queue age.
