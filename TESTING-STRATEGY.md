@@ -159,6 +159,20 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_jobs.py`
 
+## Phase 5.4 Graph token refresh, throttling, and upload resume
+**What to test:**
+- Cached Graph app-only tokens are reused until the one-minute refresh window and then replaced without persistence.
+- A folder GET or rejected sendMail 401 gets one fresh token and one retry; a send connection failure is still unknown.
+- A 429 or 503 waits once for `Retry-After`, capped at 60 seconds.
+- A failed upload chunk queries its existing session and starts the next PUT at `nextExpectedRanges`.
+
+**Expected behavior:**
+- Mail, SharePoint, and OneDrive keep credentials only in process memory and avoid minting a token per request.
+- Retry behavior never turns an uncertain sendMail connection loss into a duplicate send.
+- A valid upload session continues from Graph's confirmed offset instead of creating a new session at byte zero.
+
+**Test file:** `v3/tests/test_delivery.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

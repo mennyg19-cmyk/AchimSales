@@ -380,13 +380,15 @@ def test_graph_mail_classifies_http_reject_and_connection_loss(monkeypatch):
         mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
     assert rejected.value.delivery_status == "failed"
 
+    lost_calls = []
     monkeypatch.setattr(
         "urllib.request.urlopen",
-        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("connection lost")),
+        lambda *args, **kwargs: lost_calls.append(1) or (_ for _ in ()).throw(TimeoutError("connection lost")),
     )
     with pytest.raises(GraphMailError) as unknown:
         mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
     assert unknown.value.delivery_status == "unknown"
+    assert lost_calls == [1]
 
 
 def test_email_requires_a_target(email):
@@ -916,3 +918,246 @@ def test_delivery_expands_folder_tokens_and_strips_home(tmp_path, monkeypatch):
     )
     assert outcome.result.ok
     assert seen["sharepoint_path"] == "Salesman Report/Customer Activity/August 2026"
+
+
+def test_graph_token_cache_refreshes_before_expiry(monkeypatch):
+    from web.delivery.graph_auth import GraphTokenCache
+
+    now = [100.0]
+    monkeypatch.setattr("web.delivery.graph_auth.time.monotonic", lambda: now[0])
+    tokens = iter([
+        {"access_token": "first", "expires_in": 120},
+        {"access_token": "second", "expires_in": 120},
+    ])
+    cache = GraphTokenCache()
+    assert cache.get(lambda: next(tokens)) == "first"
+    now[0] = 150.0
+    assert cache.get(lambda: next(tokens)) == "first"
+    now[0] = 160.0
+    assert cache.get(lambda: next(tokens)) == "second"
+
+
+def test_sharepoint_get_401_refreshes_token_once(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(tmp_path, tenant_id="tenant", client_id="client", client_secret="secret"))
+    service._drive_id = "drive"
+    token_calls = []
+    monkeypatch.setattr(service, "_get_token", lambda refresh=False: token_calls.append(refresh) or "new")
+
+    class Response:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    responses = iter([Response(401, {}), Response(200, {"value": []})])
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: next(responses))
+    assert service.list_folders() == []
+    assert token_calls == [False, True]
+
+
+def test_graph_mail_retries_rejected_401_once_with_fresh_token(monkeypatch):
+    mailer = GraphMailer("tenant", "client", "secret")
+    tokens = iter(["old", "new"])
+    monkeypatch.setattr(mailer, "_token", lambda: next(tokens))
+    cleared = []
+    monkeypatch.setattr(mailer, "_clear_token", lambda: cleared.append(True))
+    authorizations = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    def send(request, **kwargs):
+        authorizations.append(request.get_header("Authorization"))
+        if len(authorizations) == 1:
+            raise urllib.error.HTTPError("https://graph.example", 401, "unauthorized", {}, io.BytesIO())
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", send)
+    mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert authorizations == ["Bearer old", "Bearer new"]
+    assert cleared == [True]
+
+
+@pytest.mark.parametrize("status_code", [429, 503])
+def test_graph_throttle_waits_once_with_capped_retry_after(monkeypatch, status_code):
+    from web.delivery.graph_auth import retry_graph_response
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {"Retry-After": "300"}
+
+    responses = iter([Response(status_code), Response(200)])
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_auth.time.sleep", delays.append)
+    assert retry_graph_response(lambda token: next(responses), lambda refresh: "token").status_code == 200
+    assert delays == [60]
+
+
+def test_folder_put_401_uses_a_fresh_token():
+    from web.delivery.graph_upload import upload_drive_item
+
+    class Response:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.headers = {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class Requests:
+        def __init__(self):
+            self.headers = []
+
+        def put(self, url, **kwargs):
+            self.headers.append(kwargs["headers"]["Authorization"])
+            return Response(401 if len(self.headers) == 1 else 200, {"id": "item"})
+
+    requests = Requests()
+    refreshes = []
+    assert upload_drive_item(
+        requests, put_url="https://graph/content", session_url="unused",
+        headers={"Authorization": "Bearer stale"}, content=b"file", put_timeout=10,
+        token=lambda refresh: refreshes.append(refresh) or ("fresh" if refresh else "stale"),
+    ) == {"id": "item"}
+    assert refreshes == [False, True]
+    assert requests.headers == ["Bearer stale", "Bearer fresh"]
+
+
+def test_upload_session_resumes_at_graph_next_expected_range():
+    from web.delivery.graph_upload import CHUNK_SIZE, SIMPLE_UPLOAD_MAX, upload_drive_item
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload=None):
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class Requests:
+        def __init__(self):
+            self.puts = []
+
+        def post(self, *args, **kwargs):
+            return Response({"uploadUrl": "https://upload/session"})
+
+        def put(self, url, **kwargs):
+            self.puts.append(kwargs["headers"]["Content-Range"])
+            if len(self.puts) == 1:
+                raise RuntimeError("connection reset")
+            return Response({"id": "item"})
+
+        def get(self, url, **kwargs):
+            return Response({"nextExpectedRanges": [f"{CHUNK_SIZE}-"]})
+
+    requests = Requests()
+    upload_drive_item(
+        requests, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer token"}, content=b"x" * SIMPLE_UPLOAD_MAX,
+        put_timeout=10,
+    )
+    assert requests.puts[0].startswith("bytes 0-")
+    assert requests.puts[1].startswith(f"bytes {CHUNK_SIZE}-")
+
+
+def test_retry_after_uses_http_date_and_default():
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+    from web.delivery.graph_auth import retry_after_seconds
+
+    assert retry_after_seconds(None) == 1
+    far = datetime.now(UTC) + timedelta(seconds=300)
+    assert retry_after_seconds(format_datetime(far, usegmt=True)) == 60
+    soon = datetime.now(UTC) + timedelta(seconds=12)
+    delay = retry_after_seconds(format_datetime(soon, usegmt=True))
+    assert 1 <= delay <= 12
+
+
+def test_graph_mail_retries_throttle_once(monkeypatch):
+    mailer = GraphMailer("tenant", "client", "secret")
+    monkeypatch.setattr(mailer, "_token", lambda: "token")
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_mail.time.sleep", delays.append)
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    calls = []
+
+    def send(request, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(
+                "https://graph.example", 429, "throttle", {"Retry-After": "300"}, io.BytesIO(),
+            )
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", send)
+    mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert calls == [1, 1]
+    assert delays == [60]
+
+
+def test_sharepoint_folder_create_401_refreshes_token_once(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
+        tmp_path, tenant_id="tenant", client_id="client", client_secret="secret",
+    ))
+    service._drive_id = "drive"
+    token_calls = []
+    monkeypatch.setattr(
+        service, "_get_token",
+        lambda refresh=False: token_calls.append(refresh) or ("fresh" if refresh else "stale"),
+    )
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    posts = []
+
+    def post(url, **kwargs):
+        posts.append(kwargs["headers"]["Authorization"])
+        if len(posts) == 1:
+            return Response(401)
+        return Response(201)
+
+    monkeypatch.setattr("requests.post", post)
+    service._ensure_folder("")
+    assert posts[0] == "Bearer stale"
+    assert posts[1] == "Bearer fresh"
+    assert token_calls[:2] == [False, True]

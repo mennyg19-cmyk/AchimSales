@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import quote, urlparse
 
 from web.config import Config
+from web.delivery.graph_auth import cached_app_token, graph_get, graph_post, GraphTokenCache
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class SharePointService:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self._root = f"{cfg.sp_drive_root}/{REPORTS_SUBFOLDER}".strip("/")
-        self._token: str | None = None
+        self._token_cache = GraphTokenCache()
         self._drive_id: str | None = None
 
     def is_configured(self) -> bool:
@@ -85,10 +86,8 @@ class SharePointService:
         if not self.is_configured():
             self._mock_or_raise("list folders")
             return _mock_folders(rel_path)
-        import requests
-
         url = f"{self._drive_base()}/root:/{self._abs(rel_path)}:/children"
-        r = requests.get(url, headers={"Authorization": f"Bearer {self._get_token()}"}, timeout=TIMEOUT)
+        r = graph_get(url, self._get_token, timeout=TIMEOUT)
         if r.status_code == 404:
             return []
         r.raise_for_status()
@@ -119,14 +118,15 @@ class SharePointService:
         self._ensure_folder(rel_folder)
         path = f"{self._abs(rel_folder)}/{quote(filename)}"
         base = self._drive_base()
-        headers = {"Authorization": f"Bearer {self._get_token()}"}
         body = upload_drive_item(
             requests,
             put_url=f"{base}/root:/{path}:/content",
             session_url=f"{base}/root:/{path}:/createUploadSession",
-            headers=headers,
+            headers={"Authorization": f"Bearer {self._get_token()}"},
             content=content, put_timeout=UPLOAD_TIMEOUT,
+            token=self._get_token,
         )
+        headers = {"Authorization": f"Bearer {self._get_token()}"}
         url = resolve_web_url(
             requests, headers=headers, body=body,
             get_url=f"{base}/root:/{path}:", items_base=f"{base}/items",
@@ -149,19 +149,12 @@ class SharePointService:
         rel_enc = "/".join(quote(s) for s in segments)
         return f"{root_enc}/{rel_enc}" if rel_enc else root_enc
 
-    def _get_token(self) -> str:
-        if self._token:
-            return self._token
-        import requests
-
-        url = f"https://login.microsoftonline.com/{self.cfg.tenant_id}/oauth2/v2.0/token"
-        r = requests.post(url, data={
-            "client_id": self.cfg.client_id, "client_secret": self.cfg.client_secret,
-            "scope": "https://graph.microsoft.com/.default", "grant_type": "client_credentials",
-        }, timeout=TIMEOUT)
-        r.raise_for_status()
-        self._token = r.json()["access_token"]
-        return self._token
+    def _get_token(self, refresh: bool = False) -> str:
+        return cached_app_token(
+            self._token_cache, refresh=refresh,
+            tenant_id=self.cfg.tenant_id, client_id=self.cfg.client_id,
+            client_secret=self.cfg.client_secret, timeout=TIMEOUT,
+        )
 
     def _drive_base(self) -> str:
         return f"{GRAPH_BASE}/drives/{self._resolve_drive_id()}"
@@ -169,9 +162,6 @@ class SharePointService:
     def _resolve_drive_id(self) -> str:
         if self._drive_id:
             return self._drive_id
-        import requests
-
-        headers = {"Authorization": f"Bearer {self._get_token()}"}
         site_url = (self.cfg.sp_site_url or "").strip()
 
         site_id: str | None = None
@@ -181,50 +171,49 @@ class SharePointService:
             host = parsed.netloc
             path = (parsed.path or "").strip("/")
             site_ref = f"{host}:/{path}" if path else host
-            site = requests.get(f"{GRAPH_BASE}/sites/{site_ref}", headers=headers, timeout=TIMEOUT)
+            site = graph_get(f"{GRAPH_BASE}/sites/{site_ref}", self._get_token, timeout=TIMEOUT)
             if site.ok:
                 site_id = site.json()["id"]
             else:
                 log.warning("SP_SITE_URL resolved to 404 (%s), falling back to search", site_ref)
 
         if site_id is None:
-            r = requests.get(f"{GRAPH_BASE}/sites?search=achim", headers=headers, timeout=TIMEOUT)
+            r = graph_get(f"{GRAPH_BASE}/sites?search=achim", self._get_token, timeout=TIMEOUT)
             r.raise_for_status()
             for s in r.json().get("value", []):
                 sid = s.get("id")
-                dr = requests.get(f"{GRAPH_BASE}/sites/{sid}/drive", headers=headers, timeout=TIMEOUT)
+                dr = graph_get(f"{GRAPH_BASE}/sites/{sid}/drive", self._get_token, timeout=TIMEOUT)
                 if dr.status_code != 200:
                     continue
                 did = dr.json()["id"]
-                test = requests.get(
+                test = graph_get(
                     f"{GRAPH_BASE}/drives/{did}/root:/{self._root}:/children",
-                    headers=headers, timeout=TIMEOUT)
+                    self._get_token, timeout=TIMEOUT)
                 if test.status_code == 200:
                     self._drive_id = did
                     log.info("resolved SharePoint drive %s via search", did)
                     return did
             raise RuntimeError("Could not find SharePoint site with Direct Reports folder")
 
-        drive = requests.get(f"{GRAPH_BASE}/sites/{site_id}/drive",
-                             headers=headers, timeout=TIMEOUT)
+        drive = graph_get(f"{GRAPH_BASE}/sites/{site_id}/drive", self._get_token, timeout=TIMEOUT)
         drive.raise_for_status()
         self._drive_id = drive.json()["id"]
         log.info("resolved SharePoint drive %s via site URL", self._drive_id)
         return self._drive_id
 
     def _ensure_folder(self, rel_path: str) -> None:
-        import requests
-
         segments = [s for s in self._root.split("/") if s] + _validate_segments(rel_path)
         if not segments:
             return
-        headers = {"Authorization": f"Bearer {self._get_token()}", "Content-Type": "application/json"}
         base = self._drive_base()
         current_enc = ""
         for part in segments:
             url = f"{base}/root:/{current_enc}:/children" if current_enc else f"{base}/root/children"
-            r = requests.post(url, headers=headers, timeout=TIMEOUT, json={
-                "name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
+            r = graph_post(
+                url, self._get_token,
+                payload={"name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"},
+                timeout=TIMEOUT,
+            )
             if r.status_code not in (201, 409):
                 r.raise_for_status()
             seg_enc = quote(part)
