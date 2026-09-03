@@ -642,6 +642,8 @@ def test_reporting_api_diagnostics_reports_state(tmp_path):
     # without a network call but still reports structure.
     assert data["reporting_api"]["configured"] is False
     assert "by_status" in data["jobs"] and "active" in data["jobs"]
+    assert data["worker"]["is_leader_process"] is False
+    assert data["worker"]["started"] is False
 
 
 def test_precious_repair_mutating_actions_require_post(tmp_path):

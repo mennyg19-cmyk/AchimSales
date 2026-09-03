@@ -6,7 +6,7 @@ This is the single module gunicorn serves:
 
 It wires apps behind one process via werkzeug's DispatcherMiddleware:
 
-    /          -> v3 in beta mode              [site home; hybrid SQL/OData]
+    /          -> v3 in beta mode              [site home; SQL reports]
     /legacy    -> live Flask app (webapp/)     [former home; OData]
     /test      -> v3 app (v3/web/)             [SQL sandbox]
     /beta      -> 302 to the same path without /beta

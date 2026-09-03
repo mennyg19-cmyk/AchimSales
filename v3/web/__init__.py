@@ -23,6 +23,13 @@ from web.data.repositories.users import UserRepository
 from web.extensions import init_csrf
 from web.security_headers import apply_security_headers
 
+_WORKER_PROCESS = False
+
+
+def is_background_leader_process() -> bool:
+    """True in the sibling worker after start_worker_services(); False in Gunicorn."""
+    return _WORKER_PROCESS
+
 
 def create_app(config: Config | None = None) -> Flask:
     cfg = config or load_config()
@@ -403,6 +410,7 @@ def bootstrap_database(app: Flask) -> None:
 
 def start_worker_services(app: Flask) -> None:
     """Start the scheduler and durable-job poller in the worker process only."""
+    global _WORKER_PROCESS
     from web.jobs import status
 
     db = app.config["DB"]
@@ -412,15 +420,18 @@ def start_worker_services(app: Flask) -> None:
     status.mark_bootstrap_finished(db)
     status.beat(db)
     app.config["JOB_WORKER"].start(heartbeat=lambda: status.beat(db))
+    _WORKER_PROCESS = True
 
 
 def stop_worker_services(app: Flask) -> None:
+    global _WORKER_PROCESS
     worker = app.config.get("JOB_WORKER")
     if worker is not None:
         worker.stop()
     scheduler = app.config.get("SCHEDULER")
     if scheduler is not None:
         scheduler.shutdown()
+    _WORKER_PROCESS = False
 
 
 def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:
