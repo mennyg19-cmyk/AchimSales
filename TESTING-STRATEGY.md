@@ -1418,3 +1418,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated browser inspection;
 `cd v3 && npm run build`
+
+## Phase 8.7 44px help, chip, day, and close targets
+**What to test:**
+- On a report page, measure title/filter help buttons, selected customer chips, and
+  email/schedule modal close buttons.
+- On Settings, measure exclusion and test-email removal chips; on a schedule
+  wizard, measure day chips; measure the SharePoint picker close when reachable.
+
+**Expected behavior:**
+- `.help-btn`, `.modal-close`, `.sp-picker-close`, `.customer-chip`, and
+  `.sched-day-chip` each have computed width and height of at least 44 CSS px.
+- The controls retain their existing circle, pill, and day-chip appearance.
+
+**Edge cases:**
+- Filter-bar help shares `.help-btn`; wide day chips remain at least 44px tall.
+- Test-email removal chips use `.customer-chip` and meet the same target.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser measurement;
+`cd v3 && npm run build`

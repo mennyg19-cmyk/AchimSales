@@ -424,6 +424,14 @@ def test_phase_8_6_live_status_announcements():
     assert 'run.status === "queued" ? "is queued"' in schedules
 
 
+def test_phase_8_7_named_controls_have_44px_targets():
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    for selector in (".help-btn", ".modal-close", ".sp-picker-close", ".customer-chip", ".sched-day-chip"):
+        rules = css.split(selector, 1)[1].split("}", 1)[0]
+        assert "min-width: 44px" in rules
+        assert "min-height: 44px" in rules
+
+
 def test_searchable_picker_has_keyboard_and_combobox_semantics():
     picker = (_SRC / "js" / "searchable_picker.ts").read_text(encoding="utf-8")
     report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
