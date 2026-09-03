@@ -497,8 +497,9 @@ Live gate:
 - [x] Add the Tabulator MIT license text and third-party attribution.
   Evidence: `licenses/tabulator-MIT.txt` (Oli Folkerd MIT) served at
   `/static/licenses/tabulator-MIT.txt`; report page names Tabulator 6.3.1 and
-  links to it. `test_tabulator_mit_license_is_attributed`. Did not vendor.
-  Trust-boundary N/A.
+  links to it. Both unpkg CSS/JS tags locked to 6.3.1.
+  `test_tabulator_mit_license_is_attributed`. Loop A F1 closed then A2+B+C zero.
+  Did not vendor. Trust-boundary N/A.
 
 Browser matrix:
 

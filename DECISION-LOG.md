@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.13 gate closed
+**What I chose:** Close Phase 8.13. Trust-boundary N/A.
+**Why:** Loop A F1 (one unpkg tag could drift) closed `5657caf`. A2 and Loop B zero. Loop C zero. License file GET 200. Did not vendor Tabulator. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.13: Tabulator MIT text on the report page
 **What I had to decide:** Where the leftover “Tabulator MIT license text and third-party attribution” lives.
 **Options I considered:** (1) Repo-only NOTICE, no user-visible credit. (2) Vendor Tabulator into static_dist. (3) Serve the 6.3.1 MIT text at `/static/licenses/tabulator-MIT.txt` and credit it on `report_view.html` (the only page that loads Tabulator). (4) A Settings “open source” page for every CDN dep.
