@@ -410,6 +410,20 @@ def test_searchable_picker_has_keyboard_and_combobox_semantics():
     assert 'import { SearchablePicker } from "./searchable_picker"' in report
 
 
+def test_report_menus_have_keyboard_semantics():
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert "function bindMenuKeyboard" in report
+    assert 'event.key === "ArrowDown"' in report
+    assert 'event.key === "Home"' in report
+    assert 'event.key === "Escape"' in report
+    assert 'close(true)' in report
+    assert 'caret.setAttribute("aria-haspopup", "menu")' in report
+    assert 'menu.setAttribute("role", "menu")' in report
+    assert 'b.setAttribute("role", "menuitem")' in report
+    assert 'aria-haspopup="menu"' in html
+
+
 def test_admin_users_has_company_views_flag():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euCompanyViews"' in html

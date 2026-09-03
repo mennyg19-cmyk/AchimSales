@@ -1071,28 +1071,41 @@ function renderTabs(): void {
   state.order.forEach((key) => {
     const tab = state.tabs[key];
     if (!tab) return;
+    const tabEl = document.createElement("div");
+    tabEl.className = "report-tab" + (key === state.active ? " active" : "");
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "report-tab" + (key === state.active ? " active" : "");
+    btn.className = "report-tab-label";
     const nameSpan = document.createElement("span");
     nameSpan.textContent = tab.name;
     btn.appendChild(nameSpan);
-    const caret = document.createElement("span");
+    const caret = document.createElement("button");
+    caret.type = "button";
     caret.className = "report-tab-caret";
     caret.textContent = "\u25be";
     caret.title = "Tab options";
+    caret.setAttribute("aria-label", `Options for ${tab.name}`);
+    caret.setAttribute("aria-haspopup", "menu");
+    caret.setAttribute("aria-expanded", "false");
     caret.addEventListener("click", (e) => {
       e.stopPropagation();
       const r = caret.getBoundingClientRect();
-      openTabMenuAt(key, r.left + window.scrollX, r.bottom + window.scrollY);
+      openTabMenuAt(key, r.left + window.scrollX, r.bottom + window.scrollY, caret);
     });
-    btn.appendChild(caret);
+    caret.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      const r = caret.getBoundingClientRect();
+      openTabMenuAt(key, r.left + window.scrollX, r.bottom + window.scrollY, caret);
+      if (tabMenuEl) moveMenuFocus(tabMenuEl, event.key === "ArrowDown" ? "first" : "last");
+    });
     btn.addEventListener("click", () => activateTab(key));
-    btn.addEventListener("contextmenu", (e) => {
+    tabEl.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      openTabMenuAt(key, (e as MouseEvent).pageX, (e as MouseEvent).pageY);
+      openTabMenuAt(key, (e as MouseEvent).pageX, (e as MouseEvent).pageY, caret);
     });
-    tabsEl.appendChild(btn);
+    tabEl.append(btn, caret);
+    tabsEl.appendChild(tabEl);
   });
   tabsEl.hidden = state.order.length === 0;
 }
@@ -1107,24 +1120,77 @@ function activateTab(key: string): void {
 }
 
 let tabMenuEl: HTMLElement | null = null;
-function closeTabMenu(): void {
+let tabMenuOpener: HTMLButtonElement | null = null;
+function closeTabMenu(restoreFocus = false): void {
   tabMenuEl?.remove();
   tabMenuEl = null;
+  tabMenuOpener?.setAttribute("aria-expanded", "false");
+  if (restoreFocus && tabMenuOpener?.isConnected) tabMenuOpener.focus();
+  tabMenuOpener = null;
 }
-function openTabMenuAt(key: string, x: number, y: number): void {
+function enabledMenuItems(menu: HTMLElement): HTMLButtonElement[] {
+  return Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+}
+
+function moveMenuFocus(menu: HTMLElement, target: "first" | "last" | 1 | -1): void {
+  const items = enabledMenuItems(menu);
+  if (!items.length) return;
+  if (target === "first") { items[0].focus(); return; }
+  if (target === "last") { items[items.length - 1].focus(); return; }
+  const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  items[(index + target + items.length) % items.length].focus();
+}
+
+function bindMenuKeyboard(
+  menu: HTMLElement,
+  close: (restoreFocus?: boolean) => void,
+): void {
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") { event.preventDefault(); moveMenuFocus(menu, 1); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); moveMenuFocus(menu, -1); }
+    else if (event.key === "Home") { event.preventDefault(); moveMenuFocus(menu, "first"); }
+    else if (event.key === "End") { event.preventDefault(); moveMenuFocus(menu, "last"); }
+    else if (event.key === "Escape") { event.preventDefault(); close(true); }
+    else if (event.key === "Tab") close();
+    else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      (document.activeElement as HTMLButtonElement | null)?.click();
+    }
+  });
+}
+
+function bindToolbarMenu(
+  menu: HTMLElement,
+  opener: HTMLButtonElement,
+  close: (restoreFocus?: boolean) => void,
+  open: () => void,
+): void {
+  bindMenuKeyboard(menu, close);
+  opener.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    open();
+    moveMenuFocus(menu, event.key === "ArrowDown" ? "first" : "last");
+  });
+}
+
+function openTabMenuAt(key: string, x: number, y: number, opener: HTMLButtonElement): void {
   closeTabMenu();
   const tab = state.tabs[key];
   if (!tab) return;
   const menu = document.createElement("div");
   menu.className = "tab-context-menu";
+  menu.setAttribute("role", "menu");
   menu.style.left = x + "px";
   menu.style.top = y + "px";
 
   const mk = (label: string, fn: () => void, danger = false) => {
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "tab-context-item" + (danger ? " danger" : "");
     b.textContent = label;
     b.addEventListener("click", () => { closeTabMenu(); fn(); });
+    b.setAttribute("role", "menuitem");
     menu.appendChild(b);
   };
   mk("Duplicate tab", () => duplicateTab(key));
@@ -1134,6 +1200,9 @@ function openTabMenuAt(key: string, x: number, y: number): void {
   }
   document.body.appendChild(menu);
   tabMenuEl = menu;
+  tabMenuOpener = opener;
+  opener.setAttribute("aria-expanded", "true");
+  bindMenuKeyboard(menu, closeTabMenu);
   setTimeout(() => document.addEventListener("click", closeTabMenu, { once: true }), 0);
 }
 
@@ -1856,12 +1925,14 @@ function setToolbarEnabled(hasData: boolean): void {
 // Export / More dropdown menus
 // --------------------------------------------------------------------------
 
-function closeExportMenu(): void {
+function closeExportMenu(restoreFocus = false): void {
   const menu = $("exportMenu");
   if (!menu || menu.hidden) return;
   menu.hidden = true;
-  $("exportMenuBtn")?.setAttribute("aria-expanded", "false");
+  const opener = $("exportMenuBtn") as HTMLButtonElement | null;
+  opener?.setAttribute("aria-expanded", "false");
   document.removeEventListener("click", onExportMenuOutside, true);
+  if (restoreFocus && opener) opener.focus();
 }
 
 function onExportMenuOutside(e: MouseEvent): void {
@@ -1877,17 +1948,26 @@ function toggleExportMenu(e: MouseEvent): void {
   const opening = menu.hidden;
   closeMoreMenu();
   if (!opening) { closeExportMenu(); return; }
+  openExportMenu();
+}
+
+function openExportMenu(): void {
+  const menu = $("exportMenu");
+  const btn = $("exportMenuBtn") as HTMLButtonElement | null;
+  if (!menu || !btn || btn.disabled) return;
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
   setTimeout(() => document.addEventListener("click", onExportMenuOutside, true), 0);
 }
 
-function closeMoreMenu(): void {
+function closeMoreMenu(restoreFocus = false): void {
   const menu = $("moreMenu");
   if (!menu || menu.hidden) return;
   menu.hidden = true;
-  $("moreBtn")?.setAttribute("aria-expanded", "false");
+  const opener = $("moreBtn") as HTMLButtonElement | null;
+  opener?.setAttribute("aria-expanded", "false");
   document.removeEventListener("click", onMoreMenuOutside, true);
+  if (restoreFocus && opener) opener.focus();
 }
 
 function onMoreMenuOutside(e: MouseEvent): void {
@@ -1903,6 +1983,13 @@ function toggleMoreMenu(e: MouseEvent): void {
   const opening = menu.hidden;
   closeExportMenu();
   if (!opening) { closeMoreMenu(); return; }
+  openMoreMenu();
+}
+
+function openMoreMenu(): void {
+  const menu = $("moreMenu");
+  const btn = $("moreBtn") as HTMLButtonElement | null;
+  if (!menu || !btn) return;
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
   syncScheduleButton();
@@ -3207,6 +3294,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportMenuBtn")?.addEventListener("click", toggleExportMenu);
+  const exportMenu = $("exportMenu");
+  const exportMenuBtn = $("exportMenuBtn") as HTMLButtonElement | null;
+  if (exportMenu && exportMenuBtn) bindToolbarMenu(exportMenu, exportMenuBtn, closeExportMenu, openExportMenu);
   $("exportBtn")?.addEventListener("click", () => { closeExportMenu(); exportExcel(); });
   $("keepBtn")?.addEventListener("click", keepCurrentRun);
   $("exportsBtn")?.addEventListener("click", (e) => {
@@ -3228,6 +3318,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     togglePresetsPanel();
   });
   $("moreBtn")?.addEventListener("click", toggleMoreMenu);
+  const moreMenu = $("moreMenu");
+  const moreBtn = $("moreBtn") as HTMLButtonElement | null;
+  if (moreMenu && moreBtn) bindToolbarMenu(moreMenu, moreBtn, closeMoreMenu, openMoreMenu);
   $("emailBtn")?.addEventListener("click", openEmailModal);
   $("emailMeBtn")?.addEventListener("click", () => { void emailMe(); });
   $("emailClose")?.addEventListener("click", closeEmailModal);

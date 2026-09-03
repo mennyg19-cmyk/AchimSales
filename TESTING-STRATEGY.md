@@ -1379,3 +1379,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated browser keyboard check;
 `cd v3 && npm run build`
+
+## Phase 8.5 toolbar and tab-option menu keyboard
+**What to test:**
+- On a completed report, use ArrowDown/ArrowUp, Home/End, Enter/Space, Escape,
+  and Tab with the Export, More, and tab-option menus.
+- Verify disabled menu items are skipped, the tab caret is a named menu button,
+  and each menu reports the correct expanded state.
+
+**Expected behavior:**
+- Arrow keys move menu-item focus; Home and End reach the enabled bounds; Enter
+  and Space activate the focused action. Escape restores focus to the opener,
+  while Tab closes the menu and continues normal tabbing.
+
+**Edge cases:**
+- More may contain a disabled Schedule item. Right-click still opens the same
+  tab-option menu, but tab navigation remains out of scope.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser keyboard check;
+`cd v3 && npm run build`
