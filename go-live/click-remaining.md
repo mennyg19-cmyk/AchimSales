@@ -1,13 +1,12 @@
-# Remaining click-through (batch 6 — C10 only)
+# Remaining click-through
 
-Local app: `http://127.0.0.1:5055`
-Login as `golive-dev@local.test` role developer if needed.
+Inventory chrome/pages that can be clicked **without D365** are done (batches 1–6). Nothing left on the local Flask app except flows that need live data.
 
-Batch 5 opened **Recent Reports**, not Help. Help is the small **?** button (`data-help`) that opens `#helpOverlay`.
+## Cannot do in this VM
 
-Write `/workspace/.scratch/click-batch-6.md`. Under 3 minutes.
+- Entra / Live login on https://reports.achimonline.com
+- Run report rows, last-order customer view, CLO Excel/PDF
+- Overnight schedule files vs expected Excel (no `REPORTING_API_*`, no Graph)
+- Fan-out CC/BCC on a real mail (F10)
 
-1. Open `/dashboard`. Click the **?** next to “Customer Dashboard” (`aria-label="About"`). Screenshot the overlay title + body. Close it (overlay/×/Esc).
-2. Open `/reports/ordered`. Click the **?** “About this report”. Screenshot overlay. Close.
-
-Do not open Recent Reports. Do not FAIL missing D365 data.
+Workbook layout vs expected is covered by pytest (`go-live/excel-output.md`).
