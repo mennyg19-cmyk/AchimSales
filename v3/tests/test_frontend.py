@@ -74,6 +74,7 @@ def test_theme_text_button_and_alert_contrast():
     tokens = (_SRC / "css" / "tokens.css").read_text(encoding="utf-8")
     shell = (_SRC / "css" / "shell.css").read_text(encoding="utf-8")
     pages = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert len(_THEME_CONTRAST_PAIRS) == len(set(_THEME_CONTRAST_PAIRS))
     for declaration in (
         "--primary-light: #eff6ff;", "--success: #15803d;", "--error: #b91c1c;",
         "--text-light: #64748b;", "--primary: #60a5fa;", "--primary-foreground: #0f172a;",
