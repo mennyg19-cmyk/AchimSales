@@ -124,4 +124,5 @@ declare global {
   }
 }
 
+// Each esbuild entry bundles its own copy; window.dialogs is that copy, not a page-wide singleton.
 window.dialogs = { open: openDialog, close: closeDialog };
