@@ -454,12 +454,7 @@ def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:
 
 
 def _start_scheduler(app: Flask, db) -> None:
-    """Start the once-a-minute cron tick that enqueues due schedules.
-
-    Best-effort: if APScheduler isn't installed (e.g. some local envs) the tick
-    simply doesn't run - schedules can still be triggered with "Run now" - and
-    boot is never blocked.
-    """
+    """Start the once-a-minute cron tick that enqueues due schedules."""
     from web.dashboard.jobs import enqueue_refresh
     from web.jobs.scheduler import Scheduler
     from web.scheduling.tick import make_tick
@@ -473,23 +468,20 @@ def _start_scheduler(app: Flask, db) -> None:
         except Exception:  # noqa: BLE001 - a tick failure must not kill the scheduler
             app.logger.exception("dashboard mirror tick failed")
 
-    try:
-        scheduler = Scheduler()
-        scheduler.add_cron(
-            "schedule-tick",
-            make_tick(db, job_repo, app.config.get("SCHEDULE_RUNNER")),
-            minute="*",
-        )
-        # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence). Skipped
-        # entirely when the dashboard refresh is turned off.
-        if dashboard_on:
-            scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
-        scheduler.start()
-        app.config["SCHEDULER"] = scheduler
-        app.logger.info("schedule cron started (dashboard mirror %s)",
-                        "on" if dashboard_on else "OFF")
-    except Exception:  # noqa: BLE001 - scheduler is optional; never block boot
-        app.logger.exception("scheduler start failed (schedules will only run via Run now)")
+    scheduler = Scheduler()
+    scheduler.add_cron(
+        "schedule-tick",
+        make_tick(db, job_repo, app.config.get("SCHEDULE_RUNNER")),
+        minute="*",
+    )
+    # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence). Skipped
+    # entirely when the dashboard refresh is turned off.
+    if dashboard_on:
+        scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
+    scheduler.start()
+    app.config["SCHEDULER"] = scheduler
+    app.logger.info("schedule cron started (dashboard mirror %s)",
+                    "on" if dashboard_on else "OFF")
 
     # Prime the mirror on boot if it's empty so the dashboard isn't blank on a
     # cold container (LIVE does an immediate refresh when the cache is empty).

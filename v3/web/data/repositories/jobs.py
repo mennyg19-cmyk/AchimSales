@@ -105,10 +105,15 @@ class JobRepository:
             return Job.from_row(row) if row else None
 
     def claim_next(self) -> Job | None:
-        """Atomically move the oldest queued job to running and return it."""
+        """Claim the oldest priority job, preserving FIFO within each priority."""
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+                "SELECT * FROM jobs WHERE status = 'queued'"
+                " ORDER BY CASE type"
+                " WHEN 'schedule.run' THEN 0"
+                " WHEN 'report.deliver' THEN 1"
+                " WHEN 'report.export' THEN 2"
+                " ELSE 1 END, created_at LIMIT 1"
             ).fetchone()
             if not row:
                 return None
@@ -119,6 +124,22 @@ class JobRepository:
             if updated.rowcount != 1:
                 return None  # another worker claimed it
             return Job.from_row(conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone())
+
+    def queue_within_limits(self, *, max_depth: int, max_age_seconds: float) -> bool:
+        """Whether another queued job may start without exceeding queue limits."""
+        with self.db.precious() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS depth, MIN(created_at) AS oldest"
+                " FROM jobs WHERE status='queued'"
+            ).fetchone()
+        if row["depth"] > max_depth:
+            return False
+        if not row["oldest"]:
+            return True
+        oldest = datetime.fromisoformat(row["oldest"])
+        if oldest.tzinfo is None:
+            oldest = oldest.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - oldest).total_seconds() <= max_age_seconds
 
     def set_progress(self, job_id: str, progress: int) -> None:
         with self.db.precious() as conn:

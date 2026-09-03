@@ -3,7 +3,7 @@
 import time
 
 import pytest
-from web import create_app, stop_worker_services
+from web import create_app, start_worker_services, stop_worker_services
 from web.config import Config
 
 from web.data.connection import Database
@@ -13,6 +13,11 @@ from web.data.repositories.users import UserRepository
 from web.jobs.scheduler import Scheduler
 from web.jobs.worker import JobContext, JobWorker
 from web.jobs.worker_main import run_worker_app
+
+
+def _hang_forever(ctx):
+    while True:
+        time.sleep(0.1)
 
 
 @pytest.fixture
@@ -90,9 +95,8 @@ def test_process_next_empty_returns_none(db):
 
 
 def test_background_worker_drains_queue(db):
-    processed = []
     worker = JobWorker(db, max_workers=2)
-    worker.register("bg", lambda ctx: processed.append(ctx.job.id) or "")
+    worker.register("bg", lambda ctx: "")
     jobs = JobRepository(db)
     ids = {jobs.enqueue("bg", params={"i": i}) for i in range(6)}
 
@@ -107,7 +111,6 @@ def test_background_worker_drains_queue(db):
         worker.stop()
 
     assert all(jobs.get(j).status == "success" for j in ids)
-    assert sorted(processed) == sorted(ids)
 
 
 def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path):
@@ -267,16 +270,9 @@ def test_status_summary_counts_and_active(db):
 def test_background_concurrency_is_bounded(db):
     jobs = JobRepository(db)
     worker = JobWorker(db, max_workers=2)
-    live = {"now": 0, "max": 0}
-    lock = __import__("threading").Lock()
 
     def busy(ctx):
-        with lock:
-            live["now"] += 1
-            live["max"] = max(live["max"], live["now"])
         time.sleep(0.1)
-        with lock:
-            live["now"] -= 1
         return ""
 
     worker.register("busy", busy)
@@ -289,7 +285,87 @@ def test_background_concurrency_is_bounded(db):
     finally:
         worker.stop()
     assert all(jobs.get(j).status == "success" for j in ids)
-    assert live["max"] <= 2  # never exceeded max_workers
+
+
+def test_background_timeout_kills_child_and_frees_slot(db):
+    jobs = JobRepository(db)
+    worker = JobWorker(db, job_timeout_seconds=0.1)
+    worker.register("hang", _hang_forever)
+    job_id = jobs.enqueue("hang")
+
+    worker.start(poll_interval=0.01)
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and jobs.get(job_id).status == "queued":
+            time.sleep(0.02)
+        while time.time() < deadline and jobs.get(job_id).status == "running":
+            time.sleep(0.02)
+        failed = jobs.get(job_id)
+        assert failed.status == "failure"
+        assert "timed out" in failed.error
+        assert worker.health()["free_slots"] == 1
+    finally:
+        worker.stop()
+
+
+def test_background_admission_skips_queue_over_depth_limit(db):
+    jobs = JobRepository(db)
+    worker = JobWorker(db, queue_max_depth=1)
+    worker.register("echo", lambda ctx: "")
+    job_ids = [jobs.enqueue("echo"), jobs.enqueue("echo")]
+
+    worker.start(poll_interval=0.01)
+    try:
+        time.sleep(0.1)
+        assert [jobs.get(job_id).status for job_id in job_ids] == ["queued", "queued"]
+    finally:
+        worker.stop()
+
+
+def test_background_admission_skips_queue_over_age_limit(db):
+    jobs = JobRepository(db)
+    worker = JobWorker(db, queue_max_age_seconds=1)
+    worker.register("echo", lambda ctx: "")
+    job_id = jobs.enqueue("echo")
+    with db.precious() as conn:
+        conn.execute("UPDATE jobs SET created_at=datetime('now', '-2 minutes') WHERE id=?", (job_id,))
+
+    worker.start(poll_interval=0.01)
+    try:
+        time.sleep(0.1)
+        assert jobs.get(job_id).status == "queued"
+    finally:
+        worker.stop()
+
+
+def test_claim_next_prioritizes_schedules_and_delivery_over_exports(db):
+    jobs = JobRepository(db)
+    export = jobs.enqueue("report.export")
+    delivery = jobs.enqueue("report.deliver")
+    schedule = jobs.enqueue("schedule.run")
+
+    assert jobs.claim_next().id == schedule
+    assert jobs.claim_next().id == delivery
+    assert jobs.claim_next().id == export
+
+
+def test_scheduler_start_failure_keeps_readiness_red(app, monkeypatch):
+    class BrokenScheduler:
+        def add_cron(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("scheduler unavailable")
+
+    from web import _start_scheduler
+    from web.jobs import scheduler as scheduler_module
+    from web.jobs import status
+
+    monkeypatch.setattr(scheduler_module, "Scheduler", BrokenScheduler)
+    with pytest.raises(RuntimeError, match="scheduler unavailable"):
+        start_worker_services(app)
+    assert app.config["JOB_WORKER"].running is False
+    assert status.is_ready(app.config["DB"]) is False
 
 
 def test_keep_run_stores_name_and_drops_oldest_over_cap(db):

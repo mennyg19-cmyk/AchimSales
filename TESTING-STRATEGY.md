@@ -86,6 +86,24 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 **Test file:** `v3/tests/test_jobs.py`, `v3/tests/test_smoke.py`,
 `tests/test_wsgi_process_ownership.py`
 
+## Phase 4.3 killable jobs and queue admission
+
+**What to test:**
+- The production poller runs a claimed handler in a child process; a timeout
+  terminates that child, records a failure explaining the timeout, and frees
+  the worker slot.
+- The default worker capacity is one. Queue admission leaves jobs queued when
+  the queued depth or oldest queued age exceeds its named limits.
+- `schedule.run`, then `report.deliver`, claim before `report.export`.
+- A scheduler startup error does not mark bootstrap complete or write a worker
+  heartbeat, so `/readyz` remains 503 while the supervisor keeps Gunicorn up.
+
+**Expected behavior:**
+- A timed-out handler cannot continue after its durable job row is failed.
+- Interactive exports cannot starve scheduled delivery work.
+
+**Test file:** `v3/tests/test_jobs.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

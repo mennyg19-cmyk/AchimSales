@@ -1,16 +1,18 @@
-"""Bounded in-process worker draining the durable job table.
+"""Durable job worker with killable production child processes.
 
-Capacity is bounded by a semaphore so we never mark more jobs `running` than we
-can actually execute on a 1-vCPU B1. The poller claims a job only after acquiring
-capacity, runs the registered handler, and records success/failure in the DB.
+The synchronous helpers run in-process for focused unit tests. The production
+poller runs every claimed handler in a child process so a timeout stops the work,
+then records the outcome and releases its capacity slot.
 """
 
 from __future__ import annotations
 
 import logging
+import multiprocessing
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from queue import Empty
+from time import monotonic
 from typing import Callable
 
 from web.data.connection import Database
@@ -31,17 +33,43 @@ class JobContext:
 
 # A handler runs the work and returns a result_ref (e.g. a cache key), or "".
 Handler = Callable[[JobContext], str]
+DEFAULT_MAX_WORKERS = 1
+DEFAULT_JOB_TIMEOUT_SECONDS = 45 * 60
+DEFAULT_QUEUE_MAX_DEPTH = 100
+DEFAULT_QUEUE_MAX_AGE_SECONDS = 60 * 60
+
+
+def _run_child(handler: Handler, job: Job, db: Database, outcomes) -> None:
+    """Run a registered handler in the child and report its terminal outcome."""
+    try:
+        result_ref = handler(JobContext(job, JobRepository(db))) or ""
+        outcomes.put(("success", result_ref))
+    except BaseException as exc:  # noqa: BLE001 - never leave a row running after child exit
+        outcomes.put(("failure", str(exc)))
 
 
 class JobWorker:
-    def __init__(self, db: Database, max_workers: int = 2):
+    def __init__(
+        self,
+        db: Database,
+        max_workers: int = DEFAULT_MAX_WORKERS,
+        *,
+        job_timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
+        queue_max_depth: int = DEFAULT_QUEUE_MAX_DEPTH,
+        queue_max_age_seconds: float = DEFAULT_QUEUE_MAX_AGE_SECONDS,
+    ):
+        self.db = db
         self.repo = JobRepository(db)
         self.max_workers = max(1, max_workers)
+        self.job_timeout_seconds = max(1, job_timeout_seconds)
+        self.queue_max_depth = max(1, queue_max_depth)
+        self.queue_max_age_seconds = max(1, queue_max_age_seconds)
         self.handlers: dict[str, Handler] = {}
         self._sem = threading.BoundedSemaphore(self.max_workers)
         self._stop = threading.Event()
-        self._executor: ThreadPoolExecutor | None = None
         self._poller: threading.Thread | None = None
+        self._processes: dict[str, multiprocessing.Process] = {}
+        self._processes_lock = threading.Lock()
 
     def register(self, job_type: str, handler: Handler) -> None:
         self.handlers[job_type] = handler
@@ -62,6 +90,7 @@ class JobWorker:
             "poller_alive": bool(self._poller and self._poller.is_alive()),
             "max_workers": self.max_workers,
             "free_slots": self._sem._value,  # how many jobs it could claim right now
+            "job_timeout_seconds": self.job_timeout_seconds,
             "handler_types": sorted(self.handlers),
         }
 
@@ -105,7 +134,6 @@ class JobWorker:
         if recovered:
             log.info("recovered %d orphaned running job(s) on startup", recovered)
         self._stop.clear()
-        self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="job")
         self._poller = threading.Thread(
             target=self._loop, args=(poll_interval, heartbeat), daemon=True
         )
@@ -130,30 +158,101 @@ class JobWorker:
             if not self._sem.acquire(timeout=poll_interval):
                 continue
             try:
+                if not self.repo.queue_within_limits(
+                    max_depth=self.queue_max_depth,
+                    max_age_seconds=self.queue_max_age_seconds,
+                ):
+                    self._sem.release()
+                    self._stop.wait(poll_interval)
+                    continue
                 job = self.repo.claim_next()
                 if job is None:
                     self._sem.release()
                     self._stop.wait(poll_interval)
                     continue
                 log.info("job poller claimed %s (%s)", job.id, job.type)
-                self._executor.submit(self._run_and_release, job)
+                self._start_child(job)
             except Exception:  # noqa: BLE001 - infra error must not kill the poller
                 log.exception("job poller iteration failed")
                 self._sem.release()
                 self._stop.wait(poll_interval)
         log.warning("job poller loop exited (stop=%s)", self._stop.is_set())
 
-    def _run_and_release(self, job: Job) -> None:
-        try:
-            self._run(job)
-        finally:
+    def _start_child(self, job: Job) -> None:
+        handler = self.handlers.get(job.type)
+        if handler is None:
+            self.repo.mark_failure(job.id, f"no handler for job type {job.type!r}")
             self._sem.release()
+            return
+        # Azure App Service uses Linux. Fork preserves the already-registered
+        # handlers without trying to pickle their application-bound closures.
+        context = multiprocessing.get_context("fork")
+        outcomes = context.Queue()
+        process = context.Process(target=_run_child, args=(handler, job, self.db, outcomes))
+        process.start()
+        with self._processes_lock:
+            self._processes[job.id] = process
+        threading.Thread(
+            target=self._await_child,
+            args=(job, process, outcomes),
+            name=f"job-monitor-{job.id[:8]}",
+            daemon=True,
+        ).start()
+
+    def _await_child(self, job: Job, process: multiprocessing.Process, outcomes) -> None:
+        timed_out = False
+        try:
+            deadline = monotonic() + self.job_timeout_seconds
+            while process.is_alive() and not self._stop.is_set():
+                if self._is_cancelled(job.id):
+                    process.terminate()
+                    break
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    process.terminate()
+                    break
+                process.join(min(0.1, remaining))
+            if process.is_alive():
+                process.terminate()
+            process.join()
+            if timed_out:
+                self.repo.mark_failure(
+                    job.id,
+                    f"job timed out after {self.job_timeout_seconds:g} seconds; child was terminated",
+                )
+                return
+            if self._is_cancelled(job.id):
+                return
+            try:
+                outcome, detail = outcomes.get_nowait()
+            except Empty:
+                self.repo.mark_failure(job.id, "job child exited without reporting an outcome")
+                return
+            if outcome == "success":
+                self.repo.mark_success(job.id, detail)
+            else:
+                self.repo.mark_failure(job.id, detail)
+        finally:
+            outcomes.close()
+            with self._processes_lock:
+                self._processes.pop(job.id, None)
+            self._sem.release()
+
+    def _is_cancelled(self, job_id: str) -> bool:
+        current = self.repo.get(job_id)
+        return current is not None and current.status == "cancelled"
 
     def stop(self, wait: bool = True) -> None:
         self._stop.set()
         if self._poller is not None:
             self._poller.join(timeout=5)
             self._poller = None
-        if self._executor is not None:
-            self._executor.shutdown(wait=wait)
-            self._executor = None
+        with self._processes_lock:
+            processes = list(self._processes.values())
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+        if wait:
+            for process in processes:
+                process.join(timeout=5)

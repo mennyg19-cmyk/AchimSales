@@ -36,7 +36,10 @@ def run() -> int:
         log.error("worker requires BETA_MOUNT_ENABLED or V3_MOUNT_ENABLED")
         return 1
     for app in apps:
-        run_worker_app(app)
+        try:
+            run_worker_app(app)
+        except Exception:  # noqa: BLE001 - leave HTTP alive while readiness stays red
+            log.exception("worker services failed to start; waiting for supervisor restart")
     _stopping.wait()
     for app in reversed(apps):
         stop_worker_services(app)
