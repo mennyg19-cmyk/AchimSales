@@ -158,15 +158,17 @@ def _year_of(row: dict) -> int | None:
 
 def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
     """Highest commission rate the SP sent per salesman key (rows should agree;
-    max ignores blank/zero rows like credits). Empty when the SP sends none."""
+    max includes zero. Empty when the SP sends none."""
     rates: dict[str, float] = {}
     for r in rows:
         sg = r.get("_sales_group") or ""
         if not sg:
             continue
-        rate = num(r.get("_commission_pct"))
+        rate = r.get("_commission_pct")
+        if rate is None:
+            continue
         key = salesman_key(sg)
-        if rate > rates.get(key, 0.0):
+        if key not in rates or rate > rates[key]:
             rates[key] = rate
     return rates
 
@@ -176,9 +178,8 @@ def _commission_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
     """The rate to use for one salesman: the SP's per-row rate when present,
     otherwise the salesman master. Both are fractions (0.06 = 6%)."""
     key = salesman_key(sales_group)
-    row_rate = row_rates.get(key, 0.0)
-    if row_rate > 0:
-        return row_rate
+    if key in row_rates:
+        return row_rates[key]
     sm = salesmen.get(key)
     return sm.commission_pct if sm else 0.0
 
@@ -272,7 +273,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         if not sg:
             continue
         rate = _commission_rate(sg, salesmen, row_rates)
-        if rate <= 0:
+        if rate <= 0 and salesman_key(sg) not in row_rates:
             continue
         # Guard against a caller passing a wider window than Jan 1..period end:
         # only count rows in the report year (LIVE fetches exactly that window).

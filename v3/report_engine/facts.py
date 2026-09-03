@@ -74,7 +74,7 @@ class InvoiceChargeFact:
     sales_group: str
     salesman_name: str = ""
     is_credit: bool = False
-    commission_pct: float = 0.0
+    commission_pct: float | None = None
 
 
 @dataclass(frozen=True)

@@ -1257,3 +1257,22 @@ A cheaper model can use this file as a guide to run the full test suite without 
   keep their existing 90-day pruning and readiness does not depend on cleanup.
 
 **Test file:** `v3/tests/test_jobs.py`, `tests/test_magic_links.py`
+
+## Phase 6.7 explicit-zero commission
+**What to test:**
+- The invoiced adapter maps missing, blank, and NULL commission values to `None`,
+  while explicit numeric or string zero remains `0.0`.
+- A zero rate supplied by the stored procedure wins over a 5% salesman master in
+  both the monthly cards and simple commission table.
+- A blank stored-procedure rate still uses the 5% master, and positive SP rates
+  continue to override the master.
+
+**Expected behavior:**
+- The app never turns an explicit per-invoice zero commission into a master-rate
+  commission. Missing rate data retains the existing fallback.
+
+**Edge cases:**
+- Fractional values pass through and only values greater than one convert from
+  whole-percent form. Mixed present zero and 10% rates retain the existing 10% max.
+
+**Test file:** `v3/tests/test_report_invoiced.py`

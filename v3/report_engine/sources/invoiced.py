@@ -40,7 +40,7 @@ def _sales_group_label(raw: Mapping) -> str:
     return text(first_of(raw, "salesman", "Salesman")) or text(first_of(raw, "SalesmanName"))
 
 
-def _commission_fraction(raw: Mapping) -> float:
+def _commission_fraction(raw: Mapping) -> float | None:
     """The salesman's commission rate from the SP, normalized to a fraction.
 
     The master stores rates as fractions (0.06 = 6%) and the live math does
@@ -49,9 +49,10 @@ def _commission_fraction(raw: Mapping) -> float:
     that guard only fires above 1.0, so a genuine fraction passes through
     untouched. (See REVIEW-LOG: unit confirmed once a live call is captured.)
     """
-    pct = num(first_of(raw, "commission", "Commission", "CommissionPct", "Commission %"))
-    if pct <= 0:
-        return 0.0
+    raw_pct = first_of(raw, "commission", "Commission", "CommissionPct", "Commission %")
+    if raw_pct is None:
+        return None
+    pct = num(raw_pct)
     return pct / 100 if pct > 1 else pct
 
 
