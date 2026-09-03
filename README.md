@@ -90,7 +90,8 @@ old `salesmen` table and its `salesman_map.xlsx` seed are gone). To add, rename,
 retire, or re-address a salesman, change D365. The last good SP list is kept in
 `cache.db` (`salesmen_master_cache`) so a worker that boots while the Reporting
 API is down still has it. Salesman numbers are not used anywhere; salesmen are
-identified by SalesGroup. Users & access shows the D365 list read-only. A
+identified by SalesGroup. Users & access does not list D365 salesmen; that
+master is only the SalesGroup dropdown and manager checkboxes. A
 customer SalesGroup missing from the master is still appended to dropdowns. On
 Users & access, a **salesman** login picks a **SalesGroup** from that list;
 managers still use the per-salesman checkboxes (also from D365).

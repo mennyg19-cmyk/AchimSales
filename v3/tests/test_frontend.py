@@ -328,6 +328,7 @@ def test_admin_users_has_sales_group_dropdown():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euSalesGroup"' in html
     assert 'id="addSalesGroup"' in html
+    assert 'id="salesmanTable"' not in html
     assert "data-sales-groups-url" in html
     assert "data-lookup-status-url" in html
     src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")

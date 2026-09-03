@@ -513,12 +513,14 @@ def test_admin_salesman_edit_api_is_gone(tmp_path):
     assert "sm-active-toggle" not in html
     assert 'id="esEmail"' not in html
     assert 'id="editSmModal"' not in html
-    assert "R Edwards" in html                      # read-only D365 list
+    assert 'id="salesmanTable"' not in html
+    assert "Salesmen in D365" not in html
+    assert 'value="redwards"' in html                 # manager checkbox still there
 
 
-def test_admin_salesmen_grid_shows_sp_email_and_split_mail_uses_it(tmp_path):
-    """The SP's Email feeds the read-only grid, the wizard's salesmen-emails
-    lookup, the Users & access auto-grant, and the manager checkboxes."""
+def test_admin_salesmen_grid_is_gone_checkboxes_and_split_mail_still_use_sp(tmp_path):
+    """Users & access does not list D365 salesmen. Manager checkboxes, the
+    wizard's salesmen-emails lookup, and the email auto-grant still read the SP."""
     app = _make_app(tmp_path)
     _with_lookups(app, [], master_rows=[
         {"Salesman": "REdwards", "SalesmanName": "Reggie Edwards", "Email": "reggie@x.com",
@@ -529,7 +531,8 @@ def test_admin_salesmen_grid_shows_sp_email_and_split_mail_uses_it(tmp_path):
     client = app.test_client()
     _login(client, app)
     html = client.get("/admin/users").get_data(as_text=True)
-    assert "reggie@x.com" in html
+    assert 'id="salesmanTable"' not in html
+    assert "reggie@x.com" not in html
     assert 'value="newhire"' in html                 # manager checkbox = normalized key
     emails = client.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
     assert {(r["key"], r["email"]) for r in emails} == {
