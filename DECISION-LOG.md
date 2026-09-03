@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.2: admin/dashboard table reflow at 320px and 200% zoom
+**What I had to decide:** Next leftover after the 8.1 gate.
+**Options I considered:** (1) Q8/Q9 (still BLOCKED). (2) Rest of Phase 7 (waits on `/test` unmount). (3) Convert admin/dashboard tables to stacked cards at narrow widths. (4) Keep tables; contain overflow so the document does not scroll sideways and actions stay reachable.
+**What I chose:** (4). Phase 8 gate already forbids document-level horizontal scroll that hides actions. Do not restyle into cards. Scope is admin users/access and dashboard tables named in the leftover, not every report Tabulator grid.
+**Why:** Inner `.table-wrap` scroll already exists; the leftover is the 320px/200% failure, not a redesign. Q8/Q9 and Phase 7 replica drop stay blocked.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 8.1 gate closed
+**What I chose:** Close Phase 8.1 on `889af71`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero. Loop A F1 (unnamed edit-user dialog) and F2 (stale focus frame) closed on `fde7e95`. Loop B per-bundle `window.dialogs` comment on `889af71`. Agent Guardrails green on HEAD. Named overlays share `dialog.ts` (aria-modal, focus, trap, Escape, sibling inert, opener restore). Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.1: shared dialog helper for named overlays
 **What I had to decide:** Next leftover after the 7.1 gate.
 **Options I considered:** (1) Q8/Q9 (still BLOCKED). (2) Rest of Phase 7: Azure `BETA_*`→`SITE_*` cutover, drop the `/test` replica, restore drill. (3) Phase 8 first bullets: one dialog helper with aria-modal, focus, trap, Escape, inert, opener restore, adopted on admin, SharePoint, external-login, Customer Last Order, and export dialogs.
