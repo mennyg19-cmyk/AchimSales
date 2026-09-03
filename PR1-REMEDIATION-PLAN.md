@@ -415,6 +415,7 @@ Gate:
 ## Phase 7 — Normalize the one-site persistence model
 
 - [x] Choose one canonical home DB environment name, preferably `SITE_PRECIOUS_DB_PATH`.
+  Evidence: home `SITE_*` wins when non-empty after strip; `PRECIOUS_*`/`CACHE_*` fallback; startup exports trimmed aliases; Beta stays `BETA_*`. `python3 -m pytest tests/test_config.py -q` — 15 passed; `python3 -m pytest tests/test_startup_site_alias.py -q` — 2 passed. Gate closed on `5ffe7ad`. Loops A+B+C zero. Trust-boundary N/A.
 - [ ] Add a staged Azure setting migration from `BETA_*` to `SITE_*`.
 - [ ] Update app config, startup, Litestream, readiness, tests, and docs together.
 - [ ] Remove the obsolete second `PRECIOUS_*` `/test` database and replica from required startup.

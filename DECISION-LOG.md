@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.1: shared dialog helper for named overlays
+**What I had to decide:** Next leftover after the 7.1 gate.
+**Options I considered:** (1) Q8/Q9 (still BLOCKED). (2) Rest of Phase 7: Azure `BETA_*`→`SITE_*` cutover, drop the `/test` replica, restore drill. (3) Phase 8 first bullets: one dialog helper with aria-modal, focus, trap, Escape, inert, opener restore, adopted on admin, SharePoint, external-login, Customer Last Order, and export dialogs.
+**What I chose:** (3). Keep existing overlay markup and look; do not switch to native `<dialog>` (would restyle every overlay). Phase 7 remainder waits until `/test` can unmount. Q8/Q9 stay BLOCKED.
+**Why:** Dropping the second DB conflicts with keeping `/legacy` `/test` `/test-next`. Dialog a11y is specified and does not need an Azure owner. Native `<dialog>` would be a visual fork.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 7.1 gate closed
+**What I chose:** Close Phase 7.1 on `5ffe7ad`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero after F1 (whitespace-only SITE_* trim). Agent Guardrails green on HEAD. Home `SITE_PRECIOUS_DB_PATH` / `SITE_CACHE_DB_PATH` win when non-empty after strip; old names remain; Beta stays `BETA_*`; litestream.yml keys unchanged. Loop B cache-path startup test gap is non-blocking. Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 7.1: staged `SITE_PRECIOUS_DB_PATH` alias
 **What I had to decide:** Next leftover after the 6.9 gate. Remaining Phase 6 items are Q8 and Q9.
 **Options I considered:** (1) Q8 approve-recipients. (2) Q9 company Send now. (3) Phase 7 first bullets: canonical home DB env name `SITE_PRECIOUS_DB_PATH` with a staged dual-read so Azure does not have to flip settings in the same deploy.
