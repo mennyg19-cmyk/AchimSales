@@ -297,8 +297,8 @@ def test_adapter_reads_commission_rate_as_fraction():
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "0.06"}).commission_pct == 0.06
     # ...and a whole percent (6) is normalized to 0.06 (guards a 100x mistake).
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "6"}).commission_pct == 0.06
-    # Missing / blank -> no rate (builder will fall back to the master).
-    for commission in (None, "", "NULL"):
+    # Missing / blank / junk / negative -> no rate (builder falls back to master).
+    for commission in (None, "", "NULL", "nope", -1):
         raw = {"InvoiceNumber": "X", "amount": "1"}
         if commission is not None:
             raw["commission"] = commission

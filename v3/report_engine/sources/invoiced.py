@@ -52,7 +52,12 @@ def _commission_fraction(raw: Mapping) -> float | None:
     raw_pct = first_of(raw, "commission", "Commission", "CommissionPct", "Commission %")
     if raw_pct is None:
         return None
-    pct = num(raw_pct)
+    try:
+        pct = float(raw_pct)
+    except (TypeError, ValueError):
+        return None
+    if pct < 0:
+        return None
     return pct / 100 if pct > 1 else pct
 
 
