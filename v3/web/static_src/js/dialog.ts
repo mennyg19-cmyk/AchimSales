@@ -10,7 +10,7 @@ let activeOverlay: DialogOverlay | null = null;
 let isolatedElements: HTMLElement[] = [];
 
 function dialogContent(overlay: DialogOverlay): HTMLElement {
-  return overlay.querySelector<HTMLElement>('[role="dialog"], .modal, .sp-picker-modal, .help-popup-content') || overlay;
+  return overlay.querySelector<HTMLElement>('[role="dialog"], .modal, .sp-picker-modal') || overlay;
 }
 
 function focusableElements(dialog: HTMLElement): HTMLElement[] {
@@ -20,9 +20,23 @@ function focusableElements(dialog: HTMLElement): HTMLElement[] {
 }
 
 function isolateBackground(overlay: DialogOverlay): void {
-  isolatedElements = Array.from(document.body.children)
-    .filter((element): element is HTMLElement => element !== overlay && element.tagName !== "SCRIPT");
-  isolatedElements.forEach((element) => { element.inert = true; });
+  isolatedElements = [];
+  let node: HTMLElement | null = overlay;
+  while (node && node !== document.body) {
+    const parent = node.parentElement;
+    if (!parent) break;
+    Array.from(parent.children).forEach((sibling) => {
+      if (
+        sibling instanceof HTMLElement
+        && sibling !== node
+        && sibling.tagName !== "SCRIPT"
+      ) {
+        sibling.inert = true;
+        isolatedElements.push(sibling);
+      }
+    });
+    node = parent;
+  }
 }
 
 function restoreBackground(): void {
