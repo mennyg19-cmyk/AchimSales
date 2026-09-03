@@ -1374,8 +1374,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
   and support the same keyboard flow.
 
 **Edge cases:**
-- Filtering to no matches leaves no active descendant. A mouse checkbox change
-  keeps selected state and ARIA selection in sync.
+- Filtering to no matches leaves no active descendant. A mouse click on an
+  option row keeps selected state and ARIA selection in sync.
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated browser keyboard check;
 `cd v3 && npm run build`

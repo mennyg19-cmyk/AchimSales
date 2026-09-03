@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.5: toolbar and tab-option menu keyboard
+**What I had to decide:** Next leftover after the 8.4 gate.
+**Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report tablist/tab/tabpanel (REPOSITORY-REVIEW item 6). (4) Next Phase 8 leftover: toolbar and tab-option menu keyboard.
+**What I chose:** (4). WAI-ARIA menu keyboard on Export, More, and the tab-option menu. Arrow/Home/End move items; Enter/Space activates; Escape closes and returns focus to the opener. Tab closes the menu. Make the tab caret a focusable button (`aria-haspopup=menu`) so a keyboard user can open tab options without implementing tablist arrows. Shared helper if that is smaller than three copies. Keep current look. Do not restyle. Do not start tablist, 44px, live announcements, or Tabulator menus in this slice.
+**Why:** Export/More already declare `role=menu` with no keyboard. Tab options are mouse/right-click only. Item 6 is a different leftover and would steal Arrow keys if mixed in. Q8/Q9 and Phase 7 stay blocked.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 8.4 gate closed
+**What I chose:** Close Phase 8.4 on `364a84e`. Trust-boundary N/A.
+**Why:** Loop A F1 (checkbox inside `role=option`) closed on `364a84e`. Fresh Loop A re-pass, Loop B, and Loop C all zero. Agent Guardrails green on HEAD. Shared `SearchablePicker` supplies Arrow/Home/End, Enter/Space, Escape, combobox/listbox ARIA, and focus return on Settings exclusions and Ordered customers. Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.4: searchable-picker keyboard
 **What I had to decide:** Next leftover after the 8.3 gate.
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Next Phase 8 leftover: complete searchable-picker option navigation and focus return.
