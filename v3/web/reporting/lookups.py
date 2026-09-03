@@ -32,17 +32,22 @@ log = logging.getLogger(__name__)
 _INACTIVE = {"0", "false", "no", "n"}
 
 
+_KEY_COLUMNS = ("SalesGroup", "SalesGroupId", "SalesGroupCode", "sales_group", "salesgroup",
+                "SalesmanCode", "SalesmanKey", "SalesmanId", "Salesman", "Code", "Key", "Id")
+_NAME_COLUMNS = ("SalesmanName", "SalesGroupName", "salesman_name", "Name", "name",
+                 "FullName", "full_name", "DisplayName", "display_name", "Description")
+_ACTIVE_COLUMNS = ("IsActive", "is_active", "Active", "active")
+
+
 def master_salesman(raw: dict) -> dict | None:
     """One salesmen_master SP row -> {key, name}; None for blank or inactive rows."""
-    key = text(first_of(raw, "SalesGroup", "sales_group", "salesgroup", "SalesmanId", "Salesman"))
+    key = text(first_of(raw, *_KEY_COLUMNS))
     if not key:
         return None
-    active = first_of(raw, "IsActive", "is_active", "Active", "active")
+    active = first_of(raw, *_ACTIVE_COLUMNS)
     if active is not None and text(active).lower() in _INACTIVE:
         return None
-    name = text(first_of(raw, "SalesmanName", "salesman_name", "Name", "name",
-                         "FullName", "full_name", "DisplayName", "display_name"))
-    return {"key": key, "name": name}
+    return {"key": key, "name": text(first_of(raw, *_NAME_COLUMNS))}
 
 
 class LookupService:
@@ -68,7 +73,11 @@ class LookupService:
         self._state: dict[str, Any] = {
             "status": "idle", "started_at": None, "finished_at": None,
             "elapsed_ms": None, "row_count": 0, "error": None,
-            "master_row_count": 0,
+            # salesmen_master diagnostics: raw = rows the SP returned, row_count =
+            # rows we kept, columns = the SP's field names (so a zero count can be
+            # traced to a failed call vs. column names the adapter does not know).
+            "master_row_count": 0, "master_raw_count": 0, "master_columns": [],
+            "master_error": None,
         }
 
     # -- internals --------------------------------------------------------
@@ -121,14 +130,21 @@ class LookupService:
     def _populate_master(self) -> None:
         """Refresh the salesmen_master list; keep the last good one on failure."""
         try:
-            rows = [r for r in map(master_salesman, self.service.salesmen_master()) if r]
+            raw_rows = self.service.salesmen_master()
         except Exception as exc:  # noqa: BLE001 - customers still populate without it
             log.warning("salesmen_master SP unreachable; salesman dropdown falls back "
                         "to customer SalesGroups: %s", exc)
+            self._state["master_error"] = str(exc)
             return
+        columns = sorted(raw_rows[0].keys()) if raw_rows and isinstance(raw_rows[0], dict) else []
+        rows = [r for r in map(master_salesman, raw_rows) if r]
+        if raw_rows and not rows:
+            log.warning("salesmen_master returned %d rows but none had a known key column;"
+                        " columns=%s", len(raw_rows), columns)
         with self._lock:
             self._master = rows
-        self._state["master_row_count"] = len(rows)
+        self._state.update(master_row_count=len(rows), master_raw_count=len(raw_rows),
+                           master_columns=columns, master_error=None)
 
     def _mirror_rows(self) -> list:
         """Persisted customer universe (dashboard mirror); [] if unavailable."""

@@ -9,7 +9,8 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Name is the SP's name, else the v3 salesmen table display name, else the raw key.
 - A customer SalesGroup missing from the master is still appended.
 - If the master SP fails, customers still populate (`status == ready`) and the dropdown falls back to customer SalesGroups.
-- `/api/reports/<key>/salesmen`, `/api/master-schedules/lookups/salesmen`, `/api/report/customer-last-order/salesmen`, and `/api/admin/sales-groups` all return the master-only salesman. Scoped users still see only their keys. Lookup status has `master_row_count`.
+- `/api/reports/<key>/salesmen`, `/api/master-schedules/lookups/salesmen`, `/api/report/customer-last-order/salesmen`, and `/api/admin/sales-groups` all return the master-only salesman. Scoped users still see only their keys.
+- Lookup status has `master_row_count` (kept), `master_raw_count` (SP rows), `master_columns` (SP field names), `master_error`. Unknown column names → raw > 0, kept == 0, columns listed. SP failure → `master_error` set.
 
 **Expected behavior:**
 - Dropdown values are still raw SalesGroup (`HKaufman`), never the normalized table key.

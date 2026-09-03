@@ -402,7 +402,25 @@ def test_lookup_salesmen_come_from_salesmen_master_even_without_customers():
     assert [r["key"] for r in sm] == ["HKaufman", "REdwards"]
     assert sm[0]["name"] == "Heshy Kaufman"    # from the SP
     assert sm[1]["name"] == "Reggie"           # SP blank -> v3 table overlay
-    assert lk.status()["master_row_count"] == 2
+    status = lk.status()
+    assert status["master_row_count"] == 2
+    assert status["master_raw_count"] == 4
+    assert status["master_columns"] == ["IsActive", "SalesGroup", "SalesmanName"]
+    assert status["master_error"] is None
+
+
+def test_lookup_status_names_unknown_master_columns():
+    """When the SP answers but with column names the adapter does not know, the
+    status shows raw rows > 0, kept rows == 0, and the columns to add."""
+    from web.reporting.lookups import LookupService
+
+    svc = _svc({"salesmen_master": [{"RepNo": "7", "RepLabel": "Someone"}]})
+    lk = LookupService(svc, _FakeSalesmenRepo())
+    lk._populate()
+    status = lk.status()
+    assert status["master_raw_count"] == 1
+    assert status["master_row_count"] == 0
+    assert status["master_columns"] == ["RepLabel", "RepNo"]
 
 
 def test_lookup_salesmen_keep_customer_groups_missing_from_master():
@@ -432,6 +450,7 @@ def test_lookup_salesmen_fall_back_to_customer_groups_when_master_sp_is_down():
     assert lk.status()["status"] == "ready"    # customers still populate
     assert [r["key"] for r in lk.salesmen()] == ["REdwards"]
     assert lk.status()["master_row_count"] == 0
+    assert "forced failure" in lk.status()["master_error"]
 
 
 class _MirrorCustomer:
