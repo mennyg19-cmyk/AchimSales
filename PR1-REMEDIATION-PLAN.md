@@ -489,8 +489,10 @@ Live gate:
   — 27 passed. Trust-boundary N/A.
 - [x] Resolve report-module circular imports or add browser coverage proving initialization order.
   Evidence: no JS import cycle from `report.ts`; `DOMContentLoaded` order locked
-  by `test_report_module_has_no_import_cycles_and_boots_in_order`. Did not split
-  the file. `python3 -m pytest tests/test_frontend.py -q` — 28 passed.
+  by `test_report_module_has_no_import_cycles_and_boots_in_order`, including
+  brace-containment of `if (!resumed)`. Did not split the file. Loop A zero;
+  Loop B F1/F2 closed then B3 zero; Loop C zero. Agent Guardrails green on
+  `373a6b9`. `python3 -m pytest tests/test_frontend.py -q` — 29 passed.
   Trust-boundary N/A.
 - [ ] Add the Tabulator MIT license text and third-party attribution.
 

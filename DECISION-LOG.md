@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.12 gate closed
+**What I chose:** Close Phase 8.12. Trust-boundary N/A.
+**Why:** Loop A zero on `e7e2d79`. Loop B F1 (linear order missed de-nesting) closed `635e4f3`. Loop B2 F2 (brace-less if grabbing a later `{`) closed `373a6b9`. B3 and Loop C zero. Agent Guardrails green on HEAD. Did not split `report.ts`. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.12: prove report boot order, do not split report.ts
 **What I had to decide:** The leftover is "resolve report-module circular imports or add browser coverage proving initialization order." Python import-cycle scan of `v3/web` + `v3/report_engine` is already 0. `report.ts` imports only `filename_preview`, `dialog`, `searchable_picker`, `visibility`; none import `report.ts`.
 **Options I considered:** (1) Split the 3400-line `report.ts` god file. (2) Source tests that lock the acyclic graph and `DOMContentLoaded` order. (3) Full Chrome CDP boot-order coverage.
