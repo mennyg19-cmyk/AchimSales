@@ -506,7 +506,9 @@ Live gate:
   ArrowRight on a fixture Ordered result selected Detail and focused
   `#report-tab-detail`. Caret stays a sibling `aria-haspopup=menu` button;
   ArrowDown still opens the tab-option menu. `test_report_tabs_have_tablist_semantics`.
-  `python3 -m pytest tests/test_frontend.py -q` — 32 passed. Trust-boundary N/A.
+  `python3 -m pytest tests/test_frontend.py -q` — 32 passed. Loop A F1
+  (colliding tab ids) closed `3bcb187`. A re-pass and Loop B zero. Loop C
+  two optional nits left. Trust-boundary N/A.
 
 Browser matrix:
 

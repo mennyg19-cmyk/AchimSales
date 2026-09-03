@@ -1,9 +1,19 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.14 gate closed
+**What I chose:** Close Phase 8.14. Trust-boundary N/A. Loop C optional nits left (wrap-math vs `moveMenuFocus`; `key`/`event.key` naming matches the caret handler).
+**Why:** Loop A F1 (tab id collision) closed `3bcb187`. A re-pass zero. Loop B zero. Loop C zero blocking. Isolated CDP PASS. Did not restyle. Did not split `report.ts`.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Merge origin/main (9a53915) into PR #35
 **What I had to decide:** How to combine this PR's leftovers with main's live job log, Cancel for stuck schedule jobs, and `0020_job_log.sql`.
 **What I chose:** Keep both. Delivery-legs is `0021_delivery_legs.sql`. Keep HTTP-only Gunicorn, `enqueue_or_503`, Graph token cache, delivery legs, no tenant-wide SharePoint search. Add main's `log_json`, `#jobLiveLog` / `#liveJobLog`, Cancel, and `owner_user_id` on company Run now. Schedule `pollJob` uses `sleepUntilVisible` instead of a bare timeout.
 **Why:** Same 0019/0020 collision as last merge. Job-log and Cancel are live product. Do not edit `0019_drop_salesmen.sql`. Incoming tests that assumed `_requests()` tenant search, `announceRun(ok ? …)`, or clock enqueue without `slot_id` were rewritten to this PR's Graph-cache / live-announce / required-slot_id contracts.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
 
 ## 2026-09-03 Phase 8 leftover: report tablist
 **What I had to decide:** How to add WAI-ARIA tablist/tab/tabpanel and arrow keys without breaking Phase 8.5 tab-option menus or restyling the tab bar.
@@ -13,10 +23,6 @@
 **Status:** DECIDED
 **Model:** cursor-grok-4.6
 **Runner:** parent (spec); implementation spawn Terra
-
-**Status:** DECIDED
-**Model:** cursor-grok-4.6
-**Runner:** parent
 
 ## 2026-09-03 Phase 8.13 gate closed
 **What I chose:** Close Phase 8.13. Trust-boundary N/A.
