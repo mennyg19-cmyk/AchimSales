@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.11 gate closed
+**What I chose:** Close Phase 8.11. Trust-boundary N/A.
+**Why:** Loop A F1 (200 junk JSON as empty) and follow-ups (array body, missing `presets`) closed on `767704c`/`ec6600a`/`e044cb8`. A4 and Loop B zero. Loop C: extracted `failViewsLoad`; mirrored `aria-live` on `masterMsg`. Agent Guardrails expected green on HEAD. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.11: error when saved-view load into a schedule fails
 **What I had to decide:** Next leftover after 8.10, and what “report-to-schedule draft transfer” means in this codebase (there is no draft object).
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report tablist / live status. (4) The named leftover: personal `loadViews` and company `loadSavedViews` swallow fetch failures and look like an empty or Default-only list.

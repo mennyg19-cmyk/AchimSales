@@ -481,7 +481,12 @@ Live gate:
   `test_user_facing_copy_never_mentions_the_outbox`. Loops A+B+C zero blocking
   on `852cafb`. Trust-boundary N/A. `python3 -m pytest tests/test_frontend.py -q`
   — 26 passed.
-- [ ] Show a clear error when report-to-schedule draft transfer fails.
+- [x] Show a clear error when report-to-schedule draft transfer fails. Evidence:
+  personal `loadViews` and company `loadSavedViews` announce a load error instead
+  of an empty/Default-only catalog. Genuine `{groups:[]}` / `{presets:[]}` keep
+  the empty-state copy. Loops A4+B zero; Loop C two non-blocking nits applied
+  (fail helper, `masterMsg` aria-live). `python3 -m pytest tests/test_frontend.py -q`
+  — 27 passed. Trust-boundary N/A.
 - [ ] Resolve report-module circular imports or add browser coverage proving initialization order.
 - [ ] Add the Tabulator MIT license text and third-party attribution.
 
