@@ -146,7 +146,8 @@ function bindRowActions(): void {
         void pollRunLog(beforeIds, (run) => {
           const label = run.status === "success" ? "completed successfully"
             : run.status === "failure" ? "failed"
-              : "is running";
+              : run.status === "queued" ? "is queued"
+                : "is running";
           announceRun(`${run.title} ${label}.`, run.status === "failure");
         }).finally(() => {
           b.disabled = false;

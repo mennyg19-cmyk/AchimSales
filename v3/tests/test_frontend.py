@@ -399,6 +399,8 @@ def test_phase_8_6_live_status_announcements():
         assert f'id="{message_id}" role="status" aria-live="polite"' in admin_html
     assert 'setAttribute("aria-live", isError ? "assertive" : "polite")' in admin
     assert 'setAttribute("role", isError ? "alert" : "status")' in admin
+    assert "User saved, but salesman access could not be saved." in admin
+    assert "User saved, but report access could not be saved." in admin
 
     dashboard_html = (_V3 / "web" / "templates" / "dashboard.html").read_text(encoding="utf-8")
     dashboard = (_SRC / "js" / "dashboard.ts").read_text(encoding="utf-8")
@@ -411,6 +413,7 @@ def test_phase_8_6_live_status_announcements():
     assert 'id="exclHint" role="status" aria-live="polite"' in settings_html
     assert 'id="testModeMsg" role="status" aria-live="polite"' in settings_html
     assert 'setExclHint("Could not load customers.", true)' in settings
+    assert 'setExclHint("Could not save customer exclusions.", true)' in settings
 
     schedules = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
     for rel in ("templates/schedules.html", "templates/company_schedules.html"):
@@ -418,6 +421,7 @@ def test_phase_8_6_live_status_announcements():
         assert 'id="runStatus" role="status" aria-live="polite"' in html
     assert 'announceRun(ok ? "Schedule run queued."' in schedules
     assert 'run.status === "failure"' in schedules
+    assert 'run.status === "queued" ? "is queued"' in schedules
 
 
 def test_searchable_picker_has_keyboard_and_combobox_semantics():

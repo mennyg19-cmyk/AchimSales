@@ -242,18 +242,31 @@ async function saveUser(): Promise<void> {
     setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed", true);
     return;
   }
-  if (role === "manager") {
-    const keys = Array.from(
-      document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
-    ).map((c) => c.value);
-    await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
-  }
+  try {
+    if (role === "manager") {
+      const keys = Array.from(
+        document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
+      ).map((c) => c.value);
+      const accessResp = await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+      if (!accessResp.ok) {
+        setMsg("euMsg", "User saved, but salesman access could not be saved.", true);
+        return;
+      }
+    }
 
-  const reportPosts = Array.from(
-    document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
-  ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
-    { report_key: sel.getAttribute("data-report"), access: sel.value }));
-  await Promise.all(reportPosts);
+    const reportPosts = Array.from(
+      document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
+    ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
+      { report_key: sel.getAttribute("data-report"), access: sel.value }));
+    const reportResponses = await Promise.all(reportPosts);
+    if (reportResponses.some((response) => !response.ok)) {
+      setMsg("euMsg", "User saved, but report access could not be saved.", true);
+      return;
+    }
+  } catch {
+    setMsg("euMsg", "User saved, but access changes could not be saved.", true);
+    return;
+  }
   window.location.reload();
 }
 

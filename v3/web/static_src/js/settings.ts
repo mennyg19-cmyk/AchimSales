@@ -127,11 +127,13 @@ function initExclusions(): void {
           picker.setSelected(revert);
           known = new Set(picker.selectedKeys());
           hydrating = false;
+          setExclHint("Could not save customer exclusions.", true);
         }).catch(() => {
           hydrating = true;
           picker.setSelected(revert);
           known = new Set(picker.selectedKeys());
           hydrating = false;
+          setExclHint("Could not save customer exclusions.", true);
         });
       };
       for (const account of added) persist(account, true, [...known].filter((k) => k !== account));
