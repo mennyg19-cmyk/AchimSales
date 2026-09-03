@@ -12,7 +12,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from web.data.connection import Database
@@ -164,10 +164,7 @@ class JobRepository:
     def prune_terminal_older_than(self, *, older_than_days: int,
                                   kept_still_valid: Callable[[str | None, datetime], bool]) -> int:
         """Delete old terminal jobs unless a Keep still protects them."""
-        cutoff = datetime.fromtimestamp(
-            datetime.now(timezone.utc).timestamp() - older_than_days * 86400,
-            tz=timezone.utc,
-        ).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         with self.db.precious() as conn:
             rows = conn.execute(
