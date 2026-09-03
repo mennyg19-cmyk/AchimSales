@@ -530,6 +530,7 @@ def test_schedule_wizard_errors_when_saved_views_fail_to_load():
     assert "Could not load saved views for this report. Check your connection and try again." in master
     assert "if (!res.ok)" in master
     assert "Array.isArray(data)" in master
+    assert "presets?: unknown" in master
     # The outbox is a developer-only .eml artifact; users cannot "check" it.
     sources = sorted((_SRC / "js").glob("*.ts"))
     assert sources
