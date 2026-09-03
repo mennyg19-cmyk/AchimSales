@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.9: show salesman-table saved percent on commission display
+**What I had to decide:** Next Phase 6 leftover after the 6.8 gate.
+**Options I considered:** (1) Q8 approve-recipients (UX still open: what is “external”) / Q9 vs Send now. (2) Original grill “varies” vs adopted Q3 salesman-table saved percent. (3) Implement adopted Q3: the displayed % is the salesman master; money still uses `_commission_rate` (Q1/Q2, including explicit zero).
+**What I chose:** (3). Do not show “varies” or per-month rates. Do not change Q8/Q9. Bust invoiced `builder_version` again so cached cards are not reused.
+**Why:** Q3 is already decided. The plan bullet’s “varying” wording is the original grill; adopted Q3 is the saved table percent. Q8 still needs an external-vs-internal rule; Q9 conflicts with the Phase 6 Send-now bullet.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.8 gate closed
+**What I chose:** Close Phase 6.8 on `6d4a0b5`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero; Agent Guardrails green on HEAD; `last_run_at` ignores `legacy`/`unknown`/`output_meta.legacy`; `0019_delivery_legs.sql` unchanged.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.7 gate closed
 **What I chose:** Close Phase 6.7 on the explicit-zero slice plus invoiced `builder_version` 3. Trust-boundary high 0, medium 0. Info I1 addressed by the version bump. I2 (credit rows with SP 0) is Q2 as adopted. I3 (Q1 `>1` guard) is pre-existing.
 **Why:** Loops A+B+C zero; Fable trust-boundary did not block; Agent Guardrails green on `a6b22f5`; version bump so 7-day cache cannot keep master-fallback dollars.

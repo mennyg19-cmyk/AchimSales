@@ -393,7 +393,7 @@ Implement only after owner decisions are recorded.
   - [x] do not edit 0019
   - [x] identify legacy rows as `legacy`/unknown where possible
   - [x] ensure deployment-day historical rows do not suppress the next real clock slot
-  Evidence: `python3 -m pytest tests/test_scheduling.py -q` — 51 passed. `0019_delivery_legs.sql` unchanged. `last_run_at` ignores `legacy`/`unknown` status and `output_meta.legacy`.
+  Evidence: `python3 -m pytest tests/test_scheduling.py -q` — 51 passed. `0019_delivery_legs.sql` unchanged. `last_run_at` ignores `legacy`/`unknown` status and `output_meta.legacy`. Gate closed on `6d4a0b5`.
 - [x] Enforce kept-run expiry on result access. Evidence:
   `python3 -m pytest tests/test_blueprints.py tests/test_jobs.py -q` — 184 passed.
 - [x] Prune expired kept payloads. Evidence:
