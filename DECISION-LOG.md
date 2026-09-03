@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Granular live job log
+**What you asked for:** The live log only showed three steps. Need to see exactly what the job is doing: building this tab, that tab, and what the API response was.
+**What I had to decide:** Whether to dump full Reporting API rows into sqlite; how the screen shows the log.
+**What I chose:** A scrolling list of every log entry, not just the latest status line. Each API call logs the params sent, then HTTP status, timing, row_count vs len(rows), columns, byte size, date span, and a truncated first-row sample. Month chunks, invoiced YTD-vs-period, each tab name + row count, each Excel sheet, each SharePoint folder create (201 vs 409), and sendMail ok/error all get their own lines. Cap is 250 entries / 2000 chars. Full raw rows stay out of the job log (`RAW_CAPTURE_*` still exists for that).
+**Why:** The status line was the last coarse step (`job` / `report` / `workbook`). Fake test clients also skip HTTP, so even the API line often never appeared in tests. The UI hid everything except that last string.
+**Status:** DECIDED
+
 ## 2026-09-03 Live job steps; stop searching every SharePoint site on first save
 **What you asked for:** Invoiced-yesterday does not take this long. Figure out why the job stayed running after SQL finished. Maybe a new schedule's first SharePoint save.
 **What I had to decide:** Whether I can see this live job from the agent VM; what to store in the live log; what to do when SP_SITE_URL is wrong.

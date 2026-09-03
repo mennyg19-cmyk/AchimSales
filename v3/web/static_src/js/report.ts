@@ -14,6 +14,7 @@
  */
 
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
+import { renderJobLog } from "./job_log";
 
 declare const Tabulator: any;
 
@@ -1704,12 +1705,13 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
 
   for (let i = 0; i < 600; i++) {
     if (runAborted) return; // user cancelled; cancelRun() owns the status line
-    let job: { status?: string; progress?: number; error?: unknown; step?: string };
+    let job: { status?: string; progress?: number; error?: unknown; step?: string; log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[] };
     try {
       const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`status ${res.status}`);
       job = await res.json();
       consecutiveErrors = 0;
+      renderJobLog($("jobLiveLog"), job.log);
     } catch {
       consecutiveErrors++;
       if (consecutiveErrors >= maxConsecutiveErrors) {
@@ -1764,6 +1766,7 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
   }
   setToolbarEnabled(false);
   setStatus(opts.preserveLayout ? "Refreshing data…" : "Starting…");
+  renderJobLog($("jobLiveLog"), []);
   runAborted = false;
   try {
     const params = opts.overrideParams ?? collectParams();

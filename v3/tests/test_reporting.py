@@ -38,6 +38,8 @@ class _FakeResp:
     def __init__(self, status, body):
         self.status_code = status
         self._body = body
+        self.content = b""
+        self.text = ""
 
     def json(self):
         return self._body
@@ -94,6 +96,53 @@ def test_client_tolerates_non_list_rows():
     sess = _FakeSession(_FakeResp(200, {"rows": None}))
     client = ReportingApiClient("http://api", "k", session=sess)
     assert client.run_report("x", {}).rows == []
+
+
+def test_client_logs_call_params_and_response_sample():
+    from web.jobs import trace as job_trace
+
+    body = {
+        "rows": [
+            {"InvoiceDate": "2026-01-15", "CustomerAccount": "100", "Amount": "10"},
+            {"InvoiceDate": "2026-02-01", "CustomerAccount": "HIDDENROW", "Amount": "99"},
+        ],
+        "row_count": 2,
+        "columns": ["InvoiceDate", "CustomerAccount", "Amount"],
+    }
+    resp = _FakeResp(200, body)
+    resp.content = b"x" * 50
+    client = ReportingApiClient("http://api", "k", session=_FakeSession(resp))
+    job_trace.bind("job1", None)
+    try:
+        client.run_report("invoiced_report", {"InvoiceDateFrom": "2026-01-01"})
+        details = [e["detail"] for e in job_trace.snapshot() if e.get("step") == "api"]
+        blob = " ".join(details)
+        assert any("calling invoiced_report" in d for d in details)
+        assert "InvoiceDateFrom" in blob
+        assert "HTTP 200" in blob
+        assert "rows=2" in blob and "len=2" in blob
+        assert "bytes=50" in blob
+        assert "first_row=" in blob and "CustomerAccount=100" in blob
+        assert "HIDDENROW" not in blob
+        assert "dates=2026-01-15..2026-02-01" in blob
+    finally:
+        job_trace.unbind()
+
+
+def test_client_4xx_log_includes_body():
+    from web.jobs import trace as job_trace
+
+    sess = _FakeSession(_FakeResp(400, {"error": "bad filter"}))
+    client = ReportingApiClient("http://api", "k", retries=3, session=sess)
+    job_trace.bind("j", None)
+    try:
+        with pytest.raises(ReportingApiError):
+            client.run_report("x", {})
+        blob = " ".join(e["detail"] for e in job_trace.snapshot())
+        assert "HTTP 400" in blob and "not retrying" in blob
+        assert "bad filter" in blob
+    finally:
+        job_trace.unbind()
 
 
 # --- canonical scope token --------------------------------------------------
@@ -280,6 +329,23 @@ def test_report_run_enqueues_and_worker_populates_cache(db):
 
 
 # --- export -----------------------------------------------------------------
+
+def test_export_logs_each_sheet():
+    from web.jobs import trace as job_trace
+    pytest.importorskip("openpyxl")
+    payload = {"tabs": [
+        {"name": "Summary", "columns": ["A"], "rows": [{"A": 1}]},
+        {"name": "Detail", "columns": ["X"], "rows": [{"X": 1}, {"X": 2}]},
+    ]}
+    job_trace.bind("j", None)
+    try:
+        payload_to_xlsx(payload)
+        details = [e["detail"] for e in job_trace.snapshot() if e.get("step") == "xlsx"]
+        assert any("Summary" in d and "1 rows" in d for d in details)
+        assert any("Detail" in d and "2 rows" in d for d in details)
+    finally:
+        job_trace.unbind()
+
 
 def test_export_produces_valid_xlsx():
     openpyxl = pytest.importorskip("openpyxl")

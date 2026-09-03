@@ -114,11 +114,17 @@ class GraphMailer:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:500]
             log.warning("Graph sendMail failed: HTTP %s %s", exc.code, detail)
+            from web.jobs.trace import step as job_step
+            job_step("email", f"sendMail HTTP {exc.code}: {detail[:200]}")
             raise GraphMailError(
                 f"Microsoft Graph rejected the send (HTTP {exc.code}).",
                 status_code=exc.code, detail=detail,
             ) from exc
         except Exception as exc:  # noqa: BLE001
             log.warning("Graph sendMail error: %s", exc)
+            from web.jobs.trace import step as job_step
+            job_step("email", f"sendMail error: {exc}")
             raise GraphMailError("Microsoft Graph could not be reached to send mail.") from exc
+        from web.jobs.trace import step as job_step
+        job_step("email", f"sendMail ok to {', '.join(to[:8])}")
         log.info("Report email sent via Graph from %s to %s", sender, to)

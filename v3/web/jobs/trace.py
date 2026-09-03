@@ -13,7 +13,8 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-_MAX_ENTRIES = 80
+LOG_CAP = 250
+DETAIL_CAP = 2000
 _local = threading.local()
 
 
@@ -40,7 +41,7 @@ def step(name: str, detail: str = "", *, ms: float | None = None) -> None:
     entry: dict[str, Any] = {
         "t": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "step": name,
-        "detail": (detail or "")[:500],
+        "detail": (detail or "")[:DETAIL_CAP],
         "elapsed_ms": elapsed,
     }
     if ms is not None:
@@ -50,8 +51,8 @@ def step(name: str, detail: str = "", *, ms: float | None = None) -> None:
     entries = getattr(_local, "entries", None)
     if entries is not None:
         entries.append(entry)
-        if len(entries) > _MAX_ENTRIES:
-            del entries[:-_MAX_ENTRIES]
+        if len(entries) > LOG_CAP:
+            del entries[:-LOG_CAP]
     repo = getattr(_local, "repo", None)
     if repo is not None and job_id:
         repo.append_log(job_id, entry)

@@ -245,6 +245,13 @@ class SharePointService:
             url = f"{base}/root:/{current_enc}:/children" if current_enc else f"{base}/root/children"
             r = requests.post(url, headers=headers, timeout=TIMEOUT, json={
                 "name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
+            if r.status_code == 201:
+                outcome = "created"
+            elif r.status_code == 409:
+                outcome = "already there"
+            else:
+                outcome = f"HTTP {r.status_code}"
+            job_step("sharepoint", f"folder {part}: {outcome}")
             if r.status_code not in (201, 409):
                 r.raise_for_status()
             seg_enc = quote(part)

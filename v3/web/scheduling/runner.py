@@ -34,6 +34,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
+from web.jobs.trace import step as job_step
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
@@ -317,6 +318,11 @@ class ScheduleRunner:
         builder_version = spec.builder_version if spec else 1
         last_error: Exception | None = None
         prior_errors = list(prior_errors or [])
+        job_step(
+            "schedule",
+            f"{schedule_type} #{schedule_id} {report_name} "
+            f"{_compact_params(params)}",
+        )
         if recovered and _RECOVERED_RETRY_REASON not in prior_errors:
             prior_errors.append(_RECOVERED_RETRY_REASON)
         for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
@@ -636,6 +642,15 @@ def _no_data_email(report_name: str, period_label: str, salesman: str,
 
 def _report_params(params: dict | None) -> dict:
     return {k: v for k, v in (params or {}).items() if k not in _DELIVERY_PARAM_KEYS}
+
+
+def _compact_params(params: dict | None) -> str:
+    bits: list[str] = []
+    for key in ("period", "start_date", "end_date", "year", "salesman", "customers"):
+        value = (params or {}).get(key)
+        if value not in (None, "", [], {}):
+            bits.append(f"{key}={value}")
+    return " ".join(bits) or "default filters"
 
 
 def _as_bool(raw) -> bool:

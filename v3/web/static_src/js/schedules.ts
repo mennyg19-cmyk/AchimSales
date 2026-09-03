@@ -1,6 +1,7 @@
 // Schedules management pages (personal + company). Create uses the shared wizard.
 
 import { esc, jsonHeaders } from "./http";
+import { renderJobLog } from "./job_log";
 import { bindMasterWizard } from "./master_wizard";
 import { bindPersonalWizard } from "./personal_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
@@ -104,6 +105,7 @@ async function pollJob(jobId: string, onStep: (label: string) => void): Promise<
   const tpl = panel?.getAttribute("data-job-url") || "";
   if (!tpl || !jobId) return;
   const url = tpl.replace("__ID__", jobId);
+  const live = document.getElementById("liveJobLog");
   const deadline = Date.now() + 15 * 60 * 1000;
   while (Date.now() < deadline) {
     await sleep(1000);
@@ -113,7 +115,11 @@ async function pollJob(jobId: string, onStep: (label: string) => void): Promise<
         headers: { Accept: "application/json" },
       });
       if (!res.ok) continue;
-      const job = await res.json() as { status?: string; step?: string };
+      const job = await res.json() as {
+        status?: string; step?: string;
+        log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[];
+      };
+      renderJobLog(live, job.log);
       if (job.step) onStep(job.step);
       if (job.status === "success" || job.status === "failure" || job.status === "cancelled") {
         return;
@@ -136,6 +142,7 @@ function bindRowActions(): void {
       b.disabled = true;
       b.textContent = "Running…";
       document.getElementById("runLogPanel")?.setAttribute("open", "");
+      renderJobLog(document.getElementById("liveJobLog"), []);
       await refreshRunLog();
       const data = await actJson(b.dataset.url!, "POST", {});
       const jobId = typeof data?.job_id === "string" ? data.job_id : "";
@@ -146,7 +153,8 @@ function bindRowActions(): void {
       }
       b.textContent = "Queued";
       await pollJob(jobId, (step) => {
-        b.textContent = step.length > 48 ? step.slice(0, 45) + "…" : step;
+        b.textContent = "Running…";
+        b.title = step;
       });
       await refreshRunLog();
       b.disabled = false;

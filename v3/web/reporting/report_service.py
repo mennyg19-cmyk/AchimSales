@@ -43,8 +43,21 @@ from report_engine.sources import ordered as src_ordered
 from web.reporting import params as P
 from web.reporting.http_client import ReportingApiError
 from web.reporting.runner import Builder
+from web.jobs.trace import step as job_step
 
 log = logging.getLogger(__name__)
+
+
+def _log_built_tabs(report_key: str, tabs: list[dict]) -> None:
+    job_step("tabs", f"{report_key}: {len(tabs)} tab(s)")
+    for tab in tabs:
+        name = tab.get("name") or tab.get("key") or "tab"
+        rows = tab.get("rows") or []
+        extra = ""
+        if tab.get("layout") == "commission_cards":
+            extra = f", {len(tab.get('salesmen') or [])} salesman cards"
+        job_step("tab", f"{name}: {len(rows)} rows{extra}")
+    job_step("tabs", f"{report_key} tabs ready")
 
 # Optional fallback that returns customer_master-shaped rows from a local
 # mirror when the live SP is unreachable (owner decision #15).
@@ -181,15 +194,20 @@ class ReportService:
         (chronological), which the builders aggregate order-independently.
         """
         facts: list = []
-        for chunk_start, chunk_end in month_chunks(start, end):
+        chunks = list(month_chunks(start, end))
+        job_step("fetch", f"{report_id} {start}..{end} in {len(chunks)} month chunk(s)")
+        for i, (chunk_start, chunk_end) in enumerate(chunks, start=1):
+            job_step("fetch", f"chunk {i}/{len(chunks)} {chunk_start}..{chunk_end}")
             sp = dict(base_sp)
             sp[from_key] = sp_datetime(chunk_start, end_of_day=False)
             sp[to_key] = sp_datetime(chunk_end, end_of_day=True)
             facts.extend(filter_facts_by_scope(adapter(self._rows(report_id, sp)), visible_keys))
+            job_step("fetch", f"chunk {i}/{len(chunks)} done; {len(facts)} facts so far")
         return facts
 
     @staticmethod
     def _payload(report_key: str, tabs: list[dict], row_count: int, **extra) -> dict:
+        _log_built_tabs(report_key, tabs)
         return {"report_key": report_key, "tabs": tabs, "row_count": row_count, **extra}
 
     def _customer_universe(self) -> list:
@@ -308,6 +326,7 @@ def _orch_ordered(svc: ReportService, params: dict, visible_keys) -> dict:
     # build() consumes the facts list to keep peak memory down on big runs, so
     # capture the count first.
     row_count = len(facts)
+    job_step("ordered", f"shaping tabs from {row_count} order lines")
     tabs = rpt_ordered.build(facts, skip_by_salesman=bool(_salesman_filter(params)))
     return svc._payload("ordered", tabs, row_count)
 
@@ -439,8 +458,10 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
 
     base_sp = P.translate("invoiced", params)
     if invoiced_skip_commissions(params):
+        job_step("invoiced", "Commissions tab off; fetching the selected period only")
         facts = _fetch(base_sp)
         salesmen, facts, _ = svc._with_dropdown_salesman(facts)
+        job_step("invoiced", f"shaping tabs from {len(facts)} period rows")
         tabs = rpt_invoiced.build(
             facts, salesmen=salesmen, skip_commissions=True,
         )
@@ -454,6 +475,11 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
     )
 
     if period_inside_ytd:
+        job_step(
+            "invoiced",
+            f"Commissions on; one pull {ytd_start}..{ytd_end} "
+            f"(period {period_start}..{period_end} is inside that window)",
+        )
         ytd_sp = dict(base_sp)
         ytd_sp["InvoiceDateFrom"] = sp_datetime(ytd_start, end_of_day=False)
         ytd_sp["InvoiceDateTo"] = sp_datetime(ytd_end, end_of_day=True)
@@ -465,7 +491,12 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
                 f for f in ytd_facts
                 if (d := _invoice_day(f)) is not None and period_start <= d <= period_end
             ]
+            job_step("invoiced", f"period slice {len(facts)} of {len(ytd_facts)} YTD rows")
     else:
+        job_step(
+            "invoiced",
+            f"Commissions on; period pull plus YTD {ytd_start}..{ytd_end}",
+        )
         facts = _fetch(base_sp)
         ytd_sp = dict(base_sp)
         ytd_sp["InvoiceDateFrom"] = sp_datetime(ytd_start, end_of_day=False)
@@ -473,6 +504,10 @@ def _orch_invoiced(svc: ReportService, params: dict, visible_keys) -> dict:
         ytd_facts = _fetch(ytd_sp)
 
     salesmen, facts, ytd_facts = svc._with_dropdown_salesman(facts, ytd_facts)
+    job_step(
+        "invoiced",
+        f"shaping tabs from {len(facts)} period rows, {len(ytd_facts or [])} YTD rows",
+    )
     tabs = rpt_invoiced.build(
         facts, salesmen=salesmen,
         ytd_facts=ytd_facts, year=year, end_month=end.month,

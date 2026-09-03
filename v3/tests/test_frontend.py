@@ -344,3 +344,20 @@ def test_admin_users_has_sales_group_dropdown():
     assert "keys.add(salesmanKey(salesGroup))" in src
     assert "list_sales_groups" not in src
     assert "data-sales-groups-url" in src
+
+
+def test_live_job_log_shows_every_entry():
+    report_html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert 'id="jobLiveLog"' in report_html
+    assert "live-job-log" in report_html
+    report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert 'from "./job_log"' in report_js
+    assert 'renderJobLog($("jobLiveLog"), job.log)' in report_js
+    sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
+    assert "renderJobLog(live, job.log)" in sched_js
+    assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
+    log_js = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")
+    assert "export function renderJobLog" in log_js
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert ".live-job-log" in css

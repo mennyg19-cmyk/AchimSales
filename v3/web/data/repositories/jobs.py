@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from web.data.connection import Database
+from web.jobs.trace import LOG_CAP
 
 _ACTIVE = ("queued", "running")
 
@@ -155,7 +156,7 @@ class JobRepository:
             items.append(entry)
             conn.execute(
                 "UPDATE jobs SET log_json=? WHERE id=?",
-                (json.dumps(items[-80:]), job_id),
+                (json.dumps(items[-LOG_CAP:]), job_id),
             )
 
     def mark_success(self, job_id: str, result_ref: str = "") -> None:

@@ -59,7 +59,7 @@ class DeliveryService:
         )
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
         rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
-        job_step("report", f"{report_key} {rows} grid rows")
+        job_step("report", f"{report_key} {rows} grid rows after layout")
         if rows == 0 and not email_on_empty:
             return DeliveryOutcome(
                 result=DeliveryResult(

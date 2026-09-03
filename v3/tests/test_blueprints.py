@@ -178,6 +178,7 @@ def test_run_poll_result_export_flow(tmp_path):
     assert status["status"] == "success"
     assert status["log"]
     assert any(e.get("step") == "job" for e in status["log"])
+    assert any(e.get("step") == "tab" for e in status["log"])
 
     payload = client.get(f"/api/reports/result/{job_id}").get_json()
     assert payload["report_key"] == "ordered"
@@ -2504,7 +2505,7 @@ def test_master_run_now_writes_outbox_and_history(tmp_path):
     assert job is not None and job.status == "success"
     st = client.get(f"/api/jobs/{run.get_json()['job_id']}").get_json()
     assert st["status"] == "success" and st["log"]
-    assert {e.get("step") for e in st["log"]} >= {"job", "report", "workbook"}
+    assert {e.get("step") for e in st["log"]} >= {"job", "report", "workbook", "tab", "xlsx"}
     hist_rows = ScheduleRunRepository(app.config["DB"]).list_for_schedule(mid, MASTER)
     assert hist_rows and hist_rows[0].status == "success"
     hist = client.get(f"/master-schedules/{mid}/history").get_data(as_text=True).lower()
