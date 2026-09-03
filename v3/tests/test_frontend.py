@@ -582,7 +582,11 @@ def _first(haystack: str, needle: str) -> int:
 
 def _brace_body(source: str, header: str) -> str:
     start = source.index(header)
-    open_at = source.index("{", start)
+    open_at = start + len(header)
+    while open_at < len(source) and source[open_at] in " \t\n":
+        open_at += 1
+    if open_at >= len(source) or source[open_at] != "{":
+        pytest.fail(f"expected '{{' after {header!r}")
     depth = 0
     for index in range(open_at, len(source)):
         if source[index] == "{":
@@ -659,3 +663,8 @@ def test_boot_order_helper_rejects_denested_preset_open():
     assert broken.count(auto_run) == 0
     assert denested.count(open_preset) == 1
     assert denested.count(auto_run) == 1
+    with pytest.raises(pytest.fail.Exception, match="expected '\\{' after"):
+        _brace_body(
+            "if (!resumed) await autoOpenPresetIfRequested();\nfunction unrelated() { doSomethingElse(); }\n",
+            "if (!resumed)",
+        )
