@@ -65,12 +65,20 @@ class NoDataNoticeFailed(RuntimeError):
     """A required notice failed after another fan-out leg may have sent."""
 
 
-def _inbox_already_got_mail(result: DeliveryResult) -> bool:
-    failed_notice = any(
-        leg["kind"] == "notice" and leg["status"] == "failed"
-        for leg in result.legs
+def _has_failed_notice(legs: list[dict]) -> bool:
+    return any(leg["kind"] == "notice" and leg["status"] == "failed" for leg in legs)
+
+
+def _first_unknown_status(outcomes: list[DeliveryOutcome]) -> str:
+    return next(
+        (outcome.result.delivery_status for outcome in outcomes
+         if outcome.result.delivery_status == "unknown"),
+        "",
     )
-    return not failed_notice and bool(
+
+
+def _inbox_already_got_mail(result: DeliveryResult) -> bool:
+    return not _has_failed_notice(result.legs) and bool(
         result.sent_via_smtp or result.send_channel in ("graph", "smtp")
     )
 
@@ -371,10 +379,7 @@ class ScheduleRunner:
                         f"Delivery outcome unknown; do not retry automatically: {outcome.result.error}"
                     )
                 if not outcome.result.ok:
-                    if any(
-                        leg["kind"] == "notice" and leg["status"] == "failed"
-                        for leg in outcome.result.legs
-                    ):
+                    if _has_failed_notice(outcome.result.legs):
                         raise NoDataNoticeFailed(
                             outcome.result.error or "no-data notice delivery failed"
                         )
@@ -586,10 +591,7 @@ class ScheduleRunner:
             sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
             sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
             outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
-            delivery_status=next((
-                o.result.delivery_status for o in outcomes
-                if o.result.delivery_status == "unknown"
-            ), ""),
+            delivery_status=_first_unknown_status(outcomes),
             legs=[leg for outcome in outcomes for leg in outcome.result.legs],
         )
         return DeliveryOutcome(
@@ -766,10 +768,7 @@ def _combine_outcomes(outcomes: list[DeliveryOutcome]) -> DeliveryOutcome:
         sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
         sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
         outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
-        delivery_status=next((
-            o.result.delivery_status for o in outcomes
-            if o.result.delivery_status == "unknown"
-        ), ""),
+        delivery_status=_first_unknown_status(outcomes),
         legs=[leg for outcome in outcomes for leg in outcome.result.legs],
     )
     return DeliveryOutcome(
