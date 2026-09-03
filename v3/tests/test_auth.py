@@ -677,6 +677,32 @@ def test_live_developer_first_login_is_denied_without_creating_v3_row(tmp_path):
         assert not s.get("v3_user")
 
 
+def test_inactive_live_cookie_logs_out_without_creating_or_updating(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    user = repo.upsert("rep@x.com", role="salesman", display_name="Rep")
+    repo.update(user.id, is_active=False)
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "rep@x.com", "name": "Live Rep", "role": "admin",
+            "salesman_key": "REdwards",
+        }
+        s["_csrf_token"] = "t"
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/login" in (response.headers.get("Location") or "")
+    row = repo.get_by_email("rep@x.com")
+    assert row is not None and not row.is_active and row.role == "salesman"
+    with client.session_transaction() as s:
+        assert not s.get("user")
+        assert not s.get("v3_user")
+
+
 def test_stale_impersonation_with_missing_actor_logs_out(tmp_path):
     from dataclasses import replace
 

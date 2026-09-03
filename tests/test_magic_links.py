@@ -68,3 +68,36 @@ def test_magic_link_uses_public_base_url(monkeypatch, tmp_path):
     assert response.status_code == 302
     assert sent["email"] == "external@x.com"
     assert sent["link_url"].startswith("https://reports.achimonline.com/login/magic-link/")
+
+
+def test_magic_link_public_base_url_keeps_legacy_script_root(monkeypatch, tmp_path):
+    from werkzeug.middleware.dispatcher import DispatcherMiddleware
+    from werkzeug.test import Client
+
+    monkeypatch.setattr(live_db, "DB_PATH", str(tmp_path / "live.db"))
+    live_db.init_db()
+    live_db.add_user("external@x.com", "salesman", is_external=True)
+    monkeypatch.setattr(live_auth, "get_user", lambda email: {
+        "email": email, "role": "salesman",
+    })
+    sent = {}
+    from webapp.services import magic_link
+
+    monkeypatch.setattr(
+        magic_link, "send_magic_link_email",
+        lambda email, link_url: sent.update(email=email, link_url=link_url),
+    )
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://reports.achimonline.com/")
+
+    live_app = Flask("live")
+    live_app.secret_key = "test"
+    live_app.register_blueprint(live_auth.auth_bp)
+    mounted = DispatcherMiddleware(Flask("root"), {"/legacy": live_app})
+    response = Client(mounted).post(
+        "/legacy/login/magic-link", data={"email": "external@x.com"}
+    )
+
+    assert response.status_code == 302
+    assert sent["link_url"].startswith(
+        "https://reports.achimonline.com/legacy/login/magic-link/"
+    )
