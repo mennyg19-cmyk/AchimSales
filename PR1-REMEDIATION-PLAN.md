@@ -460,7 +460,18 @@ Live gate:
   `matchMedia("(prefers-reduced-motion: reduce)")` matches. `python3 -m pytest
   tests/test_frontend.py -q` — 24 passed; `cd v3 && npm run build` passed.
   Gate closed on `bc87667`. Loops A+B+C zero. Trust-boundary N/A.
-- [ ] Pause or correctly reschedule every hidden-tab poller.
+- [x] Pause or correctly reschedule every hidden-tab poller. Evidence:
+  `v3/web/static_src/js/visibility.ts` (`isHidden`, `onVisible`,
+  `sleepUntilVisible`) wired into 13 poll sites across main, report,
+  master_wizard, settings, admin, dashboard, and schedules bundles. Report,
+  export, email, run-log, and dashboard waits use wall-clock deadlines.
+  Headless Chrome CDP: 0 poller requests over 6 s hidden; first request
+  within 3 ms of visible. Loop A F1 (stacked wizard listeners) closed on
+  `b6995fb`; Loop B F1 (reconnect older than 10 min threw before one status
+  check) and F2/F3 (email and run-log polls unguarded) closed on `99993b7`;
+  Loop C craft closed on `38f1377`, `0310d0e`, `e5b1ceb`. `python3 -m pytest
+  tests/test_frontend.py -q` — 25 passed. Loops A2, B2, C3 zero or
+  comment-only. Trust-boundary N/A.
 - [ ] Replace stale “check the outbox” production copy.
 - [ ] Show a clear error when report-to-schedule draft transfer fails.
 - [ ] Resolve report-module circular imports or add browser coverage proving initialization order.

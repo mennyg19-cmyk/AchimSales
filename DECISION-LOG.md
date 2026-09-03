@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.9 gate closed; main merged in
+**What I chose:** Close Phase 8.9 on `e5b1ceb`, then merge `origin/main` (`173c166`, salesmen_master SP work) as `ff8486d`. Trust-boundary N/A.
+**Why:** Loop A F1 (wizard lookups stacked one `visibilitychange` listener per report key) closed on `b6995fb`. Loop B caught what both Terra passes missed: anchoring the client give-up at job start made any reconnect to a report older than 10 minutes throw before one status check; fixed on `99993b7` by counting from when the page began watching, plus guards on the three pollers outside the original ten-site inventory. Loop C craft (header comment, run-log ordering, TESTING-STRATEGY reconnect case) closed across `38f1377`, `0310d0e`, `e5b1ceb`; the run-log loop keeps sleep → hidden check → fetch because its `continue` branches would skip an end-of-loop sleep. Loops A2, B2 zero; C3 one comment-wording Low, applied. PR #35 had turned CONFLICTING when main moved, which also stopped `pull_request` CI; merging main restored both. Merge resolutions: docs keep both sides; README drops the "beta SQL/OData sources" phrase Phase 3 removed; Salesmen grid takes main's hint plus this branch's `.table-wrap`; `salesman_directory.py` no longer passes `SalesmanFact.source` (removed in Phase 3). Full suite 729 passed. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.9: pause or reschedule hidden-tab pollers
 **What I had to decide:** Next leftover after the 8.8 gate, and how to make ten pollers tab-aware.
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Per-file guards, duplicated ten times. (4) One tiny shared `visibility.ts` (`isHidden`, `onVisible`, `sleepUntilVisible`) inlined by esbuild into each bundle; interval ticks return early while hidden and re-tick on visible; job loops and dashboard refresh switch from iteration counts to wall-clock deadlines and wake early when the tab returns.
