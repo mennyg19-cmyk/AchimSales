@@ -200,6 +200,45 @@ def test_email_writes_eml_and_logs_outbox(email):
     assert row and row.status == "outbox" and row.attachment_meta["filename"] == "ordered.xlsx"
 
 
+def test_delivery_attachment_uses_schedule_filename_template(tmp_path, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    frozen = datetime(2026, 9, 3, 8, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz is None else frozen.astimezone(tz)
+
+    monkeypatch.setattr("web.delivery.filename_template.datetime", FrozenDateTime)
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}],
+                         "rows": [{"a": 1}]}]}
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: payload), email,
+    )
+    outcome = svc.run_and_deliver(
+        report_key="invoiced", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={"period": "yesterday"}, layout={},
+        recipients="a@x.com", subject="S", report_name="Invoiced Report",
+        filename_template="{Schedule}_{Period}",
+        schedule_name="Yesterday invoiced",
+    )
+    assert outcome.result.ok
+    raw = (cfg.outbox_dir / outcome.result.eml_name).read_bytes()
+    assert b"Yesterday_invoiced_yesterday.xlsx" in raw
+    row = OutboxRepository(db).get(outcome.result.outbox_id)
+    assert row.attachment_meta["filename"] == "Yesterday_invoiced_yesterday.xlsx"
+
+
 def test_email_text_only_has_no_attachment(email):
     svc, cfg, db = email
     res = svc.deliver(subject="Ordered Report - No Data Found (yesterday)",

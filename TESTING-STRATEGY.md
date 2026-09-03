@@ -2,6 +2,15 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Schedule filename is the email attachment name
+
+**What to test:**
+- Personal named-view schedule passes `schedule_name` = view name (not report title) and the stored `filename_template` into delivery.
+- `run_and_deliver` puts the resolved template on the .eml attachment and outbox `attachment_meta.filename`.
+- Personal wizard preview uses `view.name`; report Schedule modal uses the loaded named view.
+
+**Test file:** `v3/tests/test_scheduling.py`, `v3/tests/test_delivery.py`, `v3/tests/test_frontend.py`
+
 ## Job log is developer-only
 
 **What to test:**

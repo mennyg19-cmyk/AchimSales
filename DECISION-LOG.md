@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Schedule filename is the email attachment name
+**What you asked for:** The filename in schedule setup is not used on the email attachment.
+**What I had to decide:** What `{Schedule}` means on a personal schedule, which has no name field.
+**What I chose:** Personal named views use the view name for `{Schedule}` (same as the setup preview). Master schedules still use the schedule name. Default view falls back to the report title. The resolved name is the Graph/SMTP attachment filename.
+**Why:** The wizard preview used the view name; the runner passed the report title because `Schedule` has no `name`. Default `{Schedule}_{MM}-{DD}-{YYYY}` then mailed `Invoiced_Report_…xlsx` instead of `Yesterday_invoiced_…xlsx`.
+**Status:** DECIDED
+
 ## 2026-09-03 Job log is developer-only
 **What you asked for:** The job log on the report page and everywhere should only be visible to devs.
 **What I had to decide:** Whether admin also sees it; whether Cancel and the coarse status line stay; whether the JSON API must hide `log` too.

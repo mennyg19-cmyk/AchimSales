@@ -596,6 +596,39 @@ def test_runner_personal_named_view_uses_live_period_not_stale_schedule(tmp_path
     assert delivery.calls[0]["email_on_empty"] is True
 
 
+def test_runner_personal_filename_uses_view_name_not_report_title(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    uid = UserRepository(db).upsert("avig@x.com", display_name="Avig", role="salesman").id
+    sid = ScheduleRepository(db).create(
+        uid, "invoiced", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"},
+        recipients="avig@x.com", view_name="Yesterday invoiced",
+        filename_template="{Schedule}_{Period}")
+    runner.run(sid, PERSONAL)
+    call = delivery.calls[0]
+    assert call["filename_template"] == "{Schedule}_{Period}"
+    assert call["schedule_name"] == "Yesterday invoiced"
+    assert call["report_name"] != call["schedule_name"]
+
+
 def test_runner_test_mode_on_without_emails_fails(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)

@@ -268,6 +268,10 @@ def test_new_schedules_default_filename_template():
     assert f'DEFAULT_FILENAME_TEMPLATE = "{default}"' in preview
     py = (_V3 / "web" / "delivery" / "filename_template.py").read_text(encoding="utf-8")
     assert f'DEFAULT_FILENAME_TEMPLATE = "{default}"' in py
+    wiz_js = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
+    assert "picked?.view.name" in wiz_js
+    report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert "loadedNamedView.name" in report_js
     for rel in (
         "templates/personal_schedule_wizard.html",
         "templates/master_schedules.html",

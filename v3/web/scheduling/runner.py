@@ -220,7 +220,7 @@ class ScheduleRunner:
             for window in windows:
                 raise_if_cancelled()
                 window_subject, window_name = _window_labels(
-                    subject, getattr(sched, "name", "") or report_name, window,
+                    subject, _schedule_label(sched, report_name), window,
                 )
                 try:
                     outcome = self._deliver_window(
@@ -762,6 +762,17 @@ def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
     if manual:
         meta["manual"] = True
     return meta
+
+
+def _schedule_label(sched, report_name: str) -> str:
+    """Name used in {Schedule} on the workbook. Master has a name; personal uses the view."""
+    named = str(getattr(sched, "name", "") or "").strip()
+    if named:
+        return named
+    view = str(getattr(sched, "view_name", "") or "").strip()
+    if view and normalize_view_name(view) != DEFAULT_VIEW_NAME:
+        return view
+    return report_name
 
 
 def _window_labels(subject: str, schedule_name: str, window: dict) -> tuple[str, str]:

@@ -3198,7 +3198,10 @@ function updateSchedFilenamePreview(): void {
   if (!input || !prev) return;
   const report = attr("data-report-title") || attr("data-report-key") || "Report";
   const period = String((document.querySelector('[name="period"]') as HTMLSelectElement | null)?.value || "");
-  prev.textContent = previewFilename(input.value, { report, schedule: report, period });
+  const schedule = loadedNamedView && !isDefaultViewId(loadedNamedView.id)
+    ? loadedNamedView.name
+    : report;
+  prev.textContent = previewFilename(input.value, { report, schedule, period });
 }
 
 function closeScheduleModal(): void {
