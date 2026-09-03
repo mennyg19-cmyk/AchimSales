@@ -45,6 +45,18 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_sales_by_state.py`, `tests/test_beta_sources.py`
 
+## Phase 3.2 SQL-only v3 execution
+
+**What to test:**
+- A Beta-context `ReportService.builder_for()` run uses the SQL orchestrator even when the old source map says `odata`.
+- Developer Settings keeps Database explorer and Notification diagnostic, but has no source selector; both old source endpoints return 404.
+- The six hybrid reports use new builder versions, producing different cache keys without adding a source field.
+
+**Expected behavior:**
+- v3 never imports the OData bridge while executing reports, and old OData cache payloads cannot be reused.
+
+**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_blueprints.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

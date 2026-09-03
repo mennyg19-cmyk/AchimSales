@@ -43,17 +43,17 @@ class ReportSpec:
 REGISTRY: tuple[ReportSpec, ...] = (
     # v3: Fulfillment % on By Customer / By Item / By Order / By Salesman
     # (plus Full Data). Cached v2 payloads must not be reused.
-    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=8, salesman_default=True),
-    ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, salesman_default=True),
-    ReportSpec("salesman", "Salesman", ReportStatus.BUILT),
+    ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=9, salesman_default=True),
+    ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, builder_version=2, salesman_default=True),
+    ReportSpec("salesman", "Salesman", ReportStatus.BUILT, builder_version=2),
     # v3: months before Total Qty / $ / Avg / Book / Salesman on all tabs.
     # Cached v4 payloads still had Sep after Salesman and By Item without $.
-    ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=5),
-    ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT, salesman_default=True),
+    ReportSpec("number_4", "Number 4", ReportStatus.BUILT, builder_version=6),
+    ReportSpec("customer_activity", "Customer Activity", ReportStatus.BUILT, builder_version=2, salesman_default=True),
     ReportSpec("customer_last_order", "Customer's Last Order", ReportStatus.BUILT, in_app=True),
     ReportSpec(
         "item_averages", "Item Averages", ReportStatus.BUILT,
-        privileged_only=True,
+        builder_version=2, privileged_only=True,
     ),
     ReportSpec("sales_by_state", "Sales by State", ReportStatus.BUILT),
     ReportSpec("customer_aging", "Customer Aging", ReportStatus.BACKLOG, salesman_default=True),

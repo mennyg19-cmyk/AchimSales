@@ -2839,8 +2839,10 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
     tables = dev.get("/api/dev/db/tables?db=precious").get_json()["tables"]
     assert any(t["name"] == "users" for t in tables)
     html = dev.get("/settings").get_data(as_text=True)
-    assert "Database explorer" in html and "Beta report data sources" in html
-    # SQL-only: not on the Beta source selector. Global visibility still lists it.
-    assert 'class="beta-source-select" data-key="sales_by_state"' not in html
+    assert "Database explorer" in html and "Notification diagnostic" in html
+    assert "Beta report data sources" not in html
+    assert "beta-source-select" not in html
     assert 'class="vis-toggle" data-key="sales_by_state"' in html
     assert dev.get("/dev/notif-diagnostic").status_code == 200
+    assert dev.get("/api/dev/beta-sources").status_code == 404
+    assert dev.post("/api/dev/beta-sources", headers={"X-CSRF-Token": _CSRF}).status_code == 404
