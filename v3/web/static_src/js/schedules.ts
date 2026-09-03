@@ -1,6 +1,7 @@
 // Schedules management pages (personal + company). Create uses the shared wizard.
 
 import { esc, jsonHeaders } from "./http";
+import { renderJobLog } from "./job_log";
 import { bindMasterWizard } from "./master_wizard";
 import { bindPersonalWizard } from "./personal_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
@@ -19,14 +20,20 @@ type RunLogRow = {
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
+  const data = await actJson(url, method, body);
+  return data !== null;
+}
+
+async function actJson(url: string, method: string, body?: unknown): Promise<Record<string, unknown> | null> {
   try {
     const res = await fetch(url, {
       method, headers: jsonHeaders(), credentials: "same-origin",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    return await res.json().catch(() => ({}));
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -34,6 +41,38 @@ function badgeClass(status: string): string {
   if (status === "success") return "badge badge-success";
   if (status === "failure") return "badge badge-error";
   return "badge badge-salesman";
+}
+
+type ActiveJob = {
+  id: string;
+  status: string;
+  step?: string;
+  label: string;
+};
+
+function cancelUrl(jobId: string): string {
+  const tpl = document.getElementById("runLogPanel")?.getAttribute("data-cancel-url") || "";
+  return tpl.replace("__ID__", jobId);
+}
+
+async function cancelJob(jobId: string): Promise<boolean> {
+  const data = await actJson(cancelUrl(jobId), "POST", {});
+  return Boolean(data && (data.cancelled === true || data.status === "cancelled"));
+}
+
+function renderActiveJobs(jobs: ActiveJob[]): void {
+  const el = document.getElementById("activeJobs");
+  const panel = document.getElementById("runLogPanel");
+  if (!el) return;
+  el.hidden = jobs.length === 0;
+  if (jobs.length) panel?.setAttribute("open", "");
+  el.innerHTML = jobs.map((j) => {
+    const step = j.step ? ` <span class="active-job-step">${esc(j.step)}</span>` : "";
+    return `<div class="active-job">
+      <div class="active-job-label">${esc(j.label)} — ${esc(j.status)}${step}</div>
+      <button type="button" class="btn btn-sm btn-outline js-cancel-job" data-job-id="${esc(j.id)}">Cancel</button>
+    </div>`;
+  }).join("");
 }
 
 function renderRunLog(runs: RunLogRow[]): void {
@@ -83,6 +122,7 @@ async function refreshRunLog(): Promise<RunLogRow[]> {
     });
     const data = await res.json().catch(() => ({}));
     const runs = (data.runs || []) as RunLogRow[];
+    renderActiveJobs((data.active_jobs || []) as ActiveJob[]);
     renderRunLog(runs);
     return runs;
   } catch {
@@ -90,34 +130,37 @@ async function refreshRunLog(): Promise<RunLogRow[]> {
   }
 }
 
-async function pollRunLog(
-  beforeIds: Set<number>,
-  onRunUpdate: (run: RunLogRow) => void,
-): Promise<void> {
-  const deadline = Date.now() + 90_000;
-  let announced = "";
+async function pollJob(jobId: string, onStep: (label: string) => void): Promise<void> {
+  const panel = document.getElementById("runLogPanel");
+  const tpl = panel?.getAttribute("data-job-url") || "";
+  if (!tpl || !jobId) return;
+  const url = tpl.replace("__ID__", jobId);
+  const live = document.getElementById("liveJobLog");
+  const deadline = Date.now() + 15 * 60 * 1000;
   while (Date.now() < deadline) {
-    // Sleep first (the caller already refreshed the log when queuing the run),
-    // then check hidden right before the fetch so a tab flip during the sleep
-    // cannot slip a request through. Keep the sleep at the top: the `continue`
-    // branches below would skip an end-of-loop sleep and hammer the endpoint.
-    await sleepUntilVisible(1500);
+    await sleepUntilVisible(1000);
     if (isHidden()) {
       await sleepUntilVisible(deadline - Date.now());
       continue;
     }
-    const runs = await refreshRunLog();
-    const newest = runs[0];
-    if (!newest) continue;
-    const isNew = !beforeIds.has(newest.id);
-    const done = newest.status === "success" || newest.status === "failure";
-    const updateKey = `${newest.id}:${newest.status}`;
-    if (isNew && updateKey !== announced) {
-      announced = updateKey;
-      onRunUpdate(newest);
+    try {
+      const res = await fetch(url, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) continue;
+      const job = await res.json() as {
+        status?: string; step?: string;
+        log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[];
+      };
+      renderJobLog(live, job.log);
+      if (job.step) onStep(job.step);
+      if (job.status === "success" || job.status === "failure" || job.status === "cancelled") {
+        return;
+      }
+    } catch {
+      // keep polling
     }
-    if (isNew && done) return;
-    if (isNew && newest.status === "running") continue;
   }
 }
 
@@ -141,26 +184,37 @@ function bindRowActions(): void {
       b.textContent = "Running…";
       announceRun("Schedule run is starting.");
       document.getElementById("runLogPanel")?.setAttribute("open", "");
-      const before = await refreshRunLog();
-      const beforeIds = new Set(before.map((r) => r.id));
-      const ok = await act(b.dataset.url!, "POST", {});
-      b.textContent = ok ? "Queued" : "Failed";
-      announceRun(ok ? "Schedule run queued." : "Could not start the schedule run.", !ok);
-      if (ok) {
-        await refreshRunLog();
-        void pollRunLog(beforeIds, (run) => {
-          const label = run.status === "success" ? "completed successfully"
-            : run.status === "failure" ? "failed"
-              : run.status === "queued" ? "is queued"
-                : "is running";
-          announceRun(`${run.title} ${label}.`, run.status === "failure");
-        }).finally(() => {
-          b.disabled = false;
-          b.textContent = "Run now";
-        });
-      } else {
+      renderJobLog(document.getElementById("liveJobLog"), []);
+      await refreshRunLog();
+      const data = await actJson(b.dataset.url!, "POST", {});
+      const jobId = typeof data?.job_id === "string" ? data.job_id : "";
+      if (!jobId) {
+        b.textContent = "Failed";
+        announceRun("Could not start the schedule run.", true);
         setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
+        return;
       }
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "btn btn-sm btn-outline";
+      cancelBtn.textContent = "Cancel";
+      b.insertAdjacentElement("afterend", cancelBtn);
+      cancelBtn.addEventListener("click", async () => {
+        cancelBtn.disabled = true;
+        await cancelJob(jobId);
+      });
+      b.textContent = "Queued";
+      announceRun("Schedule run queued.");
+      await pollJob(jobId, (step) => {
+        b.textContent = "Running…";
+        b.title = step;
+        announceRun(step);
+      });
+      cancelBtn.remove();
+      await refreshRunLog();
+      b.disabled = false;
+      b.textContent = "Run now";
+      b.removeAttribute("title");
     });
   });
   document.querySelectorAll<HTMLButtonElement>(".js-copy").forEach((b) => {
@@ -238,4 +292,12 @@ document.addEventListener("DOMContentLoaded", () => {
   bindPersonalWizard();
   bindMasterWizard();
   bindSharePointPicker();
+  document.getElementById("activeJobs")?.addEventListener("click", async (ev) => {
+    const btn = (ev.target as HTMLElement).closest("button.js-cancel-job") as HTMLButtonElement | null;
+    if (!btn?.dataset.jobId) return;
+    btn.disabled = true;
+    await cancelJob(btn.dataset.jobId);
+    await refreshRunLog();
+  });
+  void refreshRunLog();
 });

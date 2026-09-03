@@ -46,6 +46,14 @@
             <div><dt>Error</dt><dd class="run-debug">{{ meta['error'] }}</dd></div>
             {% endif %}
         </dl>
+        {% if meta.get('job_log') %}
+        <h3 class="run-history-subhead">Run log</h3>
+        <ol class="run-job-log">
+            {% for e in meta['job_log'] %}
+            <li>{{ e.get('t') or '' }} — {{ e.get('step') }}{% if e.get('detail') %}: {{ e.get('detail') }}{% endif %}{% if e.get('ms') is not none %} ({{ e.get('ms') }} ms){% endif %}</li>
+            {% endfor %}
+        </ol>
+        {% endif %}
         {% if meta.get('deliveries') %}
         <h3 class="run-history-subhead">Delivery legs</h3>
         <ul class="run-delivery-legs">

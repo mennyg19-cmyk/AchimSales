@@ -53,6 +53,41 @@ def _lookup(svc, **kwargs):
     return LookupService(svc, SalesmanDirectory(svc.client), **kwargs)
 
 
+def test_invoiced_logs_commission_path_and_each_tab():
+    from web.jobs import trace as job_trace
+
+    rows = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
+             "Amount": "100", "SalesGroup": "REdwards"}]
+    job_trace.bind("j", None)
+    try:
+        out = _svc({"invoiced_report": rows}).builder_for("invoiced")({"period": "ytd"}, None)
+        details = " | ".join(e["detail"] for e in job_trace.snapshot())
+        assert "Commissions on; one pull" in details
+        assert "tab" in {e["step"] for e in job_trace.snapshot()}
+        for tab in out["tabs"]:
+            assert str(tab.get("name") or tab.get("key")) in details
+    finally:
+        job_trace.unbind()
+
+
+def test_ordered_chunked_fetch_logs_each_month():
+    from web.jobs import trace as job_trace
+
+    rows = [{"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "A",
+             "QuantityOrdered": "5", "Ordered $": "50", "SalesStatus": "Open"}]
+    job_trace.bind("j", None)
+    try:
+        _svc({"ordered_report": rows}).builder_for("ordered")({
+            "period": "custom", "start_date": "2026-01-15", "end_date": "2026-02-10",
+        }, None)
+        details = [e["detail"] for e in job_trace.snapshot() if e.get("step") == "fetch"]
+        blob = " ".join(details)
+        assert "2 month chunk" in blob
+        assert "chunk 1/2" in blob and "chunk 2/2" in blob
+    finally:
+        job_trace.unbind()
+
+
 def test_unknown_report_raises():
     with pytest.raises(KeyError):
         _svc({}).builder_for("nope")

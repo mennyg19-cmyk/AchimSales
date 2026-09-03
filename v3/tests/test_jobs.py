@@ -97,6 +97,25 @@ def test_progress_writes_through(db):
     assert jobs.get(jid).progress == 100  # mark_success forces 100
 
 
+def test_handler_writes_live_step_log(db):
+    worker = JobWorker(db)
+    jobs = JobRepository(db)
+
+    def tagged(ctx):
+        from web.jobs.trace import step
+        step("report", "building invoiced")
+        return "ref"
+
+    worker.register("echo", tagged)
+    jid = jobs.enqueue("echo")
+    worker.process_next()
+    done = jobs.get(jid)
+    steps = [e["step"] for e in done.log]
+    assert steps[0] == "job" and steps[-1] == "job"
+    assert "report" in steps
+    assert "building invoiced" in [e["detail"] for e in done.log]
+
+
 def test_drain_processes_all_queued(db):
     worker = JobWorker(db)
     worker.register("echo", lambda ctx: "")
@@ -271,6 +290,51 @@ def test_cancel_works_for_queued_and_running(db):
     assert jobs.cancel(running) is True
     assert jobs.get(running).status == "cancelled"
     assert jobs.cancel(running) is False  # already terminal
+
+
+def test_list_active_filters_type_and_owner(db):
+    users = UserRepository(db)
+    a = users.create("a@x.com", role="admin").id
+    b = users.create("b@x.com", role="admin").id
+    jobs = JobRepository(db)
+    mine = jobs.enqueue("schedule.run", owner_user_id=a)
+    jobs.enqueue("report.run", owner_user_id=a)
+    jobs.enqueue("schedule.run", owner_user_id=b)
+    jobs.enqueue("schedule.run", owner_user_id=None)
+    assert [j.id for j in jobs.list_active(job_type="schedule.run", owner_user_id=a)] == [mine]
+    assert len(jobs.list_active(job_type="schedule.run")) == 3
+
+
+def test_cancel_releases_clock_dedup(db):
+    from web.scheduling.jobs import enqueue_schedule_run
+    jobs = JobRepository(db)
+    slot = "2026-01-01T06:00:00-05:00"
+    first = enqueue_schedule_run(
+        jobs, schedule_id=1, owner_user_id=None, slot_id=slot,
+    )
+    assert enqueue_schedule_run(
+        jobs, schedule_id=1, owner_user_id=None, slot_id=slot,
+    ) == first
+    assert jobs.cancel(first) is True
+    again = enqueue_schedule_run(
+        jobs, schedule_id=1, owner_user_id=None, slot_id=slot,
+    )
+    assert again != first
+
+
+def test_handler_cancelled_does_not_mark_failure(db):
+    from web.jobs.trace import JobCancelled
+    worker = JobWorker(db)
+    jobs = JobRepository(db)
+
+    def boom(ctx):
+        jobs.cancel(ctx.job.id)
+        raise JobCancelled()
+
+    worker.register("echo", boom)
+    jid = jobs.enqueue("echo")
+    worker.process_next()
+    assert jobs.get(jid).status == "cancelled"
 
 
 def test_mark_success_does_not_resurrect_cancelled(db):

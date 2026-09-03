@@ -676,6 +676,7 @@ def _sorters_from_default_layout(dl: dict) -> list:
 
 def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes:
     from openpyxl import Workbook
+    from web.jobs.trace import step as job_step
 
     wb = Workbook(write_only=True)  # streaming: flat memory, fast on huge reports
     used: set[str] = set()
@@ -685,6 +686,8 @@ def build_workbook(payload: dict[str, Any], layout: dict | None = None) -> bytes
     if not tabs:
         wb.create_sheet(_safe_sheet_title("Report", used))
     for tab in tabs:
+        job_step("xlsx", f"sheet {tab.get('name') or tab.get('key') or 'Report'}: "
+                 f"{len(tab.get('rows') or [])} rows")
         ws = wb.create_sheet(_safe_sheet_title(tab.get("name", "Report"), used))
         if tab.get("layout") == "commission_cards" and tab.get("salesmen") is not None:
             _stream_commission(ws, tab)

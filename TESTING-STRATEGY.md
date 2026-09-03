@@ -172,7 +172,21 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - A valid upload session continues from Graph's confirmed offset instead of creating a new session at byte zero.
 
 **Test file:** `v3/tests/test_delivery.py`
+## Live job step log; first SharePoint save does not search the whole tenant
 
+**What to test:**
+- A finished `report.run` job's `GET /api/jobs/<id>` includes `log` entries (not just the last `step`). Each built tab is a `tab` line with its row count.
+- `ReportingApiClient.run_report` writes `api` steps: request params, then HTTP status, timing, `row_count` vs `len(rows)`, columns, bytes, date span, and a first-row sample. The second row's unique fields must not appear. 4xx logs the error body. Full `rows` arrays stay out of sqlite.
+- Month-chunked Ordered fetches log `chunk i/n`. Invoiced with commissions logs the YTD vs period pull, then each tab.
+- Excel logs `xlsx` per sheet. SharePoint logs each folder `created` / `already there` / HTTP status. Graph mail logs sendMail ok or HTTP error.
+- Report viewer has `#jobLiveLog`; personal and company schedules have `#liveJobLog`. Both pages call `renderJobLog` on every poll so the scrolling list grows.
+- The worker writes `job started` / `job finished` around a handler; extra `step()` calls from the handler show up in `jobs.log`.
+- Company Run now sets `owner_user_id` so the clicker can poll `/api/jobs/<id>`. History HTML includes the run log.
+- `SharePointService.upload_file` with a configured `SP_SITE_URL` that Graph returns 404 for raises naming `SP_SITE_URL` and does **not** call `sites?search=`.
+- Schedules and company schedules templates have `data-job-url`; `schedules.ts` polls that job instead of giving up on the run-log table after 90 seconds.
+- Owner or admin can `POST /api/jobs/<id>/cancel` a queued/running `schedule.run`. A salesman cannot cancel a job they do not own. Admins can cancel a clock job with `owner_user_id` NULL. Cancelling a clock job frees its dedup key so the next enqueue is a new job. `GET /api/schedules/recent-runs` includes `active_jobs`. Personal and company schedule pages have `#activeJobs` and `data-cancel-url`.
+
+**Test file:** `v3/tests/test_jobs.py`, `v3/tests/test_delivery.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`, `v3/tests/test_reporting.py`, `v3/tests/test_report_service.py`
 ## The salesmen_master SP is the only salesman master (no v3 table)
 
 **What to test:**

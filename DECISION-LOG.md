@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-03 Merge origin/main (9a53915) into PR #35
+**What I had to decide:** How to combine this PR's leftovers with main's live job log, Cancel for stuck schedule jobs, and `0020_job_log.sql`.
+**What I chose:** Keep both. Delivery-legs is `0021_delivery_legs.sql`. Keep HTTP-only Gunicorn, `enqueue_or_503`, Graph token cache, delivery legs, no tenant-wide SharePoint search. Add main's `log_json`, `#jobLiveLog` / `#liveJobLog`, Cancel, and `owner_user_id` on company Run now. Schedule `pollJob` uses `sleepUntilVisible` instead of a bare timeout.
+**Why:** Same 0019/0020 collision as last merge. Job-log and Cancel are live product. Do not edit `0019_drop_salesmen.sql`. Incoming tests that assumed `_requests()` tenant search, `announceRun(ok ? …)`, or clock enqueue without `slot_id` were rewritten to this PR's Graph-cache / live-announce / required-slot_id contracts.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.13 gate closed
 **What I chose:** Close Phase 8.13. Trust-boundary N/A.
 **Why:** Loop A F1 (one unpkg tag could drift) closed `5657caf`. A2 and Loop B zero. Loop C zero. License file GET 200. Did not vendor Tabulator. Ship.
@@ -72,7 +80,26 @@
 **Status:** DECIDED
 **Model:** cursor-grok-4.6-xhigh
 **Runner:** parent
+## 2026-09-03 Cancel stuck schedule jobs
+**What you asked for:** A cancel for scheduled reports too, so a stuck job can be cleared for other jobs and tests.
+**What I had to decide:** Who may cancel a clock job with no owner; whether cancel kills an HTTP call already in flight.
+**What I chose:** Reuse `POST /api/jobs/<id>/cancel`. The schedule owner can cancel their jobs. Admins/developers can cancel any `schedule.run`, including company clock jobs with no owner. Report runs stay owner-only. Cancel next to Run now, plus an in-progress list on the run log. Cancel marks the job cancelled immediately (frees the clock dedup so a new run can enqueue). An API call already in flight still finishes; the worker stops before the next call and does not mark success/failure over the cancel.
+**Why:** Run now had no Cancel, and clock jobs with `owner_user_id` NULL were invisible to the user APIs, so a stuck send sat in the queue and blocked the next tick.
+**Status:** DECIDED
 
+## 2026-09-03 Granular live job log
+**What you asked for:** The live log only showed three steps. Need to see exactly what the job is doing: building this tab, that tab, and what the API response was.
+**What I had to decide:** Whether to dump full Reporting API rows into sqlite; how the screen shows the log.
+**What I chose:** A scrolling list of every log entry, not just the latest status line. Each API call logs the params sent, then HTTP status, timing, row_count vs len(rows), columns, byte size, date span, and a truncated first-row sample. Month chunks, invoiced YTD-vs-period, each tab name + row count, each Excel sheet, each SharePoint folder create (201 vs 409), and sendMail ok/error all get their own lines. Cap is 250 entries / 2000 chars. Full raw rows stay out of the job log (`RAW_CAPTURE_*` still exists for that).
+**Why:** The status line was the last coarse step (`job` / `report` / `workbook`). Fake test clients also skip HTTP, so even the API line often never appeared in tests. The UI hid everything except that last string.
+**Status:** DECIDED
+
+## 2026-09-03 Live job steps; stop searching every SharePoint site on first save
+**What you asked for:** Invoiced-yesterday does not take this long. Figure out why the job stayed running after SQL finished. Maybe a new schedule's first SharePoint save.
+**What I had to decide:** Whether I can see this live job from the agent VM; what to store in the live log; what to do when SP_SITE_URL is wrong.
+**What I chose:** This VM still cannot read Azure logs or precious.db, so this exact run is gone. After SQL returns, `schedule.run` still does workbook + Graph. v3 SharePoint, on the first Graph use of a worker (deploy recycle, or a new folder save that is the first upload), resolved the drive by searching every tenant site named "achim" whenever SP_SITE_URL was not HTTP 200 — 30s per site, no cap. Legacy already failed loud on 404; v3 did not. A new schedule's `_ensure_folder` is extra Graph POSTs on top of that. I stop the search when SP_SITE_URL is set (raise with the HTTP status). Empty URL (local) may search at most 5 sites / 45s. Jobs get a live `log_json` the UI polls (report status line, Run now button, history). Graph mail token uses the same 30s HTTP POST as SharePoint so msal cannot hang with no timeout. The log stores timings and counts, not the raw API row payload.
+**Why:** Your first-SharePoint guess is the only path in this app that runs after the DBA's query returns and can sit in `running` for many minutes without a SQL excuse. Without a live step log we would keep guessing.
+**Status:** DECIDED
 ## 2026-09-03 Sales reps can be assigned additional SalesGroups
 **What you asked for:** Allow a sales rep to see another chosen sales rep's information like a manager can.
 **What I chose:** Users & access shows the existing per-salesman checkbox grid for both managers and salesmen. A salesman's primary SalesGroup is always included, and admins/developers can check additional groups. The login remains a salesman, so this does not grant manager reports, commissions, company-view editing, or admin access.

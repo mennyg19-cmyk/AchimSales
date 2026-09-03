@@ -127,6 +127,8 @@ class GraphMailer:
                     continue
                 detail = exc.read().decode("utf-8", "replace")[:500]
                 log.warning("Graph sendMail failed: HTTP %s %s", exc.code, detail)
+                from web.jobs.trace import step as job_step
+                job_step("email", f"sendMail HTTP {exc.code}: {detail[:200]}")
                 raise GraphMailError(
                     f"Microsoft Graph rejected the send (HTTP {exc.code}).",
                     status_code=exc.code, detail=detail,
@@ -137,4 +139,6 @@ class GraphMailer:
                     "Microsoft Graph connection failed after submitting the send; delivery is unknown.",
                     delivery_status="unknown",
                 ) from exc
+        from web.jobs.trace import step as job_step
+        job_step("email", f"sendMail ok to {', '.join(to[:8])}")
         log.info("Report email sent via Graph from %s to %s", sender, to)

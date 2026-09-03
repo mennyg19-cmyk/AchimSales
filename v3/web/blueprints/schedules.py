@@ -33,7 +33,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import User, UserRepository
 from web.scheduling.personal_views import is_custom_date_params, is_schedulable_saved_view
 from web.scheduling import cadence as C
-from web.scheduling.jobs import enqueue_schedule_run
+from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
 from web.queue_admission import enqueue_or_503
 
@@ -90,6 +90,50 @@ def _settings():
 
 def _runs() -> ScheduleRunRepository:
     return ScheduleRunRepository(_db())
+
+
+def _job_repo():
+    return current_app.config["JOB_REPO"]
+
+
+def _schedule_job_label(job) -> str:
+    params = job.params or {}
+    sid = params.get("schedule_id")
+    kind = params.get("schedule_type") or ""
+    prefix = "Run now" if params.get("manual") else "Clock"
+    name = ""
+    try:
+        sid_i = int(sid)
+    except (TypeError, ValueError):
+        sid_i = None
+    if kind == MASTER and sid_i is not None:
+        row = _master().get(sid_i)
+        name = (getattr(row, "name", None) or "") if row else ""
+    elif sid_i is not None:
+        owner = job.owner_user_id
+        row = _repo().get(sid_i, owner) if owner else None
+        if row is not None:
+            spec = registry.get(row.report_key)
+            name = spec.title if spec else row.report_key
+    if not name:
+        name = f"{kind or 'schedule'} #{sid}" if sid else "schedule"
+    return f"{prefix}: {name}"
+
+
+def _active_schedule_jobs(p) -> list[dict]:
+    from web.data.repositories.jobs import _step_label
+    uid = _uid(p.email)
+    if _authz().is_privileged(p):
+        jobs = _job_repo().list_active(job_type=SCHEDULE_RUN_JOB_TYPE)
+    else:
+        jobs = _job_repo().list_active(job_type=SCHEDULE_RUN_JOB_TYPE, owner_user_id=uid)
+    return [{
+        "id": job.id,
+        "status": job.status,
+        "step": _step_label(job.log),
+        "label": _schedule_job_label(job),
+        "manual": bool((job.params or {}).get("manual")),
+    } for job in jobs]
 
 
 def _hold_if_due(repo, sched, schedule_type: str) -> None:
@@ -504,8 +548,10 @@ def recent_runs():
     p = _principal()
     if request.args.get("kind") == "company":
         _require_admin(p)
-        return jsonify({"runs": _company_run_log()})
-    return jsonify({"runs": _viewer_run_log(p, _authz().is_privileged(p))})
+        runs = _company_run_log()
+    else:
+        runs = _viewer_run_log(p, _authz().is_privileged(p))
+    return jsonify({"runs": runs, "active_jobs": _active_schedule_jobs(p)})
 
 
 @schedules_bp.post("/api/schedules")
@@ -1224,7 +1270,8 @@ def run_master(schedule_id: int):
     job_id = enqueue_or_503(
         lambda: enqueue_schedule_run(
             current_app.config["JOB_REPO"], schedule_id=schedule_id,
-            schedule_type=MASTER, ignore_sabbath=True, manual=True,
+            schedule_type=MASTER, owner_user_id=_uid(p.email),
+            ignore_sabbath=True, manual=True,
         )
     )
     _drain_if_dev()

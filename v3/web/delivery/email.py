@@ -256,6 +256,8 @@ class EmailService:
             if graph is not None:
                 self.delivery_legs.update(email_leg_id, status="sending")
                 try:
+                    from web.jobs.trace import step as job_step
+                    job_step("email", f"Graph sendMail to {', '.join(recipients[:5])}")
                     sent_url, fallback = self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
                         filename, attach, body_html=body_html,

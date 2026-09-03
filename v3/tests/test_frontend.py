@@ -332,10 +332,15 @@ def test_report_viewer_meeting_ux():
     assert "container-narrow" not in sched
     assert "ps-sched-table" in sched
     assert "ps-owner-row" in sched
+    assert "data-job-url" in sched
+    sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
+    assert "function pollJob" in sched_js
+    assert "data-job-url" in sched_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert "table-layout: fixed" in css
     company_page = (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert "container-narrow" not in company_page
+    assert "data-job-url" in company_page
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
     assert 'id="psWizard"' in personal
     assert "Default plus named views." in personal
@@ -420,9 +425,10 @@ def test_phase_8_6_live_status_announcements():
     for rel in ("templates/schedules.html", "templates/company_schedules.html"):
         html = (_V3 / "web" / rel).read_text(encoding="utf-8")
         assert 'id="runStatus" role="status" aria-live="polite"' in html
-    assert 'announceRun(ok ? "Schedule run queued."' in schedules
-    assert 'run.status === "failure"' in schedules
-    assert 'run.status === "queued" ? "is queued"' in schedules
+    assert 'announceRun("Schedule run queued.")' in schedules
+    assert 'announceRun("Could not start the schedule run.", true)' in schedules
+    assert "announceRun(step)" in schedules
+    assert 'job.status === "cancelled"' in schedules
 
 
 def test_phase_8_7_named_controls_have_44px_targets():
@@ -687,3 +693,23 @@ def test_tabulator_mit_license_is_attributed(tmp_path):
     response = app.test_client().get("/static/licenses/tabulator-MIT.txt")
     assert response.status_code == 200
     assert response.data.decode("utf-8") == src
+def test_live_job_log_shows_every_entry():
+    report_html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert 'id="jobLiveLog"' in report_html
+    assert "live-job-log" in report_html
+    report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert 'from "./job_log"' in report_js
+    assert 'renderJobLog($("jobLiveLog"), job.log)' in report_js
+    sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
+    assert "renderJobLog(live, job.log)" in sched_js
+    assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
+    log_js = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")
+    assert "export function renderJobLog" in log_js
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert ".live-job-log" in css
+    assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
+    assert "data-cancel-url" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert "function cancelJob" in sched_js
+    assert "js-cancel-job" in sched_js

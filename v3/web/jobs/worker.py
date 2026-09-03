@@ -120,16 +120,33 @@ class JobWorker:
         return count
 
     def _run(self, job: Job) -> None:
+        from web.jobs.trace import JobCancelled, bind, step, unbind
+
         handler = self.handlers.get(job.type)
         if handler is None:
             self.repo.mark_failure(job.id, f"no handler for job type {job.type!r}")
             return
+        bind(job.id, self.repo)
         try:
+            step("job", f"{job.type} started")
             result_ref = handler(JobContext(job, self.repo)) or ""
+            if self._is_cancelled(job.id):
+                return
+            step("job", "finished")
             self.repo.mark_success(job.id, result_ref)
+        except JobCancelled:
+            log.info("job %s cancelled", job.id)
         except Exception as exc:  # noqa: BLE001 - record failure, keep worker alive
+            if self._is_cancelled(job.id):
+                return
             log.exception("job %s (%s) failed", job.id, job.type)
             self.repo.mark_failure(job.id, str(exc))
+        finally:
+            unbind()
+
+    def _is_cancelled(self, job_id: str) -> bool:
+        row = self.repo.get(job_id)
+        return row is not None and row.status == "cancelled"
 
     # --- background lifecycle ----------------------------------------------
 

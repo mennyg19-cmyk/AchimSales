@@ -31,11 +31,15 @@
 {% endif %}
 
 <details class="run-log-panel" id="runLogPanel"
-         data-recent-url="{{ url_for('schedules.recent_runs') }}">
+         data-recent-url="{{ url_for('schedules.recent_runs') }}"
+         data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
+         data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}">
     <summary class="run-log-summary">
         Recent run log
         <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>
     </summary>
+    <div id="activeJobs" class="active-jobs" hidden></div>
+    <ol id="liveJobLog" class="live-job-log" hidden></ol>
     <div id="runLogBody">
     {% if recent_runs %}
     <div class="table-wrap run-log-table-wrap">

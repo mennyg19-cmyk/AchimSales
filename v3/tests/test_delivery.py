@@ -1272,3 +1272,25 @@ def test_sharepoint_folder_create_401_refreshes_token_once(tmp_path, monkeypatch
     assert posts[0] == "Bearer stale"
     assert posts[1] == "Bearer fresh"
     assert token_calls[:2] == [False, True]
+
+
+def test_sharepoint_site_url_404_does_not_search_tenant(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
+        tmp_path, app_env="prod", tenant_id="t", client_id="c", client_secret="s",
+        sp_site_url="https://achimonline.sharepoint.com/sites/DoesNotExist",
+    ))
+    calls = []
+
+    class NotFound:
+        ok = False
+        status_code = 404
+
+    monkeypatch.setattr(
+        "web.delivery.sharepoint.graph_get",
+        lambda url, *args, **kwargs: calls.append(url) or NotFound(),
+    )
+    with pytest.raises(RuntimeError, match="SP_SITE_URL"):
+        service.upload_file("Invoiced/Daily", "a.xlsx", b"x")
+    assert calls
+    assert any("/sites/" in url for url in calls)
+    assert not any("search=" in url for url in calls)

@@ -14,6 +14,7 @@ from web.delivery.email import DeliveryResult, EmailService
 from web.delivery.filename_template import resolve_filename_template, resolve_folder_template
 from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.sharepoint import strip_reports_home
+from web.jobs.trace import raise_if_cancelled, step as job_step
 from web.reporting.export import build_workbook
 from web.reporting.jobs import BuilderResolver
 from web.reporting.report_service import invoiced_skip_commissions
@@ -51,6 +52,8 @@ class DeliveryService:
         run_params = dict(params or {})
         if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
             run_params["_skip_commissions"] = True
+        raise_if_cancelled()
+        job_step("report", f"building {report_key}")
         outcome = self.runner.run(
             report_key=report_key, identity=identity,
             visible_salesman_keys=visible_salesman_keys, builder_version=builder_version,
@@ -58,6 +61,7 @@ class DeliveryService:
         )
         payload = apply_layout(expand_clones(outcome.payload, layout), layout)
         rows = sum(len(t.get("rows") or []) for t in payload.get("tabs") or [])
+        job_step("report", f"{report_key} {rows} grid rows after layout")
         if rows == 0 and not email_on_empty:
             return DeliveryOutcome(
                 result=DeliveryResult(
@@ -66,7 +70,11 @@ class DeliveryService:
                 ),
                 row_count=0,
             )
+        raise_if_cancelled()
+        job_step("workbook", "building xlsx")
         xlsx = build_workbook(payload, layout)
+        job_step("workbook", f"{len(xlsx)} bytes")
+        raise_if_cancelled()
         filename = resolve_filename_template(
             filename_template, report_name=report_name, params=params or {},
             schedule_name=schedule_name,

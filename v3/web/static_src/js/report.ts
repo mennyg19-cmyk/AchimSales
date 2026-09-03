@@ -15,6 +15,7 @@
 
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
 import { closeDialog, openDialog } from "./dialog";
+import { renderJobLog } from "./job_log";
 import { SearchablePicker } from "./searchable_picker";
 import { isHidden, onVisible, sleepUntilVisible } from "./visibility";
 
@@ -1790,12 +1791,13 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
       await sleepUntilVisible(deadline - Date.now());
       continue;
     }
-    let job: { status?: string; progress?: number; error?: unknown };
+    let job: { status?: string; progress?: number; error?: unknown; step?: string; log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[] };
     try {
       const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`status ${res.status}`);
       job = await res.json();
       consecutiveErrors = 0;
+      renderJobLog($("jobLiveLog"), job.log);
     } catch {
       consecutiveErrors++;
       if (consecutiveErrors >= maxConsecutiveErrors) {
@@ -1821,7 +1823,9 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
     // Only offer Cancel once the job is actually running on the server; a
     // queued job hasn't started, so there's nothing to stop yet.
     showCancel(job.status === "running");
-    setStatus(`Building report… ${job.progress || 0}% (${fmtElapsed(Date.now() - started)})`);
+    const label = (job.step || "").trim()
+      || `Building report… ${job.progress || 0}%`;
+    setStatus(`${label} (${fmtElapsed(Date.now() - started)})`);
     await sleepUntilVisible(1000);
   }
   throw new Error("Timed out waiting for the report (over 10 minutes). Try a narrower date range.");
@@ -1848,6 +1852,7 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
   }
   setToolbarEnabled(false);
   setStatus(opts.preserveLayout ? "Refreshing data…" : "Starting…");
+  renderJobLog($("jobLiveLog"), []);
   runAborted = false;
   try {
     const params = opts.overrideParams ?? collectParams();

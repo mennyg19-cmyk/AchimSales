@@ -57,6 +57,91 @@ def _capture_raw_response(report_id: str, params: dict, body: Any) -> None:
         log.exception("RAW CAPTURE failed (non-fatal)")
 
 
+_DATE_KEYS = (
+    "InvoiceDate", "Invoice Date", "CreatedDateTime", "OrderDate",
+    "Order Date", "Date", "InvoiceDateTime",
+)
+
+
+def _compact_json(obj: Any, limit: int = 900) -> str:
+    try:
+        text = json.dumps(obj, default=str, separators=(",", ":"))
+    except TypeError:
+        text = str(obj)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _date_span(rows: list[dict]) -> str:
+    values: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in _DATE_KEYS:
+            raw = str(row.get(key) or "").strip()
+            if raw:
+                values.append(raw[:19])
+                break
+    if not values:
+        return ""
+    return f"{min(values)}..{max(values)}"
+
+
+def _sample_row(row: dict | None) -> str:
+    if not isinstance(row, dict) or not row:
+        return ""
+    parts: list[str] = []
+    for i, (key, value) in enumerate(row.items()):
+        if i >= 10:
+            parts.append("…")
+            break
+        parts.append(f"{key}={str(value)[:80]}")
+    return "; ".join(parts)
+
+
+def _response_detail(report_id: str, status: int, body: Any, raw_len: int,
+                     took_s: float) -> str:
+    rows = body.get("rows") if isinstance(body, dict) else None
+    rows = rows if isinstance(rows, list) else []
+    columns = []
+    if isinstance(body, dict):
+        columns = body.get("columns") or (list(rows[0].keys()) if rows else [])
+    if not isinstance(columns, list):
+        columns = []
+    claimed = (body or {}).get("row_count") if isinstance(body, dict) else None
+    bits = [
+        f"HTTP {status} {report_id} in {took_s:.1f}s",
+        f"rows={claimed if claimed is not None else len(rows)}",
+        f"len={len(rows)}",
+        f"cols={len(columns)}",
+    ]
+    if raw_len:
+        bits.append(f"bytes={raw_len}")
+    if columns:
+        bits.append("columns=" + ",".join(str(c) for c in columns[:40]))
+        if len(columns) > 40:
+            bits.append("…")
+    span = _date_span(rows)
+    if span:
+        bits.append(f"dates={span}")
+    sample = _sample_row(rows[0] if rows else None)
+    if sample:
+        bits.append(f"first_row={sample}")
+    return " ".join(bits)
+
+
+def _err_snippet(resp: Any) -> str:
+    try:
+        return _compact_json(resp.json(), 400)
+    except Exception:
+        raw = getattr(resp, "text", None)
+        if raw is None:
+            raw = getattr(resp, "content", b"")
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        text = str(raw).strip()
+        return text[:400] if text else ""
+
+
 class ReportingApiNotConfigured(RuntimeError):
     """REPORTING_API_BASE_URL / KEY not set in this environment."""
 
@@ -105,24 +190,35 @@ class ReportingApiClient:
         session = self._session_or_default()
 
         last_exc: Exception | None = None
+        from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
+
+        raise_if_cancelled()
+        job_step("api", f"calling {report_id} {_compact_json(params)}")
         for attempt in range(self.retries + 1):
+            raise_if_cancelled()
             t0 = time.monotonic()
             try:
                 resp = session.post(url, json=params, headers=headers,
                                     timeout=(10, self.timeout))
                 status = resp.status_code
                 if 400 <= status < 500:
-                    # Client error (bad params / SP rejection): don't retry.
+                    extra = _err_snippet(resp)
+                    job_step("api", f"HTTP {status} {report_id} (not retrying)"
+                             + (f" {extra}" if extra else ""))
                     raise ReportingApiError(f"Reporting API {status} for {report_id}")
                 if status >= 500:
-                    # Transient server error: retry then surface.
+                    extra = _err_snippet(resp)
+                    job_step("api", f"HTTP {status} {report_id} attempt {attempt + 1}"
+                             + (f" {extra}" if extra else ""))
                     raise _Transient(f"Reporting API {status} for {report_id}")
                 body = resp.json()
-                # Timing of SUCCESSFUL calls: this is the data that decides a safe
-                # timeout. A wedged proc never reaches here (it times out), so the
-                # max value across real runs is the longest a good call ever takes.
+                took = time.monotonic() - t0
+                raw_len = len(getattr(resp, "content", b"") or b"")
+                row_count = (body or {}).get("row_count")
                 log.info("Reporting API OK %s in %.1fs (rows=%s)", report_id,
-                         time.monotonic() - t0, (body or {}).get("row_count"))
+                         took, row_count)
+                job_step("api", _response_detail(report_id, status, body, raw_len, took),
+                         ms=took * 1000)
                 _capture_raw_response(report_id, params, body)
                 rows = body.get("rows")
                 if not isinstance(rows, list):
@@ -135,8 +231,11 @@ class ReportingApiClient:
                 )
             except ReportingApiError:
                 raise
+            except JobCancelled:
+                raise
             except Exception as exc:  # noqa: BLE001 - transient/network/parse: retry then surface
                 last_exc = exc
+                job_step("api", f"failed {report_id} attempt {attempt + 1}/{self.retries + 1}: {exc}")
                 log.warning("Reporting API attempt %d/%d failed: %s", attempt + 1, self.retries + 1, exc)
         raise ReportingApiError(f"Reporting API unreachable for {report_id}: {last_exc}")
 

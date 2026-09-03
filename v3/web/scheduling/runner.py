@@ -34,6 +34,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
+from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
@@ -151,6 +152,7 @@ class ScheduleRunner:
 
         run_id = self.run_repo.start(schedule_id, schedule_type, manual=manual)
         try:
+            raise_if_cancelled()
             if recovered and not manual and self._already_sent_today(schedule_id, schedule_type):
                 self.run_repo.finish(
                     run_id, status="skipped",
@@ -209,6 +211,7 @@ class ScheduleRunner:
             outcomes: list[DeliveryOutcome] = []
             window_errors: list[str] = []
             for window in windows:
+                raise_if_cancelled()
                 window_subject, window_name = _window_labels(
                     subject, getattr(sched, "name", "") or report_name, window,
                 )
@@ -222,6 +225,8 @@ class ScheduleRunner:
                         job_id=job_id, run_id=run_id, slot_id=slot_id,
                     )
                     outcomes.append(outcome)
+                except JobCancelled:
+                    raise
                 except Exception as exc:  # noqa: BLE001 - try remaining windows
                     log.warning(
                         "schedule %s:%s window failed; continuing",
@@ -247,6 +252,13 @@ class ScheduleRunner:
             self._supersede_pending_fail_notices(schedule_id, schedule_type)
             if catch_up_for_date:
                 self._set_catch_up(schedule_id, schedule_type, False)
+        except JobCancelled:
+            existing = self.run_repo.get(run_id)
+            if existing is None or existing.status == "running":
+                self.run_repo.finish(
+                    run_id, status="cancelled", debug_log="Cancelled",
+                )
+            raise
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
             log.exception("schedule run failed (%s:%s)", schedule_type, schedule_id)
             existing = self.run_repo.get(run_id)
@@ -342,6 +354,11 @@ class ScheduleRunner:
         builder_version = spec.builder_version if spec else 1
         last_error: Exception | None = None
         prior_errors = list(prior_errors or [])
+        job_step(
+            "schedule",
+            f"{schedule_type} #{schedule_id} {report_name} "
+            f"{_compact_params(params)}",
+        )
         if recovered and _RECOVERED_RETRY_REASON not in prior_errors:
             prior_errors.append(_RECOVERED_RETRY_REASON)
         for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
@@ -683,6 +700,15 @@ def _report_params(params: dict | None) -> dict:
     return {k: v for k, v in (params or {}).items() if k not in _DELIVERY_PARAM_KEYS}
 
 
+def _compact_params(params: dict | None) -> str:
+    bits: list[str] = []
+    for key in ("period", "start_date", "end_date", "year", "salesman", "customers"):
+        value = (params or {}).get(key)
+        if value not in (None, "", [], {}):
+            bits.append(f"{key}={value}")
+    return " ".join(bits) or "default filters"
+
+
 def _as_bool(raw) -> bool:
     if isinstance(raw, bool):
         return raw
@@ -725,6 +751,8 @@ def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") ->
 
 
 def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
+    from web.jobs.trace import snapshot
+
     r = outcome.result
     meta = {
         "summary": _summary_message(outcome, ok=r.ok),
@@ -740,6 +768,9 @@ def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
     }
     if r.legs:
         meta["legs"] = list(r.legs)
+    job_log = snapshot()
+    if job_log:
+        meta["job_log"] = job_log
     if outcome.deliveries:
         meta["deliveries"] = outcome.deliveries
     if manual:

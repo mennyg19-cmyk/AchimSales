@@ -179,6 +179,8 @@ class SharePointService:
             raise RuntimeError("SP_SITE_URL must be a valid SharePoint site URL")
         path = (parsed.path or "").strip("/")
         site_ref = f"{host}:/{path}" if path else host
+        from web.jobs.trace import step as job_step
+        job_step("sharepoint", f"looking up site {site_ref}")
         site = graph_get(f"{GRAPH_BASE}/sites/{site_ref}", self._get_token, timeout=TIMEOUT)
         if not site.ok:
             raise RuntimeError(f"SP_SITE_URL could not be resolved: {site_url}")
@@ -194,6 +196,8 @@ class SharePointService:
         segments = [s for s in self._root.split("/") if s] + _validate_segments(rel_path)
         if not segments:
             return
+        from web.jobs.trace import step as job_step
+        job_step("sharepoint", f"ensuring folders {'/'.join(segments)}")
         base = self._drive_base()
         ensure_drive_folders(
             segments, self._get_token,
