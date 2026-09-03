@@ -263,20 +263,10 @@ class EmailService:
                         onedrive_user=onedrive_user,
                     )
                     if sent_url:
-                        sp_url = sent_url
-                        sp_saved = True
-                    if fallback is not None:
-                        saved, url, fallback_err = fallback
-                        if saved:
-                            sp_url, sp_saved, sp_err = url, True, None
-                            record_path = record_path or TEST_SHAREPOINT_FOLDER
-                        already_sent_folder = any(
-                            row["kind"] == "folder" and row["status"] == "sent"
-                            for row in snapshots)
-                        if not already_sent_folder:
-                            self._add_folder_leg(
-                                leg_args, xlsx_bytes, saved=saved,
-                                error=fallback_err, snapshots=snapshots)
+                        sp_url, sp_saved = sent_url, True
+                    sp_url, sp_saved, sp_err, record_path = self._record_fallback_folder_leg(
+                        fallback, snapshots, leg_args, xlsx_bytes,
+                        sp_url, sp_saved, sp_err, record_path)
                     sent = True
                     channel = "graph"
                 except GraphMailError as exc:
@@ -377,6 +367,23 @@ class EmailService:
                 cc=cc or None, bcc=bcc or None,
             )
             return url, fallback
+
+    def _record_fallback_folder_leg(
+            self, fallback, snapshots, leg_args, xlsx_bytes,
+            sp_url, sp_saved, sp_err, record_path):
+        if fallback is None:
+            return sp_url, sp_saved, sp_err, record_path
+        saved, url, fallback_err = fallback
+        if saved:
+            sp_url, sp_saved, sp_err = url, True, None
+            record_path = record_path or TEST_SHAREPOINT_FOLDER
+        already_sent = any(
+            row["kind"] == "folder" and row["status"] == "sent" for row in snapshots)
+        if not already_sent:
+            self._add_folder_leg(
+                leg_args, xlsx_bytes, saved=saved,
+                error=fallback_err, snapshots=snapshots)
+        return sp_url, sp_saved, sp_err, record_path
 
     def _finish_folder_leg(self, leg_id: int, *, saved: bool, error: str | None,
                            snapshots: list[dict[str, str]]) -> None:

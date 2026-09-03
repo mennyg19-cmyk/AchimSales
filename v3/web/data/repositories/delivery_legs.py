@@ -31,6 +31,9 @@ class DeliveryLeg:
         )
 
 
+_LEG_COLUMNS = "id, job_id, run_id, slot_id, kind, status, error"
+
+
 class DeliveryLegRepository:
     def __init__(self, db: Database):
         self.db = db
@@ -52,21 +55,20 @@ class DeliveryLegRepository:
             )
 
     def get_by_job(self, job_id: str) -> list[DeliveryLeg]:
-        with self.db.precious() as conn:
-            rows = conn.execute(
-                "SELECT id, job_id, run_id, slot_id, kind, status, error"
-                " FROM delivery_legs WHERE job_id=? ORDER BY id",
-                (job_id,),
-            ).fetchall()
-        return [DeliveryLeg.from_row(row) for row in rows]
+        return self._fetch_legs(
+            "SELECT " + _LEG_COLUMNS + " FROM delivery_legs WHERE job_id=? ORDER BY id",
+            (job_id,),
+        )
 
     def list_recent(self, *, limit: int = 20) -> list[DeliveryLeg]:
+        return self._fetch_legs(
+            "SELECT " + _LEG_COLUMNS + " FROM delivery_legs ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+
+    def _fetch_legs(self, sql: str, params: tuple) -> list[DeliveryLeg]:
         with self.db.precious() as conn:
-            rows = conn.execute(
-                "SELECT id, job_id, run_id, slot_id, kind, status, error"
-                " FROM delivery_legs ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         return [DeliveryLeg.from_row(row) for row in rows]
 
     def prune(self, *, older_than_days: int = 90) -> int:
