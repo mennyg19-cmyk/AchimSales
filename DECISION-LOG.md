@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.4: searchable-picker keyboard
+**What I had to decide:** Next leftover after the 8.3 gate.
+**Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Next Phase 8 leftover: complete searchable-picker option navigation and focus return.
+**What I chose:** (3). Arrow keys move an active option; Enter/Space toggles it; Escape closes; focus returns to the search field. Keep the current combobox chrome. Do not restyle. Do not start toolbar/tab-menu work in this slice.
+**Why:** `searchable_picker.ts` and the report customer fork already open on focus and filter, but have no option highlight or keyboard activate. The leftover is specific. Q8/Q9 and Phase 7 stay blocked.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 8.3 gate closed
+**What I chose:** Close Phase 8.3 on `b00e2b4`. Trust-boundary N/A.
+**Why:** Loop A F1 (mono-dark hover 3.67:1) closed on `803e635`. Loop C F1–F3 (duplicate tuples, hover=primary, failed-FAB foreground) closed on `0744fde`/`b00e2b4`. Loop A re-pass, Loop B, Loop C re-pass, and extra Loop A on the new hover/error pairs all zero. Agent Guardrails green on HEAD. Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.3: four-theme contrast
 **What I had to decide:** Next leftover after the 8.2 gate.
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Next Phase 8 leftover: correct four-theme contrast failures.

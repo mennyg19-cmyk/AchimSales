@@ -439,8 +439,7 @@ Live gate:
 - [x] Add `aria-modal`, initial focus, focus trap, Escape, inert/background isolation, and opener restoration.
   Evidence: `v3/web/static_src/js/dialog.ts`; adopted on admin edit-user, SharePoint picker, external login, Last Order export/previous-order, report email/schedule. Gate closed on `889af71`. Loops A+B+C zero. Trust-boundary N/A.
 - [x] Fix admin/dashboard table reflow at 320px and 200% zoom. Evidence: `.table-wrap` contains `#userTable`, `#salesmanTable`, and `#dashTable`; tiles shrink via `minmax(min(140px, 100%), 1fr)` plus `min-width: 0`. Chrome CDP layout viewports 320 and 160 CSS px: document `scrollWidth == clientWidth` on `/admin/users` and `/dashboard`. Gate closed on `7bb2ae6`. Loops A+B+C zero. Trust-boundary N/A.
-- [x] Correct all four-theme contrast failures. Evidence: `v3/tests/test_frontend.py`
-  encodes WCAG contrast checks for all four themes; `cd v3 && npm run build` passed.
+- [x] Correct all four-theme contrast failures. Evidence: `v3/tests/test_frontend.py` stdlib WCAG pairs for four themes; `--primary-foreground` / `--success-foreground` / `--error-foreground`; distinct dark/mono-dark `--primary-hover`. Gate closed on `b00e2b4`. Loops A+B+C zero after F1 hover and Loop C craft fixes. Trust-boundary N/A.
 - [ ] Complete searchable-picker option navigation and focus return.
 - [ ] Complete toolbar and tab-option menu keyboard behavior.
 - [ ] Add live status/error announcements for admin, dashboard, Settings, and schedule sends.
