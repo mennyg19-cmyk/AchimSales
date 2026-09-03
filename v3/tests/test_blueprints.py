@@ -915,13 +915,14 @@ def test_salesman_report_view_has_salesman_filter(tmp_path):
     assert "All salesmen" in html
 
 
-def _with_lookups(app, rows):
+def _with_lookups(app, rows, master_rows=None):
     """Replace the app's LookupService with one over a configured fake client
-    that returns `rows` for customer_master, and populate it synchronously."""
+    that returns `rows` for customer_master (and `master_rows` for
+    salesmen_master), and populate it synchronously."""
     from web.reporting.lookups import LookupService
 
-    service = ReportService(_FakeClient({"customer_master": rows}, configured=True),
-                            _FakeSalesmen())
+    by_report = {"customer_master": rows, "salesmen_master": master_rows or []}
+    service = ReportService(_FakeClient(by_report, configured=True), _FakeSalesmen())
     lookup = LookupService(service, _FakeSalesmen())
     lookup._populate()  # synchronous fetch so the endpoints are deterministic
     app.config["LOOKUP_SERVICE"] = lookup
@@ -946,6 +947,37 @@ def test_salesmen_and_customers_lookups(tmp_path):
 
     one = client.get("/api/reports/ordered/customers?salesman=REdwards").get_json()["customers"]
     assert {c["key"] for c in one} == {"100", "300"}
+
+
+def test_salesman_dropdowns_list_master_salesman_with_no_customers(tmp_path):
+    """Report filters, Users & access, company wizard, and Customer's Last Order
+    all read the salesmen_master SP, so a new salesman shows before owning a customer."""
+    rows = [{"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"}]
+    master = [
+        {"SalesGroup": "NewHire", "SalesmanName": "New Hire"},
+        {"SalesGroup": "REdwards", "SalesmanName": "Reggie Edwards"},
+    ]
+    app = _make_app(tmp_path)
+    _with_lookups(app, rows, master_rows=master)
+    client = app.test_client()
+    _login(client, app)
+
+    want = {"NewHire", "REdwards"}
+    for url in ("/api/reports/ordered/salesmen", "/api/master-schedules/lookups/salesmen",
+                "/api/report/customer-last-order/salesmen"):
+        got = client.get(url).get_json()["salesmen"]
+        assert {r["key"] for r in got} == want, url
+    admin = client.get("/api/admin/sales-groups").get_json()["items"]
+    assert {r["key"] for r in admin} == want
+    assert client.get("/api/reports/lookups/status").get_json()["master_row_count"] == 2
+
+    # Scoped users still only see their own salesman.
+    _seed_salesman(app)
+    _login(client, app, email="rep@x.com", role="salesman")
+    uid = UserRepository(app.config["DB"]).get_by_email("rep@x.com").id
+    UserRepository(app.config["DB"]).set_salesman_access(uid, ["REdwards"])
+    got = client.get("/api/reports/ordered/salesmen").get_json()["salesmen"]
+    assert [r["key"] for r in got] == ["REdwards"]
 
 
 def test_lookup_status_endpoint(tmp_path):

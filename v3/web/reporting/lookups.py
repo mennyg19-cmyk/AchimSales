@@ -9,19 +9,40 @@ whatever's cached now (possibly nothing) and the form polls ``status()`` to swap
 in the live list when it's ready.
 
 Salesman values are the raw ``SalesGroup`` strings the run endpoint pushes down
-to the SP (so the dropdown selection round-trips correctly); the display name is
-enriched from the v3 salesman master when one exists.
+to the SP (so the dropdown selection round-trips correctly). The list itself
+comes from the ``salesmen_master`` SP (``rpt.usp_salesmen_master``), which has
+every salesman even before they own a customer. If that SP is unreachable we
+fall back to the distinct SalesGroups on the customer universe, and any customer
+SalesGroup the master does not list is appended so no filter value disappears.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any
 
-from report_engine.lib import salesman_key
+from report_engine.lib import first_of, salesman_key, text
 from web.data.repositories.salesmen import SalesmanRepository
 from web.reporting.report_service import ReportService
+
+log = logging.getLogger(__name__)
+
+_INACTIVE = {"0", "false", "no", "n"}
+
+
+def master_salesman(raw: dict) -> dict | None:
+    """One salesmen_master SP row -> {key, name}; None for blank or inactive rows."""
+    key = text(first_of(raw, "SalesGroup", "sales_group", "salesgroup", "SalesmanId", "Salesman"))
+    if not key:
+        return None
+    active = first_of(raw, "IsActive", "is_active", "Active", "active")
+    if active is not None and text(active).lower() in _INACTIVE:
+        return None
+    name = text(first_of(raw, "SalesmanName", "salesman_name", "Name", "name",
+                         "FullName", "full_name", "DisplayName", "display_name"))
+    return {"key": key, "name": name}
 
 
 class LookupService:
@@ -42,10 +63,12 @@ class LookupService:
         self._lock = threading.Lock()
         self._rows: list | None = None          # cached CustomerFact list
         self._fetched_at = 0.0
+        self._master: list[dict] | None = None  # cached salesmen_master {key, name}
         self._thread: threading.Thread | None = None
         self._state: dict[str, Any] = {
             "status": "idle", "started_at": None, "finished_at": None,
             "elapsed_ms": None, "row_count": 0, "error": None,
+            "master_row_count": 0,
         }
 
     # -- internals --------------------------------------------------------
@@ -77,6 +100,7 @@ class LookupService:
         self._state.update(status="loading", started_at=time.time(),
                            finished_at=None, elapsed_ms=None, error=None)
         try:
+            self._populate_master()
             rows = self.service._customer_universe()  # facts; mirror fallback inside
             with self._lock:
                 self._rows = rows
@@ -93,6 +117,18 @@ class LookupService:
         finally:
             with self._lock:
                 self._thread = None
+
+    def _populate_master(self) -> None:
+        """Refresh the salesmen_master list; keep the last good one on failure."""
+        try:
+            rows = [r for r in map(master_salesman, self.service.salesmen_master()) if r]
+        except Exception as exc:  # noqa: BLE001 - customers still populate without it
+            log.warning("salesmen_master SP unreachable; salesman dropdown falls back "
+                        "to customer SalesGroups: %s", exc)
+            return
+        with self._lock:
+            self._master = rows
+        self._state["master_row_count"] = len(rows)
 
     def _mirror_rows(self) -> list:
         """Persisted customer universe (dashboard mirror); [] if unavailable."""
@@ -129,24 +165,35 @@ class LookupService:
     # -- public -----------------------------------------------------------
 
     def salesmen(self) -> list[dict]:
-        """Distinct salesmen for the dropdown. Never blocks.
+        """Salesmen for every dropdown on the site. Never blocks.
 
         Values are the raw ``SalesGroup`` strings the run endpoint pushes to the
-        SP, sourced from the cached customer universe and enriched with the
-        salesman master's display name. We deliberately do NOT fall back to the
-        master's keys while the universe loads: those keys are normalized
-        (lowercased) and would be the WRONG value to send the SP. The persisted
-        mirror stores the raw SalesGroup, so it's a safe source; absent both the
-        live cache and the mirror we return empty and the form polls status().
+        SP. The list is the ``salesmen_master`` SP when this worker has fetched
+        it (so a new salesman with no customers still appears), plus any customer
+        SalesGroup the master does not list. Before the master is fetched, or if
+        that SP is down, it is the distinct SalesGroups on the customer universe.
+        Names: the SP's name, else the v3 salesmen table's display name, else the
+        raw key. We never fall back to the v3 table's keys: those are normalized
+        (lowercased) and would be the WRONG value to send the SP.
         """
         names = self._name_map()
-        rows = self._universe()
+        with self._lock:
+            master = list(self._master or [])
+        out: list[dict] = []
         seen: set[str] = set()
-        for f in rows:
+        for row in master:
+            norm = salesman_key(row["key"])
+            if norm in seen:
+                continue
+            seen.add(norm)
+            out.append({"key": row["key"], "name": row["name"] or names.get(norm) or row["key"]})
+        for f in self._universe():
             sg = (getattr(f, "sales_group", "") or "").strip()
-            if sg:
-                seen.add(sg)
-        out = [{"key": sg, "name": names.get(salesman_key(sg)) or sg} for sg in seen]
+            norm = salesman_key(sg)
+            if not sg or norm in seen:
+                continue
+            seen.add(norm)
+            out.append({"key": sg, "name": names.get(norm) or sg})
         return sorted(out, key=lambda r: r["name"].lower())
 
     def customers(self, salesman: str | None = None) -> list[dict]:

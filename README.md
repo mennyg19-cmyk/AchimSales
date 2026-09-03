@@ -78,11 +78,15 @@ roll back. The old name `webapp-cache` was retired after `main` became default.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
-On Users & access, a **salesman** login picks a **SalesGroup** from the same
-customer-master list as report salesman filters (not the Salesmen table).
-Managers still use the per-salesman checkboxes. The Salesmen table still holds
-number, names, split-mail, and commission. A new hire with no customers yet
-will not appear in that dropdown until D365 has them on a customer.
+Every salesman dropdown (report filters, Users & access SalesGroup, company
+schedule wizard, Customer's Last Order) is the `salesmen_master` SP
+(`rpt.usp_salesmen_master`, `POST /api/reports/salesmen_master/run`). That list
+has every salesman, so a new hire appears before they own a customer. If that SP
+is down the dropdown falls back to the distinct SalesGroups on the customer
+master; a customer SalesGroup missing from the master is still appended. On
+Users & access, a **salesman** login picks a **SalesGroup** from that list.
+Managers still use the per-salesman checkboxes. The local Salesmen table still
+holds number, names, split-mail, and commission.
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and

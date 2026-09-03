@@ -2,6 +2,20 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Salesman dropdowns read the salesmen_master SP
+
+**What to test:**
+- `LookupService.salesmen()` lists every row from `salesmen_master` (`POST /api/reports/salesmen_master/run`), including a salesman with no customers. Blank keys and `IsActive` false rows are dropped.
+- Name is the SP's name, else the v3 salesmen table display name, else the raw key.
+- A customer SalesGroup missing from the master is still appended.
+- If the master SP fails, customers still populate (`status == ready`) and the dropdown falls back to customer SalesGroups.
+- `/api/reports/<key>/salesmen`, `/api/master-schedules/lookups/salesmen`, `/api/report/customer-last-order/salesmen`, and `/api/admin/sales-groups` all return the master-only salesman. Scoped users still see only their keys. Lookup status has `master_row_count`.
+
+**Expected behavior:**
+- Dropdown values are still raw SalesGroup (`HKaufman`), never the normalized table key.
+
+**Test file:** `v3/tests/test_report_service.py`, `v3/tests/test_blueprints.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

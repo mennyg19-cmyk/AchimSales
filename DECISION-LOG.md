@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Salesman dropdowns read rpt.usp_salesmen_master
+**What you asked for:** Convert every salesman dropdown to `POST /api/reports/salesmen_master/run` so salesmen with no customers still show.
+**What I had to decide:** Column names (this VM cannot reach the Reporting API), what happens when that SP is down, and whether customer SalesGroups absent from the master stay in the list.
+**What I chose:** One `LookupService` feed, fetched in the same background warm-up as customer_master. Adapter accepts `SalesGroup` / `SalesmanId` for the key, `SalesmanName` / `Name` / `FullName` / `DisplayName` for the name, and skips rows whose `IsActive` / `Active` is false. Name: SP first, then the v3 salesmen table overlay, then the raw key. If the SP fails the last good list stays; with none, dropdowns fall back to customer SalesGroups as before. Customer SalesGroups not in the master are appended so no filter value disappears. Values stay raw SalesGroup.
+**Why:** Every dropdown already reads `LookupService.salesmen()`, so one source change covers reports, Users & access, the company wizard, and Customer's Last Order. Fallback keeps the site usable if the new SP is not deployed yet.
+**Status:** DECIDED — shipping this change. If the SP's column names differ, only `master_salesman()` in `v3/web/reporting/lookups.py` needs the extra alias.
+
 ## 2026-09-02 Go-live: inventory live v3, do not rebuild from scratch
 **What you asked for:** Plain-English report of today's fixes; database changes if possible; merge into main; then rebuild-protocol multi-model inventory of the entire site; then browser-click every feature autonomously with commit messages; edge cases; check schedules and Excel output.
 **What I had to decide:** (1) Whether rebuild Phase 2–4 (architecture + from-scratch rebuild) starts after inventory. (2) Where test-log commits go after merging #33. (3) Grill before Phase 0.

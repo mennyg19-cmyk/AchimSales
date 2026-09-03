@@ -375,6 +375,65 @@ def test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key():
     assert sm[0]["name"] == "Reggie"                # display enriched from master
 
 
+_MASTER_ROWS = [
+    {"SalesGroup": "HKaufman", "SalesmanName": "Heshy Kaufman", "IsActive": 1},
+    {"SalesGroup": "REdwards", "SalesmanName": "", "IsActive": 1},
+    {"SalesGroup": "XOld", "SalesmanName": "Retired Rep", "IsActive": 0},
+    {"SalesGroup": "", "SalesmanName": "Blank key"},
+]
+
+
+def test_lookup_salesmen_come_from_salesmen_master_even_without_customers():
+    """The dropdown list is the salesmen_master SP: a salesman with no customers
+    still appears, inactive/blank rows are dropped, names come from the SP with
+    the v3 table's display name as the fallback."""
+    from web.reporting.lookups import LookupService
+
+    svc = _svc({
+        "customer_master": [
+            {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        ],
+        "salesmen_master": _MASTER_ROWS,
+    })
+    lk = LookupService(svc, _FakeSalesmenRepo())
+    lk._populate()
+    assert "salesmen_master" in svc.client.calls
+    sm = lk.salesmen()
+    assert [r["key"] for r in sm] == ["HKaufman", "REdwards"]
+    assert sm[0]["name"] == "Heshy Kaufman"    # from the SP
+    assert sm[1]["name"] == "Reggie"           # SP blank -> v3 table overlay
+    assert lk.status()["master_row_count"] == 2
+
+
+def test_lookup_salesmen_keep_customer_groups_missing_from_master():
+    from web.reporting.lookups import LookupService
+
+    svc = _svc({
+        "customer_master": [
+            {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "House"},
+        ],
+        "salesmen_master": [{"SalesGroup": "HKaufman", "SalesmanName": "Heshy Kaufman"}],
+    })
+    lk = LookupService(svc, _FakeSalesmenRepo())
+    lk._populate()
+    assert [r["key"] for r in lk.salesmen()] == ["HKaufman", "House"]
+
+
+def test_lookup_salesmen_fall_back_to_customer_groups_when_master_sp_is_down():
+    from web.reporting.lookups import LookupService
+
+    svc = _svc({
+        "customer_master": [
+            {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        ],
+    }, fail_ids={"salesmen_master"})
+    lk = LookupService(svc, _FakeSalesmenRepo())
+    lk._populate()
+    assert lk.status()["status"] == "ready"    # customers still populate
+    assert [r["key"] for r in lk.salesmen()] == ["REdwards"]
+    assert lk.status()["master_row_count"] == 0
+
+
 class _MirrorCustomer:
     """Minimal stand-in for a persisted dashboard-mirror customer row."""
 
