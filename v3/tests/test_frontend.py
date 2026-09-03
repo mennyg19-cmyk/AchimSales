@@ -395,7 +395,7 @@ def test_settings_exclusions_use_customer_picker():
 def test_phase_8_6_live_status_announcements():
     admin_html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     admin = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
-    for message_id in ("addUserMsg", "euMsg", "esMsg"):
+    for message_id in ("addUserMsg", "euMsg"):
         assert f'id="{message_id}" role="status" aria-live="polite"' in admin_html
     assert 'setAttribute("aria-live", isError ? "assertive" : "polite")' in admin
     assert 'setAttribute("role", isError ? "alert" : "status")' in admin
@@ -489,10 +489,15 @@ def test_admin_users_has_sales_group_dropdown():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euSalesGroup"' in html
     assert 'id="addSalesGroup"' in html
+    assert 'id="salesmanTable"' not in html
+    assert "Managers and sales reps can see every checked SalesGroup" in html
     assert "data-sales-groups-url" in html
     assert "data-lookup-status-url" in html
     src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
     assert "sales_group: role === \"salesman\"" in src
+    assert 'role !== "manager" && role !== "salesman"' in src
+    assert 'role === "manager" || role === "salesman"' in src
+    assert "keys.add(salesmanKey(salesGroup))" in src
     assert "list_sales_groups" not in src
     assert "data-sales-groups-url" in src
 

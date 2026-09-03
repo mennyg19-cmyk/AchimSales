@@ -10,8 +10,8 @@ in the live list when it's ready.
 
 Salesman values are the raw ``SalesGroup`` strings the run endpoint pushes down
 to the SP (so the dropdown selection round-trips correctly). The list itself is
-the ``SalesmanDirectory`` (``rpt.usp_salesmen_master`` with the local table as
-fallback), so every salesman appears even before they own a customer. Any
+the ``SalesmanDirectory`` (``rpt.usp_salesmen_master``, last good copy kept in
+cache.db), so every salesman appears even before they own a customer. Any
 customer SalesGroup the directory does not list is appended so no filter value
 disappears.
 """
@@ -129,28 +129,19 @@ class LookupService:
         """Salesmen for every dropdown on the site. Never blocks.
 
         Values are the raw ``SalesGroup`` strings the run endpoint pushes to the
-        SP: the ``salesmen_master`` rows once the background warm-up has fetched
-        them (a new salesman with no customers appears here), plus any customer
-        SalesGroup the SP does not list. We never emit the local table's keys as
-        values: those are normalized (lowercased) and would be the WRONG value to
-        send the SP. The local table only supplies display names.
+        SP: the ``salesmen_master`` rows (this process's fetch, else the last good
+        copy in cache.db; the background warm-up refreshes, never this call), plus
+        any customer SalesGroup the SP does not list.
         """
-        names = {salesman_key(m.key): m.name for m in self.directory.rows(wait=False)}
-        out: list[dict] = []
-        seen: set[str] = set()
-        for m in self.directory.sp_rows() or []:
-            norm = salesman_key(m.key)
-            if norm in seen:
-                continue
-            seen.add(norm)
-            out.append({"key": m.key, "name": m.name or m.key})
+        out = [{"key": m.key, "name": m.name or m.key} for m in self.directory.rows(wait=False)]
+        seen = {salesman_key(r["key"]) for r in out}
         for f in self._universe():
             sg = (getattr(f, "sales_group", "") or "").strip()
             norm = salesman_key(sg)
             if not sg or norm in seen:
                 continue
             seen.add(norm)
-            out.append({"key": sg, "name": names.get(norm) or sg})
+            out.append({"key": sg, "name": sg})
         return sorted(out, key=lambda r: r["name"].lower())
 
     def customers(self, salesman: str | None = None) -> list[dict]:

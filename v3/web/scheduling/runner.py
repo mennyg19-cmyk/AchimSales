@@ -31,7 +31,6 @@ from web.data.repositories.schedules import (
     ScheduleRepository,
     ScheduleRunRepository,
 )
-from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
@@ -103,6 +102,14 @@ def _sharepoint_for_test(test_to, live_path: str) -> str:
     return TEST_SHAREPOINT_FOLDER if live_path else ""
 
 
+class _NoSalesmen:
+    def get_email(self, key: str) -> str:
+        return ""
+
+    def keys_with_email(self) -> list[str]:
+        return []
+
+
 class ScheduleRunner:
     def __init__(self, *, schedule_repo: ScheduleRepository,
                  master_repo: MasterScheduleRepository, run_repo: ScheduleRunRepository,
@@ -115,9 +122,9 @@ class ScheduleRunner:
         self.authz = authz
         self.delivery = delivery
         self.settings = settings or AppSettingsRepository(user_repo.db)
-        # Split-mail addresses: the SalesmanDirectory (SP first) in the app; the
-        # local table when a test builds the runner without one.
-        self.salesmen = salesmen or SalesmanRepository(user_repo.db)
+        # Split-mail addresses come from the SalesmanDirectory (salesmen_master SP).
+        # None (tests without one) means no salesman has an address.
+        self.salesmen = salesmen or _NoSalesmen()
         self.defaults = ReportDefaultRepository(user_repo.db)
         self.company_views = CompanyViewRepository(user_repo.db)
 
@@ -136,14 +143,15 @@ class ScheduleRunner:
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
             include_regular: bool = True, recovered: bool = False,
-            job_id: str | None = None, slot_id: str = "") -> int:
+            job_id: str | None = None, slot_id: str = "",
+            manual: bool = False) -> int:
         sched = self._load(schedule_id, schedule_type)
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
 
-        run_id = self.run_repo.start(schedule_id, schedule_type)
+        run_id = self.run_repo.start(schedule_id, schedule_type, manual=manual)
         try:
-            if recovered and self._already_sent_today(schedule_id, schedule_type):
+            if recovered and not manual and self._already_sent_today(schedule_id, schedule_type):
                 self.run_repo.finish(
                     run_id, status="skipped",
                     debug_log="Already sent today; not sending again after a restart",
@@ -178,8 +186,8 @@ class ScheduleRunner:
                     principal, sched.report_key, sharepoint=False)
                 identity = principal.email
             report_name = spec.title if spec else sched.report_key
-            subject = self._subject(sched, schedule_type, report_name)
-            test_to = self._company_test_recipients(schedule_type)
+            subject = self._subject(sched, schedule_type, report_name, manual=manual)
+            test_to = self._test_recipients()
             if test_to is not None:
                 subject = f"[TEST] {subject}"
             od_user = "" if test_to else _onedrive_user(sched, schedule_type, identity)
@@ -225,7 +233,7 @@ class ScheduleRunner:
                 self._hold_fail_notice(run_id, schedule_id, schedule_type, err)
                 raise RuntimeError(err)
             combined = _combine_outcomes(outcomes)
-            meta = _output_meta(combined)
+            meta = _output_meta(combined, manual=manual)
             summary = _summary_message(combined, ok=True)
             if window_errors:
                 summary = (
@@ -438,10 +446,8 @@ class ScheduleRunner:
         from web.data.repositories.users import User
         return User.from_row(row) if row else None
 
-    def _company_test_recipients(self, schedule_type: str) -> list[str] | None:
-        """Test-mode address list for company schedules, or None to send as stored."""
-        if schedule_type != MASTER:
-            return None
+    def _test_recipients(self) -> list[str] | None:
+        """Test-mode address list for any schedule, or None to send as stored."""
         if not self.settings.is_schedule_test_mode():
             return None
         emails = self.settings.test_emails()
@@ -477,8 +483,10 @@ class ScheduleRunner:
         except Exception:  # noqa: BLE001 - never hide the original failure
             log.exception("Could not send schedule failure notice")
 
-    def _subject(self, sched, schedule_type: str, report_name: str) -> str:
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    def _subject(self, sched, schedule_type: str, report_name: str,
+                 *, manual: bool = False) -> str:
+        now = datetime.now(timezone.utc).astimezone(C.EASTERN)
+        stamp = now.strftime("%Y-%m-%d %H:%M") if manual else now.strftime("%Y-%m-%d")
         label = "Master" if schedule_type == MASTER else "Scheduled"
         name = getattr(sched, "name", "") or report_name
         return f"{label}: {name} ({stamp})"
@@ -716,7 +724,7 @@ def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") ->
     }
 
 
-def _output_meta(outcome: DeliveryOutcome) -> dict:
+def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
     r = outcome.result
     meta = {
         "summary": _summary_message(outcome, ok=r.ok),
@@ -734,6 +742,8 @@ def _output_meta(outcome: DeliveryOutcome) -> dict:
         meta["legs"] = list(r.legs)
     if outcome.deliveries:
         meta["deliveries"] = outcome.deliveries
+    if manual:
+        meta["manual"] = True
     return meta
 
 

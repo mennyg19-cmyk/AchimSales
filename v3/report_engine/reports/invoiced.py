@@ -175,20 +175,16 @@ def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
 
 def _commission_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
                      row_rates: Mapping[str, float]) -> float:
-    """The rate to use for one salesman: the SP's per-row rate when present,
-    otherwise the salesman master. Both are fractions (0.06 = 6%)."""
+    """SP per-row rate when present, otherwise the salesmen_master directory.
+
+    Both are fractions (0.06 = 6%). Display and dollars use this same rate:
+    the local salesmen table is gone, so there is no separate saved percent.
+    """
     key = salesman_key(sales_group)
     if key in row_rates:
         return row_rates[key]
     sm = salesmen.get(key)
     return sm.commission_pct if sm else 0.0
-
-
-def _commission_display_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
-                             row_rates: Mapping[str, float]) -> float:
-    """Use the saved salesman percent for display; otherwise show the math rate."""
-    sm = salesmen.get(salesman_key(sales_group))
-    return sm.commission_pct if sm else _commission_rate(sales_group, salesmen, row_rates)
 
 
 # --- per-tab builders -------------------------------------------------------
@@ -295,7 +291,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             "label": r.get("Salesman") or sg,
             "name": r.get("SalesmanName") or (sm.full_name or sm.display_name if sm else "") or sg,
             "pct": rate,
-            "display_pct": _commission_display_rate(sg, salesmen, row_rates),
+            "display_pct": _commission_rate(sg, salesmen, row_rates),
             "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, misc=0.0,
                              credits=0.0)
                         for _ in range(end_month)],
@@ -350,7 +346,6 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         ytd["total_payable"] = ytd["commission"]
         salesmen_out.append({
             "salesman": bucket["label"],
-            "salesman_number": (sm.number if sm else "") or bucket["label"],
             "salesman_name": bucket["name"],
             "commission_pct": bucket["display_pct"], "monthly": monthly_out, "ytd": ytd,
         })
@@ -410,10 +405,9 @@ def _commissions_simple(summary_rows: Sequence[dict],
     for r in summary_rows:
         sg = r.get("_sales_group") or ""
         rate = _commission_rate(sg, salesmen, row_rates) if sg else 0.0
-        display_pct = _commission_display_rate(sg, salesmen, row_rates) if sg else 0.0
         base = round(num(r.get("SubTotal Invoices")) + num(r.get("Total Tariff Charges")), 2)
         out = _public(r)
-        out["Percent"] = display_pct
+        out["Percent"] = rate
         out["Commission Base"] = base
         out["Commissions"] = round(base * rate, 2)
         rows.append(out)

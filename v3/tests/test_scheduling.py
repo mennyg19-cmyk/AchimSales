@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -14,7 +15,6 @@ from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.outbox import OutboxRepository
-from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -28,8 +28,38 @@ from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.scheduling import cadence as C
 from web.scheduling.runner import ScheduleRunner
+from web.reporting.http_client import ReportResult
+from web.reporting.salesman_directory import SalesmanDirectory
 from web.reporting.cache import ReportCache
 from web.reporting.runner import ReportRunner
+
+
+# --- salesman master stand-in (salesmen_master SP rows) ---------------------
+
+@dataclass
+class SalesmanSeed:
+    raw_key: str
+    number: str = ""
+    full_name: str = ""
+    display_name: str = ""
+    email: str = ""
+
+
+class _SpClient:
+    configured = True
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def run_report(self, report_id, params):
+        return ReportResult(report_id=report_id, columns=[], rows=list(self.rows),
+                            row_count=len(self.rows))
+
+
+def _directory(seeds):
+    rows = [{"Salesman": s.raw_key, "SalesmanName": s.full_name or s.display_name,
+             "Email": s.email} for s in seeds]
+    return SalesmanDirectory(_SpClient(rows))
 
 
 # --- cadence ---------------------------------------------------------------
@@ -281,7 +311,7 @@ def test_runner_master_manager_owner_is_scoped(tmp_path):
     migrate(db)
     from report_engine.lib import salesman_key
     mgr = UserRepository(db).upsert("mgr@x.com", display_name="Mgr", role="manager")
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
     ])
@@ -306,7 +336,7 @@ def test_runner_master_manager_owner_is_scoped(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Mgr book", params={}, layout={},
         cadence={"freq": "daily", "time": "08:00"}, recipients="m@x.com",
@@ -319,7 +349,7 @@ def test_runner_master_manager_owner_is_scoped(tmp_path):
 def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
         SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
@@ -341,7 +371,7 @@ def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_pa
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={
             "period": "yesterday",
@@ -370,7 +400,7 @@ def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_pa
 def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="MKolko", email="m@x.com"),
         SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
@@ -394,7 +424,7 @@ def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Salesmen Ordered", params={
             "period": "yesterday", "split_by_salesman": True,
@@ -412,7 +442,7 @@ def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
 def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
     ])
@@ -444,7 +474,7 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Salesmen Ordered", params={
             "period": "yesterday", "split_by_salesman": True,
@@ -477,7 +507,7 @@ def test_runner_does_not_retry_sent_workbook_when_no_data_notice_fails(
     monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
     ])
@@ -513,7 +543,7 @@ def test_runner_does_not_retry_sent_workbook_when_no_data_notice_fails(
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Salesmen Ordered", params={"split_by_salesman": True}, layout={},
         cadence={"freq": "daily", "time": "09:00"}, recipients="manager@x.com")
@@ -528,7 +558,7 @@ def test_runner_does_not_retry_sent_workbook_when_no_data_notice_fails(
 def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
         SalesmanSeed(raw_key="NoMail", number="2", full_name="No Mail",
@@ -550,7 +580,7 @@ def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={
             "salesman": ["MKolko", "NoMail"],
@@ -606,7 +636,7 @@ def test_runner_master_test_mode_redirects_and_skips_sharepoint(tmp_path):
     assert call["subject"].startswith("[TEST] ")
 
 
-def test_runner_personal_ignores_test_mode(tmp_path):
+def test_runner_personal_test_mode_redirects_and_skips_onedrive(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
     from web.data.repositories.app_settings import AppSettingsRepository
@@ -620,7 +650,7 @@ def test_runner_personal_ignores_test_mode(tmp_path):
         def run_and_deliver(self, **kwargs):
             self.calls.append(kwargs)
             return DeliveryOutcome(
-                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                result=DeliveryResult(ok=True, recipients=["menny@x.com"], eml_name="x.eml"),
                 row_count=1,
             )
 
@@ -631,10 +661,14 @@ def test_runner_personal_ignores_test_mode(tmp_path):
         authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
     sid = ScheduleRepository(db).create(
         uid, "ordered", params={}, layout={}, cadence={"freq": "daily", "time": "08:00"},
-        recipients="real@x.com")
+        recipients="real@x.com", sharepoint_path="Personal/Reports")
     runner.run(sid, PERSONAL)
-    assert delivery.calls[0]["recipients"] == "real@x.com"
-    assert not delivery.calls[0]["subject"].startswith("[TEST]")
+    call = delivery.calls[0]
+    assert call["recipients"] == "menny@x.com"
+    assert call["subject"].startswith("[TEST] ")
+    assert call["onedrive_user"] == ""
+    assert call["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
+    assert "real@x.com" not in str(delivery.calls)
 
 
 def test_runner_test_mode_on_without_emails_fails(tmp_path):
@@ -657,6 +691,12 @@ def test_runner_test_mode_on_without_emails_fails(tmp_path):
         runner.run(mid, MASTER)
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert hist[0].status == "failure"
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="real@x.com")
+    with pytest.raises(RuntimeError, match="no test emails"):
+        runner.run(sid, PERSONAL)
 
 
 def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
@@ -664,7 +704,7 @@ def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
     migrate(db)
     from web.data.repositories.app_settings import AppSettingsRepository
     AppSettingsRepository(db).set_schedule_test(enabled=True, emails=["menny@x.com"])
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
         SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
@@ -686,7 +726,7 @@ def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={"email_salesman_keys": ["MKolko", "AGrossman"]},
         layout={}, cadence={"freq": "daily", "time": "08:00"}, recipients="manager@x.com",
@@ -871,6 +911,41 @@ def test_tick_run_now_style_enqueue_still_works_when_restricted(tmp_path, monkey
     job = job_repo.claim_next()
     assert job is not None and job.params["ignore_sabbath"] is True
     assert job.params["slot_id"] == f"manual:{job.id}"
+
+
+def test_manual_run_now_is_not_deduped_and_does_not_eat_the_clock(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.jobs import enqueue_schedule_run
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "05:00"}, recipients="team@x.com")
+
+    class FakeDelivery:
+        def run_and_deliver(self, **kwargs):
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["team@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=FakeDelivery())  # type: ignore[arg-type]
+    runner.run(mid, MASTER, manual=True)
+    runs = ScheduleRunRepository(db)
+    assert runs.last_run_at(mid, MASTER) is None
+    assert runs.list_for_schedule(mid, MASTER)[0].output_meta.get("manual") is True
+
+    job_repo = JobRepository(db)
+    first = enqueue_schedule_run(job_repo, schedule_id=mid, schedule_type=MASTER, manual=True)
+    second = enqueue_schedule_run(job_repo, schedule_id=mid, schedule_type=MASTER, manual=True)
+    assert first != second
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, job_repo, now) == 1
 
 
 def test_tick_mtd_friday_skip_waits_until_monday_same_clock(tmp_path, monkeypatch):
@@ -1216,6 +1291,8 @@ def test_recovered_run_skips_when_already_sent_today(tmp_path, monkeypatch):
     assert [row.status for row in hist] == ["skipped", "success"]
     runner.run(mid, MASTER)
     assert delivery.calls == 2
+    runner.run(mid, MASTER, recovered=True, manual=True)
+    assert delivery.calls == 3
 
 
 def test_recovered_run_notes_retry_when_not_already_sent(tmp_path, monkeypatch):

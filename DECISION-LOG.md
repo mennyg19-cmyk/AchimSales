@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Merge origin/main (ca2d6ec) into PR #35
+**What I had to decide:** How to combine this PR's leftovers with main's drop of the local `salesmen` table, extra SalesGroups, test-mode, and Run-now `manual` jobs. Main also shipped `0019_drop_salesmen.sql` while this branch's unreleased delivery-legs file was already `0019`.
+**Options I considered:** (1) Keep Phase 6.9 display of a local saved percent (impossible: the table is gone). (2) Display and dollars both use `_commission_rate` (SP row when present, else `salesmen_master` directory). (3) Renumber main's drop migration. (4) Rename this PR's unreleased `0019_delivery_legs.sql` to `0020`.
+**What I chose:** (2) and (4). Keep HTTP-only Gunicorn, `enqueue_or_503`, immutable `slot_id` at enqueue, dialog helper, live regions, Phase 6.7 `None` vs `0.0`. Clock jobs still require `slot_id`; Run now gets a unique `schedrun:manual:...:{job_id}` and `slot_id = manual:{job_id}`. `last_run_at` ignores `legacy`/`unknown`/`output_meta.legacy` **and** `output_meta.manual`. Do not restore `bootstrap_background` starting the worker from Flask. Do not restore the salesman grid or `#esMsg`. Do not edit `0019_drop_salesmen.sql`.
+**Why:** Q3's "saved salesman-table percent" died with the table. SP is the only master. Version is the full stem, so 0019 and 0020 both apply. Shipping a second 0019 would collide on production.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.10: replace "check the outbox" copy
 **What I had to decide:** What the email modal should say when the 60-second client wait expires, and whether schedule history's "Outbox file / Outbox id" rows count as stale copy.
 **Options I considered:** (1) Mirror Email me: "check your inbox shortly" — wrong when the recipients are other people or the target is a SharePoint folder. (2) Neutral: "Still sending — it will arrive shortly. You can close this window." (3) Also rename the history rows.
@@ -8,6 +17,39 @@
 **Status:** DECIDED
 **Model:** cursor-grok-4.6-xhigh
 **Runner:** parent
+
+## 2026-09-03 Sales reps can be assigned additional SalesGroups
+**What you asked for:** Allow a sales rep to see another chosen sales rep's information like a manager can.
+**What I chose:** Users & access shows the existing per-salesman checkbox grid for both managers and salesmen. A salesman's primary SalesGroup is always included, and admins/developers can check additional groups. The login remains a salesman, so this does not grant manager reports, commissions, company-view editing, or admin access.
+**Why:** The authorization table already supports several SalesGroups per user. This exposes that scope control without promoting the rep or widening any other permission.
+**Status:** DECIDED — shipping this change.
+
+## 2026-09-03 Drop the Users & access D365 salesman grid
+**What you asked for:** The bottom table on Users & access is unused and should be gone.
+**What I chose:** Remove the read-only "Salesmen in D365" table. SalesGroup dropdowns and manager per-salesman checkboxes still read the SP. Logins stay the only list on that page.
+**Why:** That grid was leftover from dropping the local salesmen table. D365 remains the master; nobody edits it here, so a duplicate list adds nothing.
+**Status:** DECIDED
+
+## 2026-09-03 Test mode covers personal schedules; Run now ignores "already ran today"
+**What you asked for:** Test mode was sending personal schedules to the salesman. Run now did nothing if the schedule had already run today. Both are wrong; Run now is for testing.
+**What I had to decide:** Whether test mode applies to personal the same as company; whether a recovered clock job after a crash still skips; whether Run now eats the 8am slot.
+**What I chose:** Test mode rewrites every schedule (company and personal) to the test list, tags `[TEST]`, and does not write live SharePoint or the owner's OneDrive. Split files still fan out, all to the test list. Run now is a new job every press (`manual`), never collapsed onto today's tick, never skipped for "already sent today", and does not count as today's clock run so 8am still fires. Recovered automatic jobs still skip after a successful clock send.
+**Why:** The old company-only test-mode gate was a product choice you reversed. Run now sharing the tick's once-a-day job key meant a leftover recovered send after this morning's success was skipped, which is the opposite of a test button.
+**Status:** DECIDED — shipping with the drop-salesmen-table PR.
+
+## 2026-09-03 Drop the v3 salesmen table; D365 is the only salesman master
+**What you asked for:** Get rid of the extra salesman table and only use the SP and the users table. Salesman number is not needed anywhere; salesmen are identified by SalesGroup. Losing the in-app Active-off opt-out is fine.
+**What I had to decide:** What replaces the table's fallback role on a cold boot with the SP down; what happens to number, short display name, and Active off; whether to keep any salesman UI.
+**What I chose:** `SalesmanDirectory(client, db)` reads the SP and writes the last good list to `cache.db` `salesmen_master_cache` (rebuildable, not a master you edit). Cold boot with the SP down reads that copy; no SP and no cache means an empty list. `SalesmanFact.number` is removed; the Invoiced commissions card title is the name alone (grid and Excel). Display names are `SalesmanName`. No Active toggle: if D365 lists a salesman, they are in. Users & access keeps a read-only "Salesmen in D365" list; the edit modal, Active toggle, and `PUT /api/admin/salesmen/<key>` are gone. Manager checkboxes list the SP salesmen with normalized keys. Migration `0019_drop_salesmen` drops the table; `SalesmanRepository`, `seed_salesmen.py`, and the `salesman_map.xlsx` seed are deleted. Legacy `/legacy` app untouched.
+**Why:** Two masters drift. Every reader was already behind the directory after 2026-09-03's earlier change, so removing the table is removing a fallback, and the disk cache is a better fallback because it is always the SP's own data.
+**Status:** DECIDED — shipping this change. Irreversible on production `precious.db` once deployed (Litestream backups exist).
+
+## 2026-09-03 Salesman email and commission read from rpt.usp_salesmen_master
+**What you asked for:** "The word" on reading `Email` and `CommissionPercentage` from the SP and retiring the local table's copies.
+**What I had to decide:** How far "retire" goes; what a local Active-off row means when D365 still lists the rep; whether local-only rows disappear; whether `CommissionPercentage` is a percent or a fraction.
+**What I chose:** One `SalesmanDirectory` (SP first, hourly cache per process, last good list kept on failure) behind dropdown names, split-mail addresses, the Users & access email auto-grant, and the builders' commission fallback. Local table keeps number and short display name, fills blanks, and is the whole answer while the SP has not answered. Local Active off still hides a salesman everywhere (admin opt-out for a retired rep D365 still lists). Active local rows the SP does not list stay (deactivate to drop). Email is read-only in Users & access; `email` is no longer an editable field on the salesman API. Local email/commission columns are kept as fallback data, not dropped. Commission above 1 is treated as a whole percent (6 → 0.06), same rule as the invoiced SP's per-row rate.
+**Why:** Every reader already went through a handful of repo methods, so one directory with the same method names swaps the source without touching report math. Keeping the table as fallback means an SP outage degrades to yesterday's behavior instead of empty mail runs. The percent rule is a guess the invoiced adapter already makes; the raw SP shows `CommissionPercentage: 5`-style values, which fits.
+**Status:** DECIDED — shipping this change. Not done: dropping the local `email` / `commission_pct` columns or the seed-from-xlsx path.
 
 ## 2026-09-03 Phase 8.9 gate closed; main merged in
 **What I chose:** Close Phase 8.9 on `e5b1ceb`, then merge `origin/main` (`173c166`, salesmen_master SP work) as `ff8486d`. Trust-boundary N/A.

@@ -104,14 +104,17 @@ reads it once an hour per process and feeds every salesman dropdown (report
 filters, Users & access SalesGroup, company schedule wizard, Customer's Last
 Order), split-by-salesman email addresses, the Users & access email auto-grant,
 and the commission fallback on the Invoiced commissions cards. A new hire
-appears before they own a customer. The local Salesmen table still supplies the
-salesman number and short display name, fills any blank the SP leaves, and is
-the whole answer while the SP is unreachable. Switching a local row to
-**Active off** hides that salesman everywhere even if D365 still lists them.
-Email and commission are no longer editable in Users & access. A customer
-SalesGroup missing from the master is still appended to dropdowns. On Users &
-access, a **salesman** login picks a **SalesGroup** from that list; managers
-still use the per-salesman checkboxes.
+appears before they own a customer. **There is no salesman table in v3** (the
+old `salesmen` table and its `salesman_map.xlsx` seed are gone). To add, rename,
+retire, or re-address a salesman, change D365. The last good SP list is kept in
+`cache.db` (`salesmen_master_cache`) so a worker that boots while the Reporting
+API is down still has it. Salesman numbers are not used anywhere; salesmen are
+identified by SalesGroup. Users & access does not list D365 salesmen; that
+master is only the SalesGroup dropdown and manager checkboxes. A
+customer SalesGroup missing from the master is still appended to dropdowns. On
+Users & access, a **salesman** login picks a **SalesGroup** from that list;
+that primary group plus any additional checked SalesGroups controls the data
+they can see. Managers use the same per-salesman checkboxes (also from D365).
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and

@@ -588,9 +588,7 @@ def _stream_commission(ws, tab: dict) -> None:
     center = Alignment(horizontal="center")
     yy = str(year)[-2:] if year else ""
     for s in salesmen:
-        num = str(s.get("salesman_number") or s.get("salesman") or "").strip()
-        name = str(s.get("salesman_name") or "").strip()
-        title_sm = f"{num} - {name}".strip(" -")
+        title_sm = str(s.get("salesman_name") or s.get("salesman") or "").strip()
         banner = [_cell(ws, _safe_text(title_sm), font=_GROUP_FONT, fill=_GROUP_FILL)]
         banner.append(_cell(ws, "", font=_GROUP_FONT, fill=_GROUP_FILL))
         for lab in labels:

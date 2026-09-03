@@ -1,8 +1,8 @@
 /**
  * Admin "Users & access" page. Server renders the current state; this wires the
- * mutations (add/edit/delete user, per-salesman + per-report access, salesman
- * active toggle + edit) as JSON calls against the admin API. All endpoints are
- * privilege-guarded server-side; this is purely UX.
+ * mutations (add/edit/delete user, per-salesman + per-report access) as JSON
+ * calls against the admin API. Salesmen themselves are read-only here (D365 is
+ * the master). All endpoints are privilege-guarded server-side; this is purely UX.
  */
 
 import { closeDialog, openDialog } from "./dialog";
@@ -13,7 +13,6 @@ const usersUrl = root?.getAttribute("data-users-url") || "";
 const csrf = root?.getAttribute("data-csrf") || "";
 const salesGroupsUrl = root?.getAttribute("data-sales-groups-url") || "";
 const lookupStatusUrl = root?.getAttribute("data-lookup-status-url") || "";
-const salesmenBase = usersUrl.replace(/\/users$/, "/salesmen");
 
 type SalesGroupRow = { key: string; name: string };
 let salesGroups: SalesGroupRow[] = [];
@@ -64,7 +63,7 @@ function syncAddRole(role: string): void {
 
 function syncEditRole(role: string): void {
   setHidden("euSalesGroupWrap", role !== "salesman");
-  setHidden("euSalesmenWrap", role !== "manager");
+  setHidden("euSalesmenWrap", role !== "manager" && role !== "salesman");
 }
 
 function fillSalesGroupSelect(sel: HTMLSelectElement | null, keep: string): void {
@@ -246,13 +245,17 @@ async function saveUser(): Promise<void> {
     return;
   }
   try {
-    if (role === "manager") {
-      const keys = Array.from(
+    if (role === "manager" || role === "salesman") {
+      const keys = new Set(Array.from(
         document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
-      ).map((c) => c.value);
-      const accessResp = await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+      ).map((c) => c.value));
+      if (role === "salesman" && salesGroup) keys.add(salesmanKey(salesGroup));
+      const accessResp = await api(
+        `${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys: [...keys] }
+      );
       if (!accessResp.ok) {
-        setMsg("euMsg", "User saved, but salesman access could not be saved.", true);
+        setMsg("euMsg", (await accessResp.json().catch(() => ({}))).error
+          || "User saved, but salesman access could not be saved.", true);
         return;
       }
     }
@@ -281,51 +284,7 @@ async function deleteUser(): Promise<void> {
   else setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Delete failed", true);
 }
 
-// --- salesman edit + active toggle -----------------------------------------
-let editingSmKey = "";
-
-function initSalesmen(): void {
-  document.querySelectorAll<HTMLInputElement>(".sm-active-toggle").forEach((box) => {
-    box.addEventListener("change", async () => {
-      const key = box.getAttribute("data-key") || "";
-      box.disabled = true;
-      const resp = await api(`${salesmenBase}/${encodeURIComponent(key)}`, "PUT",
-        { is_active: box.checked });
-      if (!resp.ok) box.checked = !box.checked;
-      box.disabled = false;
-    });
-  });
-}
-
-function openSmModal(tr: HTMLTableRowElement): void {
-  editingSmKey = tr.dataset.key || "";
-  (($("esNumber") as HTMLInputElement)).value = tr.dataset.number || "";
-  (($("esFull") as HTMLInputElement)).value = tr.dataset.full || "";
-  (($("esDisplay") as HTMLInputElement)).value = tr.dataset.display || "";
-  setMsg("esMsg", "");
-  show("editSmModal");
-}
-
-async function saveSm(): Promise<void> {
-  if (!editingSmKey) return;
-  const resp = await api(`${salesmenBase}/${encodeURIComponent(editingSmKey)}`, "PUT", {
-    number: (($("esNumber") as HTMLInputElement)).value,
-    full_name: (($("esFull") as HTMLInputElement)).value,
-    display_name: (($("esDisplay") as HTMLInputElement)).value,
-  });
-  if (resp.ok) window.location.reload();
-  else setMsg("esMsg", (await resp.json().catch(() => ({}))).error || "Save failed", true);
-}
-
 // --- helpers ----------------------------------------------------------------
-function show(id: string): void {
-  const el = $(id);
-  if (el) el.style.display = "flex";
-}
-function hide(id: string): void {
-  const el = $(id);
-  if (el) el.style.display = "none";
-}
 function setMsg(id: string, text: string, isError = false): void {
   const el = $(id);
   if (!el) return;
@@ -339,18 +298,13 @@ function initEvents(): void {
     const t = e.target as HTMLElement;
     if (t.closest(".btn-edit-user")) {
       openUserModal(t.closest("tr") as HTMLTableRowElement, t.closest<HTMLElement>(".btn-edit-user")!);
-    } else if (t.closest(".btn-edit-sm")) {
-      openSmModal(t.closest("tr") as HTMLTableRowElement);
     } else if (t.closest("[data-close-user]") || t.id === "editUserModal") {
       const modal = $("editUserModal");
       if (modal) closeDialog(modal);
-    } else if (t.closest("[data-close-sm]") || t.id === "editSmModal") {
-      hide("editSmModal");
     }
   });
   $("euSave")?.addEventListener("click", saveUser);
   $("euDelete")?.addEventListener("click", deleteUser);
-  $("esSave")?.addEventListener("click", saveSm);
   $("euRole")?.addEventListener("change", () => {
     const role = ($("euRole") as HTMLSelectElement | null)?.value || "";
     syncEditRole(role);
@@ -364,7 +318,6 @@ if (root) {
     initSearch();
     initAddUser();
     initSalesGroups();
-    initSalesmen();
     initEvents();
   });
 }

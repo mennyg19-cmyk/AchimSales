@@ -173,18 +173,20 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_delivery.py`
 
-## Salesman email and commission come from the salesmen_master SP
+## The salesmen_master SP is the only salesman master (no v3 table)
 
 **What to test:**
-- `SalesmanDirectory.rows()`: SP `Email` / `CommissionPercentage` / `SalesmanName` win; local table fills blanks; `6` becomes `0.06`; a local row with Active off hides the SP row; active local rows the SP lacks are appended.
-- `all_as_facts()`: number and short display name stay local; full name and commission come from the SP.
-- `get_email`, `emails_by_keys`, `keys_with_email`, `keys_for_email` read the merged list. Before the SP answers (or unconfigured) they read the local table with the old raw-key rule.
-- One SP call per TTL; a failure waits the cooldown before retrying; `rows(wait=False)` never calls the SP.
-- Users & access: Salesmen grid Email column shows the SP address; `PUT /api/admin/salesmen/<key>` with only `email` is 404; `#esEmail` is gone.
-- Wizard `salesmen-emails` and the new-user auto-grant use the SP address. Schedule runner split-mail uses the directory (`salesmen=` kwarg).
-- `LookupService.salesmen()` values come from `sp_rows()` (never local normalized keys); names for customer-only groups still come from the directory.
+- `SalesmanDirectory.rows()` is the SP list sorted by name: blank keys and `IsActive` false rows dropped; `CommissionPercentage` 6 becomes 0.06.
+- `all_as_facts()`: full and display name are `SalesmanName`; commission from the SP. `SalesmanFact` has no `number`.
+- `get_email`, `emails_by_keys`, `keys_with_email`, `keys_for_email` read the SP list.
+- A successful fetch writes `cache.db` `salesmen_master_cache`; a new process whose SP call fails reads that copy (`master_source == "cache"`). No SP and no cache → empty list (`"none"`).
+- One SP call per TTL; a failure waits the cooldown; `rows(wait=False)` never calls the SP.
+- Migration `0019_drop_salesmen` removes the `salesmen` table; `0006_salesmen_master_cache` adds the cache table.
+- Users & access: no D365 salesman grid (`#salesmanTable` gone). No `sm-active-toggle`, `#esEmail`, or `#editSmModal`; `PUT /api/admin/salesmen/<key>` is gone. Manager checkbox values are normalized keys.
+- Invoiced commissions cards have no `salesman_number`; the card title is the name (grid + Excel).
+- Schedule runner split-mail reads the directory (`salesmen=` kwarg); without one nobody has an address.
 
-**Test file:** `v3/tests/test_salesman_directory.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`
+**Test file:** `v3/tests/test_salesman_directory.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_report_invoiced.py`
 
 ## Developer raw Reporting API passthrough
 
@@ -1327,18 +1329,19 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_scheduling.py`
 
-## Phase 6.9 commission display uses saved salesman percent
+## Phase 6.9 commission display uses the same rate as the money
 **What to test:**
-- With a 10% stored-procedure rate and 5% salesman master rate, cards, flat
-  `Commission %`, and simple `Percent` display 5%, while commission dollars use 10%.
-- Explicit stored-procedure zero keeps commission dollars at zero while display stays
-  at the saved 5%; blank stored-procedure rate uses 5% for both.
-- Without a salesman master row, display the stored-procedure math rate. Do not render
+- With a 10% stored-procedure rate and 5% salesmen_master directory rate, cards,
+  flat `Commission %`, and simple `Percent` display 10%, and commission dollars
+  use 10%. The local salesmen table is gone; there is no separate saved percent.
+- Explicit stored-procedure zero keeps both display and dollars at zero; blank
+  stored-procedure rate uses the directory 5% for both.
+- Without a directory row, display the stored-procedure math rate. Do not render
   a “varies” value.
 
 **Expected behavior:**
-- Commission percentages describe the salesman table's saved percent, while money
-  remains governed by the approved per-invoice rate policy.
+- Commission percentages and money both follow the approved per-invoice rate
+  policy (SP row when present, else the salesmen_master directory).
 
 **Test file:** `v3/tests/test_report_invoiced.py`, `v3/tests/test_report_sql_coverage.py`
 
@@ -1437,8 +1440,9 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ## Phase 8.6 live status and error announcements
 **What to test:**
-- Trigger an admin add/edit/delete error and inspect `#addUserMsg`, `#euMsg`, and
-  `#esMsg` for assertive alert semantics.
+- Trigger an admin add/edit/delete error and inspect `#addUserMsg` and `#euMsg`
+  for assertive alert semantics. The salesman-edit `#esMsg` node is gone with
+  the D365 salesman grid.
 - Refresh the dashboard, load Settings exclusions or test-mode feedback, and run a
   personal or company schedule; inspect their status nodes through queued, running,
   success, and failure states.

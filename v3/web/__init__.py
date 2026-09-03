@@ -88,7 +88,6 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.data.repositories.jobs import JobRepository
     from web.data.repositories.outbox import OutboxRepository
     from web.data.repositories.run_log import ReportRunLogRepository
-    from web.data.repositories.salesmen import SalesmanRepository
     from web.delivery.email import EmailService
     from web.delivery.jobs import DELIVERY_JOB_TYPE, make_delivery_handler
     from web.delivery.onedrive import OneDriveService
@@ -109,8 +108,8 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     client = ReportingApiClient(cfg.reporting_api_base_url, cfg.reporting_api_key,
                                 timeout=cfg.reporting_api_timeout)
     # Salesman names, emails and commission come from the salesmen_master SP;
-    # the local table fills blanks and is the fallback when that SP is down.
-    salesmen = SalesmanDirectory(client, SalesmanRepository(db))
+    # the last good list is kept in cache.db for boots while that SP is down.
+    salesmen = SalesmanDirectory(client, db)
     app.config["SALESMAN_DIRECTORY"] = salesmen
     service = ReportService(client, salesmen)
     cache = ReportCache(db)

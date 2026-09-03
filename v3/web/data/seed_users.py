@@ -6,6 +6,8 @@ are inserted. A blank v3 display name can still be filled from Live.
 
 This reads the live DB file directly (read-only); it never imports live code.
 A Live salesman_key is mapped into v3 `user_salesman_access` (normalized).
+The salesman master itself is D365 (salesmen_master SP), not a v3 table.
+Existing v3 rows keep their role and flags (Users & access wins).
 """
 
 from __future__ import annotations
