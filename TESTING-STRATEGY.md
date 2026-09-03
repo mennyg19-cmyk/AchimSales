@@ -1539,3 +1539,15 @@ file); `cd v3 && npm run build`
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated Chrome CDP lifecycle
 check; `cd v3 && npm run build`
+
+## Phase 8.11 schedule wizard errors when saved views fail to load
+**What to test:**
+- Open Add schedule when the views endpoint fails (HTTP error or network).
+- On company schedules, pick a report so the saved-view dropdown loads, with
+  the presets endpoint failing.
+
+**Expected behavior:**
+- Personal wizard shows an error on `#psMsg`, not “No named views yet.”
+- Company wizard shows an error on `#masterMsg` and still offers Default.
+
+**Test file:** `v3/tests/test_frontend.py`; `cd v3 && npm run build`

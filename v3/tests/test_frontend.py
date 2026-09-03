@@ -517,3 +517,19 @@ def test_user_facing_copy_never_mentions_the_outbox():
     assert sources
     for path in sources:
         assert "outbox" not in path.read_text(encoding="utf-8").lower(), path.name
+
+
+def test_schedule_wizard_errors_when_saved_views_fail_to_load():
+    personal = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
+    assert "Could not load saved views. Try again." in personal
+    assert "Could not load saved views. Check your connection and try again." in personal
+    assert "empty.hidden = loadFailed" in personal
+    master = (_SRC / "js" / "master_wizard.ts").read_text(encoding="utf-8")
+    assert "Could not load saved views for this report. Try again." in master
+    assert "Could not load saved views for this report. Check your connection and try again." in master
+    assert "if (!res.ok)" in master
+    # The outbox is a developer-only .eml artifact; users cannot "check" it.
+    sources = sorted((_SRC / "js").glob("*.ts"))
+    assert sources
+    for path in sources:
+        assert "outbox" not in path.read_text(encoding="utf-8").lower(), path.name

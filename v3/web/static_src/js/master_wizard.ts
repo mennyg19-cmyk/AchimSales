@@ -166,13 +166,26 @@ async function loadSavedViews(reportKey: string): Promise<void> {
     sel.value = "default";
     return;
   }
-  const data = await getJSON<{
+  let data: {
     default?: { layout?: Record<string, unknown> };
     company?: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[];
     presets: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[];
-  }>(
-    `/api/reports/${encodeURIComponent(reportKey)}/presets`,
-  );
+  } | null = null;
+  try {
+    const res = await fetch(`/api/reports/${encodeURIComponent(reportKey)}/presets`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) {
+      masterMsg("Could not load saved views for this report. Try again.", true);
+      return;
+    }
+    data = await res.json();
+  } catch {
+    masterMsg("Could not load saved views for this report. Check your connection and try again.", true);
+    return;
+  }
+  masterMsg("", false);
   const defLayout = (data?.default?.layout && typeof data.default.layout === "object")
     ? data.default.layout : {};
   sel.options[0].dataset.preset = JSON.stringify({ params: {}, layout: defLayout });

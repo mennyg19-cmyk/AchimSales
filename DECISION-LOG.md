@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.11: error when saved-view load into a schedule fails
+**What I had to decide:** Next leftover after 8.10, and what “report-to-schedule draft transfer” means in this codebase (there is no draft object).
+**Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report tablist / live status. (4) The named leftover: personal `loadViews` and company `loadSavedViews` swallow fetch failures and look like an empty or Default-only list.
+**What I chose:** (4). Show a clear error on the existing wizard status nodes. Keep the genuine empty-state copy. Default stays on the company picker so a failed catalog load does not block scheduling Default.
+**Why:** Plan text is specific. The silent catch is the only transfer of report views into a schedule draft.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.10 gate closed
 **What I chose:** Close Phase 8.10. Trust-boundary N/A.
 **Why:** Loop A (Terra) and Loop B (Sonnet) zero findings on HEAD `852cafb` (after merging `main` @ `ca2d6ec`). Loop C craft: one optional belt-and-suspenders nit on `closeEmailModal` nulling `watchedEmailJob`; left in place because Escape only hides the overlay and the null is the close-button path. Agent Guardrails green on the merge commit. `emailMe` inbox copy is intentional. Ship.

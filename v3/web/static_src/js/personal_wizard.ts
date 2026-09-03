@@ -41,6 +41,8 @@ function msg(text: string, isError: boolean): void {
   el.textContent = text;
   el.hidden = !text;
   el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
+  el.setAttribute("aria-live", isError ? "assertive" : "polite");
+  el.setAttribute("role", isError ? "alert" : "status");
 }
 
 function selectedView(): { view: ViewRow; owner: ViewGroup } | null {
@@ -150,7 +152,7 @@ function viewCard(v: ViewRow, selectedId: string, note: string): HTMLLabelElemen
   return lab;
 }
 
-function renderViews(groups: ViewGroup[], selectedId: string): void {
+function renderViews(groups: ViewGroup[], selectedId: string, loadFailed = false): void {
   const box = document.getElementById("psViewList");
   const empty = document.getElementById("psViewEmpty");
   if (!box) return;
@@ -158,7 +160,8 @@ function renderViews(groups: ViewGroup[], selectedId: string): void {
   const flat = groups.flatMap((g) => g.views.map((v) => ({ g, v })));
   const hasLocked = !!(lockedView && !flat.some((x) => String(x.v.id) === String(lockedView!.view.id)));
   if (!flat.length && !hasLocked) {
-    if (empty) empty.hidden = false;
+    // A failed fetch is not “you have no views.”
+    if (empty) empty.hidden = loadFailed;
     return;
   }
   if (empty) empty.hidden = true;
@@ -185,14 +188,29 @@ function renderViews(groups: ViewGroup[], selectedId: string): void {
 
 async function loadViews(selectedId: string): Promise<void> {
   const url = wiz()?.getAttribute("data-views-url") || "";
-  if (!url) return;
+  if (!url) {
+    viewCache = [];
+    renderViews([], selectedId, true);
+    msg("Could not load saved views.", true);
+    return;
+  }
   try {
     const res = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
     const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      viewCache = [];
+      renderViews([], selectedId, true);
+      msg((data as { error?: string }).error || "Could not load saved views. Try again.", true);
+      return;
+    }
     viewCache = (data.groups || []) as ViewGroup[];
   } catch {
     viewCache = [];
+    renderViews([], selectedId, true);
+    msg("Could not load saved views. Check your connection and try again.", true);
+    return;
   }
+  msg("", false);
   renderViews(viewCache, selectedId);
 }
 
