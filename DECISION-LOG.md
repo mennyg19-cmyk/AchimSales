@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.7 gate closed
+**What I chose:** Close Phase 8.7 on `708e9c0`. Trust-boundary N/A.
+**Why:** Loop A (Terra), Loop B (Sonnet), Loop C (Sonnet) all zero findings. Loop B independently measured `.sp-picker-close` live at 44×44 via the SharePoint wizard. Agent Guardrails green on HEAD. All five selectors (`.help-btn`, `.modal-close`, `.sp-picker-close`, `.customer-chip`, `.sched-day-chip`) at 44px min. Ponytail: Lean. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.7: 44px help/filter/chip/day/close targets
 **What I had to decide:** Next leftover after the 8.6 gate.
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report-page live status (item 8 remainder). (4) Next Phase 8 leftover: 44px targets on remaining help/filter/chip/day/close controls.
