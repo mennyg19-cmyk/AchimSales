@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.6: live status/error announcements
+**What I had to decide:** Next leftover after the 8.5 gate.
+**Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report-page `#reportStatus` plus jobs FAB (REPOSITORY-REVIEW item 8 remainder). (4) Next Phase 8 leftover: live announcements for admin, dashboard, Settings, and schedule sends.
+**What I chose:** (4). Announce status and errors on those four named surfaces. `aria-live="polite"` for progress/success; `aria-live="assertive"` (or `role=alert`) for errors. Reuse existing message nodes (`#addUserMsg`, `#euMsg`, `#esMsg`, `#psMsg`, `#masterMsg`, Settings hints) and add a region only where status is button-text-only today (dashboard refresh, schedule Run now). Keep current look. Do not start report-page status, 44px, reduced motion, or pollers in this slice.
+**Why:** The leftover names those four surfaces. Wizards already have polite live regions; admin/dashboard/Settings/Run now mostly do not. Item 8’s report-run status waits. Q8/Q9 and Phase 7 stay blocked.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 8.5 gate closed
+**What I chose:** Close Phase 8.5 on `6b7cce0`. Trust-boundary N/A.
+**Why:** Loop A F1 (tab-menu outside click restored focus) closed on `63be8cf`/`6b7cce0`. Fresh Loop A re-pass, Loop B, and Loop C all zero. Agent Guardrails green on HEAD. Export, More, and tab-option menus have WAI-ARIA keyboard; caret is a named menu button. Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.5: toolbar and tab-option menu keyboard
 **What I had to decide:** Next leftover after the 8.4 gate.
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report tablist/tab/tabpanel (REPOSITORY-REVIEW item 6). (4) Next Phase 8 leftover: toolbar and tab-option menu keyboard.

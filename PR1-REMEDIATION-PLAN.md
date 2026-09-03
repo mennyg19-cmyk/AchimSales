@@ -446,6 +446,8 @@ Live gate:
   mocked completed Ordered result verified Arrow/Home/End, Enter, Escape focus
   return, and Tab close on Export, More, and tab options. The tab caret is a
   named `aria-haspopup=menu` button; tablist behavior remains deferred.
+  Loop A F1 (outside-click restoreFocus) closed on `63be8cf`/`6b7cce0`.
+  Gate closed on `6b7cce0`. Loops A+B+C zero. Trust-boundary N/A.
 - [ ] Add live status/error announcements for admin, dashboard, Settings, and schedule sends.
 - [ ] Bring remaining help/filter/chip/day/close controls to 44px targets.
 - [ ] Respect reduced motion for JavaScript scrolling.
