@@ -394,7 +394,8 @@ Implement only after owner decisions are recorded.
   - [ ] ensure deployment-day historical rows do not suppress the next real clock slot
 - [x] Enforce kept-run expiry on result access. Evidence:
   `python3 -m pytest tests/test_blueprints.py tests/test_jobs.py -q` — 184 passed.
-- [ ] Prune expired kept payloads.
+- [x] Prune expired kept payloads. Evidence:
+  `python3 -m pytest tests/test_jobs.py tests/test_blueprints.py -q -k 'cleanup or kept_run or keep_run'` — 7 passed.
 - [ ] Prune expired magic-link attempts, delivery legs, old jobs, and run history per approved retention.
 - [x] Make SharePoint fail closed when configured `SP_SITE_URL` cannot resolve; never tenant-search a substitute site.
 - [ ] Require operate/edit permission for company **Send now**.
