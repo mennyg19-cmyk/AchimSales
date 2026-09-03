@@ -6,6 +6,8 @@ Reporting API client and the worker drained inline (no background thread).
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from web import create_app
@@ -635,6 +637,60 @@ def test_keep_report_run_stores_name(tmp_path):
             if j["job_id"] == job_id][0]
     assert mine["keep_name"] == "Monday morning" and mine["kept"] is True
     assert mine["finished_at"]
+
+
+def test_kept_run_expiry_blocks_result_and_export_without_enqueuing(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post(
+        "/api/reports/ordered/run", json={"period": "all_time"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).get_json()["job_id"]
+    kept = client.post(
+        f"/api/reports/runs/{job_id}/keep", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert kept.status_code == 200
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET kept_until=? WHERE id=?",
+            ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(), job_id),
+        )
+    job = app.config["JOB_REPO"].get(job_id)
+    assert app.config["REPORT_CACHE"].exists(job.result_ref)
+    job_count = len(app.config["JOB_REPO"].list_for_user(job.owner_user_id))
+
+    result = client.get(f"/api/reports/result/{job_id}")
+    export = client.post(
+        f"/api/reports/ordered/export/{job_id}", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert result.status_code == export.status_code == 404
+    assert "Result expired; please re-run" in result.get_data(as_text=True)
+    assert "Result expired; please re-run" in export.get_data(as_text=True)
+    assert len(app.config["JOB_REPO"].list_for_user(job.owner_user_id)) == job_count
+
+
+def test_kept_run_with_future_expiry_still_returns_result(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post(
+        "/api/reports/ordered/run", json={"period": "all_time"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).get_json()["job_id"]
+    client.post(
+        f"/api/reports/runs/{job_id}/keep", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET kept_until=? WHERE id=?",
+            ((datetime.now(timezone.utc) + timedelta(days=1)).isoformat(), job_id),
+        )
+
+    assert client.get(f"/api/reports/result/{job_id}").status_code == 200
 
 
 def test_active_report_runs_is_owner_scoped(tmp_path):

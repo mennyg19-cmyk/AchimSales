@@ -1216,3 +1216,16 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_dates.py`, `v3/tests/test_params.py`,
 `v3/tests/test_blueprints.py`
+
+## Phase 6.4 kept-run expiry
+**What to test:**
+- A successful kept run with cache still present returns 404 from both result
+  GET and export POST once `kept_until` is in the past.
+- The expired export request creates no export job. A future `kept_until` still
+  returns the cached result.
+
+**Expected behavior:**
+- Keep expiry prevents result access and export generation; an unkept run stays
+  governed by cache presence alone.
+
+**Test file:** `v3/tests/test_blueprints.py`
