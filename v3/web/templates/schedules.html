@@ -62,7 +62,7 @@
                     </td>
                     <td>{{ r.rows if r.rows is not none else '—' }}</td>
                     <td class="run-log-msg">{{ r.message or '—' }}</td>
-                    <td><a class="btn btn-sm btn-outline" href="{{ r.history_url }}">History</a></td>
+                    <td><a class="btn btn-sm btn-outline" href="{{ r.log_url }}">Log</a></td>
                 </tr>
                 {% endfor %}
             </tbody>

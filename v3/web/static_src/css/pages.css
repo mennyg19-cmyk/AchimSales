@@ -311,13 +311,40 @@
 .report-status-info { background: var(--primary-light); color: var(--primary); }
 .report-status-error { background: var(--error-light); color: var(--error); }
 .live-job-log {
-    max-height: 420px; overflow: auto; margin: 0 0 12px; padding: 10px 14px 10px 28px;
+    max-height: 420px; overflow: auto; margin: 0 0 12px; padding: 8px 12px;
+    list-style: none;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);
-    font-size: 12px; line-height: 1.45; color: var(--text); word-break: break-word;
+    font-size: 12px; line-height: 1.45; color: var(--text);
 }
 .live-job-log[hidden] { display: none !important; }
-.live-job-log li { margin: 4px 0; }
-.live-job-t { color: var(--text-muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.live-job-head, .live-job-entry {
+    display: grid;
+    grid-template-columns: minmax(9.5rem, 12rem) minmax(4.5rem, 7rem) 1fr minmax(4.5rem, auto);
+    gap: 4px 12px;
+    align-items: start;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+}
+.live-job-head {
+    font-size: 11px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.4px;
+    position: sticky; top: 0; background: var(--bg-card); z-index: 1;
+}
+.live-job-t { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.live-job-step { font-weight: 700; color: var(--text); word-break: break-word; }
+.live-job-detail { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.live-job-ms { color: var(--text-muted); font-variant-numeric: tabular-nums; text-align: right; }
+@media (max-width: 640px) {
+    .live-job-head { display: none; }
+    .live-job-entry {
+        grid-template-columns: 1fr auto;
+        grid-template-areas: "t ms" "step step" "detail detail";
+    }
+    .live-job-t { grid-area: t; }
+    .live-job-ms { grid-area: ms; }
+    .live-job-step { grid-area: step; }
+    .live-job-detail { grid-area: detail; }
+}
 .run-log-panel .live-job-log { margin: 8px 12px 12px; }
 .active-jobs {
     margin: 8px 12px 0; padding: 8px 12px;
@@ -329,7 +356,11 @@
     padding: 6px 0;
 }
 .active-job + .active-job { border-top: 1px solid var(--border); }
-.active-job-label { font-size: 13px; color: var(--text); }
+.active-job-label {
+    background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+    text-align: left; font: inherit; font-size: 13px; color: var(--text);
+    text-decoration: underline; text-underline-offset: 2px;
+}
 .active-job-step { color: var(--text-muted); font-size: 12px; }
 .status-link {
     background: none; border: none; padding: 0; margin: 0; cursor: pointer;
@@ -653,8 +684,7 @@
 .run-history-meta dt { color: var(--text-muted); font-weight: 600; margin: 0; }
 .run-history-meta dd { margin: 0; color: var(--text); word-break: break-word; }
 .run-history-subhead { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; margin: 12px 0 6px; }
-.run-job-log { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); }
-.run-job-log li { margin: 3px 0; word-break: break-word; }
+.run-history-card .live-job-log { margin: 0; }
 .run-delivery-legs { margin: 0; padding-left: 18px; font-size: 13px; color: var(--text); }
 .run-delivery-legs li { margin: 4px 0; }
 .leg-ok { color: var(--text); }

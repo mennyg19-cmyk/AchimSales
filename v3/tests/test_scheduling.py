@@ -931,8 +931,26 @@ def test_runner_failure_holds_fail_mail_until_flush(tmp_path, monkeypatch):
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={}, layout={},
         cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
-    with pytest.raises(RuntimeError, match="SharePoint dropped"):
-        runner.run(mid, MASTER)
+    from web.jobs.trace import bind, step, unbind
+
+    class _LogSink:
+        def append_log(self, job_id, entry):
+            return None
+
+        def get(self, job_id):
+            return None
+
+    bind("job-fail-1", _LogSink())
+    step("api", "Reporting API POST ordered")
+    try:
+        with pytest.raises(RuntimeError, match="SharePoint dropped"):
+            runner.run(mid, MASTER, job_id="job-fail-1")
+    finally:
+        unbind()
+    failed = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)[0]
+    assert failed.output_meta.get("job_id") == "job-fail-1"
+    log = failed.output_meta.get("job_log") or []
+    assert log and log[0]["step"] == "api"
     assert delivery.email.notices == []
     assert runner.flush_pending_fail_notices(wait_s=0) == 1
     assert delivery.email.notices == [{

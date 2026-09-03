@@ -111,8 +111,10 @@ steps: view, when, where). Admins and developers can also schedule **Default**
 from More → Schedule or the personal wizard. Company schedules stay on the
 old 5-step wizard under Settings (admins and developers). While a report or
 schedule job is running, the status line (and Run now) shows the live step:
-Reporting API, workbook, SharePoint/OneDrive, email. Schedule history keeps
-that log. First SharePoint use of a worker looks up `SP_SITE_URL` only; a
+Reporting API, workbook, SharePoint/OneDrive, email. Each recent run has a
+Log page (Time, Step, Detail for that job only). The schedule row History
+button still lists every run for that schedule. First SharePoint use of a
+worker looks up `SP_SITE_URL` only; a
 bad URL fails instead of searching every site in the tenant.
 
 ```powershell

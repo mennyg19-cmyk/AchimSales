@@ -1686,11 +1686,52 @@ def test_schedule_create_run_history_and_delete(tmp_path):
     runs = recent.get_json()["runs"]
     assert runs and runs[0]["status"] == "success"
     assert runs[0]["schedule_id"] == sid
+    assert runs[0]["log_url"] == f"/schedules/runs/{runs[0]['id']}"
+    log_page = client.get(runs[0]["log_url"])
+    assert log_page.status_code == 200
+    log_html = log_page.get_data(as_text=True)
+    assert "live-job-entry" in log_html
+    assert "live-job-step" in log_html
+    assert "live-job-detail" in log_html
+    assert f"/schedules/{sid}/history" in log_html
+    other = app.test_client()
+    _login(other, app, email="rep@x.com", role="salesman")
+    assert other.get(runs[0]["log_url"]).status_code == 404
 
     # toggle + delete
     assert client.post(f"/api/schedules/{sid}/toggle", json={"active": False},
                        headers={"X-CSRF-Token": _CSRF}).status_code == 200
     assert client.delete(f"/api/schedules/{sid}", headers={"X-CSRF-Token": _CSRF}).status_code == 200
+
+
+def test_admin_can_open_someone_elses_run_log(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    vid = _named_view(rep, params={"period": "all_time"})
+    created = rep.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201, created.get_data(as_text=True)
+    sid = created.get_json()["id"]
+    run = rep.post(f"/api/schedules/{sid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
+    runs = [r for r in rep.get("/api/schedules/recent-runs").get_json()["runs"]
+            if r["schedule_id"] == sid]
+    assert runs
+    log_url = runs[0]["log_url"]
+    admin = app.test_client()
+    _login(admin, app)
+    page = admin.get(log_url)
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert "live-job-entry" in html
+    assert "live-job-step" in html
+    assert "this run only" in html.lower()
+    stranger = app.test_client()
+    _login(stranger, app, email="other@x.com", role="salesman")
+    assert stranger.get(log_url).status_code == 404
 
 
 def test_schedule_requires_recipient_or_sharepoint(tmp_path):

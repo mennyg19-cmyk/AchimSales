@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Run log{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <a class="back-link" href="{{ back_url }}">
+        <i data-feather="arrow-left"></i> Schedules
+    </a>
+    <h1 class="page-title">{{ title }} — run log</h1>
+    <p class="page-subtitle">
+        <span class="mini-flag">{{ kind }}</span>
+        This run only.
+        <a href="{{ history_url }}">All runs for this schedule</a>
+    </p>
+</div>
+
+<article class="run-history-card {% if run.status == 'failure' %}is-failure{% elif run.status == 'success' %}is-success{% endif %}">
+    <header class="run-history-head">
+        <span class="badge {% if run.status == 'success' %}badge-success{% elif run.status == 'failure' %}badge-error{% else %}badge-salesman{% endif %}">
+            {{ run.status|title }}
+        </span>
+        <span class="run-history-when">{{ run.started_at or '—' }}{% if run.finished_at %} → {{ run.finished_at }}{% endif %}</span>
+        <span class="run-history-rows">{{ run.rows if run.rows is not none else '—' }} rows</span>
+    </header>
+    <p class="run-history-summary">{{ run.debug_log or meta.get('summary') or '—' }}</p>
+    <h3 class="run-history-subhead">Run log</h3>
+    {% if job_log %}
+    <ol id="runJobLog" class="live-job-log"{% if job_url %} data-job-url="{{ job_url }}"{% endif %}>
+        {% with entries = job_log %}{% include "_job_log_entries.html" %}{% endwith %}
+    </ol>
+    {% else %}
+    <p class="run-log-empty" id="runJobEmpty">No step log stored for this run.</p>
+    <ol id="runJobLog" class="live-job-log" hidden{% if job_url %} data-job-url="{{ job_url }}"{% endif %}></ol>
+    {% endif %}
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/schedules.js') }}?v={{ asset_v }}"></script>
+{% endblock %}

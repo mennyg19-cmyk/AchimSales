@@ -122,12 +122,15 @@ class ScheduleRunner:
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
             include_regular: bool = True, recovered: bool = False,
-            manual: bool = False) -> int:
+            manual: bool = False, job_id: str | None = None) -> int:
         sched = self._load(schedule_id, schedule_type)
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
 
-        run_id = self.run_repo.start(schedule_id, schedule_type, manual=manual)
+        extra = {"job_id": job_id} if job_id else None
+        run_id = self.run_repo.start(
+            schedule_id, schedule_type, manual=manual, extra_meta=extra,
+        )
         try:
             raise_if_cancelled()
             if recovered and not manual and self._already_sent_today(schedule_id, schedule_type):
@@ -233,6 +236,7 @@ class ScheduleRunner:
             if existing is None or existing.status == "running":
                 self.run_repo.finish(
                     run_id, status="cancelled", debug_log="Cancelled",
+                    output_meta=_log_meta(),
                 )
             raise
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
@@ -265,10 +269,10 @@ class ScheduleRunner:
         self._supersede_pending_fail_notices(schedule_id, schedule_type)
         self.run_repo.finish(
             run_id, status="failure", debug_log=error,
-            output_meta={
+            output_meta=_log_meta({
                 "fail_notice": _FAIL_NOTICE_PENDING,
                 "fail_error": error,
-            },
+            }),
         )
 
     def _supersede_pending_fail_notices(self, schedule_id: int, schedule_type: str) -> None:
@@ -704,9 +708,14 @@ def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") ->
     }
 
 
-def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
+def _log_meta(extra: dict | None = None) -> dict:
     from web.jobs.trace import snapshot
+    meta = dict(extra or {})
+    meta["job_log"] = snapshot()
+    return meta
 
+
+def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
     r = outcome.result
     meta = {
         "summary": _summary_message(outcome, ok=r.ok),
@@ -720,9 +729,7 @@ def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
         "recipients": r.recipients,
         "error": r.error or "",
     }
-    job_log = snapshot()
-    if job_log:
-        meta["job_log"] = job_log
+    meta.update(_log_meta())
     if outcome.deliveries:
         meta["deliveries"] = outcome.deliveries
     if manual:

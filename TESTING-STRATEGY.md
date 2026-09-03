@@ -2,6 +2,17 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Recent run Log is that job only
+
+**What to test:**
+- `GET /api/schedules/recent-runs` `log_url` is `/schedules/runs/<run id>`, not `/schedules/<schedule id>/history`.
+- `GET /schedules/runs/<id>` shows that run's log with Time / Step / Detail (`live-job-entry`). Schedule table History still goes to schedule history.
+- Salesman 404 on someone else's run. Owner 200. Privileged 200 on someone else's personal run.
+- Failure `finish` keeps `job_id` and stores `job_log`. `finish` does not drop `job_id` from start meta.
+- Frontend: recent log button is Log; `renderJobLog` writes `live-job-step` / `live-job-detail`; reload watches the first active job.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_repositories_delivery.py`, `v3/tests/test_frontend.py`
+
 ## Live job step log; first SharePoint save does not search the whole tenant
 
 **What to test:**

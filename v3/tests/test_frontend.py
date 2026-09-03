@@ -354,13 +354,27 @@ def test_live_job_log_shows_every_entry():
     assert 'from "./job_log"' in report_js
     assert 'renderJobLog($("jobLiveLog"), job.log)' in report_js
     sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
-    assert "renderJobLog(live, job.log)" in sched_js
+    assert 'from "./job_log"' in sched_js
+    assert "pollJobLog(url, live" in sched_js
+    assert "js-watch-job" in sched_js
+    assert 'href="${esc(r.log_url)}">Log</a>' in sched_js
     assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
+    assert 'href="{{ r.log_url }}">Log</a>' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert "schedule_history" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    run_page = (_V3 / "web" / "templates" / "schedule_run.html").read_text(encoding="utf-8")
+    assert 'id="runJobLog"' in run_page
     log_js = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")
     assert "export function renderJobLog" in log_js
+    assert "export async function pollJobLog" in log_js
+    assert "live-job-entry" in log_js
+    assert "live-job-step" in log_js
+    assert "live-job-detail" in log_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".live-job-log" in css
+    assert ".live-job-entry" in css
+    assert ".live-job-step" in css
+    assert ".live-job-detail" in css
     assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert "data-cancel-url" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")

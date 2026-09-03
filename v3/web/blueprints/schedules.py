@@ -361,6 +361,35 @@ def _personal_or_404(schedule_id: int, p):
     abort(404, description="Unknown schedule")
 
 
+def _run_or_404(run_id: int, p):
+    """Owner (or privileged) for personal; admins for company."""
+    run = _runs().get(run_id)
+    if run is None or run.schedule_id is None:
+        abort(404, description="Unknown run")
+    if run.schedule_type == PERSONAL:
+        _personal_or_404(run.schedule_id, p)
+    elif run.schedule_type == MASTER:
+        _require_admin(p)
+        if _master().get(run.schedule_id) is None:
+            abort(404, description="Unknown run")
+    else:
+        abort(404, description="Unknown run")
+    return run
+
+
+def _run_title(run) -> str:
+    if run.schedule_type == PERSONAL:
+        sched = _repo().get_any(run.schedule_id)
+        if sched is None:
+            return f"Schedule #{run.schedule_id}"
+        spec = registry.get(sched.report_key)
+        return spec.title if spec else sched.report_key
+    sched = _master().get(run.schedule_id)
+    if sched is None:
+        return f"Company #{run.schedule_id}"
+    return sched.name or sched.report_key
+
+
 def _report_title(report_key: str) -> str:
     spec = registry.get(report_key)
     return spec.title if spec else report_key
@@ -501,11 +530,9 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
             if r.schedule_id not in personal_ids:
                 continue
             title = personal_titles.get(r.schedule_id, f"Schedule #{r.schedule_id}")
-            history_url = url_for("schedules.schedule_history", schedule_id=r.schedule_id)
             kind = "Personal"
         elif r.schedule_type == MASTER and include_master and r.schedule_id in master_titles:
             title = master_titles.get(r.schedule_id, f"Company #{r.schedule_id}")
-            history_url = url_for("schedules.master_history", schedule_id=r.schedule_id)
             kind = "Company"
         else:
             continue
@@ -521,7 +548,7 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
             "rows": r.rows,
             "message": r.debug_log or meta.get("summary") or "",
             "send_channel": meta.get("send_channel") or "",
-            "history_url": history_url,
+            "log_url": url_for("schedules.run_log", run_id=r.id),
         })
         if len(out) >= limit:
             break
@@ -819,6 +846,32 @@ def master_history(schedule_id: int):
         "schedule_history.html", active_tab="schedules",
         report_title=title, cadence=C.describe(sched.cadence),
         schedule_type=MASTER, schedule_id=schedule_id, runs=runs,
+    )
+
+
+@schedules_bp.get("/schedules/runs/<int:run_id>")
+@require_login
+def run_log(run_id: int):
+    p = _principal()
+    run = _run_or_404(run_id, p)
+    meta = run.output_meta or {}
+    job_id = str(meta.get("job_id") or "").strip()
+    job_url = ""
+    if job_id and (run.status in ("running", "queued") or not meta.get("job_log")):
+        job_url = url_for("reports.job_status", job_id=job_id)
+    if run.schedule_type == MASTER:
+        back_url = url_for("schedules.company_schedules_page")
+        history_url = url_for("schedules.master_history", schedule_id=run.schedule_id)
+        kind = "Company"
+    else:
+        back_url = url_for("schedules.schedules_page")
+        history_url = url_for("schedules.schedule_history", schedule_id=run.schedule_id)
+        kind = "Personal"
+    return render_template(
+        "schedule_run.html", active_tab="schedules",
+        run=run, meta=meta, job_log=meta.get("job_log") or [],
+        job_url=job_url, title=_run_title(run), kind=kind,
+        back_url=back_url, history_url=history_url,
     )
 
 

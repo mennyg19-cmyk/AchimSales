@@ -100,10 +100,12 @@ def test_schedule_runs_history_and_last_run(db, user_id):
     sched = ScheduleRepository(db)
     sid = sched.create(user_id, "ordered", params={}, layout={}, cadence={})
     runs = ScheduleRunRepository(db)
-    rid = runs.start(sid, PERSONAL)
+    rid = runs.start(sid, PERSONAL, extra_meta={"job_id": "job-1"})
     runs.finish(rid, status="success", rows=42, output_meta={"file": "x.xlsx"})
     history = runs.list_for_schedule(sid, PERSONAL)
     assert len(history) == 1 and history[0].status == "success" and history[0].rows == 42
+    assert history[0].output_meta.get("job_id") == "job-1"
+    assert history[0].output_meta.get("file") == "x.xlsx"
     assert runs.last_run_at(sid, PERSONAL) is not None
     manual_id = runs.start(sid, PERSONAL, manual=True)
     runs.finish(manual_id, status="success", rows=1, output_meta={"file": "y.xlsx"})

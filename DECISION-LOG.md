@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Recent run Log is that job only (hotfix)
+**What you asked for:** History under the recent run log was the whole schedule. After reload or opening someone else's job, the log was empty or one mashed line with no fields.
+**What I had to decide:** Whether the schedule table History button also becomes per-run.
+**What I chose:** Recent run log button is **Log** → `/schedules/runs/<id>` (that run only, Time/Step/Detail). Schedule table **History** stays all-runs. Persist `job_id` on start and `job_log` on success/failure/cancel (`finish` keeps existing `job_id`). Privileged users can open someone else's personal run; a salesman cannot. Reload while running polls the active job into the live log.
+**Why:** The recent-run History URL was the schedule history page, live log was session-only, failed finishes wiped the log, and entries were `t — step: detail` on one line.
+**Status:** DECIDED — hotfix deviation (self-review + tests; auth on the new route is owner-or-privileged / admin for company).
+
 ## 2026-09-03 Cancel stuck schedule jobs
 **What you asked for:** A cancel for scheduled reports too, so a stuck job can be cleared for other jobs and tests.
 **What I had to decide:** Who may cancel a clock job with no owner; whether cancel kills an HTTP call already in flight.

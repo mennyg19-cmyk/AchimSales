@@ -1,7 +1,7 @@
 // Schedules management pages (personal + company). Create uses the shared wizard.
 
 import { esc, jsonHeaders } from "./http";
-import { renderJobLog } from "./job_log";
+import { renderJobLog, pollJobLog } from "./job_log";
 import { bindMasterWizard } from "./master_wizard";
 import { bindPersonalWizard } from "./personal_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
@@ -15,7 +15,7 @@ type RunLogRow = {
   finished_at?: string | null;
   rows?: number | null;
   message?: string;
-  history_url: string;
+  log_url: string;
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
@@ -68,7 +68,7 @@ function renderActiveJobs(jobs: ActiveJob[]): void {
   el.innerHTML = jobs.map((j) => {
     const step = j.step ? ` <span class="active-job-step">${esc(j.step)}</span>` : "";
     return `<div class="active-job">
-      <div class="active-job-label">${esc(j.label)} — ${esc(j.status)}${step}</div>
+      <button type="button" class="active-job-label js-watch-job" data-job-id="${esc(j.id)}">${esc(j.label)} — ${esc(j.status)}${step}</button>
       <button type="button" class="btn btn-sm btn-outline js-cancel-job" data-job-id="${esc(j.id)}">Cancel</button>
     </div>`;
   }).join("");
@@ -97,7 +97,7 @@ function renderRunLog(runs: RunLogRow[]): void {
       <td><span class="${badgeClass(r.status)}">${esc(status)}</span></td>
       <td>${esc(rowCount)}</td>
       <td class="run-log-msg">${esc(r.message || "—")}</td>
-      <td><a class="btn btn-sm btn-outline" href="${esc(r.history_url)}">History</a></td>
+      <td><a class="btn btn-sm btn-outline" href="${esc(r.log_url)}">Log</a></td>
     </tr>`;
   }).join("");
   body.innerHTML = `<div class="table-wrap run-log-table-wrap">
@@ -129,9 +129,7 @@ async function refreshRunLog(): Promise<RunLogRow[]> {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
+let watchGen = 0;
 
 async function pollJob(jobId: string, onStep: (label: string) => void): Promise<void> {
   const panel = document.getElementById("runLogPanel");
@@ -139,28 +137,18 @@ async function pollJob(jobId: string, onStep: (label: string) => void): Promise<
   if (!tpl || !jobId) return;
   const url = tpl.replace("__ID__", jobId);
   const live = document.getElementById("liveJobLog");
-  const deadline = Date.now() + 15 * 60 * 1000;
-  while (Date.now() < deadline) {
-    await sleep(1000);
-    try {
-      const res = await fetch(url, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) continue;
-      const job = await res.json() as {
-        status?: string; step?: string;
-        log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[];
-      };
-      renderJobLog(live, job.log);
-      if (job.step) onStep(job.step);
-      if (job.status === "success" || job.status === "failure" || job.status === "cancelled") {
-        return;
-      }
-    } catch {
-      // keep polling
-    }
-  }
+  const gen = ++watchGen;
+  await pollJobLog(url, live, onStep, () => gen !== watchGen);
+}
+
+async function watchActiveJob(jobId: string): Promise<void> {
+  document.getElementById("runLogPanel")?.setAttribute("open", "");
+  await pollJob(jobId, (step) => {
+    document.querySelectorAll<HTMLElement>(".js-watch-job").forEach((el) => {
+      if (el.dataset.jobId === jobId) el.title = step;
+    });
+  });
+  await refreshRunLog();
 }
 
 function bindRowActions(): void {
@@ -281,11 +269,23 @@ document.addEventListener("DOMContentLoaded", () => {
   bindMasterWizard();
   bindSharePointPicker();
   document.getElementById("activeJobs")?.addEventListener("click", async (ev) => {
-    const btn = (ev.target as HTMLElement).closest("button.js-cancel-job") as HTMLButtonElement | null;
-    if (!btn?.dataset.jobId) return;
-    btn.disabled = true;
-    await cancelJob(btn.dataset.jobId);
-    await refreshRunLog();
+    const target = ev.target as HTMLElement;
+    const cancel = target.closest("button.js-cancel-job") as HTMLButtonElement | null;
+    if (cancel?.dataset.jobId) {
+      cancel.disabled = true;
+      await cancelJob(cancel.dataset.jobId);
+      await refreshRunLog();
+      return;
+    }
+    const watch = target.closest("button.js-watch-job") as HTMLButtonElement | null;
+    if (watch?.dataset.jobId) void watchActiveJob(watch.dataset.jobId);
   });
-  void refreshRunLog();
+  const runLog = document.getElementById("runJobLog");
+  const jobUrl = runLog?.getAttribute("data-job-url") || "";
+  if (runLog && jobUrl) void pollJobLog(jobUrl, runLog);
+  void (async () => {
+    await refreshRunLog();
+    const first = document.querySelector<HTMLElement>(".js-watch-job")?.dataset.jobId;
+    if (first) void watchActiveJob(first);
+  })();
 });

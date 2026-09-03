@@ -53,6 +53,7 @@ def make_schedule_run_handler(runner: ScheduleRunner) -> Handler:
             include_regular=bool(p.get("include_regular", True)),
             recovered=ctx.job.attempts > 0 and not manual,
             manual=manual,
+            job_id=ctx.job.id,
         )
         return f"run:{run_id}"
 
