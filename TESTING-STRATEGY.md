@@ -1229,3 +1229,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
   governed by cache presence alone.
 
 **Test file:** `v3/tests/test_blueprints.py`
+
+## Phase 6.5 kept payload cleanup
+**What to test:**
+- An eight-day-old cache row remains when a successful `report.run` has a future
+  `kept_until` and points to its cache key.
+- A one-day-old cache row is removed when its only successful Keep reference has
+  expired. The existing eight-day unkept cache prune still removes its row.
+
+**Expected behavior:**
+- Keep extends cache retention to its existing 30-day window. After that window,
+  cleanup removes the payload without waiting for the normal seven-day cache cutoff.
+  A shared key remains while any valid Keep still references it.
+
+**Test file:** `v3/tests/test_jobs.py`

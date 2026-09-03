@@ -154,11 +154,32 @@ class ReportCache:
                 (cache_key, report_key, json.dumps(payload, default=str), now),
             )
 
-    def prune(self, older_than_seconds: float) -> int:
-        """Delete cache rows older than the cutoff (for a scheduled reaper). Returns count."""
+    def prune(
+        self,
+        older_than_seconds: float,
+        *,
+        protected_keys: set[str] | None = None,
+        expired_kept_keys: set[str] | None = None,
+    ) -> int:
+        """Delete old rows, plus payloads whose only Keep references expired."""
         cutoff = datetime.fromtimestamp(
             datetime.now(timezone.utc).timestamp() - older_than_seconds, tz=timezone.utc
         ).isoformat()
+        protected_keys = protected_keys or set()
+        expired_kept_keys = (expired_kept_keys or set()) - protected_keys
         with self.db.cache() as conn:
-            cur = conn.execute("DELETE FROM report_payload_cache WHERE built_at < ?", (cutoff,))
+            clauses = ["built_at < ?"]
+            params: list[str] = [cutoff]
+            if expired_kept_keys:
+                placeholders = ",".join("?" for _ in expired_kept_keys)
+                clauses.append(f"cache_key IN ({placeholders})")
+                params.extend(expired_kept_keys)
+            if protected_keys:
+                placeholders = ",".join("?" for _ in protected_keys)
+                clauses.append(f"cache_key NOT IN ({placeholders})")
+                params.extend(protected_keys)
+            cur = conn.execute(
+                f"DELETE FROM report_payload_cache WHERE ({' OR '.join(clauses)})",
+                params,
+            )
             return cur.rowcount

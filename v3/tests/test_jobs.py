@@ -567,6 +567,48 @@ def test_cleanup_prunes_expired_cache_and_exports_then_marks_success(db):
     assert snapshot(db)["last_cleanup"] is not None
 
 
+def test_cleanup_keeps_old_cache_referenced_by_live_keep(db):
+    from web.jobs.cleanup import run_cleanup
+
+    jobs = JobRepository(db)
+    job_id = jobs.enqueue("report.run")
+    with db.precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET status='success', result_ref='kept-cache', kept_until='2099-01-01T00:00:00'"
+            " WHERE id=?",
+            (job_id,),
+        )
+    with db.cache() as conn:
+        conn.execute(
+            "INSERT INTO report_payload_cache(cache_key, report_key, payload_json, built_at)"
+            " VALUES ('kept-cache', 'ordered', '{}', datetime('now', '-8 days'))"
+        )
+
+    assert run_cleanup(db)["cache_rows"] == 0
+    assert ReportCache(db).exists("kept-cache")
+
+
+def test_cleanup_prunes_young_cache_referenced_only_by_expired_keep(db):
+    from web.jobs.cleanup import run_cleanup
+
+    jobs = JobRepository(db)
+    job_id = jobs.enqueue("report.run")
+    with db.precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET status='success', result_ref='expired-cache', kept_until='2000-01-01T00:00:00'"
+            " WHERE id=?",
+            (job_id,),
+        )
+    with db.cache() as conn:
+        conn.execute(
+            "INSERT INTO report_payload_cache(cache_key, report_key, payload_json, built_at)"
+            " VALUES ('expired-cache', 'ordered', '{}', datetime('now', '-1 day'))"
+        )
+
+    assert run_cleanup(db)["cache_rows"] == 1
+    assert not ReportCache(db).exists("expired-cache")
+
+
 def test_cleanup_failure_does_not_mark_success(db, monkeypatch):
     from web.jobs import cleanup
     from web.jobs.status import snapshot

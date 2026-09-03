@@ -56,6 +56,7 @@ from web.data.repositories.users import User, UserRepository
 from web.delivery.email import split_recipients
 from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
+from web.jobs.keep import _kept_still_valid
 from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import enqueue_report_run
@@ -504,18 +505,6 @@ def _age_seconds(ts: str | None, now: datetime | None = None) -> int | None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)
     return int((now - dt).total_seconds())
-
-
-def _kept_still_valid(kept_until: str | None, now: datetime) -> bool:
-    if not kept_until:
-        return False
-    try:
-        dt = datetime.fromisoformat(kept_until)
-    except ValueError:
-        return False
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt > now
 
 
 def _assert_kept_result_not_expired(job, now: datetime) -> None:
