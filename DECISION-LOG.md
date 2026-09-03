@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-03 Schedule UI: hide company setup, two-dropdown wizard, dev grid
+**What you asked for:** Hide company schedule add/edit (keep the code). Devs see all report runs and schedule history with steps behind a dropdown. Wizard step 1 is salesman/company then views. Home presets collapsed. Devs can edit the schedules grid from a pencil.
+**What I chose:** `SHOW_COMPANY_SCHEDULE_SETUP = False` hides Settings button, Add/Edit/Copy/Delete, and the 5-step wizard. Clock jobs and Run now stay. Developers get `?all=1` Recent Reports, all schedule runs on /schedules, and Steps `<details>`. Wizard uses two selects. Home Company views / My presets are `<details>` closed. Pencil toggles recipients/folder inputs.
+**Why:** Company setup is moving to personal named-view schedules. Devs still need the old list for Run now and history.
+**Status:** DECIDED
+
 ## 2026-09-03 Company views can keep a period
 **What you asked for:** Saving a company view dropped the period even though you want that option. Save this view used a browser prompt.
 **What I had to decide:** Whether the period is always stored, and what lives in the new popup.

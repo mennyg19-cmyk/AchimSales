@@ -40,7 +40,8 @@
 {% endif %}
 
 {% if company_views %}
-<h2 class="section-title">Company views</h2>
+<details class="home-fold">
+<summary class="section-title">Company views</summary>
 <div class="report-grid">
     {% for s in company_views %}
     <a class="report-card" href="{{ s.url }}">
@@ -53,10 +54,12 @@
     </a>
     {% endfor %}
 </div>
+</details>
 {% endif %}
 
 {% if presets %}
-<h2 class="section-title">My presets</h2>
+<details class="home-fold">
+<summary class="section-title">My presets</summary>
 <div class="report-grid">
     {% for s in presets %}
     <a class="report-card" href="{{ s.url }}">
@@ -69,6 +72,7 @@
     </a>
     {% endfor %}
 </div>
+</details>
 {% endif %}
 
 {% if backlog_reports %}

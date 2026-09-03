@@ -249,10 +249,14 @@ def test_report_viewer_meeting_ux():
     assert "container-narrow" not in sched
     assert "ps-sched-table" in sched
     assert "ps-owner-row" in sched
+    assert 'id="psGridEditBtn"' in sched
     assert "data-job-url" in sched
     sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
     assert "function pollJob" in sched_js
     assert "data-job-url" in sched_js
+    assert "function bindGridEdit" in sched_js
+    assert "email_to_owner: listed.some" in sched_js
+    assert "run-log-steps" in sched_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert "table-layout: fixed" in css
     company_page = (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
@@ -260,7 +264,9 @@ def test_report_viewer_meeting_ux():
     assert "data-job-url" in company_page
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
     assert 'id="psWizard"' in personal
-    assert "Default plus named views." in personal
+    assert "Whose views?" in personal
+    assert 'id="psOwnerSelect"' in personal
+    assert 'id="psViewSelect"' in personal
     wiz_js = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
     assert 'startsWith("default:")' in wiz_js
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
@@ -377,6 +383,12 @@ def test_live_job_log_shows_every_entry():
     assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert 'href="{{ r.log_url }}">Log</a>' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert "schedule_history" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    hist = (_V3 / "web" / "templates" / "schedule_history.html").read_text(encoding="utf-8")
+    assert "run-history-steps" in hist
+    home = (_V3 / "web" / "templates" / "reports_list.html").read_text(encoding="utf-8")
+    assert 'class="home-fold"' in home
+    assert '<details class="home-fold">' in home
+    assert '<details class="home-fold" open' not in home
     run_page = (_V3 / "web" / "templates" / "schedule_run.html").read_text(encoding="utf-8")
     assert 'id="runJobLog"' in run_page
     log_js = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")

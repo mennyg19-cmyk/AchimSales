@@ -110,7 +110,8 @@ schedules supply their own YTD / MTD / yesterday at send time. Managers who have
 them from Saved views. Personal schedules send a **named saved view** (3
 steps: view, when, where). Admins and developers can also schedule **Default**
 from More → Schedule or the personal wizard. Company schedules stay on the
-old 5-step wizard under Settings (admins and developers). While a report or
+old 5-step wizard under Settings (admins and developers) but that add/edit UI is
+hidden for now (`SHOW_COMPANY_SCHEDULE_SETUP`); existing company rows still run. While a report or
 schedule job is running, the status line (and Run now) shows the live step:
 Reporting API, workbook, SharePoint/OneDrive, email. Each recent run has a
 Log page (Time, Step, Detail for that job only). The schedule row History

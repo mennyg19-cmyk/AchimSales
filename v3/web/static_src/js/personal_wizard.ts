@@ -44,9 +44,9 @@ function msg(text: string, isError: boolean): void {
 }
 
 function selectedView(): { view: ViewRow; owner: ViewGroup } | null {
-  const checked = formEl()?.querySelector<HTMLInputElement>('input[name="saved_report_id"]:checked');
-  if (!checked) return lockedView;
-  const raw = checked.value;
+  const sel = document.getElementById("psViewSelect") as HTMLSelectElement | null;
+  const raw = sel?.value || "";
+  if (!raw) return lockedView;
   if (lockedView && String(lockedView.view.id) === raw) return lockedView;
   for (const g of viewCache) {
     const view = g.views.find((v) => String(v.id) === raw);
@@ -132,55 +132,74 @@ function validate(n: number, form: HTMLFormElement): string | null {
   return null;
 }
 
-function viewCard(v: ViewRow, selectedId: string, note: string): HTMLLabelElement {
-  const lab = document.createElement("label");
-  lab.className = "ms-report-card";
-  const inp = document.createElement("input");
-  inp.type = "radio";
-  inp.name = "saved_report_id";
-  inp.value = String(v.id);
-  if (String(v.id) === selectedId) inp.checked = true;
-  inp.addEventListener("change", syncOwnerLabel);
-  const span = document.createElement("span");
-  span.className = "ms-report-name";
-  const extra = note ? `<br><span class="muted">${esc(note)}</span>` : "";
-  span.innerHTML = `${esc(v.name)}<br><span class="muted">${esc(v.report_title)}</span>${extra}`;
-  lab.appendChild(inp);
-  lab.appendChild(span);
-  return lab;
+function ownerKey(g: ViewGroup): string {
+  return String(g.user_id);
+}
+
+function fillViewSelect(group: ViewGroup | undefined, selectedId: string): void {
+  const sel = document.getElementById("psViewSelect") as HTMLSelectElement | null;
+  if (!sel) return;
+  sel.innerHTML = "";
+  const views = [...(group?.views || [])];
+  if (lockedView && group && ownerKey(group) === ownerKey(lockedView.owner)
+      && !views.some((v) => String(v.id) === String(lockedView!.view.id))) {
+    views.unshift(lockedView.view);
+  }
+  if (!views.length) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "No views";
+    sel.appendChild(o);
+    return;
+  }
+  views.forEach((v) => {
+    const o = document.createElement("option");
+    o.value = String(v.id);
+    o.textContent = `${v.name} — ${v.report_title}`;
+    if (String(v.id) === selectedId) o.selected = true;
+    sel.appendChild(o);
+  });
 }
 
 function renderViews(groups: ViewGroup[], selectedId: string): void {
-  const box = document.getElementById("psViewList");
+  const ownerSel = document.getElementById("psOwnerSelect") as HTMLSelectElement | null;
   const empty = document.getElementById("psViewEmpty");
-  if (!box) return;
-  box.innerHTML = "";
-  const flat = groups.flatMap((g) => g.views.map((v) => ({ g, v })));
-  const hasLocked = !!(lockedView && !flat.some((x) => String(x.v.id) === String(lockedView!.view.id)));
-  if (!flat.length && !hasLocked) {
+  if (!ownerSel) return;
+  ownerSel.innerHTML = "";
+  const list = [...groups];
+  if (lockedView && !list.some((g) => ownerKey(g) === ownerKey(lockedView!.owner))) {
+    list.unshift(lockedView.owner);
+  }
+  const flat = list.flatMap((g) => g.views);
+  if (!flat.length && !lockedView) {
     if (empty) empty.hidden = false;
+    fillViewSelect(undefined, "");
     return;
   }
   if (empty) empty.hidden = true;
-  if (hasLocked && lockedView) {
-    box.appendChild(viewCard(
-      lockedView.view, selectedId,
-      "Custom dates — stays on this schedule, not on the Add list.",
-    ));
-  }
-  const showOwners = privileged() && groups.length > 1;
-  groups.forEach((g) => {
-    if (showOwners) {
-      const h = document.createElement("div");
-      h.className = "sched-owner-head";
-      h.style.cssText = "grid-column:1/-1";
-      h.textContent = `${g.name} (${g.email})`;
-      box.appendChild(h);
-    }
-    g.views.forEach((v) => {
-      box.appendChild(viewCard(v, selectedId, ""));
-    });
+  const picked = selectedId
+    ? list.find((g) => g.views.some((v) => String(v.id) === selectedId)
+      || (lockedView && String(lockedView.view.id) === selectedId && ownerKey(g) === ownerKey(lockedView.owner)))
+    : list[0];
+  list.forEach((g) => {
+    const o = document.createElement("option");
+    o.value = ownerKey(g);
+    o.textContent = g.email ? `${g.name} (${g.email})` : g.name;
+    if (picked && ownerKey(g) === ownerKey(picked)) o.selected = true;
+    ownerSel.appendChild(o);
   });
+  const group = list.find((g) => ownerKey(g) === ownerSel.value) || list[0];
+  fillViewSelect(group, selectedId);
+  syncOwnerLabel();
+}
+
+function onOwnerChange(): void {
+  const ownerSel = document.getElementById("psOwnerSelect") as HTMLSelectElement | null;
+  const group = viewCache.find((g) => ownerKey(g) === (ownerSel?.value || ""))
+    || (lockedView && ownerKey(lockedView.owner) === (ownerSel?.value || "") ? lockedView.owner : undefined);
+  fillViewSelect(group, "");
+  syncOwnerLabel();
+  updateFilenamePreview();
 }
 
 async function loadViews(selectedId: string): Promise<void> {
@@ -458,6 +477,11 @@ export function bindPersonalWizard(): void {
     if (err) { msg(err, true); return; }
     msg("", false);
     if (step < TOTAL) showStep(step + 1);
+    updateFilenamePreview();
+  });
+  document.getElementById("psOwnerSelect")?.addEventListener("change", onOwnerChange);
+  document.getElementById("psViewSelect")?.addEventListener("change", () => {
+    syncOwnerLabel();
     updateFilenamePreview();
   });
   form.querySelectorAll<HTMLInputElement>('input[name="freq"]').forEach((r) => {

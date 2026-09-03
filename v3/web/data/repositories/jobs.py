@@ -290,10 +290,22 @@ class JobRepository:
         with self.db.precious() as conn:
             rows = conn.execute(
                 "SELECT id, status, progress, params_json, created_at, finished_at,"
-                " kept_until, keep_name"
+                " kept_until, keep_name, owner_user_id"
                 " FROM jobs WHERE owner_user_id = ? AND type = 'report.run'"
                 " ORDER BY created_at DESC LIMIT ?",
                 (user_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def report_runs_all(self, limit: int = 80) -> list[dict]:
+        """Every recent on-screen report.run (developer Recent Reports)."""
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT id, status, progress, params_json, created_at, finished_at,"
+                " kept_until, keep_name, owner_user_id, log_json"
+                " FROM jobs WHERE type = 'report.run'"
+                " ORDER BY created_at DESC LIMIT ?",
+                (limit,),
             ).fetchall()
             return [dict(r) for r in rows]
 

@@ -6,16 +6,21 @@
     <div>
         <h1 class="page-title">Company schedules</h1>
         <p class="page-subtitle">
-            Shared automatic reports. The 5-step setup (report, when, options, where, review).
+            Shared automatic reports.
+            {% if company_schedule_setup %}
+            The 5-step setup (report, when, options, where, review).
             <a href="{{ url_for('schedules.schedules_page') }}">Personal schedules</a>
+            {% endif %}
         </p>
     </div>
+    {% if company_schedule_setup %}
     <div class="page-head-actions">
         <button type="button" class="btn btn-primary" id="msStartBtn">
             <i data-feather="plus" style="width:14px;height:14px;"></i>
             Add a schedule
         </button>
     </div>
+    {% endif %}
 </div>
 
 {% if test_mode_on %}

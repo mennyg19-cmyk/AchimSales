@@ -7,9 +7,6 @@
         <h1 class="page-title">Schedules</h1>
         <p class="page-subtitle">
             Recurring deliveries from a named saved view{% if is_privileged %} or Default{% endif %}. Or open a report, load that view, and use More → Schedule.
-            {% if is_privileged %}
-            <a href="{{ url_for('schedules.company_schedules_page') }}">Company schedules</a> are in Settings.
-            {% endif %}
         </p>
     </div>
     <div class="page-head-actions">
@@ -80,15 +77,26 @@
 {% include "personal_schedule_wizard.html" %}
 
 <section id="personal">
-<div class="page-head">
+<div class="page-head page-head-row">
+    <div>
     <h2 class="page-title">{% if is_privileged %}Personal schedules{% else %}My schedules{% endif %}</h2>
     <p class="page-subtitle">
         Each row is a named saved view on a timer. Email goes to the person who owns the view.
     </p>
+    </div>
+    {% if is_developer and schedules %}
+    <div class="page-head-actions">
+        <button type="button" class="btn btn-outline" id="psGridEditBtn" title="Edit fields in this table">
+            <i data-feather="edit-2" style="width:14px;height:14px;"></i>
+            <span>Edit table</span>
+        </button>
+    </div>
+    {% endif %}
 </div>
 
 {% if schedules %}
-<div id="schedulesRoot" data-csrf="{{ csrf_token() }}">
+<div id="schedulesRoot" data-csrf="{{ csrf_token() }}"
+     data-update-url-tpl="{{ url_for('schedules.update_schedule', schedule_id=0) }}">
     <div class="table-wrap">
     <table class="data-table ps-sched-table">
         <colgroup>
@@ -132,8 +140,14 @@
                 <td>{{ s.report_title }}</td>
                 <td>{{ s.view_name or '—' }}</td>
                 <td>{{ s.cadence }}</td>
-                <td>{{ s.recipients or '—' }}</td>
-                <td>{{ s.sharepoint_path or '—' }}</td>
+                <td>
+                    <span class="js-grid-text">{{ s.recipients or '—' }}</span>
+                    <input class="js-grid-input" hidden data-field="recipients" value="{{ s.recipients }}">
+                </td>
+                <td>
+                    <span class="js-grid-text">{{ s.sharepoint_path or '—' }}</span>
+                    <input class="js-grid-input" hidden data-field="folder" value="{{ s.sharepoint_path }}">
+                </td>
                 <td>{{ s.last_run or 'never' }}</td>
                 <td>
                     <button type="button" class="btn btn-sm js-toggle {% if s.is_active %}btn-primary{% else %}btn-outline{% endif %}"

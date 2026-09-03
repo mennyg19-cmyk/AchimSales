@@ -50,10 +50,12 @@
             {% endif %}
         </dl>
         {% if is_developer and meta.get('job_log') %}
-        <h3 class="run-history-subhead">Run log</h3>
-        <ol class="live-job-log">
-            {% with entries = meta['job_log'] %}{% include "_job_log_entries.html" %}{% endwith %}
-        </ol>
+        <details class="run-history-steps">
+            <summary>Steps</summary>
+            <ol class="live-job-log">
+                {% with entries = meta['job_log'] %}{% include "_job_log_entries.html" %}{% endwith %}
+            </ol>
+        </details>
         {% endif %}
         {% if meta.get('deliveries') %}
         <h3 class="run-history-subhead">Delivery legs</h3>

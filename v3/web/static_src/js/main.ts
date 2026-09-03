@@ -259,6 +259,8 @@ interface ActiveReportJob {
   finished_at?: string | null;
   kept?: boolean;
   keep_name?: string;
+  owner_name?: string;
+  log?: { t?: string; step?: string; detail?: string }[];
 }
 
 const JOBS_MIN_KEY = "achim.reportJobs.minimized";
@@ -395,7 +397,7 @@ function initReportJobsBar(): void {
       const meta = document.createElement("span");
       meta.className = "report-job-meta";
       const when = formatJobWhen(job.finished_at || job.created_at);
-      meta.textContent = [when, statusWord(job)].filter(Boolean).join(" · ");
+      meta.textContent = [job.owner_name, when, statusWord(job)].filter(Boolean).join(" · ");
       text.appendChild(label);
       text.appendChild(meta);
       chip.appendChild(dot);
@@ -416,6 +418,24 @@ function initReportJobsBar(): void {
           void renameKept(job);
         });
         row.appendChild(rename);
+      }
+      if (job.log && job.log.length) {
+        const steps = document.createElement("details");
+        steps.className = "report-job-steps";
+        const sum = document.createElement("summary");
+        sum.textContent = "Steps";
+        sum.dataset.noGuard = "1";
+        steps.appendChild(sum);
+        const ol = document.createElement("ol");
+        ol.className = "live-job-log";
+        job.log.forEach((e) => {
+          const li = document.createElement("li");
+          li.className = "live-job-entry";
+          li.textContent = [e.t, e.step, e.detail].filter(Boolean).join(" — ");
+          ol.appendChild(li);
+        });
+        steps.appendChild(ol);
+        row.appendChild(steps);
       }
       panel.appendChild(row);
     });

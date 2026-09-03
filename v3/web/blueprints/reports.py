@@ -242,6 +242,17 @@ def _built_spec_or_404(report_key: str):
     return spec
 
 
+def _parse_job_log_field(row) -> list:
+    raw = row.get("log_json") if hasattr(row, "get") else None
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
 def _owned_job_or_404(job_id: str, uid: int | None):
     # Fail closed: require a real current-user id AND an exact owner match. This
     # keeps NULL-owner (system/orphaned) jobs unreadable through the user APIs.
@@ -259,6 +270,8 @@ def _visible_job_or_404(job_id: str, p):
     if job is None or uid is None:
         abort(404, description="Unknown job")
     if job.owner_user_id == uid:
+        return job
+    if _authz().is_developer(p):
         return job
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
     if job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p):
@@ -493,7 +506,7 @@ def cancel_job(job_id: str):
 @require_login
 def report_result(job_id: str):
     p = _principal_or_401()
-    job = _owned_job_or_404(job_id, _user_id(p.email))
+    job = _visible_job_or_404(job_id, p)
     _authz().assert_report_runnable(p, job.params.get("report_key"))
     _assert_scope_compatible(p, job)
     if job.status != "success":
@@ -553,8 +566,19 @@ def active_report_runs():
         return jsonify({"jobs": []})
     titles = {s.key: s.title for s in registry.built_reports()}
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    want_all = request.args.get("all") == "1" and _authz().is_developer(p)
+    rows = (
+        _job_repo().report_runs_all(limit=80) if want_all
+        else _job_repo().report_runs_for_user(uid, limit=30)
+    )
+    owners = {}
+    if want_all:
+        owners = {
+            u.id: (u.display_name or u.email)
+            for u in _users_repo().list_all()
+        }
     jobs = []
-    for r in _job_repo().report_runs_for_user(uid, limit=30):
+    for r in rows:
         status = r["status"]
         kept_until = r.get("kept_until")
         if status not in ("queued", "running"):
@@ -574,7 +598,9 @@ def active_report_runs():
             "finished_at": r["finished_at"],
             "kept_until": kept_until or None,
             "kept": _kept_still_valid(kept_until, now),
-            "keep_name": (r["keep_name"] or "").strip() if "keep_name" in r.keys() else "",
+            "keep_name": (r.get("keep_name") or "").strip(),
+            "owner_name": owners.get(r.get("owner_user_id")) or "",
+            "log": _parse_job_log_field(r),
         })
     return jsonify({"jobs": jobs})
 

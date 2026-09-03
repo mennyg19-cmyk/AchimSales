@@ -88,12 +88,14 @@ def settings_page():
             current_app.logger.exception("beta sources load failed")
             from web.beta_sources import default_sources
             beta_sources = default_sources()
+    from web.scheduling.ui_flags import SHOW_COMPANY_SCHEDULE_SETUP
     return render_template(
         "settings.html", active_tab="settings", profile=p, flags=flags,
         test_mode_on=test_mode_on, test_emails=test_emails,
         is_admin=is_admin, is_developer=_is_developer(p),
         reports=reports, excluded=sorted(excluded),
         beta_sources=beta_sources,
+        company_schedule_setup=SHOW_COMPANY_SCHEDULE_SETUP,
     )
 
 

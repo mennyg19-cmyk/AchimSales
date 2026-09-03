@@ -26,6 +26,22 @@
 .page-title { font-size: 24px; font-weight: 700; color: var(--text); }
 .page-subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
 .section-title { font-size: 15px; font-weight: 700; color: var(--text-muted); margin: 24px 0 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.home-fold { margin: 0; }
+.home-fold > summary.section-title {
+    cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+}
+.home-fold > summary.section-title::-webkit-details-marker { display: none; }
+.home-fold > summary.section-title::after { content: "▸"; font-size: 12px; color: var(--text-muted); }
+.home-fold[open] > summary.section-title::after { content: "▾"; }
+.run-log-steps, .run-history-steps, .report-job-steps { margin-top: 6px; font-size: 12px; }
+.run-log-steps summary, .run-history-steps summary, .report-job-steps summary {
+    cursor: pointer; color: var(--text-muted);
+}
+.ps-grid-editing .js-grid-input {
+    display: block; width: 100%; box-sizing: border-box;
+    padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg); color: var(--text); font-size: 13px;
+}
 .back-link { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); text-decoration: none; font-size: 13px; font-weight: 600; }
 .back-link svg { width: 16px; height: 16px; }
 .back-link:hover { color: var(--primary); }

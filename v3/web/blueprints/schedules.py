@@ -32,6 +32,7 @@ from web.data.repositories.schedules import (
 )
 from web.data.repositories.users import User, UserRepository
 from web.scheduling.personal_views import is_custom_date_params, is_schedulable_saved_view
+from web.scheduling.ui_flags import SHOW_COMPANY_SCHEDULE_SETUP
 from web.scheduling import cadence as C
 from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
@@ -464,7 +465,8 @@ def schedules_page():
         "current_user_name": p.name or p.email,
         "views_url": url_for("schedules.list_schedulable_views"),
     }
-    context["recent_runs"] = _viewer_run_log(p, is_privileged)
+    context["recent_runs"] = _viewer_run_log(
+        p, is_privileged, is_developer=_authz().is_developer(p))
     from web.data.repositories.app_settings import AppSettingsRepository
     test_settings = AppSettingsRepository(current_app.config["DB"])
     context["test_mode_on"] = False
@@ -555,13 +557,14 @@ def _recent_run_log(*, personal_ids: set[int], include_master: bool,
             "message": r.debug_log or meta.get("summary") or "",
             "send_channel": meta.get("send_channel") or "",
             "log_url": url_for("schedules.run_log", run_id=r.id),
+            "job_log": meta.get("job_log") or [],
         })
         if len(out) >= limit:
             break
     return out
 
 
-def _viewer_run_log(p, is_privileged: bool = False) -> list[dict]:
+def _viewer_run_log(p, is_privileged: bool = False, is_developer: bool = False) -> list[dict]:
     uid = _uid(p.email)
     if is_privileged:
         personal_ids = {s.id for s in _repo().list_all()}
@@ -569,8 +572,9 @@ def _viewer_run_log(p, is_privileged: bool = False) -> list[dict]:
         personal_ids = {s.id for s in _repo().list_for_user(uid)}
     return _recent_run_log(
         personal_ids=personal_ids,
-        include_master=False,
-        viewer=p, viewer_id=uid,
+        include_master=is_developer,
+        viewer=p, viewer_id=None if is_developer else uid,
+        limit=80 if is_developer else 30,
     )
 
 
@@ -582,10 +586,12 @@ def recent_runs():
         _require_admin(p)
         runs = _company_run_log()
     else:
-        runs = _viewer_run_log(p, _authz().is_privileged(p))
+        runs = _viewer_run_log(
+            p, _authz().is_privileged(p), is_developer=_authz().is_developer(p))
     if not _authz().is_developer(p):
         for row in runs:
             row.pop("log_url", None)
+            row.pop("job_log", None)
     return jsonify({"runs": runs, "active_jobs": _active_schedule_jobs(p)})
 
 
@@ -798,6 +804,7 @@ def list_schedulable_views():
             "report_key": row.report_key,
             "report_title": _report_title(row.report_key),
         })
+    out = [groups[i] for i in order if groups[i]["views"]]
     if privileged:
         defaults = []
         for spec in registry.built_reports():
@@ -809,19 +816,14 @@ def list_schedulable_views():
                 "report_key": spec.key,
                 "report_title": spec.title,
             })
-        owner = users.get(uid)
-        if defaults and owner is not None:
-            if uid not in groups:
-                groups[uid] = {
-                    "user_id": uid,
-                    "name": owner.display_name or owner.email,
-                    "email": owner.email,
-                    "views": [],
-                }
-                order.insert(0, uid)
-            groups[uid]["views"] = defaults + groups[uid]["views"]
-    out = [groups[i] for i in order if groups[i]["views"]]
-    out.sort(key=lambda g: g["name"].lower())
+        if defaults:
+            out.insert(0, {
+                "user_id": 0,
+                "name": "Company",
+                "email": "",
+                "views": defaults,
+            })
+    out.sort(key=lambda g: (0 if g["name"] == "Company" else 1, g["name"].lower()))
     return jsonify({"groups": out})
 
 
@@ -1092,6 +1094,7 @@ def _master_page_context(p) -> dict:
         "status_options": _STATUS_OPTIONS,
         "year_options": list(range(year_now, year_now - 5, -1)),
         "managers": _manager_options(),
+        "company_schedule_setup": SHOW_COMPANY_SCHEDULE_SETUP,
     }
 
 

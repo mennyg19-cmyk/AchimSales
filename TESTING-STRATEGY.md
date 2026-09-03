@@ -1,5 +1,18 @@
 # Testing Strategy
 
+## Schedule UI: hide company setup, wizard dropdowns, dev history
+
+**What to test:**
+- Settings has no Company schedules button. Company page has no Personal schedules link, Add/Edit/Copy/Delete, or wizard. Copy API still works.
+- `/api/schedules/views` puts Default views in a Company group.
+- Developer `/api/reports/active?all=1` sees another user's report.run; admin `?all=1` does not.
+- Developer recent-runs includes `job_log`; others do not. History Steps is a details block.
+- Home page `home-fold` wraps My presets (closed). Pencil `psGridEditBtn` is on the schedules template. Grid save splits owner vs extras so the owner email is not dropped.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
+
+
 ## Company views can keep a period
 
 **What to test:**

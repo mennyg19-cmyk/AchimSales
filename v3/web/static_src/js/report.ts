@@ -1832,9 +1832,10 @@ async function resumeInFlight(): Promise<boolean> {
     ? jobs.find((j) => j.job_id === wanted && j.report_key === key)
     : jobs.find((j) => j.report_key === key &&
       (j.status === "running" || j.status === "queued" || j.status === "success"));
-  if (!mine) return false;
-  state.jobId = mine.job_id;
-  await resumeJob(mine.job_id, (mine.age_seconds || 0) * 1000);
+  const target = mine || (wanted ? { job_id: wanted, report_key: key, status: "running", age_seconds: 0 } : null);
+  if (!target) return false;
+  state.jobId = target.job_id;
+  await resumeJob(target.job_id, (target.age_seconds || 0) * 1000);
   return true;
 }
 

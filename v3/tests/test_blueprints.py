@@ -727,6 +727,13 @@ def test_active_report_runs_is_owner_scoped(tmp_path):
     _login(other, app, email="other@x.com", role="admin")
     jobs = other.get("/api/reports/active").get_json()["jobs"]
     assert all(j["job_id"] != job_id for j in jobs)
+    assert all(j["job_id"] != job_id for j in other.get("/api/reports/active?all=1").get_json()["jobs"])
+
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    assert all(j["job_id"] != job_id for j in dev.get("/api/reports/active").get_json()["jobs"])
+    seen = [j["job_id"] for j in dev.get("/api/reports/active?all=1").get_json()["jobs"]]
+    assert job_id in seen
 
 
 def test_reporting_api_diagnostics_developer_only(tmp_path):
@@ -1151,6 +1158,7 @@ def test_preset_create_list_get_delete_and_home(tmp_path):
     allp = client.get("/api/saved-reports").get_json()["presets"]
     assert any(p["id"] == pid for p in allp)
     assert "My presets" in client.get("/").get_data(as_text=True)
+    assert 'class="home-fold"' in client.get("/").get_data(as_text=True)
     assert "March edited" in client.get("/").get_data(as_text=True)
 
     # Delete
@@ -1709,6 +1717,7 @@ def test_schedule_create_run_history_and_delete(tmp_path):
     dev_runs = [r for r in dev.get("/api/schedules/recent-runs").get_json()["runs"]
                 if r["schedule_id"] == sid]
     assert dev_runs[0]["log_url"] == log_url
+    assert "job_log" in dev_runs[0]
     log_page = dev.get(log_url)
     assert log_page.status_code == 200
     log_html = log_page.get_data(as_text=True)
@@ -1822,7 +1831,9 @@ def test_schedules_page_company_section_admin_only(tmp_path):
     assert company.status_code == 200
     company_html = company.get_data(as_text=True)
     assert "Company schedules" in company_html
-    assert "msWizard" in company_html
+    assert "msWizard" not in company_html
+    assert "Add a schedule" not in company_html
+    assert ">Personal schedules</a>" not in company_html
 
     rep = app.test_client()
     _login(rep, app, email="rep@x.com", role="salesman")
@@ -1900,6 +1911,8 @@ def test_admin_can_schedule_default_without_named_views(tmp_path):
     views = [
         v for g in c.get("/api/schedules/views").get_json()["groups"] for v in g["views"]
     ]
+    groups = c.get("/api/schedules/views").get_json()["groups"]
+    assert groups[0]["name"] == "Company"
     assert any(v["id"] == "default:ordered" and v["name"] == "Default" for v in views)
     created = c.post("/api/schedules", json={
         "saved_report_id": "default:ordered",
@@ -2137,16 +2150,9 @@ def test_master_schedule_admin_only(tmp_path):
     assert "Nightly" in page
     assert "Company schedules" in page
     assert "Recent run log" in page
-    assert "msWizard" in page
-    assert "Add a schedule" in page
-    assert "data-pane=\"1\"" in page
-    assert 'id="msStatusPicker"' in page
-    assert 'id="msSalesmanPicker"' in page
-    assert 'id="msCustomerPicker"' in page
-    assert "master-schedules/lookups/salesmen" in page
-    assert "master-schedules/lookups/salesmen-emails" in page
-    assert "master-schedules/lookups/customers" in page
-    assert "master-schedules/lookups/status" in page
+    assert "msWizard" not in page
+    assert "Add a schedule" not in page
+    assert "data-pane=\"1\"" not in page
     assert f"/master-schedules/{created.get_json()['id']}/history" in page
 
     from web.data.repositories.schedules import MasterScheduleRepository
@@ -2371,8 +2377,8 @@ def test_settings_links_company_schedules_without_master_card(tmp_path):
     admin = app.test_client()
     _login(admin, app)
     html = admin.get("/settings").get_data(as_text=True)
-    assert "Company schedules" in html
-    assert "/settings/company-schedules" in html
+    assert "Company schedules" not in html
+    assert "/settings/company-schedules" not in html
     assert "admin-sched-card" not in html
     assert "Set up / manage schedules" not in html
 
@@ -2553,7 +2559,7 @@ def test_master_schedule_copy_is_inactive_unique_name(tmp_path):
     assert again.status_code == 201
     assert repo.get(again.get_json()["id"]).name == "CopySrc Ordered (copy 2)"
     html = client.get("/settings/company-schedules").get_data(as_text=True)
-    assert f"/api/master-schedules/{sid}/copy" in html
+    assert f"/api/master-schedules/{sid}/copy" not in html
 
 
 def test_master_schedule_save_strips_direct_reports_prefix(tmp_path):
@@ -2631,9 +2637,10 @@ def test_master_run_now_writes_outbox_and_history(tmp_path):
     hist = client.get(f"/master-schedules/{mid}/history").get_data(as_text=True).lower()
     assert "success" in hist
     assert ">log</a>" not in hist
-    assert "run log" not in hist
+    assert "run-history-steps" not in hist
     dev_hist = dev.get(f"/master-schedules/{mid}/history").get_data(as_text=True).lower()
-    assert "run log" in dev_hist
+    assert "run-history-steps" in dev_hist
+    assert "steps" in dev_hist
     from web.data.repositories.outbox import OutboxRepository
     rows = OutboxRepository(app.config["DB"]).list_recent()
     assert rows and "team@x.com" in rows[0].recipients

@@ -16,6 +16,7 @@ type RunLogRow = {
   rows?: number | null;
   message?: string;
   log_url?: string;
+  job_log?: { t?: string; step?: string; detail?: string }[];
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
@@ -96,16 +97,24 @@ function renderRunLog(runs: RunLogRow[]): void {
     const when = r.finished_at || r.started_at || "—";
     const status = (r.status || "queued").replace(/^./, (c) => c.toUpperCase());
     const rowCount = r.rows == null ? "—" : String(r.rows);
-    const logCell = withLog && r.log_url
-      ? `<td><a class="btn btn-sm btn-outline" href="${esc(r.log_url)}">Log</a></td>`
-      : (withLog ? "<td></td>" : "");
+    const log = r.job_log || [];
+    let extra = "";
+    if (withLog) {
+      const link = r.log_url ? `<a class="btn btn-sm btn-outline" href="${esc(r.log_url)}">Log</a>` : "";
+      const steps = log.length
+        ? `<details class="run-log-steps"><summary>Steps</summary><ol class="live-job-log">${
+          log.map((e) => `<li class="live-job-entry"><span>${esc(e.t || "")}</span><span class="live-job-step">${esc(e.step || "")}</span><span class="live-job-detail">${esc(e.detail || "")}</span></li>`).join("")
+        }</ol></details>`
+        : "";
+      extra = `<td>${link}${steps}</td>`;
+    }
     return `<tr>
       <td class="run-log-when">${esc(when)}</td>
       <td><span class="mini-flag">${esc(r.kind)}</span> ${esc(r.title)}</td>
       <td><span class="${badgeClass(r.status)}">${esc(status)}</span></td>
       <td>${esc(rowCount)}</td>
       <td class="run-log-msg">${esc(r.message || "—")}</td>
-      ${logCell}
+      ${extra}
     </tr>`;
   }).join("");
   body.innerHTML = `<div class="table-wrap run-log-table-wrap">
@@ -270,10 +279,63 @@ function bindSortableTables(): void {
   });
 }
 
+function bindGridEdit(): void {
+  const root = document.getElementById("schedulesRoot");
+  const btn = document.getElementById("psGridEditBtn");
+  if (!root || !btn) return;
+  btn.addEventListener("click", () => {
+    const on = root.classList.toggle("ps-grid-editing");
+    btn.classList.toggle("btn-primary", on);
+    btn.classList.toggle("btn-outline", !on);
+    const label = btn.querySelector("span");
+    if (label) label.textContent = on ? "Done" : "Edit table";
+    root.querySelectorAll<HTMLElement>(".js-grid-text").forEach((el) => { el.hidden = on; });
+    root.querySelectorAll<HTMLInputElement>(".js-grid-input").forEach((el) => { el.hidden = !on; });
+    if (!on) void saveGridEdits(root);
+  });
+}
+
+async function saveGridEdits(root: HTMLElement): Promise<void> {
+  const tpl = root.getAttribute("data-update-url-tpl") || "";
+  if (!tpl) return;
+  for (const row of root.querySelectorAll<HTMLTableRowElement>("tr[data-id][data-kind='personal']")) {
+    const rec = row.querySelector<HTMLInputElement>('input[data-field="recipients"]');
+    const folder = row.querySelector<HTMLInputElement>('input[data-field="folder"]');
+    if (!rec || !folder) continue;
+    const params = JSON.parse(row.dataset.params || "{}");
+    const kind = row.dataset.folderKind || "onedrive";
+    const path = folder.value.trim();
+    const owner = (row.dataset.ownerEmail || "").trim().toLowerCase();
+    const listed = rec.value.split(",").map((s) => s.trim()).filter(Boolean);
+    const extras = listed.filter((e) => e.toLowerCase() !== owner);
+    const body: Record<string, unknown> = {
+      cadence: JSON.parse(row.dataset.cadence || "{}"),
+      recipients: extras.join(", "),
+      email_to_owner: listed.some((e) => e.toLowerCase() === owner),
+      filename_template: row.dataset.filenameTemplate || "",
+      saved_report_id: row.dataset.savedReportId || "",
+      email_on_no_data: !!params.email_on_no_data,
+      email_cc: params.email_cc || "",
+      email_bcc: params.email_bcc || "",
+      folder_kind: kind,
+      onedrive_path: kind === "sharepoint" ? "" : path,
+      sharepoint_path: kind === "sharepoint" ? path : "",
+    };
+    const url = tpl.replace(/\/0$/, `/${row.dataset.id}`);
+    const ok = await act(url, "PUT", body);
+    if (!ok) {
+      window.alert("Could not save a row. Check recipients and folder, then try again.");
+      return;
+    }
+  }
+  location.reload();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   bindRowActions();
   bindSortableTables();
   bindPersonalWizard();
+  bindGridEdit();
   bindMasterWizard();
   bindSharePointPicker();
   document.getElementById("activeJobs")?.addEventListener("click", async (ev) => {

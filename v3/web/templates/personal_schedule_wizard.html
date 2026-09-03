@@ -27,8 +27,15 @@
     <form id="psForm" class="ms-wizard-body" novalidate>
         <section class="ms-pane" data-pane="1">
             <h3 class="ms-pane-title" tabindex="-1">Which saved view should go out?</h3>
-            <p class="ms-pane-help">{% if is_privileged %}Default plus named views. Company views and custom date ranges are not on this list.{% else %}Named views only. Default, company views, and custom date ranges are not on this list.{% endif %}</p>
-            <div id="psViewList" class="ms-report-grid" role="radiogroup" aria-label="Saved view"></div>
+            <p class="ms-pane-help">{% if is_privileged %}Pick Company (Default views) or a salesman, then a view.{% else %}Pick a named view.{% endif %}</p>
+            <label class="ms-field ms-field-block">
+                <span>Whose views?</span>
+                <select id="psOwnerSelect"></select>
+            </label>
+            <label class="ms-field ms-field-block">
+                <span>View</span>
+                <select id="psViewSelect" name="saved_report_id"></select>
+            </label>
             <p id="psViewEmpty" class="ms-pane-help" hidden>No named views yet. Open a report, save a view, then come back.</p>
         </section>
 
