@@ -35,6 +35,24 @@ def snapshot() -> list[dict]:
     return list(getattr(_local, "entries", None) or [])
 
 
+class JobCancelled(Exception):
+    """The job row was cancelled while this worker was still in a call."""
+
+
+def cancelled() -> bool:
+    job_id = getattr(_local, "job_id", None)
+    repo = getattr(_local, "repo", None)
+    if not job_id or repo is None:
+        return False
+    job = repo.get(job_id)
+    return job is not None and job.status == "cancelled"
+
+
+def raise_if_cancelled() -> None:
+    if cancelled():
+        raise JobCancelled()
+
+
 def step(name: str, detail: str = "", *, ms: float | None = None) -> None:
     t0 = getattr(_local, "t0", None)
     elapsed = int((time.monotonic() - t0) * 1000) if t0 is not None else 0

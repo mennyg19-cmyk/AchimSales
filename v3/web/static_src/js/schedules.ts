@@ -42,6 +42,38 @@ function badgeClass(status: string): string {
   return "badge badge-salesman";
 }
 
+type ActiveJob = {
+  id: string;
+  status: string;
+  step?: string;
+  label: string;
+};
+
+function cancelUrl(jobId: string): string {
+  const tpl = document.getElementById("runLogPanel")?.getAttribute("data-cancel-url") || "";
+  return tpl.replace("__ID__", jobId);
+}
+
+async function cancelJob(jobId: string): Promise<boolean> {
+  const data = await actJson(cancelUrl(jobId), "POST", {});
+  return Boolean(data && (data.cancelled === true || data.status === "cancelled"));
+}
+
+function renderActiveJobs(jobs: ActiveJob[]): void {
+  const el = document.getElementById("activeJobs");
+  const panel = document.getElementById("runLogPanel");
+  if (!el) return;
+  el.hidden = jobs.length === 0;
+  if (jobs.length) panel?.setAttribute("open", "");
+  el.innerHTML = jobs.map((j) => {
+    const step = j.step ? ` <span class="active-job-step">${esc(j.step)}</span>` : "";
+    return `<div class="active-job">
+      <div class="active-job-label">${esc(j.label)} — ${esc(j.status)}${step}</div>
+      <button type="button" class="btn btn-sm btn-outline js-cancel-job" data-job-id="${esc(j.id)}">Cancel</button>
+    </div>`;
+  }).join("");
+}
+
 function renderRunLog(runs: RunLogRow[]): void {
   const panel = document.getElementById("runLogPanel");
   const body = document.getElementById("runLogBody");
@@ -89,6 +121,7 @@ async function refreshRunLog(): Promise<RunLogRow[]> {
     });
     const data = await res.json().catch(() => ({}));
     const runs = (data.runs || []) as RunLogRow[];
+    renderActiveJobs((data.active_jobs || []) as ActiveJob[]);
     renderRunLog(runs);
     return runs;
   } catch {
@@ -151,14 +184,25 @@ function bindRowActions(): void {
         setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
         return;
       }
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "btn btn-sm btn-outline";
+      cancelBtn.textContent = "Cancel";
+      b.insertAdjacentElement("afterend", cancelBtn);
+      cancelBtn.addEventListener("click", async () => {
+        cancelBtn.disabled = true;
+        await cancelJob(jobId);
+      });
       b.textContent = "Queued";
       await pollJob(jobId, (step) => {
         b.textContent = "Running…";
         b.title = step;
       });
+      cancelBtn.remove();
       await refreshRunLog();
       b.disabled = false;
       b.textContent = "Run now";
+      b.removeAttribute("title");
     });
   });
   document.querySelectorAll<HTMLButtonElement>(".js-copy").forEach((b) => {
@@ -236,4 +280,12 @@ document.addEventListener("DOMContentLoaded", () => {
   bindPersonalWizard();
   bindMasterWizard();
   bindSharePointPicker();
+  document.getElementById("activeJobs")?.addEventListener("click", async (ev) => {
+    const btn = (ev.target as HTMLElement).closest("button.js-cancel-job") as HTMLButtonElement | null;
+    if (!btn?.dataset.jobId) return;
+    btn.disabled = true;
+    await cancelJob(btn.dataset.jobId);
+    await refreshRunLog();
+  });
+  void refreshRunLog();
 });

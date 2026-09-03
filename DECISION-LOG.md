@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Cancel stuck schedule jobs
+**What you asked for:** A cancel for scheduled reports too, so a stuck job can be cleared for other jobs and tests.
+**What I had to decide:** Who may cancel a clock job with no owner; whether cancel kills an HTTP call already in flight.
+**What I chose:** Reuse `POST /api/jobs/<id>/cancel`. The schedule owner can cancel their jobs. Admins/developers can cancel any `schedule.run`, including company clock jobs with no owner. Report runs stay owner-only. Cancel next to Run now, plus an in-progress list on the run log. Cancel marks the job cancelled immediately (frees the clock dedup so a new run can enqueue). An API call already in flight still finishes; the worker stops before the next call and does not mark success/failure over the cancel.
+**Why:** Run now had no Cancel, and clock jobs with `owner_user_id` NULL were invisible to the user APIs, so a stuck send sat in the queue and blocked the next tick.
+**Status:** DECIDED
+
 ## 2026-09-03 Granular live job log
 **What you asked for:** The live log only showed three steps. Need to see exactly what the job is doing: building this tab, that tab, and what the API response was.
 **What I had to decide:** Whether to dump full Reporting API rows into sqlite; how the screen shows the log.

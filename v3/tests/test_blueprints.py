@@ -619,6 +619,49 @@ def test_cannot_cancel_another_users_job(tmp_path):
     assert app.config["JOB_REPO"].get(job_id).status == "queued"  # untouched
 
 
+def test_admin_cancels_unowned_schedule_job(tmp_path):
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    job_id = app.config["JOB_REPO"].enqueue(
+        SCHEDULE_RUN_JOB_TYPE, owner_user_id=None,
+        params={"schedule_id": 1, "schedule_type": "master"})
+    resp = client.post(f"/api/jobs/{job_id}/cancel", headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200
+    assert resp.get_json()["cancelled"] is True
+    assert client.get(f"/api/jobs/{job_id}").get_json()["status"] == "cancelled"
+    assert any(e.get("detail") == "cancelled" for e in client.get(f"/api/jobs/{job_id}").get_json()["log"])
+
+
+def test_salesman_cannot_cancel_unowned_schedule_job(tmp_path):
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    job_id = app.config["JOB_REPO"].enqueue(SCHEDULE_RUN_JOB_TYPE, owner_user_id=None, params={})
+    other = app.test_client()
+    _login(other, app, email="rep@x.com", role="salesman")
+    assert other.post(f"/api/jobs/{job_id}/cancel",
+                      headers={"X-CSRF-Token": _CSRF}).status_code == 404
+    assert app.config["JOB_REPO"].get(job_id).status == "queued"
+
+
+def test_recent_runs_lists_active_schedule_jobs(tmp_path):
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    job_id = app.config["JOB_REPO"].enqueue(
+        SCHEDULE_RUN_JOB_TYPE, owner_user_id=uid,
+        params={"schedule_id": 9, "schedule_type": "personal", "manual": True})
+    data = client.get("/api/schedules/recent-runs").get_json()
+    ids = [j["id"] for j in data["active_jobs"]]
+    assert job_id in ids
+    assert any(j["label"].startswith("Run now") for j in data["active_jobs"] if j["id"] == job_id)
+
+
 def test_active_report_runs_lists_owners_recent_run(tmp_path):
     rows = {
         "ordered_report": [

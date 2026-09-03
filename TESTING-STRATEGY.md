@@ -14,6 +14,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Company Run now sets `owner_user_id` so the clicker can poll `/api/jobs/<id>`. History HTML includes the run log.
 - `SharePointService.upload_file` with a configured `SP_SITE_URL` that Graph returns 404 for raises naming `SP_SITE_URL` and does **not** call `sites?search=`.
 - Schedules and company schedules templates have `data-job-url`; `schedules.ts` polls that job instead of giving up on the run-log table after 90 seconds.
+- Owner or admin can `POST /api/jobs/<id>/cancel` a queued/running `schedule.run`. A salesman cannot cancel a job they do not own. Admins can cancel a clock job with `owner_user_id` NULL. Cancelling a clock job frees its dedup key so the next enqueue is a new job. `GET /api/schedules/recent-runs` includes `active_jobs`. Personal and company schedule pages have `#activeJobs` and `data-cancel-url`.
 
 **Test file:** `v3/tests/test_jobs.py`, `v3/tests/test_delivery.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`, `v3/tests/test_reporting.py`, `v3/tests/test_report_service.py`
 

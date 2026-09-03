@@ -43,7 +43,7 @@ from report_engine.sources import ordered as src_ordered
 from web.reporting import params as P
 from web.reporting.http_client import ReportingApiError
 from web.reporting.runner import Builder
-from web.jobs.trace import step as job_step
+from web.jobs.trace import raise_if_cancelled, step as job_step
 
 log = logging.getLogger(__name__)
 
@@ -197,6 +197,7 @@ class ReportService:
         chunks = list(month_chunks(start, end))
         job_step("fetch", f"{report_id} {start}..{end} in {len(chunks)} month chunk(s)")
         for i, (chunk_start, chunk_end) in enumerate(chunks, start=1):
+            raise_if_cancelled()
             job_step("fetch", f"chunk {i}/{len(chunks)} {chunk_start}..{chunk_end}")
             sp = dict(base_sp)
             sp[from_key] = sp_datetime(chunk_start, end_of_day=False)

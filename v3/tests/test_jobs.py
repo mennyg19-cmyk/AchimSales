@@ -213,6 +213,44 @@ def test_cancel_works_for_queued_and_running(db):
     assert jobs.cancel(running) is False  # already terminal
 
 
+def test_list_active_filters_type_and_owner(db):
+    users = UserRepository(db)
+    a = users.create("a@x.com", role="admin").id
+    b = users.create("b@x.com", role="admin").id
+    jobs = JobRepository(db)
+    mine = jobs.enqueue("schedule.run", owner_user_id=a)
+    jobs.enqueue("report.run", owner_user_id=a)
+    jobs.enqueue("schedule.run", owner_user_id=b)
+    jobs.enqueue("schedule.run", owner_user_id=None)
+    assert [j.id for j in jobs.list_active(job_type="schedule.run", owner_user_id=a)] == [mine]
+    assert len(jobs.list_active(job_type="schedule.run")) == 3
+
+
+def test_cancel_releases_clock_dedup(db):
+    from web.scheduling.jobs import enqueue_schedule_run
+    jobs = JobRepository(db)
+    first = enqueue_schedule_run(jobs, schedule_id=1, owner_user_id=None)
+    assert enqueue_schedule_run(jobs, schedule_id=1, owner_user_id=None) == first
+    assert jobs.cancel(first) is True
+    again = enqueue_schedule_run(jobs, schedule_id=1, owner_user_id=None)
+    assert again != first
+
+
+def test_handler_cancelled_does_not_mark_failure(db):
+    from web.jobs.trace import JobCancelled
+    worker = JobWorker(db)
+    jobs = JobRepository(db)
+
+    def boom(ctx):
+        jobs.cancel(ctx.job.id)
+        raise JobCancelled()
+
+    worker.register("echo", boom)
+    jid = jobs.enqueue("echo")
+    worker.process_next()
+    assert jobs.get(jid).status == "cancelled"
+
+
 def test_mark_success_does_not_resurrect_cancelled(db):
     jobs = JobRepository(db)
     jid = jobs.enqueue("echo")

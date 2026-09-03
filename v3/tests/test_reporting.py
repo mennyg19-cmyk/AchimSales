@@ -145,6 +145,27 @@ def test_client_4xx_log_includes_body():
         job_trace.unbind()
 
 
+def test_client_stops_when_job_cancelled():
+    from web.jobs import trace as job_trace
+    from web.jobs.trace import JobCancelled
+
+    class _Repo:
+        def get(self, _id):
+            return type("J", (), {"status": "cancelled"})()
+        def append_log(self, *a, **k):
+            pass
+
+    sess = _FakeSession(_FakeResp(200, {"rows": []}))
+    client = ReportingApiClient("http://api", "k", session=sess)
+    job_trace.bind("j", _Repo())
+    try:
+        with pytest.raises(JobCancelled):
+            client.run_report("x", {})
+        assert sess.calls == 0
+    finally:
+        job_trace.unbind()
+
+
 # --- canonical scope token --------------------------------------------------
 
 def test_canonical_scope_token_is_order_stable():

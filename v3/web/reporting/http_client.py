@@ -190,10 +190,12 @@ class ReportingApiClient:
         session = self._session_or_default()
 
         last_exc: Exception | None = None
-        from web.jobs.trace import step as job_step
+        from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 
+        raise_if_cancelled()
         job_step("api", f"calling {report_id} {_compact_json(params)}")
         for attempt in range(self.retries + 1):
+            raise_if_cancelled()
             t0 = time.monotonic()
             try:
                 resp = session.post(url, json=params, headers=headers,
@@ -228,6 +230,8 @@ class ReportingApiClient:
                     row_count=body.get("row_count", len(rows)),
                 )
             except ReportingApiError:
+                raise
+            except JobCancelled:
                 raise
             except Exception as exc:  # noqa: BLE001 - transient/network/parse: retry then surface
                 last_exc = exc

@@ -361,3 +361,8 @@ def test_live_job_log_shows_every_entry():
     assert "export function renderJobLog" in log_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".live-job-log" in css
+    assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
+    assert "data-cancel-url" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert "function cancelJob" in sched_js
+    assert "js-cancel-job" in sched_js

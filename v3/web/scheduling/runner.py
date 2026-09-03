@@ -34,7 +34,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
-from web.jobs.trace import step as job_step
+from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
@@ -129,6 +129,7 @@ class ScheduleRunner:
 
         run_id = self.run_repo.start(schedule_id, schedule_type, manual=manual)
         try:
+            raise_if_cancelled()
             if recovered and not manual and self._already_sent_today(schedule_id, schedule_type):
                 self.run_repo.finish(
                     run_id, status="skipped",
@@ -187,6 +188,7 @@ class ScheduleRunner:
             outcomes: list[DeliveryOutcome] = []
             window_errors: list[str] = []
             for window in windows:
+                raise_if_cancelled()
                 window_subject, window_name = _window_labels(
                     subject, getattr(sched, "name", "") or report_name, window,
                 )
@@ -199,6 +201,8 @@ class ScheduleRunner:
                         prior_errors=prior_errors + window_errors,
                     )
                     outcomes.append(outcome)
+                except JobCancelled:
+                    raise
                 except Exception as exc:  # noqa: BLE001 - try remaining windows
                     log.warning(
                         "schedule %s:%s window failed; continuing",
@@ -224,6 +228,13 @@ class ScheduleRunner:
             self._supersede_pending_fail_notices(schedule_id, schedule_type)
             if catch_up_for_date:
                 self._set_catch_up(schedule_id, schedule_type, False)
+        except JobCancelled:
+            existing = self.run_repo.get(run_id)
+            if existing is None or existing.status == "running":
+                self.run_repo.finish(
+                    run_id, status="cancelled", debug_log="Cancelled",
+                )
+            raise
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
             log.exception("schedule run failed (%s:%s)", schedule_type, schedule_id)
             existing = self.run_repo.get(run_id)

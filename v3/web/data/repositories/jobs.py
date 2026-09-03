@@ -231,6 +231,20 @@ class JobRepository:
             )
             return cur.rowcount
 
+    def list_active(self, *, job_type: str | None = None,
+                    owner_user_id: int | None = None) -> list[Job]:
+        sql = "SELECT * FROM jobs WHERE status IN (?, ?)"
+        args: list = [*_ACTIVE]
+        if job_type:
+            sql += " AND type = ?"
+            args.append(job_type)
+        if owner_user_id is not None:
+            sql += " AND owner_user_id = ?"
+            args.append(owner_user_id)
+        sql += " ORDER BY created_at"
+        with self.db.precious() as conn:
+            return [Job.from_row(r) for r in conn.execute(sql, args).fetchall()]
+
     def status_summary(self, active_limit: int = 20) -> dict:
         """Counts of jobs by status plus the currently active (queued/running)
         jobs with their age. Lets the admin diagnostic tell a worker stuck behind

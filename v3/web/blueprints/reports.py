@@ -251,6 +251,21 @@ def _owned_job_or_404(job_id: str, uid: int | None):
     return job
 
 
+def _visible_job_or_404(job_id: str, p):
+    """Owner can always see their job. Admins can also see schedule.run jobs
+    (clock company runs have no owner, and that's the stuck-job we need to cancel)."""
+    job = _job_repo().get(job_id)
+    uid = _user_id(p.email)
+    if job is None or uid is None:
+        abort(404, description="Unknown job")
+    if job.owner_user_id == uid:
+        return job
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+    if job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p):
+        return job
+    abort(404, description="Unknown job")
+
+
 def _job_scope_ok(p, job) -> bool:
     """True if p may still see a result built under job.params['visible_keys']."""
     current_keys = _authz().visible_salesman_keys(p)
@@ -433,7 +448,7 @@ def run_report(report_key: str):
 @require_login
 def job_status(job_id: str):
     p = _principal_or_401()
-    job = _owned_job_or_404(job_id, _user_id(p.email))
+    job = _visible_job_or_404(job_id, p)
     from web.data.repositories.jobs import _step_label
     return jsonify({
         "job_id": job.id, "status": job.status, "progress": job.progress,
@@ -445,15 +460,23 @@ def job_status(job_id: str):
 @reports_bp.post("/api/jobs/<job_id>/cancel")
 @require_login
 def cancel_job(job_id: str):
-    """Cancel a still-running (or queued) report run the user is watching.
+    """Cancel a still-running (or queued) job the user is watching.
 
-    Owner-checked like the status route. Returns whether the job was active to
-    cancel; if it already finished, we report its current status so the screen
-    can show the result instead of an error.
+    Owner-checked for report runs. Admins can also cancel schedule.run jobs
+    (including clock jobs with no owner) so a stuck send can be cleared.
+    Returns whether the job was active to cancel; if it already finished, we
+    report its current status so the screen can show the result instead of an
+    error.
     """
     p = _principal_or_401()
-    job = _owned_job_or_404(job_id, _user_id(p.email))
+    job = _visible_job_or_404(job_id, p)
     cancelled = _job_repo().cancel(job_id)
+    if cancelled:
+        _job_repo().append_log(job_id, {
+            "t": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "step": "job",
+            "detail": "cancelled",
+        })
     return jsonify({"cancelled": cancelled,
                     "status": "cancelled" if cancelled else job.status})
 
