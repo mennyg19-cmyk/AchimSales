@@ -92,6 +92,19 @@ def test_home_config_falls_back_when_site_paths_are_unset(monkeypatch):
     assert cfg.cache_db_path == Path("/tmp/fallback-cache.db")
 
 
+def test_home_config_falls_back_when_site_paths_are_whitespace(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("PRECIOUS_DB_PATH", "/tmp/fallback-precious.db")
+    monkeypatch.setenv("CACHE_DB_PATH", "/tmp/fallback-cache.db")
+    monkeypatch.setenv("SITE_PRECIOUS_DB_PATH", "   ")
+    monkeypatch.setenv("SITE_CACHE_DB_PATH", "\t")
+
+    cfg = load_config()
+
+    assert cfg.precious_db_path == Path("/tmp/fallback-precious.db")
+    assert cfg.cache_db_path == Path("/tmp/fallback-cache.db")
+
+
 def test_home_config_prefers_site_paths(monkeypatch):
     monkeypatch.setenv("APP_ENV", "dev")
     monkeypatch.setenv("PRECIOUS_DB_PATH", "/tmp/fallback-precious.db")

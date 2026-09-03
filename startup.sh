@@ -20,6 +20,17 @@
 # abort the boot.
 set -u
 
+_export_trimmed_alias() {
+  # Match load_config: whitespace-only SITE_* is unset, not a Litestream path.
+  local raw trimmed
+  raw="${1:-}"
+  trimmed="${raw#"${raw%%[![:space:]]*}"}"
+  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+  if [ -n "${trimmed}" ]; then
+    export "$2=${trimmed}"
+  fi
+}
+
 ROOT="/home/site/wwwroot"
 LS_BIN="/home/bin/litestream"
 LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
@@ -41,12 +52,8 @@ pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warni
 #     the now-frozen /home file. Only precious.db is seeded; cache.db is disposable.
 HOME_SEED_DB="/home/site/v3data/precious.db"
 SEED_MARKER="/home/site/v3data/.migrated-to-local"
-if [ -n "${SITE_PRECIOUS_DB_PATH:-}" ]; then
-  export PRECIOUS_DB_PATH="${SITE_PRECIOUS_DB_PATH}"
-fi
-if [ -n "${SITE_CACHE_DB_PATH:-}" ]; then
-  export CACHE_DB_PATH="${SITE_CACHE_DB_PATH}"
-fi
+_export_trimmed_alias "${SITE_PRECIOUS_DB_PATH:-}" PRECIOUS_DB_PATH
+_export_trimmed_alias "${SITE_CACHE_DB_PATH:-}" CACHE_DB_PATH
 PRECIOUS="${PRECIOUS_DB_PATH:-/home/site/v3data/precious.db}"
 case "${PRECIOUS}" in
   /home/*) echo "startup: precious.db still on /home (${PRECIOUS}); no local seed" ;;

@@ -1309,7 +1309,10 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## Phase 7.1 staged home DB path aliases
 **What to test:**
 - Home config uses non-empty `SITE_PRECIOUS_DB_PATH` and `SITE_CACHE_DB_PATH`
-  before the older names, and falls back when the new names are unset.
+  before the older names, and falls back when the new names are unset or
+  whitespace-only.
+- `startup.sh` trims the same way before exporting into `PRECIOUS_DB_PATH` /
+  `CACHE_DB_PATH`, so Litestream does not get a blank path the app ignored.
 - Production rejects a `/home/site/...` path supplied through `SITE_*`.
 - Beta config continues to read only `BETA_PRECIOUS_DB_PATH` and
   `BETA_CACHE_DB_PATH`.
@@ -1318,4 +1321,4 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Azure can migrate the home database settings without changing Litestream's
   existing `PRECIOUS_DB_PATH` interpolation or the `/test` database paths.
 
-**Test file:** `v3/tests/test_config.py`
+**Test file:** `v3/tests/test_config.py`, `tests/test_startup_site_alias.py`
