@@ -1,4 +1,8 @@
-# Decision Log
+## 2026-09-03 Admins can schedule company views
+**What you asked for:** Admins and developers should be able to set up schedules using company views.
+**What I chose:** Company named views (Daily Ordered, Heshy Open Orders, …) sit in the wizard Company group with Default. `POST /api/schedules` accepts `company:<id>`. The send uses the live company-view filters, same as a personal named view. Salesmen do not see or schedule them. Company (master) add/edit stays hidden.
+**Why:** Company views are the shared layouts people actually mail. Default-only in that dropdown left Daily Ordered off the personal wizard.
+**Status:** DECIDED
 
 ## 2026-09-03 Schedule UI: hide company setup, two-dropdown wizard, dev grid
 **What you asked for:** Hide company schedule add/edit (keep the code). Devs see all report runs and schedule history with steps behind a dropdown. Wizard step 1 is salesman/company then views. Home presets collapsed. Devs can edit the schedules grid from a pencil.

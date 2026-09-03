@@ -22,6 +22,7 @@ from web.data.repositories.report_defaults import (
     view_and_layout_for_create,
     view_and_layout_for_update,
 )
+from web.data.repositories.company_views import CompanyView, CompanyViewRepository
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
 from web.data.repositories.schedules import (
     MASTER,
@@ -222,11 +223,16 @@ def _saved_reports() -> SavedReportRepository:
     return SavedReportRepository(_db())
 
 
+def _company_views() -> CompanyViewRepository:
+    return CompanyViewRepository(_db())
+
+
 def _users() -> UserRepository:
     return UserRepository(_db())
 
 
 _DEFAULT_VIEW_TOKEN = "default:"
+_COMPANY_VIEW_TOKEN = "company:"
 _DELIVERY_PARAM_KEYS = {
     "email_on_no_data", "email_on_no_data_me_only",
     "email_cc", "email_bcc", "folder_kind",
@@ -235,6 +241,38 @@ _DELIVERY_PARAM_KEYS = {
 
 def _default_view_token(report_key: str) -> str:
     return f"{_DEFAULT_VIEW_TOKEN}{report_key}"
+
+
+def _company_view_token(view_id: int) -> str:
+    return f"{_COMPANY_VIEW_TOKEN}{view_id}"
+
+
+def _parse_company_view_id(body: dict) -> int | None:
+    raw = body.get("saved_report_id")
+    if raw is None or not str(raw).strip():
+        return None
+    token = str(raw).strip()
+    if not token.lower().startswith(_COMPANY_VIEW_TOKEN):
+        return None
+    try:
+        return int(token.split(":", 1)[1].strip())
+    except (IndexError, ValueError):
+        return None
+
+
+def _load_company_view_schedule(body: dict, p, *, privileged: bool) -> CompanyView:
+    if not privileged:
+        abort(403, description="Only admins and developers can schedule company views.")
+    view_id = _parse_company_view_id(body)
+    if view_id is None:
+        abort(400, description="Pick a company view to schedule.")
+    row = _company_views().get(view_id)
+    if row is None:
+        abort(404, description="Unknown company view")
+    _validate_report(p, row.report_key, allow_in_app=False)
+    if is_custom_date_params(row.params):
+        abort(400, description="Custom date ranges can't be scheduled.")
+    return row
 
 
 def _parse_default_report_key(body: dict) -> str | None:
@@ -452,7 +490,8 @@ def schedules_page():
         elif row["view_name"] == DEFAULT_VIEW_NAME:
             row["saved_report_id"] = _default_view_token(row["report_key"])
         else:
-            row["saved_report_id"] = ""
+            cv = _company_views().get_by_name(row["report_key"], row["view_name"])
+            row["saved_report_id"] = _company_view_token(cv.id) if cv else ""
         row["folder_kind"] = (row["params"] or {}).get("folder_kind") or "onedrive"
     groups = _group_personal_rows(items, is_privileged)
     context = {
@@ -625,6 +664,29 @@ def create_schedule():
         if created:
             _hold_if_due(_repo(), created, PERSONAL)
         return jsonify({"id": sid, "owner_user_id": owner.id}), 201
+    if _parse_company_view_id(body) is not None:
+        cv = _load_company_view_schedule(body, p, privileged=privileged)
+        owner = _users().get_by_id(_uid(p.email))
+        if owner is None:
+            abort(400, description="That view has no owner.")
+        cadence = _parse_cadence(body)
+        folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
+        recipients = _recipients_for_view_schedule(
+            body, owner, privileged=privileged, folder=folder)
+        params = _delivery_params(body, dict(cv.params or {}), privileged=privileged)
+        params.update(folder_extra)
+        sid = _repo().create(
+            owner.id, cv.report_key, params=params,
+            layout=cv.layout or {}, cadence=cadence,
+            recipients=recipients, sharepoint_path=folder,
+            start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
+            filename_template=_filename_template_for_create(body),
+            view_name=cv.name,
+        )
+        created = _repo().get(sid, owner.id)
+        if created:
+            _hold_if_due(_repo(), created, PERSONAL)
+        return jsonify({"id": sid, "owner_user_id": owner.id}), 201
     preset = _load_schedulable_view(body, p, privileged=privileged)
     owner = _users().get_by_id(preset.user_id)
     if owner is None:
@@ -673,6 +735,11 @@ def update_schedule(schedule_id: int):
                     k: v for k, v in (existing.params or {}).items()
                     if k not in _DELIVERY_PARAM_KEYS
                 }
+        elif _parse_company_view_id(body) is not None:
+            cv = _load_company_view_schedule(body, p, privileged=privileged)
+            if cv.report_key != existing.report_key:
+                abort(400, description="Pick a company view for this report.")
+            view_name, layout, view_params = cv.name, cv.layout or {}, dict(cv.params or {})
         else:
             preset = _load_schedulable_view(
                 body, p, privileged=privileged, existing=existing)
@@ -693,6 +760,12 @@ def update_schedule(schedule_id: int):
         if backed is not None:
             view_params = dict(backed.params or {})
             layout = backed.layout or layout
+        else:
+            cv = _company_views().get_by_name(
+                existing.report_key, normalize_view_name(view_name))
+            if cv is not None:
+                view_params = dict(cv.params or {})
+                layout = cv.layout or layout
     cadence = _parse_cadence(body)
     folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
     recipients = _recipients_for_view_schedule(
@@ -806,22 +879,33 @@ def list_schedulable_views():
         })
     out = [groups[i] for i in order if groups[i]["views"]]
     if privileged:
-        defaults = []
+        company_rows = []
+        for cv in _company_views().list_all():
+            if not _view_is_visible(p, cv.report_key):
+                continue
+            if is_custom_date_params(cv.params):
+                continue
+            company_rows.append({
+                "id": _company_view_token(cv.id),
+                "name": cv.name,
+                "report_key": cv.report_key,
+                "report_title": _report_title(cv.report_key),
+            })
         for spec in registry.built_reports():
             if spec.in_app or not _view_is_visible(p, spec.key):
                 continue
-            defaults.append({
+            company_rows.append({
                 "id": _default_view_token(spec.key),
                 "name": DEFAULT_VIEW_NAME,
                 "report_key": spec.key,
                 "report_title": spec.title,
             })
-        if defaults:
+        if company_rows:
             out.insert(0, {
                 "user_id": 0,
                 "name": "Company",
                 "email": "",
-                "views": defaults,
+                "views": company_rows,
             })
     out.sort(key=lambda g: (0 if g["name"] == "Company" else 1, g["name"].lower()))
     return jsonify({"groups": out})

@@ -111,10 +111,11 @@ class ScheduleRunner:
 
     def _params_for(self, sched, schedule_type: str) -> dict:
         """Personal named views send the live saved view, not a stale snapshot.
+        A personal schedule of a company view does the same from company_views.
 
         Delivery keys (cc, folder, no-data mail) stay on the schedule row.
-        Company schedules keep their own period. A company view may store a
-        period for the report page; that does not override the schedule.
+        Company (master) schedules keep their own period. A company view may store a
+        period for the report page; that does not override a master schedule.
         """
         stored = dict(sched.params or {})
         if schedule_type != PERSONAL:
@@ -124,9 +125,13 @@ class ScheduleRunner:
             return stored
         view = self.saved_reports.get_by_name(
             sched.owner_user_id, sched.report_key, name)
-        if view is None:
-            return stored
-        live = dict(view.params or {})
+        if view is not None:
+            live = dict(view.params or {})
+        else:
+            cv = self.company_views.get_by_name(sched.report_key, name)
+            if cv is None:
+                return stored
+            live = dict(cv.params or {})
         for key in _DELIVERY_PARAM_KEYS:
             if key in stored:
                 live[key] = stored[key]

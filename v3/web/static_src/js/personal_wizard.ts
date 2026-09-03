@@ -307,7 +307,8 @@ async function enterEdit(row: HTMLTableRowElement): Promise<void> {
   if (selectedId && !selectedView()) {
     lockedView = {
       view: {
-        id: selectedId.startsWith("default:") ? selectedId : Number(selectedId),
+        id: (selectedId.startsWith("default:") || selectedId.startsWith("company:"))
+          ? selectedId : Number(selectedId),
         name: row.dataset.viewName || "Imported view",
         report_key: row.dataset.reportKey || "",
         report_title: row.dataset.name || "",

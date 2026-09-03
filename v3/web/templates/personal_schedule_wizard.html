@@ -27,7 +27,7 @@
     <form id="psForm" class="ms-wizard-body" novalidate>
         <section class="ms-pane" data-pane="1">
             <h3 class="ms-pane-title" tabindex="-1">Which saved view should go out?</h3>
-            <p class="ms-pane-help">{% if is_privileged %}Pick Company (Default views) or a salesman, then a view.{% else %}Pick a named view.{% endif %}</p>
+            <p class="ms-pane-help">{% if is_privileged %}Pick Company (company views and Default) or a salesman, then a view.{% else %}Pick a named view.{% endif %}</p>
             <label class="ms-field ms-field-block">
                 <span>Whose views?</span>
                 <select id="psOwnerSelect"></select>

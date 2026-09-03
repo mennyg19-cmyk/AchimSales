@@ -118,6 +118,16 @@ def _named_view(client, *, name="Last month", report="ordered", params=None, lay
     return resp.get_json()["id"]
 
 
+def _put_company_view(client, *, name="Daily Ordered", params=None, layout=None):
+    resp = client.put("/api/reports/ordered/company-views", json={
+        "name": name,
+        "params": params if params is not None else {"period": "yesterday"},
+        "layout": layout or {},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()
+
+
 def test_reports_list_requires_login(tmp_path):
     app = _make_app(tmp_path)
     resp = app.test_client().get("/")
@@ -1940,6 +1950,66 @@ def test_salesman_cannot_schedule_default(tmp_path):
         "params": {"period": "yesterday"},
     }, headers={"X-CSRF-Token": _CSRF})
     assert created.status_code == 403
+
+
+def test_admin_can_schedule_company_view(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app)
+    _put_company_view(c)
+    views = [
+        v for g in c.get("/api/schedules/views").get_json()["groups"] for v in g["views"]
+    ]
+    daily = next(v for v in views if v["name"] == "Daily Ordered")
+    created = c.post("/api/schedules", json={
+        "saved_report_id": daily["id"],
+        "cadence": {"freq": "daily", "time": "08:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201, created.get_data(as_text=True)
+    from web.data.repositories.schedules import ScheduleRepository
+    sid = created.get_json()["id"]
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    row = ScheduleRepository(app.config["DB"]).get(sid, uid)
+    assert row.view_name == "Daily Ordered"
+    html = c.get("/schedules").get_data(as_text=True)
+    assert f'data-saved-report-id="{daily["id"]}"' in html
+    assert 'data-view-name="Daily Ordered"' in html
+
+
+def test_developer_can_schedule_company_view(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app, email="dev@x.com", role="developer")
+    _put_company_view(c)
+    views = [
+        v for g in c.get("/api/schedules/views").get_json()["groups"] for v in g["views"]
+    ]
+    daily = next(v for v in views if v["name"] == "Daily Ordered")
+    created = c.post("/api/schedules", json={
+        "saved_report_id": daily["id"],
+        "cadence": {"freq": "daily", "time": "09:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201, created.get_data(as_text=True)
+
+
+def test_salesman_cannot_schedule_company_view(tmp_path):
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    _put_company_view(admin)
+    views = [
+        v for g in admin.get("/api/schedules/views").get_json()["groups"] for v in g["views"]
+    ]
+    daily = next(v for v in views if v["name"] == "Daily Ordered")
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    created = rep.post("/api/schedules", json={
+        "saved_report_id": daily["id"],
+        "cadence": {"freq": "daily", "time": "08:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 403
+    names = [v["name"] for g in rep.get("/api/schedules/views").get_json()["groups"] for v in g["views"]]
+    assert "Daily Ordered" not in names
 
 
 def test_developer_can_schedule_default_from_report_body(tmp_path):

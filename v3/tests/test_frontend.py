@@ -269,6 +269,8 @@ def test_report_viewer_meeting_ux():
     assert 'id="psViewSelect"' in personal
     wiz_js = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
     assert 'startsWith("default:")' in wiz_js
+    assert 'startsWith("company:")' in wiz_js
+    assert "company views and Default" in personal
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
 

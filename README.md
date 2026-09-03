@@ -109,7 +109,8 @@ that box on Save this view; they can still be saved without one. Company
 schedules supply their own YTD / MTD / yesterday at send time. Managers who have the flag can edit
 them from Saved views. Personal schedules send a **named saved view** (3
 steps: view, when, where). Admins and developers can also schedule **Default**
-from More → Schedule or the personal wizard. Company schedules stay on the
+and named **company views** (Daily Ordered, Heshy Open Orders) from More →
+Schedule or the personal wizard Company group. Company schedules stay on the
 old 5-step wizard under Settings (admins and developers) but that add/edit UI is
 hidden for now (`SHOW_COMPANY_SCHEDULE_SETUP`); existing company rows still run. While a report or
 schedule job is running, the status line (and Run now) shows the live step:
