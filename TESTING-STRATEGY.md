@@ -1339,8 +1339,8 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 ## Phase 8.2 admin/dashboard table reflow
 **What to test:**
-- At a 320 CSS px viewport and 200% zoom, check `/admin/users` user and salesman tables plus Customer Dashboard tiles and customer table.
-- Confirm `document.documentElement.scrollWidth <= document.documentElement.clientWidth`; scroll each inner table wrap and activate Edit, View as, and a customer link.
+- At a 320 CSS px viewport and a 160 CSS px viewport (320px at 200% zoom), check `/admin/users` user and salesman tables plus Customer Dashboard tiles and customer table.
+- Confirm `document.documentElement.scrollWidth <= document.documentElement.clientWidth` using layout viewport size, not `body.style.zoom`. Scroll each inner table wrap and activate Edit, View as, and a customer link.
 
 **Expected behavior:**
 - Tables remain tables. Wide rows scroll inside `.table-wrap`; the document does not scroll sideways or hide row actions.

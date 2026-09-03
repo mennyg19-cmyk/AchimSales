@@ -113,7 +113,7 @@ body {
 @keyframes report-jobs-spin { to { transform: rotate(360deg); } }
 .report-jobs-panel {
     display: flex; flex-direction: column; gap: 6px; padding: 8px;
-    min-width: 240px; max-width: min(340px, calc(100vw - 32px));
+    min-width: min(240px, calc(100vw - 32px)); max-width: min(340px, calc(100vw - 32px));
     background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0,0,0,0.18);
 }
