@@ -490,22 +490,27 @@ class ScheduleRunRepository:
         self.db = db
 
     def start(self, schedule_id: int | None, schedule_type: str = PERSONAL,
-              started_at: str | None = None) -> int:
+              started_at: str | None = None, *, manual: bool = False) -> int:
+        meta = json.dumps({"manual": True} if manual else {})
         with self.db.precious() as conn:
             cur = conn.execute(
-                "INSERT INTO schedule_runs(schedule_id, schedule_type, status, started_at)"
-                " VALUES (?, ?, 'running', ?)",
-                (schedule_id, schedule_type, started_at or _now()),
+                "INSERT INTO schedule_runs(schedule_id, schedule_type, status,"
+                " started_at, output_meta) VALUES (?, ?, 'running', ?, ?)",
+                (schedule_id, schedule_type, started_at or _now(), meta),
             )
             return cur.lastrowid
 
     def finish(self, run_id: int, *, status: str, rows: int | None = None,
                output_meta: dict | None = None, debug_log: str = "") -> None:
+        meta = dict(output_meta or {})
+        existing = self.get(run_id)
+        if existing and (existing.output_meta or {}).get("manual"):
+            meta["manual"] = True
         with self.db.precious() as conn:
             conn.execute(
                 "UPDATE schedule_runs SET status=?, finished_at=?, rows=?, output_meta=?,"
                 " debug_log=? WHERE id=?",
-                (status, _now(), rows, json.dumps(output_meta or {}), debug_log, run_id),
+                (status, _now(), rows, json.dumps(meta), debug_log, run_id),
             )
 
     def get(self, run_id: int) -> ScheduleRun | None:
@@ -532,21 +537,23 @@ class ScheduleRunRepository:
             return [ScheduleRun.from_row(r) for r in rows]
 
     def last_run_at(self, schedule_id: int, schedule_type: str = PERSONAL) -> str | None:
-        """Most recent started_at for due-time calculation by the cron tick."""
+        """Most recent clock started_at. Run now does not consume today's slot."""
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT MAX(started_at) AS t FROM schedule_runs"
-                " WHERE schedule_id=? AND schedule_type=?",
+                " WHERE schedule_id=? AND schedule_type=?"
+                " AND COALESCE(json_extract(output_meta, '$.manual'), 0) = 0",
                 (schedule_id, schedule_type),
             ).fetchone()
             return row["t"] if row else None
 
     def last_success_at(self, schedule_id: int, schedule_type: str = PERSONAL) -> str | None:
-        """Most recent successful started_at (skips/failures do not count)."""
+        """Most recent successful clock started_at (skips/failures/Run now do not count)."""
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT MAX(started_at) AS t FROM schedule_runs"
-                " WHERE schedule_id=? AND schedule_type=? AND status='success'",
+                " WHERE schedule_id=? AND schedule_type=? AND status='success'"
+                " AND COALESCE(json_extract(output_meta, '$.manual'), 0) = 0",
                 (schedule_id, schedule_type),
             ).fetchone()
             return row["t"] if row else None

@@ -2,8 +2,9 @@
 
 Runs once a minute on the single B1 instance (via the APScheduler wrapper). It
 never delivers inline - it only enqueues durable ``schedule.run`` jobs, which the
-worker drains. ``schedule.run`` enqueue is deduped per (type, id), and cadence's
-once-per-day guard means a minute-by-minute tick can't double-fire a schedule.
+worker drains. Clock ``schedule.run`` enqueue is deduped per (type, id), and
+cadence's once-per-day guard means a minute-by-minute tick can't double-fire.
+Run now is a separate job and can send again the same day.
 
 Clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send waits for
 the next scheduled HH:MM — skip-class periods use the next regular slot;

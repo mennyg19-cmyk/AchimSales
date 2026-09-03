@@ -661,7 +661,7 @@ def run_schedule(schedule_id: int):
     job_id = enqueue_schedule_run(
         current_app.config["JOB_REPO"],
         schedule_id=schedule_id, schedule_type=PERSONAL,
-        owner_user_id=existing.owner_user_id, ignore_sabbath=True)
+        owner_user_id=existing.owner_user_id, ignore_sabbath=True, manual=True)
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202
 
@@ -1217,6 +1217,6 @@ def run_master(schedule_id: int):
     _require_master_edit(p, sched)
     job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
                                   schedule_id=schedule_id, schedule_type=MASTER,
-                                  ignore_sabbath=True)
+                                  ignore_sabbath=True, manual=True)
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202

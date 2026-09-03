@@ -2323,6 +2323,7 @@ def test_schedule_test_mode_admin_set_and_rejects_empty_enable(tmp_path):
     assert body["emails"] == ["menny@x.com", "other@x.com"]
     banner = client.get("/schedules").get_data(as_text=True)
     assert "Test mode is on" in banner
+    assert "company and personal" in banner
     assert "menny@x.com" in banner
 
 
@@ -2471,6 +2472,14 @@ def test_master_run_now_writes_outbox_and_history(tmp_path):
     assert rows and "team@x.com" in rows[0].recipients
     assert "[TEST]" not in rows[0].subject
     assert list((tmp_path / "outbox").glob("*.eml"))
+    again = client.post(f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert again.status_code == 202
+    assert again.get_json()["job_id"] != run.get_json()["job_id"]
+    job2 = JobRepository(app.config["DB"]).get(again.get_json()["job_id"])
+    assert job2 is not None and job2.status == "success"
+    assert job2.params.get("manual") is True
+    rows = OutboxRepository(app.config["DB"]).list_recent()
+    assert len(rows) >= 2
     page = client.get("/schedules").get_data(as_text=True)
     start = page.find('<details class="run-log-panel"')
     end = page.find(">", start)
@@ -2508,6 +2517,34 @@ def test_master_run_now_test_mode_mails_test_list_only(tmp_path):
     meta = row.sharepoint_meta or {}
     assert meta.get("saved") is True
     assert meta.get("path") == "Test"
+
+
+def test_personal_run_now_test_mode_mails_test_list_only(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    saved = client.post(
+        "/api/admin/schedule-test",
+        json={"enabled": True, "emails": ["menny@x.com"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert saved.status_code == 200
+    vid = _named_view(client, params={"period": "all_time"})
+    created = client.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"}},
+        headers={"X-CSRF-Token": _CSRF})
+    sid = created.get_json()["id"]
+    run = client.post(f"/api/schedules/{sid}/run", headers={"X-CSRF-Token": _CSRF})
+    assert run.status_code == 202
+    from web.data.repositories.jobs import JobRepository
+    job = JobRepository(app.config["DB"]).get(run.get_json()["job_id"])
+    assert job is not None and job.status == "success"
+    from web.data.repositories.outbox import OutboxRepository
+    row = OutboxRepository(app.config["DB"]).list_recent()[0]
+    assert row.recipients == "menny@x.com"
+    assert row.subject.startswith("[TEST] ")
+    assert "admin@x.com" not in row.recipients
 
 
 def test_clock_tick_drains_personal_and_master_to_outbox(tmp_path):

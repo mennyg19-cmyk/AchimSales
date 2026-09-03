@@ -20,7 +20,7 @@
 
 {% if test_mode_on %}
 <div class="alert alert-warn" role="status">
-    Test mode is on. Company schedule mail goes to {{ test_emails|join(', ') }}. SharePoint is not written. Salesman splits still run, to this list.
+    Test mode is on. Schedule mail (company and personal) goes to {{ test_emails|join(', ') }}. Live folders are not written. Salesman splits still run, to this list.
     <a href="{{ url_for('settings.settings_page') }}">Settings</a>
 </div>
 {% endif %}

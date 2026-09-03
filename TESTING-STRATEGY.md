@@ -748,12 +748,12 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Skip-class periods (yesterday/daily, mid-month MTD, mid-year YTD) wait for the next regular HH:MM. They do not fire Saturday night after havdalah.
 - Reschedule-class periods (last_7_days, last_month, month-end MTD, year-end YTD, salesman/customer_activity) wait until the next Monday–Friday at the same HH:MM.
 - MTD skipped on Friday the 30th: Monday 10pm run covers MTD through the 30th, and if that makeup is next month, a second pass through month-end.
-- Manual Run now sets `ignore_sabbath` so it still sends.
+- Manual Run now sets `manual` (and `ignore_sabbath`) so it still sends, even after today's clock run.
 
 **Expected behavior:**
 - Company and personal clock runs skip Shabbos/Yom Tov (Brooklyn, 18-min candles) and make up at the scheduled clock time, not motzei Shabbos.
 - Date windows follow the period: widen yesterday/last_7_days; MTD self-heals in-month; cross-month MTD sends the skipped window plus month-end if needed.
-- Run now is a deliberate send and does not skip.
+- Run now is a deliberate send and does not skip. It does not stamp today's clock slot.
 
 **Test files:** `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_catchup.py`
 
@@ -906,17 +906,19 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Admin can save several test emails and turn test mode on; cannot turn on with an empty list.
 - Salesman cannot POST the API.
-- Company schedule Run now in test mode emails only the test list, `[TEST]` subject, SharePoint dumps to `Test` (not the live Daily/YTD folder).
+- Company and personal schedule Run now in test mode emails only the test list, `[TEST]` subject. SharePoint/OneDrive dumps to `Test` (not the live folder or the salesman's OneDrive).
 - Split schedules still fan out in test mode; every file goes to the test list with the salesman in the subject/filename.
-- Personal schedules ignore test mode.
+- Personal schedules are redirected the same way as company schedules. Salesmen are not emailed.
 - Test mode on with no emails fails the run instead of sending to stored recipients.
+- Run now always sends, even if today's clock run already succeeded. It does not consume the day's scheduled slot. Each press is a new job (not collapsed onto a leftover tick).
 
 **Expected behavior:**
-- Settings shows the toggle and address chips.
+- Settings shows the toggle and address chips. Copy says company and personal mail is redirected.
 - `/schedules` shows a banner listing the test addresses while On.
 
 **Edge cases:**
 - Invalid addresses are dropped; salesman-split jobs still fan out, but every file (full + each salesman) goes to the test list. Salesmen are not emailed.
+- A recovered clock job after a successful clock send still skips. A recovered Run now after that send still delivers.
 
 **Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
 

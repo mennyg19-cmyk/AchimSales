@@ -523,7 +523,7 @@ def test_runner_master_test_mode_redirects_and_skips_sharepoint(tmp_path):
     assert call["subject"].startswith("[TEST] ")
 
 
-def test_runner_personal_ignores_test_mode(tmp_path):
+def test_runner_personal_test_mode_redirects_and_skips_onedrive(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
     from web.data.repositories.app_settings import AppSettingsRepository
@@ -537,7 +537,7 @@ def test_runner_personal_ignores_test_mode(tmp_path):
         def run_and_deliver(self, **kwargs):
             self.calls.append(kwargs)
             return DeliveryOutcome(
-                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                result=DeliveryResult(ok=True, recipients=["menny@x.com"], eml_name="x.eml"),
                 row_count=1,
             )
 
@@ -548,10 +548,14 @@ def test_runner_personal_ignores_test_mode(tmp_path):
         authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
     sid = ScheduleRepository(db).create(
         uid, "ordered", params={}, layout={}, cadence={"freq": "daily", "time": "08:00"},
-        recipients="real@x.com")
+        recipients="real@x.com", sharepoint_path="Personal/Reports")
     runner.run(sid, PERSONAL)
-    assert delivery.calls[0]["recipients"] == "real@x.com"
-    assert not delivery.calls[0]["subject"].startswith("[TEST]")
+    call = delivery.calls[0]
+    assert call["recipients"] == "menny@x.com"
+    assert call["subject"].startswith("[TEST] ")
+    assert call["onedrive_user"] == ""
+    assert call["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
+    assert "real@x.com" not in str(delivery.calls)
 
 
 def test_runner_test_mode_on_without_emails_fails(tmp_path):
@@ -574,6 +578,12 @@ def test_runner_test_mode_on_without_emails_fails(tmp_path):
         runner.run(mid, MASTER)
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert hist[0].status == "failure"
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="real@x.com")
+    with pytest.raises(RuntimeError, match="no test emails"):
+        runner.run(sid, PERSONAL)
 
 
 def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
@@ -720,6 +730,41 @@ def test_tick_run_now_style_enqueue_still_works_when_restricted(tmp_path, monkey
                          ignore_sabbath=True)
     job = job_repo.claim_next()
     assert job is not None and job.params["ignore_sabbath"] is True
+
+
+def test_manual_run_now_is_not_deduped_and_does_not_eat_the_clock(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.jobs import enqueue_schedule_run
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Nightly", params={}, layout={},
+        cadence={"freq": "daily", "time": "05:00"}, recipients="team@x.com")
+
+    class FakeDelivery:
+        def run_and_deliver(self, **kwargs):
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=["team@x.com"], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=FakeDelivery())  # type: ignore[arg-type]
+    runner.run(mid, MASTER, manual=True)
+    runs = ScheduleRunRepository(db)
+    assert runs.last_run_at(mid, MASTER) is None
+    assert runs.list_for_schedule(mid, MASTER)[0].output_meta.get("manual") is True
+
+    job_repo = JobRepository(db)
+    first = enqueue_schedule_run(job_repo, schedule_id=mid, schedule_type=MASTER, manual=True)
+    second = enqueue_schedule_run(job_repo, schedule_id=mid, schedule_type=MASTER, manual=True)
+    assert first != second
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    assert enqueue_due(db, job_repo, now) == 1
 
 
 def test_tick_mtd_friday_skip_waits_until_monday_same_clock(tmp_path, monkeypatch):
@@ -1065,6 +1110,8 @@ def test_recovered_run_skips_when_already_sent_today(tmp_path, monkeypatch):
     assert [row.status for row in hist] == ["skipped", "success"]
     runner.run(mid, MASTER)
     assert delivery.calls == 2
+    runner.run(mid, MASTER, recovered=True, manual=True)
+    assert delivery.calls == 3
 
 
 def test_recovered_run_notes_retry_when_not_already_sent(tmp_path, monkeypatch):

@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Test mode covers personal schedules; Run now ignores "already ran today"
+**What you asked for:** Test mode was sending personal schedules to the salesman. Run now did nothing if the schedule had already run today. Both are wrong; Run now is for testing.
+**What I had to decide:** Whether test mode applies to personal the same as company; whether a recovered clock job after a crash still skips; whether Run now eats the 8am slot.
+**What I chose:** Test mode rewrites every schedule (company and personal) to the test list, tags `[TEST]`, and does not write live SharePoint or the owner's OneDrive. Split files still fan out, all to the test list. Run now is a new job every press (`manual`), never collapsed onto today's tick, never skipped for "already sent today", and does not count as today's clock run so 8am still fires. Recovered automatic jobs still skip after a successful clock send.
+**Why:** The old company-only test-mode gate was a product choice you reversed. Run now sharing the tick's once-a-day job key meant a leftover recovered send after this morning's success was skipped, which is the opposite of a test button.
+**Status:** DECIDED — shipping with the drop-salesmen-table PR.
+
 ## 2026-09-03 Drop the v3 salesmen table; D365 is the only salesman master
 **What you asked for:** Get rid of the extra salesman table and only use the SP and the users table. Salesman number is not needed anywhere; salesmen are identified by SalesGroup. Losing the in-app Active-off opt-out is fine.
 **What I had to decide:** What replaces the table's fallback role on a cold boot with the SP down; what happens to number, short display name, and Active off; whether to keep any salesman UI.

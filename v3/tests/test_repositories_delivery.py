@@ -105,6 +105,11 @@ def test_schedule_runs_history_and_last_run(db, user_id):
     history = runs.list_for_schedule(sid, PERSONAL)
     assert len(history) == 1 and history[0].status == "success" and history[0].rows == 42
     assert runs.last_run_at(sid, PERSONAL) is not None
+    manual_id = runs.start(sid, PERSONAL, manual=True)
+    runs.finish(manual_id, status="success", rows=1, output_meta={"file": "y.xlsx"})
+    clock_at = runs.last_run_at(sid, PERSONAL)
+    assert clock_at == history[0].started_at
+    assert runs.last_success_at(sid, PERSONAL) == history[0].started_at
 
 
 def test_master_schedule_crud(db):
