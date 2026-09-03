@@ -474,7 +474,7 @@ def report_result(job_id: str):
     _assert_scope_compatible(p, job)
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
-    _abort_if_kept_result_expired(job, datetime.now(timezone.utc).replace(tzinfo=None))
+    _assert_kept_result_not_expired(job, datetime.now(timezone.utc).replace(tzinfo=None))
     cached = _cache().get(job.result_ref)
     if cached is None:
         abort(404, description="Result expired; please re-run")
@@ -518,7 +518,7 @@ def _kept_still_valid(kept_until: str | None, now: datetime) -> bool:
     return dt > now
 
 
-def _abort_if_kept_result_expired(job, now: datetime) -> None:
+def _assert_kept_result_not_expired(job, now: datetime) -> None:
     if job.kept_until and not _kept_still_valid(job.kept_until, now):
         abort(404, description="Result expired; please re-run")
 
@@ -597,7 +597,7 @@ def export_report(report_key: str, job_id: str):
     _assert_scope_compatible(p, job)
     if job.status != "success":
         abort(409, description="Report is not ready to export")
-    _abort_if_kept_result_expired(job, datetime.now(timezone.utc).replace(tzinfo=None))
+    _assert_kept_result_not_expired(job, datetime.now(timezone.utc).replace(tzinfo=None))
     if not _cache().exists(job.result_ref):  # cheap presence check (no payload deserialize)
         abort(404, description="Result expired; please re-run")
     layout = request.get_json(silent=True)
