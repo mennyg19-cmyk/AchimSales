@@ -678,7 +678,9 @@ def test_tabulator_mit_license_is_attributed(tmp_path):
     assert "Copyright (c) 2015-2025 Oli Folkerd" in src
     assert "tabulator-tables@6.3.1" in src
     html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
-    assert 'tabulator-tables@6.3.1' in html
+    assert html.count("https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css") == 1
+    assert html.count("https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js") == 1
+    assert html.count("tabulator-tables@") == 2
     assert "Report tables use Tabulator 6.3.1." in html
     assert "filename='licenses/tabulator-MIT.txt'" in html
     app = create_app(_cfg(tmp_path))
