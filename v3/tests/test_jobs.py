@@ -126,8 +126,8 @@ def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path):
 
     run_worker_app(app)
     try:
-        from web import is_background_leader_process
-        assert is_background_leader_process() is True
+        from web import is_worker_process
+        assert is_worker_process() is True
         deadline = time.time() + 5
         while time.time() < deadline and jobs.get(job_id).status != "success":
             time.sleep(0.05)
@@ -137,8 +137,8 @@ def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path):
     job = jobs.get(job_id)
     assert job.status == "success"
     assert job.result_ref == "completed-by-worker-entry"
-    from web import is_background_leader_process
-    assert is_background_leader_process() is False
+    from web import is_worker_process
+    assert is_worker_process() is False
 
 
 def test_health_reports_started_and_free_slots(db):

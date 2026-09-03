@@ -26,7 +26,7 @@ from web.security_headers import apply_security_headers
 _WORKER_PROCESS = False
 
 
-def is_background_leader_process() -> bool:
+def is_worker_process() -> bool:
     """True in the sibling worker after start_worker_services(); False in Gunicorn."""
     return _WORKER_PROCESS
 

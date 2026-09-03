@@ -1025,7 +1025,7 @@ def reporting_api_diagnostics():
     the endpoint' without guessing. Developer-only (exposes the API host)."""
     p = _require_developer_principal()
     cfg = current_app.config["APP_CONFIG"]
-    from web import is_background_leader_process
+    from web import is_worker_process
     worker = current_app.config["JOB_WORKER"]
     run_live = request.args.get("live") in ("1", "true", "yes")
     return jsonify({
@@ -1037,7 +1037,7 @@ def reporting_api_diagnostics():
         "wiring": _worker_wiring(worker, current_app.config["DB"]),
         "worker": {
             "pid": os.getpid(),
-            "is_leader_process": is_background_leader_process(),
+            "is_worker": is_worker_process(),
             **worker.health(),
         },
     })

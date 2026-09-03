@@ -92,7 +92,7 @@ def _build_v3_app():
     return app
 
 
-if _env_bool("V3_MOUNT_ENABLED"):
+if _env_bool("V3_MOUNT_ENABLED"):  # same flag as v3/web/jobs/worker_main.enabled_apps
     try:
         MOUNTS[_TEST_MOUNT] = _build_v3_app()
         log.info("v3 mounted at %s", _TEST_MOUNT)
@@ -171,7 +171,7 @@ def _build_beta_app():
 
 
 _beta_app = None
-if _env_bool("BETA_MOUNT_ENABLED"):
+if _env_bool("BETA_MOUNT_ENABLED"):  # same flag as v3/web/jobs/worker_main.enabled_apps
     try:
         if _LEGACY_MOUNT in ("", "/", _TEST_MOUNT):
             raise ValueError(

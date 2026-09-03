@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import logging
-import os
 import signal
 import sys
 from threading import Event
 
 from web import bootstrap_database, create_app, start_worker_services, stop_worker_services
-from web.config import load_config
+from web.config import load_config, _env_bool
 
 log = logging.getLogger(__name__)
 _stopping = Event()
 
 
-def _env_bool(name: str) -> bool:
-    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def enabled_apps():
+    """Same BETA/V3 mount flags as wsgi.py; keep those two readers in lockstep."""
     apps = []
     if _env_bool("BETA_MOUNT_ENABLED"):
         apps.append(create_app(load_config(is_beta=True)))
