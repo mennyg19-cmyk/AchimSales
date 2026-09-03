@@ -105,7 +105,7 @@ body.monochrome-theme .alert-success { background: var(--success-light); color: 
 body.monochrome-dark-theme {
     --primary: #a1a1aa;
     --primary-foreground: #18181b;
-    --primary-hover: #71717a;
+    --primary-hover: #a1a1aa;
     --primary-light: #27272a;
     --success: #a1a1aa;
     --success-foreground: #18181b;
