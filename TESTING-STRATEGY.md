@@ -16,6 +16,18 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_security_headers.py`, `v3/tests/test_legacy_dev_bypass.py`, `v3/tests/test_odata_scope.py`
 
+## Phase 2 DB-authoritative authentication
+
+**What to test:**
+- MSAL callback denies unknown users without inserting a v3 row and admits a known active row.
+- Beta drops an unknown Live identity without creating a v3 user; existing v3 rows retain their stored permissions.
+- Live magic-link tokens are stored as hashes, can be consumed once, and use `PUBLIC_BASE_URL` when configured.
+
+**Expected behavior:**
+- Users & access is the only identity authority. Bearer tokens never appear in the Live database as plaintext.
+
+**Test file:** `v3/tests/test_auth.py`, `tests/test_magic_links.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**
@@ -36,15 +48,15 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Beta `adopt_live_identity` does not replace an existing v3 display name, role, SalesGroup, or salesman-access from the Live cookie.
 - A demoted developer with a stale `_dev` cookie cannot open `/dev/role-picker` or `/api/admin/users`, and the DB role stays salesman.
 - A leftover impersonation cookie (`email` = an admin, `_dev` + `_dev_email` of a demoted developer) cannot keep admin access; the session becomes the actor; self-promotion PUT is 403.
-- A Live developer cookie with no v3 row creates the developer (does not 302/logout). Impersonation whose `_dev_email` is missing from v3 still logs out.
+- A Live cookie with no v3 row redirects to login without creating a v3 user. Impersonation whose `_dev_email` is missing from v3 still logs out.
 - After an unrestricted run/export, demoting the owner to a scoped salesman 403s download and hides the export from the list.
 - GET `/api/reports/diagnostics/claim-once` is 405; POST with CSRF reverts only a job this request claimed.
 
 **Expected behavior:**
-- Users & access is source of truth after the first v3 row exists. First Live login still creates the row and copies Live scope.
+- Users & access is the identity source of truth. Live login only adopts an active v3 row.
 - Developer-only tools and the role picker use the DB developer role, not the cookie.
 - Leftover impersonation after demotion drops to the actor's DB identity (or logs out if the actor row is gone).
-- A developer's first Live login (`_dev` cookie, no v3 row yet) still creates the developer row and does not clear the shared Live session.
+- A developer's first Live login (`_dev` cookie, no v3 row yet) clears the shared session and does not create a developer row.
 
 **Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
 

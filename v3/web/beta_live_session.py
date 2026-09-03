@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
-from web.auth.principal import ROLE_DEVELOPER, VALID_ROLES, Principal, _PRIVILEGED
+from web.auth.principal import ROLE_DEVELOPER, Principal
 
 log = logging.getLogger(__name__)
 
@@ -38,11 +38,7 @@ def adopt_live_identity():
 
     email = str(live["email"]).strip().lower()
     raw_name = str(live.get("name") or email)
-    display = raw_name.split(" (as ")[0] if " (as " in raw_name else raw_name
-    role = str(live.get("role") or "salesman").strip().lower()
-    if role not in VALID_ROLES:
-        role = "salesman"
-    cookie_dev = bool(live.get("_dev")) or role == ROLE_DEVELOPER
+    cookie_dev = bool(live.get("_dev")) or live.get("role") == ROLE_DEVELOPER
     dev_email = str(live.get("_dev_email") or "").strip().lower()
 
     db = current_app.config["DB"]
@@ -53,8 +49,7 @@ def adopt_live_identity():
     impersonating = still_dev and email != dev_email
     if cookie_dev and not still_dev:
         # Leftover impersonation after demotion/disable: never keep the
-        # target's identity. A developer's own first Live login has no v3
-        # row yet — that must still create, not log them out of Live.
+        # target's identity. Unknown actors cannot retain a Live identity.
         own_cookie = (not dev_email) or (email == dev_email)
         if actor is None and not own_cookie:
             session.pop(_LIVE_USER_KEY, None)
@@ -63,12 +58,10 @@ def adopt_live_identity():
         if actor is not None:
             email = actor.email
             raw_name = actor.display_name or actor.email
-            display = raw_name
-            role = actor.role
             live = {
                 "email": email,
                 "name": raw_name,
-                "role": role,
+                "role": actor.role,
                 "salesman_key": None,
             }
             session[_LIVE_USER_KEY] = live
@@ -76,14 +69,12 @@ def adopt_live_identity():
             impersonating = False
 
     user = users.get_by_email(email)
-    if user is None:
-        user = users.create(email, role=role, display_name=display)
-        _sync_salesman_scope(users, user.id, live, email, role)
-    elif not impersonating and not (user.display_name or "").strip() and display.strip():
-        users.update(user.id, display_name=display)
-        user = users.get_by_id(user.id)
+    if user is None or not user.is_active:
+        session.pop(_LIVE_USER_KEY, None)
+        logout()
+        return None
 
-    session_role = role if impersonating else user.role
+    session_role = user.role
     existing = current_principal()
     if (
         existing is not None
@@ -106,22 +97,3 @@ def adopt_live_identity():
     login(principal)
     log.info("beta adopted live session for %s role=%s impersonating=%s", email, session_role, impersonating)
     return principal
-
-
-def _sync_salesman_scope(users, user_id: int, live: dict, email: str, role: str) -> None:
-    """Copy Live salesman visibility into Beta's user_salesman_access."""
-    if role in _PRIVILEGED:
-        return
-    keys: list[str] = []
-    sm = (live.get("salesman_key") or "").strip()
-    if sm:
-        keys.append(sm)
-    try:
-        from webapp.db import get_user_salesman_access
-
-        for key in get_user_salesman_access(email):
-            if key and key not in keys:
-                keys.append(key)
-    except Exception:  # noqa: BLE001 - Beta still works; scope may be empty until next hit
-        log.exception("beta: could not read live salesman access for %s", email)
-    users.set_salesman_access(user_id, keys)

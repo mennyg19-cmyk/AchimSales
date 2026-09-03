@@ -103,8 +103,11 @@ def callback():
     result = msal_flow.complete_login(cfg)
     if "error" in result:
         abort(400, description=result["error"])
-    user = UserRepository(_db()).upsert(result["email"], display_name=result["name"])
-    _login_or_403(user, name=user.display_name or result["name"], is_dev=False)
+    user = UserRepository(_db()).get_by_email(result["email"])
+    if user is None or not user.is_active:
+        return render_template("unauthorized.html"), 403
+    is_dev = user.role == "developer"
+    _login_or_403(user, name=user.display_name or result["name"], is_dev=is_dev)
     dest = session.pop(_NEXT_KEY, None) or url_for("health.healthz")
     return redirect(dest)
 

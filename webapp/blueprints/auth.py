@@ -6,6 +6,7 @@ Routes: /, /login, /login/start, /dev-login, /auth/callback,
 """
 
 import logging
+import os
 from urllib.parse import urlsplit
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
@@ -229,8 +230,10 @@ def request_magic_link():
         if row.get("is_external"):
             try:
                 token = create_magic_link_token(email)
-                link_url = url_for("auth.consume_magic_link",
-                                   token=token, _external=True)
+                link_path = url_for("auth.consume_magic_link", token=token)
+                public_base_url = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+                link_url = f"{public_base_url}{link_path}" if public_base_url else url_for(
+                    "auth.consume_magic_link", token=token, _external=True)
                 send_magic_link_email(email, link_url)
                 log.info("Magic-link sent to %s", email)
             except MagicLinkError:

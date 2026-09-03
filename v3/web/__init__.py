@@ -374,6 +374,11 @@ def _register_cli(app: Flask, db) -> None:
         applied = migrate(db)
         print("Applied migrations:", applied)
 
+    @app.cli.command("seed-users-from-live")
+    def seed_users_from_live_cmd():  # pragma: no cover - invoked via Flask CLI
+        # One-time import; normal boot must not overwrite Users & access.
+        _seed_users_from_live(app, db)
+
 
 def bootstrap_background(app: Flask) -> None:
     """Prod-only side effects: migrate, seed admins/salesmen, start the worker.
@@ -388,7 +393,6 @@ def bootstrap_background(app: Flask) -> None:
     migrate(db)
     _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
     _seed_report_config(app, db)
-    _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins override the mirror
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
     cfg = app.config["APP_CONFIG"]

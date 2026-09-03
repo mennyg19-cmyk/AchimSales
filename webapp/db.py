@@ -6,6 +6,7 @@ module -- zero extra dependencies.
 """
 
 import json
+import hashlib
 import logging
 import os
 import re as _re
@@ -124,11 +125,11 @@ CREATE TABLE IF NOT EXISTS app_users (
 );
 
 -- One-time login tokens for external (magic-link) sign-in. We store a
--- random opaque token (URL-safe), the user's email, expiry, and a flag
+-- SHA-256 hash of the random opaque token, the user's email, expiry, and a flag
 -- so we can mark it consumed after the first successful click. Unused
 -- tokens auto-expire after 15 minutes.
 CREATE TABLE IF NOT EXISTS magic_link_tokens (
-    token         TEXT PRIMARY KEY,
+    token_hash    TEXT PRIMARY KEY,
     email         TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     expires_at    TEXT NOT NULL,
@@ -330,6 +331,11 @@ def init_db():
         for tbl in ("draft_order_lines", "draft_orders",
                     "customer_addresses", "price_cache", "product_cache"):
             conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+        magic_link_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(magic_link_tokens)")
+        }
+        if "token" in magic_link_columns:
+            conn.execute("DROP TABLE magic_link_tokens")
         conn.commit()
 
         conn.executescript(_SCHEMA)
@@ -1231,6 +1237,10 @@ _USER_EMAIL_REFS: list[tuple[str, str]] = [
 ]
 
 
+def _magic_link_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
     """Generate a fresh one-time login token for *email*. Returns the token.
 
@@ -1253,9 +1263,9 @@ def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
             (email_norm, now.isoformat()),
         )
         conn.execute(
-            """INSERT INTO magic_link_tokens (token, email, created_at, expires_at)
+            """INSERT INTO magic_link_tokens (token_hash, email, created_at, expires_at)
                VALUES (?, ?, ?, ?)""",
-            (token, email_norm, now.isoformat(), expires.isoformat()),
+            (_magic_link_token_hash(token), email_norm, now.isoformat(), expires.isoformat()),
         )
         conn.commit()
     finally:
@@ -1276,22 +1286,14 @@ def consume_magic_link_token(token: str) -> str | None:
     conn = get_db()
     try:
         row = conn.execute(
-            """SELECT email, expires_at, consumed_at FROM magic_link_tokens
-               WHERE token = ?""",
-            (token,),
+            """UPDATE magic_link_tokens
+               SET consumed_at = ?
+               WHERE token_hash = ? AND consumed_at IS NULL AND expires_at >= ?
+               RETURNING email""",
+            (now, _magic_link_token_hash(token), now),
         ).fetchone()
-        if not row:
-            return None
-        if row["consumed_at"]:
-            return None
-        if row["expires_at"] < now:
-            return None
-        conn.execute(
-            "UPDATE magic_link_tokens SET consumed_at = ? WHERE token = ?",
-            (now, token),
-        )
         conn.commit()
-        return row["email"]
+        return row["email"] if row else None
     finally:
         conn.close()
 

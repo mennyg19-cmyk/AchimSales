@@ -339,6 +339,42 @@ def test_msal_callback_without_flow_is_rejected(app):
     assert resp.status_code == 400
 
 
+def test_msal_callback_denies_unknown_user_without_creating_row(app, monkeypatch):
+    from web.auth import msal_flow
+
+    monkeypatch.setattr(msal_flow, "complete_login", lambda _cfg: {
+        "email": "unknown@x.com", "name": "Unknown",
+    })
+    response = app.test_client().get("/auth/callback")
+    assert response.status_code == 403
+    assert b"Access denied" in response.data
+    assert UserRepository(app.config["DB"]).get_by_email("unknown@x.com") is None
+
+
+def test_msal_callback_logs_in_known_active_user(app, monkeypatch):
+    from web.auth import msal_flow
+
+    UserRepository(app.config["DB"]).upsert("known@x.com", role="salesman")
+    monkeypatch.setattr(msal_flow, "complete_login", lambda _cfg: {
+        "email": "known@x.com", "name": "Known",
+    })
+    client = app.test_client()
+    assert client.get("/auth/callback").status_code == 302
+    with client.session_transaction() as sess:
+        assert sess["v3_user"]["email"] == "known@x.com"
+
+
+def test_msal_callback_denies_inactive_user(app, monkeypatch):
+    from web.auth import msal_flow
+
+    user = UserRepository(app.config["DB"]).upsert("inactive@x.com", role="salesman")
+    UserRepository(app.config["DB"]).update(user.id, is_active=False)
+    monkeypatch.setattr(msal_flow, "complete_login", lambda _cfg: {
+        "email": "inactive@x.com", "name": "Inactive",
+    })
+    assert app.test_client().get("/auth/callback").status_code == 403
+
+
 # --- impersonation ----------------------------------------------------------
 
 def test_impersonate_start_and_end(app):
@@ -615,7 +651,7 @@ def test_stale_dev_impersonation_cookie_cannot_keep_admin(tmp_path):
     assert repo.get_by_email("boss@x.com").role == "admin"
 
 
-def test_live_developer_first_login_creates_v3_row(tmp_path):
+def test_live_developer_first_login_is_denied_without_creating_v3_row(tmp_path):
     from dataclasses import replace
 
     cfg = replace(_dev_cfg(tmp_path), is_beta=True)
@@ -630,12 +666,13 @@ def test_live_developer_first_login_creates_v3_row(tmp_path):
             "_dev_email": "newdev@x.com",
         }
         s["_csrf_token"] = "t"
-    assert client.get("/").status_code == 200
-    row = repo.get_by_email("newdev@x.com")
-    assert row is not None and row.role == "developer"
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/login" in (response.headers.get("Location") or "")
+    assert repo.get_by_email("newdev@x.com") is None
     with client.session_transaction() as s:
-        assert (s.get("user") or {}).get("email") == "newdev@x.com"
-        assert (s.get("v3_user") or {}).get("role") == "developer"
+        assert not s.get("user")
+        assert not s.get("v3_user")
 
 
 def test_stale_impersonation_with_missing_actor_logs_out(tmp_path):
