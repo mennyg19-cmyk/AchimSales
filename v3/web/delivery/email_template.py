@@ -161,8 +161,10 @@ def _safe_href(value: str) -> str | None:
     v = unescape((value or "").strip())
     if v.startswith("{") and v.endswith("}") and _TOKEN_RE.fullmatch(v):
         return v
-    low = v.lower()
-    if low.startswith(("javascript:", "data:", "vbscript:")):
+    compact = "".join(ch for ch in v if ch.isprintable() and not ch.isspace()).lower()
+    if compact.startswith(("javascript:", "data:", "vbscript:")):
+        return None
+    if any(not ch.isprintable() for ch in v):
         return None
     return v
 

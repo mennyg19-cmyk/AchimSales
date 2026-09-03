@@ -36,6 +36,24 @@ def test_sanitize_html_strips_script_and_js_href():
     assert "Hi" in out
 
 
+def test_sanitize_html_rejects_encoded_javascript_href():
+    for raw in (
+        '<a href="java&#10;script:alert(1)">x</a>',
+        '<a href="java&#9;script:alert(1)">x</a>',
+        '<a href="javascript&colon;alert(1)">x</a>',
+        '<a href=" data:text/html,hi">x</a>',
+    ):
+        out = sanitize_html(raw).lower()
+        assert "javascript:" not in out
+        assert "data:text/html" not in out
+        assert "\n" not in out
+        assert "\t" not in out
+    keep = sanitize_html('<a href="{SharePointUrl}">Open</a>')
+    assert 'href="{SharePointUrl}"' in keep
+    keep_https = sanitize_html('<a href="https://achim.sharepoint.com/f/x.xlsx">Open</a>')
+    assert "https://achim.sharepoint.com/f/x.xlsx" in keep_https
+
+
 def test_apply_template_fills_sharepoint_url_and_keeps_blank_as_default():
     subj, text, html = apply_mail_templates(
         subject_default="Scheduled: Daily Ordered (2026-09-03)",
