@@ -399,6 +399,10 @@ def test_searchable_picker_has_keyboard_and_combobox_semantics():
     assert 'this.search.setAttribute("aria-controls", list.id)' in picker
     assert 'list.setAttribute("role", "listbox")' in picker
     assert 'row.setAttribute("role", "option")' in picker
+    assert 'row.setAttribute("aria-selected", String(this.selected.has(item.key)))' in picker
+    assert 'checkbox.setAttribute("aria-hidden", "true")' in picker
+    assert 'row.addEventListener("click", () => {' in picker
+    assert 'cb.type = "checkbox"' not in picker
     assert 'event.key === "ArrowDown" || event.key === "ArrowUp"' in picker
     assert 'event.key === "Home" || event.key === "End"' in picker
     assert 'event.key === "Enter" || event.key === " "' in picker
