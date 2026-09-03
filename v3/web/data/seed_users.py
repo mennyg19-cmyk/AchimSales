@@ -1,21 +1,11 @@
 """Copy the user directory from the live app into v3's `users` table.
 
-The live app (webapp/) is the authoritative user directory: it stores every
-authorized account in its SQLite DB (`app_users`: email, role, salesman_key,
-display_name, dashboard_enabled, is_external). v3 mirrors that list on boot so
-the same people - with the same roles - can sign in to /test without being
-re-entered by hand.
+One-time import via `flask seed-users-from-live`. Boot does not run this.
+Existing v3 rows keep their role and flags (Users & access wins). New emails
+are inserted. A blank v3 display name can still be filled from Live.
 
-This reads the live DB *file* directly (read-only); it never imports live code,
-so v3 stays decoupled. Roles map 1:1 (admin|developer|manager|salesman). A
-user's salesman_key is mapped into v3's `user_salesman_access` (normalized).
-The access table no longer FKs `salesmen`, so a Live key still grants even when
-that group has no v3 salesman row.
-
-Mirror semantics: re-running updates role/flags to match live, so live remains
-the source of truth for who can sign in. A v3 display name already set (Users
-& access rename) is kept; live only fills a blank name. Explicit env admins
-(V3_ADMIN_EMAILS) are applied *after* this and always win.
+This reads the live DB file directly (read-only); it never imports live code.
+A Live salesman_key is mapped into v3 `user_salesman_access` (normalized).
 """
 
 from __future__ import annotations
@@ -89,10 +79,7 @@ def copy_live_users(db: Database, users: list[dict]) -> int:
                 " ON CONFLICT(email) DO UPDATE SET"
                 "   display_name=CASE"
                 "     WHEN users.display_name IS NULL OR users.display_name = ''"
-                "     THEN excluded.display_name ELSE users.display_name END,"
-                "   role=excluded.role,"
-                "   is_external=excluded.is_external,"
-                "   dashboard_enabled=excluded.dashboard_enabled",
+                "     THEN excluded.display_name ELSE users.display_name END",
                 (u["email"], u["display_name"], u["role"],
                  u["is_external"], u["dashboard_enabled"], views_flag),
             )

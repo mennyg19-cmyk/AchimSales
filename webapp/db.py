@@ -1259,8 +1259,8 @@ def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
     conn = get_db()
     try:
         conn.execute(
-            "DELETE FROM magic_link_tokens WHERE email = ? AND (expires_at < ? OR consumed_at IS NOT NULL)",
-            (email_norm, now.isoformat()),
+            "DELETE FROM magic_link_tokens WHERE email = ?",
+            (email_norm,),
         )
         conn.execute(
             """INSERT INTO magic_link_tokens (token_hash, email, created_at, expires_at)

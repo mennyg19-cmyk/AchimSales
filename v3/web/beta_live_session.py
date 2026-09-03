@@ -2,8 +2,8 @@
 
 The home app is v3 with is_beta, but uses Live's `session` cookie + the same
 signing secret. After Live sign-in, `session["user"]` is present; this module
-turns that into a v3 Principal and mirrors role/salesman scope into Beta's DB
-so Authorization keeps working.
+turns that into a v3 Principal. Role, active flag, and developer status come
+from the v3 users table, not the cookie.
 """
 
 from __future__ import annotations
@@ -68,9 +68,24 @@ def adopt_live_identity():
 
     user = users.get_by_email(email)
     if user is None or not user.is_active:
-        session.pop(_LIVE_USER_KEY, None)
-        logout()
-        return None
+        if impersonating and Authorization.is_active_developer_row(actor):
+            email = actor.email
+            impersonating = False
+            is_dev = True
+            user = actor
+            session[_LIVE_USER_KEY] = {
+                "email": actor.email,
+                "name": actor.display_name or actor.email,
+                "role": actor.role,
+                "salesman_key": None,
+                "_dev": True,
+                "_dev_name": actor.display_name or actor.email,
+                "_dev_email": actor.email,
+            }
+        else:
+            session.pop(_LIVE_USER_KEY, None)
+            logout()
+            return None
 
     session_role = user.role
     display = (user.display_name or user.email).strip() or user.email

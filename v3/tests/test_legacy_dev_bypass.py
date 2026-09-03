@@ -22,6 +22,24 @@ def test_dev_bypass_refuses_azure_and_prod(monkeypatch):
     assert not config._dev_bypass_enabled()
 
 
+def test_public_base_url_missing_in_prod(monkeypatch):
+    monkeypatch.delenv("WEBSITE_SITE_NAME", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    assert not config._public_base_url_missing_in_prod()
+
+    monkeypatch.setenv("APP_ENV", "prod")
+    assert config._public_base_url_missing_in_prod()
+
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://reports.achimonline.com")
+    assert not config._public_base_url_missing_in_prod()
+
+    monkeypatch.delenv("PUBLIC_BASE_URL")
+    monkeypatch.delenv("APP_ENV")
+    monkeypatch.setenv("WEBSITE_SITE_NAME", "achim-sales-reports")
+    assert config._public_base_url_missing_in_prod()
+
+
 def test_preset_copy_rejects_path_traversal():
     from webapp.report_api import _safe_path_part
 

@@ -51,3 +51,19 @@ def _dev_bypass_enabled() -> bool:
 DEV_BYPASS_AUTH = _dev_bypass_enabled()
 
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
+
+def _public_base_url_missing_in_prod() -> bool:
+    in_azure_or_prod = bool(os.environ.get("WEBSITE_SITE_NAME")) or (
+        os.environ.get("APP_ENV", "").lower() == "prod"
+    )
+    return in_azure_or_prod and not os.environ.get("PUBLIC_BASE_URL", "").strip()
+
+
+if _public_base_url_missing_in_prod():
+    import warnings
+    warnings.warn(
+        "PUBLIC_BASE_URL is not set — magic-link emails will use the request Host. "
+        "Set PUBLIC_BASE_URL to https://reports.achimonline.com in Azure App Settings.",
+        stacklevel=1,
+    )

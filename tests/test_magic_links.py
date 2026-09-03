@@ -22,6 +22,15 @@ def test_magic_link_tokens_store_hash_and_consume_once(monkeypatch, tmp_path):
     assert live_db.consume_magic_link_token(token) is None
 
 
+def test_magic_link_replaces_outstanding_token_for_same_email(monkeypatch, tmp_path):
+    monkeypatch.setattr(live_db, "DB_PATH", str(tmp_path / "live.db"))
+    live_db.init_db()
+    first = live_db.create_magic_link_token("external@x.com")
+    second = live_db.create_magic_link_token("external@x.com")
+    assert live_db.consume_magic_link_token(first) is None
+    assert live_db.consume_magic_link_token(second) == "external@x.com"
+
+
 def test_magic_link_schema_replaces_plaintext_tokens(monkeypatch, tmp_path):
     db_path = tmp_path / "live.db"
     monkeypatch.setattr(live_db, "DB_PATH", str(db_path))

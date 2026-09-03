@@ -21,7 +21,9 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 **What to test:**
 - MSAL callback denies unknown users without inserting a v3 row and admits a known active row.
 - Beta drops an unknown Live identity without creating a v3 user; existing v3 rows retain their stored permissions.
-- Live magic-link tokens are stored as hashes, can be consumed once, and use `PUBLIC_BASE_URL` when configured.
+- Live magic-link tokens are stored as hashes, can be consumed once, replace any outstanding token for the same email, and use `PUBLIC_BASE_URL` when configured.
+- `flask seed-users-from-live` inserts missing emails but does not overwrite an existing v3 role or flags.
+- A developer impersonating a missing or inactive v3 user stays signed in as themselves; the role picker 404s instead of logging them out.
 
 **Expected behavior:**
 - Users & access is the only identity authority. Bearer tokens never appear in the Live database as plaintext.

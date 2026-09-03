@@ -124,51 +124,17 @@ def logout_route():
     return redirect(url_for("auth.login_page"))
 
 
-def merge_picker_users(live_rows: list[dict] | None, v3_users: list[User]) -> list[dict]:
-    """Live directory plus anyone added under Users & access."""
-    by_email: dict[str, dict] = {}
-    for row in live_rows or []:
-        email = str(row.get("email") or "").strip().lower()
-        if not email or "@" not in email:
-            continue
-        by_email[email] = {
-            "email": email,
-            "display_name": row.get("display_name") or row.get("name") or email,
-            "role": str(row.get("role") or "salesman").strip().lower(),
-            "salesman_key": row.get("salesman_key") or "",
-        }
-    for user in v3_users:
-        email = (user.email or "").strip().lower()
-        if not email:
-            continue
-        existing = by_email.get(email)
-        if existing is None:
-            by_email[email] = {
-                "email": email,
-                "display_name": user.display_name or email,
-                "role": user.role,
-                "salesman_key": "",
-            }
-            continue
-        if user.display_name:
-            existing["display_name"] = user.display_name
-        existing["role"] = user.role
-    return list(by_email.values())
-
-
 def _role_picker_users() -> list[dict]:
-    """People list for the picker: Live directory merged with v3 Users & access."""
-    live_rows = None
-    try:
-        from webapp.db import get_all_users
-
-        live_rows = get_all_users()
-    except ImportError:
-        live_rows = None
-    except Exception:  # noqa: BLE001 - picker still works from Beta's own users table
-        current_app.logger.exception("role picker: could not read Live users")
-        live_rows = None
-    return merge_picker_users(live_rows, UserRepository(_db()).all_users(include_inactive=True))
+    """Active v3 users only — POST impersonation requires an active v3 row."""
+    return [
+        {
+            "email": user.email,
+            "display_name": user.display_name or user.email,
+            "role": user.role,
+            "salesman_key": "",
+        }
+        for user in UserRepository(_db()).all_users(include_inactive=False)
+    ]
 
 
 def _group_users(rows: list[dict]) -> dict[str, list]:
@@ -199,10 +165,9 @@ def role_picker():
     if request.method == "POST":
         target_email = (request.form.get("target_email") or "").strip()
         get_setting = None
-        get_user_by_email = None
         try:
-            from webapp.db import get_setting as _gs, get_user_by_email as _gue
-            get_setting, get_user_by_email = _gs, _gue
+            from webapp.db import get_setting as _gs
+            get_setting = _gs
         except ImportError:
             pass
         except Exception:  # noqa: BLE001 - Beta DB is enough if Live isn't on path
@@ -224,36 +189,22 @@ def role_picker():
                 except Exception:  # noqa: BLE001 - theme is optional
                     pass
         else:
-            target = None
-            if get_user_by_email is not None:
-                try:
-                    target = get_user_by_email(target_email)
-                except Exception:  # noqa: BLE001 - fall through to Beta DB
-                    current_app.logger.exception("role picker: Live user lookup failed")
-            if not target:
-                row = UserRepository(_db()).get_by_email(target_email.lower())
-                if row is not None:
-                    target = {
-                        "email": row.email,
-                        "display_name": row.display_name,
-                        "role": row.role,
-                        "salesman_key": None,
-                    }
-            if not target:
+            row = UserRepository(_db()).get_by_email(target_email.lower())
+            if row is None or not row.is_active:
                 abort(404, description="User not found")
-            display = target.get("display_name") or target["email"]
+            display = row.display_name or row.email
             session["user"] = {
-                "email": target["email"],
+                "email": row.email,
                 "name": f"{display} (as {dev_name})",
-                "role": target["role"],
-                "salesman_key": target.get("salesman_key"),
+                "role": row.role,
+                "salesman_key": None,
                 "_dev": True,
                 "_dev_name": dev_name,
                 "_dev_email": dev_email,
             }
             if get_setting is not None:
                 try:
-                    session["theme"] = get_setting(target["email"], "theme", "light")
+                    session["theme"] = get_setting(row.email, "theme", "light")
                 except Exception:  # noqa: BLE001 - theme is optional
                     pass
         session.pop("v3_user", None)
@@ -279,7 +230,7 @@ def role_picker():
 
 @auth_bp.get("/impersonate")
 def impersonate_page():
-    """User picker for developer impersonation. Shows all users (incl. inactive)."""
+    """User picker for developer impersonation on /test."""
     from web.auth.session import current_principal
 
     p = current_principal()

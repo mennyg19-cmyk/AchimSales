@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 2 leftover: CLI seed, magic-link Host, impersonate-unknown
+**What I had to decide:** How to close the five leftover items from the Phase 2 trust-boundary pass without failing Azure boot or adding a full rate-limit table.
+**Options I considered:** (1) Fail boot when `PUBLIC_BASE_URL` is unset in prod. (2) Warn only. (3) Leave CLI `ON CONFLICT` overwriting v3 roles. (4) Keep one live token per email vs a cooldown table. (5) 404 the role picker vs restore the developer after a missing target.
+**What I chose:** CLI `copy_live_users` fills a blank display name only; existing v3 role/flags stay. Prod/Azure without `PUBLIC_BASE_URL` warns at import, does not fail boot. Minting a magic link deletes every prior token for that email (not a request-rate table). Role picker requires an active v3 row (404 otherwise); a leftover impersonation cookie whose target is missing/inactive restores the active developer actor. Display name from v3 was already shipped (`6f3024b`).
+**Why:** Users & access is the authority after first import. Fail-closed boot would take down reports if the App Setting is missing. One outstanding token per email is the smallest anti-reuse step. Logging the developer out for a bad Switch-user pick was fail-closed but unusable.
+**Status:** DECIDED
+
 ## 2026-09-03 Replay PR #1 instructions on current `main` (new draft PR)
 **What you asked for:** Make a huge new PR. Apply everything that was instructed for PR #1, but onto current `main`, then see how it goes.
 **What I had to decide:** Whether that means merge leftover PR #1, rebase its 124 commits, or replay the plan on today's tree. Whether the 2026-09-02 “inventory only, do not start rebuild Phase 2–4” decision still holds. Whether GitHub Environment approval belongs in the first workflow patch.

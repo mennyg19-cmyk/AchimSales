@@ -603,12 +603,7 @@ def _seed_developers(app: Flask, db) -> None:
 
 
 def _seed_users_from_live(app: Flask, db) -> None:
-    """Mirror the live app's user directory (roles + flags) into v3's users table.
-
-    Live (webapp/) is the authoritative list of who may sign in. Reading it here
-    means every existing account works on /test without manual re-entry. Guarded:
-    a missing/locked live DB must never block boot.
-    """
+    """One-time Live directory import. Existing v3 roles are kept."""
     from web.data.seed_users import live_db_path, seed_users_from_live
 
     try:

@@ -507,28 +507,6 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
         assert not s["v3_user"].get("impersonating")
 
 
-def test_merge_picker_users_adds_v3_only_email():
-    from web.blueprints.auth import merge_picker_users
-
-    def u(uid: int, email: str, name: str, role: str) -> User:
-        return User(
-            id=uid, email=email, display_name=name, role=role,
-            is_active=True, is_external=False, dashboard_enabled=False,
-            sharepoint_access=False, test_access=False, can_see_company_views=False,
-        )
-
-    rows = merge_picker_users(
-        [{"email": "live@x.com", "display_name": "Live Name", "role": "salesman"}],
-        [u(1, "live@x.com", "V3 Name", "admin"), u(2, "new@x.com", "New Hire", "salesman")],
-    )
-    by = {r["email"]: r for r in rows}
-    assert set(by) == {"live@x.com", "new@x.com"}
-    assert by["live@x.com"]["role"] == "admin"
-    assert by["live@x.com"]["display_name"] == "V3 Name"
-    assert by["new@x.com"]["display_name"] == "New Hire"
-    assert by["new@x.com"]["role"] == "salesman"
-
-
 def test_role_picker_includes_v3_user_absent_from_live(tmp_path, monkeypatch):
     import sys
     import types
@@ -701,6 +679,35 @@ def test_inactive_live_cookie_logs_out_without_creating_or_updating(tmp_path):
     with client.session_transaction() as s:
         assert not s.get("user")
         assert not s.get("v3_user")
+
+
+def test_impersonating_missing_v3_user_stays_developer(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer", display_name="Dev")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "ghost@x.com", "name": "Ghost (as Dev)", "role": "salesman",
+            "salesman_key": None, "_dev": True, "_dev_name": "Dev",
+            "_dev_email": "dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    assert client.get("/").status_code == 200
+    with client.session_transaction() as s:
+        assert (s.get("v3_user") or {}).get("email") == "dev@x.com"
+        assert (s.get("v3_user") or {}).get("role") == "developer"
+        assert not (s.get("v3_user") or {}).get("impersonating")
+    picker = client.get("/dev/role-picker")
+    assert picker.status_code == 200
+    assert b"ghost@x.com" not in picker.data
+    missing = client.post(
+        "/dev/role-picker", data={"target_email": "ghost@x.com", "csrf_token": "t"}
+    )
+    assert missing.status_code == 404
 
 
 def test_stale_impersonation_with_missing_actor_logs_out(tmp_path):
