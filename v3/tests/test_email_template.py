@@ -163,3 +163,19 @@ def test_custom_subject_strips_encoded_crlf():
     msg["Subject"] = subj
     assert "Bcc:" in msg["Subject"]
     assert "\r" not in sanitize_subject("Line&#10;two")
+
+
+def test_retry_mark_survives_max_length_subject():
+    from web.delivery.email_template import RETRY_SUBJECT_MARK
+    subj, _, _ = apply_mail_templates(
+        subject_default=f"[TEST] Scheduled: X{RETRY_SUBJECT_MARK}",
+        body_text_default="x", body_html_default=None,
+        subject_template="A" * 240, body_html_template="",
+        report_name="Ordered", schedule_name="Mine",
+        filename="", file_url="", attached=True,
+    )
+    assert subj.startswith("[TEST] ")
+    assert subj.endswith(RETRY_SUBJECT_MARK)
+    assert len(subj) <= 240
+    msg = EmailMessage()
+    msg["Subject"] = subj

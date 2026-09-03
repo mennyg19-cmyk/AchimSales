@@ -104,12 +104,34 @@ def html_to_text(raw: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", parser.out).strip()
 
 
-def sanitize_subject(text: str) -> str:
-    """Unfold HTML entities and strip header-illegal control characters."""
+_SUBJECT_MAX = 240
+
+
+def _clean_subject(text: str) -> str:
     text = unescape(text or "")
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
-    return re.sub(r" {2,}", " ", text).strip()[:240]
+    return re.sub(r" {2,}", " ", text).strip()
+
+
+def sanitize_subject(text: str, *, max_len: int = _SUBJECT_MAX) -> str:
+    """Unfold HTML entities and strip header-illegal control characters."""
+    return _clean_subject(text)[:max(0, max_len)].rstrip()
+
+
+def _fit_mail_subject(text: str) -> str:
+    """Keep [TEST] and the retry suffix; truncate the middle so the header stays ≤240."""
+    text = _clean_subject(text)
+    prefix = ""
+    if text.startswith("[TEST] "):
+        prefix = "[TEST] "
+        text = text[len(prefix):]
+    suffix = ""
+    if RETRY_SUBJECT_MARK in text:
+        text = _clean_subject(text.replace(RETRY_SUBJECT_MARK, ""))
+        suffix = RETRY_SUBJECT_MARK
+    budget = _SUBJECT_MAX - len(prefix) - len(suffix)
+    return prefix + text[:max(0, budget)].rstrip() + suffix
 
 
 def resolve_subject(template: str, mapping: dict[str, str]) -> str:
@@ -146,7 +168,7 @@ def apply_mail_templates(
                 subject = f"[TEST] {subject}"
             if RETRY_SUBJECT_MARK in subject_default and RETRY_SUBJECT_MARK not in subject:
                 subject = f"{subject}{RETRY_SUBJECT_MARK}"
-    subject = sanitize_subject(subject)
+    subject = _fit_mail_subject(subject)
     html_tpl = (body_html_template or "").strip()
     if not html_tpl:
         return subject, body_text_default, body_html_default
