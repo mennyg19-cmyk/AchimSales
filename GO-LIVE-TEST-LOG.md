@@ -2,10 +2,11 @@
 
 Visible progress of browser and output tests against `go-live/FEATURE-INVENTORY.md`. Newest batches at the top.
 
-**Status:** Browser batches 1–4 logged. Batch 5 = leftover settings/help/theme/CLO/master/dashboard. Excel = pytest only (no D365).
+**Status:** Browser batches 1–5 logged. One leftover: Help overlay `?` (C10) — batch 5 opened Recent Reports by mistake. Excel = pytest only (no D365).
 
 | When (UTC) | Batch | What | Result |
 |------------|-------|------|--------|
+| 2026-09-03 00:24 | browser-5 | Role-picker radio → Test Salesman 2; settings exclusions/flags/delivery/beta-sources; theme cycle; CLO search “a” empty; master History + Run now API-not-set; dashboard empty. C10 was Recent Reports, not Help. Detail: `go-live/click-batch-5.md`. | pass with notes |
 | 2026-09-03 00:05 | browser-4 | Salesman `/login/dev` 403s (Users, Dashboard); Viewing as badge is **dev-login chrome**, not a prod bug. `/impersonate` works (F12 no End). Role-picker “hang” = radio not selected. Detail: `go-live/click-batch-4.md`. | pass with notes |
 | 2026-09-02 23:45 | browser-3 | Company schedules (12 rows + 5-step wizard), Schedule modal from Default Ordered, personal save/copy/history, Run now API-not-set, rename golive-sm2, salesman 403. Salesman session was Viewing as, not fresh login. No batch-3 video. Detail: `go-live/click-batch-3.md`. | pass with notes |
 | 2026-09-02 23:20 | pytest | scheduling + catchup + auth + sabbath: **94 passed**. | pass |
