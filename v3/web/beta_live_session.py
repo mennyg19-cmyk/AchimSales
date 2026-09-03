@@ -37,7 +37,6 @@ def adopt_live_identity():
         return current_principal()
 
     email = str(live["email"]).strip().lower()
-    raw_name = str(live.get("name") or email)
     cookie_dev = bool(live.get("_dev")) or live.get("role") == ROLE_DEVELOPER
     dev_email = str(live.get("_dev_email") or "").strip().lower()
 
@@ -57,10 +56,9 @@ def adopt_live_identity():
             return None
         if actor is not None:
             email = actor.email
-            raw_name = actor.display_name or actor.email
             live = {
                 "email": email,
-                "name": raw_name,
+                "name": actor.display_name or actor.email,
                 "role": actor.role,
                 "salesman_key": None,
             }
@@ -75,10 +73,20 @@ def adopt_live_identity():
         return None
 
     session_role = user.role
+    display = (user.display_name or user.email).strip() or user.email
+    if impersonating and actor is not None:
+        actor_name = (actor.display_name or actor.email).strip() or actor.email
+        session_name = f"{display} (as {actor_name})"
+        real_name = actor_name
+    else:
+        session_name = display
+        real_name = ""
+
     existing = current_principal()
     if (
         existing is not None
         and existing.email == email
+        and existing.name == session_name
         and existing.role == session_role
         and existing.is_dev == is_dev
         and existing.impersonating == impersonating
@@ -87,12 +95,12 @@ def adopt_live_identity():
 
     principal = Principal(
         email=email,
-        name=raw_name,
+        name=session_name,
         role=session_role,
         is_dev=is_dev,
         impersonating=impersonating,
         real_email=dev_email if impersonating else "",
-        real_name=str(live.get("_dev_name") or "") if impersonating else "",
+        real_name=real_name,
     )
     login(principal)
     log.info("beta adopted live session for %s role=%s impersonating=%s", email, session_role, impersonating)

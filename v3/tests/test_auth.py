@@ -588,6 +588,8 @@ def test_beta_adopt_keeps_v3_user_edits(tmp_path):
     assert row.role == "manager"
     assert row.sales_group == "HKaufman"
     assert repo.get_salesman_access(u.id) == {"hkaufman"}
+    with client.session_transaction() as s:
+        assert (s.get("v3_user") or {}).get("name") == "Renamed"
 
 
 def test_stale_dev_cookie_cannot_use_role_picker_or_admin(tmp_path):
