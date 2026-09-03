@@ -500,6 +500,34 @@ def test_admin_salesman_access_normalizes_raw_group(tmp_path):
     assert scope.get_json()["keys"] == ["hkaufman"]
 
 
+def test_salesman_can_be_granted_multiple_salesman_scopes(tmp_path):
+    from web.auth.principal import Principal
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    created = client.post("/api/admin/users", json={
+        "email": "rep@x.com", "role": "salesman", "sales_group": "HKaufman",
+    }, headers={"X-CSRF-Token": _CSRF})
+    uid = created.get_json()["id"]
+
+    scope = client.post(
+        f"/api/admin/users/{uid}/salesman-access",
+        json={"keys": ["HKaufman", "REdwards"]},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+
+    assert scope.get_json()["keys"] == ["hkaufman", "redwards"]
+    rep = UserRepository(app.config["DB"]).get_by_id(uid)
+    assert rep.role == "salesman"
+    assert app.config["AUTHZ"].visible_salesman_keys(
+        Principal(rep.email, rep.display_name, rep.role)
+    ) == {"hkaufman", "redwards"}
+    assert not app.config["AUTHZ"].may_see_commissions(
+        Principal(rep.email, rep.display_name, rep.role)
+    )
+
+
 def test_admin_salesman_edit_api_is_gone(tmp_path):
     """D365 is the salesman master: no local edit, toggle, or email field."""
     app = _make_app(tmp_path)
