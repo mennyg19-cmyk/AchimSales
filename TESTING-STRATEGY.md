@@ -1566,6 +1566,8 @@ check; `cd v3 && npm run build`
   `loadCompanyDefault` → `resumeInFlight` → if not resumed,
   `autoOpenPresetIfRequested` → optional `run()`.
 - `initLookups` calls `loadSalesmen` before `applySalesman(pendingSalesman)`.
+- The `if (!resumed)` block is brace-matched: `autoOpenPresetIfRequested` and the
+  auto-run `run()` must sit inside it, not merely appear later in the file.
 
 **Edge cases:**
 - `period=custom` deep-link still runs `applyDeepLink` before the custom-range

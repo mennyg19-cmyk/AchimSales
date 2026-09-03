@@ -580,6 +580,20 @@ def _first(haystack: str, needle: str) -> int:
     return index
 
 
+def _brace_body(source: str, header: str) -> str:
+    start = source.index(header)
+    open_at = source.index("{", start)
+    depth = 0
+    for index in range(open_at, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[open_at + 1 : index]
+    pytest.fail(f"unclosed block after {header!r}")
+
+
 def test_report_module_has_no_import_cycles_and_boots_in_order():
     report = _SRC / "js" / "report.ts"
     src = report.read_text(encoding="utf-8")
@@ -613,3 +627,35 @@ def test_report_module_has_no_import_cycles_and_boots_in_order():
     assert _first(boot, "await autoOpenPresetIfRequested();") < _first(
         boot, "if (autoRunRequested) { autoRunRequested = false; run(); }"
     )
+    not_resumed = _brace_body(boot, "if (!resumed)")
+    open_preset = "await autoOpenPresetIfRequested();"
+    auto_run = "if (autoRunRequested) { autoRunRequested = false; run(); }"
+    assert not_resumed.count(open_preset) == 1
+    assert boot.count(open_preset) == 1
+    assert not_resumed.count(auto_run) == 1
+    assert boot.count(auto_run) == 1
+
+
+def test_boot_order_helper_rejects_denested_preset_open():
+    nested = (
+        "if (!resumed) {\n"
+        "    await autoOpenPresetIfRequested();\n"
+        "    if (autoRunRequested) { autoRunRequested = false; run(); }\n"
+        "  }\n"
+    )
+    denested = (
+        "if (!resumed) {\n"
+        "  }\n"
+        "    await autoOpenPresetIfRequested();\n"
+        "    if (autoRunRequested) { autoRunRequested = false; run(); }\n"
+    )
+    open_preset = "await autoOpenPresetIfRequested();"
+    auto_run = "if (autoRunRequested) { autoRunRequested = false; run(); }"
+    body = _brace_body(nested, "if (!resumed)")
+    assert body.count(open_preset) == 1
+    assert body.count(auto_run) == 1
+    broken = _brace_body(denested, "if (!resumed)")
+    assert broken.count(open_preset) == 0
+    assert broken.count(auto_run) == 0
+    assert denested.count(open_preset) == 1
+    assert denested.count(auto_run) == 1
