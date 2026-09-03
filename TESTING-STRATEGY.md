@@ -1290,3 +1290,18 @@ A cheaper model can use this file as a guide to run the full test suite without 
   unknown rows cannot make a schedule look as though it already sent today.
 
 **Test file:** `v3/tests/test_scheduling.py`
+
+## Phase 6.9 commission display uses saved salesman percent
+**What to test:**
+- With a 10% stored-procedure rate and 5% salesman master rate, cards, flat
+  `Commission %`, and simple `Percent` display 5%, while commission dollars use 10%.
+- Explicit stored-procedure zero keeps commission dollars at zero while display stays
+  at the saved 5%; blank stored-procedure rate uses 5% for both.
+- Without a salesman master row, display the stored-procedure math rate. Do not render
+  a “varies” value.
+
+**Expected behavior:**
+- Commission percentages describe the salesman table's saved percent, while money
+  remains governed by the approved per-invoice rate policy.
+
+**Test file:** `v3/tests/test_report_invoiced.py`, `v3/tests/test_report_sql_coverage.py`

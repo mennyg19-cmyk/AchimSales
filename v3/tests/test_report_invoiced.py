@@ -311,8 +311,8 @@ def test_adapter_keeps_explicit_zero_commission():
                           "commission": commission}).commission_pct == 0.0
 
 
-def test_commissions_use_sp_rate_over_master():
-    # SP sends commission=0.10 in the rows; master says 0.05. The SP wins.
+def test_commissions_display_master_rate_but_calculate_with_sp_rate():
+    # Q3 displays the saved rate; Q2 still calculates from the SP rate.
     facts = S.to_facts([
         {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
          "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
@@ -321,11 +321,12 @@ def test_commissions_use_sp_rate_over_master():
     comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
                                 ytd_facts=facts, year=2026, end_month=4))["commissions"]
     sm = comm["salesmen"][0]
-    assert sm["commission_pct"] == 0.10
+    assert sm["commission_pct"] == 0.05
     assert sm["ytd"]["commission"] == 100.0   # 1000 net * 0.10
+    assert comm["rows"][0]["Commission %"] == 0.05
 
 
-def test_commissions_use_sp_rate_without_master_entry():
+def test_commissions_display_sp_rate_without_master_entry():
     # No master at all: the SP's per-row commission still drives the math.
     facts = S.to_facts([
         {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-03-10",
@@ -337,9 +338,10 @@ def test_commissions_use_sp_rate_without_master_entry():
     sm = comm["salesmen"][0]
     assert sm["commission_pct"] == 0.04
     assert sm["ytd"]["commission"] == 80.0    # 2000 net * 0.04
+    assert comm["rows"][0]["Commission %"] == 0.04
 
 
-def test_commissions_use_explicit_zero_sp_rate_over_master():
+def test_commissions_display_master_rate_but_keep_explicit_zero_sp_rate():
     facts = S.to_facts([{
         "InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
@@ -347,11 +349,12 @@ def test_commissions_use_explicit_zero_sp_rate_over_master():
     }])
     monthly = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
                                    ytd_facts=facts, year=2026, end_month=4))["commissions"]
-    assert monthly["salesmen"][0]["commission_pct"] == 0.0
+    assert monthly["salesmen"][0]["commission_pct"] == 0.05
     assert monthly["salesmen"][0]["ytd"]["commission"] == 0.0
+    assert monthly["rows"][0]["Commission %"] == 0.05
 
     simple = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]["rows"][0]
-    assert simple["Percent"] == 0.0
+    assert simple["Percent"] == 0.05
     assert simple["Commissions"] == 0.0
 
 
@@ -364,6 +367,10 @@ def test_commissions_fall_back_to_master_for_blank_sp_rate():
                                 ytd_facts=facts, year=2026, end_month=4))["commissions"]
     assert comm["salesmen"][0]["commission_pct"] == 0.05
     assert comm["salesmen"][0]["ytd"]["commission"] == 50.0
+
+    simple = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]["rows"][0]
+    assert simple["Percent"] == 0.05
+    assert simple["Commissions"] == 50.0
 
 
 def test_commissions_keep_highest_present_sp_rate():
