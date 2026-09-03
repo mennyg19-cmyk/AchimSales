@@ -617,6 +617,27 @@ def test_tick_enqueues_due_and_dedups(tmp_path):
     assert job_repo.claim_next() is None
 
 
+def test_tick_skips_due_schedule_when_queue_admission_refuses(tmp_path, caplog):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    uid = UserRepository(db).upsert("rep@x.com", display_name="R", role="admin").id
+    ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com",
+    )
+    job_repo = JobRepository(db, queue_max_depth=1)
+    job_repo.enqueue("echo")
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+
+    assert enqueue_due(db, job_repo, now) == 0
+    assert "skipped this tick" in caplog.text
+    assert job_repo.claim_next().type == "echo"
+    assert enqueue_due(db, job_repo, now) == 1
+
+
 def test_tick_skips_outside_window_and_inactive(tmp_path):
     from web.data.repositories.jobs import JobRepository
     from web.scheduling.tick import enqueue_due

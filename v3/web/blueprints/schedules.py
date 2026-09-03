@@ -23,6 +23,7 @@ from web.data.repositories.report_defaults import (
     view_and_layout_for_update,
 )
 from web.data.repositories.saved_reports import SavedReport, SavedReportRepository
+from web.data.repositories.jobs import QueueAdmissionError
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -659,10 +660,13 @@ def delete_schedule(schedule_id: int):
 def run_schedule(schedule_id: int):
     p = _principal()
     existing = _personal_or_404(schedule_id, p)
-    job_id = enqueue_schedule_run(
-        current_app.config["JOB_REPO"],
-        schedule_id=schedule_id, schedule_type=PERSONAL,
-        owner_user_id=existing.owner_user_id, ignore_sabbath=True)
+    try:
+        job_id = enqueue_schedule_run(
+            current_app.config["JOB_REPO"],
+            schedule_id=schedule_id, schedule_type=PERSONAL,
+            owner_user_id=existing.owner_user_id, ignore_sabbath=True)
+    except QueueAdmissionError as exc:
+        abort(503, description=str(exc))
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202
 
@@ -1215,8 +1219,11 @@ def run_master(schedule_id: int):
     if sched is None:
         abort(404, description="Unknown master schedule")
     _require_master_edit(p, sched)
-    job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
-                                  schedule_id=schedule_id, schedule_type=MASTER,
-                                  ignore_sabbath=True)
+    try:
+        job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
+                                      schedule_id=schedule_id, schedule_type=MASTER,
+                                      ignore_sabbath=True)
+    except QueueAdmissionError as exc:
+        abort(503, description=str(exc))
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202

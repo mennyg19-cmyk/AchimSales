@@ -92,8 +92,9 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - The production poller runs a claimed handler in a child process; a timeout
   terminates that child, records a failure explaining the timeout, and frees
   the worker slot.
-- The default worker capacity is one. Queue admission leaves jobs queued when
-  the queued depth or oldest queued age exceeds its named limits.
+- The default worker capacity is one. Enqueue rejects new jobs at the named
+  depth; the poller still drains queued work and fails rows that exceeded the
+  named queue age.
 - `schedule.run`, then `report.deliver`, claim before `report.export`.
 - A scheduler startup error does not mark bootstrap complete or write a worker
   heartbeat, so `/readyz` remains 503 while the supervisor keeps Gunicorn up.

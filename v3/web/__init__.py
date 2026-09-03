@@ -145,7 +145,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
         service, salesmen_repo, mirror_customers=dash_repo.all)
     app.config["REPORT_CACHE"] = cache
     app.config["EXPORT_REPO"] = exports
-    app.config["JOB_REPO"] = JobRepository(db)
+    app.config["JOB_REPO"] = worker.repo
     app.config["RUN_LOG_REPO"] = run_log
     app.config["JOB_WORKER"] = worker
     app.config["SHAREPOINT_SERVICE"] = sharepoint

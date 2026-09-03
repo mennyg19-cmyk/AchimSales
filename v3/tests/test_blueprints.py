@@ -214,6 +214,19 @@ def test_run_poll_result_export_flow(tmp_path):
                for e in client.get("/api/reports/exports").get_json()["exports"])
 
 
+def test_run_returns_503_when_job_queue_is_full(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"ordered_report": []})
+    app.config["JOB_REPO"].queue_max_depth = 1
+    app.config["JOB_REPO"].enqueue("echo")
+    client = app.test_client()
+    _login(client, app)
+    run = client.post(
+        "/api/reports/ordered/run", json={"period": "all_time"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert run.status_code == 503
+
+
 def test_run_log_records_and_renders(tmp_path):
     rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",

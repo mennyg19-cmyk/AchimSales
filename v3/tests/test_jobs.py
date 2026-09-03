@@ -1,5 +1,6 @@
 """Durable job worker: dispatch, failure isolation, progress, bounded draining."""
 
+import signal
 import time
 
 import pytest
@@ -8,7 +9,7 @@ from web.config import Config
 
 from web.data.connection import Database
 from web.data.migrate import migrate
-from web.data.repositories.jobs import JobRepository
+from web.data.repositories.jobs import JobRepository, QueueAdmissionError
 from web.data.repositories.users import UserRepository
 from web.jobs.scheduler import Scheduler
 from web.jobs.worker import JobContext, JobWorker
@@ -18,6 +19,11 @@ from web.jobs.worker_main import run_worker_app
 def _hang_forever(ctx):
     while True:
         time.sleep(0.1)
+
+
+def _ignore_sigterm_and_hang(ctx):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    _hang_forever(ctx)
 
 
 @pytest.fixture
@@ -307,39 +313,92 @@ def test_background_timeout_kills_child_and_frees_slot(db):
         failed = jobs.get(job_id)
         assert failed.status == "failure"
         assert "timed out" in failed.error
+        while time.time() < deadline and worker.health()["free_slots"] != 1:
+            time.sleep(0.02)
         assert worker.health()["free_slots"] == 1
     finally:
         worker.stop()
 
 
-def test_background_admission_skips_queue_over_depth_limit(db):
+def test_background_timeout_sigkills_child_ignoring_sigterm_and_frees_slot(db):
+    jobs = JobRepository(db)
+    worker = JobWorker(db, job_timeout_seconds=0.1)
+    worker.register("hang", _ignore_sigterm_and_hang)
+    job_id = jobs.enqueue("hang")
+
+    worker.start(poll_interval=0.01)
+    try:
+        deadline = time.time() + 8
+        while time.time() < deadline and jobs.get(job_id).status != "failure":
+            time.sleep(0.02)
+        failed = jobs.get(job_id)
+        assert failed.status == "failure"
+        assert "timed out" in failed.error
+        while time.time() < deadline and worker.health()["free_slots"] != 1:
+            time.sleep(0.02)
+        assert worker.health()["free_slots"] == 1
+    finally:
+        worker.stop()
+
+
+def test_enqueue_refuses_queue_at_depth_limit(db):
+    worker = JobWorker(db, queue_max_depth=1)
+    job_id = worker.repo.enqueue("echo")
+
+    with pytest.raises(QueueAdmissionError, match="queue is full.*max depth 1"):
+        worker.repo.enqueue("echo")
+
+    with db.precious() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
+    assert worker.repo.get(job_id).status == "queued"
+
+
+def test_background_worker_drains_queue_over_depth_limit(db):
     jobs = JobRepository(db)
     worker = JobWorker(db, queue_max_depth=1)
     worker.register("echo", lambda ctx: "")
-    job_ids = [jobs.enqueue("echo"), jobs.enqueue("echo")]
+    first_id = worker.repo.enqueue("echo")
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO jobs(id, type, status, params_json) VALUES ('extra-queued', 'echo', 'queued', '{}')"
+        )
 
     worker.start(poll_interval=0.01)
     try:
-        time.sleep(0.1)
-        assert [jobs.get(job_id).status for job_id in job_ids] == ["queued", "queued"]
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if jobs.get(first_id).status == jobs.get("extra-queued").status == "success":
+                break
+            time.sleep(0.02)
     finally:
         worker.stop()
 
+    assert jobs.get(first_id).status == jobs.get("extra-queued").status == "success"
 
-def test_background_admission_skips_queue_over_age_limit(db):
+
+def test_background_worker_expires_over_age_job_and_drains_younger_job(db):
     jobs = JobRepository(db)
     worker = JobWorker(db, queue_max_age_seconds=1)
     worker.register("echo", lambda ctx: "")
-    job_id = jobs.enqueue("echo")
+    expired_id = jobs.enqueue("echo")
+    younger_id = jobs.enqueue("echo")
     with db.precious() as conn:
-        conn.execute("UPDATE jobs SET created_at=datetime('now', '-2 minutes') WHERE id=?", (job_id,))
+        conn.execute("UPDATE jobs SET created_at=datetime('now', '-2 minutes') WHERE id=?", (expired_id,))
 
     worker.start(poll_interval=0.01)
     try:
-        time.sleep(0.1)
-        assert jobs.get(job_id).status == "queued"
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if jobs.get(expired_id).status == "failure" and jobs.get(younger_id).status == "success":
+                break
+            time.sleep(0.02)
     finally:
         worker.stop()
+
+    expired = jobs.get(expired_id)
+    assert expired.status == "failure"
+    assert "sat in the queue too long" in expired.error
+    assert jobs.get(younger_id).status == "success"
 
 
 def test_claim_next_prioritizes_schedules_and_delivery_over_exports(db):

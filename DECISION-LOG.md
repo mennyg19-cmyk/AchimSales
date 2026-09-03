@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 4.3: refuse admission, drain queue, hard-kill hung children
+**What I had to decide:** Whether queue limits should stop poller claims or reject new work, and how to release the only worker slot when a child ignores SIGTERM.
+**Options I considered:** (1) Skip claims when the queue is full or stale. (2) Refuse enqueue at depth, expire stale queued rows, then keep draining. (3) Leave a SIGTERM-ignoring child joined forever.
+**What I chose:** Option 2. Enqueue refuses at the named depth; the poller expires over-age queued rows and always claims remaining work. After SIGTERM, it joins briefly, then sends SIGKILL and joins again if the child is still alive.
+**Why:** Skipping claims freezes every queued job. SIGTERM is cooperative, so it cannot be the hard timeout boundary.
+**Status:** DECIDED
+
 ## 2026-09-03 Phase 4.3: one killable job slot; schedules beat exports
 **What I had to decide:** How to stop a hung report without leaving a thread running after the DB row is failed, and how to keep scheduled mail from waiting behind on-screen exports.
 **Options I considered:** (1) Thread + timeout flag (does not kill the work). (2) One child process per claimed job, hard kill on timeout, max_workers=1. (3) Keep two in-process threads.

@@ -18,6 +18,12 @@ from typing import Any
 from web.data.connection import Database
 
 _ACTIVE = ("queued", "running")
+DEFAULT_QUEUE_MAX_DEPTH = 100
+DEFAULT_QUEUE_MAX_AGE_SECONDS = 60 * 60
+
+
+class QueueAdmissionError(RuntimeError):
+    """Raised when inserting another queued job would exceed the queue limit."""
 
 # How many times crash-recovery will requeue a job before giving up on it. A job
 # that keeps dying mid-run (an out-of-memory report the OS SIGKILLs never gets to
@@ -67,8 +73,11 @@ class Job:
 
 
 class JobRepository:
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, *, queue_max_depth: int = DEFAULT_QUEUE_MAX_DEPTH,
+                 queue_max_age_seconds: float = DEFAULT_QUEUE_MAX_AGE_SECONDS):
         self.db = db
+        self.queue_max_depth = max(1, queue_max_depth)
+        self.queue_max_age_seconds = max(1, queue_max_age_seconds)
 
     def enqueue(self, job_type: str, *, owner_user_id: int | None = None,
                 dedup_key: str | None = None, params: dict[str, Any] | None = None) -> str:
@@ -82,6 +91,13 @@ class JobRepository:
                 ).fetchone()
                 if existing:
                     return existing["id"]
+            depth = conn.execute(
+                "SELECT COUNT(*) AS depth FROM jobs WHERE status='queued'"
+            ).fetchone()["depth"]
+            if depth >= self.queue_max_depth:
+                raise QueueAdmissionError(
+                    f"job queue is full (max depth {self.queue_max_depth})"
+                )
             try:
                 conn.execute(
                     "INSERT INTO jobs(id, type, status, owner_user_id, dedup_key, params_json)"
@@ -125,21 +141,24 @@ class JobRepository:
                 return None  # another worker claimed it
             return Job.from_row(conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone())
 
-    def queue_within_limits(self, *, max_depth: int, max_age_seconds: float) -> bool:
-        """Whether another queued job may start without exceeding queue limits."""
+    def expire_queued_older_than(self, max_age_seconds: float | None = None) -> int:
+        """Fail queued jobs that exceeded their permitted wait time."""
+        max_age_seconds = self.queue_max_age_seconds if max_age_seconds is None else max_age_seconds
+        cutoff = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() - max_age_seconds,
+            tz=timezone.utc,
+        ).isoformat()
         with self.db.precious() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS depth, MIN(created_at) AS oldest"
-                " FROM jobs WHERE status='queued'"
-            ).fetchone()
-        if row["depth"] > max_depth:
-            return False
-        if not row["oldest"]:
-            return True
-        oldest = datetime.fromisoformat(row["oldest"])
-        if oldest.tzinfo is None:
-            oldest = oldest.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - oldest).total_seconds() <= max_age_seconds
+            expired = conn.execute(
+                "UPDATE jobs SET status='failure', error=?, finished_at=?"
+                " WHERE status='queued' AND julianday(created_at) <= julianday(?)",
+                (
+                    f"job sat in the queue too long (max age {max_age_seconds:g} seconds)",
+                    _now(),
+                    cutoff,
+                ),
+            )
+            return expired.rowcount
 
     def set_progress(self, job_id: str, progress: int) -> None:
         with self.db.precious() as conn:

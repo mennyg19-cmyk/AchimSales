@@ -16,7 +16,12 @@ from time import monotonic
 from typing import Callable
 
 from web.data.connection import Database
-from web.data.repositories.jobs import Job, JobRepository
+from web.data.repositories.jobs import (
+    DEFAULT_QUEUE_MAX_AGE_SECONDS,
+    DEFAULT_QUEUE_MAX_DEPTH,
+    Job,
+    JobRepository,
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +40,7 @@ class JobContext:
 Handler = Callable[[JobContext], str]
 DEFAULT_MAX_WORKERS = 1
 DEFAULT_JOB_TIMEOUT_SECONDS = 45 * 60
-DEFAULT_QUEUE_MAX_DEPTH = 100
-DEFAULT_QUEUE_MAX_AGE_SECONDS = 60 * 60
+_CHILD_STOP_TIMEOUT_SECONDS = 2
 
 
 def _run_child(handler: Handler, job: Job, db: Database, outcomes) -> None:
@@ -59,7 +63,11 @@ class JobWorker:
         queue_max_age_seconds: float = DEFAULT_QUEUE_MAX_AGE_SECONDS,
     ):
         self.db = db
-        self.repo = JobRepository(db)
+        self.repo = JobRepository(
+            db,
+            queue_max_depth=queue_max_depth,
+            queue_max_age_seconds=queue_max_age_seconds,
+        )
         self.max_workers = max(1, max_workers)
         self.job_timeout_seconds = max(1, job_timeout_seconds)
         self.queue_max_depth = max(1, queue_max_depth)
@@ -80,11 +88,11 @@ class JobWorker:
         return self._poller is not None
 
     def health(self) -> dict:
-        """Live snapshot of the poller for the admin diagnostic. Lets us tell a
-        worker that never started from one whose poller thread died from one
-        that's wedged with every capacity slot held by a hung handler. Only the
-        background-leader process actually runs a poller; on a follower this
-        reports started=False (which is correct for that process)."""
+        """Live snapshot of this sibling worker's poller for the admin diagnostic.
+
+        It distinguishes a worker that never started, a dead poller, and a
+        poller whose capacity is held by hung handlers.
+        """
         return {
             "started": self._poller is not None,
             "poller_alive": bool(self._poller and self._poller.is_alive()),
@@ -158,13 +166,9 @@ class JobWorker:
             if not self._sem.acquire(timeout=poll_interval):
                 continue
             try:
-                if not self.repo.queue_within_limits(
-                    max_depth=self.queue_max_depth,
-                    max_age_seconds=self.queue_max_age_seconds,
-                ):
-                    self._sem.release()
-                    self._stop.wait(poll_interval)
-                    continue
+                expired = self.repo.expire_queued_older_than()
+                if expired:
+                    log.warning("expired %d queued job(s) that waited too long", expired)
                 job = self.repo.claim_next()
                 if job is None:
                     self._sem.release()
@@ -214,8 +218,9 @@ class JobWorker:
                     break
                 process.join(min(0.1, remaining))
             if process.is_alive():
-                process.terminate()
-            process.join()
+                self._stop_child(process)
+            else:
+                process.join()
             if timed_out:
                 self.repo.mark_failure(
                     job.id,
@@ -239,6 +244,14 @@ class JobWorker:
                 self._processes.pop(job.id, None)
             self._sem.release()
 
+    @staticmethod
+    def _stop_child(process: multiprocessing.Process) -> None:
+        process.terminate()
+        process.join(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
+
     def _is_cancelled(self, job_id: str) -> bool:
         current = self.repo.get(job_id)
         return current is not None and current.status == "cancelled"
@@ -252,7 +265,7 @@ class JobWorker:
             processes = list(self._processes.values())
         for process in processes:
             if process.is_alive():
-                process.terminate()
+                self._stop_child(process)
         if wait:
             for process in processes:
-                process.join(timeout=5)
+                process.join(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
