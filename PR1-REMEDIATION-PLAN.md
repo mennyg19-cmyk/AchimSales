@@ -438,7 +438,7 @@ Live gate:
 - [x] Adopt the shared dialog helper for admin, SharePoint, external-login, Customer Last Order, and export dialogs.
 - [x] Add `aria-modal`, initial focus, focus trap, Escape, inert/background isolation, and opener restoration.
   Evidence: `v3/web/static_src/js/dialog.ts`; adopted on admin edit-user, SharePoint picker, external login, Last Order export/previous-order, report email/schedule. Gate closed on `889af71`. Loops A+B+C zero. Trust-boundary N/A.
-- [ ] Fix admin/dashboard table reflow at 320px and 200% zoom.
+- [x] Fix admin/dashboard table reflow at 320px and 200% zoom. Evidence: `.table-wrap` contains `#userTable`, `#salesmanTable`, and `#dashTable`; dashboard tiles can shrink below 140px. Authenticated Chrome check at 320px and 200% found document `scrollWidth == clientWidth`; wide tables retained inner overflow and row actions remained clickable.
 - [ ] Correct all four-theme contrast failures.
 - [ ] Complete searchable-picker option navigation and focus return.
 - [ ] Complete toolbar and tab-option menu keyboard behavior.
