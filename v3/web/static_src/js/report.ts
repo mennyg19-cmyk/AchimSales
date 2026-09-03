@@ -1552,7 +1552,7 @@ function showExportsPanel(): void {
   if (!panel) return;
   panel.hidden = false;
   loadExports();
-  panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  panel.scrollIntoView({ block: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 }
 
 function setExportBuildingStatus(): void {

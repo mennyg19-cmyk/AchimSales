@@ -663,7 +663,7 @@ function openWizard(): void {
   if (!wiz) return;
   wiz.hidden = false;
   document.getElementById("msEmpty")?.setAttribute("hidden", "");
-  wiz.scrollIntoView({ behavior: "smooth", block: "start" });
+  wiz.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   void initOdPicker();
 }
 

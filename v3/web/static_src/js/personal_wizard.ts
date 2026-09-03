@@ -249,7 +249,7 @@ function openWizard(): void {
   const root = wiz();
   if (!root) return;
   root.hidden = false;
-  root.scrollIntoView({ behavior: "smooth", block: "start" });
+  root.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
 function closeWizard(): void {
