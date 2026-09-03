@@ -3001,8 +3001,12 @@ function emailMsg(text: string, isError: boolean): void {
 function openEmailModal(): void {
   const modal = $("emailModal");
   if (!modal) return;
-  // Reopening after Escape must not revive a poll from the previous send.
+  // Reopening starts a fresh session: retire any earlier send, including one
+  // whose POST is still in flight, so nothing from before can write here.
+  emailSendSeq++;
   watchedEmailJob = null;
+  const sendBtn = $("emailSend") as HTMLButtonElement | null;
+  if (sendBtn) sendBtn.disabled = false;
   (($("emailSubject") as HTMLInputElement)).value = document.title || "Report";
   (($("emailRecipients") as HTMLInputElement)).value = "";
   emailMsg("", false);
