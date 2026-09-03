@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.7: preserve explicit-zero commission from the SP
+**What I had to decide:** Next Phase 6 leftover after the 6.6 gate.
+**Options I considered:** (1) Q3 “varies” vs salesman-table saved percent / Q8 approve-recipients / Q9 vs Send now / 0019-legacy slots. (2) The named leftover: SP commission `0` is authoritative (Q2) but `_commission_fraction` and `_commission_rate` treat 0 like missing and fall back to the salesman master.
+**What I chose:** (2). Missing/blank commission stays a fallback to master. Explicit `0` / `"0"` stays `0` and does not use the master. Keep the existing per-salesman max among *present* SP rates (mixed 0 and 0.10 still 0.10). Do not implement Q3 “varies” display, per-invoice mixed-rate rewrite, Q8, or Q9.
+**Why:** Q2 already decided “SP zero stays zero.” Distinguishing None vs 0 is the defect. The other leftovers still mix product calls or a Q9 conflict.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.6 gate closed
+**What I chose:** Close Phase 6.6 on `b4cdc3e`. Trust-boundary N/A.
+**Why:** Loops A+B zero; Loop C F1 timedelta then re-pass zero; Agent Guardrails green on HEAD; terminal jobs / run log / magic-link tokens prune at 90 days without gating `/readyz`.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.6: 90-day prune of jobs, run log, and magic-link tokens
 **What I had to decide:** Next Phase 6 leftover after the 6.5 gate. Phase 4.4 parked 90-day job-history prune in “Phase 7” so daily cleanup would not flap `/readyz`.
 **Options I considered:** (1) Q2 explicit-zero / Q3 varies / Q8 / Q9 vs Send now / 0019-legacy slots. (2) The named Q10 leftover: prune magic-link tokens, old jobs, and run history at 90 days (legs already 90-day).

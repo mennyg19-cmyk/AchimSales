@@ -397,7 +397,7 @@ Implement only after owner decisions are recorded.
 - [x] Prune expired kept payloads. Evidence:
   `python3 -m pytest tests/test_jobs.py tests/test_blueprints.py -q -k 'cleanup or kept_run or keep_run'` — 7 passed.
 - [x] Prune expired magic-link attempts, delivery legs, old jobs, and run history per approved retention. Evidence:
-  `python3 -m pytest tests/test_jobs.py -q` — 35 passed; `python3 -m pytest tests/test_magic_links.py -q --noconftest` — 6 passed.
+  `python3 -m pytest tests/test_jobs.py -q` — 35 passed; `python3 -m pytest tests/test_magic_links.py -q --noconftest` — 6 passed. Gate closed on `b4cdc3e`.
 - [x] Make SharePoint fail closed when configured `SP_SITE_URL` cannot resolve; never tenant-search a substitute site.
 - [ ] Require operate/edit permission for company **Send now**.
 - [x] Move public reconciliation diagnostics behind developer authentication and POST+CSRF; remove query-string secrets.
