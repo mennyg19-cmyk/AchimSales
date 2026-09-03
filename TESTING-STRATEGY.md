@@ -1332,6 +1332,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Every adopted overlay keeps its current visual treatment while exposing `role=dialog` and `aria-modal=true`, with the background inert until it closes.
 
 **Edge cases:**
-- Opening a second adopted overlay closes the first without restoring focus to its opener. A dialog with no focusable child focuses its dialog container.
+- Opening a second adopted overlay closes the first without restoring focus to its opener and cancels the first overlay's pending focus frame. A dialog with no focusable child focuses its dialog container.
+- An adopted overlay with a heading must expose that heading as the dialog name (`aria-labelledby` or `aria-label`). The helper fills a missing name from an id'd heading.
 
 **Test file:** browser keyboard check; `cd v3 && npm run build`

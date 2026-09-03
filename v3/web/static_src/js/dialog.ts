@@ -3,6 +3,7 @@ type DialogOverlay = HTMLElement;
 interface DialogState {
   opener: HTMLElement | null;
   onKeydown: (event: KeyboardEvent) => void;
+  focusFrame: number;
 }
 
 const dialogStates = new WeakMap<DialogOverlay, DialogState>();
@@ -44,6 +45,12 @@ function restoreBackground(): void {
   isolatedElements = [];
 }
 
+function ensureAccessibleName(dialog: HTMLElement): void {
+  if (dialog.hasAttribute("aria-label") || dialog.hasAttribute("aria-labelledby")) return;
+  const heading = dialog.querySelector<HTMLElement>("h1[id], h2[id], h3[id]");
+  if (heading?.id) dialog.setAttribute("aria-labelledby", heading.id);
+}
+
 function focusInitial(dialog: HTMLElement): void {
   const target = dialog.querySelector<HTMLElement>("[data-dialog-initial-focus], [autofocus]")
     || focusableElements(dialog)[0];
@@ -59,6 +66,7 @@ export function openDialog(overlay: DialogOverlay, opener: HTMLElement | null = 
   const dialog = dialogContent(overlay);
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
+  ensureAccessibleName(dialog);
   overlay.hidden = false;
   overlay.style.display = "flex";
   isolateBackground(overlay);
@@ -85,15 +93,21 @@ export function openDialog(overlay: DialogOverlay, opener: HTMLElement | null = 
       first.focus();
     }
   };
-  dialogStates.set(overlay, { opener, onKeydown });
+  const focusFrame = requestAnimationFrame(() => {
+    if (activeOverlay !== overlay) return;
+    focusInitial(dialog);
+  });
+  dialogStates.set(overlay, { opener, onKeydown, focusFrame });
   activeOverlay = overlay;
   document.addEventListener("keydown", onKeydown);
-  requestAnimationFrame(() => focusInitial(dialog));
 }
 
 export function closeDialog(overlay: DialogOverlay, restoreFocus = true): void {
   const state = dialogStates.get(overlay);
-  if (state) document.removeEventListener("keydown", state.onKeydown);
+  if (state) {
+    cancelAnimationFrame(state.focusFrame);
+    document.removeEventListener("keydown", state.onKeydown);
+  }
   overlay.hidden = true;
   overlay.style.display = "none";
   if (activeOverlay === overlay) {

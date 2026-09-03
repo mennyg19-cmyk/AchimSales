@@ -103,7 +103,7 @@
 <!-- Edit user modal -->
 <div class="modal-overlay" id="editUserModal" style="display:none;"
      data-csrf="{{ csrf_token() }}">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
     <div class="modal-head"><h3 id="editUserTitle">Edit user</h3>
       <button type="button" class="modal-close" data-close-user>&times;</button></div>
     <div class="modal-body">
