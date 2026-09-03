@@ -39,6 +39,15 @@ WEBAPP_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORT_OUTPUT_DIR = os.path.join(WEBAPP_DIR, "_report_output")
 os.makedirs(REPORT_OUTPUT_DIR, exist_ok=True)
 
-DEV_BYPASS_AUTH = os.environ.get("DEV_BYPASS_AUTH", "").lower() in ("1", "true", "yes")
+
+def _dev_bypass_enabled() -> bool:
+    return (
+        os.environ.get("DEV_BYPASS_AUTH", "").lower() in ("1", "true", "yes")
+        and not os.environ.get("WEBSITE_SITE_NAME")
+        and os.environ.get("APP_ENV", "").lower() != "prod"
+    )
+
+
+DEV_BYPASS_AUTH = _dev_bypass_enabled()
 
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")

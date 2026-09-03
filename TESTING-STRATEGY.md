@@ -2,6 +2,20 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Phase 1 containment: headers, legacy bypass, and OData scope
+
+**What to test:**
+- Every configured security header is applied; CSP excludes unpkg and jsDelivr; HSTS appears only in production.
+- `DEV_BYPASS_AUTH=true` still works locally but is refused on Azure or when `APP_ENV=prod`.
+- Empty OData `visible_keys` set empties rows (scoped to nobody, not unrestricted). Recognized salesman keys filter rows. A missing salesman column empties rows when scope is set.
+
+**Expected behavior:**
+- Browser responses prevent framing, MIME sniffing, and unscoped third-party execution without overwriting an existing header.
+- The legacy app cannot enable development authentication in Azure or production.
+- An OData report cannot expose all rows when its scope column cannot be identified.
+
+**Test file:** `v3/tests/test_security_headers.py`, `v3/tests/test_legacy_dev_bypass.py`, `v3/tests/test_odata_scope.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

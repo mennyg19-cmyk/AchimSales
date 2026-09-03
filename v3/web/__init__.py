@@ -23,6 +23,7 @@ from web.data.repositories.feature_flags import FeatureFlagRepository
 from web.data.repositories.report_config import ReportConfigRepository
 from web.data.repositories.users import UserRepository
 from web.extensions import init_csrf
+from web.security_headers import apply_security_headers
 
 
 def create_app(config: Config | None = None) -> Flask:
@@ -54,6 +55,12 @@ def create_app(config: Config | None = None) -> Flask:
     app.config["AUTHZ"] = Authorization(db)
 
     init_csrf(app)
+
+    @app.after_request
+    def _security_headers(response):
+        cfg = app.config["APP_CONFIG"]
+        return apply_security_headers(response, hsts=bool(getattr(cfg, "is_prod", False)))
+
     _register_reporting(app, cfg, db)
     _register_context(app, cfg, db)
     _register_blueprints(app, cfg)

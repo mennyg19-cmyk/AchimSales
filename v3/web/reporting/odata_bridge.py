@@ -174,6 +174,12 @@ def _slug(title: str) -> str:
 
 def _scope_tab(tab: dict, visible_keys: set[str]) -> dict:
     """Best-effort salesman scope on OData sheets (column name varies)."""
+    # None is handled by the caller (unrestricted). An empty set is a real
+    # scope: this user may see no salesmen, so do not return the full tab.
+    if not visible_keys:
+        out = dict(tab)
+        out["rows"] = []
+        return out
     rows = tab.get("rows") or []
     if not rows:
         return tab
@@ -184,7 +190,9 @@ def _scope_tab(tab: dict, visible_keys: set[str]) -> dict:
         sample = rows[0]
         col = next((c for c in scope_cols if c in sample), None)
     if col is None:
-        return tab
+        out = dict(tab)
+        out["rows"] = []
+        return out
     allowed = {str(k).strip() for k in visible_keys}
     filtered = [r for r in rows if str(r.get(col, "")).strip() in allowed]
     out = dict(tab)
