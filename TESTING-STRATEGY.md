@@ -1519,10 +1519,16 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Send from the report email modal and let the 60 s client wait expire.
 
 **Expected behavior:**
-- The modal says "Still sending — it will arrive shortly. You can close this
-  window." Nothing user-facing mentions an outbox; that is a developer-only
-  `.eml` artifact. Schedule history's delivery-channel rows keep the word
-  because they describe the real channel to admins.
+- The modal says "Still sending — you can close this window." It promises no
+  outcome, since the job can still fail. Nothing user-facing mentions an
+  outbox; that is a developer-only `.eml` artifact. Schedule history's
+  delivery-channel rows keep the word because they describe the real channel
+  to admins.
+
+**Edge cases:**
+- Closing the modal, or starting another send, retires the previous poll: it
+  must not write a message into a later dialog or auto-close it on the old
+  job's success.
 
 **Test file:** `v3/tests/test_frontend.py` (no `outbox` in any `static_src/js`
 file); `cd v3 && npm run build`

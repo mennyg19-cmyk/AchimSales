@@ -508,5 +508,7 @@ def test_hidden_tab_pollers_use_shared_visibility_helpers():
 
 def test_user_facing_copy_never_mentions_the_outbox():
     # The outbox is a developer-only .eml artifact; users cannot "check" it.
-    for path in (_SRC / "js").glob("*.ts"):
+    sources = sorted((_SRC / "js").glob("*.ts"))
+    assert sources
+    for path in sources:
         assert "outbox" not in path.read_text(encoding="utf-8").lower(), path.name

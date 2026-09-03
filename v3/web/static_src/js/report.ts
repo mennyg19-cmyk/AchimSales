@@ -3008,7 +3008,12 @@ function openEmailModal(): void {
   emailSp.init();
 }
 
+// The send job the modal is currently watching. Closing the modal or starting
+// another send retires the old poll so it cannot write into a later dialog.
+let watchedEmailJob: string | null = null;
+
 function closeEmailModal(): void {
+  watchedEmailJob = null;
   const modal = $("emailModal");
   if (modal) closeDialog(modal);
 }
@@ -3090,16 +3095,19 @@ async function emailMe(): Promise<void> {
 async function pollEmailJob(jobId: string): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
   const deadline = Date.now() + 60 * 1000;
+  watchedEmailJob = jobId;
+  const stillWatching = () => watchedEmailJob === jobId;
   while (Date.now() < deadline) {
     if (isHidden()) {
       await sleepUntilVisible(deadline - Date.now());
       continue;
     }
     const j = await getJSON<{ status: string; error: string }>(jobUrl);
+    if (!stillWatching()) return;
     if (!j) break;
     if (j.status === "success") {
       emailMsg("Delivered.", false);
-      setTimeout(closeEmailModal, 1200);
+      setTimeout(() => { if (stillWatching()) closeEmailModal(); }, 1200);
       return;
     }
     if (j.status === "failure" || j.status === "cancelled") {
@@ -3107,8 +3115,9 @@ async function pollEmailJob(jobId: string): Promise<void> {
       return;
     }
     await sleepUntilVisible(1000);
+    if (!stillWatching()) return;
   }
-  emailMsg("Still sending — it will arrive shortly. You can close this window.", false);
+  if (stillWatching()) emailMsg("Still sending — you can close this window.", false);
 }
 
 // -- schedule modal ---------------------------------------------------------
