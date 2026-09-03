@@ -414,6 +414,12 @@ def test_admin_users_forbidden_for_salesman(tmp_path):
     assert client.get("/admin/users").status_code == 403
     assert client.get("/api/admin/users").status_code == 403
     assert client.get("/api/admin/sales-groups").status_code == 403
+    assert client.get("/api/admin/users/1/salesman-access").status_code == 403
+    assert client.post(
+        "/api/admin/users/1/salesman-access",
+        json={"keys": ["redwards"]},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
 
 
 def test_admin_sales_groups_match_report_lookup(tmp_path):
