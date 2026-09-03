@@ -1166,6 +1166,45 @@ def test_graph_mail_retries_throttle_once(monkeypatch):
     assert delays == [60]
 
 
+@pytest.mark.parametrize("first, second", [(401, 429), (429, 401)])
+def test_graph_mail_retries_401_and_throttle_in_either_order(monkeypatch, first, second):
+    mailer = GraphMailer("tenant", "client", "secret")
+    tokens = iter(["t1", "t2", "t3"])
+    monkeypatch.setattr(mailer, "_token", lambda: next(tokens))
+    cleared = []
+    monkeypatch.setattr(mailer, "_clear_token", lambda: cleared.append(True))
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_mail.time.sleep", delays.append)
+    authorizations = []
+    pending = [first, second]
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    def send(request, **kwargs):
+        authorizations.append(request.get_header("Authorization"))
+        if pending:
+            code = pending.pop(0)
+            headers = {"Retry-After": "1"} if code in (429, 503) else {}
+            raise urllib.error.HTTPError(
+                "https://graph.example", code, "retry", headers, io.BytesIO(),
+            )
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", send)
+    mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert authorizations == ["Bearer t1", "Bearer t2", "Bearer t3"]
+    assert cleared == [True]
+    assert delays == [1]
+
+
 def test_sharepoint_folder_create_401_refreshes_token_once(tmp_path, monkeypatch):
     service = SharePointService(_cfg(
         tmp_path, tenant_id="tenant", client_id="client", client_secret="secret",
