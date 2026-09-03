@@ -1533,8 +1533,8 @@ function collectParams(): Record<string, unknown> {
 const VIEW_WINDOW_KEYS = new Set(["period", "start_date", "end_date", "from", "to"]);
 
 function collectCompanyViewParams(): Record<string, unknown> {
-  // Company schedules own YTD / MTD / yesterday. Saving the view must not
-  // stamp the period you used to preview the layout.
+  // Filters only. Period is added when the save-view modal checks
+  // “Save the date window” (include_window on the PUT).
   const out: Record<string, unknown> = {};
   Object.entries(collectParams()).forEach(([key, val]) => {
     if (!VIEW_WINDOW_KEYS.has(key)) out[key] = val;
@@ -1845,8 +1845,7 @@ function setToolbarEnabled(hasData: boolean): void {
   });
   const save = $("saveViewBtn") as HTMLButtonElement | null;
   if (save) {
-    // Company views are layout templates; schedules own YTD/MTD/yesterday.
-    // Edit must be saveable without first running a preview period.
+    // Company views can be saved from filters alone (period is optional).
     save.disabled = !(hasData || (isCompanyViewId(editingPresetId) && !!editingPresetName));
   }
   const runBtn = $("runBtn") as HTMLButtonElement | null;
@@ -2507,77 +2506,135 @@ function saveForCompany(): boolean {
   return (($("viewOwner") as HTMLSelectElement | null)?.value || "") === "company";
 }
 
-async function putCompanyView(name: string): Promise<boolean> {
+async function putCompanyView(name: string, includeWindow: boolean): Promise<boolean> {
   if (attr("data-can-edit-default") !== "1") {
-    setStatus("Only managers and admins can change company views.", "error");
+    saveViewMsg("Only managers and admins can change company views.", true);
     return false;
   }
   try {
     const res = await fetch(attr("data-company-views-url"), {
       method: "PUT", headers: csrfHeaders(),
       body: JSON.stringify({
-        name, params: collectCompanyViewParams(),
+        name,
+        params: includeWindow ? collectParams() : collectCompanyViewParams(),
         layout: layoutForCompanySave(),
+        include_window: includeWindow,
       }),
     });
     if (!res.ok) throw new Error();
     return true;
   } catch {
-    setStatus("Could not save this company view. Please try again.", "error");
+    saveViewMsg("Could not save this company view. Please try again.", true);
     return false;
   }
 }
 
+function saveViewMsg(text: string, isError: boolean): void {
+  const el = $("saveViewMsg");
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+  el.className = "modal-msg" + (isError ? " modal-msg-error" : "");
+}
+
+function syncSavePeriodRow(): void {
+  const row = $("saveViewPeriodRow");
+  if (!row) return;
+  row.hidden = !saveForCompany();
+}
+
+function openSaveViewModal(): void {
+  const modal = $("saveViewModal");
+  if (!modal) return;
+  const nameEl = $("saveViewName") as HTMLInputElement | null;
+  if (nameEl) {
+    nameEl.value = editingPresetName && editingPresetName !== "Default" ? editingPresetName : "";
+  }
+  const ownerEl = $("viewOwner") as HTMLSelectElement | null;
+  if (ownerEl && isCompanyViewId(editingPresetId)) ownerEl.value = "company";
+  const periodEl = $("saveViewIncludePeriod") as HTMLInputElement | null;
+  if (periodEl) periodEl.checked = periodIsRunnable(collectParams());
+  saveViewMsg("", false);
+  syncSavePeriodRow();
+  modal.hidden = false;
+  nameEl?.focus();
+  nameEl?.select();
+}
+
+function closeSaveViewModal(): void {
+  const modal = $("saveViewModal");
+  if (modal) modal.hidden = true;
+}
+
 async function saveView(): Promise<void> {
-  if (isCompanyViewId(editingPresetId) && editingPresetName) {
-    if (await putCompanyView(editingPresetName)) {
-      setStatus(`Updated “${editingPresetName}”.`);
+  openSaveViewModal();
+}
+
+async function confirmSaveView(): Promise<void> {
+  const nameEl = $("saveViewName") as HTMLInputElement | null;
+  const trimmed = (nameEl?.value || "").trim();
+  const includeWindow = !!($("saveViewIncludePeriod") as HTMLInputElement | null)?.checked;
+  if (isCompanyViewId(editingPresetId) && editingPresetName && saveForCompany()) {
+    const name = trimmed || editingPresetName;
+    if (name.toLowerCase() === "default") {
+      saveViewMsg("Default is the company Default. Pick another name.", true);
+      return;
+    }
+    if (await putCompanyView(name, includeWindow)) {
+      closeSaveViewModal();
+      setStatus(`Updated “${name}”.`);
     }
     return;
   }
   if (saveForCompany()) {
-    const name = window.prompt("Save as a company view:", editingPresetName || "");
-    if (name == null || !name.trim()) return;
-    const trimmed = name.trim();
-    if (trimmed.toLowerCase() === "default") {
-      setStatus("Default is the company Default. Pick another name.", "error");
+    if (!trimmed) {
+      saveViewMsg("Give this view a name.", true);
       return;
     }
-    if (await putCompanyView(trimmed)) {
+    if (trimmed.toLowerCase() === "default") {
+      saveViewMsg("Default is the company Default. Pick another name.", true);
+      return;
+    }
+    if (await putCompanyView(trimmed, includeWindow)) {
+      closeSaveViewModal();
       setStatus(`Saved company view “${trimmed}”.`);
     }
     return;
   }
   if (isDefaultViewId(editingPresetId) || editingPresetName === "Default") {
     if (attr("data-can-edit-default") !== "1") {
-      setStatus("Only managers and admins can change the Default view.", "error");
+      saveViewMsg("Only managers and admins can change the Default view.", true);
       return;
     }
-    try {
-      const layout = serializeLayout();
-      const params = collectParams();
-      const res = await fetch(attr("data-default-url"), {
-        method: "PUT", headers: csrfHeaders(),
-        body: JSON.stringify({ params, layout }),
-      });
-      if (!res.ok) throw new Error();
-      companyDefaultLayout = layout;
-      companyDefaultParams = params;
-      setStatus("Updated Default.");
-    } catch {
-      setStatus("Could not save Default. Please try again.", "error");
+    if (trimmed && trimmed.toLowerCase() !== "default") {
+      // Fall through to a new personal named view below.
+    } else {
+      try {
+        const layout = serializeLayout();
+        const params = collectParams();
+        const res = await fetch(attr("data-default-url"), {
+          method: "PUT", headers: csrfHeaders(),
+          body: JSON.stringify({ params, layout }),
+        });
+        if (!res.ok) throw new Error();
+        companyDefaultLayout = layout;
+        companyDefaultParams = params;
+        closeSaveViewModal();
+        setStatus("Updated Default.");
+      } catch {
+        saveViewMsg("Could not save Default. Please try again.", true);
+      }
+      return;
     }
+  }
+  if (!trimmed) {
+    saveViewMsg("Give this view a name.", true);
     return;
   }
-  const suggested = editingPresetName || "";
-  const name = window.prompt(
-    editingPresetId
-      ? "Save this view as (same name overwrites this view):"
-      : "Save this view as:",
-    suggested,
-  );
-  if (name == null || !name.trim()) return;
-  const trimmed = name.trim();
+  if (trimmed.toLowerCase() === "default") {
+    saveViewMsg("Default is the company Default. Pick another name.", true);
+    return;
+  }
   const overwrite = !!(editingPresetId && trimmed === editingPresetName);
   try {
     const payload: Record<string, unknown> = {
@@ -2598,6 +2655,7 @@ async function saveView(): Promise<void> {
         });
     if (!res.ok) throw new Error();
     const data = await res.json().catch(() => ({}));
+    closeSaveViewModal();
     if (overwrite) setStatus(`Updated “${trimmed}”.`);
     else {
       editingPresetId = (data as any).id ?? null;
@@ -2617,7 +2675,7 @@ async function saveView(): Promise<void> {
     }
     syncScheduleButton();
   } catch {
-    setStatus("Could not save this view. Please try again.", "error");
+    saveViewMsg("Could not save this view. Please try again.", true);
   }
 }
 
@@ -3339,6 +3397,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     toggleColumnsPanel();
   });
   $("saveViewBtn")?.addEventListener("click", saveView);
+  $("saveViewClose")?.addEventListener("click", closeSaveViewModal);
+  $("saveViewCancel")?.addEventListener("click", closeSaveViewModal);
+  $("saveViewConfirm")?.addEventListener("click", () => { void confirmSaveView(); });
+  $("saveViewModal")?.addEventListener("click", (e) => {
+    if (e.target === $("saveViewModal")) closeSaveViewModal();
+  });
+  $("viewOwner")?.addEventListener("change", syncSavePeriodRow);
+  $("saveViewName")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); void confirmSaveView(); }
+    if (e.key === "Escape") closeSaveViewModal();
+  });
   $("presetsBtn")?.addEventListener("click", (e) => {
     e.stopPropagation();
     closeExportMenu();

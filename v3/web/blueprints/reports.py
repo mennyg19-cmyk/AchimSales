@@ -1591,11 +1591,14 @@ def put_company_view(report_key: str):
     name = (body.get("name") or "").strip()
     if not name:
         abort(400, description="A view name is required")
+    raw = body.get("params") if isinstance(body.get("params"), dict) else {}
+    # Period is optional: company schedules still own their window, but a
+    # company view can keep yesterday/YTD when the saver checks that box.
+    params = dict(raw) if body.get("include_window") else params_without_window(raw)
     try:
         row = _company_views_repo().upsert(
             report_key, name,
-            params=params_without_window(
-                body.get("params") if isinstance(body.get("params"), dict) else {}),
+            params=params,
             layout=body.get("layout") if isinstance(body.get("layout"), dict) else {},
             updated_by=uid,
         )

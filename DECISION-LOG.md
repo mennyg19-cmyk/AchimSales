@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Company views can keep a period
+**What you asked for:** Saving a company view dropped the period even though you want that option. Save this view used a browser prompt.
+**What I had to decide:** Whether the period is always stored, and what lives in the new popup.
+**What I chose:** An in-app Save this view modal (name, Save for, “Save the date window”). PUT `/company-views` takes `include_window`. Off or omitted still strips period. Company schedules still send their own period.
+**Why:** The old strip was so schedules could pick YTD/MTD/yesterday. That still works. The report-page view should be allowed to remember yesterday when you ask it to. Browser `prompt` is the native alert look.
+**Status:** DECIDED
+
 ## 2026-09-03 Schedule filename is the email attachment name
 **What you asked for:** The filename in schedule setup is not used on the email attachment.
 **What I had to decide:** What `{Schedule}` means on a personal schedule, which has no name field.

@@ -1359,6 +1359,14 @@ def test_company_views_list_put_and_home_cards(tmp_path):
     one = client.get(f"/api/reports/ordered/company-views/{body['id']}").get_json()
     assert one["layout"]["active"] == "by_customer"
     assert "period" not in (one.get("params") or {})
+    kept = client.put(
+        "/api/reports/ordered/company-views",
+        json={"name": "Yesterday invoiced", "params": {"period": "yesterday"},
+              "layout": {}, "include_window": True},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert kept.status_code == 200
+    assert (kept.get_json().get("params") or {}).get("period") == "yesterday"
     home = client.get("/").get_data(as_text=True)
     assert "Company views" in home and "Daily Ordered" in home
     reserved = client.put(

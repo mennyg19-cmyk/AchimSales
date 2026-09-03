@@ -162,7 +162,12 @@ def test_report_viewer_meeting_ux():
     assert 'textContent = "Delete"' in src
     assert "Add subgroup" in src
     assert "groupPills" in src
-    assert "Save this view as (same name overwrites this view)" in src
+    assert "function openSaveViewModal" in src
+    assert "function confirmSaveView" in src
+    assert 'id="saveViewModal"' in (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert "include_window" in src
+    assert "function syncSavePeriodRow" in src
+    assert 'window.prompt("Save as a company view"' not in src
     assert "layout.clones" in src
     resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
     assert '(q.get("preset") || q.get("cview")) && !wanted) return false' in resume
@@ -192,7 +197,7 @@ def test_report_viewer_meeting_ux():
     assert "data?.others" in src
     assert "for ${ownerLabel}." in src
     assert "autoRunRequested = periodIsRunnable(view?.params)" in src
-    assert "params: collectCompanyViewParams()" in src
+    assert "includeWindow ? collectParams() : collectCompanyViewParams()" in src
     assert "Apply this view’s filters (does not run the report)" not in src
     cview = src.split("async function autoOpenPresetIfRequested", 1)[1].split("const id = q.get", 1)[0]
     assert "if (!view) return;" in cview
@@ -205,7 +210,7 @@ def test_report_viewer_meeting_ux():
     assert 'c.field === "Net Price"' in src
     assert "c.sum === false" in src
     assert "function saveForCompany" in src
-    assert "Save as a company view:" in src
+    assert "Save the date window" in (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert "Load Default or a named saved view to schedule it." in src
     assert "isDefaultViewId(loadedNamedView.id)" in src
     remember = src.split("function rememberNamedView", 1)[1].split("function isLoadedViewDirty", 1)[0]

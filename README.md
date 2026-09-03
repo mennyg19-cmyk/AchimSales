@@ -104,8 +104,9 @@ developers always see and can create, edit, and delete those views (Save for
 views flag (off by default; developers on, unused for admins). Toggle it on
 Users & access. Daily Ordered groups Summary by salesman then customer (A-Z),
 By Customer by salesman only (customers A-Z inside, not grouped), and leaves
-By Order ungrouped. Company views do not store a date window; company
-schedules supply YTD / MTD / yesterday. Managers who have the flag can edit
+By Order ungrouped. Company views can store a date window when you check
+that box on Save this view; they can still be saved without one. Company
+schedules supply their own YTD / MTD / yesterday at send time. Managers who have the flag can edit
 them from Saved views. Personal schedules send a **named saved view** (3
 steps: view, when, where). Admins and developers can also schedule **Default**
 from More → Schedule or the personal wizard. Company schedules stay on the

@@ -1,5 +1,16 @@
 # Testing Strategy
 
+## Company views can keep a period
+
+**What to test:**
+- PUT `/company-views` without `include_window` still drops `period`.
+- PUT with `include_window: true` stores `period`.
+- Save this view is `#saveViewModal` (name, Save for, date-window checkbox), not `window.prompt`.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
+
+
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
 ## Schedule filename is the email attachment name
@@ -429,7 +440,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Expected behavior:**
 - Company Daily Ordered Summary is salesman then customer. By Customer is salesman only. By Order is flat. Per-rep files still drop the extra Salesman group.
-- Company views do not store a date window; schedules own YTD / MTD / yesterday.
+- Company views may store a date window when `include_window` is set; schedules still own their send period.
 
 **Edge cases:**
 - Same customer with two item numbers stays together and items sort A-Z.

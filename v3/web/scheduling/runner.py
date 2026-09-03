@@ -113,7 +113,8 @@ class ScheduleRunner:
         """Personal named views send the live saved view, not a stale snapshot.
 
         Delivery keys (cc, folder, no-data mail) stay on the schedule row.
-        Company schedules keep their own period; company views do not store one.
+        Company schedules keep their own period. A company view may store a
+        period for the report page; that does not override the schedule.
         """
         stored = dict(sched.params or {})
         if schedule_type != PERSONAL:
