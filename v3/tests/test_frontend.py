@@ -504,3 +504,9 @@ def test_hidden_tab_pollers_use_shared_visibility_helpers():
     for filename in ("main.ts", "report.ts", "master_wizard.ts", "settings.ts", "admin.ts", "dashboard.ts", "schedules.ts"):
         source = (_SRC / "js" / filename).read_text(encoding="utf-8")
         assert '"./visibility"' in source
+
+
+def test_user_facing_copy_never_mentions_the_outbox():
+    # The outbox is a developer-only .eml artifact; users cannot "check" it.
+    for path in (_SRC / "js").glob("*.ts"):
+        assert "outbox" not in path.read_text(encoding="utf-8").lower(), path.name

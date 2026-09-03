@@ -3108,7 +3108,7 @@ async function pollEmailJob(jobId: string): Promise<void> {
     }
     await sleepUntilVisible(1000);
   }
-  emailMsg("Still processing — check the outbox shortly.", false);
+  emailMsg("Still sending — it will arrive shortly. You can close this window.", false);
 }
 
 // -- schedule modal ---------------------------------------------------------

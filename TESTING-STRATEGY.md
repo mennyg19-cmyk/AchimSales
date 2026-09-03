@@ -1514,5 +1514,18 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Email me, the email modal, and the schedule run-log poll share the same
   hidden-tab guard and wall-clock deadlines (60 s, 60 s, 90 s).
 
+## Phase 8.10 No "check the outbox" copy for users
+**What to test:**
+- Send from the report email modal and let the 60 s client wait expire.
+
+**Expected behavior:**
+- The modal says "Still sending — it will arrive shortly. You can close this
+  window." Nothing user-facing mentions an outbox; that is a developer-only
+  `.eml` artifact. Schedule history's delivery-channel rows keep the word
+  because they describe the real channel to admins.
+
+**Test file:** `v3/tests/test_frontend.py` (no `outbox` in any `static_src/js`
+file); `cd v3 && npm run build`
+
 **Test file:** `v3/tests/test_frontend.py`; authenticated Chrome CDP lifecycle
 check; `cd v3 && npm run build`

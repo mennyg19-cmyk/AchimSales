@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.10: replace "check the outbox" copy
+**What I had to decide:** What the email modal should say when the 60-second client wait expires, and whether schedule history's "Outbox file / Outbox id" rows count as stale copy.
+**Options I considered:** (1) Mirror Email me: "check your inbox shortly" — wrong when the recipients are other people or the target is a SharePoint folder. (2) Neutral: "Still sending — it will arrive shortly. You can close this window." (3) Also rename the history rows.
+**What I chose:** (2) for the modal. History rows stay: they describe the real delivery channel to admins on a diagnostics page, not an instruction to users. Added a source test that no `static_src/js` file mentions the outbox.
+**Why:** Users have no outbox to check; the `.eml` artifact is developer-only. One string, no behaviour change.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.9 gate closed; main merged in
 **What I chose:** Close Phase 8.9 on `e5b1ceb`, then merge `origin/main` (`173c166`, salesmen_master SP work) as `ff8486d`. Trust-boundary N/A.
 **Why:** Loop A F1 (wizard lookups stacked one `visibilitychange` listener per report key) closed on `b6995fb`. Loop B caught what both Terra passes missed: anchoring the client give-up at job start made any reconnect to a report older than 10 minutes throw before one status check; fixed on `99993b7` by counting from when the page began watching, plus guards on the three pollers outside the original ten-site inventory. Loop C craft (header comment, run-log ordering, TESTING-STRATEGY reconnect case) closed across `38f1377`, `0310d0e`, `e5b1ceb`; the run-log loop keeps sleep → hidden check → fetch because its `continue` branches would skip an end-of-loop sleep. Loops A2, B2 zero; C3 one comment-wording Low, applied. PR #35 had turned CONFLICTING when main moved, which also stopped `pull_request` CI; merging main restored both. Merge resolutions: docs keep both sides; README drops the "beta SQL/OData sources" phrase Phase 3 removed; Salesmen grid takes main's hint plus this branch's `.table-wrap`; `salesman_directory.py` no longer passes `SalesmanFact.source` (removed in Phase 3). Full suite 729 passed. Ship.
