@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-03 Replay PR #1 instructions on current `main` (new draft PR)
+**What you asked for:** Make a huge new PR. Apply everything that was instructed for PR #1, but onto current `main`, then see how it goes.
+**What I had to decide:** Whether that means merge leftover PR #1, rebase its 124 commits, or replay the plan on today's tree. Whether the 2026-09-02 “inventory only, do not start rebuild Phase 2–4” decision still holds. Whether GitHub Environment approval belongs in the first workflow patch.
+**Options I considered:** (1) Merge https://github.com/mennyg19-cmyk/AchimSales/pull/1 as-is. (2) Rebase `cursor/p0-security-containment-adb6` onto `main`. (3) New branch from `main` `263a76b`, keep PRs #11–#33, walk `PR1-REMEDIATION-PLAN.md` in order, do not delete `webapp/` until unused.
+**What I chose:** Option 3. Branch `cursor/pr1-on-main-551b`. Do **not** merge PR #1. The 2026-09-02 no-rewrite decision is **superseded for this PR only**. Production branch is `main`. Q1–Q11 stay as already answered on the old branch. Contain first (workflow `workflow_dispatch` cannot deploy a non-`main` ref; security headers; refuse Azure/`APP_ENV=prod` `DEV_BYPASS_AUTH`; OData `_scope_tab` fail-closed). Then auth, then SQL-only only after every built report has SQL. Do **not** add a GitHub `production` Environment on the workflow in this phase — that setting does not exist here and would stall every deploy after merge. Cookie rotation stays an Azure owner action, not git. Keep this PR **draft** until Phase 10.
+**Why:** PR #1 diverged 2026-08-26 (`330d1bc`), 58 behind / 124 ahead of `main`. Cherry-pick or merge would wipe salesman filter, rename, Excel bands, Users & access, and review security. You asked for a **new** PR from current `main`, which also overrides the standing “same agent → same PR” preference for this ask only.
+**Status:** DECIDED
+
 ## 2026-09-02 Go-live: inventory live v3, do not rebuild from scratch
 **What you asked for:** Plain-English report of today's fixes; database changes if possible; merge into main; then rebuild-protocol multi-model inventory of the entire site; then browser-click every feature autonomously with commit messages; edge cases; check schedules and Excel output.
 **What I had to decide:** (1) Whether rebuild Phase 2–4 (architecture + from-scratch rebuild) starts after inventory. (2) Where test-log commits go after merging #33. (3) Grill before Phase 0.
