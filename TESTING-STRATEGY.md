@@ -1603,3 +1603,16 @@ check; `cd v3 && npm run build`
 
 **Test file:** `v3/tests/test_frontend.py::test_tabulator_mit_license_is_attributed`;
 `cd v3 && npm run build`
+
+## Phase 8.14 report sheet tablist
+**What to test:**
+- On a completed multi-sheet report, move between sheet tabs with ArrowLeft,
+  ArrowRight, Home, and End; use ArrowDown/ArrowUp on a tab caret.
+
+**Expected behavior:**
+- Sheet labels are tabs in a named tablist with one shared labelled panel.
+  Arrow navigation activates and focuses the selected sheet; the sibling caret
+  still opens its tab-option menu.
+
+**Test file:** `v3/tests/test_frontend.py::test_report_tabs_have_tablist_semantics`;
+`cd v3 && npm run build`

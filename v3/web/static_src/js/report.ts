@@ -1065,18 +1065,31 @@ function renderCommissionCards(tab: Tab, host: HTMLElement): void {
 // Tabs
 // --------------------------------------------------------------------------
 
+function reportTabId(key: string): string {
+  return `report-tab-${key.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+}
+
 function renderTabs(): void {
   const tabsEl = $("reportTabs");
   if (!tabsEl) return;
+  const tabPanel = $("reportTabPanel");
+  tabsEl.setAttribute("role", "tablist");
+  tabsEl.setAttribute("aria-label", "Report sheets");
   tabsEl.innerHTML = "";
   state.order.forEach((key) => {
     const tab = state.tabs[key];
     if (!tab) return;
+    const tabId = reportTabId(key);
     const tabEl = document.createElement("div");
     tabEl.className = "report-tab" + (key === state.active ? " active" : "");
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "report-tab-label";
+    btn.id = tabId;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-controls", "reportTabPanel");
+    btn.setAttribute("aria-selected", String(key === state.active));
+    btn.tabIndex = key === state.active ? 0 : -1;
     const nameSpan = document.createElement("span");
     nameSpan.textContent = tab.name;
     btn.appendChild(nameSpan);
@@ -1101,6 +1114,19 @@ function renderTabs(): void {
       if (tabMenuEl) moveMenuFocus(tabMenuEl, event.key === "ArrowDown" ? "first" : "last");
     });
     btn.addEventListener("click", () => activateTab(key));
+    btn.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const tabKeys = state.order.filter((tabKey) => state.tabs[tabKey]);
+      const index = tabKeys.indexOf(key);
+      if (index < 0) return;
+      event.preventDefault();
+      const nextIndex = event.key === "Home" ? 0
+        : event.key === "End" ? tabKeys.length - 1
+        : (index + (event.key === "ArrowLeft" ? -1 : 1) + tabKeys.length) % tabKeys.length;
+      const nextKey = tabKeys[nextIndex];
+      if (nextKey === key) return;
+      activateTab(nextKey);
+    });
     tabEl.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       openTabMenuAt(key, (e as MouseEvent).pageX, (e as MouseEvent).pageY, caret);
@@ -1109,6 +1135,10 @@ function renderTabs(): void {
     tabsEl.appendChild(tabEl);
   });
   tabsEl.hidden = state.order.length === 0;
+  tabPanel?.setAttribute(
+    "aria-labelledby",
+    state.active && state.tabs[state.active] ? reportTabId(state.active) : "",
+  );
 }
 
 function activateTab(key: string): void {
@@ -1116,6 +1146,7 @@ function activateTab(key: string): void {
   captureActive();
   state.active = key;
   renderTabs();
+  document.querySelector<HTMLButtonElement>('#reportTabs [role="tab"][aria-selected="true"]')?.focus();
   buildTable(state.tabs[key]);
   syncColumnsButton(state.tabs[key]);
 }

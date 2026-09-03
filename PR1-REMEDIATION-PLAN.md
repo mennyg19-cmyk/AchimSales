@@ -500,6 +500,13 @@ Live gate:
   links to it. Both unpkg CSS/JS tags locked to 6.3.1.
   `test_tabulator_mit_license_is_attributed`. Loop A F1 closed then A2+B+C zero.
   Did not vendor. Trust-boundary N/A.
+- [x] Report tabs have tablist/tab/tabpanel semantics and arrow-key behavior
+  (REPOSITORY-REVIEW item 6). Evidence: `#reportTabs` is a named tablist; sheet
+  labels are `role=tab` with roving tabindex; pills+table sit in `#reportTabPanel`.
+  ArrowRight on a fixture Ordered result selected Detail and focused
+  `#report-tab-detail`. Caret stays a sibling `aria-haspopup=menu` button;
+  ArrowDown still opens the tab-option menu. `test_report_tabs_have_tablist_semantics`.
+  `python3 -m pytest tests/test_frontend.py -q` — 32 passed. Trust-boundary N/A.
 
 Browser matrix:
 

@@ -473,6 +473,24 @@ def test_report_menus_have_keyboard_semantics():
     assert 'aria-haspopup="menu"' in html
 
 
+def test_report_tabs_have_tablist_semantics():
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    tabs = report.split("function renderTabs()", 1)[1].split("function activateTab", 1)[0]
+    activate = report.split("function activateTab", 1)[1].split("let tabMenuEl", 1)[0]
+    assert 'id="reportTabPanel" role="tabpanel"' in html
+    assert 'tabsEl.setAttribute("role", "tablist")' in tabs
+    assert 'tabsEl.setAttribute("aria-label", "Report sheets")' in tabs
+    assert 'btn.setAttribute("role", "tab")' in tabs
+    assert 'btn.setAttribute("aria-controls", "reportTabPanel")' in tabs
+    assert 'caret.setAttribute("aria-haspopup", "menu")' in tabs
+    for key in ("ArrowLeft", "ArrowRight", "Home", "End"):
+        assert f'"{key}"' in tabs
+    assert '"aria-labelledby"' in tabs
+    assert 'function reportTabId' in report
+    assert 'querySelector<HTMLButtonElement>(\'#reportTabs [role="tab"][aria-selected="true"]\')?.focus()' in activate
+
+
 def test_admin_users_has_company_views_flag():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euCompanyViews"' in html

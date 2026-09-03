@@ -4,6 +4,16 @@
 **What I had to decide:** How to combine this PR's leftovers with main's live job log, Cancel for stuck schedule jobs, and `0020_job_log.sql`.
 **What I chose:** Keep both. Delivery-legs is `0021_delivery_legs.sql`. Keep HTTP-only Gunicorn, `enqueue_or_503`, Graph token cache, delivery legs, no tenant-wide SharePoint search. Add main's `log_json`, `#jobLiveLog` / `#liveJobLog`, Cancel, and `owner_user_id` on company Run now. Schedule `pollJob` uses `sleepUntilVisible` instead of a bare timeout.
 **Why:** Same 0019/0020 collision as last merge. Job-log and Cancel are live product. Do not edit `0019_drop_salesmen.sql`. Incoming tests that assumed `_requests()` tenant search, `announceRun(ok ? …)`, or clock enqueue without `slot_id` were rewritten to this PR's Graph-cache / live-announce / required-slot_id contracts.
+
+## 2026-09-03 Phase 8 leftover: report tablist
+**What I had to decide:** How to add WAI-ARIA tablist/tab/tabpanel and arrow keys without breaking Phase 8.5 tab-option menus or restyling the tab bar.
+**Options I considered:** (1) `role=tab` on the whole `.report-tab` wrapper (caret would be nested interactive). (2) Label button is `role=tab`; caret stays a sibling `aria-haspopup=menu` button; one shared `role=tabpanel` wrapping pills + table; automatic activation on Arrow/Home/End. (3) Manual activation (arrows move focus only).
+**What I chose:** (2). Do not restyle. Do not intercept ArrowDown/Up on the caret. `activateTab` rebuilds the tab strip, so it must restore focus to the selected tab. Unselected tabs `tabindex=-1`; carets stay in tab order.
+**Why:** REPOSITORY-REVIEW item 6. Nested interactive inside `role=tab` fails APG. Automatic activation matches in-page sheet switching. 8.5 caret menu stays.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent (spec); implementation spawn Terra
+
 **Status:** DECIDED
 **Model:** cursor-grok-4.6
 **Runner:** parent
