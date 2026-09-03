@@ -472,7 +472,15 @@ Live gate:
   Loop C craft closed on `38f1377`, `0310d0e`, `e5b1ceb`. `python3 -m pytest
   tests/test_frontend.py -q` — 25 passed. Loops A2, B2, C3 zero or
   comment-only. Trust-boundary N/A.
-- [ ] Replace stale “check the outbox” production copy.
+- [x] Replace stale “check the outbox” production copy. Evidence:
+  `pollEmailJob` fallback is `Still sending — you can close this window.`
+  (no arrival promise). `openEmailModal` / `sendEmail` bump `emailSendSeq` and
+  clear `watchedEmailJob`, so close, Escape, reopen, and an in-flight POST
+  cannot write a later dialog. `emailMe` still says check your inbox (the user
+  is the recipient). Schedule history keeps Outbox file/id rows. Source test
+  `test_user_facing_copy_never_mentions_the_outbox`. Loops A+B+C zero blocking
+  on `852cafb`. Trust-boundary N/A. `python3 -m pytest tests/test_frontend.py -q`
+  — 26 passed.
 - [ ] Show a clear error when report-to-schedule draft transfer fails.
 - [ ] Resolve report-module circular imports or add browser coverage proving initialization order.
 - [ ] Add the Tabulator MIT license text and third-party attribution.

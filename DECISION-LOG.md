@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.10 gate closed
+**What I chose:** Close Phase 8.10. Trust-boundary N/A.
+**Why:** Loop A (Terra) and Loop B (Sonnet) zero findings on HEAD `852cafb` (after merging `main` @ `ca2d6ec`). Loop C craft: one optional belt-and-suspenders nit on `closeEmailModal` nulling `watchedEmailJob`; left in place because Escape only hides the overlay and the null is the close-button path. Agent Guardrails green on the merge commit. `emailMe` inbox copy is intentional. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Merge origin/main (ca2d6ec) into PR #35
 **What I had to decide:** How to combine this PR's leftovers with main's drop of the local `salesmen` table, extra SalesGroups, test-mode, and Run-now `manual` jobs. Main also shipped `0019_drop_salesmen.sql` while this branch's unreleased delivery-legs file was already `0019`.
 **Options I considered:** (1) Keep Phase 6.9 display of a local saved percent (impossible: the table is gone). (2) Display and dollars both use `_commission_rate` (SP row when present, else `salesmen_master` directory). (3) Renumber main's drop migration. (4) Rename this PR's unreleased `0019_delivery_legs.sql` to `0020`.
