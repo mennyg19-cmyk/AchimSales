@@ -387,7 +387,7 @@ Implement only after owner decisions are recorded.
 - [ ] Define and correctly display varying commission rates.
 - [ ] Preserve explicit zero commission if the API contract says zero is authoritative.
 - [ ] Add validation after D365 go-live clamping; reject an interval whose start exceeds end.
-- [ ] Persist `skip_sabbath=false` in company schedule create/update.
+- [x] Persist `skip_sabbath=false` in company schedule create/update.
 - [ ] Replace migration 0019 behavior with a forward correction:
   - [ ] do not edit 0019
   - [ ] identify legacy rows as `legacy`/unknown where possible
@@ -395,10 +395,10 @@ Implement only after owner decisions are recorded.
 - [ ] Enforce kept-run expiry on result access.
 - [ ] Prune expired kept payloads.
 - [ ] Prune expired magic-link attempts, delivery legs, old jobs, and run history per approved retention.
-- [ ] Make SharePoint fail closed when configured `SP_SITE_URL` cannot resolve; never tenant-search a substitute site.
+- [x] Make SharePoint fail closed when configured `SP_SITE_URL` cannot resolve; never tenant-search a substitute site.
 - [ ] Require operate/edit permission for company **Send now**.
-- [ ] Move public reconciliation diagnostics behind developer authentication and POST+CSRF; remove query-string secrets.
-- [ ] Convert state-changing `claim-once` diagnostic to POST+CSRF or remove it.
+- [x] Move public reconciliation diagnostics behind developer authentication and POST+CSRF; remove query-string secrets.
+- [x] Convert state-changing `claim-once` diagnostic to POST+CSRF or remove it.
 - [ ] Apply external-recipient policy.
 
 Gate:

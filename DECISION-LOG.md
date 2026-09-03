@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.2: commission-card number from current bucket
+**What I had to decide:** Next Phase 6 leftover after the 6.1 gate.
+**Options I considered:** (1) Commissions rate-display / zero-contract / date-interval / retention / external-recipient / Q9 Send now. (2) The specified lookup bug: cards reuse the last aggregation-loop `sm`.
+**What I chose:** (2). Q1–Q3 rate policy, Q8/Q10, date-interval reject, and Q9 vs Phase 6 Send now stay deferred.
+**Why:** The bucket lookup is a named defect with one correct lookup. The others still mix product calls (or Q9 vs "require edit").
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.1 gate closed
+**What I chose:** Close Phase 6.1 on `3c79500`. Trust-boundary info items I1 (HTML 403 vs JSON on `/api/`) and I2 (unclamped `year`) are pre-existing/developer-only; not this gate.
+**Why:** Loops A+B+C zero; trust-boundary high 0 medium 0; Agent Guardrails green on HEAD.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.1 Loop A F1: CSRF-first anonymous status
 **What I had to decide:** Loop A required anonymous reconcile POST to return 401, but global CSRF aborts 400 before `@require_login`.
 **Options I considered:** (1) Exempt the routes or skip CSRF when unsigned-in so login can 401 first. (2) Keep CSRF-first 400 with no session token; 401 only after a CSRF token is present but no login.
