@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.4: refuse result access after Keep expires
+**What I had to decide:** Next Phase 6 leftover after the 6.3 gate.
+**Options I considered:** (1) Q2 explicit-zero / Q3 “varies” display / Q8 external-recipient / Q9 vs Send now / 0019-legacy slots / retention prune. (2) The named defect: `GET /api/reports/result/<job_id>` (and export) serve a cached payload after `kept_until` has passed.
+**What I chose:** (2). If `kept_until` is set and `_kept_still_valid` is false, result GET and export return the same 404 as a missing cache. Unkept runs stay cache-presence-only. Cache 7-day prune and Keep-payload retention stay a later slice. Q9 vs “require edit” stays untouched.
+**Why:** Keep already has a decided window (30 days). The active list honors it; result access does not. The other leftovers still mix product calls or a Q9 conflict.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.3 gate closed
+**What I chose:** Close Phase 6.3 on `908a6a2`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero; Agent Guardrails green on HEAD; empty-after-clamp raises `EmptyCustomRangeError` instead of all-time.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.3: reject empty custom windows after go-live clamp
 **What I had to decide:** How to implement "reject an interval whose start exceeds end" after D365 clamping without breaking reversed-picker swap or unparseable-date omit.
 **Options I considered:** (1) Stop swapping reversed dates. (2) Clamp, then reject only when start > end; keep swap when the window is still valid; keep omitting unparseable ISO.
