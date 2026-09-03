@@ -7,8 +7,6 @@ registered as later phases land - this file stays thin.
 """
 
 from __future__ import annotations
-
-import os
 import time
 
 from flask import Flask, jsonify, session
@@ -71,10 +69,10 @@ def create_app(config: Config | None = None) -> Flask:
 
 
 def _register_reporting(app: Flask, cfg: Config, db) -> None:
-    """Build the reporting stack (no background threads here - wsgi starts those).
+    """Build the reporting stack without starting background work.
 
     Routes enqueue runs onto the durable job table and read results from the one
-    cache; the worker (started by `bootstrap_background`) drains the queue.
+    cache; the sibling worker process drains the queue.
     """
     from web.dashboard.jobs import DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler
     from web.dashboard.mirror import MirrorService
@@ -379,14 +377,14 @@ def _register_cli(app: Flask, db) -> None:
         # One-time import; normal boot must not overwrite Users & access.
         _seed_users_from_live(app, db)
 
+    @app.cli.command("bootstrap")
+    def bootstrap_cmd():  # pragma: no cover - invoked via `flask bootstrap`
+        """Apply migrations and idempotent seeds without starting background work."""
+        bootstrap_database(app)
 
-def bootstrap_background(app: Flask) -> None:
-    """Prod-only side effects: migrate, seed admins/salesmen, start the worker.
 
-    Kept OUT of create_app so tests can build an app without spawning threads or
-    touching schema. The wsgi entrypoint calls this once per process. Seeding is
-    individually guarded so a bad data file can never stop the app from booting.
-    """
+def bootstrap_database(app: Flask) -> None:
+    """Apply migrations and idempotent seeds for the worker-owned database."""
     from web.data.migrate import migrate
 
     db = app.config["DB"]
@@ -402,69 +400,27 @@ def bootstrap_background(app: Flask) -> None:
         _seed_master_schedules(app, db, _AZURE_SCHEDULES)
     _seed_company_views(app, db)
 
-    # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
-    # must run in exactly ONE process. Under gunicorn we have multiple workers, so
-    # we elect a single owner with an exclusive OS file lock (see
-    # _is_background_leader). Without this, every worker's recover_orphans() would
-    # requeue jobs another worker is actively running -> duplicate report
-    # deliveries + schedule fires.
-    if _is_background_leader(app):
-        app.logger.info("v3 background ownership acquired by this worker (pid=%s)", os.getpid())
-        worker = app.config.get("JOB_WORKER")
-        if worker is not None:
-            worker.start()
-        if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
-            _cancel_pending_dashboard_refreshes(app, db)
-        # Schedule cron on Live and Beta (each mount has its own precious DB).
-        _start_scheduler(app, db)
-    else:
-        app.logger.info("v3 background ownership held by another worker; skipping (pid=%s)", os.getpid())
+
+def start_worker_services(app: Flask) -> None:
+    """Start the scheduler and durable-job poller in the worker process only."""
+    from web.jobs import status
+
+    db = app.config["DB"]
+    if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
+        _cancel_pending_dashboard_refreshes(app, db)
+    _start_scheduler(app, db)
+    status.mark_bootstrap_finished(db)
+    status.beat(db)
+    app.config["JOB_WORKER"].start(heartbeat=lambda: status.beat(db))
 
 
-# Held open for the whole process lifetime so the advisory lock below stays held.
-_BG_LOCK_FH = None
-
-
-def is_background_leader_process() -> bool:
-    """True in the one gunicorn worker that won the background lock (and therefore
-    actually runs the job poller + scheduler). Lets the admin diagnostic say
-    whether it's talking to the leader or a follower."""
-    return _BG_LOCK_FH is not None
-
-
-def _is_background_leader(app: Flask) -> bool:
-    """Elect exactly ONE process to own v3 background work (job worker + cron).
-
-    Uses a real OS advisory lock instead of the gunicorn env signal. That signal
-    depends on post_fork setting the env BEFORE the worker imports the app, which
-    is unreliable in our dispatcher: the live app is imported during the worker's
-    synchronous load while v3 bootstraps in a later daemon thread, so the two read
-    different env values (observed in prod). An exclusive, non-blocking flock is
-    immune to that ordering - the one worker that grabs it wins and holds it until
-    the process dies.
-
-    Fail-open to leader=True when fcntl is unavailable (Windows/local dev) or the
-    lock can't be taken for an unexpected reason, so single-process/dev still runs
-    background work.
-    """
-    global _BG_LOCK_FH
-    try:
-        import fcntl
-    except Exception:  # noqa: BLE001 - non-POSIX (local dev): single process owns it
-        return True
-    cfg = app.config["APP_CONFIG"]
-    lock_path = cfg.precious_db_path.parent / ".v3-background.lock"
-    try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fh = open(lock_path, "w")  # noqa: SIM115 - intentionally kept open
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        return False  # another worker already holds the lock
-    except Exception:  # noqa: BLE001 - never block boot on an unexpected lock error
-        app.logger.exception("v3 background lock errored; assuming leader")
-        return True
-    _BG_LOCK_FH = fh  # keep the handle alive so GC can't drop the lock
-    return True
+def stop_worker_services(app: Flask) -> None:
+    worker = app.config.get("JOB_WORKER")
+    if worker is not None:
+        worker.stop()
+    scheduler = app.config.get("SCHEDULER")
+    if scheduler is not None:
+        scheduler.shutdown()
 
 
 def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:

@@ -63,6 +63,12 @@ universal_runbook.py ordered --period daily
 ### Web App (on-demand)
 
 The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimonline.com).
+Gunicorn is HTTP-only: it serves requests and reads/enqueues durable state. On
+App Service, `supervise-web.sh` runs Gunicorn beside `python3 -m
+web.jobs.worker_main`; the worker applies v3 migrations and idempotent seeds,
+then owns the scheduler and durable job poller. `/healthz` is process liveness;
+`/readyz` stays 503 until that worker has completed bootstrap and has a fresh
+heartbeat. The live `/legacy` email-distribution flock remains in-process.
 
 **Production branch is `main`.** Pushing `main` deploys
 https://reports.achimonline.com. Side branches (including Cloud Agent

@@ -67,6 +67,25 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_number_4.py`, `v3/tests/test_report_salesman.py`
 
+## Phase 4.1–4.2 HTTP-only Gunicorn and supervised worker
+
+**What to test:**
+- `create_app()` only wires routes and a stopped job worker; it does not migrate,
+  seed, schedule, or start a thread.
+- The standalone worker bootstraps an isolated SQLite database, starts its
+  services, and completes an enqueued durable job.
+- `/healthz` remains a 200 liveness check; `/readyz` stays 503 until both
+  bootstrap completion and a fresh worker heartbeat are stored.
+- `wsgi.py` does not invoke v3/Beta bootstrap during Gunicorn import, and
+  `supervise-web.sh` starts both required sibling processes.
+
+**Expected behavior:**
+- Azure can warm Gunicorn without waiting for migration. A missing or stale
+  worker makes readiness fail while preserving a live HTTP process.
+
+**Test file:** `v3/tests/test_jobs.py`, `v3/tests/test_smoke.py`,
+`tests/test_wsgi_process_ownership.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

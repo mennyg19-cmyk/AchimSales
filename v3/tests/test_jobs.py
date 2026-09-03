@@ -3,6 +3,8 @@
 import time
 
 import pytest
+from web import create_app, stop_worker_services
+from web.config import Config
 
 from web.data.connection import Database
 from web.data.migrate import migrate
@@ -10,6 +12,7 @@ from web.data.repositories.jobs import JobRepository
 from web.data.repositories.users import UserRepository
 from web.jobs.scheduler import Scheduler
 from web.jobs.worker import JobContext, JobWorker
+from web.jobs.worker_main import run_worker_app
 
 
 @pytest.fixture
@@ -105,6 +108,33 @@ def test_background_worker_drains_queue(db):
 
     assert all(jobs.get(j).status == "success" for j in ids)
     assert sorted(processed) == sorted(ids)
+
+
+def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path):
+    cfg = Config(
+        app_env="dev", auth_mode="dev", flask_secret="test-secret",
+        tenant_id="", client_id="", client_secret="", reporting_api_base_url="",
+        reporting_api_key="", precious_db_path=tmp_path / "precious.db",
+        cache_db_path=tmp_path / "cache.db", litestream_blob_url="", new_app_marker=True,
+    )
+    app = create_app(cfg)
+    migrate(app.config["DB"])
+    worker = app.config["JOB_WORKER"]
+    worker.register("worker.entry", lambda ctx: "completed-by-worker-entry")
+    jobs = JobRepository(app.config["DB"])
+    job_id = jobs.enqueue("worker.entry")
+
+    run_worker_app(app)
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and jobs.get(job_id).status != "success":
+            time.sleep(0.05)
+    finally:
+        stop_worker_services(app)
+
+    job = jobs.get(job_id)
+    assert job.status == "success"
+    assert job.result_ref == "completed-by-worker-entry"
 
 
 def test_health_reports_started_and_free_slots(db):

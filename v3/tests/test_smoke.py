@@ -1,7 +1,5 @@
 """Smoke: app boots in dev, health is minimal, CSRF guards writes."""
 
-from pathlib import Path
-
 import pytest
 
 from web import create_app
@@ -9,7 +7,7 @@ from web.config import Config
 
 
 @pytest.fixture
-def app():
+def app(tmp_path):
     cfg = Config(
         app_env="dev",
         auth_mode="dev",
@@ -19,8 +17,8 @@ def app():
         client_secret="",
         reporting_api_base_url="",
         reporting_api_key="",
-        precious_db_path=Path("./.data/precious.db"),
-        cache_db_path=Path("./.data/cache.db"),
+        precious_db_path=tmp_path / "precious.db",
+        cache_db_path=tmp_path / "cache.db",
         litestream_blob_url="",
         new_app_marker=True,
     )
@@ -48,6 +46,24 @@ def test_healthz_is_minimal(client):
     body = resp.get_json()
     # Must not leak anything beyond status (rule 9).
     assert body == {"status": "ok"}
+
+
+def test_factory_returns_without_starting_background_services(app):
+    assert app.config["JOB_WORKER"].running is False
+    assert "SCHEDULER" not in app.config
+
+
+def test_readyz_requires_bootstrap_and_fresh_worker_heartbeat(app, client):
+    from web.data.migrate import migrate
+    from web.jobs.status import beat, mark_bootstrap_finished
+
+    assert client.get("/readyz").status_code == 503
+    migrate(app.config["DB"])
+    mark_bootstrap_finished(app.config["DB"])
+    assert client.get("/readyz").status_code == 503
+    beat(app.config["DB"])
+    assert client.get("/readyz").status_code == 200
+    assert client.get("/readyz").get_json() == {"status": "ready"}
 
 
 def test_csrf_blocks_write_without_token(app_with_write_route):

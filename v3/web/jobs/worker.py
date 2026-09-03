@@ -96,7 +96,7 @@ class JobWorker:
 
     # --- background lifecycle ----------------------------------------------
 
-    def start(self, poll_interval: float = 1.0) -> None:
+    def start(self, poll_interval: float = 1.0, heartbeat: Callable[[], None] | None = None) -> None:
         if self._poller is not None:
             return
         # Recover jobs orphaned in 'running' by a previous crash/restart before we
@@ -106,10 +106,12 @@ class JobWorker:
             log.info("recovered %d orphaned running job(s) on startup", recovered)
         self._stop.clear()
         self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="job")
-        self._poller = threading.Thread(target=self._loop, args=(poll_interval,), daemon=True)
+        self._poller = threading.Thread(
+            target=self._loop, args=(poll_interval, heartbeat), daemon=True
+        )
         self._poller.start()
 
-    def _loop(self, poll_interval: float) -> None:
+    def _loop(self, poll_interval: float, heartbeat: Callable[[], None] | None) -> None:
         # Heartbeat so the logs PROVE the poller is actually iterating (an alive
         # thread that isn't looping looks identical from the outside otherwise).
         # ~30s cadence at the default 1s poll: quiet enough to leave on in prod.
@@ -120,6 +122,11 @@ class JobWorker:
             iterations += 1
             if iterations % heartbeat_every == 0:
                 log.info("job poller heartbeat: iterations=%d free_slots=%d", iterations, self._sem._value)
+                if heartbeat is not None:
+                    try:
+                        heartbeat()
+                    except Exception:  # noqa: BLE001 - a status write cannot stop jobs
+                        log.exception("job worker heartbeat write failed")
             if not self._sem.acquire(timeout=poll_interval):
                 continue
             try:
