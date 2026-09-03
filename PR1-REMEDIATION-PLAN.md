@@ -386,7 +386,7 @@ Implement only after owner decisions are recorded.
 - [x] Fix commission-card salesman number lookup to use the current bucket.
 - [ ] Define and correctly display varying commission rates.
 - [ ] Preserve explicit zero commission if the API contract says zero is authoritative.
-- [ ] Add validation after D365 go-live clamping; reject an interval whose start exceeds end.
+- [x] Add validation after D365 go-live clamping; reject an interval whose start exceeds end. Evidence: `python3 -m pytest tests/test_dates.py tests/test_params.py tests/test_blueprints.py -q` — 188 passed.
 - [x] Persist `skip_sabbath=false` in company schedule create/update.
 - [ ] Replace migration 0019 behavior with a forward correction:
   - [ ] do not edit 0019
