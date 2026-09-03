@@ -141,6 +141,9 @@ python run.py ordered
 | `/test-next` | `rebuild/` | Rebuild preview — retire after home is stable |
 
 Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
+For the home site, prefer `SITE_PRECIOUS_DB_PATH` and `SITE_CACHE_DB_PATH`;
+the older `PRECIOUS_DB_PATH` and `CACHE_DB_PATH` names remain supported during
+the staged Azure setting migration. `/test` continues to use `BETA_*` paths.
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 

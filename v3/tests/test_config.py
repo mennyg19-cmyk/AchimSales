@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from web.config import Config, ConfigError
+from web.config import Config, ConfigError, load_config
 
 
 def _cfg(**over):
@@ -77,3 +77,60 @@ def test_valid_prod_config_passes():
 def test_dev_config_is_permissive():
     # Locally none of the prod guards apply (no litestream, no secret, dev auth).
     _cfg(app_env="dev", auth_mode="dev", flask_secret="", litestream_blob_url="").validate()
+
+
+def test_home_config_falls_back_when_site_paths_are_unset(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("PRECIOUS_DB_PATH", "/tmp/fallback-precious.db")
+    monkeypatch.setenv("CACHE_DB_PATH", "/tmp/fallback-cache.db")
+    monkeypatch.delenv("SITE_PRECIOUS_DB_PATH", raising=False)
+    monkeypatch.delenv("SITE_CACHE_DB_PATH", raising=False)
+
+    cfg = load_config()
+
+    assert cfg.precious_db_path == Path("/tmp/fallback-precious.db")
+    assert cfg.cache_db_path == Path("/tmp/fallback-cache.db")
+
+
+def test_home_config_prefers_site_paths(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("PRECIOUS_DB_PATH", "/tmp/fallback-precious.db")
+    monkeypatch.setenv("CACHE_DB_PATH", "/tmp/fallback-cache.db")
+    monkeypatch.setenv("SITE_PRECIOUS_DB_PATH", " /tmp/site-precious.db ")
+    monkeypatch.setenv("SITE_CACHE_DB_PATH", " /tmp/site-cache.db ")
+
+    cfg = load_config()
+
+    assert cfg.precious_db_path == Path("/tmp/site-precious.db")
+    assert cfg.cache_db_path == Path("/tmp/site-cache.db")
+
+
+def test_prod_rejects_home_share_site_precious_path(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("AUTH_MODE", "msal")
+    monkeypatch.setenv("FLASK_SECRET", "a-strong-secret")
+    monkeypatch.setenv("GRAPH_TENANT_ID", "t")
+    monkeypatch.setenv("GRAPH_CLIENT_ID", "c")
+    monkeypatch.setenv("GRAPH_CLIENT_SECRET", "s")
+    monkeypatch.setenv("REPORTING_API_BASE_URL", "https://api.example")
+    monkeypatch.setenv("REPORTING_API_KEY", "k")
+    monkeypatch.setenv("LITESTREAM_BLOB_URL", "abs://container/precious")
+    monkeypatch.setenv("SITE_PRECIOUS_DB_PATH", "/home/site/v3data/precious.db")
+    monkeypatch.setenv("CACHE_DB_PATH", "/tmp/fallback-cache.db")
+    monkeypatch.delenv("SITE_CACHE_DB_PATH", raising=False)
+
+    with pytest.raises(ConfigError, match="/home share"):
+        load_config()
+
+
+def test_beta_config_ignores_site_paths(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("SITE_PRECIOUS_DB_PATH", "/tmp/site-precious.db")
+    monkeypatch.setenv("SITE_CACHE_DB_PATH", "/tmp/site-cache.db")
+    monkeypatch.setenv("BETA_PRECIOUS_DB_PATH", "/tmp/beta-precious.db")
+    monkeypatch.setenv("BETA_CACHE_DB_PATH", "/tmp/beta-cache.db")
+
+    cfg = load_config(is_beta=True)
+
+    assert cfg.precious_db_path == Path("/tmp/beta-precious.db")
+    assert cfg.cache_db_path == Path("/tmp/beta-cache.db")

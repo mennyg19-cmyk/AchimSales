@@ -41,6 +41,12 @@ pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warni
 #     the now-frozen /home file. Only precious.db is seeded; cache.db is disposable.
 HOME_SEED_DB="/home/site/v3data/precious.db"
 SEED_MARKER="/home/site/v3data/.migrated-to-local"
+if [ -n "${SITE_PRECIOUS_DB_PATH:-}" ]; then
+  export PRECIOUS_DB_PATH="${SITE_PRECIOUS_DB_PATH}"
+fi
+if [ -n "${SITE_CACHE_DB_PATH:-}" ]; then
+  export CACHE_DB_PATH="${SITE_CACHE_DB_PATH}"
+fi
 PRECIOUS="${PRECIOUS_DB_PATH:-/home/site/v3data/precious.db}"
 case "${PRECIOUS}" in
   /home/*) echo "startup: precious.db still on /home (${PRECIOUS}); no local seed" ;;

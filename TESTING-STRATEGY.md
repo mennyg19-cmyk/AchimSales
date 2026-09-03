@@ -1305,3 +1305,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
   remains governed by the approved per-invoice rate policy.
 
 **Test file:** `v3/tests/test_report_invoiced.py`, `v3/tests/test_report_sql_coverage.py`
+
+## Phase 7.1 staged home DB path aliases
+**What to test:**
+- Home config uses non-empty `SITE_PRECIOUS_DB_PATH` and `SITE_CACHE_DB_PATH`
+  before the older names, and falls back when the new names are unset.
+- Production rejects a `/home/site/...` path supplied through `SITE_*`.
+- Beta config continues to read only `BETA_PRECIOUS_DB_PATH` and
+  `BETA_CACHE_DB_PATH`.
+
+**Expected behavior:**
+- Azure can migrate the home database settings without changing Litestream's
+  existing `PRECIOUS_DB_PATH` interpolation or the `/test` database paths.
+
+**Test file:** `v3/tests/test_config.py`
