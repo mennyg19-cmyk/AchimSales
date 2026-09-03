@@ -386,7 +386,7 @@ Implement only after owner decisions are recorded.
 - [x] Fix commission-card salesman number lookup to use the current bucket.
 - [ ] Define and correctly display varying commission rates.
 - [x] Preserve explicit zero commission if the API contract says zero is authoritative. Evidence:
-  `python3 -m pytest tests/test_report_invoiced.py -q` — 30 passed.
+  `python3 -m pytest tests/test_report_invoiced.py -q` — 30 passed. Invoiced `builder_version` 3 so pre-fix cache is not reused. Gate closed after Loops A+B+C zero and Fable trust-boundary high 0 / medium 0.
 - [x] Add validation after D365 go-live clamping; reject an interval whose start exceeds end. Evidence: `python3 -m pytest tests/test_dates.py tests/test_params.py tests/test_blueprints.py -q` — 188 passed.
 - [x] Persist `skip_sabbath=false` in company schedule create/update.
 - [ ] Replace migration 0019 behavior with a forward correction:

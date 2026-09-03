@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.7 gate closed
+**What I chose:** Close Phase 6.7 on the explicit-zero slice plus invoiced `builder_version` 3. Trust-boundary high 0, medium 0. Info I1 addressed by the version bump. I2 (credit rows with SP 0) is Q2 as adopted. I3 (Q1 `>1` guard) is pre-existing.
+**Why:** Loops A+B+C zero; Fable trust-boundary did not block; Agent Guardrails green on `a6b22f5`; version bump so 7-day cache cannot keep master-fallback dollars.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.8: forward-correct legacy schedule slots without editing 0019
+**What I had to decide:** Next Phase 6 leftover after the 6.7 gate.
+**Options I considered:** (1) Q3 “varies” vs saved percent / Q8 approve-recipients / Q9 vs Send now. (2) The named leftover: replace old migration 0019 schedule-slot behavior with a forward correction — do not edit this PR’s `0019_delivery_legs.sql`; mark unattributable historical rows legacy/unknown; they must not suppress the next real clock slot.
+**What I chose:** (2). `due_now` today uses `last_run_at` (`MAX(started_at)` of every `schedule_runs` row) plus `last_claimed_at`. A deploy-day or unattributable run must not make `_ran_today` true for the next HH:MM. Do not change `hold_until_next_slot` (save/On waiting for the next slot is intentional). No Q3/Q8/Q9.
+**Why:** Plan text is specific and does not conflict with Q9. Q3 and Q8 still mix product/UX calls.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.7: preserve explicit-zero commission from the SP
 **What I had to decide:** Next Phase 6 leftover after the 6.6 gate.
 **Options I considered:** (1) Q3 “varies” vs salesman-table saved percent / Q8 approve-recipients / Q9 vs Send now / 0019-legacy slots. (2) The named leftover: SP commission `0` is authoritative (Q2) but `_commission_fraction` and `_commission_rate` treat 0 like missing and fall back to the salesman master.
