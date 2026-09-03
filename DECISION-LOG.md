@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 4.1–4.2: Gunicorn stays fast; worker process owns migrate and jobs
+**What I had to decide:** Whether the supervisor should block Gunicorn until migrate/seed finishes (plan “bootstrap before traffic”) or start HTTP immediately (Azure warmup historically killed the container when migrate ran on import).
+**Options I considered:** (1) `supervise-web.sh` runs bootstrap, then Gunicorn+worker. (2) Gunicorn starts immediately; worker process runs migrate/seed then jobs; `/healthz` 200, `/readyz` 503 until heartbeat. (3) Keep in-process flock leader inside Gunicorn.
+**What I chose:** Option 2. No new supervisor package. Live `/legacy` email loop stays in-process this slice. Phase 4.3 killable job children is later.
+**Why:** `wsgi.py` already moved bootstrap off the import path because Azure warmup probes `/healthz`. Blocking Gunicorn on migrate would recreate that outage. `/readyz` is how a dead worker is visible.
+**Status:** DECIDED
+
 ## 2026-09-03 Phase 3.3: delete v3 OData runtime, leave Live seed table
 **What I had to decide:** Whether deleting `odata_bridge.py` / `beta_sources.py` also meant a precious migration to drop `beta_report_sources`, rewriting historical v3 markdown, or touching Live `webapp/`.
 **Options I considered:** (1) Add v3 migration 0017/0018 to drop the map. (2) Leave the Live sqlite table and seed, stop v3 from reading it. (3) Also rewrite `v3/docs/odata-vs-sp-mismatch.md` and `REVIEW-LOG.md`.
