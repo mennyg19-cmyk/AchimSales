@@ -11,7 +11,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - A successful fetch writes `cache.db` `salesmen_master_cache`; a new process whose SP call fails reads that copy (`master_source == "cache"`). No SP and no cache → empty list (`"none"`).
 - One SP call per TTL; a failure waits the cooldown; `rows(wait=False)` never calls the SP.
 - Migration `0019_drop_salesmen` removes the `salesmen` table; `0006_salesmen_master_cache` adds the cache table.
-- Users & access: read-only "Salesmen in D365" list; no `sm-active-toggle`, `#esEmail`, or `#editSmModal`; `PUT /api/admin/salesmen/<key>` is gone. Manager checkbox values are normalized keys.
+- Users & access: no D365 salesman grid (`#salesmanTable` gone). No `sm-active-toggle`, `#esEmail`, or `#editSmModal`; `PUT /api/admin/salesmen/<key>` is gone. Manager checkbox values are normalized keys.
 - Invoiced commissions cards have no `salesman_number`; the card title is the name (grid + Excel).
 - Schedule runner split-mail reads the directory (`salesmen=` kwarg); without one nobody has an address.
 

@@ -6,6 +6,12 @@
 **Why:** The authorization table already supports several SalesGroups per user. This exposes that scope control without promoting the rep or widening any other permission.
 **Status:** DECIDED — shipping this change.
 
+## 2026-09-03 Drop the Users & access D365 salesman grid
+**What you asked for:** The bottom table on Users & access is unused and should be gone.
+**What I chose:** Remove the read-only "Salesmen in D365" table. SalesGroup dropdowns and manager per-salesman checkboxes still read the SP. Logins stay the only list on that page.
+**Why:** That grid was leftover from dropping the local salesmen table. D365 remains the master; nobody edits it here, so a duplicate list adds nothing.
+**Status:** DECIDED
+
 ## 2026-09-03 Test mode covers personal schedules; Run now ignores "already ran today"
 **What you asked for:** Test mode was sending personal schedules to the salesman. Run now did nothing if the schedule had already run today. Both are wrong; Run now is for testing.
 **What I had to decide:** Whether test mode applies to personal the same as company; whether a recovered clock job after a crash still skips; whether Run now eats the 8am slot.

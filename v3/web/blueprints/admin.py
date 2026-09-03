@@ -1,5 +1,5 @@
-"""Admin: user/access management (privileged only). Salesmen are read-only here;
-D365 (the salesmen_master SP) is their master.
+"""Admin: user/access management (privileged only). D365 (salesmen_master) is
+the salesman master; this page lists logins, not that directory.
 
 Every route re-resolves privilege from the DB via Authorization (never the
 session role) and fails closed. Mutations are JSON APIs consumed by admin.ts;
@@ -100,10 +100,9 @@ def users_page():
         return blocked
     users = _users().list_all()
     built = sorted(registry.built_reports(), key=lambda s: s.title)
-    # `key` is normalized to match user_salesman_access rows (manager checkboxes);
-    # `raw` is the D365 SalesGroup shown in the read-only list.
+    # `key` is normalized to match user_salesman_access rows (manager checkboxes).
     salesmen = sorted(
-        ({"key": salesman_key(m.key), "raw": m.key, "name": m.name or m.key, "email": m.email}
+        ({"key": salesman_key(m.key), "name": m.name or m.key}
          for m in _directory().rows(wait=False)),
         key=lambda s: s["name"].lower(),
     )
