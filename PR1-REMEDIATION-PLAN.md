@@ -414,7 +414,7 @@ Gate:
 
 ## Phase 7 — Normalize the one-site persistence model
 
-- [ ] Choose one canonical home DB environment name, preferably `SITE_PRECIOUS_DB_PATH`.
+- [x] Choose one canonical home DB environment name, preferably `SITE_PRECIOUS_DB_PATH`.
 - [ ] Add a staged Azure setting migration from `BETA_*` to `SITE_*`.
 - [ ] Update app config, startup, Litestream, readiness, tests, and docs together.
 - [ ] Remove the obsolete second `PRECIOUS_*` `/test` database and replica from required startup.
