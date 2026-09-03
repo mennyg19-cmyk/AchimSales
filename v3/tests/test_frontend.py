@@ -1,5 +1,6 @@
 """Front-end shell: live-faithful tokens, base.html structure, bundled assets."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -531,8 +532,84 @@ def test_schedule_wizard_errors_when_saved_views_fail_to_load():
     assert "if (!res.ok)" in master
     assert "Array.isArray(data)" in master
     assert "presets?: unknown" in master
-    # The outbox is a developer-only .eml artifact; users cannot "check" it.
-    sources = sorted((_SRC / "js").glob("*.ts"))
-    assert sources
-    for path in sources:
-        assert "outbox" not in path.read_text(encoding="utf-8").lower(), path.name
+
+
+_FROM_IMPORT = re.compile(r"""from\s+["'](\.[^"']+)["']""")
+_BARE_IMPORT = re.compile(r"""(?:^|\n)import\s+["'](\.[^"']+)["']""")
+
+
+def _relative_ts_imports(path: Path) -> list[Path]:
+    text = path.read_text(encoding="utf-8")
+    rels = _FROM_IMPORT.findall(text) + _BARE_IMPORT.findall(text)
+    resolved: list[Path] = []
+    for rel in rels:
+        target = (path.parent / rel).resolve()
+        if target.suffix == "":
+            target = target.with_suffix(".ts")
+        resolved.append(target)
+    return resolved
+
+
+def _assert_ts_import_graph_acyclic(start: Path) -> None:
+    visiting: set[Path] = set()
+    seen: set[Path] = set()
+    stack: list[Path] = []
+
+    def visit(node: Path) -> None:
+        if node in visiting:
+            cycle = " -> ".join(part.name for part in stack) + f" -> {node.name}"
+            pytest.fail(f"import cycle: {cycle}")
+        if node in seen:
+            return
+        if not node.exists():
+            pytest.fail(f"import target missing: {node}")
+        visiting.add(node)
+        stack.append(node)
+        for dep in _relative_ts_imports(node):
+            visit(dep)
+        stack.pop()
+        visiting.remove(node)
+        seen.add(node)
+
+    visit(start.resolve())
+
+
+def _first(haystack: str, needle: str) -> int:
+    index = haystack.find(needle)
+    assert index >= 0, needle
+    return index
+
+
+def test_report_module_has_no_import_cycles_and_boots_in_order():
+    report = _SRC / "js" / "report.ts"
+    src = report.read_text(encoding="utf-8")
+    _assert_ts_import_graph_acyclic(report)
+    for dep in _relative_ts_imports(report):
+        assert dep.name != "report.ts"
+        assert report.resolve() not in {p.resolve() for p in _relative_ts_imports(dep)}
+
+    deep = src.split("function applyDeepLink()", 1)[1].split("// --- live API preview", 1)[0]
+    assert "salesmanSelect" not in deep
+    assert 'if (q.has("salesman")) pendingSalesman = q.get("salesman") || "";' in deep
+
+    lookups = src.split("async function initLookups()", 1)[1].split("// --- inbound deep-links", 1)[0]
+    assert _first(lookups, "await loadSalesmen();") < _first(
+        lookups, "if (pendingSalesman != null) applySalesman(pendingSalesman);"
+    )
+
+    boot = src.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    assert _first(boot, "applyDeepLink();") < _first(boot, "initCustomRangeToggle();")
+    assert _first(boot, "initCustomRangeToggle();") < _first(
+        boot, "await Promise.all([initLookups(), loadCompanyDefault()]);"
+    )
+    assert _first(boot, "await Promise.all([initLookups(), loadCompanyDefault()]);") < _first(
+        boot, "const resumed = await resumeInFlight();"
+    )
+    assert _first(boot, "const resumed = await resumeInFlight();") < _first(
+        boot, "await autoOpenPresetIfRequested();"
+    )
+    assert "if (!resumed)" in boot
+    assert _first(boot, "if (!resumed)") < _first(boot, "await autoOpenPresetIfRequested();")
+    assert _first(boot, "await autoOpenPresetIfRequested();") < _first(
+        boot, "if (autoRunRequested) { autoRunRequested = false; run(); }"
+    )

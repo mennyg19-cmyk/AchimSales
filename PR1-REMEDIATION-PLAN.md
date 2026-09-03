@@ -487,7 +487,11 @@ Live gate:
   the empty-state copy. Loops A4+B zero; Loop C two non-blocking nits applied
   (fail helper, `masterMsg` aria-live). `python3 -m pytest tests/test_frontend.py -q`
   — 27 passed. Trust-boundary N/A.
-- [ ] Resolve report-module circular imports or add browser coverage proving initialization order.
+- [x] Resolve report-module circular imports or add browser coverage proving initialization order.
+  Evidence: no JS import cycle from `report.ts`; `DOMContentLoaded` order locked
+  by `test_report_module_has_no_import_cycles_and_boots_in_order`. Did not split
+  the file. `python3 -m pytest tests/test_frontend.py -q` — 28 passed.
+  Trust-boundary N/A.
 - [ ] Add the Tabulator MIT license text and third-party attribution.
 
 Browser matrix:

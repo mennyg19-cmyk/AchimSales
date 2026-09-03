@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.12: prove report boot order, do not split report.ts
+**What I had to decide:** The leftover is "resolve report-module circular imports or add browser coverage proving initialization order." Python import-cycle scan of `v3/web` + `v3/report_engine` is already 0. `report.ts` imports only `filename_preview`, `dialog`, `searchable_picker`, `visibility`; none import `report.ts`.
+**Options I considered:** (1) Split the 3400-line `report.ts` god file. (2) Source tests that lock the acyclic graph and `DOMContentLoaded` order. (3) Full Chrome CDP boot-order coverage.
+**What I chose:** (2). Cycles are gone; the remaining work is proving order. Do not split without a refactor command. Committed tests in this PR stay source-level; Chrome CDP stays optional at review.
+**Why:** Plan is an OR. Ponytail: no unrequested split. Salesman deep-link must stay stashed until `loadSalesmen` fills the `<select>`; auto-run must wait for resume + named view.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.11 gate closed
 **What I chose:** Close Phase 8.11. Trust-boundary N/A.
 **Why:** Loop A F1 (200 junk JSON as empty) and follow-ups (array body, missing `presets`) closed on `767704c`/`ec6600a`/`e044cb8`. A4 and Loop B zero. Loop C: extracted `failViewsLoad`; mirrored `aria-live` on `masterMsg`. Agent Guardrails expected green on HEAD. Ship.

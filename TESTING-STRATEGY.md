@@ -1551,3 +1551,25 @@ check; `cd v3 && npm run build`
 - Company wizard shows an error on `#masterMsg` and still offers Default.
 
 **Test file:** `v3/tests/test_frontend.py`; `cd v3 && npm run build`
+
+## Phase 8.12 report module boot order (no circular imports)
+**What to test:**
+- `report.ts` and the modules it imports (`filename_preview`, `dialog`,
+  `searchable_picker`, `visibility`) form an acyclic graph.
+- `DOMContentLoaded` applies the salesman deep-link after lookup options exist,
+  and does not auto-run until in-flight resume and named-view open have finished.
+
+**Expected behavior:**
+- No import cycle. Do not split `report.ts` for this leftover.
+- Boot order: `applyDeepLink` (stash `pendingSalesman`, do not write the empty
+  salesman `<select>`) → `initCustomRangeToggle` → `initLookups` /
+  `loadCompanyDefault` → `resumeInFlight` → if not resumed,
+  `autoOpenPresetIfRequested` → optional `run()`.
+- `initLookups` calls `loadSalesmen` before `applySalesman(pendingSalesman)`.
+
+**Edge cases:**
+- `period=custom` deep-link still runs `applyDeepLink` before the custom-range
+  toggle's first sync, so the date inputs appear.
+- `collectParams` still reads `pendingSalesman` when the dropdown is empty.
+
+**Test file:** `v3/tests/test_frontend.py::test_report_module_has_no_import_cycles_and_boots_in_order`
