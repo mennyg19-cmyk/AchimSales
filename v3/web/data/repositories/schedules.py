@@ -532,11 +532,13 @@ class ScheduleRunRepository:
             return [ScheduleRun.from_row(r) for r in rows]
 
     def last_run_at(self, schedule_id: int, schedule_type: str = PERSONAL) -> str | None:
-        """Most recent started_at for due-time calculation by the cron tick."""
+        """Most recent attributable run for due-time calculation by the cron tick."""
         with self.db.precious() as conn:
             row = conn.execute(
                 "SELECT MAX(started_at) AS t FROM schedule_runs"
-                " WHERE schedule_id=? AND schedule_type=?",
+                " WHERE schedule_id=? AND schedule_type=?"
+                " AND status NOT IN ('legacy', 'unknown')"
+                " AND COALESCE(json_extract(output_meta, '$.legacy'), 0) != 1",
                 (schedule_id, schedule_type),
             ).fetchone()
             return row["t"] if row else None

@@ -1277,3 +1277,16 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Invoiced `builder_version` is 3 so a 7-day cache from before this fix is not reused.
 
 **Test file:** `v3/tests/test_report_invoiced.py`
+
+## Phase 6.8 legacy schedule slots
+**What to test:**
+- A today-dated `schedule_runs` row marked `legacy`, `unknown`, or with
+  `output_meta.legacy=true` does not block the next due clock enqueue.
+- A real `success` run still blocks a second clock enqueue that Eastern day.
+- Save/On retains its intentional `last_claimed_at` claim and waits for tomorrow.
+
+**Expected behavior:**
+- Only attributable run history consumes the normal clock slot. Historical or
+  unknown rows cannot make a schedule look as though it already sent today.
+
+**Test file:** `v3/tests/test_scheduling.py`

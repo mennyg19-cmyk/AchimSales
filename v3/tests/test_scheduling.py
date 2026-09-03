@@ -730,6 +730,51 @@ def test_tick_enqueues_due_and_dedups(tmp_path):
     assert job_repo.claim_next() is None
 
 
+@pytest.mark.parametrize("status,output_meta", [
+    ("legacy", "{}"),
+    ("unknown", "{}"),
+    ("success", '{"legacy": true}'),
+])
+def test_tick_ignores_unattributable_run_from_today(tmp_path, status, output_meta):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    uid = UserRepository(db).upsert("rep@x.com", display_name="R", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com",
+    )
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO schedule_runs(schedule_id, schedule_type, status, started_at, output_meta)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (sid, PERSONAL, status, now.isoformat(), output_meta),
+        )
+
+    assert enqueue_due(db, JobRepository(db), now) == 1
+
+
+def test_tick_does_not_enqueue_after_real_success_today(tmp_path):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import enqueue_due
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    uid = UserRepository(db).upsert("rep@x.com", display_name="R", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={},
+        cadence={"freq": "daily", "time": "08:00"}, recipients="a@x.com",
+    )
+    now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
+    run_id = ScheduleRunRepository(db).start(sid, PERSONAL, started_at=now.isoformat())
+    ScheduleRunRepository(db).finish(run_id, status="success")
+
+    assert enqueue_due(db, JobRepository(db), now) == 0
+
+
 def test_tick_skips_due_schedule_when_queue_admission_refuses(tmp_path, caplog):
     from web.data.repositories.jobs import JobRepository
     from web.scheduling.tick import enqueue_due
