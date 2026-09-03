@@ -3008,9 +3008,15 @@ function openEmailModal(): void {
   emailSp.init();
 }
 
-// The send job the modal is currently watching. Closing the modal or starting
-// another send retires the old poll so it cannot write into a later dialog.
+// The send job the modal is currently watching. Starting another send retires
+// the old poll, and a hidden modal (closed by any path, including Escape in
+// dialog.ts) stops it writing, so a stale poll never touches a later dialog.
 let watchedEmailJob: string | null = null;
+let emailSendSeq = 0;
+
+function emailModalWatching(jobId: string): boolean {
+  return watchedEmailJob === jobId && $("emailModal")?.hidden === false;
+}
 
 function closeEmailModal(): void {
   watchedEmailJob = null;
@@ -3043,14 +3049,17 @@ async function sendEmail(): Promise<void> {
   }
   const sendBtn = $("emailSend") as HTMLButtonElement | null;
   if (sendBtn) sendBtn.disabled = true;
+  const seq = ++emailSendSeq;
+  watchedEmailJob = null;
   emailMsg("Sending…", false);
   try {
     const jobId = await postEmailNow(recipients, subject, emailSp.path() || "");
+    if (seq !== emailSendSeq) return;
     await pollEmailJob(jobId);
   } catch (e) {
-    emailMsg((e as Error).message || "Could not send.", true);
+    if (seq === emailSendSeq) emailMsg((e as Error).message || "Could not send.", true);
   } finally {
-    if (sendBtn) sendBtn.disabled = false;
+    if (seq === emailSendSeq && sendBtn) sendBtn.disabled = false;
   }
 }
 
@@ -3096,7 +3105,7 @@ async function pollEmailJob(jobId: string): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
   const deadline = Date.now() + 60 * 1000;
   watchedEmailJob = jobId;
-  const stillWatching = () => watchedEmailJob === jobId;
+  const stillWatching = () => emailModalWatching(jobId);
   while (Date.now() < deadline) {
     if (isHidden()) {
       await sleepUntilVisible(deadline - Date.now());
