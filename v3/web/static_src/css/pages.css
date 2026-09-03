@@ -721,7 +721,7 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .commission-month-table tfoot td { font-weight: 700; border-top: 1px solid var(--border); border-bottom: none; }
 
 /* -- Dashboard -- */
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 12px; }
 .stat-card { padding: 18px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
 
