@@ -494,7 +494,11 @@ Live gate:
   Loop B F1/F2 closed then B3 zero; Loop C zero. Agent Guardrails green on
   `373a6b9`. `python3 -m pytest tests/test_frontend.py -q` — 29 passed.
   Trust-boundary N/A.
-- [ ] Add the Tabulator MIT license text and third-party attribution.
+- [x] Add the Tabulator MIT license text and third-party attribution.
+  Evidence: `licenses/tabulator-MIT.txt` (Oli Folkerd MIT) served at
+  `/static/licenses/tabulator-MIT.txt`; report page names Tabulator 6.3.1 and
+  links to it. `test_tabulator_mit_license_is_attributed`. Did not vendor.
+  Trust-boundary N/A.
 
 Browser matrix:
 

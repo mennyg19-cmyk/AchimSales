@@ -1574,4 +1574,18 @@ check; `cd v3 && npm run build`
   toggle's first sync, so the date inputs appear.
 - `collectParams` still reads `pendingSalesman` when the dropdown is empty.
 
-**Test file:** `v3/tests/test_frontend.py::test_report_module_has_no_import_cycles_and_boots_in_order`
+**Test file:** `v3/tests/test_frontend.py::test_report_module_has_no_import_cycles_and_boots_in_order`,
+`test_boot_order_helper_rejects_denested_preset_open`
+
+## Phase 8.13 Tabulator MIT license and attribution
+**What to test:**
+- Open any report page (Tabulator 6.3.1 loads from unpkg).
+- Open `/static/licenses/tabulator-MIT.txt`.
+
+**Expected behavior:**
+- The report page names Tabulator 6.3.1 and links to the MIT license file.
+- The file contains Oli Folkerd’s MIT copyright and permission notice.
+- Source under `static_src/public/licenses/` matches `static_dist` (esbuild `copyPublic`).
+
+**Test file:** `v3/tests/test_frontend.py::test_tabulator_mit_license_is_attributed`;
+`cd v3 && npm run build`

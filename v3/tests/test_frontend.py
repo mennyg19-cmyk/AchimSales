@@ -668,3 +668,20 @@ def test_boot_order_helper_rejects_denested_preset_open():
             "if (!resumed) await autoOpenPresetIfRequested();\nfunction unrelated() { doSomethingElse(); }\n",
             "if (!resumed)",
         )
+
+
+def test_tabulator_mit_license_is_attributed(tmp_path):
+    src = (_SRC / "public" / "licenses" / "tabulator-MIT.txt").read_text(encoding="utf-8")
+    dist = (_V3 / "web" / "static_dist" / "licenses" / "tabulator-MIT.txt").read_text(encoding="utf-8")
+    assert src == dist
+    assert "The MIT License (MIT)" in src
+    assert "Copyright (c) 2015-2025 Oli Folkerd" in src
+    assert "tabulator-tables@6.3.1" in src
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert 'tabulator-tables@6.3.1' in html
+    assert "Report tables use Tabulator 6.3.1." in html
+    assert "filename='licenses/tabulator-MIT.txt'" in html
+    app = create_app(_cfg(tmp_path))
+    response = app.test_client().get("/static/licenses/tabulator-MIT.txt")
+    assert response.status_code == 200
+    assert response.data.decode("utf-8") == src

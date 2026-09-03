@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.13: Tabulator MIT text on the report page
+**What I had to decide:** Where the leftover “Tabulator MIT license text and third-party attribution” lives.
+**Options I considered:** (1) Repo-only NOTICE, no user-visible credit. (2) Vendor Tabulator into static_dist. (3) Serve the 6.3.1 MIT text at `/static/licenses/tabulator-MIT.txt` and credit it on `report_view.html` (the only page that loads Tabulator). (4) A Settings “open source” page for every CDN dep.
+**What I chose:** (3). Do not vendor. Do not add Feather in this leftover. Do not add a Settings licenses page.
+**Why:** MIT requires the copyright and permission notice with the software. Attribution belongs where the library is used. Settings would be a second product surface the leftover does not ask for.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.12 gate closed
 **What I chose:** Close Phase 8.12. Trust-boundary N/A.
 **Why:** Loop A zero on `e7e2d79`. Loop B F1 (linear order missed de-nesting) closed `635e4f3`. Loop B2 F2 (brace-less if grabbing a later `{`) closed `373a6b9`. B3 and Loop C zero. Agent Guardrails green on HEAD. Did not split `report.ts`. Ship.
