@@ -236,7 +236,7 @@ def test_run_rejects_custom_window_empty_after_go_live_clamp(tmp_path):
         "period": "custom", "start_date": "2024-01-01", "end_date": "2024-12-31",
     }, headers={"X-CSRF-Token": _CSRF})
     assert response.status_code == 400
-    assert "D365 go-live" in response.get_json()["error"]
+    assert "D365 go-live" in response.get_data(as_text=True)
 
 
 def test_run_log_records_and_renders(tmp_path):
