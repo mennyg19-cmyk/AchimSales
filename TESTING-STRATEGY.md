@@ -89,7 +89,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 ## Phase 4.3 killable jobs and queue admission
 
 **What to test:**
-- The production poller runs a claimed handler in a child process; a timeout
+- The production poller starts a new interpreter for a claimed handler; a timeout
   terminates that child, records a failure explaining the timeout, and frees
   the worker slot.
 - The default worker capacity is one. Enqueue rejects new jobs at the named
@@ -100,7 +100,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
   heartbeat, so `/readyz` remains 503 while the supervisor keeps Gunicorn up.
 
 **Expected behavior:**
-- A timed-out handler cannot continue after its durable job row is failed.
+- A timed-out child cannot continue after its durable job row is failed.
 - Interactive exports cannot starve scheduled delivery work.
 
 **Test file:** `v3/tests/test_jobs.py`

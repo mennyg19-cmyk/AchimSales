@@ -1,7 +1,12 @@
 """Durable job worker: dispatch, failure isolation, progress, bounded draining."""
 
-import signal
+import json
+import os
+import sys
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from threading import Thread
 
 import pytest
 from web import create_app, start_worker_services, stop_worker_services
@@ -16,14 +21,21 @@ from web.jobs.worker import JobContext, JobWorker
 from web.jobs.worker_main import run_worker_app
 
 
-def _hang_forever(ctx):
-    while True:
-        time.sleep(0.1)
+_TESTS_DIR = Path(__file__).parent
 
 
-def _ignore_sigterm_and_hang(ctx):
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    _hang_forever(ctx)
+def _echo_child_argv(db):
+    return lambda job: [
+        sys.executable, str(_TESTS_DIR / "job_child_echo.py"), job.id,
+        str(db.precious_path), str(db.cache_path),
+    ]
+
+
+def _hang_child_argv(*, ignore_sigterm: bool = False):
+    argv = [sys.executable, str(_TESTS_DIR / "job_child_hang.py")]
+    if ignore_sigterm:
+        argv.append("ignore-sigterm")
+    return lambda job: argv
 
 
 @pytest.fixture
@@ -105,7 +117,7 @@ def test_worker_defaults_to_one_processing_slot(db):
 
 
 def test_background_worker_drains_queue(db):
-    worker = JobWorker(db, max_workers=2)
+    worker = JobWorker(db, max_workers=2, child_argv_factory=_echo_child_argv(db))
     worker.register("bg", lambda ctx: "")
     jobs = JobRepository(db)
     ids = {jobs.enqueue("bg", params={"i": i}) for i in range(6)}
@@ -123,19 +135,34 @@ def test_background_worker_drains_queue(db):
     assert all(jobs.get(j).status == "success" for j in ids)
 
 
-def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path):
+def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path, monkeypatch):
+    class EmptyReportingApi(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.dumps({"rows": [], "columns": [], "row_count": 0}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), EmptyReportingApi)
+    Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("REPORTING_API_BASE_URL", f"http://127.0.0.1:{server.server_port}")
+    monkeypatch.setenv("REPORTING_API_KEY", "test-key")
     cfg = Config(
         app_env="dev", auth_mode="dev", flask_secret="test-secret",
-        tenant_id="", client_id="", client_secret="", reporting_api_base_url="",
-        reporting_api_key="", precious_db_path=tmp_path / "precious.db",
+        tenant_id="", client_id="", client_secret="",
+        reporting_api_base_url=os.environ["REPORTING_API_BASE_URL"],
+        reporting_api_key=os.environ["REPORTING_API_KEY"], precious_db_path=tmp_path / "precious.db",
         cache_db_path=tmp_path / "cache.db", litestream_blob_url="", new_app_marker=True,
     )
     app = create_app(cfg)
     migrate(app.config["DB"])
-    worker = app.config["JOB_WORKER"]
-    worker.register("worker.entry", lambda ctx: "completed-by-worker-entry")
     jobs = JobRepository(app.config["DB"])
-    job_id = jobs.enqueue("worker.entry")
+    job_id = jobs.enqueue("dashboard.refresh")
 
     run_worker_app(app)
     try:
@@ -146,10 +173,11 @@ def test_standalone_worker_bootstraps_and_completes_enqueued_job(tmp_path):
             time.sleep(0.05)
     finally:
         stop_worker_services(app)
+        server.shutdown()
 
     job = jobs.get(job_id)
     assert job.status == "success"
-    assert job.result_ref == "completed-by-worker-entry"
+    assert job.result_ref.startswith("customers=")
     from web import is_worker_process
     assert is_worker_process() is False
 
@@ -279,7 +307,7 @@ def test_status_summary_counts_and_active(db):
 
 def test_background_concurrency_is_bounded(db):
     jobs = JobRepository(db)
-    worker = JobWorker(db, max_workers=2)
+    worker = JobWorker(db, max_workers=2, child_argv_factory=_echo_child_argv(db))
 
     def busy(ctx):
         time.sleep(0.1)
@@ -299,8 +327,10 @@ def test_background_concurrency_is_bounded(db):
 
 def test_background_timeout_kills_child_and_frees_slot(db):
     jobs = JobRepository(db)
-    worker = JobWorker(db, job_timeout_seconds=0.1)
-    worker.register("hang", _hang_forever)
+    worker = JobWorker(
+        db, job_timeout_seconds=0.1, child_argv_factory=_hang_child_argv()
+    )
+    worker.register("hang", lambda ctx: "")
     job_id = jobs.enqueue("hang")
 
     worker.start(poll_interval=0.01)
@@ -322,8 +352,10 @@ def test_background_timeout_kills_child_and_frees_slot(db):
 
 def test_background_timeout_sigkills_child_ignoring_sigterm_and_frees_slot(db):
     jobs = JobRepository(db)
-    worker = JobWorker(db, job_timeout_seconds=0.1)
-    worker.register("hang", _ignore_sigterm_and_hang)
+    worker = JobWorker(
+        db, job_timeout_seconds=0.1, child_argv_factory=_hang_child_argv(ignore_sigterm=True)
+    )
+    worker.register("hang", lambda ctx: "")
     job_id = jobs.enqueue("hang")
 
     worker.start(poll_interval=0.01)
@@ -355,7 +387,7 @@ def test_enqueue_refuses_queue_at_depth_limit(db):
 
 def test_background_worker_drains_queue_over_depth_limit(db):
     jobs = JobRepository(db)
-    worker = JobWorker(db, queue_max_depth=1)
+    worker = JobWorker(db, queue_max_depth=1, child_argv_factory=_echo_child_argv(db))
     worker.register("echo", lambda ctx: "")
     first_id = worker.repo.enqueue("echo")
     with db.precious() as conn:
@@ -378,7 +410,9 @@ def test_background_worker_drains_queue_over_depth_limit(db):
 
 def test_background_worker_expires_over_age_job_and_drains_younger_job(db):
     jobs = JobRepository(db)
-    worker = JobWorker(db, queue_max_age_seconds=1)
+    worker = JobWorker(
+        db, queue_max_age_seconds=1, child_argv_factory=_echo_child_argv(db)
+    )
     worker.register("echo", lambda ctx: "")
     expired_id = jobs.enqueue("echo")
     younger_id = jobs.enqueue("echo")

@@ -8,11 +8,13 @@ then records the outcome and releases its capacity slot.
 from __future__ import annotations
 
 import logging
-import multiprocessing
+import os
+import subprocess
+import sys
 import threading
 from dataclasses import dataclass
-from queue import Empty
 from time import monotonic
+from pathlib import Path
 from typing import Callable
 
 from web.data.connection import Database
@@ -38,18 +40,10 @@ class JobContext:
 
 # A handler runs the work and returns a result_ref (e.g. a cache key), or "".
 Handler = Callable[[JobContext], str]
+ChildArgvFactory = Callable[[Job], list[str]]
 DEFAULT_MAX_WORKERS = 1
 DEFAULT_JOB_TIMEOUT_SECONDS = 45 * 60
 _CHILD_STOP_TIMEOUT_SECONDS = 2
-
-
-def _run_child(handler: Handler, job: Job, db: Database, outcomes) -> None:
-    """Run a registered handler in the child and report its terminal outcome."""
-    try:
-        result_ref = handler(JobContext(job, JobRepository(db))) or ""
-        outcomes.put(("success", result_ref))
-    except BaseException as exc:  # noqa: BLE001 - never leave a row running after child exit
-        outcomes.put(("failure", str(exc)))
 
 
 class JobWorker:
@@ -61,6 +55,8 @@ class JobWorker:
         job_timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
         queue_max_depth: int = DEFAULT_QUEUE_MAX_DEPTH,
         queue_max_age_seconds: float = DEFAULT_QUEUE_MAX_AGE_SECONDS,
+        is_beta: bool = False,
+        child_argv_factory: ChildArgvFactory | None = None,
     ):
         self.db = db
         self.repo = JobRepository(
@@ -72,11 +68,13 @@ class JobWorker:
         self.job_timeout_seconds = max(1, job_timeout_seconds)
         self.queue_max_depth = max(1, queue_max_depth)
         self.queue_max_age_seconds = max(1, queue_max_age_seconds)
+        self.is_beta = is_beta
+        self._child_argv_factory = child_argv_factory
         self.handlers: dict[str, Handler] = {}
         self._sem = threading.BoundedSemaphore(self.max_workers)
         self._stop = threading.Event()
         self._poller: threading.Thread | None = None
-        self._processes: dict[str, multiprocessing.Process] = {}
+        self._processes: dict[str, subprocess.Popen] = {}
         self._processes_lock = threading.Lock()
 
     def register(self, job_type: str, handler: Handler) -> None:
@@ -188,26 +186,43 @@ class JobWorker:
             self.repo.mark_failure(job.id, f"no handler for job type {job.type!r}")
             self._sem.release()
             return
-        # Azure App Service uses Linux. Fork preserves the already-registered
-        # handlers without trying to pickle their application-bound closures.
-        context = multiprocessing.get_context("fork")
-        outcomes = context.Queue()
-        process = context.Process(target=_run_child, args=(handler, job, self.db, outcomes))
-        process.start()
+        process = subprocess.Popen(self._child_argv(job), env=self._child_env())
         with self._processes_lock:
             self._processes[job.id] = process
         threading.Thread(
             target=self._await_child,
-            args=(job, process, outcomes),
+            args=(job, process),
             name=f"job-monitor-{job.id[:8]}",
             daemon=True,
         ).start()
 
-    def _await_child(self, job: Job, process: multiprocessing.Process, outcomes) -> None:
+    def _child_argv(self, job: Job) -> list[str]:
+        if self._child_argv_factory is not None:
+            return self._child_argv_factory(job)
+        return [sys.executable, "-m", "web.jobs.run_one", job.id]
+
+    def _child_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.setdefault("APP_ENV", "dev")
+        env.setdefault("AUTH_MODE", "dev")
+        if self.is_beta:
+            env["BETA_PRECIOUS_DB_PATH"] = str(self.db.precious_path)
+            env["BETA_CACHE_DB_PATH"] = str(self.db.cache_path)
+            env["V3_RUN_ONE_BETA"] = "1"
+        else:
+            env["PRECIOUS_DB_PATH"] = str(self.db.precious_path)
+            env["CACHE_DB_PATH"] = str(self.db.cache_path)
+        v3_path = str(Path(__file__).resolve().parents[2])
+        current_path = env.get("PYTHONPATH", "")
+        if v3_path not in current_path.split(os.pathsep):
+            env["PYTHONPATH"] = os.pathsep.join(filter(None, (v3_path, current_path)))
+        return env
+
+    def _await_child(self, job: Job, process: subprocess.Popen) -> None:
         timed_out = False
         try:
             deadline = monotonic() + self.job_timeout_seconds
-            while process.is_alive() and not self._stop.is_set():
+            while process.poll() is None and not self._stop.is_set():
                 if self._is_cancelled(job.id):
                     process.terminate()
                     break
@@ -216,41 +231,38 @@ class JobWorker:
                     timed_out = True
                     process.terminate()
                     break
-                process.join(min(0.1, remaining))
-            if process.is_alive():
+                try:
+                    process.wait(timeout=min(0.1, remaining))
+                except subprocess.TimeoutExpired:
+                    pass
+            if process.poll() is None:
                 self._stop_child(process)
-            else:
-                process.join()
             if timed_out:
-                self.repo.mark_failure(
-                    job.id,
-                    f"job timed out after {self.job_timeout_seconds:g} seconds; child was terminated",
-                )
+                current = self.repo.get(job.id)
+                if current is not None and current.status == "running":
+                    self.repo.mark_failure(
+                        job.id,
+                        f"job timed out after {self.job_timeout_seconds:g} seconds; child was terminated",
+                    )
                 return
             if self._is_cancelled(job.id):
                 return
-            try:
-                outcome, detail = outcomes.get_nowait()
-            except Empty:
+            current = self.repo.get(job.id)
+            if current is not None and current.status == "running":
                 self.repo.mark_failure(job.id, "job child exited without reporting an outcome")
-                return
-            if outcome == "success":
-                self.repo.mark_success(job.id, detail)
-            else:
-                self.repo.mark_failure(job.id, detail)
         finally:
-            outcomes.close()
             with self._processes_lock:
                 self._processes.pop(job.id, None)
             self._sem.release()
 
     @staticmethod
-    def _stop_child(process: multiprocessing.Process) -> None:
+    def _stop_child(process: subprocess.Popen) -> None:
         process.terminate()
-        process.join(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
-        if process.is_alive():
+        try:
+            process.wait(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
             process.kill()
-            process.join(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
+            process.wait(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
 
     def _is_cancelled(self, job_id: str) -> bool:
         current = self.repo.get(job_id)
@@ -264,8 +276,11 @@ class JobWorker:
         with self._processes_lock:
             processes = list(self._processes.values())
         for process in processes:
-            if process.is_alive():
+            if process.poll() is None:
                 self._stop_child(process)
         if wait:
             for process in processes:
-                process.join(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
+                try:
+                    process.wait(timeout=_CHILD_STOP_TIMEOUT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    pass

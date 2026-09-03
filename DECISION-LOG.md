@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 4.3: reject fork-after-threads for job children
+**What I had to decide:** Whether the production poller could keep forking after APScheduler had started threads.
+**Options I considered:** (1) Keep `fork()` despite Python's deadlock warning. (2) Start a new interpreter for each claimed job. (3) Use a test-only child command for closure-based handlers.
+**What I chose:** Option 2 in production: `python -m web.jobs.run_one <job_id>` creates an app and runs the already-claimed job. Tests may inject a child argv for handlers that only exist as test closures.
+**Why:** A new interpreter does not inherit locked thread state. The durable job row lets the child report its own terminal outcome without a multiprocessing queue.
+**Status:** DECIDED
+
 ## 2026-09-03 Phase 4.3: refuse admission, drain queue, hard-kill hung children
 **What I had to decide:** Whether queue limits should stop poller claims or reject new work, and how to release the only worker slot when a child ignores SIGTERM.
 **Options I considered:** (1) Skip claims when the queue is full or stale. (2) Refuse enqueue at depth, expire stale queued rows, then keep draining. (3) Leave a SIGTERM-ignoring child joined forever.
