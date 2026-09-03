@@ -64,6 +64,7 @@ function masterMsg(text: string, isError: boolean): void {
   el.textContent = text;
   el.hidden = !text;
   el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
+  el.setAttribute("aria-live", isError ? "assertive" : "polite");
   el.setAttribute("role", isError ? "alert" : "status");
 }
 

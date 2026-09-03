@@ -186,35 +186,33 @@ function renderViews(groups: ViewGroup[], selectedId: string, loadFailed = false
   });
 }
 
+function failViewsLoad(selectedId: string, text: string): void {
+  viewCache = [];
+  renderViews([], selectedId, true);
+  msg(text, true);
+}
+
 async function loadViews(selectedId: string): Promise<void> {
   const url = wiz()?.getAttribute("data-views-url") || "";
   if (!url) {
-    viewCache = [];
-    renderViews([], selectedId, true);
-    msg("Could not load saved views.", true);
+    failViewsLoad(selectedId, "Could not load saved views.");
     return;
   }
   try {
     const res = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      viewCache = [];
-      renderViews([], selectedId, true);
-      msg((data as { error?: string }).error || "Could not load saved views. Try again.", true);
+      failViewsLoad(selectedId, (data as { error?: string }).error || "Could not load saved views. Try again.");
       return;
     }
     const data = await res.json();
     if (!Array.isArray((data as { groups?: unknown }).groups)) {
-      viewCache = [];
-      renderViews([], selectedId, true);
-      msg("Could not load saved views. Try again.", true);
+      failViewsLoad(selectedId, "Could not load saved views. Try again.");
       return;
     }
     viewCache = data.groups as ViewGroup[];
   } catch {
-    viewCache = [];
-    renderViews([], selectedId, true);
-    msg("Could not load saved views. Check your connection and try again.", true);
+    failViewsLoad(selectedId, "Could not load saved views. Check your connection and try again.");
     return;
   }
   msg("", false);
