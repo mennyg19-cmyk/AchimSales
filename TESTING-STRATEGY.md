@@ -1453,3 +1453,24 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** source inspection of the three call sites; browser check with
 `--force-prefers-reduced-motion`; `cd v3 && npm run build`
+
+## Phase 8.9 Hidden-tab pollers
+**What to test:**
+- Hide `/reports/ordered` while a queued report job is polling, then confirm no
+  job or lookup poll request runs for at least six seconds.
+- Return the page to the foreground and confirm the pending poll requests again
+  within 200ms.
+- Verify report and export waits use 10- and 15-minute wall-clock deadlines;
+  dashboard refresh uses a two-minute deadline.
+
+**Expected behavior:**
+- Background tabs make no poller fetches. Returning to the tab resumes each
+  poller immediately without changing its existing result, error, or cancel UI.
+
+**Edge cases:**
+- A hidden tab that remains hidden beyond a deadline times out instead of
+  accumulating throttled timer iterations. `sleepUntilVisible` removes its
+  visibility listener after either wake-up path.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated Chrome CDP lifecycle
+check; `cd v3 && npm run build`

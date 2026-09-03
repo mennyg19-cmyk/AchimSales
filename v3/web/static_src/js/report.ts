@@ -16,6 +16,7 @@
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
 import { closeDialog, openDialog } from "./dialog";
 import { SearchablePicker } from "./searchable_picker";
+import { isHidden, onVisible, sleepUntilVisible } from "./visibility";
 
 declare const Tabulator: any;
 
@@ -1455,7 +1456,12 @@ function isExportPageActive(): boolean {
  *  Recent exports for manual download — no surprise file appearing later. */
 async function pollExport(id: string, autoDownload: boolean): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", id);
-  for (let i = 0; i < 600; i++) {
+  const deadline = Date.now() + 15 * 60 * 1000;
+  while (Date.now() < deadline) {
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
     if (!res.ok) break;
     const job = await res.json();
@@ -1472,7 +1478,7 @@ async function pollExport(id: string, autoDownload: boolean): Promise<void> {
       if (exportStatusActive()) setStatus(job.error || "The export failed. Please try again.", "error");
       return;
     }
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleepUntilVisible(1500);
   }
 }
 
@@ -1491,6 +1497,7 @@ function fmtBytes(n: number): string {
 }
 
 async function loadExports(): Promise<void> {
+  if (isHidden()) return;
   const list = $("exportsList");
   if (!list) return;
   const data = await getJSON<{ exports: ExportRow[] }>(attr("data-exports-url"));
@@ -1505,6 +1512,7 @@ async function loadExports(): Promise<void> {
     exportsPollTimer = null;
   }
 }
+onVisible(() => { if (exportsPollTimer != null) void loadExports(); });
 
 function renderExports(rows: ExportRow[]): void {
   const list = $("exportsList");
@@ -1767,6 +1775,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
   // Count from when the job really started (passed in when reconnecting to a
   // run from a prior visit) so the timer doesn't reset to zero on return.
   const started = Date.now() - (opts.elapsedMs || 0);
+  const deadline = started + 10 * 60 * 1000;
 
   // One failed check-in (a brief gateway blip while the server is busy) must not
   // kill a run that's still going on the server. Only give up after several
@@ -1774,8 +1783,12 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
   const maxConsecutiveErrors = 5;
   let consecutiveErrors = 0;
 
-  for (let i = 0; i < 600; i++) {
+  while (Date.now() < deadline) {
     if (runAborted) return; // user cancelled; cancelRun() owns the status line
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     let job: { status?: string; progress?: number; error?: unknown };
     try {
       const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
@@ -1788,7 +1801,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
         throw new Error("Lost track of the job (it may have expired) — try running again.");
       }
       setStatus(`Building report… reconnecting (${fmtElapsed(Date.now() - started)})`);
-      await new Promise((r) => setTimeout(r, 1000));
+      await sleepUntilVisible(1000);
       continue;
     }
     if (job.status === "success") {
@@ -1808,7 +1821,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
     // queued job hasn't started, so there's nothing to stop yet.
     showCancel(job.status === "running");
     setStatus(`Building report… ${job.progress || 0}% (${fmtElapsed(Date.now() - started)})`);
-    await new Promise((r) => setTimeout(r, 1000));
+    await sleepUntilVisible(1000);
   }
   throw new Error("Timed out waiting for the report (over 10 minutes). Try a narrower date range.");
 }
@@ -2263,6 +2276,7 @@ function pollLookupStatus(): void {
   const url = attr("data-lookup-status-url");
   if (!url) return;
   const tick = async () => {
+    if (isHidden()) return;
     const s = await getJSON<any>(url);
     if (!s) return;
     if (s.status === "ready" || (s.cached_row_count || 0) > 0) {
@@ -2278,6 +2292,7 @@ function pollLookupStatus(): void {
   };
   tick();
   lookupPollTimer = window.setInterval(tick, 2500);
+  onVisible(() => { if (lookupPollTimer != null) void tick(); });
 }
 
 async function initLookups(): Promise<void> {

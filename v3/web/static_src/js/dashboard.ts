@@ -4,6 +4,8 @@
  * by both the dashboard list and the customer-detail page (exclusion toggle).
  */
 
+import { isHidden, sleepUntilVisible } from "./visibility";
+
 declare global {
   interface Window {
     triggerDashRefresh?: () => void;
@@ -56,23 +58,30 @@ function initDashboard(): void {
       announceRefresh("Could not start the dashboard refresh.", true);
       return;
     }
-    let tries = 0;
+    const deadline = Date.now() + 2 * 60 * 1000;
     const poll = async (): Promise<void> => {
-      tries += 1;
+      if (isHidden()) {
+        await sleepUntilVisible(deadline - Date.now());
+        if (Date.now() < deadline) void poll();
+        return;
+      }
       const s = await fetch(statusUrl).then((r) => r.json()).catch(() => ({}));
       if (s.last_refreshed && s.last_refreshed !== before) {
         announceRefresh("Dashboard data refreshed.");
         window.location.reload();
         return;
       }
-      if (tries < 40) setTimeout(poll, 3000);
-      else if (btn) {
+      if (Date.now() < deadline) {
+        await sleepUntilVisible(Math.min(3000, deadline - Date.now()));
+        if (Date.now() < deadline) void poll();
+      } else if (btn) {
         btn.disabled = false;
         btn.textContent = "Refresh data";
         announceRefresh("Dashboard refresh is taking longer than expected.", true);
       }
     };
-    setTimeout(poll, 3000);
+    await sleepUntilVisible(3000);
+    void poll();
   }
   if (btn) btn.addEventListener("click", doRefresh);
   window.triggerDashRefresh = doRefresh; // hook for pull-to-refresh

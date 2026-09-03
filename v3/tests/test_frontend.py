@@ -495,3 +495,12 @@ def test_admin_users_has_sales_group_dropdown():
     assert "sales_group: role === \"salesman\"" in src
     assert "list_sales_groups" not in src
     assert "data-sales-groups-url" in src
+
+
+def test_hidden_tab_pollers_use_shared_visibility_helpers():
+    visibility = (_SRC / "js" / "visibility.ts").read_text(encoding="utf-8")
+    for name in ("isHidden", "onVisible", "sleepUntilVisible"):
+        assert f"export function {name}" in visibility
+    for filename in ("main.ts", "report.ts", "master_wizard.ts", "settings.ts", "admin.ts", "dashboard.ts"):
+        source = (_SRC / "js" / filename).read_text(encoding="utf-8")
+        assert '"./visibility"' in source

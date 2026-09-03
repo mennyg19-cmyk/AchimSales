@@ -5,6 +5,7 @@
  */
 
 import "./dialog";
+import { isHidden, onVisible } from "./visibility";
 
 declare const feather: { replace: () => void } | undefined;
 
@@ -239,6 +240,7 @@ function initNotificationBadges(): void {
   const url = nav.getAttribute("data-notifications-url") || "";
 
   async function poll(): Promise<void> {
+    if (isHidden()) return;
     try {
       const data = await fetch(url).then((r) => r.json());
       setBadge("badgeDashboard", data.overdue_count || 0);
@@ -249,6 +251,7 @@ function initNotificationBadges(): void {
   }
   poll();
   setInterval(poll, 30000);
+  onVisible(poll);
 }
 
 interface ActiveReportJob {
@@ -481,6 +484,7 @@ function initReportJobsBar(): void {
   });
 
   async function poll(): Promise<void> {
+    if (isHidden()) return;
     try {
       const data = await fetch(activeUrl, { headers: { Accept: "application/json" } }).then((r) => r.json());
       render((data && data.jobs) || []);
@@ -490,6 +494,7 @@ function initReportJobsBar(): void {
   }
   poll();
   setInterval(poll, 5000);
+  onVisible(poll);
 }
 
 document.addEventListener("DOMContentLoaded", () => {

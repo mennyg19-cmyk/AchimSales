@@ -6,6 +6,7 @@
  */
 
 import { closeDialog, openDialog } from "./dialog";
+import { isHidden, onVisible } from "./visibility";
 
 const root = document.getElementById("adminUsers");
 const usersUrl = root?.getAttribute("data-users-url") || "";
@@ -122,6 +123,7 @@ async function loadSalesGroups(): Promise<number> {
 function pollSalesGroups(): void {
   if (!lookupStatusUrl) return;
   const tick = async () => {
+    if (isHidden()) return;
     try {
       const resp = await fetch(lookupStatusUrl);
       if (!resp.ok) return;
@@ -147,6 +149,7 @@ function pollSalesGroups(): void {
   };
   tick();
   lookupPollTimer = window.setInterval(tick, 2500);
+  onVisible(() => { if (lookupPollTimer != null) void tick(); });
 }
 
 function initSalesGroups(): void {

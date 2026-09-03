@@ -4,6 +4,7 @@
  */
 
 import { SearchablePicker, type PickerItem } from "./searchable_picker";
+import { isHidden, onVisible } from "./visibility";
 
 function hub(): HTMLElement | null {
   return document.getElementById("settingsHub");
@@ -173,6 +174,7 @@ function initExclusions(): void {
   const pollStatus = () => {
     if (!statusUrl) return;
     const tick = async () => {
+      if (isHidden()) return;
       const resp = await fetch(statusUrl);
       if (!resp.ok) return;
       const s = await resp.json().catch(() => ({})) as {
@@ -195,6 +197,7 @@ function initExclusions(): void {
     };
     tick();
     pollTimer = window.setInterval(tick, 2500);
+    onVisible(() => { if (pollTimer != null) void tick(); });
   };
 
   loadCustomers().then((count) => {

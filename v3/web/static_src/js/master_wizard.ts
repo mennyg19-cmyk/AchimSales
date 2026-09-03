@@ -3,6 +3,7 @@
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename, previewFolder } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
+import { isHidden, onVisible } from "./visibility";
 
 const TOTAL_STEPS = 5;
 let wizardStep = 1;
@@ -520,6 +521,7 @@ function pollLookupStatus(): void {
   const url = wizardRoot()?.getAttribute("data-lookup-status-url") || "";
   if (!url) return;
   const tick = async () => {
+    if (isHidden()) return;
     const s = await getJSON<{
       status?: string;
       cached_row_count?: number;
@@ -554,6 +556,7 @@ function pollLookupStatus(): void {
   void tick();
   stopLookupPoll();
   lookupPollTimer = window.setInterval(() => { void tick(); }, 2500);
+  onVisible(() => { if (lookupPollTimer != null) void tick(); });
 }
 
 async function ensureLookups(): Promise<void> {
