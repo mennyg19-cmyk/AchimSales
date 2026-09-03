@@ -455,7 +455,11 @@ Live gate:
   50.86×44 and 76.17×44. The isolated server has no configured SharePoint
   overlay; source assertion covers `.sp-picker-close`. `python3 -m pytest
   tests/test_frontend.py -q` — 24 passed; `cd v3 && npm run build` passed.
-- [ ] Respect reduced motion for JavaScript scrolling.
+- [x] Respect reduced motion for JavaScript scrolling. Evidence: `report.ts`,
+  `personal_wizard.ts`, and `master_wizard.ts` pick `behavior: "auto"` when
+  `matchMedia("(prefers-reduced-motion: reduce)")` matches. `python3 -m pytest
+  tests/test_frontend.py -q` — 24 passed; `cd v3 && npm run build` passed.
+  Gate closed on `bc87667`. Loops A+B+C zero. Trust-boundary N/A.
 - [ ] Pause or correctly reschedule every hidden-tab poller.
 - [ ] Replace stale “check the outbox” production copy.
 - [ ] Show a clear error when report-to-schedule draft transfer fails.

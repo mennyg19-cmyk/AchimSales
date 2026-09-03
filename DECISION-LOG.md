@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.8 gate closed
+**What I chose:** Close Phase 8.8 on `bc87667`. Trust-boundary N/A.
+**Why:** Loop A (Terra), Loop B (Sonnet), Loop C (Sonnet) all zero. Agent Guardrails green on HEAD. Loop C noted a missing TESTING-STRATEGY 8.8 section; added at gate close. Inline `matchMedia` at 3 sites kept (no shared module across those bundles). Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.8: respect prefers-reduced-motion for JS scrolling
 **What I had to decide:** Next leftover after the 8.7 gate.
 **Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Report tablist (item 6). (4) Next Phase 8 leftover: respect `prefers-reduced-motion` for JS `scrollIntoView` calls.

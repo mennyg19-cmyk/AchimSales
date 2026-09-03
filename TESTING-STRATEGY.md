@@ -1437,3 +1437,19 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated browser measurement;
 `cd v3 && npm run build`
+
+## Phase 8.8 Reduced motion for JavaScript scrolling
+**What to test:**
+- Switch report tabs; open a personal or company schedule wizard step.
+
+**Expected behavior:**
+- With `prefers-reduced-motion: reduce` active, the three `scrollIntoView` calls
+  (`report.ts` tab panel, `personal_wizard.ts`, `master_wizard.ts`) scroll
+  instantly (`behavior: "auto"`). Otherwise they scroll smoothly as before.
+
+**Edge cases:**
+- `searchable_picker.ts` already scrolls instantly; `main.ts` only reads
+  `scrollY`. No CSS `scroll-behavior` exists.
+
+**Test file:** source inspection of the three call sites; browser check with
+`--force-prefers-reduced-motion`; `cd v3 && npm run build`
