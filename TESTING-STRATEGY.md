@@ -164,12 +164,13 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - `GET /api/admin/sales-groups` (privileged) returns the same keys as `LookupService.salesmen()` / report salesman filters. Salesman callers get 403.
 - Creating a salesman with `sales_group=HKaufman` stores the raw group and grants normalized access `hkaufman` even when that key is not in `salesmen`.
 - Updating a salesman SalesGroup replaces access; updating a manager with `sales_group` does not clobber checkbox access.
+- Editing a salesman exposes the per-salesman checkbox grid. Saving stores every checked group and always includes the primary SalesGroup.
 - `user_salesman_access` still FKs `users`, not `salesmen`. Direct access POST normalizes raw keys.
 - Live user copy grants a salesman_key that is not in `salesmen`.
 - Users & access template has `#addSalesGroup`, `#euSalesGroup`, `data-sales-groups-url`, `data-lookup-status-url`.
 
 **Expected behavior:**
-- Report filters and the user dropdown share customer_master SalesGroup values, not the salesmen table. Managers still use the checkbox grid.
+- Report filters and the user dropdown share the D365 SalesGroup values. Managers and salesmen can use the checkbox grid, but extra scope does not grant manager permissions.
 
 **Edge cases:**
 - Empty SalesGroup on a salesman clears access.

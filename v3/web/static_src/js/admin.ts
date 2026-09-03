@@ -60,7 +60,7 @@ function syncAddRole(role: string): void {
 
 function syncEditRole(role: string): void {
   setHidden("euSalesGroupWrap", role !== "salesman");
-  setHidden("euSalesmenWrap", role !== "manager");
+  setHidden("euSalesmenWrap", role !== "manager" && role !== "salesman");
 }
 
 function fillSalesGroupSelect(sel: HTMLSelectElement | null, keep: string): void {
@@ -238,11 +238,18 @@ async function saveUser(): Promise<void> {
     setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
     return;
   }
-  if (role === "manager") {
-    const keys = Array.from(
+  if (role === "manager" || role === "salesman") {
+    const keys = new Set(Array.from(
       document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
-    ).map((c) => c.value);
-    await api(`${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys });
+    ).map((c) => c.value));
+    if (role === "salesman" && salesGroup) keys.add(salesmanKey(salesGroup));
+    const scopeResp = await api(
+      `${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys: [...keys] }
+    );
+    if (!scopeResp.ok) {
+      setMsg("euMsg", (await scopeResp.json().catch(() => ({}))).error || "Access save failed");
+      return;
+    }
   }
 
   const reportPosts = Array.from(

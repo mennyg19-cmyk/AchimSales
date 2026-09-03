@@ -328,9 +328,13 @@ def test_admin_users_has_sales_group_dropdown():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euSalesGroup"' in html
     assert 'id="addSalesGroup"' in html
+    assert "Managers and sales reps can see every checked SalesGroup" in html
     assert "data-sales-groups-url" in html
     assert "data-lookup-status-url" in html
     src = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
     assert "sales_group: role === \"salesman\"" in src
+    assert 'role !== "manager" && role !== "salesman"' in src
+    assert 'role === "manager" || role === "salesman"' in src
+    assert "keys.add(salesmanKey(salesGroup))" in src
     assert "list_sales_groups" not in src
     assert "data-sales-groups-url" in src

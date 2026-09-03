@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-03 Sales reps can be assigned additional SalesGroups
+**What you asked for:** Allow a sales rep to see another chosen sales rep's information like a manager can.
+**What I chose:** Users & access shows the existing per-salesman checkbox grid for both managers and salesmen. A salesman's primary SalesGroup is always included, and admins/developers can check additional groups. The login remains a salesman, so this does not grant manager reports, commissions, company-view editing, or admin access.
+**Why:** The authorization table already supports several SalesGroups per user. This exposes that scope control without promoting the rep or widening any other permission.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-03 Test mode covers personal schedules; Run now ignores "already ran today"
 **What you asked for:** Test mode was sending personal schedules to the salesman. Run now did nothing if the schedule had already run today. Both are wrong; Run now is for testing.
 **What I had to decide:** Whether test mode applies to personal the same as company; whether a recovered clock job after a crash still skips; whether Run now eats the 8am slot.

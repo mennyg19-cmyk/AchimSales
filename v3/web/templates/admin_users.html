@@ -126,7 +126,7 @@
 
       <div id="euSalesmenWrap">
         <h4 class="settings-subhead">Per-salesman access</h4>
-        <p class="form-hint">Managers pick every group they can see. Admins/developers see all.</p>
+        <p class="form-hint">Managers and sales reps can see every checked SalesGroup. A sales rep's primary SalesGroup is always included. Admins/developers see all.</p>
         <div class="access-grid" id="euSalesmen">
           {% for s in salesmen %}
           <label class="access-item"><input type="checkbox" value="{{ s.key }}"> {{ s.name }}</label>
