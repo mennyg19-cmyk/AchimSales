@@ -69,7 +69,7 @@ body {
 .report-jobs-min .report-jobs-fab {
     width: 46px; padding: 0; justify-content: center; font-size: 14px;
 }
-.report-jobs-failed .report-jobs-fab { background: var(--error, #dc2626); }
+.report-jobs-failed .report-jobs-fab { background: var(--error, #dc2626); color: var(--error-foreground); }
 .report-jobs-done .report-jobs-fab { background: var(--success, #16a34a); color: var(--success-foreground); }
 .report-jobs-panel-head {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -160,7 +160,7 @@ body {
 .bottom-nav-label { font-size: 11px; line-height: 1; }
 .nav-badge {
     position: absolute; top: -6px; right: -10px; background: var(--error);
-    color: white; font-size: 10px; font-weight: 700; min-width: 18px; height: 18px;
+    color: var(--error-foreground); font-size: 10px; font-weight: 700; min-width: 18px; height: 18px;
     border-radius: 99px; display: flex; align-items: center; justify-content: center;
     padding: 0 4px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }

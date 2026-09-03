@@ -48,21 +48,24 @@ _THEME_CONTRAST_PAIRS = (
     # .btn-primary:hover
     ("light", "#ffffff", "#1d4ed8", 4.5),
     ("light", "#15803d", "#f0fdf4", 4.5), ("light", "#b91c1c", "#fef2f2", 4.5),
+    ("light", "#ffffff", "#b91c1c", 4.5),
     ("dark", "#e2e8f0", "#0f172a", 4.5), ("dark", "#e2e8f0", "#1e293b", 4.5),
     ("dark", "#94a3b8", "#0f172a", 4.5), ("dark", "#94a3b8", "#1e293b", 4.5),
     ("dark", "#60a5fa", "#1e3a5f", 4.5), ("dark", "#0f172a", "#60a5fa", 4.5),
-    ("dark", "#0f172a", "#60a5fa", 4.5),
+    ("dark", "#0f172a", "#93c5fd", 4.5),
     ("dark", "#4ade80", "#14532d", 4.5), ("dark", "#f87171", "#450a0a", 4.5),
+    ("dark", "#0f172a", "#ef4444", 4.5),
     ("monochrome", "#18181b", "#fafafa", 4.5), ("monochrome", "#18181b", "#ffffff", 4.5),
     ("monochrome", "#52525b", "#fafafa", 4.5), ("monochrome", "#52525b", "#ffffff", 4.5),
     ("monochrome", "#3f3f46", "#e4e4e7", 4.5), ("monochrome", "#ffffff", "#3f3f46", 4.5),
     ("monochrome", "#ffffff", "#27272a", 4.5),
     ("monochrome", "#52525b", "#f4f4f5", 4.5), ("monochrome", "#b91c1c", "#fef2f2", 4.5),
+    ("monochrome", "#ffffff", "#b91c1c", 4.5),
     ("monochrome-dark", "#f4f4f5", "#18181b", 4.5), ("monochrome-dark", "#f4f4f5", "#27272a", 4.5),
     ("monochrome-dark", "#d4d4d8", "#18181b", 4.5), ("monochrome-dark", "#d4d4d8", "#27272a", 4.5),
     ("monochrome-dark", "#a1a1aa", "#18181b", 4.5), ("monochrome-dark", "#a1a1aa", "#27272a", 4.5),
-    ("monochrome-dark", "#a1a1aa", "#27272a", 4.5), ("monochrome-dark", "#18181b", "#a1a1aa", 4.5),
-    ("monochrome-dark", "#d4d4d8", "#27272a", 4.5), ("monochrome-dark", "#f87171", "#450a0a", 4.5),
+    ("monochrome-dark", "#18181b", "#a1a1aa", 4.5), ("monochrome-dark", "#18181b", "#d4d4d8", 4.5),
+    ("monochrome-dark", "#f87171", "#450a0a", 4.5), ("monochrome-dark", "#18181b", "#ef4444", 4.5),
     ("all", "#ffffff", "#3572a5", 4.5), ("dark", "#ffffff", "#b45309", 4.5),
 )
 
@@ -75,13 +78,16 @@ def test_theme_text_button_and_alert_contrast():
         "--primary-light: #eff6ff;", "--success: #15803d;", "--error: #b91c1c;",
         "--text-light: #64748b;", "--primary: #60a5fa;", "--primary-foreground: #0f172a;",
         "--primary-hover: #1d4ed8;", "--success: #4ade80;", "--text-light: #94a3b8;",
-        "--primary-hover: #60a5fa;", "--primary-hover: #27272a;", "--text-light: #52525b;",
+        "--primary-hover: #93c5fd;", "--primary-hover: #27272a;", "--text-light: #52525b;",
         "--primary: #a1a1aa;", "--text-muted: #d4d4d8;", "--text-light: #a1a1aa;",
-        "--primary-hover: #a1a1aa;",
+        "--primary-hover: #d4d4d8;", "--error-foreground: #ffffff;",
+        "--error-foreground: #0f172a;", "--error-foreground: #18181b;",
     ):
         assert declaration in tokens
     assert "color: var(--primary-foreground)" in shell
     assert "color: var(--success-foreground)" in shell
+    assert ".report-jobs-failed .report-jobs-fab { background: var(--error, #dc2626); color: var(--error-foreground); }" in shell
+    assert "color: var(--error-foreground); font-size: 10px" in shell
     assert "background: #3572a5" in pages
     for theme, foreground, background, threshold in _THEME_CONTRAST_PAIRS:
         assert _contrast_ratio(foreground, background) >= threshold, (

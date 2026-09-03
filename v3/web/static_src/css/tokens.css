@@ -11,6 +11,7 @@
     --success-foreground: #ffffff;
     --success-light: #dcfce7;
     --error: #b91c1c;
+    --error-foreground: #ffffff;
     --error-light: #fef2f2;
     --warning: #f59e0b;
     --warning-light: #fef9c3;
@@ -32,12 +33,13 @@
 body.dark-theme {
     --primary: #60a5fa;
     --primary-foreground: #0f172a;
-    --primary-hover: #60a5fa;
+    --primary-hover: #93c5fd;
     --primary-light: #1e3a5f;
     --success: #4ade80;
     --success-foreground: #0f172a;
     --success-light: #14532d;
     --error: #ef4444;
+    --error-foreground: #0f172a;
     --error-light: #450a0a;
     --warning: #f59e0b;
     --warning-light: #451a03;
@@ -76,6 +78,7 @@ body.monochrome-theme {
     --success-foreground: #ffffff;
     --success-light: #f4f4f5;
     --error: #b91c1c;
+    --error-foreground: #ffffff;
     --error-light: #fef2f2;
     --warning: #854d0e;
     --warning-light: #fafaf9;
@@ -105,12 +108,13 @@ body.monochrome-theme .alert-success { background: var(--success-light); color: 
 body.monochrome-dark-theme {
     --primary: #a1a1aa;
     --primary-foreground: #18181b;
-    --primary-hover: #a1a1aa;
+    --primary-hover: #d4d4d8;
     --primary-light: #27272a;
     --success: #a1a1aa;
     --success-foreground: #18181b;
     --success-light: #27272a;
     --error: #ef4444;
+    --error-foreground: #18181b;
     --error-light: #450a0a;
     --warning: #d6d3d1;
     --warning-light: #292524;
