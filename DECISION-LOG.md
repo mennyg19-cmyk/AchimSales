@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.3: reject empty custom windows after go-live clamp
+**What I had to decide:** How to implement "reject an interval whose start exceeds end" after D365 clamping without breaking reversed-picker swap or unparseable-date omit.
+**Options I considered:** (1) Stop swapping reversed dates. (2) Clamp, then reject only when start > end; keep swap when the window is still valid; keep omitting unparseable ISO.
+**What I chose:** (2). Do not treat an empty-after-clamp window as all-time.
+**Why:** The plan names post-clamp validation. Swapping 2026-03-10 / 2026-02-01 still yields a real window. A 2024-only range becomes start > end after clamp and must not run unfiltered.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.2 gate closed
+**What I chose:** Close Phase 6.2 on `f6f9051`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero; Agent Guardrails green on HEAD; one-line current-bucket lookup.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.2: commission-card number from current bucket
 **What I had to decide:** Next Phase 6 leftover after the 6.1 gate.
 **Options I considered:** (1) Commissions rate-display / zero-contract / date-interval / retention / external-recipient / Q9 Send now. (2) The specified lookup bug: cards reuse the last aggregation-loop `sm`.
