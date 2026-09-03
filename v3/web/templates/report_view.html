@@ -148,7 +148,10 @@
         <button type="button" id="cancelRunBtn" class="btn btn-outline btn-sm" hidden title="Stop this run">Cancel</button>
     </div>
 </div>
-<ol id="jobLiveLog" class="live-job-log" hidden></ol>
+<details class="run-log-panel job-live-log-panel" id="jobLiveLogPanel" hidden>
+    <summary class="run-log-summary">Job log</summary>
+    <ol id="jobLiveLog" class="live-job-log"></ol>
+</details>
 
 <div id="exportsPanel" class="exports-panel" hidden>
     <div class="exports-head">Recent exports</div>

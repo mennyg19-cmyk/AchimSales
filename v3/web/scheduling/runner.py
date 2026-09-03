@@ -24,6 +24,7 @@ from web.data.repositories.report_defaults import (
     normalize_view_name,
     resolve_send_layout,
 )
+from web.data.repositories.saved_reports import SavedReportRepository
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -106,6 +107,29 @@ class ScheduleRunner:
         self.salesmen = salesmen or _NoSalesmen()
         self.defaults = ReportDefaultRepository(user_repo.db)
         self.company_views = CompanyViewRepository(user_repo.db)
+        self.saved_reports = SavedReportRepository(user_repo.db)
+
+    def _params_for(self, sched, schedule_type: str) -> dict:
+        """Personal named views send the live saved view, not a stale snapshot.
+
+        Delivery keys (cc, folder, no-data mail) stay on the schedule row.
+        Company schedules keep their own period; company views do not store one.
+        """
+        stored = dict(sched.params or {})
+        if schedule_type != PERSONAL:
+            return stored
+        name = getattr(sched, "view_name", None)
+        if not name or normalize_view_name(name) == DEFAULT_VIEW_NAME:
+            return stored
+        view = self.saved_reports.get_by_name(
+            sched.owner_user_id, sched.report_key, name)
+        if view is None:
+            return stored
+        live = dict(view.params or {})
+        for key in _DELIVERY_PARAM_KEYS:
+            if key in stored:
+                live[key] = stored[key]
+        return live
 
     def _layout_for(self, sched) -> dict:
         name = getattr(sched, "view_name", None)
@@ -156,7 +180,10 @@ class ScheduleRunner:
                     return run_id
             identity, scope = self._scope(sched, schedule_type)
             spec = registry.get(sched.report_key)
-            base_params = _with_viewer_limits(self.authz, sched, schedule_type, sched.params)
+            base_params = _with_viewer_limits(
+                self.authz, sched, schedule_type,
+                self._params_for(sched, schedule_type),
+            )
             # Re-authorize the owner live (personal schedules only; masters are
             # admin-owned + unrestricted). A run that the owner can no longer
             # perform - report access pulled, account disabled, SharePoint revoked

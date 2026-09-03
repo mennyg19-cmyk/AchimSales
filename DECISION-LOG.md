@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Personal schedule sends the live view period
+**What you asked for:** Avig's yesterday view works on the report page (yesterday + YTD commissions) but the schedule ran all_time. Job log on the report page should collapse.
+**What I had to decide:** Whether the schedule row's stored params or the named saved view wins at send time.
+**What I chose:** Personal named views send the live saved-view filters (period included). Delivery keys stay on the schedule. Company schedules still use their own period. Report-page job log is a collapsible Job log panel.
+**Why:** The GUI always reads the view. The runner used a snapshot copied when the schedule was created, so an edited view (or a leftover all_time snapshot) sent the wrong window.
+**Status:** DECIDED
+
 ## 2026-09-03 Recent run Log is that job only (hotfix)
 **What you asked for:** History under the recent run log was the whole schedule. After reload or opening someone else's job, the log was empty or one mashed line with no fields.
 **What I had to decide:** Whether the schedule table History button also becomes per-run.

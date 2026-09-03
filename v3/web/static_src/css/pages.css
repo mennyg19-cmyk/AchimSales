@@ -346,6 +346,8 @@
     .live-job-detail { grid-area: detail; }
 }
 .run-log-panel .live-job-log { margin: 8px 12px 12px; }
+.job-live-log-panel { margin-bottom: 12px; }
+.job-live-log-panel[hidden] { display: none !important; }
 .active-jobs {
     margin: 8px 12px 0; padding: 8px 12px;
     background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);

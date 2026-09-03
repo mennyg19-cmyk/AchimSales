@@ -236,7 +236,7 @@ def test_runner_company_named_view_uses_live_layout(tmp_path):
     UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin")
     live = {"active": "by_customer", "views": {"by_customer": {"group": ["Salesman", "CustomerName"]}}}
     CompanyViewRepository(db).upsert(
-        "ordered", "Daily Ordered", params={"period": "yesterday"},
+        "ordered", "Daily Ordered", params={"period": "all_time"},
         layout=live, updated_by=None)
     mid = MasterScheduleRepository(db).create(
         "ordered", "DailyOrderReport", params={"period": "yesterday"},
@@ -245,6 +245,7 @@ def test_runner_company_named_view_uses_live_layout(tmp_path):
     runner.run(mid, MASTER)
     assert delivery.calls[0]["layout"]["views"]["by_customer"]["group"] == [
         "Salesman", "CustomerName"]
+    assert delivery.calls[0]["params"].get("period") == "yesterday"
 
 
 def test_runner_master_runs_unrestricted(stack):
@@ -556,6 +557,43 @@ def test_runner_personal_test_mode_redirects_and_skips_onedrive(tmp_path):
     assert call["onedrive_user"] == ""
     assert call["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
     assert "real@x.com" not in str(delivery.calls)
+
+
+def test_runner_personal_named_view_uses_live_period_not_stale_schedule(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    uid = UserRepository(db).upsert("avig@x.com", display_name="Avig", role="salesman").id
+    SavedReportRepository(db).create(
+        uid, "invoiced", "Yesterday invoiced", {"period": "yesterday"}, {})
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    sid = ScheduleRepository(db).create(
+        uid, "invoiced",
+        params={"period": "all_time", "email_on_no_data": True, "folder_kind": "onedrive"},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="avig@x.com", view_name="Yesterday invoiced")
+    runner.run(sid, PERSONAL)
+    params = delivery.calls[0]["params"]
+    assert params.get("period") == "yesterday"
+    assert "all_time" not in str(params)
+    assert delivery.calls[0]["email_on_empty"] is True
 
 
 def test_runner_test_mode_on_without_emails_fails(tmp_path):

@@ -349,6 +349,7 @@ def test_admin_users_has_sales_group_dropdown():
 def test_live_job_log_shows_every_entry():
     report_html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="jobLiveLog"' in report_html
+    assert 'id="jobLiveLogPanel"' in report_html
     assert "live-job-log" in report_html
     report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
     assert 'from "./job_log"' in report_js
@@ -370,11 +371,13 @@ def test_live_job_log_shows_every_entry():
     assert "live-job-entry" in log_js
     assert "live-job-step" in log_js
     assert "live-job-detail" in log_js
+    assert "jobLiveLogPanel" in log_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".live-job-log" in css
     assert ".live-job-entry" in css
     assert ".live-job-step" in css
     assert ".live-job-detail" in css
+    assert ".job-live-log-panel" in css
     assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert "data-cancel-url" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")

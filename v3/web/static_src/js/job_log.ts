@@ -21,6 +21,19 @@ export function renderJobLog(el: HTMLElement | null, log: JobLogEntry[] | undefi
   if (!el) return;
   const items = Array.isArray(log) ? log : [];
   el.hidden = items.length === 0;
+  const panel = el.id === "jobLiveLog"
+    ? document.getElementById("jobLiveLogPanel")
+    : null;
+  if (panel) {
+    panel.hidden = items.length === 0;
+    if (!items.length) {
+      panel.removeAttribute("open");
+      panel.removeAttribute("data-opened");
+    } else if (!panel.hasAttribute("data-opened")) {
+      panel.setAttribute("open", "");
+      panel.setAttribute("data-opened", "1");
+    }
+  }
   const head = `<li class="live-job-head" aria-hidden="true">`
     + `<span>Time</span><span>Step</span><span>Detail</span><span>ms</span></li>`;
   el.innerHTML = head + items.map((e) => (

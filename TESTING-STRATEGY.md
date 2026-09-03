@@ -2,6 +2,15 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Personal schedule uses the live saved-view period
+
+**What to test:**
+- A personal named-view schedule whose row still has `period: all_time` sends the live view's `yesterday` (and keeps schedule delivery keys such as `email_on_no_data`).
+- Company/master schedules still send the period stored on the schedule, not a company view.
+- Report page has `#jobLiveLogPanel` wrapping `#jobLiveLog`.
+
+**Test file:** `v3/tests/test_scheduling.py`, `v3/tests/test_frontend.py`
+
 ## Recent run Log is that job only
 
 **What to test:**
