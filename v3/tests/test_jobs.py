@@ -479,6 +479,9 @@ def test_scheduler_start_failure_keeps_readiness_red(tmp_path, monkeypatch):
         def start(self):
             raise RuntimeError("scheduler unavailable")
 
+        def shutdown(self):
+            pass
+
     from web.jobs import scheduler as scheduler_module
     from web.jobs import status
 
@@ -506,6 +509,9 @@ def test_schedule_tick_beats_scheduler_when_enqueue_fails(tmp_path, monkeypatch)
             self.jobs[job_id] = func
 
         def start(self):
+            pass
+
+        def shutdown(self):
             pass
 
     from web.jobs import scheduler as scheduler_module
