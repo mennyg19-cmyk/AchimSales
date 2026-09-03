@@ -1191,3 +1191,14 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_delivery.py`,
 `v3/tests/test_sabbath.py`
+
+## Phase 6.2 commission-card salesman numbers
+**What to test:**
+- Two invoiced salesmen in the same reporting window retain their own salesman
+  numbers on their commission cards.
+
+**Expected behavior:**
+- Each card reads the number from the salesman fact for its current bucket, not
+  from another salesman's aggregation row.
+
+**Test file:** `v3/tests/test_report_invoiced.py`

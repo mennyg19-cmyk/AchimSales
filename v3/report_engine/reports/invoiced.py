@@ -304,6 +304,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
     salesmen_out: list[dict] = []
     for bucket_key in sorted(by_sm, key=lambda k: by_sm[k]["name"].lower()):
         bucket = by_sm[bucket_key]
+        sm = salesmen.get(bucket_key)
         pct = bucket["pct"]
         ytd = dict(subtotal_invoices=0.0, tariff_charges=0.0, freight_charges=0.0,
                    cc_charges=0.0, misc_charges=0.0, total_invoices=0.0, credits=0.0,

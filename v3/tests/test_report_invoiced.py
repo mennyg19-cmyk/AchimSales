@@ -277,6 +277,21 @@ def test_commissions_monthly_pivot_math():
     assert sm["monthly"][-1]["month"] == 4
 
 
+def test_commission_cards_use_each_salesmans_number():
+    facts = S.to_facts([
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "100", "salesman": "REdwards", "Total Invoice": "100"},
+        {"InvoiceNumber": "INV2", "CustomerAccount": "2", "InvoiceDate": "2026-04-10",
+         "amount": "200", "salesman": "JDoe", "Total Invoice": "200"},
+    ])
+    salesmen = _salesmen()
+    salesmen[salesman_key("JDoe")] = _sm("jdoe", "11", "Jane Doe", 0.04)
+    comm = _tabs_by_key(B.build(facts, salesmen=salesmen,
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    numbers = {card["salesman"]: card["salesman_number"] for card in comm["salesmen"]}
+    assert numbers == {"REdwards": "10", "JDoe": "11"}
+
+
 def test_adapter_reads_commission_rate_as_fraction():
     # A fraction passes through untouched...
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "0.06"}).commission_pct == 0.06
