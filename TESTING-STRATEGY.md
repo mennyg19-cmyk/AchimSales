@@ -2,6 +2,16 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Job log is developer-only
+
+**What to test:**
+- Developer `GET /api/jobs/<id>` includes `log` and `step`. Admin/salesman get status without those keys.
+- `/schedules/runs/<id>` is 200 for developer, 404 for admin, salesman owner, and stranger.
+- Report page `#jobLiveLogPanel` only when developer. Cancel still renders for others.
+- Recent-runs JSON omits `log_url` unless developer. History has no Log / job_log for non-devs.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## Personal schedule uses the live saved-view period
 
 **What to test:**

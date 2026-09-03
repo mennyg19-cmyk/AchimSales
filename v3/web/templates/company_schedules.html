@@ -28,7 +28,8 @@
 <details class="run-log-panel" id="runLogPanel"
          data-recent-url="{{ url_for('schedules.recent_runs') }}?kind=company"
          data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
-         data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}">
+         data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}"
+         {% if is_developer %}data-job-log="1"{% endif %}>
     <summary class="run-log-summary">
         Recent run log
         <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>
@@ -41,7 +42,7 @@
         <table class="data-table run-log-table">
             <thead>
                 <tr>
-                    <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
+                    <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th>{% if is_developer %}<th></th>{% endif %}
                 </tr>
             </thead>
             <tbody id="runLogRows">
@@ -59,7 +60,9 @@
                     </td>
                     <td>{{ r.rows if r.rows is not none else '—' }}</td>
                     <td class="run-log-msg">{{ r.message or '—' }}</td>
+                    {% if is_developer %}
                     <td><a class="btn btn-sm btn-outline" href="{{ r.log_url }}">Log</a></td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>

@@ -22,7 +22,9 @@
             </span>
             <span class="run-history-when">{{ r.started_at or '—' }}{% if r.finished_at %} → {{ r.finished_at }}{% endif %}</span>
             <span class="run-history-rows">{{ r.rows if r.rows is not none else '—' }} rows</span>
+            {% if is_developer %}
             <a class="btn btn-sm btn-outline" href="{{ url_for('schedules.run_log', run_id=r.id) }}">Log</a>
+            {% endif %}
         </header>
         <p class="run-history-summary">{{ r.debug_log or meta.get('summary') or '—' }}</p>
         <dl class="run-history-meta">
@@ -47,7 +49,7 @@
             <div><dt>Error</dt><dd class="run-debug">{{ meta['error'] }}</dd></div>
             {% endif %}
         </dl>
-        {% if meta.get('job_log') %}
+        {% if is_developer and meta.get('job_log') %}
         <h3 class="run-history-subhead">Run log</h3>
         <ol class="live-job-log">
             {% with entries = meta['job_log'] %}{% include "_job_log_entries.html" %}{% endwith %}

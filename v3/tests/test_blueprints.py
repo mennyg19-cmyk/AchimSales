@@ -176,9 +176,8 @@ def test_run_poll_result_export_flow(tmp_path):
 
     status = client.get(f"/api/jobs/{job_id}").get_json()
     assert status["status"] == "success"
-    assert status["log"]
-    assert any(e.get("step") == "job" for e in status["log"])
-    assert any(e.get("step") == "tab" for e in status["log"])
+    assert "log" not in status
+    assert "step" not in status
 
     payload = client.get(f"/api/reports/result/{job_id}").get_json()
     assert payload["report_key"] == "ordered"
@@ -630,8 +629,11 @@ def test_admin_cancels_unowned_schedule_job(tmp_path):
     resp = client.post(f"/api/jobs/{job_id}/cancel", headers={"X-CSRF-Token": _CSRF})
     assert resp.status_code == 200
     assert resp.get_json()["cancelled"] is True
-    assert client.get(f"/api/jobs/{job_id}").get_json()["status"] == "cancelled"
-    assert any(e.get("detail") == "cancelled" for e in client.get(f"/api/jobs/{job_id}").get_json()["log"])
+    st = client.get(f"/api/jobs/{job_id}").get_json()
+    assert st["status"] == "cancelled"
+    assert "log" not in st
+    stored = app.config["JOB_REPO"].get(job_id)
+    assert any(e.get("detail") == "cancelled" for e in (stored.log or []))
 
 
 def test_salesman_cannot_cancel_unowned_schedule_job(tmp_path):
@@ -813,6 +815,7 @@ def test_report_view_renders_cancel_button(tmp_path):
     html = client.get("/reports/ordered").get_data(as_text=True)
     assert 'id="cancelRunBtn"' in html
     assert "data-cancel-url" in html
+    assert 'id="jobLiveLogPanel"' not in html
 
 
 def test_cannot_read_another_users_job(tmp_path):
@@ -1686,17 +1689,25 @@ def test_schedule_create_run_history_and_delete(tmp_path):
     runs = recent.get_json()["runs"]
     assert runs and runs[0]["status"] == "success"
     assert runs[0]["schedule_id"] == sid
-    assert runs[0]["log_url"] == f"/schedules/runs/{runs[0]['id']}"
-    log_page = client.get(runs[0]["log_url"])
+    assert "log_url" not in runs[0]
+    run_id = runs[0]["id"]
+    log_url = f"/schedules/runs/{run_id}"
+    assert client.get(log_url).status_code == 404
+    other = app.test_client()
+    _login(other, app, email="rep@x.com", role="salesman")
+    assert other.get(log_url).status_code == 404
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    dev_runs = [r for r in dev.get("/api/schedules/recent-runs").get_json()["runs"]
+                if r["schedule_id"] == sid]
+    assert dev_runs[0]["log_url"] == log_url
+    log_page = dev.get(log_url)
     assert log_page.status_code == 200
     log_html = log_page.get_data(as_text=True)
     assert "live-job-entry" in log_html
     assert "live-job-step" in log_html
     assert "live-job-detail" in log_html
     assert f"/schedules/{sid}/history" in log_html
-    other = app.test_client()
-    _login(other, app, email="rep@x.com", role="salesman")
-    assert other.get(runs[0]["log_url"]).status_code == 404
 
     # toggle + delete
     assert client.post(f"/api/schedules/{sid}/toggle", json={"active": False},
@@ -1704,7 +1715,7 @@ def test_schedule_create_run_history_and_delete(tmp_path):
     assert client.delete(f"/api/schedules/{sid}", headers={"X-CSRF-Token": _CSRF}).status_code == 200
 
 
-def test_admin_can_open_someone_elses_run_log(tmp_path):
+def test_developer_can_open_someone_elses_run_log(tmp_path):
     app = _make_app(tmp_path, rows_by_report=_ordered_rows())
     rep = app.test_client()
     _login(rep, app, email="rep@x.com", role="salesman")
@@ -1720,15 +1731,29 @@ def test_admin_can_open_someone_elses_run_log(tmp_path):
     runs = [r for r in rep.get("/api/schedules/recent-runs").get_json()["runs"]
             if r["schedule_id"] == sid]
     assert runs
-    log_url = runs[0]["log_url"]
+    assert "log_url" not in runs[0]
+    log_url = f"/schedules/runs/{runs[0]['id']}"
+    assert rep.get(log_url).status_code == 404
     admin = app.test_client()
     _login(admin, app)
-    page = admin.get(log_url)
+    assert admin.get(log_url).status_code == 404
+    assert 'id="jobLiveLogPanel"' not in admin.get("/reports/ordered").get_data(as_text=True)
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    page = dev.get(log_url)
     assert page.status_code == 200
     html = page.get_data(as_text=True)
     assert "live-job-entry" in html
     assert "live-job-step" in html
     assert "this run only" in html.lower()
+    assert 'id="jobLiveLogPanel"' in dev.get("/reports/ordered").get_data(as_text=True)
+    rpt = dev.post("/api/reports/ordered/run", json={"period": "all_time"},
+                   headers={"X-CSRF-Token": _CSRF})
+    assert rpt.status_code == 202
+    rpt_st = dev.get(f"/api/jobs/{rpt.get_json()['job_id']}").get_json()
+    assert rpt_st["log"]
+    assert any(e.get("step") == "job" for e in rpt_st["log"])
+    assert any(e.get("step") == "tab" for e in rpt_st["log"])
     stranger = app.test_client()
     _login(stranger, app, email="other@x.com", role="salesman")
     assert stranger.get(log_url).status_code == 404
@@ -2588,13 +2613,19 @@ def test_master_run_now_writes_outbox_and_history(tmp_path):
     job = JobRepository(app.config["DB"]).get(run.get_json()["job_id"])
     assert job is not None and job.status == "success"
     st = client.get(f"/api/jobs/{run.get_json()['job_id']}").get_json()
-    assert st["status"] == "success" and st["log"]
-    assert {e.get("step") for e in st["log"]} >= {"job", "report", "workbook", "tab", "xlsx"}
+    assert st["status"] == "success" and "log" not in st
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    dev_st = dev.get(f"/api/jobs/{run.get_json()['job_id']}").get_json()
+    assert {e.get("step") for e in dev_st["log"]} >= {"job", "report", "workbook", "tab", "xlsx"}
     hist_rows = ScheduleRunRepository(app.config["DB"]).list_for_schedule(mid, MASTER)
     assert hist_rows and hist_rows[0].status == "success"
     hist = client.get(f"/master-schedules/{mid}/history").get_data(as_text=True).lower()
     assert "success" in hist
-    assert "run log" in hist
+    assert ">log</a>" not in hist
+    assert "run log" not in hist
+    dev_hist = dev.get(f"/master-schedules/{mid}/history").get_data(as_text=True).lower()
+    assert "run log" in dev_hist
     from web.data.repositories.outbox import OutboxRepository
     rows = OutboxRepository(app.config["DB"]).list_recent()
     assert rows and "team@x.com" in rows[0].recipients

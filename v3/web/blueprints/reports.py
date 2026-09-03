@@ -444,17 +444,25 @@ def run_report(report_key: str):
     return jsonify({"job_id": job_id}), 202
 
 
+def _job_status_payload(job, p) -> dict:
+    """Status/progress for everyone; step log only for developers."""
+    payload = {
+        "job_id": job.id, "status": job.status, "progress": job.progress,
+        "error": job.error, "result_ref": job.result_ref,
+    }
+    if _authz().is_developer(p):
+        from web.data.repositories.jobs import _step_label
+        payload["log"] = job.log
+        payload["step"] = _step_label(job.log)
+    return payload
+
+
 @reports_bp.get("/api/jobs/<job_id>")
 @require_login
 def job_status(job_id: str):
     p = _principal_or_401()
     job = _visible_job_or_404(job_id, p)
-    from web.data.repositories.jobs import _step_label
-    return jsonify({
-        "job_id": job.id, "status": job.status, "progress": job.progress,
-        "error": job.error, "result_ref": job.result_ref,
-        "log": job.log, "step": _step_label(job.log),
-    })
+    return jsonify(_job_status_payload(job, p))
 
 
 @reports_bp.post("/api/jobs/<job_id>/cancel")

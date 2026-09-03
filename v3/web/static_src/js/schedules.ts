@@ -15,7 +15,7 @@ type RunLogRow = {
   finished_at?: string | null;
   rows?: number | null;
   message?: string;
-  log_url: string;
+  log_url?: string;
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
@@ -74,6 +74,10 @@ function renderActiveJobs(jobs: ActiveJob[]): void {
   }).join("");
 }
 
+function canSeeJobLog(): boolean {
+  return document.getElementById("runLogPanel")?.getAttribute("data-job-log") === "1";
+}
+
 function renderRunLog(runs: RunLogRow[]): void {
   const panel = document.getElementById("runLogPanel");
   const body = document.getElementById("runLogBody");
@@ -87,23 +91,27 @@ function renderRunLog(runs: RunLogRow[]): void {
     body.innerHTML = `<p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>`;
     return;
   }
+  const withLog = canSeeJobLog();
   const rows = runs.map((r) => {
     const when = r.finished_at || r.started_at || "—";
     const status = (r.status || "queued").replace(/^./, (c) => c.toUpperCase());
     const rowCount = r.rows == null ? "—" : String(r.rows);
+    const logCell = withLog && r.log_url
+      ? `<td><a class="btn btn-sm btn-outline" href="${esc(r.log_url)}">Log</a></td>`
+      : (withLog ? "<td></td>" : "");
     return `<tr>
       <td class="run-log-when">${esc(when)}</td>
       <td><span class="mini-flag">${esc(r.kind)}</span> ${esc(r.title)}</td>
       <td><span class="${badgeClass(r.status)}">${esc(status)}</span></td>
       <td>${esc(rowCount)}</td>
       <td class="run-log-msg">${esc(r.message || "—")}</td>
-      <td><a class="btn btn-sm btn-outline" href="${esc(r.log_url)}">Log</a></td>
+      ${logCell}
     </tr>`;
   }).join("");
   body.innerHTML = `<div class="table-wrap run-log-table-wrap">
     <table class="data-table run-log-table">
       <thead><tr>
-        <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
+        <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th>${withLog ? "<th></th>" : ""}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>

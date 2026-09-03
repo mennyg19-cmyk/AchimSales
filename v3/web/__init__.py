@@ -243,6 +243,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
         dashboard_enabled = False
         order_entry_enabled = False
         test_site_enabled = False
+        is_developer = False
         theme = session.get("theme")
         if p is not None:
             user = {
@@ -254,6 +255,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
                 "impersonating": p.impersonating,
             }
             try:
+                is_developer = app.config["AUTHZ"].is_developer(p)
                 flag_map = flags.all()
                 order_entry_enabled = flag_map.get("order_entry_enabled", False)
                 row = users.get_by_email(p.email)
@@ -282,6 +284,7 @@ def _register_context(app: Flask, cfg: Config, db) -> None:
             "dashboard_enabled": False if cfg.is_beta else dashboard_enabled,
             "order_entry_enabled": False if cfg.is_beta else order_entry_enabled,
             "test_site_enabled": test_site_enabled,
+            "is_developer": is_developer,
         }
 
 

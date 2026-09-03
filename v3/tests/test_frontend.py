@@ -358,7 +358,12 @@ def test_live_job_log_shows_every_entry():
     assert 'from "./job_log"' in sched_js
     assert "pollJobLog(url, live" in sched_js
     assert "js-watch-job" in sched_js
+    assert "canSeeJobLog" in sched_js
     assert 'href="${esc(r.log_url)}">Log</a>' in sched_js
+    assert "data-job-log" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert "{% if is_developer %}" in report_html
+    panel_at = report_html.find('id="jobLiveLogPanel"')
+    assert "{% if is_developer %}" in report_html[max(0, panel_at - 120):panel_at]
     assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert 'href="{{ r.log_url }}">Log</a>' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")

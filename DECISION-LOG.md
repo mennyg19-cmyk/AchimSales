@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Job log is developer-only
+**What you asked for:** The job log on the report page and everywhere should only be visible to devs.
+**What I had to decide:** Whether admin also sees it; whether Cancel and the coarse status line stay; whether the JSON API must hide `log` too.
+**What I chose:** Live DB role `developer` only (`authz.is_developer`). Admins, managers, and salesmen do not get the panel, Log button, run-log page, history step log, or `log`/`step` on `GET /api/jobs`. Cancel, recent-run status/rows/summary, and "Building report…" stay. Schedules keep a hidden `#liveJobLog` so poll-until-done still works.
+**Why:** The log has API params and first-row samples. That is diagnostic, same as API preview. Hiding only the HTML would still leak it on poll.
+**Status:** DECIDED
+
 ## 2026-09-03 Personal schedule sends the live view period
 **What you asked for:** Avig's yesterday view works on the report page (yesterday + YTD commissions) but the schedule ran all_time. Job log on the report page should collapse.
 **What I had to decide:** Whether the schedule row's stored params or the named saved view wins at send time.

@@ -126,13 +126,19 @@ def _active_schedule_jobs(p) -> list[dict]:
         jobs = _job_repo().list_active(job_type=SCHEDULE_RUN_JOB_TYPE)
     else:
         jobs = _job_repo().list_active(job_type=SCHEDULE_RUN_JOB_TYPE, owner_user_id=uid)
-    return [{
-        "id": job.id,
-        "status": job.status,
-        "step": _step_label(job.log),
-        "label": _schedule_job_label(job),
-        "manual": bool((job.params or {}).get("manual")),
-    } for job in jobs]
+    show_log = _authz().is_developer(p)
+    out = []
+    for job in jobs:
+        row = {
+            "id": job.id,
+            "status": job.status,
+            "label": _schedule_job_label(job),
+            "manual": bool((job.params or {}).get("manual")),
+        }
+        if show_log:
+            row["step"] = _step_label(job.log)
+        out.append(row)
+    return out
 
 
 def _hold_if_due(repo, sched, schedule_type: str) -> None:
@@ -577,6 +583,9 @@ def recent_runs():
         runs = _company_run_log()
     else:
         runs = _viewer_run_log(p, _authz().is_privileged(p))
+    if not _authz().is_developer(p):
+        for row in runs:
+            row.pop("log_url", None)
     return jsonify({"runs": runs, "active_jobs": _active_schedule_jobs(p)})
 
 
@@ -853,6 +862,8 @@ def master_history(schedule_id: int):
 @require_login
 def run_log(run_id: int):
     p = _principal()
+    if not _authz().is_developer(p):
+        abort(404, description="Unknown run")
     run = _run_or_404(run_id, p)
     meta = run.output_meta or {}
     job_id = str(meta.get("job_id") or "").strip()
