@@ -242,11 +242,14 @@ def set_salesman_access(user_id: int):
     keys = body.get("keys") or []
     if not isinstance(keys, list):
         return jsonify({"error": "keys must be a list"}), 400
-    missing = _unknown_user(user_id)
-    if missing:
-        return missing
-    _users().set_salesman_access(user_id, [str(k) for k in keys])
-    return jsonify({"keys": sorted(_users().get_salesman_access(user_id))})
+    repo = _users()
+    target = repo.get_by_id(user_id)
+    if target is None:
+        return jsonify({"error": "Unknown user"}), 404
+    if target.role == ROLE_SALESMAN and target.sales_group:
+        keys.append(target.sales_group)
+    repo.set_salesman_access(user_id, [str(k) for k in keys])
+    return jsonify({"keys": sorted(repo.get_salesman_access(user_id))})
 
 
 @admin_bp.get("/api/admin/sales-groups")

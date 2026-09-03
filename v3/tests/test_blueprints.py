@@ -513,7 +513,7 @@ def test_salesman_can_be_granted_multiple_salesman_scopes(tmp_path):
 
     scope = client.post(
         f"/api/admin/users/{uid}/salesman-access",
-        json={"keys": ["HKaufman", "REdwards"]},
+        json={"keys": ["REdwards"]},
         headers={"X-CSRF-Token": _CSRF},
     )
 
