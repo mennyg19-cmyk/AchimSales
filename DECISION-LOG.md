@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 4.3: one killable job slot; schedules beat exports
+**What I had to decide:** How to stop a hung report without leaving a thread running after the DB row is failed, and how to keep scheduled mail from waiting behind on-screen exports.
+**Options I considered:** (1) Thread + timeout flag (does not kill the work). (2) One child process per claimed job, hard kill on timeout, max_workers=1. (3) Keep two in-process threads.
+**What I chose:** Option 2 for the production poller. `process_next`/`drain` stay in-process for tests. Claim `schedule.run` and `report.deliver` before `report.export`. Scheduler start failure keeps `/readyz` red but does not exit the worker process (that would take Gunicorn down via supervise-web.sh).
+**Why:** Plan 4.3 forbids marking failed while work continues. B1 is 1 vCPU. Die-together supervisor must not treat a missing APScheduler as a site outage.
+**Status:** DECIDED
+
 ## 2026-09-03 Phase 4.1–4.2: Gunicorn stays fast; worker process owns migrate and jobs
 **What I had to decide:** Whether the supervisor should block Gunicorn until migrate/seed finishes (plan “bootstrap before traffic”) or start HTTP immediately (Azure warmup historically killed the container when migrate ran on import).
 **Options I considered:** (1) `supervise-web.sh` runs bootstrap, then Gunicorn+worker. (2) Gunicorn starts immediately; worker process runs migrate/seed then jobs; `/healthz` 200, `/readyz` 503 until heartbeat. (3) Keep in-process flock leader inside Gunicorn.
