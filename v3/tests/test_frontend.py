@@ -524,6 +524,7 @@ def test_schedule_wizard_errors_when_saved_views_fail_to_load():
     assert "Could not load saved views. Try again." in personal
     assert "Could not load saved views. Check your connection and try again." in personal
     assert "empty.hidden = loadFailed" in personal
+    assert "Array.isArray" in personal
     master = (_SRC / "js" / "master_wizard.ts").read_text(encoding="utf-8")
     assert "Could not load saved views for this report. Try again." in master
     assert "Could not load saved views for this report. Check your connection and try again." in master

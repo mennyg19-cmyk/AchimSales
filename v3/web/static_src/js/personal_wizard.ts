@@ -196,14 +196,21 @@ async function loadViews(selectedId: string): Promise<void> {
   }
   try {
     const res = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
-    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
       viewCache = [];
       renderViews([], selectedId, true);
       msg((data as { error?: string }).error || "Could not load saved views. Try again.", true);
       return;
     }
-    viewCache = (data.groups || []) as ViewGroup[];
+    const data = await res.json();
+    if (!Array.isArray((data as { groups?: unknown }).groups)) {
+      viewCache = [];
+      renderViews([], selectedId, true);
+      msg("Could not load saved views. Try again.", true);
+      return;
+    }
+    viewCache = data.groups as ViewGroup[];
   } catch {
     viewCache = [];
     renderViews([], selectedId, true);

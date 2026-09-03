@@ -181,6 +181,10 @@ async function loadSavedViews(reportKey: string): Promise<void> {
       return;
     }
     data = await res.json();
+    if (!data || typeof data !== "object") {
+      masterMsg("Could not load saved views for this report. Try again.", true);
+      return;
+    }
   } catch {
     masterMsg("Could not load saved views for this report. Check your connection and try again.", true);
     return;
