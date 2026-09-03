@@ -94,6 +94,10 @@ def test_process_next_empty_returns_none(db):
     assert worker.process_next() is None
 
 
+def test_worker_defaults_to_one_processing_slot(db):
+    assert JobWorker(db).max_workers == 1
+
+
 def test_background_worker_drains_queue(db):
     worker = JobWorker(db, max_workers=2)
     worker.register("bg", lambda ctx: "")
@@ -373,6 +377,22 @@ def test_scheduler_start_failure_keeps_readiness_red(tmp_path, monkeypatch):
         start_worker_services(app)
     assert app.config["JOB_WORKER"].running is False
     assert status.is_ready(app.config["DB"]) is False
+
+
+def test_worker_main_stays_alive_after_service_start_failure(monkeypatch):
+    from web.jobs import worker_main
+
+    def fail_to_start(app):
+        raise RuntimeError("scheduler unavailable")
+
+    monkeypatch.setattr(worker_main, "enabled_apps", lambda: [object()])
+    monkeypatch.setattr(worker_main, "run_worker_app", fail_to_start)
+    monkeypatch.setattr(worker_main, "stop_worker_services", lambda app: None)
+    worker_main._stopping.set()
+    try:
+        assert worker_main.run() == 0
+    finally:
+        worker_main._stopping.clear()
 
 
 def test_keep_run_stores_name_and_drops_oldest_over_cap(db):
