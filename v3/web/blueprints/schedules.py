@@ -664,7 +664,7 @@ def run_schedule(schedule_id: int):
         lambda: enqueue_schedule_run(
             current_app.config["JOB_REPO"],
             schedule_id=schedule_id, schedule_type=PERSONAL,
-            owner_user_id=existing.owner_user_id, ignore_sabbath=True
+            owner_user_id=existing.owner_user_id, ignore_sabbath=True, manual=True,
         )
     )
     _drain_if_dev()
@@ -1222,7 +1222,7 @@ def run_master(schedule_id: int):
     job_id = enqueue_or_503(
         lambda: enqueue_schedule_run(
             current_app.config["JOB_REPO"], schedule_id=schedule_id,
-            schedule_type=MASTER, ignore_sabbath=True,
+            schedule_type=MASTER, ignore_sabbath=True, manual=True,
         )
     )
     _drain_if_dev()

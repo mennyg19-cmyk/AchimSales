@@ -12,6 +12,7 @@ from web.auth.authorization import Authorization
 from web.config import Config
 from web.data.connection import Database
 from web.data.migrate import migrate
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.outbox import OutboxRepository
 from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
 from web.data.repositories.schedules import (
@@ -111,6 +112,52 @@ def test_runner_personal_records_success(stack):
     hist = ScheduleRunRepository(db).list_for_schedule(sid, PERSONAL)
     assert len(hist) == 1 and hist[0].status == "success" and hist[0].rows == 2
     assert OutboxRepository(db).list_recent()
+
+
+def test_schedule_runner_keeps_enqueue_slot_after_midnight(stack):
+    db, runner = stack
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={}, cadence={"freq": "daily", "time": "08:05"},
+        recipients="a@x.com")
+    runner.run(
+        sid, PERSONAL, job_id="schedule-job",
+        slot_id="personal:1:2026-06-01:0805",
+    )
+    leg = DeliveryLegRepository(db).get_by_job("schedule-job")[0]
+    assert leg.slot_id == "personal:1:2026-06-01:0805"
+
+
+def test_schedule_runner_does_not_retry_unknown_delivery(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+
+    class UnknownDelivery:
+        def __init__(self):
+            self.calls = 0
+
+        def run_and_deliver(self, **kwargs):
+            self.calls += 1
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=False, error="connection lost", delivery_status="unknown",
+                ),
+                row_count=0,
+            )
+
+    delivery = UnknownDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="admin").id
+    sid = ScheduleRepository(db).create(
+        uid, "ordered", params={}, layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="a@x.com")
+    with pytest.raises(RuntimeError, match="unknown"):
+        runner.run(sid, PERSONAL, job_id="unknown-job", slot_id="personal:1:2026-06-01:0800")
+    assert delivery.calls == 1
+    assert "unknown" in (ScheduleRunRepository(db).list_for_schedule(sid, PERSONAL)[0].debug_log or "")
 
 
 def test_runner_personal_succeeds_when_company_views_column_missing(tmp_path):
@@ -689,6 +736,7 @@ def test_tick_skips_shabbos_and_catches_up_after(tmp_path, monkeypatch):
     job = job_repo.claim_next()
     assert job is not None and job.params["schedule_id"] == mid
     assert job.params["catch_up_for_date"] == "2026-06-01"
+    assert job.params["slot_id"] == f"{MASTER}:{mid}:2026-06-02:0500"
     assert MasterScheduleRepository(db).get(mid).catch_up_pending is False
 
 
@@ -708,9 +756,10 @@ def test_tick_run_now_style_enqueue_still_works_when_restricted(tmp_path, monkey
     now = datetime(2026, 6, 1, 13, 0, tzinfo=timezone.utc)
     assert enqueue_due(db, job_repo, now) == 0
     enqueue_schedule_run(job_repo, schedule_id=mid, schedule_type=MASTER,
-                         ignore_sabbath=True)
+                         ignore_sabbath=True, manual=True)
     job = job_repo.claim_next()
     assert job is not None and job.params["ignore_sabbath"] is True
+    assert job.params["slot_id"] == f"manual:{job.id}"
 
 
 def test_tick_mtd_friday_skip_waits_until_monday_same_clock(tmp_path, monkeypatch):

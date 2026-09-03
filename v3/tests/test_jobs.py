@@ -548,7 +548,22 @@ def test_cleanup_prunes_expired_cache_and_exports_then_marks_success(db):
             "INSERT INTO report_exports(job_id, report_key, filename, content, size_bytes, built_at)"
             " VALUES ('old-export', 'ordered', 'old.xlsx', X'00', 1, datetime('now', '-8 days'))"
         )
-    assert run_cleanup(db) == {"cache_rows": 1, "export_rows": 1}
+    with db.precious() as conn:
+        conn.execute(
+            "INSERT INTO delivery_legs(job_id, slot_id, kind, status, created_at)"
+            " VALUES ('old-leg', 'manual:old-leg', 'email', 'sent', datetime('now', '-91 days'))"
+        )
+        conn.execute(
+            "INSERT INTO delivery_legs(job_id, slot_id, kind, status)"
+            " VALUES ('new-leg', 'manual:new-leg', 'email', 'sent')"
+        )
+    assert run_cleanup(db) == {
+        "cache_rows": 1,
+        "export_rows": 1,
+        "delivery_leg_rows": 1,
+    }
+    with db.precious() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM delivery_legs").fetchone()[0] == 1
     assert snapshot(db)["last_cleanup"] is not None
 
 

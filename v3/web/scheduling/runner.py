@@ -49,7 +49,7 @@ log = logging.getLogger(__name__)
 _TRANSIENT_ATTEMPTS = 2
 _TRANSIENT_RETRY_WAIT_S = 30
 _FAIL_NOTICE_WAIT_S = 15 * 60
-_FAIL_NOTICE_PENDING = "pending"
+_FAIL_NOTICE_PENDING = "waiting"
 _FAIL_NOTICE_SENT = "sent"
 _FAIL_NOTICE_SUPERSEDED = "superseded"
 _RETRY_SUBJECT_MARK = " — retried after a failure"
@@ -110,7 +110,8 @@ class ScheduleRunner:
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,
-            include_regular: bool = True, recovered: bool = False) -> int:
+            include_regular: bool = True, recovered: bool = False,
+            job_id: str | None = None, slot_id: str = "") -> int:
         sched = self._load(schedule_id, schedule_type)
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
@@ -185,6 +186,7 @@ class ScheduleRunner:
                         subject=window_subject, report_name=report_name,
                         od_user=od_user, test_to=test_to, schedule_name=window_name,
                         prior_errors=prior_errors + window_errors,
+                        job_id=job_id, run_id=run_id, slot_id=slot_id,
                     )
                     outcomes.append(outcome)
                 except Exception as exc:  # noqa: BLE001 - try remaining windows
@@ -302,7 +304,8 @@ class ScheduleRunner:
                         subject: str, report_name: str, od_user: str,
                         test_to: list[str] | None, schedule_name: str,
                         recovered: bool = False,
-                        prior_errors: list[str] | None = None) -> DeliveryOutcome:
+                        prior_errors: list[str] | None = None, job_id: str | None = None,
+                        run_id: int | None = None, slot_id: str = "") -> DeliveryOutcome:
         builder_version = spec.builder_version if spec else 1
         last_error: Exception | None = None
         prior_errors = list(prior_errors or [])
@@ -321,6 +324,7 @@ class ScheduleRunner:
                         onedrive_user=od_user, test_to=test_to,
                         params=params, schedule_name=schedule_name,
                         body_text=send_body,
+                        job_id=job_id, run_id=run_id, slot_id=slot_id,
                     )
                 else:
                     no_data_all = bool(params.get("email_on_no_data"))
@@ -346,6 +350,11 @@ class ScheduleRunner:
                         ),
                         schedule_name=schedule_name,
                         body_text=send_body,
+                        job_id=job_id, run_id=run_id, slot_id=slot_id,
+                    )
+                if outcome.result.delivery_status == "unknown":
+                    raise RuntimeError(
+                        f"Delivery outcome unknown; do not retry automatically: {outcome.result.error}"
                     )
                 if not outcome.result.ok:
                     if _inbox_already_got_mail(outcome.result):
@@ -355,6 +364,8 @@ class ScheduleRunner:
             except Exception as exc:
                 last_error = exc
                 prior_errors.append(str(exc))
+                if "Delivery outcome unknown; do not retry automatically:" in str(exc):
+                    raise
                 if attempt >= _TRANSIENT_ATTEMPTS:
                     raise
                 log.warning(
@@ -448,7 +459,8 @@ class ScheduleRunner:
                            test_to: list[str] | None = None,
                            params: dict | None = None,
                            schedule_name: str = "",
-                           body_text: str = "") -> DeliveryOutcome:
+                           body_text: str = "", job_id: str | None = None,
+                           run_id: int | None = None, slot_id: str = "") -> DeliveryOutcome:
         outcomes: list[DeliveryOutcome] = []
         deliveries: list[dict] = []
         skip_notes: list[str] = []
@@ -478,6 +490,7 @@ class ScheduleRunner:
                     None if test_to
                     else ("; ".join(test_empty) if empty_to_test else None)
                 ),
+                job_id=job_id, run_id=run_id, slot_id=slot_id,
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -507,6 +520,7 @@ class ScheduleRunner:
                 schedule_name=f"{sched_name} - {key}",
                 body_text=body_text,
                 email_on_empty=False,
+                job_id=job_id, run_id=run_id, slot_id=slot_id,
             )
             if outcome.row_count == 0:
                 notice_fn = getattr(self.delivery, "send_no_data_notice", None)

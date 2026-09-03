@@ -45,7 +45,8 @@ class DeliveryService:
                         cc_raw: str = "", bcc_raw: str = "",
                         email_on_empty: bool = True,
                         empty_recipients_override: str | None = None,
-                        schedule_name: str = "") -> DeliveryOutcome:
+                        schedule_name: str = "", job_id: str | None = None,
+                        run_id: int | None = None, slot_id: str | None = None) -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
         run_params = dict(params or {})
         if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
@@ -87,14 +88,17 @@ class DeliveryService:
             sharepoint_path=folder or None,
             onedrive_user=(onedrive_user or "").strip() or None,
             cc_raw=cc or "", bcc_raw=bcc or "",
+            job_id=job_id, run_id=run_id, slot_id=slot_id,
         )
         return DeliveryOutcome(result=result, row_count=rows)
 
     def send_no_data_notice(self, *, recipients: str, subject: str, body_text: str,
-                            report_name: str) -> DeliveryOutcome:
+                            report_name: str, job_id: str | None = None,
+                            run_id: int | None = None, slot_id: str | None = None) -> DeliveryOutcome:
         """Text-only mail when a split salesman file has no rows. No workbook."""
         result = self.email.deliver(
             subject=subject, recipients_raw=recipients, body_text=body_text,
             report_name=report_name, filename="", xlsx_bytes=None,
+            job_id=job_id, run_id=run_id, slot_id=slot_id,
         )
         return DeliveryOutcome(result=result, row_count=0)

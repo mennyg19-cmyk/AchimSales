@@ -25,6 +25,7 @@ from email.message import EmailMessage
 from uuid import uuid4
 
 from web.config import Config
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.outbox import OutboxRepository
 from web.delivery.graph_mail import GraphMailError, GraphMailer
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
@@ -149,16 +150,19 @@ class DeliveryResult:
     sharepoint_url: str | None = None
     sharepoint_error: str | None = None
     outbox_id: int | None = None
+    delivery_status: str = ""
 
 
 class EmailService:
     def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService,
-                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None):
+                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None,
+                 delivery_legs: DeliveryLegRepository | None = None):
         self.cfg = cfg
         self.outbox = outbox
         self.sharepoint = sharepoint
         self.onedrive = onedrive
         self._graph = graph
+        self.delivery_legs = delivery_legs or DeliveryLegRepository(outbox.db)
 
     def _graph_mailer(self) -> GraphMailer | None:
         if self._graph is not None:
@@ -183,7 +187,8 @@ class EmailService:
                 report_name: str, filename: str = "", xlsx_bytes: bytes | None = None,
                 sharepoint_path: str | None = None,
                 onedrive_user: str | None = None,
-                cc_raw: str = "", bcc_raw: str = "") -> DeliveryResult:
+                cc_raw: str = "", bcc_raw: str = "", job_id: str | None = None,
+                run_id: int | None = None, slot_id: str | None = None) -> DeliveryResult:
         recipients = split_recipients(recipients_raw)
         cc = split_recipients(cc_raw)
         bcc = split_recipients(bcc_raw)
@@ -214,12 +219,15 @@ class EmailService:
         msg = self._compose(subject, recipients, body, report_name, filename, attach,
                             cc=cc, bcc=bcc, body_html=body_html)
         eml_name = self._write_eml(msg, report_name)
+        leg_id = self.delivery_legs.create(
+            job_id=job_id, run_id=run_id, slot_id=slot_id or f"manual:{job_id or 'direct'}")
 
         sent = False
         channel = ""
         if recipients or cc or bcc:
             graph = self._graph_mailer()
             if graph is not None:
+                self.delivery_legs.update(leg_id, status="sending")
                 try:
                     sent_url = self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
@@ -238,8 +246,10 @@ class EmailService:
                     return self._record(subject, recipients, filename, eml_name, sent=False,
                                         channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
-                                        error=f"Graph failed: {exc}")
+                                        error=f"Graph failed: {exc}", leg_id=leg_id,
+                                        delivery_status=exc.delivery_status)
             elif self.cfg.smtp_host:
+                self.delivery_legs.update(leg_id, status="sending")
                 try:
                     self._smtp_send(msg, recipients + cc + bcc)
                     sent = True
@@ -249,13 +259,13 @@ class EmailService:
                     return self._record(subject, recipients, filename, eml_name, sent=False,
                                         channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
-                                        error=f"SMTP failed: {exc}")
+                                        error=f"SMTP failed: {exc}", leg_id=leg_id)
             else:
                 channel = "outbox"
 
         result = self._record(subject, recipients, filename, eml_name, sent=sent,
                               channel=channel, sp_path=record_path, sp_saved=sp_saved,
-                              sp_url=sp_url, sp_error=sp_err)
+                              sp_url=sp_url, sp_error=sp_err, leg_id=leg_id)
         return result
 
     # -- internals ----------------------------------------------------------
@@ -349,7 +359,8 @@ class EmailService:
             return False, None, str(exc)
 
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
-                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
+                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="",
+                leg_id: int, delivery_status: str = "") -> DeliveryResult:
         # Email that already reached an inbox is success even if a folder
         # upload failed. Failing that used to make the scheduler retry and
         # Graph would send a second copy (test-mode Test folder is the usual case).
@@ -368,7 +379,10 @@ class EmailService:
                 error = sp_miss
         email_delivered = bool(recipients) and not error
         ok = (email_delivered or sp_saved) and not error
-        status = "sent" if (ok and sent) else ("outbox" if ok else "failed")
+        status = delivery_status or ("sent" if (ok and sent) else ("prepared" if ok else "failed"))
+        if sent:
+            self.delivery_legs.update(leg_id, status="accepted")
+        self.delivery_legs.update(leg_id, status=status, error=error)
         if not channel and recipients and ok and not sent:
             channel = "outbox"
         outbox_id = self.outbox.enqueue(
@@ -381,4 +395,5 @@ class EmailService:
             ok=ok, error=error, recipients=recipients, eml_name=eml_name,
             sent_via_smtp=sent, send_channel=channel, sharepoint_saved=sp_saved,
             sharepoint_url=sp_url, sharepoint_error=sp_error, outbox_id=outbox_id,
+            delivery_status=status,
         )

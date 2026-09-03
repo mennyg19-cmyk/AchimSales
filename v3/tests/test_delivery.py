@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import io
+import urllib.error
+
 import pytest
 
 from web.config import Config
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.outbox import OutboxRepository
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.delivery.email import MAX_GRAPH_ATTACH_BYTES, EmailService, split_recipients
-from web.delivery.graph_mail import GraphMailError
+from web.delivery.graph_mail import GraphMailError, GraphMailer
 from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.service import DeliveryService
 from web.delivery.onedrive import onedrive_children_url
@@ -197,7 +201,7 @@ def test_email_writes_eml_and_logs_outbox(email):
     assert res.sent_via_smtp is False
     assert (cfg.outbox_dir / res.eml_name).exists()
     row = OutboxRepository(db).get(res.outbox_id)
-    assert row and row.status == "outbox" and row.attachment_meta["filename"] == "ordered.xlsx"
+    assert row and row.status == "prepared" and row.attachment_meta["filename"] == "ordered.xlsx"
 
 
 def test_email_text_only_has_no_attachment(email):
@@ -234,6 +238,66 @@ def test_email_sends_via_graph_when_configured(tmp_path):
     assert len(graph.calls) == 1
     assert graph.calls[0]["to"] == ["a@x.com"]
     assert OutboxRepository(db).get(res.outbox_id).status == "sent"
+
+
+def test_manual_delivery_leg_uses_durable_job_id(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        job_id="durable-job", slot_id="manual:durable-job",
+    )
+    leg = DeliveryLegRepository(svc.outbox.db).get_by_job("durable-job")[0]
+    assert res.delivery_status == "sent"
+    assert leg.slot_id == "manual:durable-job" and leg.status == "sent"
+
+
+def test_unknown_graph_delivery_keeps_unknown_leg(tmp_path):
+    class ConnectionLost(_FakeGraph):
+        def send(self, **kwargs):
+            raise GraphMailError("connection lost", delivery_status="unknown")
+
+    svc = _graph_svc(tmp_path, ConnectionLost())
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        job_id="unknown-job", slot_id="manual:unknown-job",
+    )
+    leg = DeliveryLegRepository(svc.outbox.db).get_by_job("unknown-job")[0]
+    assert res.ok is False and res.delivery_status == "unknown"
+    assert leg.status == "unknown"
+
+
+def test_graph_mail_classifies_http_reject_and_connection_loss(monkeypatch):
+    mailer = GraphMailer("tenant", "client", "secret")
+    monkeypatch.setattr(mailer, "_token", lambda: "token")
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: Response())
+    assert mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="") is None
+
+    request_error = urllib.error.HTTPError(
+        "https://graph.example", 400, "bad request", {}, io.BytesIO(b"rejected"),
+    )
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(request_error))
+    with pytest.raises(GraphMailError) as rejected:
+        mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert rejected.value.delivery_status == "failed"
+
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("connection lost")),
+    )
+    with pytest.raises(GraphMailError) as unknown:
+        mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert unknown.value.delivery_status == "unknown"
 
 
 def test_email_requires_a_target(email):

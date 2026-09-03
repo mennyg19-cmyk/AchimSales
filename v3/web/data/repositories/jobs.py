@@ -80,9 +80,10 @@ class JobRepository:
         self.queue_max_age_seconds = max(1, queue_max_age_seconds)
 
     def enqueue(self, job_type: str, *, owner_user_id: int | None = None,
-                dedup_key: str | None = None, params: dict[str, Any] | None = None) -> str:
+                dedup_key: str | None = None, params: dict[str, Any] | None = None,
+                job_id: str | None = None) -> str:
         """Create a job, or return the existing active job id for the same dedup_key."""
-        job_id = uuid.uuid4().hex
+        job_id = job_id or uuid.uuid4().hex
         with self.db.precious() as conn:
             if dedup_key:
                 existing = conn.execute(

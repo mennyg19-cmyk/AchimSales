@@ -125,6 +125,17 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 **Test file:** `v3/tests/test_smoke.py`, `v3/tests/test_jobs.py`,
 `v3/tests/test_blueprints.py`
 
+## Phase 5.1 honest delivery states
+**What to test:**
+- A mail leg moves from `prepared` to `sending`, then `accepted` and `sent` on Graph success; HTTP rejection is `failed`.
+- A timeout, URL error, reset, or other connection loss after `sendMail` submission is `unknown`; the schedule retry loop must stop after that result.
+- Tick jobs keep their enqueue-time Eastern slot ID, while manual `report.deliver` jobs use `manual:{job_id}`. Cleanup removes legs older than 90 days.
+
+**Expected behavior:**
+- The durable leg, not an ambiguous outbox state, is the audit record for each email attempt. An unknown Graph send remains operator-reconcilable and is never claimed as sent or retried automatically.
+
+**Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_jobs.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

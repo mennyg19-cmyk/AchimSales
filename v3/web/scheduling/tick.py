@@ -142,11 +142,14 @@ def _consider(job_repo, runs, repo, sched, schedule_type: str, now: datetime,
     if not makeup and not regular:
         return 0
     try:
+        clock = str((getattr(sched, "cadence", None) or {}).get("time") or "").replace(":", "")
+        slot_id = f"{schedule_type}:{sched.id}:{C.eastern_date_iso(now)}:{clock}"
         enqueue_schedule_run(
             job_repo, schedule_id=sched.id, schedule_type=schedule_type,
             owner_user_id=owner_user_id,
             catch_up_for_date=skipped_iso if pending else None,
             include_regular=regular,
+            slot_id=slot_id,
         )
     except QueueAdmissionError as exc:
         log.warning("schedule %s:%s skipped this tick: %s", schedule_type, sched.id, exc)

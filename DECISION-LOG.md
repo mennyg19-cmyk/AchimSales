@@ -1,5 +1,19 @@
 # Decision Log
 
+## 2026-09-03 Phase 5.1: Graph connection loss is unknown
+**What I chose:** Record `unknown` for a timeout, URL error, reset, or other connection loss after `sendMail` is submitted; do not run the schedule retry.
+**Why:** Graph did not confirm rejection or acceptance, so retrying risks a duplicate and calling it sent is unsupported.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
+## 2026-09-03 Phase 5.1: delivery slots belong to durable jobs
+**What I chose:** Tick computes its Eastern date and schedule clock slot before enqueue; manual delivery uses `manual:{job_id}`.
+**Why:** Execution can cross Eastern midnight or retry, but it must retain the original intended delivery slot and durable job identity.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
 ## 2026-09-03 Phase 4.4: readiness response stays generic
 **What I chose:** Keep `/readyz` as `{status: ready}` or `{status: starting}` without naming a stale heartbeat or other operational detail.
 **Why:** Load balancers need only the readiness state; developers have the authenticated diagnostics route for detail.

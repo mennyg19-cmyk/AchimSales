@@ -10,6 +10,7 @@ import base64
 import html
 import json
 import logging
+import socket
 import urllib.error
 import urllib.request
 from urllib.parse import quote
@@ -23,12 +24,14 @@ _TIMEOUT_SECONDS = 60
 
 
 class GraphMailError(RuntimeError):
-    """Token failure or Graph rejected the send."""
+    """Graph send failure with its durable delivery classification."""
 
-    def __init__(self, message: str, status_code: int | None = None, detail: str = ""):
+    def __init__(self, message: str, status_code: int | None = None, detail: str = "",
+                 delivery_status: str = "failed"):
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail
+        self.delivery_status = delivery_status
 
 
 class GraphMailer:
@@ -94,19 +97,21 @@ class GraphMailer:
         payload = json.dumps({"message": message, "saveToSentItems": True}).encode("utf-8")
         url = _GRAPH_SEND_URL.format(user=quote(sender, safe=""))
         try:
-            request = urllib.request.Request(
-                url,
-                data=payload,
-                method="POST",
-                headers={
-                    "Authorization": f"Bearer {self._token()}",
-                    "Content-Type": "application/json",
-                },
-            )
-            with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-                response.read()
+            token = self._token()
         except GraphMailError:
             raise
+        request = urllib.request.Request(
+            url,
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+                response.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:500]
             log.warning("Graph sendMail failed: HTTP %s %s", exc.code, detail)
@@ -114,7 +119,10 @@ class GraphMailer:
                 f"Microsoft Graph rejected the send (HTTP {exc.code}).",
                 status_code=exc.code, detail=detail,
             ) from exc
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Graph sendMail error: %s", exc)
-            raise GraphMailError("Microsoft Graph could not be reached to send mail.") from exc
+        except (TimeoutError, socket.timeout, urllib.error.URLError, ConnectionResetError, OSError) as exc:
+            log.warning("Graph sendMail outcome is unknown after request: %s", exc)
+            raise GraphMailError(
+                "Microsoft Graph connection failed after submitting the send; delivery is unknown.",
+                delivery_status="unknown",
+            ) from exc
         log.info("Report email sent via Graph from %s to %s", sender, to)
