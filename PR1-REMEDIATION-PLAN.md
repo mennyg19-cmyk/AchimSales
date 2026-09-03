@@ -389,10 +389,11 @@ Implement only after owner decisions are recorded.
   `python3 -m pytest tests/test_report_invoiced.py -q` — 30 passed. Invoiced `builder_version` 3 so pre-fix cache is not reused. Gate closed after Loops A+B+C zero and Fable trust-boundary high 0 / medium 0.
 - [x] Add validation after D365 go-live clamping; reject an interval whose start exceeds end. Evidence: `python3 -m pytest tests/test_dates.py tests/test_params.py tests/test_blueprints.py -q` — 188 passed.
 - [x] Persist `skip_sabbath=false` in company schedule create/update.
-- [ ] Replace migration 0019 behavior with a forward correction:
-  - [ ] do not edit 0019
-  - [ ] identify legacy rows as `legacy`/unknown where possible
-  - [ ] ensure deployment-day historical rows do not suppress the next real clock slot
+- [x] Replace migration 0019 behavior with a forward correction:
+  - [x] do not edit 0019
+  - [x] identify legacy rows as `legacy`/unknown where possible
+  - [x] ensure deployment-day historical rows do not suppress the next real clock slot
+  Evidence: `python3 -m pytest tests/test_scheduling.py -q` — 51 passed. `0019_delivery_legs.sql` unchanged. `last_run_at` ignores `legacy`/`unknown` status and `output_meta.legacy`.
 - [x] Enforce kept-run expiry on result access. Evidence:
   `python3 -m pytest tests/test_blueprints.py tests/test_jobs.py -q` — 184 passed.
 - [x] Prune expired kept payloads. Evidence:
