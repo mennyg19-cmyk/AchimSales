@@ -14,12 +14,15 @@ log = logging.getLogger(__name__)
 
 Source = Literal["sql", "odata"]
 
-# Signed-off SQL reports (grill + DECISION-LOG). Everything else defaults to odata.
+# Signed-off SQL reports. customer_aging stays odata until that report is built.
 _DEFAULT_SQL = frozenset({
     "ordered",
     "invoiced",
-    "customer_activity",
     "salesman",
+    "number_4",
+    "customer_activity",
+    "customer_last_order",
+    "item_averages",
 })
 
 _ALL_KEYS = (
@@ -61,6 +64,14 @@ def ensure_schema(conn) -> None:
             "INSERT OR IGNORE INTO beta_report_sources (report_key, source) VALUES (?, ?)",
             (key, source),
         )
+    conn.execute(
+        """UPDATE beta_report_sources
+           SET source = 'sql', updated_at = datetime('now')
+           WHERE report_key IN ({})""".format(
+            ", ".join("?" for _ in _DEFAULT_SQL)
+        ),
+        tuple(_DEFAULT_SQL),
+    )
     conn.commit()
 
 

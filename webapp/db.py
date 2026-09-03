@@ -398,16 +398,13 @@ def init_db():
 
 def seed_beta_report_sources():
     """Ensure the Beta SQL/OData source map table exists with defaults."""
-    defaults = {
-        "ordered": "sql",
-        "invoiced": "sql",
-        "customer_activity": "sql",
-        "salesman": "sql",
-        "number_4": "odata",
-        "customer_last_order": "odata",
-        "item_averages": "odata",
-        "customer_aging": "odata",
-    }
+    # Keep in sync with v3/web/beta_sources.py _DEFAULT_SQL until Phase 3.2.
+    sql_keys = (
+        "ordered", "invoiced", "customer_activity", "salesman",
+        "number_4", "customer_last_order", "item_averages",
+    )
+    defaults = {key: "sql" for key in sql_keys}
+    defaults["customer_aging"] = "odata"
     conn = get_db()
     try:
         conn.execute(
@@ -422,6 +419,14 @@ def seed_beta_report_sources():
                 "INSERT OR IGNORE INTO beta_report_sources (report_key, source) VALUES (?, ?)",
                 (key, source),
             )
+        conn.execute(
+            """UPDATE beta_report_sources
+               SET source = 'sql', updated_at = datetime('now')
+               WHERE report_key IN ({})""".format(
+                ", ".join("?" for _ in sql_keys)
+            ),
+            sql_keys,
+        )
         conn.commit()
     except Exception:
         log.exception("beta_report_sources seed failed")

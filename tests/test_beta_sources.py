@@ -31,7 +31,41 @@ def test_beta_sources_default_signed_off_sql(live_mem_db, monkeypatch):
     assert sources["ordered"] == "sql"
     assert sources["invoiced"] == "sql"
     assert sources["customer_activity"] == "sql"
-    assert sources["number_4"] == "odata"
+    assert sources["number_4"] == "sql"
+    assert sources["customer_last_order"] == "sql"
+    assert sources["item_averages"] == "sql"
+
+
+def test_live_seed_upgrades_item_averages_odata(monkeypatch, tmp_path):
+    path = tmp_path / "live.db"
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            """CREATE TABLE beta_report_sources (
+                   report_key TEXT PRIMARY KEY,
+                   source TEXT NOT NULL CHECK(source IN ('sql', 'odata')),
+                   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+               )"""
+        )
+        conn.execute(
+            "INSERT INTO beta_report_sources (report_key, source) VALUES (?, ?)",
+            ("item_averages", "odata"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setattr(live_db, "DB_PATH", str(path))
+    live_db.seed_beta_report_sources()
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT source FROM beta_report_sources WHERE report_key = ?",
+            ("item_averages",),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row["source"] == "sql"
 
 
 def test_beta_sources_set_and_read(live_mem_db):
@@ -47,7 +81,7 @@ def test_beta_sources_set_and_read(live_mem_db):
     mod.set_source("number_4", "sql")
     assert mod.get_source("number_4") == "sql"
     mod.set_source("number_4", "odata")
-    assert mod.get_source("number_4") == "odata"
+    assert mod.get_source("number_4") == "sql"
 
 
 def test_beta_access_respects_flag(live_mem_db):

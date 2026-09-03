@@ -30,6 +30,21 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_auth.py`, `tests/test_magic_links.py`
 
+## Phase 3.1 SQL report coverage
+
+**What to test:**
+- Every built registry key has a SQL path: `ReportService` orchestrators cover Ordered (`_orch_ordered`), Invoiced (`_orch_invoiced`), Salesman (`_orch_salesman`), Number 4 (`_orch_number_4`), Customer Activity (`_orch_customer_activity`), Item Averages (`_orch_item_averages`), and Sales by State (`_orch_sales_by_state`).
+- Customer's Last Order uses the in-app `ReportService.last_order_rows()` call to the `customer_last_orders` stored procedure.
+- Item Averages uses the Number 4 By Item stored procedure. Sales by State uses its summary, NYC, and detail stored procedures.
+- Beta defaults Number 4, Customer's Last Order, and Item Averages to SQL. Schema setup upgrades existing `item_averages=odata` Live rows to SQL.
+
+**Expected behavior:**
+- Customer Aging remains BACKLOG and has no fake SQL path.
+- Sales by State is SQL-only because it is not a selectable hybrid source.
+- A Beta operator can run Item Averages without changing Settings.
+
+**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_sales_by_state.py`, `tests/test_beta_sources.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

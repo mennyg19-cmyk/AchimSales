@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 3.1: SQL-backed reports cannot stay on OData
+**What I had to decide:** How to make Item Averages (and Number 4 / Last Order) run SQL on Beta when Live already stored `odata` in `beta_report_sources`.
+**Options I considered:** (1) Change defaults only (`INSERT OR IGNORE` leaves existing odata). (2) One-time UPDATE of SQL-backed keys to sql on schema ensure / Live seed. (3) Jump straight to deleting the source map.
+**What I chose:** Option 2. `ensure_schema` and Live `seed_beta_report_sources` UPDATE signed-off keys to sql. Settings can still POST odata; the next read flips those keys back. Customer Aging stays odata (BACKLOG). Do not delete the Settings source UI until 3.2.
+**Why:** Gate is “Item Averages works without an operator source change.” Changing the default dict alone would not move production rows.
+**Status:** DECIDED
+
 ## 2026-09-03 Phase 2 leftover: CLI seed, magic-link Host, impersonate-unknown
 **What I had to decide:** How to close the five leftover items from the Phase 2 trust-boundary pass without failing Azure boot or adding a full rate-limit table.
 **Options I considered:** (1) Fail boot when `PUBLIC_BASE_URL` is unset in prod. (2) Warn only. (3) Leave CLI `ON CONFLICT` overwriting v3 roles. (4) Keep one live token per email vs a cooldown table. (5) 404 the role picker vs restore the developer after a missing target.
