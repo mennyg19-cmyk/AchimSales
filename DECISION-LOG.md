@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-09-03 Sales reps can be assigned additional SalesGroups
+**What you asked for:** Allow a sales rep to see another chosen sales rep's information like a manager can.
+**What I chose:** Users & access shows the existing per-salesman checkbox grid for both managers and salesmen. A salesman's primary SalesGroup is always included, and admins/developers can check additional groups. The login remains a salesman, so this does not grant manager reports, commissions, company-view editing, or admin access.
+**Why:** The authorization table already supports several SalesGroups per user. This exposes that scope control without promoting the rep or widening any other permission.
+**Status:** DECIDED — shipping this change.
+
 ## 2026-09-03 Drop the Users & access D365 salesman grid
 **What you asked for:** The bottom table on Users & access is unused and should be gone.
 **What I chose:** Remove the read-only "Salesmen in D365" table. SalesGroup dropdowns and manager per-salesman checkboxes still read the SP. Logins stay the only list on that page.

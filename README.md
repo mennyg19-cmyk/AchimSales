@@ -94,7 +94,8 @@ identified by SalesGroup. Users & access does not list D365 salesmen; that
 master is only the SalesGroup dropdown and manager checkboxes. A
 customer SalesGroup missing from the master is still appended to dropdowns. On
 Users & access, a **salesman** login picks a **SalesGroup** from that list;
-managers still use the per-salesman checkboxes (also from D365).
+that primary group plus any additional checked SalesGroups controls the data
+they can see. Managers use the same per-salesman checkboxes (also from D365).
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and
