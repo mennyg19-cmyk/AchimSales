@@ -64,6 +64,14 @@ _THEME_CONTRAST_PAIRS = (
 
 
 def test_theme_text_button_and_alert_contrast():
+    tokens = (_SRC / "css" / "tokens.css").read_text(encoding="utf-8")
+    for declaration in (
+        "--primary-light: #eff6ff;", "--success: #15803d;", "--error: #b91c1c;",
+        "--text-light: #64748b;", "--primary: #60a5fa;", "--primary-foreground: #0f172a;",
+        "--success: #4ade80;", "--text-light: #94a3b8;", "--text-light: #52525b;",
+        "--primary: #a1a1aa;", "--text-muted: #d4d4d8;", "--text-light: #a1a1aa;",
+    ):
+        assert declaration in tokens
     for theme, foreground, background, threshold in _THEME_CONTRAST_PAIRS:
         assert _contrast_ratio(foreground, background) >= threshold, (
             f"{theme}: {foreground} on {background} must meet {threshold}:1"
