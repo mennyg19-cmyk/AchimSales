@@ -507,9 +507,7 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
         assert not s["v3_user"].get("impersonating")
 
 
-def test_role_picker_includes_v3_user_absent_from_live(tmp_path, monkeypatch):
-    import sys
-    import types
+def test_role_picker_includes_v3_user_absent_from_live(tmp_path):
     from dataclasses import replace
 
     cfg = replace(_dev_cfg(tmp_path), is_beta=True)
@@ -518,17 +516,6 @@ def test_role_picker_includes_v3_user_absent_from_live(tmp_path, monkeypatch):
     UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer", display_name="Dev")
     UserRepository(application.config["DB"]).upsert(
         "newbie@x.com", role="salesman", display_name="New Hire")
-
-    live_db = types.ModuleType("webapp.db")
-    live_db.get_all_users = lambda: [
-        {"email": "dev@x.com", "display_name": "Dev", "role": "developer"},
-    ]
-    live_db.get_setting = lambda *a, **k: "light"
-    live_db.get_user_by_email = lambda email: None
-    webapp = types.ModuleType("webapp")
-    webapp.db = live_db
-    monkeypatch.setitem(sys.modules, "webapp", webapp)
-    monkeypatch.setitem(sys.modules, "webapp.db", live_db)
 
     client = application.test_client()
     with client.session_transaction() as s:

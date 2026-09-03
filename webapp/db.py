@@ -1245,8 +1245,8 @@ def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
     """Generate a fresh one-time login token for *email*. Returns the token.
 
     The token is URL-safe and 32 random bytes (~43 chars base64), opaque to
-    the user. We also clean out any expired tokens for the same email so
-    the table doesn't grow forever.
+    the user. Any outstanding token for the same email is replaced so only
+    one live link exists at a time.
     """
     import secrets
     from datetime import datetime, timedelta, timezone
