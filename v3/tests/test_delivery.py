@@ -330,6 +330,33 @@ def test_graph_omits_attachment_when_workbook_too_large(tmp_path):
     assert res.sharepoint_saved is True
 
 
+def test_graph_custom_html_uses_sharepoint_url_token(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {
+            "webUrl": f"mock://{folder}/{name}", "name": name, "id": "1",
+        }
+    )
+    res = svc.deliver(
+        subject="Scheduled: Daily Ordered (2026-09-03)",
+        recipients_raw="a@x.com", body_text="",
+        report_name="Ordered Report", filename="file.xlsx",
+        xlsx_bytes=b"PK\x03\x04small",
+        sharepoint_path="Ordered/Daily",
+        subject_template="{Schedule} {Period}",
+        body_html_template="<p>Hi {Schedule}</p>{DownloadButton}",
+        schedule_name="Daily Ordered",
+        params={"period": "yesterday"},
+    )
+    assert res.ok
+    call = graph.calls[0]
+    assert call["subject"] == "Daily Ordered yesterday"
+    assert "Download workbook" in (call["body_html"] or "")
+    assert "mock://Ordered/Daily/file.xlsx" in (call["body_html"] or "")
+    assert "Daily Ordered" in (call["body_html"] or "")
+
+
 def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path):
     graph = _FakeGraph()
     svc = _graph_svc(tmp_path, graph)

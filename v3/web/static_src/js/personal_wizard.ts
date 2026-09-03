@@ -230,6 +230,69 @@ function updateFilenamePreview(): void {
   });
 }
 
+function insertAtCursor(el: HTMLInputElement, token: string): void {
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  el.value = el.value.slice(0, start) + token + el.value.slice(end);
+  const pos = start + token.length;
+  el.setSelectionRange(pos, pos);
+  el.focus();
+}
+
+function insertInEditor(token: string): void {
+  const ed = document.getElementById("psEmailBody");
+  if (!ed) return;
+  ed.focus();
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || !ed.contains(sel.anchorNode)) {
+    ed.append(document.createTextNode(token));
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const node = document.createTextNode(token);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function emailHtml(): string {
+  const ed = document.getElementById("psEmailBody");
+  if (!ed) return "";
+  const html = (ed.innerHTML || "").replace(/&nbsp;/g, " ").trim();
+  if (!html || html === "<br>" || html === "<p><br></p>" || html === "<div><br></div>") return "";
+  return html;
+}
+
+function setEmailHtml(html: string): void {
+  const ed = document.getElementById("psEmailBody");
+  if (ed) ed.innerHTML = html || "";
+}
+
+function wrapSharePointLink(): void {
+  const ed = document.getElementById("psEmailBody");
+  if (!ed) return;
+  ed.focus();
+  const sel = window.getSelection();
+  const text = (sel && sel.rangeCount && ed.contains(sel.anchorNode))
+    ? sel.toString() : "";
+  const label = (text.trim() || "Open in SharePoint")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<a href="{SharePointUrl}">${label}</a>`;
+  if (sel && sel.rangeCount && ed.contains(sel.anchorNode) && text) {
+    document.execCommand("insertHTML", false, html);
+    return;
+  }
+  ed.insertAdjacentHTML("beforeend", html);
+}
+
+function resetMailFields(): void {
+  setText("psEmailSubject", "");
+  setEmailHtml("");
+}
+
 function destOn(id: string): boolean {
   return !!(document.getElementById(id) as HTMLInputElement | null)?.checked;
 }
@@ -248,6 +311,7 @@ function resetPrivilegedMail(): void {
 function resetNewScheduleDefaults(): void {
   resetPrivilegedMail();
   setText("psFilename", DEFAULT_FILENAME_TEMPLATE);
+  resetMailFields();
   updateFilenamePreview();
 }
 
@@ -343,6 +407,8 @@ async function enterEdit(row: HTMLTableRowElement): Promise<void> {
   const params = JSON.parse(row.dataset.params || "{}");
   const fn = document.getElementById("psFilename") as HTMLInputElement | null;
   if (fn) fn.value = row.dataset.filenameTemplate || DEFAULT_FILENAME_TEMPLATE;
+  setText("psEmailSubject", String(params.email_subject || ""));
+  setEmailHtml(String(params.email_html || ""));
   const ownerEmail = row.dataset.ownerEmail || "";
   const rec = row.dataset.recipients || "";
   const emailCb = document.getElementById("psEmailOwner") as HTMLInputElement | null;
@@ -498,10 +564,31 @@ export function bindPersonalWizard(): void {
     b.addEventListener("click", () => {
       const input = document.getElementById("psFilename") as HTMLInputElement | null;
       if (!input) return;
-      input.value = (input.value || "") + (b.dataset.token || "");
+      insertAtCursor(input, b.dataset.token || "");
       updateFilenamePreview();
-      input.focus();
     });
+  });
+  document.querySelectorAll<HTMLButtonElement>(".js-ps-subj-token").forEach((b) => {
+    b.addEventListener("click", () => {
+      const input = document.getElementById("psEmailSubject") as HTMLInputElement | null;
+      if (input) insertAtCursor(input, b.dataset.token || "");
+    });
+  });
+  document.querySelectorAll<HTMLButtonElement>(".js-ps-body-token").forEach((b) => {
+    b.addEventListener("click", () => insertInEditor(b.dataset.token || ""));
+  });
+  document.getElementById("psMailDownload")?.addEventListener("click", () => {
+    insertInEditor("{DownloadButton}");
+  });
+  document.getElementById("psMailBold")?.addEventListener("click", () => {
+    document.getElementById("psEmailBody")?.focus();
+    document.execCommand("bold");
+  });
+  document.getElementById("psMailLink")?.addEventListener("click", wrapSharePointLink);
+  document.getElementById("psEmailBody")?.addEventListener("paste", (ev) => {
+    ev.preventDefault();
+    const text = ev.clipboardData?.getData("text/plain") || "";
+    document.execCommand("insertText", false, text);
   });
   document.querySelectorAll<HTMLButtonElement>(".js-edit").forEach((b) => {
     b.addEventListener("click", () => {
@@ -532,6 +619,8 @@ export function bindPersonalWizard(): void {
       cadence: cad.cadence,
       email_to_owner: emailOn,
       filename_template: (document.getElementById("psFilename") as HTMLInputElement | null)?.value.trim() || "",
+      email_subject: (document.getElementById("psEmailSubject") as HTMLInputElement | null)?.value.trim() || "",
+      email_html: emailHtml(),
       email_on_no_data: !!(document.getElementById("psNoDataMe") as HTMLInputElement | null)?.checked,
       onedrive_path: odPath,
       sharepoint_path: spOn ? spPath : "",

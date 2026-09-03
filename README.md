@@ -108,7 +108,10 @@ By Order ungrouped. Company views can store a date window when you check
 that box on Save this view; they can still be saved without one. Company
 schedules supply their own YTD / MTD / yesterday at send time. Managers who have the flag can edit
 them from Saved views. Personal schedules send a **named saved view** (3
-steps: view, when, where). Admins and developers can also schedule **Default**
+steps: view, when, where). The Where step can set an email subject and HTML
+body with the same `{Schedule}` / `{Period}` chips as the filename, plus
+`{SharePointUrl}` and `{DownloadButton}` (Outlook-safe). Leave them blank for
+the usual auto subject and note. Admins and developers can also schedule **Default**
 and named **company views** (Daily Ordered, Heshy Open Orders) from More →
 Schedule or the personal wizard Company group. Company schedules stay on the
 old 5-step wizard under Settings (admins and developers) but that add/edit UI is

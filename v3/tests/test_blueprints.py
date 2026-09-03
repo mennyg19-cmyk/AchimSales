@@ -689,6 +689,54 @@ def test_schedule_put_without_dates_keeps_window_and_me_only(tmp_path):
     assert row.params.get("email_on_no_data_me_only") is True
 
 
+def test_schedule_stores_email_subject_and_html(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    vid = _named_view(client)
+    created = client.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "email_subject": "{Schedule} {Period}",
+        "email_html": "<p>Get it {DownloadButton}</p>",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201, created.get_data(as_text=True)
+    from web.data.repositories.schedules import ScheduleRepository
+    sid = created.get_json()["id"]
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    row = ScheduleRepository(app.config["DB"]).get(sid, uid)
+    assert row.params.get("email_subject") == "{Schedule} {Period}"
+    assert "{DownloadButton}" in (row.params.get("email_html") or "")
+    dirty = client.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "09:00"},
+        "email_html": '<p>Hi</p><script>alert(1)</script><a href="javascript:alert(1)">x</a>',
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert dirty.status_code == 201, dirty.get_data(as_text=True)
+    dirty_row = ScheduleRepository(app.config["DB"]).get(dirty.get_json()["id"], uid)
+    stored_html = dirty_row.params.get("email_html") or ""
+    assert "<script" not in stored_html.lower()
+    assert "javascript:" not in stored_html.lower()
+    assert "Hi" in stored_html
+    kept = client.put(f"/api/schedules/{sid}", json={
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "email_to_owner": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert kept.status_code == 200, kept.get_data(as_text=True)
+    row = ScheduleRepository(app.config["DB"]).get(sid, uid)
+    assert row.params.get("email_subject") == "{Schedule} {Period}"
+    cleared = client.put(f"/api/schedules/{sid}", json={
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "email_to_owner": True,
+        "email_subject": "",
+        "email_html": "",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert cleared.status_code == 200
+    row = ScheduleRepository(app.config["DB"]).get(sid, uid)
+    assert not row.params.get("email_subject")
+    assert not row.params.get("email_html")
+
+
 def test_admin_cancels_unowned_schedule_job(tmp_path):
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
     app = _make_app(tmp_path)

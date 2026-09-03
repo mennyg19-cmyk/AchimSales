@@ -97,6 +97,35 @@
                 <span class="ms-filename-preview">Will save as <strong id="psFilenamePreview"></strong></span>
             </label>
 
+            <label class="ms-field ms-field-block">
+                <span>Email subject (optional)</span>
+                <input type="text" id="psEmailSubject" maxlength="240"
+                       placeholder="Leave blank for Scheduled: view name (date)">
+                <span class="ms-field-hint">Insert:
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Schedule}">Schedule</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Report}">Report</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Period}">Period</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Month}">Month</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{DD}">DD</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{SharePointUrl}">SharePoint URL</button>
+                </span>
+            </label>
+            <div class="ms-field ms-field-block">
+                <span>Email body (optional HTML)</span>
+                <div class="ms-mail-toolbar" role="toolbar" aria-label="Email body">
+                    <button type="button" class="btn btn-sm btn-outline" id="psMailBold">Bold</button>
+                    <button type="button" class="btn btn-sm btn-outline" id="psMailLink">SharePoint link</button>
+                    <button type="button" class="fn-token" id="psMailDownload" data-token="{DownloadButton}">Download button</button>
+                    <button type="button" class="fn-token js-ps-body-token" data-token="{SharePointUrl}">SharePoint URL</button>
+                    <button type="button" class="fn-token js-ps-body-token" data-token="{Schedule}">Schedule</button>
+                    <button type="button" class="fn-token js-ps-body-token" data-token="{Filename}">Filename</button>
+                </div>
+                <div id="psEmailBody" class="ms-mail-editor" contenteditable="true" role="textbox"
+                     aria-label="Email body" data-placeholder="Leave blank for the usual note. Insert a download button or SharePoint link for large files."></div>
+                <span class="ms-field-hint">Outlook-safe HTML. Blank keeps today’s auto text. Tokens fill in when the mail sends.</span>
+            </div>
+
             <label class="ms-choice" id="psEmailOwnerRow">
                 <input type="checkbox" id="psEmailOwner" checked>
                 Email to <span id="psOwnerName">{{ current_user_name }}</span>

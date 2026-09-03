@@ -281,6 +281,13 @@ def test_report_viewer_meeting_ux():
     assert "company views and Default" in personal
     assert 'data-user-name="{{ current_user_name }}"' in personal
     assert "picked.owner.user_id !== 0" in wiz_js
+    assert 'id="psEmailSubject"' in personal
+    assert 'id="psEmailBody"' in personal
+    assert "{DownloadButton}" in personal
+    assert "{SharePointUrl}" in personal
+    assert "email_subject:" in wiz_js
+    assert "email_html: emailHtml()" in wiz_js
+    assert "function wrapSharePointLink" in wiz_js
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
 

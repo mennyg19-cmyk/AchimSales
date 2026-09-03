@@ -14,6 +14,7 @@ from web.auth.decorators import require_login
 from web.auth.principal import ROLE_MANAGER
 from web.auth.session import current_principal
 from web.delivery.email import split_recipients
+from web.delivery.email_template import sanitize_html
 from web.delivery.filename_template import DEFAULT_FILENAME_TEMPLATE
 from web.data.repositories.report_defaults import (
     DEFAULT_VIEW_NAME,
@@ -237,6 +238,7 @@ _VIEW_SOURCE_COMPANY = "company"
 _DELIVERY_PARAM_KEYS = {
     "email_on_no_data", "email_on_no_data_me_only",
     "email_cc", "email_bcc", "folder_kind", "view_source",
+    "email_subject", "email_html",
 }
 
 
@@ -404,6 +406,24 @@ def _delivery_params(body: dict, view_params: dict, *, privileged: bool) -> dict
         params.pop("email_cc", None)
         params.pop("email_bcc", None)
     return params
+
+
+def _apply_mail_templates(params: dict, body: dict, existing_params: dict | None = None) -> None:
+    src = existing_params or {}
+    for key in ("email_subject", "email_html"):
+        if key in body:
+            raw = body.get(key)
+            text = raw.strip() if isinstance(raw, str) else ""
+            if key == "email_html" and text:
+                text = sanitize_html(text).strip()
+            elif key == "email_subject" and text:
+                text = text.replace("\n", " ").strip()[:240]
+            if text:
+                params[key] = text
+            else:
+                params.pop(key, None)
+        elif src.get(key):
+            params[key] = src[key]
 
 
 def _personal_or_404(schedule_id: int, p):
@@ -669,6 +689,7 @@ def create_schedule():
         params = _delivery_params(body, view_params, privileged=privileged)
         params.update(folder_extra)
         _stamp_view_source(params, company=False)
+        _apply_mail_templates(params, body)
         sid = _repo().create(
             owner.id, report_key, params=params,
             layout={}, cadence=cadence,
@@ -693,6 +714,7 @@ def create_schedule():
         params = _delivery_params(body, dict(cv.params or {}), privileged=privileged)
         params.update(folder_extra)
         _stamp_view_source(params, company=True)
+        _apply_mail_templates(params, body)
         sid = _repo().create(
             owner.id, cv.report_key, params=params,
             layout=cv.layout or {}, cadence=cadence,
@@ -716,6 +738,7 @@ def create_schedule():
     params = _delivery_params(body, preset.params, privileged=privileged)
     params.update(folder_extra)
     _stamp_view_source(params, company=False)
+    _apply_mail_templates(params, body)
     sid = _repo().create(
         owner.id, preset.report_key, params=params,
         layout=preset.layout or {}, cadence=cadence,
@@ -802,6 +825,7 @@ def update_schedule(schedule_id: int):
         _stamp_view_source(params, company=_parse_company_view_id(body) is not None)
     else:
         _stamp_view_source(params, company=_is_company_view_schedule(existing.params))
+    _apply_mail_templates(params, body, existing.params)
     ok = _repo().update(
         schedule_id, existing.owner_user_id, params=params,
         layout=layout, cadence=cadence,

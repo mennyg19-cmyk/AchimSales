@@ -419,6 +419,8 @@ class ScheduleRunner:
                         ),
                         schedule_name=schedule_name,
                         body_text=send_body,
+                        subject_template=str(params.get("email_subject") or ""),
+                        body_html_template=str(params.get("email_html") or ""),
                     )
                 if not outcome.result.ok:
                     if _inbox_already_got_mail(outcome.result):
@@ -551,6 +553,8 @@ class ScheduleRunner:
                     None if test_to
                     else ("; ".join(test_empty) if empty_to_test else None)
                 ),
+                subject_template=str(params.get("email_subject") or ""),
+                body_html_template=str(params.get("email_html") or ""),
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -641,7 +645,7 @@ class ScheduleRunner:
 _DELIVERY_PARAM_KEYS = {
     "split_by_salesman", "email_to_salesmen", "email_salesman_keys",
     "email_cc", "email_bcc", "email_on_no_data", "email_on_no_data_me_only",
-    "folder_kind", "skip_sabbath", "view_source",
+    "folder_kind", "skip_sabbath", "view_source", "email_subject", "email_html",
 }
 
 

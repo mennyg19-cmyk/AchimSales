@@ -46,7 +46,9 @@ class DeliveryService:
                         cc_raw: str = "", bcc_raw: str = "",
                         email_on_empty: bool = True,
                         empty_recipients_override: str | None = None,
-                        schedule_name: str = "") -> DeliveryOutcome:
+                        schedule_name: str = "",
+                        subject_template: str = "",
+                        body_html_template: str = "") -> DeliveryOutcome:
         builder = self.builder_resolver(report_key)
         run_params = dict(params or {})
         if report_key == "invoiced" and invoiced_skip_commissions(run_params, layout):
@@ -95,6 +97,8 @@ class DeliveryService:
             sharepoint_path=folder or None,
             onedrive_user=(onedrive_user or "").strip() or None,
             cc_raw=cc or "", bcc_raw=bcc or "",
+            subject_template=subject_template, body_html_template=body_html_template,
+            schedule_name=schedule_name, params=params or {},
         )
         return DeliveryOutcome(result=result, row_count=rows)
 

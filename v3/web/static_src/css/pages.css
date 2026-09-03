@@ -1071,6 +1071,17 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
     text-transform: none; letter-spacing: 0; word-break: break-all;
 }
 .ms-filename-preview strong { color: var(--text); font-weight: 600; }
+.ms-mail-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.ms-mail-editor {
+    min-height: 120px; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--surface, #fff);
+    font-size: 14px; line-height: 1.45; color: var(--text);
+    text-transform: none; letter-spacing: 0; font-weight: 400;
+}
+.ms-mail-editor:empty::before {
+    content: attr(data-placeholder); color: var(--text-muted);
+}
+.ms-mail-editor:focus { outline: 2px solid var(--border-focus); outline-offset: 1px; }
 .ms-field-sp { max-width: 560px; }
 .ms-params-none {
     padding: 16px; background: var(--bg); border: 1px dashed var(--border);

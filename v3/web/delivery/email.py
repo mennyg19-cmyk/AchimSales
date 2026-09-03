@@ -26,6 +26,7 @@ from uuid import uuid4
 
 from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
+from web.delivery.email_template import apply_mail_templates, download_button_html
 from web.delivery.graph_mail import GraphMailError, GraphMailer
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.delivery.onedrive import OneDriveService
@@ -39,10 +40,6 @@ _XLSX_MIME = "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # ~33%. Keep the raw workbook under 2.5 MB or Graph rejects the send (the
 # "Microsoft Graph rejected the send (HTTP 413/400)" failure on YTD Ordered).
 MAX_GRAPH_ATTACH_BYTES = 2_500_000
-
-# Same blue as the app header / primary buttons (tokens.css --primary).
-_BTN_BG = "#2563eb"
-
 
 def split_recipients(raw: str) -> list[str]:
     parts = [x.strip() for x in re.split(r"[,;]", raw or "") if x.strip()]
@@ -90,18 +87,10 @@ def _download_email_html(intro: str, filename: str, xlsx_bytes: bytes, file_url:
         f'<p style="margin:0 0 20px;">The workbook <strong>{name_html}</strong> is '
         f"{mb:.1f} MB — too large to attach to email "
         "(Microsoft Graph rejects messages over ~3 MB).</p>"
-        '<table role="presentation" cellspacing="0" cellpadding="0" border="0" '
-        'style="margin:0 0 16px;">'
-        f'<tr><td align="center" bgcolor="{_BTN_BG}" style="border-radius:6px;'
-        f'background-color:{_BTN_BG};">'
-        f'<a href="{href}" target="_blank" '
-        'style="display:inline-block;padding:12px 22px;'
-        "font-family:Segoe UI,Calibri,Arial,sans-serif;font-size:15px;font-weight:600;"
-        'color:#ffffff;text-decoration:none;">Download workbook</a>'
-        "</td></tr></table>"
+        f"{download_button_html(file_url)}"
         '<p style="margin:0;font-size:13px;color:#64748b;">'
         "If the button does not open, copy this link:<br>"
-        f'<a href="{href}" style="color:{_BTN_BG};word-break:break-all;">{url_html}</a></p>'
+        f'<a href="{href}" style="color:#2563eb;word-break:break-all;">{url_html}</a></p>'
         "</div>"
     )
 
@@ -183,7 +172,9 @@ class EmailService:
                 report_name: str, filename: str = "", xlsx_bytes: bytes | None = None,
                 sharepoint_path: str | None = None,
                 onedrive_user: str | None = None,
-                cc_raw: str = "", bcc_raw: str = "") -> DeliveryResult:
+                cc_raw: str = "", bcc_raw: str = "",
+                subject_template: str = "", body_html_template: str = "",
+                schedule_name: str = "", params: dict | None = None) -> DeliveryResult:
         recipients = split_recipients(recipients_raw)
         cc = split_recipients(cc_raw)
         bcc = split_recipients(bcc_raw)
@@ -215,6 +206,14 @@ class EmailService:
         body, body_html = _email_bodies(
             body_text, report_name, filename, xlsx_bytes, attach, sp_url,
             folder_path=upload_path if (sp_saved and not sp_url) else None)
+        subject, body, body_html = apply_mail_templates(
+            subject_default=subject, body_text_default=body,
+            body_html_default=body_html,
+            subject_template=subject_template, body_html_template=body_html_template,
+            report_name=report_name, schedule_name=schedule_name or report_name,
+            filename=filename, file_url=sp_url or "", params=params,
+            attached=attach is not None,
+        )
         msg = self._compose(subject, recipients, body, report_name, filename, attach,
                             cc=cc, bcc=bcc, body_html=body_html)
         eml_name = self._write_eml(msg, report_name)
@@ -233,6 +232,9 @@ class EmailService:
                         report_name=report_name, intro=body_text,
                         xlsx_bytes=xlsx_bytes, file_url=sp_url,
                         onedrive_user=onedrive_user,
+                        subject_template=subject_template,
+                        body_html_template=body_html_template,
+                        schedule_name=schedule_name, params=params,
                     )
                     if sent_url:
                         sp_url = sent_url
@@ -305,7 +307,9 @@ class EmailService:
 
     def _graph_send(self, graph, recipients, cc, bcc, subject, body, filename, attach,
                     body_html=None, *, report_name="", intro="", xlsx_bytes=None,
-                    file_url=None, onedrive_user=None):
+                    file_url=None, onedrive_user=None,
+                    subject_template="", body_html_template="",
+                    schedule_name="", params=None):
         to = recipients or [self.cfg.email_from]
         try:
             graph.send(
@@ -331,8 +335,17 @@ class EmailService:
             retry_text, retry_html = _email_bodies(
                 intro or report_name, report_name or subject, filename,
                 xlsx_bytes, None, url, folder_path=retry_folder)
+            retry_subject, retry_text, retry_html = apply_mail_templates(
+                subject_default=subject, body_text_default=retry_text,
+                body_html_default=retry_html,
+                subject_template=subject_template, body_html_template=body_html_template,
+                report_name=report_name or subject,
+                schedule_name=schedule_name or report_name or subject,
+                filename=filename, file_url=url or "", params=params,
+                attached=False,
+            )
             graph.send(
-                sender=self.cfg.email_from, to=to, subject=subject, body_text=retry_text,
+                sender=self.cfg.email_from, to=to, subject=retry_subject, body_text=retry_text,
                 body_html=retry_html, filename="", xlsx_bytes=None,
                 cc=cc or None, bcc=bcc or None,
             )

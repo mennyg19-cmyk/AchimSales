@@ -1,3 +1,9 @@
+## 2026-09-03 Schedule emails can have a subject and HTML body
+**What you asked for:** Set subject and HTML body for schedule emails, with variables and buttons (SharePoint links). Full featured.
+**What I chose:** Per-schedule fields on the personal wizard Where step. Same `{Schedule}` chips as the filename, plus `{SharePointUrl}` and `{DownloadButton}`. Small Bold / SharePoint-link toolbar, no new editor package. Blank = today’s auto mail. Tokens fill in at send time after the file is uploaded.
+**Why:** Outlook strips CSS buttons; the app already had a table-cell download button for oversized files. A Word-like editor would be a second stack that mail clients would gut.
+**Status:** DECIDED
+
 ## 2026-09-03 Company-view schedules keep their source
 **What I had to decide:** How to tell a personal schedule of a company view from a personal view of the same name.
 **What I chose:** Store `view_source=company` on the schedule params. The runner and the schedules grid resolve company_views first when that flag is set. Personal/default schedules omit it and still prefer the owner's saved view.
