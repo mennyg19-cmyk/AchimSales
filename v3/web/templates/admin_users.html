@@ -39,6 +39,7 @@
 
 <section class="settings-card">
   <input type="search" id="userSearch" class="user-search" placeholder="Search users by email or name\u2026">
+  <div class="table-wrap">
   <table class="simple-table" id="userTable">
     <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Flags</th><th></th></tr></thead>
     <tbody>
@@ -74,11 +75,13 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 
 <section class="settings-card">
   <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
   <p class="form-hint">D365 salesman master. Active is for per-salesman access checkboxes and name labels. Report filter dropdowns still come from customer SalesGroup in D365, so adding a login does not put someone on those lists.</p>
+  <div class="table-wrap">
   <table class="simple-table" id="salesmanTable">
     <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Active</th><th></th></tr></thead>
     <tbody>
@@ -98,6 +101,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </section>
 
 <!-- Edit user modal -->

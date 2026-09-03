@@ -1336,3 +1336,13 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - An adopted overlay with a heading must expose that heading as the dialog name (`aria-labelledby` or `aria-label`). The helper fills a missing name from an id'd heading.
 
 **Test file:** browser keyboard check; `cd v3 && npm run build`
+
+## Phase 8.2 admin/dashboard table reflow
+**What to test:**
+- At a 320 CSS px viewport and 200% zoom, check `/admin/users` user and salesman tables plus Customer Dashboard tiles and customer table.
+- Confirm `document.documentElement.scrollWidth <= document.documentElement.clientWidth`; scroll each inner table wrap and activate Edit, View as, and a customer link.
+
+**Expected behavior:**
+- Tables remain tables. Wide rows scroll inside `.table-wrap`; the document does not scroll sideways or hide row actions.
+
+**Test file:** authenticated browser check; `cd v3 && npm run build`
