@@ -97,11 +97,21 @@ roll back. The old name `webapp-cache` was retired after `main` became default.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
-On Users & access, a **salesman** login picks a **SalesGroup** from the same
-customer-master list as report salesman filters (not the Salesmen table).
-Managers still use the per-salesman checkboxes. The Salesmen table still holds
-number, names, split-mail, and commission. A new hire with no customers yet
-will not appear in that dropdown until D365 has them on a customer.
+The salesman master is the `salesmen_master` SP (`rpt.usp_salesmen_master`,
+`POST /api/reports/salesmen_master/run`: `Salesman`, `SalesmanName`, `Email`,
+`CommissionPercentage`). `SalesmanDirectory` (`v3/web/reporting/salesman_directory.py`)
+reads it once an hour per process and feeds every salesman dropdown (report
+filters, Users & access SalesGroup, company schedule wizard, Customer's Last
+Order), split-by-salesman email addresses, the Users & access email auto-grant,
+and the commission fallback on the Invoiced commissions cards. A new hire
+appears before they own a customer. The local Salesmen table still supplies the
+salesman number and short display name, fills any blank the SP leaves, and is
+the whole answer while the SP is unreachable. Switching a local row to
+**Active off** hides that salesman everywhere even if D365 still lists them.
+Email and commission are no longer editable in Users & access. A customer
+SalesGroup missing from the master is still appended to dropdowns. On Users &
+access, a **salesman** login picks a **SalesGroup** from that list; managers
+still use the per-salesman checkboxes.
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and
@@ -150,7 +160,10 @@ asks for an optional name; the bottom-right pill can be minimized.
 On the home site, **Settings** is the control panel (same ~800px width as Live): You,
 People, Reports, Delivery, History, and (developers) Database explorer and
 notification diagnostic. Live Email Distributions
-stay on Live only. Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
+stay on Live only. Developers can also see any Reporting API SP's raw response
+at `/api/dev/reporting/<report_id>/run` (query string = SP params, e.g.
+`/api/dev/reporting/salesmen_master/run`); nothing is dropped or scoped.
+Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
 and is restored/replicated by Litestream (same as `/test`), so Settings like
 schedule test mode survive an App Service recycle.
 

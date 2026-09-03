@@ -302,7 +302,6 @@ function openSmModal(tr: HTMLTableRowElement): void {
   (($("esNumber") as HTMLInputElement)).value = tr.dataset.number || "";
   (($("esFull") as HTMLInputElement)).value = tr.dataset.full || "";
   (($("esDisplay") as HTMLInputElement)).value = tr.dataset.display || "";
-  (($("esEmail") as HTMLInputElement)).value = tr.dataset.email || "";
   setMsg("esMsg", "");
   show("editSmModal");
 }
@@ -313,7 +312,6 @@ async function saveSm(): Promise<void> {
     number: (($("esNumber") as HTMLInputElement)).value,
     full_name: (($("esFull") as HTMLInputElement)).value,
     display_name: (($("esDisplay") as HTMLInputElement)).value,
-    email: (($("esEmail") as HTMLInputElement)).value,
   });
   if (resp.ok) window.location.reload();
   else setMsg("esMsg", (await resp.json().catch(() => ({}))).error || "Save failed", true);

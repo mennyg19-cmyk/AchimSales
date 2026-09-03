@@ -14,7 +14,7 @@
   <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
   <h1 class="page-title">Users &amp; access</h1>
   <p class="page-subtitle">{{ users|length }} users. Roles and per-salesman scope are enforced live from the database.</p>
-  <p class="form-hint">This list is logins: who can sign in, plus their saved views and personal schedules. A salesman login picks a SalesGroup from the same customer list as report filters. The Salesmen table below is still the D365 master (number, name, split-mail). A new hire with no customers yet will not appear in that dropdown.</p>
+  <p class="form-hint">This list is logins: who can sign in, plus their saved views and personal schedules. A salesman login picks a SalesGroup from the same D365 salesman list as report filters, so a new hire shows up before they own a customer. The Salesmen table below is still the local D365 salesman master (number, name, split-mail).</p>
 </div>
 
 <details class="settings-card">
@@ -29,7 +29,7 @@
     <div id="addSalesGroupWrap" hidden>
       <label class="auth-field"><span class="auth-label">SalesGroup</span>
         <select name="sales_group" id="addSalesGroup"><option value="">— none —</option></select></label>
-      <p class="form-hint" id="addSalesGroupStatus">Same list as report salesman filters. Empty until that salesman has customers in D365.</p>
+      <p class="form-hint" id="addSalesGroupStatus">Same list as report salesman filters (D365 salesman master).</p>
     </div>
     <label class="flag-row"><input type="checkbox" name="is_external"> <span>External login</span></label>
     <button type="submit" class="btn btn-primary btn-sm">Add user</button>
@@ -80,13 +80,13 @@
 
 <section class="settings-card">
   <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
-  <p class="form-hint">D365 salesman master. Active is for per-salesman access checkboxes and name labels. Report filter dropdowns still come from customer SalesGroup in D365, so adding a login does not put someone on those lists.</p>
+  <p class="form-hint">Local D365 salesman master: number and names. Email and commission now come from D365 (salesmen_master) and are shown here read-only. Active off hides a salesman from dropdowns, split-mail, and access checkboxes even if D365 still lists them.</p>
   <div class="table-wrap">
   <table class="simple-table" id="salesmanTable">
     <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Active</th><th></th></tr></thead>
     <tbody>
       {% for s in salesmen %}
-      <tr data-key="{{ s.key }}" data-number="{{ s.number }}" data-full="{{ s.full_name }}" data-display="{{ s.display_name }}" data-email="{{ s.email }}">
+      <tr data-key="{{ s.key }}" data-number="{{ s.number }}" data-full="{{ s.full_name }}" data-display="{{ s.display_name }}">
         <td>{{ s.number }}</td>
         <td class="cell-sm-name">{{ s.display_name }}</td>
         <td>{{ s.email or '—' }}</td>
@@ -127,7 +127,7 @@
 
       <div id="euSalesGroupWrap" hidden>
         <h4 class="settings-subhead">SalesGroup</h4>
-        <p class="form-hint">Same list as report salesman filters (customers in D365). A new hire with no customers yet will not appear until the customer master has them.</p>
+        <p class="form-hint">Same list as report salesman filters (D365 salesman master), including salesmen with no customers yet.</p>
         <label class="auth-field"><span class="auth-label">SalesGroup</span>
           <select id="euSalesGroup"><option value="">— none —</option></select></label>
         <p class="form-hint" id="euSalesGroupStatus"></p>
@@ -177,7 +177,7 @@
       <label class="auth-field"><span class="auth-label">Number</span><input id="esNumber" type="text"></label>
       <label class="auth-field"><span class="auth-label">Full name</span><input id="esFull" type="text"></label>
       <label class="auth-field"><span class="auth-label">Display name</span><input id="esDisplay" type="text"></label>
-      <label class="auth-field"><span class="auth-label">Email</span><input id="esEmail" type="email"></label>
+      <p class="form-hint">Email and commission come from D365 (salesmen_master) and are not edited here.</p>
     </div>
     <div class="modal-foot">
       <span style="flex:1;"></span>

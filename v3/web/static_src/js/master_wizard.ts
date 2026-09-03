@@ -473,7 +473,7 @@ async function loadSalesmen(): Promise<void> {
   if (hint) {
     hint.textContent = rows.length
       ? "Search and check salesmen. Leave empty for all."
-      : "Loading salesmen from customer master…";
+      : "Loading salesmen…";
   }
 }
 

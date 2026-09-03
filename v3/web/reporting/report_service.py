@@ -113,6 +113,8 @@ def _resolved_year(params: dict) -> int:
 class ReportService:
     def __init__(self, client, salesmen_repo, *, customer_mirror: CustomerMirror | None = None):
         self.client = client
+        # Anything with all_as_facts(): in the app this is the SalesmanDirectory
+        # (SP-backed, local table as fallback); tests pass a plain repo/fake.
         self.salesmen_repo = salesmen_repo
         self.customer_mirror = customer_mirror
 

@@ -8,12 +8,15 @@ from report_engine.facts import SalesmanFact
 from report_engine.lib import salesman_key
 from report_engine.sources import invoiced as src_invoiced
 from report_engine.sources import ordered as src_ordered
+from web.data.repositories.salesmen import SalesmanRow
 from web.reporting.http_client import ReportResult, ReportingApiError
 from web.reporting.report_service import ReportService, fill_invoiced_sales_group, invoiced_skip_commissions
 
 
 class _FakeClient:
     """Returns canned rows per report_id; records the report_ids requested."""
+
+    configured = True
 
     def __init__(self, rows_by_id: dict, fail_ids: set | None = None):
         self.rows_by_id = rows_by_id
@@ -38,10 +41,21 @@ class _FakeSalesmenRepo:
             key="redwards", number="080",
             full_name="Reggie Edwards", display_name="Reggie", commission_pct=0.05)}
 
+    def list_all(self):
+        return [SalesmanRow(key="redwards", number="080", full_name="Reggie Edwards",
+                            display_name="Reggie", email="r@x.com", is_active=True)]
+
 
 def _svc(rows_by_id, fail_ids=None, mirror=None):
     return ReportService(_FakeClient(rows_by_id, fail_ids), _FakeSalesmenRepo(),
                          customer_mirror=mirror)
+
+
+def _lookup(svc, **kwargs):
+    from web.reporting.lookups import LookupService
+    from web.reporting.salesman_directory import SalesmanDirectory
+
+    return LookupService(svc, SalesmanDirectory(svc.client, _FakeSalesmenRepo()), **kwargs)
 
 
 def test_unknown_report_raises():
@@ -362,17 +376,85 @@ def test_salesman_report_scoped_user_cannot_pick_another_salesman():
 def test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key():
     """The salesman dropdown VALUE must be the raw SalesGroup the SP expects.
     Before the universe warms we return [] (never the normalized master keys)."""
-    from web.reporting.lookups import LookupService
-
     svc = _svc({"customer_master": [
         {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "REdwards"},
     ]})
-    lk = LookupService(svc, _FakeSalesmenRepo())
+    lk = _lookup(svc)
     assert lk.salesmen() == []          # not warm yet -> no (wrong) fallback values
     lk._populate()
     sm = lk.salesmen()
     assert [r["key"] for r in sm] == ["REdwards"]   # raw, not "redwards"
     assert sm[0]["name"] == "Reggie"                # display enriched from master
+
+
+_MASTER_ROWS = [
+    {"SalesGroup": "HKaufman", "SalesmanName": "Heshy Kaufman", "IsActive": 1},
+    {"SalesGroup": "REdwards", "SalesmanName": "", "IsActive": 1},
+    {"SalesGroup": "XOld", "SalesmanName": "Retired Rep", "IsActive": 0},
+    {"SalesGroup": "", "SalesmanName": "Blank key"},
+]
+
+
+def test_lookup_salesmen_come_from_salesmen_master_even_without_customers():
+    """The dropdown list is the salesmen_master SP: a salesman with no customers
+    still appears, inactive/blank rows are dropped, names come from the SP with
+    the v3 table's display name as the fallback."""
+    svc = _svc({
+        "customer_master": [
+            {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        ],
+        "salesmen_master": _MASTER_ROWS,
+    })
+    lk = _lookup(svc)
+    lk._populate()
+    assert "salesmen_master" in svc.client.calls
+    sm = lk.salesmen()
+    assert [r["key"] for r in sm] == ["HKaufman", "REdwards"]
+    assert sm[0]["name"] == "Heshy Kaufman"    # from the SP
+    assert sm[1]["name"] == "Reggie"           # SP blank -> v3 table overlay
+    status = lk.status()
+    assert status["master_row_count"] == 2
+    assert status["master_raw_count"] == 4
+    assert status["master_columns"] == ["IsActive", "SalesGroup", "SalesmanName"]
+    assert status["master_error"] is None
+
+
+def test_lookup_status_names_unknown_master_columns():
+    """When the SP answers but with column names the adapter does not know, the
+    status shows raw rows > 0, kept rows == 0, and the columns to add."""
+    svc = _svc({"salesmen_master": [{"RepNo": "7", "RepLabel": "Someone"}]})
+    lk = _lookup(svc)
+    lk._populate()
+    status = lk.status()
+    assert status["master_raw_count"] == 1
+    assert status["master_row_count"] == 0
+    assert status["master_columns"] == ["RepLabel", "RepNo"]
+
+
+def test_lookup_salesmen_keep_customer_groups_missing_from_master():
+    svc = _svc({
+        "customer_master": [
+            {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "House"},
+        ],
+        "salesmen_master": [{"SalesGroup": "HKaufman", "SalesmanName": "Heshy Kaufman"}],
+    })
+    lk = _lookup(svc)
+    lk._populate()
+    assert [r["key"] for r in lk.salesmen()] == ["HKaufman", "House"]
+
+
+def test_lookup_salesmen_fall_back_to_customer_groups_when_master_sp_is_down():
+    svc = _svc({
+        "customer_master": [
+            {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        ],
+    }, fail_ids={"salesmen_master"})
+    lk = _lookup(svc)
+    lk._populate()
+    assert lk.status()["status"] == "ready"    # customers still populate
+    assert [r["key"] for r in lk.salesmen()] == ["REdwards"]
+    assert lk.status()["master_row_count"] == 0
+    assert "forced failure" in lk.status()["master_error"]
 
 
 class _MirrorCustomer:
@@ -387,12 +469,10 @@ class _MirrorCustomer:
 def test_lookup_dropdowns_populate_from_mirror_before_universe_warms():
     """The dropdowns must populate from the shared persisted mirror even when
     this worker's live universe hasn't been populated yet (multi-worker case)."""
-    from web.reporting.lookups import LookupService
-
     svc = _svc({"customer_master": []})  # live universe never warmed here
     mirror = [_MirrorCustomer("100", "Acme", "REdwards"),
               _MirrorCustomer("200", "Globex", "REdwards")]
-    lk = LookupService(svc, _FakeSalesmenRepo(), mirror_customers=lambda: mirror)
+    lk = _lookup(svc, mirror_customers=lambda: mirror)
 
     custs = lk.customers()
     assert [c["key"] for c in custs] == ["100", "200"]
@@ -534,13 +614,11 @@ def test_ordered_all_time_stays_single_call():
 
 def test_ensure_customers_resyncs_then_finds():
     """ensure_customers triggers a resync; known customers return [] (no errors)."""
-    from web.reporting.lookups import LookupService
-
     svc = _svc({"customer_master": [
         {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"},
         {"CustomerAccount": "200", "CustomerName": "Globex", "SalesGroup": "JSmith"},
     ]})
-    lk = LookupService(svc, _FakeSalesmenRepo())
+    lk = _lookup(svc)
     # Before any populate, 100 is unknown (cache cold)
     assert lk.customer("100") is None
     # ensure_customers triggers a resync

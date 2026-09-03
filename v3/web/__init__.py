@@ -103,12 +103,16 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     from web.reporting.lookups import LookupService
     from web.reporting.report_service import ReportService
     from web.reporting.runner import ReportRunner
+    from web.reporting.salesman_directory import SalesmanDirectory
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler
 
     client = ReportingApiClient(cfg.reporting_api_base_url, cfg.reporting_api_key,
                                 timeout=cfg.reporting_api_timeout)
-    salesmen_repo = SalesmanRepository(db)
-    service = ReportService(client, salesmen_repo)
+    # Salesman names, emails and commission come from the salesmen_master SP;
+    # the local table fills blanks and is the fallback when that SP is down.
+    salesmen = SalesmanDirectory(client, SalesmanRepository(db))
+    app.config["SALESMAN_DIRECTORY"] = salesmen
+    service = ReportService(client, salesmen)
     cache = ReportCache(db)
     runner = ReportRunner(cache)
     worker = JobWorker(
@@ -127,7 +131,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     delivery = DeliveryService(runner, service.builder_for, email)
     worker.register(DELIVERY_JOB_TYPE, make_delivery_handler(delivery, app.config["AUTHZ"]))
 
-    schedule_runner = _build_schedule_runner(db, delivery, app.config["AUTHZ"])
+    schedule_runner = _build_schedule_runner(db, delivery, app.config["AUTHZ"], salesmen)
     worker.register(SCHEDULE_RUN_JOB_TYPE, make_schedule_run_handler(schedule_runner))
 
     dash_repo = DashboardRepository(db)
@@ -144,7 +148,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     # universe is per-process and may not be warm yet on the worker serving the
     # request. Mirrors how the test app feeds its dropdown from a refreshed table.
     app.config["LOOKUP_SERVICE"] = LookupService(
-        service, salesmen_repo, mirror_customers=dash_repo.all)
+        service, salesmen, mirror_customers=dash_repo.all)
     app.config["REPORT_CACHE"] = cache
     app.config["EXPORT_REPO"] = exports
     app.config["JOB_REPO"] = worker.repo
@@ -156,7 +160,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     app.config["SCHEDULE_RUNNER"] = schedule_runner
 
 
-def _build_schedule_runner(db, delivery, authz):
+def _build_schedule_runner(db, delivery, authz, salesmen):
     from web.data.repositories.schedules import (
         MasterScheduleRepository,
         ScheduleRepository,
@@ -168,7 +172,7 @@ def _build_schedule_runner(db, delivery, authz):
     return ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=authz, delivery=delivery,
+        authz=authz, delivery=delivery, salesmen=salesmen,
     )
 
 

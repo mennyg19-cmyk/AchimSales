@@ -9,8 +9,11 @@ whatever's cached now (possibly nothing) and the form polls ``status()`` to swap
 in the live list when it's ready.
 
 Salesman values are the raw ``SalesGroup`` strings the run endpoint pushes down
-to the SP (so the dropdown selection round-trips correctly); the display name is
-enriched from the v3 salesman master when one exists.
+to the SP (so the dropdown selection round-trips correctly). The list itself is
+the ``SalesmanDirectory`` (``rpt.usp_salesmen_master`` with the local table as
+fallback), so every salesman appears even before they own a customer. Any
+customer SalesGroup the directory does not list is appended so no filter value
+disappears.
 """
 
 from __future__ import annotations
@@ -20,16 +23,16 @@ import time
 from typing import Any
 
 from report_engine.lib import salesman_key
-from web.data.repositories.salesmen import SalesmanRepository
 from web.reporting.report_service import ReportService
+from web.reporting.salesman_directory import SalesmanDirectory
 
 
 class LookupService:
-    def __init__(self, service: ReportService, salesmen_repo: SalesmanRepository,
+    def __init__(self, service: ReportService, directory: SalesmanDirectory,
                  *, mirror_customers=None, ttl_seconds: int = 3600,
                  retry_cooldown_seconds: int = 15):
         self.service = service
-        self.salesmen_repo = salesmen_repo
+        self.directory = directory
         # Persisted customer universe (the dashboard mirror). Each gunicorn worker
         # warms its OWN in-process live cache, so a dropdown request can land on a
         # worker that hasn't populated yet; the mirror is the shared, durable
@@ -77,6 +80,7 @@ class LookupService:
         self._state.update(status="loading", started_at=time.time(),
                            finished_at=None, elapsed_ms=None, error=None)
         try:
+            self.directory.refresh()  # never raises; salesman list keeps its last good copy
             rows = self.service._customer_universe()  # facts; mirror fallback inside
             with self._lock:
                 self._rows = rows
@@ -119,34 +123,34 @@ class LookupService:
             return self._mirror_rows() or rows
         return rows
 
-    def _name_map(self) -> dict[str, str]:
-        """normalized salesman key -> display/full name (from the v3 master)."""
-        out: dict[str, str] = {}
-        for key, fact in self.salesmen_repo.all_as_facts().items():
-            out[key] = fact.display_name or fact.full_name or key
-        return out
-
     # -- public -----------------------------------------------------------
 
     def salesmen(self) -> list[dict]:
-        """Distinct salesmen for the dropdown. Never blocks.
+        """Salesmen for every dropdown on the site. Never blocks.
 
         Values are the raw ``SalesGroup`` strings the run endpoint pushes to the
-        SP, sourced from the cached customer universe and enriched with the
-        salesman master's display name. We deliberately do NOT fall back to the
-        master's keys while the universe loads: those keys are normalized
-        (lowercased) and would be the WRONG value to send the SP. The persisted
-        mirror stores the raw SalesGroup, so it's a safe source; absent both the
-        live cache and the mirror we return empty and the form polls status().
+        SP: the ``salesmen_master`` rows once the background warm-up has fetched
+        them (a new salesman with no customers appears here), plus any customer
+        SalesGroup the SP does not list. We never emit the local table's keys as
+        values: those are normalized (lowercased) and would be the WRONG value to
+        send the SP. The local table only supplies display names.
         """
-        names = self._name_map()
-        rows = self._universe()
+        names = {salesman_key(m.key): m.name for m in self.directory.rows(wait=False)}
+        out: list[dict] = []
         seen: set[str] = set()
-        for f in rows:
+        for m in self.directory.sp_rows() or []:
+            norm = salesman_key(m.key)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            out.append({"key": m.key, "name": m.name or m.key})
+        for f in self._universe():
             sg = (getattr(f, "sales_group", "") or "").strip()
-            if sg:
-                seen.add(sg)
-        out = [{"key": sg, "name": names.get(salesman_key(sg)) or sg} for sg in seen]
+            norm = salesman_key(sg)
+            if not sg or norm in seen:
+                continue
+            seen.add(norm)
+            out.append({"key": sg, "name": names.get(norm) or sg})
         return sorted(out, key=lambda r: r["name"].lower())
 
     def customers(self, salesman: str | None = None) -> list[dict]:
@@ -233,6 +237,7 @@ class LookupService:
         reason to retry forever.
         """
         state = dict(self._state)
+        state.update(self.directory.status())
         state["configured"] = self._configured
         cached = self._cached_rows()
         state["cached_row_count"] = len(cached) if cached is not None else 0
