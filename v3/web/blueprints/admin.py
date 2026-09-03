@@ -8,6 +8,8 @@ JS too. Kept separate from settings.py so the thin per-user settings stay thin.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from report_engine import registry
@@ -74,6 +76,11 @@ def _salesmen() -> SalesmanRepository:
     return SalesmanRepository(_db())
 
 
+def _directory():
+    """SP-backed salesman master (emails, commission); local table as fallback."""
+    return current_app.config["SALESMAN_DIRECTORY"]
+
+
 def _user_dict(u) -> dict:
     return {
         "id": u.id, "email": u.email, "display_name": u.display_name, "role": u.role,
@@ -99,10 +106,15 @@ def users_page():
         return blocked
     users = _users().list_all()
     built = sorted(registry.built_reports(), key=lambda s: s.title)
+    # Grid rows are the local table (number, names, Active toggle); the Email
+    # column shows what D365 says, since split-mail reads the SP now.
+    local = _salesmen().list_all()
+    emails = _directory().emails_by_keys([s.key for s in local])
+    salesmen = [replace(s, email=emails.get(s.key) or s.email) for s in local]
     return render_template(
         "admin_users.html", active_tab="settings", users=users,
         roles=VALID_ROLES, reports=[{"key": s.key, "title": s.title} for s in built],
-        salesmen=_salesmen().list_all(),
+        salesmen=salesmen,
     )
 
 
@@ -146,7 +158,7 @@ def create_user():
     if role == ROLE_SALESMAN and u.sales_group:
         _sync_salesman_access_from_group(repo, u.id, u.sales_group)
     elif role not in (ROLE_ADMIN, ROLE_DEVELOPER) and not repo.get_salesman_access(u.id):
-        matched = _salesmen().keys_for_email(email)
+        matched = _directory().keys_for_email(email)
         if matched:
             repo.set_salesman_access(u.id, matched)
     return jsonify(_user_dict(repo.get_by_id(u.id) or u)), 201
@@ -312,7 +324,8 @@ def update_salesman(key: str):
         return blocked
     body = request.get_json(silent=True) or {}
     fields: dict = {}
-    for name in ("number", "full_name", "display_name", "email"):
+    # Email is no longer editable here: it comes from D365 (salesmen_master SP).
+    for name in ("number", "full_name", "display_name"):
         if name in body:
             fields[name] = str(body[name]).strip()
     if "is_active" in body:

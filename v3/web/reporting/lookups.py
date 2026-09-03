@@ -9,53 +9,30 @@ whatever's cached now (possibly nothing) and the form polls ``status()`` to swap
 in the live list when it's ready.
 
 Salesman values are the raw ``SalesGroup`` strings the run endpoint pushes down
-to the SP (so the dropdown selection round-trips correctly). The list itself
-comes from the ``salesmen_master`` SP (``rpt.usp_salesmen_master``), which has
-every salesman even before they own a customer. If that SP is unreachable we
-fall back to the distinct SalesGroups on the customer universe, and any customer
-SalesGroup the master does not list is appended so no filter value disappears.
+to the SP (so the dropdown selection round-trips correctly). The list itself is
+the ``SalesmanDirectory`` (``rpt.usp_salesmen_master`` with the local table as
+fallback), so every salesman appears even before they own a customer. Any
+customer SalesGroup the directory does not list is appended so no filter value
+disappears.
 """
 
 from __future__ import annotations
 
-import logging
 import threading
 import time
 from typing import Any
 
-from report_engine.lib import first_of, salesman_key, text
-from web.data.repositories.salesmen import SalesmanRepository
+from report_engine.lib import salesman_key
 from web.reporting.report_service import ReportService
-
-log = logging.getLogger(__name__)
-
-_INACTIVE = {"0", "false", "no", "n"}
-
-
-_KEY_COLUMNS = ("SalesGroup", "SalesGroupId", "SalesGroupCode", "sales_group", "salesgroup",
-                "SalesmanCode", "SalesmanKey", "SalesmanId", "Salesman", "Code", "Key", "Id")
-_NAME_COLUMNS = ("SalesmanName", "SalesGroupName", "salesman_name", "Name", "name",
-                 "FullName", "full_name", "DisplayName", "display_name", "Description")
-_ACTIVE_COLUMNS = ("IsActive", "is_active", "Active", "active")
-
-
-def master_salesman(raw: dict) -> dict | None:
-    """One salesmen_master SP row -> {key, name}; None for blank or inactive rows."""
-    key = text(first_of(raw, *_KEY_COLUMNS))
-    if not key:
-        return None
-    active = first_of(raw, *_ACTIVE_COLUMNS)
-    if active is not None and text(active).lower() in _INACTIVE:
-        return None
-    return {"key": key, "name": text(first_of(raw, *_NAME_COLUMNS))}
+from web.reporting.salesman_directory import SalesmanDirectory
 
 
 class LookupService:
-    def __init__(self, service: ReportService, salesmen_repo: SalesmanRepository,
+    def __init__(self, service: ReportService, directory: SalesmanDirectory,
                  *, mirror_customers=None, ttl_seconds: int = 3600,
                  retry_cooldown_seconds: int = 15):
         self.service = service
-        self.salesmen_repo = salesmen_repo
+        self.directory = directory
         # Persisted customer universe (the dashboard mirror). Each gunicorn worker
         # warms its OWN in-process live cache, so a dropdown request can land on a
         # worker that hasn't populated yet; the mirror is the shared, durable
@@ -68,16 +45,10 @@ class LookupService:
         self._lock = threading.Lock()
         self._rows: list | None = None          # cached CustomerFact list
         self._fetched_at = 0.0
-        self._master: list[dict] | None = None  # cached salesmen_master {key, name}
         self._thread: threading.Thread | None = None
         self._state: dict[str, Any] = {
             "status": "idle", "started_at": None, "finished_at": None,
             "elapsed_ms": None, "row_count": 0, "error": None,
-            # salesmen_master diagnostics: raw = rows the SP returned, row_count =
-            # rows we kept, columns = the SP's field names (so a zero count can be
-            # traced to a failed call vs. column names the adapter does not know).
-            "master_row_count": 0, "master_raw_count": 0, "master_columns": [],
-            "master_error": None,
         }
 
     # -- internals --------------------------------------------------------
@@ -109,7 +80,7 @@ class LookupService:
         self._state.update(status="loading", started_at=time.time(),
                            finished_at=None, elapsed_ms=None, error=None)
         try:
-            self._populate_master()
+            self.directory.refresh()  # never raises; salesman list keeps its last good copy
             rows = self.service._customer_universe()  # facts; mirror fallback inside
             with self._lock:
                 self._rows = rows
@@ -126,25 +97,6 @@ class LookupService:
         finally:
             with self._lock:
                 self._thread = None
-
-    def _populate_master(self) -> None:
-        """Refresh the salesmen_master list; keep the last good one on failure."""
-        try:
-            raw_rows = self.service.salesmen_master()
-        except Exception as exc:  # noqa: BLE001 - customers still populate without it
-            log.warning("salesmen_master SP unreachable; salesman dropdown falls back "
-                        "to customer SalesGroups: %s", exc)
-            self._state["master_error"] = str(exc)
-            return
-        columns = sorted(raw_rows[0].keys()) if raw_rows and isinstance(raw_rows[0], dict) else []
-        rows = [r for r in map(master_salesman, raw_rows) if r]
-        if raw_rows and not rows:
-            log.warning("salesmen_master returned %d rows but none had a known key column;"
-                        " columns=%s", len(raw_rows), columns)
-        with self._lock:
-            self._master = rows
-        self._state.update(master_row_count=len(rows), master_raw_count=len(raw_rows),
-                           master_columns=columns, master_error=None)
 
     def _mirror_rows(self) -> list:
         """Persisted customer universe (dashboard mirror); [] if unavailable."""
@@ -171,38 +123,27 @@ class LookupService:
             return self._mirror_rows() or rows
         return rows
 
-    def _name_map(self) -> dict[str, str]:
-        """normalized salesman key -> display/full name (from the v3 master)."""
-        out: dict[str, str] = {}
-        for key, fact in self.salesmen_repo.all_as_facts().items():
-            out[key] = fact.display_name or fact.full_name or key
-        return out
-
     # -- public -----------------------------------------------------------
 
     def salesmen(self) -> list[dict]:
         """Salesmen for every dropdown on the site. Never blocks.
 
         Values are the raw ``SalesGroup`` strings the run endpoint pushes to the
-        SP. The list is the ``salesmen_master`` SP when this worker has fetched
-        it (so a new salesman with no customers still appears), plus any customer
-        SalesGroup the master does not list. Before the master is fetched, or if
-        that SP is down, it is the distinct SalesGroups on the customer universe.
-        Names: the SP's name, else the v3 salesmen table's display name, else the
-        raw key. We never fall back to the v3 table's keys: those are normalized
-        (lowercased) and would be the WRONG value to send the SP.
+        SP: the ``salesmen_master`` rows once the background warm-up has fetched
+        them (a new salesman with no customers appears here), plus any customer
+        SalesGroup the SP does not list. We never emit the local table's keys as
+        values: those are normalized (lowercased) and would be the WRONG value to
+        send the SP. The local table only supplies display names.
         """
-        names = self._name_map()
-        with self._lock:
-            master = list(self._master or [])
+        names = {salesman_key(m.key): m.name for m in self.directory.rows(wait=False)}
         out: list[dict] = []
         seen: set[str] = set()
-        for row in master:
-            norm = salesman_key(row["key"])
+        for m in self.directory.sp_rows() or []:
+            norm = salesman_key(m.key)
             if norm in seen:
                 continue
             seen.add(norm)
-            out.append({"key": row["key"], "name": row["name"] or names.get(norm) or row["key"]})
+            out.append({"key": m.key, "name": m.name or m.key})
         for f in self._universe():
             sg = (getattr(f, "sales_group", "") or "").strip()
             norm = salesman_key(sg)
@@ -296,6 +237,7 @@ class LookupService:
         reason to retry forever.
         """
         state = dict(self._state)
+        state.update(self.directory.status())
         state["configured"] = self._configured
         cached = self._cached_rows()
         state["cached_row_count"] = len(cached) if cached is not None else 0

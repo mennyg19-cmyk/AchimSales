@@ -113,6 +113,8 @@ def _resolved_year(params: dict) -> int:
 class ReportService:
     def __init__(self, client, salesmen_repo, *, customer_mirror: CustomerMirror | None = None):
         self.client = client
+        # Anything with all_as_facts(): in the app this is the SalesmanDirectory
+        # (SP-backed, local table as fallback); tests pass a plain repo/fake.
         self.salesmen_repo = salesmen_repo
         self.customer_mirror = customer_mirror
 
@@ -249,14 +251,6 @@ class ReportService:
     def customer_universe(self) -> list:
         """CustomerFact universe for the dashboard mirror (customer_master)."""
         return self._customer_universe()
-
-    def salesmen_master(self) -> list[dict]:
-        """Raw rows from the salesmen_master SP (every salesman, customers or not).
-
-        Raises ReportingApiError when the API is down; LookupService keeps its
-        last good list or falls back to customer SalesGroups.
-        """
-        return self._rows("salesmen_master", {})
 
     def all_orders(self) -> list:
         """All-time OrderLineFacts (go-live..today) for cadence metrics.

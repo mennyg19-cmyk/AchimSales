@@ -78,15 +78,21 @@ roll back. The old name `webapp-cache` was retired after `main` became default.
 
 Users authenticate with Microsoft Entra ID and can run any report on demand.
 
-Every salesman dropdown (report filters, Users & access SalesGroup, company
-schedule wizard, Customer's Last Order) is the `salesmen_master` SP
-(`rpt.usp_salesmen_master`, `POST /api/reports/salesmen_master/run`). That list
-has every salesman, so a new hire appears before they own a customer. If that SP
-is down the dropdown falls back to the distinct SalesGroups on the customer
-master; a customer SalesGroup missing from the master is still appended. On
-Users & access, a **salesman** login picks a **SalesGroup** from that list.
-Managers still use the per-salesman checkboxes. The local Salesmen table still
-holds number, names, split-mail, and commission.
+The salesman master is the `salesmen_master` SP (`rpt.usp_salesmen_master`,
+`POST /api/reports/salesmen_master/run`: `Salesman`, `SalesmanName`, `Email`,
+`CommissionPercentage`). `SalesmanDirectory` (`v3/web/reporting/salesman_directory.py`)
+reads it once an hour per process and feeds every salesman dropdown (report
+filters, Users & access SalesGroup, company schedule wizard, Customer's Last
+Order), split-by-salesman email addresses, the Users & access email auto-grant,
+and the commission fallback on the Invoiced commissions cards. A new hire
+appears before they own a customer. The local Salesmen table still supplies the
+salesman number and short display name, fills any blank the SP leaves, and is
+the whole answer while the SP is unreachable. Switching a local row to
+**Active off** hides that salesman everywhere even if D365 still lists them.
+Email and commission are no longer editable in Users & access. A customer
+SalesGroup missing from the master is still appended to dropdowns. On Users &
+access, a **salesman** login picks a **SalesGroup** from that list; managers
+still use the per-salesman checkboxes.
 
 Each report has a company **Default** view (the current tab/column layout)
 plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and

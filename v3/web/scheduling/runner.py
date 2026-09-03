@@ -85,7 +85,7 @@ class ScheduleRunner:
     def __init__(self, *, schedule_repo: ScheduleRepository,
                  master_repo: MasterScheduleRepository, run_repo: ScheduleRunRepository,
                  user_repo: UserRepository, authz: Authorization, delivery: DeliveryService,
-                 settings: AppSettingsRepository | None = None):
+                 settings: AppSettingsRepository | None = None, salesmen=None):
         self.schedule_repo = schedule_repo
         self.master_repo = master_repo
         self.run_repo = run_repo
@@ -93,6 +93,9 @@ class ScheduleRunner:
         self.authz = authz
         self.delivery = delivery
         self.settings = settings or AppSettingsRepository(user_repo.db)
+        # Split-mail addresses: the SalesmanDirectory (SP first) in the app; the
+        # local table when a test builds the runner without one.
+        self.salesmen = salesmen or SalesmanRepository(user_repo.db)
         self.defaults = ReportDefaultRepository(user_repo.db)
         self.company_views = CompanyViewRepository(user_repo.db)
 
@@ -482,9 +485,8 @@ class ScheduleRunner:
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
 
-        salesmen = SalesmanRepository(self.user_repo.db)
         for key in self._salesman_targets(params):
-            email = salesmen.get_email(key)
+            email = self.salesmen.get_email(key)
             if not email:
                 # Skip — don't fail the whole run after management copy already sent.
                 note = f"{key}: skipped - no salesman email"
@@ -562,7 +564,7 @@ class ScheduleRunner:
         if email_keys:
             return email_keys
         if _as_bool(p.get("split_by_salesman")):
-            return SalesmanRepository(self.user_repo.db).keys_with_email()
+            return self.salesmen.keys_with_email()
         return []
 
 

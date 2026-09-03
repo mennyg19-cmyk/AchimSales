@@ -41,6 +41,9 @@ class _FakeSalesmen:
     def all_as_facts(self):
         return {}
 
+    def list_all(self):
+        return []
+
 
 def _cfg(tmp_path) -> Config:
     return Config(
@@ -514,17 +517,54 @@ def test_admin_salesman_active_toggle(tmp_path):
     assert rows["redwards"].is_active is False
 
 
-def test_admin_can_update_salesman_email(tmp_path):
+def test_admin_cannot_edit_salesman_email_anymore(tmp_path):
+    """Email comes from the salesmen_master SP now; the local copy is read-only."""
     app = _make_app(tmp_path)
     _seed_salesman(app)
     client = app.test_client()
     _login(client, app)
     resp = client.put("/api/admin/salesmen/redwards", json={"email": "rep@x.com"},
                       headers={"X-CSRF-Token": _CSRF})
-    assert resp.status_code == 200
+    assert resp.status_code == 404  # no editable fields
     from web.data.repositories.salesmen import SalesmanRepository
     rows = {s.key: s for s in SalesmanRepository(app.config["DB"]).list_all()}
-    assert rows["redwards"].email == "rep@x.com"
+    assert rows["redwards"].email == ""
+    html = client.get("/admin/users").get_data(as_text=True)
+    assert 'id="esEmail"' not in html
+
+
+def test_admin_salesmen_grid_shows_sp_email_and_split_mail_uses_it(tmp_path):
+    """The SP's Email wins over the local table for the grid, the wizard's
+    salesmen-emails lookup, and the Users & access auto-grant."""
+    app = _make_app(tmp_path)
+    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
+    SalesmanRepository(app.config["DB"]).upsert_many([
+        SalesmanSeed(raw_key="REdwards", number="42", full_name="R Edwards",
+                     display_name="REdwards", email="old@x.com"),
+    ])
+    _with_lookups(app, [], master_rows=[
+        {"Salesman": "REdwards", "SalesmanName": "Reggie Edwards", "Email": "reggie@x.com",
+         "CommissionPercentage": 5},
+        {"Salesman": "NewHire", "SalesmanName": "New Hire", "Email": "new@x.com",
+         "CommissionPercentage": 0.04},
+    ])
+    client = app.test_client()
+    _login(client, app)
+    html = client.get("/admin/users").get_data(as_text=True)
+    assert "reggie@x.com" in html and "old@x.com" not in html
+    emails = client.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
+    assert {(r["key"], r["email"]) for r in emails} == {
+        ("REdwards", "reggie@x.com"), ("NewHire", "new@x.com")}
+    created = client.post("/api/admin/users", json={"email": "new@x.com", "role": "salesman"},
+                          headers={"X-CSRF-Token": _CSRF})
+    uid = created.get_json()["id"]
+    keys = client.get(f"/api/admin/users/{uid}/salesman-access").get_json()["keys"]
+    assert keys == ["newhire"]
+    facts = app.config["SALESMAN_DIRECTORY"].all_as_facts()
+    assert facts["redwards"].number == "42"                 # still local
+    assert facts["redwards"].full_name == "Reggie Edwards"  # from the SP
+    assert facts["redwards"].commission_pct == 0.05         # 5 -> fraction
+    assert facts["newhire"].commission_pct == 0.04
 
 
 def test_run_requires_csrf(tmp_path):
@@ -919,13 +959,18 @@ def _with_lookups(app, rows, master_rows=None):
     """Replace the app's LookupService with one over a configured fake client
     that returns `rows` for customer_master (and `master_rows` for
     salesmen_master), and populate it synchronously."""
+    from web.data.repositories.salesmen import SalesmanRepository
     from web.reporting.lookups import LookupService
+    from web.reporting.salesman_directory import SalesmanDirectory
 
     by_report = {"customer_master": rows, "salesmen_master": master_rows or []}
-    service = ReportService(_FakeClient(by_report, configured=True), _FakeSalesmen())
-    lookup = LookupService(service, _FakeSalesmen())
+    client = _FakeClient(by_report, configured=True)
+    directory = SalesmanDirectory(client, SalesmanRepository(app.config["DB"]))
+    service = ReportService(client, directory)
+    lookup = LookupService(service, directory)
     lookup._populate()  # synchronous fetch so the endpoints are deterministic
     app.config["LOOKUP_SERVICE"] = lookup
+    app.config["SALESMAN_DIRECTORY"] = directory
 
 
 def test_salesmen_and_customers_lookups(tmp_path):
@@ -2061,7 +2106,7 @@ def test_master_schedule_lookups_admin_only(tmp_path):
     _login(mgr, app, email="mgr@x.com", role="manager")
     assert mgr.get("/api/master-schedules/lookups/salesmen").status_code == 403
     sm_emails = admin.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
-    assert sm_emails == [{"email": "m@x.com", "key": "MKolko", "name": "MKolko"}]
+    assert sm_emails == [{"email": "m@x.com", "key": "MKolko", "name": "M Kolko"}]
     cust = admin.get("/api/master-schedules/lookups/customers").get_json()["customers"]
     assert {c["key"] for c in cust} == {"100", "200"}
     st = admin.get("/api/master-schedules/lookups/status").get_json()

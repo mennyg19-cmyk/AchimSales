@@ -78,12 +78,12 @@
 
 <section class="settings-card">
   <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
-  <p class="form-hint">D365 salesman master. Active is for per-salesman access checkboxes and name labels. Report filter dropdowns come from the D365 salesman master, so adding a login here does not put someone on those lists.</p>
+  <p class="form-hint">Local D365 salesman master: number and names. Email and commission now come from D365 (salesmen_master) and are shown here read-only. Active off hides a salesman from dropdowns, split-mail, and access checkboxes even if D365 still lists them.</p>
   <table class="simple-table" id="salesmanTable">
     <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Active</th><th></th></tr></thead>
     <tbody>
       {% for s in salesmen %}
-      <tr data-key="{{ s.key }}" data-number="{{ s.number }}" data-full="{{ s.full_name }}" data-display="{{ s.display_name }}" data-email="{{ s.email }}">
+      <tr data-key="{{ s.key }}" data-number="{{ s.number }}" data-full="{{ s.full_name }}" data-display="{{ s.display_name }}">
         <td>{{ s.number }}</td>
         <td class="cell-sm-name">{{ s.display_name }}</td>
         <td>{{ s.email or '—' }}</td>
@@ -173,7 +173,7 @@
       <label class="auth-field"><span class="auth-label">Number</span><input id="esNumber" type="text"></label>
       <label class="auth-field"><span class="auth-label">Full name</span><input id="esFull" type="text"></label>
       <label class="auth-field"><span class="auth-label">Display name</span><input id="esDisplay" type="text"></label>
-      <label class="auth-field"><span class="auth-label">Email</span><input id="esEmail" type="email"></label>
+      <p class="form-hint">Email and commission come from D365 (salesmen_master) and are not edited here.</p>
     </div>
     <div class="modal-foot">
       <span style="flex:1;"></span>

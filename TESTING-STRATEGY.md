@@ -2,6 +2,19 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Salesman email and commission come from the salesmen_master SP
+
+**What to test:**
+- `SalesmanDirectory.rows()`: SP `Email` / `CommissionPercentage` / `SalesmanName` win; local table fills blanks; `6` becomes `0.06`; a local row with Active off hides the SP row; active local rows the SP lacks are appended.
+- `all_as_facts()`: number and short display name stay local; full name and commission come from the SP.
+- `get_email`, `emails_by_keys`, `keys_with_email`, `keys_for_email` read the merged list. Before the SP answers (or unconfigured) they read the local table with the old raw-key rule.
+- One SP call per TTL; a failure waits the cooldown before retrying; `rows(wait=False)` never calls the SP.
+- Users & access: Salesmen grid Email column shows the SP address; `PUT /api/admin/salesmen/<key>` with only `email` is 404; `#esEmail` is gone.
+- Wizard `salesmen-emails` and the new-user auto-grant use the SP address. Schedule runner split-mail uses the directory (`salesmen=` kwarg).
+- `LookupService.salesmen()` values come from `sp_rows()` (never local normalized keys); names for customer-only groups still come from the directory.
+
+**Test file:** `v3/tests/test_salesman_directory.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`
+
 ## Developer raw Reporting API passthrough
 
 **What to test:**

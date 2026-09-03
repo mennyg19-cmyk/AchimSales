@@ -30,7 +30,6 @@ from web.data.repositories.schedules import (
     ScheduleRepository,
     ScheduleRunRepository,
 )
-from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import User, UserRepository
 from web.scheduling.personal_views import is_custom_date_params, is_schedulable_saved_view
 from web.scheduling import cadence as C
@@ -1042,11 +1041,12 @@ def master_lookup_salesmen():
 @schedules_bp.get("/api/master-schedules/lookups/salesmen-emails")
 @require_login
 def master_lookup_salesmen_emails():
-    """Raw SalesGroup values that also have an email in the salesmen table."""
+    """Raw SalesGroup values that also have an email (salesmen_master SP, local fallback)."""
     p = _principal()
     _require_admin(p)
     salesmen = _scoped_salesmen(p, _lookups().salesmen())
-    emails = SalesmanRepository(_db()).emails_by_keys([r["key"] for r in salesmen])
+    directory = current_app.config["SALESMAN_DIRECTORY"]
+    emails = directory.emails_by_keys([r["key"] for r in salesmen])
     return jsonify({"salesmen": [
         {"key": r["key"], "name": r["name"], "email": emails.get(r["key"], "")}
         for r in salesmen
