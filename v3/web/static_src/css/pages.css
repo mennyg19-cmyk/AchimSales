@@ -576,6 +576,7 @@
 .sched-day-chip:hover { border-color: var(--border-focus); }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.table-wrap > .simple-table { border: 0; border-radius: 0; }
 .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .data-table th, .data-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .data-table th { background: var(--bg); color: var(--text-muted); font-weight: 600; }
