@@ -383,7 +383,7 @@ Gate:
 
 Implement only after owner decisions are recorded.
 
-- [ ] Fix commission-card salesman number lookup to use the current bucket.
+- [x] Fix commission-card salesman number lookup to use the current bucket.
 - [ ] Define and correctly display varying commission rates.
 - [ ] Preserve explicit zero commission if the API contract says zero is authoritative.
 - [ ] Add validation after D365 go-live clamping; reject an interval whose start exceeds end.
