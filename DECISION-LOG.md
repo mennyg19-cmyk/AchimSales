@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.3: four-theme contrast
+**What I had to decide:** Next leftover after the 8.2 gate.
+**Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Next Phase 8 leftover: correct four-theme contrast failures.
+**What I chose:** (3). WCAG 2.1 AA: normal text 4.5:1, large/UI chrome 3:1. Fix by retuning existing CSS tokens and the four-theme badge/alert overrides. Do not introduce a fifth theme or restyle the app.
+**Why:** REPOSITORY-REVIEW already recorded token pairs as low as 1.35:1. The leftover is specific. Q8/Q9 and Phase 7 stay blocked.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 8.2 gate closed
+**What I chose:** Close Phase 8.2 on `7bb2ae6`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero. Loop A F1 (160 CSS px layout vs `body.zoom`) closed on `7bb2ae6`. Agent Guardrails green on HEAD. Admin/dashboard tables wrap in `.table-wrap`; tiles shrink; jobs panel cannot force 240px. Chrome CDP 320/320 and 160/160 on both routes. Ponytail: Lean already. Ship.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.2: admin/dashboard table reflow at 320px and 200% zoom
 **What I had to decide:** Next leftover after the 8.1 gate.
 **Options I considered:** (1) Q8/Q9 (still BLOCKED). (2) Rest of Phase 7 (waits on `/test` unmount). (3) Convert admin/dashboard tables to stacked cards at narrow widths. (4) Keep tables; contain overflow so the document does not scroll sideways and actions stay reachable.
