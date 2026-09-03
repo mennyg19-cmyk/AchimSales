@@ -39,14 +39,9 @@
     var btn = document.getElementById('externalLoginBtn');
     var modal = document.getElementById('externalLoginModal');
     btn.addEventListener('click', function() {
-        modal.style.display = 'flex';
-        var email = modal.querySelector('input[name="email"]');
-        setTimeout(function() { email.focus(); }, 50);
+        window.dialogs.open(modal, btn);
     });
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && modal.style.display === 'flex') closeExternalLogin();
-    });
-    window.closeExternalLogin = function() { modal.style.display = 'none'; };
+    window.closeExternalLogin = function() { window.dialogs.close(modal); };
 })();
 </script>
 {% else %}

@@ -14,6 +14,7 @@
  */
 
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
+import { closeDialog, openDialog } from "./dialog";
 
 declare const Tabulator: any;
 
@@ -3011,13 +3012,13 @@ function openEmailModal(): void {
   (($("emailSubject") as HTMLInputElement)).value = document.title || "Report";
   (($("emailRecipients") as HTMLInputElement)).value = "";
   emailMsg("", false);
-  modal.hidden = false;
+  openDialog(modal);
   emailSp.init();
 }
 
 function closeEmailModal(): void {
   const modal = $("emailModal");
-  if (modal) modal.hidden = true;
+  if (modal) closeDialog(modal);
 }
 
 async function postEmailNow(recipients: string, subject: string, sharepointPath: string): Promise<string> {
@@ -3183,7 +3184,7 @@ function openScheduleModal(): void {
   updateSchedFilenamePreview();
   schedMsg("", false);
   syncCadenceFields();
-  modal.hidden = false;
+  openDialog(modal);
   scheduleOd.init();
   if (attr("data-has-sharepoint") === "1") scheduleSp.init();
 }
@@ -3199,7 +3200,7 @@ function updateSchedFilenamePreview(): void {
 
 function closeScheduleModal(): void {
   const modal = $("scheduleModal");
-  if (modal) modal.hidden = true;
+  if (modal) closeDialog(modal);
 }
 
 function collectCadence(): { ok: boolean; cadence?: any; error?: string } {

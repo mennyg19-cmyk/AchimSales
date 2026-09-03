@@ -5,6 +5,8 @@
  * privilege-guarded server-side; this is purely UX.
  */
 
+import { closeDialog, openDialog } from "./dialog";
+
 const root = document.getElementById("adminUsers");
 const usersUrl = root?.getAttribute("data-users-url") || "";
 const csrf = root?.getAttribute("data-csrf") || "";
@@ -183,7 +185,7 @@ function initAddUser(): void {
 // --- edit user modal --------------------------------------------------------
 let editingUserId = "";
 
-function openUserModal(tr: HTMLTableRowElement): void {
+function openUserModal(tr: HTMLTableRowElement, opener: HTMLElement): void {
   editingUserId = tr.dataset.userId || "";
   const title = $("editUserTitle");
   if (title) title.textContent = `Edit ${tr.dataset.email}`;
@@ -219,7 +221,8 @@ function openUserModal(tr: HTMLTableRowElement): void {
   });
 
   setMsg("euMsg", "");
-  show("editUserModal");
+  const modal = $("editUserModal");
+  if (modal) openDialog(modal, opener);
 }
 
 async function saveUser(): Promise<void> {
@@ -318,11 +321,12 @@ function initEvents(): void {
   document.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
     if (t.closest(".btn-edit-user")) {
-      openUserModal(t.closest("tr") as HTMLTableRowElement);
+      openUserModal(t.closest("tr") as HTMLTableRowElement, t.closest<HTMLElement>(".btn-edit-user")!);
     } else if (t.closest(".btn-edit-sm")) {
       openSmModal(t.closest("tr") as HTMLTableRowElement);
     } else if (t.closest("[data-close-user]") || t.id === "editUserModal") {
-      hide("editUserModal");
+      const modal = $("editUserModal");
+      if (modal) closeDialog(modal);
     } else if (t.closest("[data-close-sm]") || t.id === "editSmModal") {
       hide("editSmModal");
     }

@@ -1322,3 +1322,16 @@ A cheaper model can use this file as a guide to run the full test suite without 
   existing `PRECIOUS_DB_PATH` interpolation or the `/test` database paths.
 
 **Test file:** `v3/tests/test_config.py`, `tests/test_startup_site_alias.py`
+
+## Phase 8.1 shared dialog helper
+**What to test:**
+- Open each named overlay: admin Edit user, SharePoint folder picker, External Rep Login, Customer Last Order export and previous-order picker, and report Email/Schedule.
+- Verify the initial field or first control receives focus; Tab and Shift+Tab stay inside; Escape and the close/cancel/backdrop controls close the overlay; focus returns to the opener.
+
+**Expected behavior:**
+- Every adopted overlay keeps its current visual treatment while exposing `role=dialog` and `aria-modal=true`, with the background inert until it closes.
+
+**Edge cases:**
+- Opening a second adopted overlay closes the first without restoring focus to its opener. A dialog with no focusable child focuses its dialog container.
+
+**Test file:** browser keyboard check; `cd v3 && npm run build`

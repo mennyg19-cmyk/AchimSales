@@ -435,8 +435,8 @@ Live gate:
 
 ## Phase 8 — Finish UI/accessibility and browser verification
 
-- [ ] Adopt the shared dialog helper for admin, SharePoint, external-login, Customer Last Order, and export dialogs.
-- [ ] Add `aria-modal`, initial focus, focus trap, Escape, inert/background isolation, and opener restoration.
+- [x] Adopt the shared dialog helper for admin, SharePoint, external-login, Customer Last Order, and export dialogs.
+- [x] Add `aria-modal`, initial focus, focus trap, Escape, inert/background isolation, and opener restoration.
 - [ ] Fix admin/dashboard table reflow at 320px and 200% zoom.
 - [ ] Correct all four-theme contrast failures.
 - [ ] Complete searchable-picker option navigation and focus return.

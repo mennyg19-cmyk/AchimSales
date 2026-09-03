@@ -4,6 +4,8 @@
  * page-loading overlay, and custom pull-to-refresh. Behavior matches live.
  */
 
+import "./dialog";
+
 declare const feather: { replace: () => void } | undefined;
 
 declare global {
