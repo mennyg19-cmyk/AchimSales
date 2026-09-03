@@ -718,6 +718,17 @@ def test_schedule_stores_email_subject_and_html(tmp_path):
     assert "<script" not in stored_html.lower()
     assert "javascript:" not in stored_html.lower()
     assert "Hi" in stored_html
+    cr_subj = client.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "10:00"},
+        "email_subject": "Nightly&#13;Bcc: victim@example.com",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert cr_subj.status_code == 201, cr_subj.get_data(as_text=True)
+    cr_row = ScheduleRepository(app.config["DB"]).get(cr_subj.get_json()["id"], uid)
+    stored_subj = cr_row.params.get("email_subject") or ""
+    assert "\r" not in stored_subj
+    assert "\n" not in stored_subj
+    assert "Bcc:" in stored_subj
     kept = client.put(f"/api/schedules/{sid}", json={
         "cadence": {"freq": "daily", "time": "08:00"},
         "email_to_owner": True,

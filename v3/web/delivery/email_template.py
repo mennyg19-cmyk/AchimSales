@@ -104,12 +104,18 @@ def html_to_text(raw: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", parser.out).strip()
 
 
+def sanitize_subject(text: str) -> str:
+    """Unfold HTML entities and strip header-illegal control characters."""
+    text = unescape(text or "")
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
+    return re.sub(r" {2,}", " ", text).strip()[:240]
+
+
 def resolve_subject(template: str, mapping: dict[str, str]) -> str:
     subj_map = dict(mapping)
     subj_map["{DownloadButton}"] = "Download workbook" if mapping.get("{FileUrl}") else ""
-    text = expand_tokens(template, subj_map)
-    text = re.sub(r"<[^>]+>", "", text)
-    return unescape(text).replace("\n", " ").strip()[:240]
+    return sanitize_subject(expand_tokens(template, subj_map))
 
 
 def apply_mail_templates(
@@ -140,6 +146,7 @@ def apply_mail_templates(
                 subject = f"[TEST] {subject}"
             if RETRY_SUBJECT_MARK in subject_default and RETRY_SUBJECT_MARK not in subject:
                 subject = f"{subject}{RETRY_SUBJECT_MARK}"
+    subject = sanitize_subject(subject)
     html_tpl = (body_html_template or "").strip()
     if not html_tpl:
         return subject, body_text_default, body_html_default

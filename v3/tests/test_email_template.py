@@ -1,10 +1,13 @@
 """Schedule email subject/HTML templates: tokens, Outlook-safe HTML, sanitizer."""
 
+from email.message import EmailMessage
+
 from web.delivery.email_template import (
     apply_mail_templates,
     download_button_html,
     resolve_subject,
     sanitize_html,
+    sanitize_subject,
     email_token_map,
     expand_tokens,
 )
@@ -142,3 +145,21 @@ def test_retry_mark_stays_on_custom_subject_and_body():
     assert "This send failed once" in text
     assert "This send failed once" in html
     assert "Hi Mine" in html
+
+
+def test_custom_subject_strips_encoded_crlf():
+    subj, _, _ = apply_mail_templates(
+        subject_default="Scheduled: X",
+        body_text_default="x", body_html_default=None,
+        subject_template="Nightly&#13;Bcc: victim@example.com",
+        body_html_template="",
+        report_name="Ordered", schedule_name="Mine",
+        filename="", file_url="", attached=True,
+    )
+    assert "\r" not in subj
+    assert "\n" not in subj
+    assert "Bcc:" in subj
+    msg = EmailMessage()
+    msg["Subject"] = subj
+    assert "Bcc:" in msg["Subject"]
+    assert "\r" not in sanitize_subject("Line&#10;two")

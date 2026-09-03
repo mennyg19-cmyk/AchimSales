@@ -14,7 +14,7 @@ from web.auth.decorators import require_login
 from web.auth.principal import ROLE_MANAGER
 from web.auth.session import current_principal
 from web.delivery.email import split_recipients
-from web.delivery.email_template import sanitize_html
+from web.delivery.email_template import sanitize_html, sanitize_subject
 from web.delivery.filename_template import DEFAULT_FILENAME_TEMPLATE
 from web.data.repositories.report_defaults import (
     DEFAULT_VIEW_NAME,
@@ -417,7 +417,7 @@ def _apply_mail_templates(params: dict, body: dict, existing_params: dict | None
             if key == "email_html" and text:
                 text = sanitize_html(text).strip()
             elif key == "email_subject" and text:
-                text = text.replace("\n", " ").strip()[:240]
+                text = sanitize_subject(text)
             if text:
                 params[key] = text
             else:
