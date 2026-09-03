@@ -1,5 +1,10 @@
 # Decision Log
 
+## 2026-09-03 Phase 5.1 Loop C: defer DeliveryContext
+**What I chose:** Keep the existing `job_id`/`run_id`/`slot_id` parameters; do not add `DeliveryContext`.
+**Why:** F1 and F2 are narrow correctness-of-pattern fixes. A shared context belongs in 5.2 if folder or notice legs need the same trio.
+**Status:** DEFERRED
+
 ## 2026-09-03 Phase 5.1: Graph connection loss is unknown
 **What I chose:** Record `unknown` for a timeout, URL error, reset, or other connection loss after `sendMail` is submitted; do not run the schedule retry.
 **Why:** Graph did not confirm rejection or acceptance, so retrying risks a duplicate and calling it sent is unsupported.

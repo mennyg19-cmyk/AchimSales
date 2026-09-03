@@ -57,6 +57,10 @@ _RECOVERED_RETRY_REASON = "an earlier worker run failed or was interrupted"
 _PRIOR_FAIL_REASON = "an earlier run of this schedule failed today"
 
 
+class UnknownDeliveryOutcome(RuntimeError):
+    """Graph may have accepted the mail; retrying could send a duplicate."""
+
+
 def _inbox_already_got_mail(result: DeliveryResult) -> bool:
     return bool(result.sent_via_smtp or result.send_channel in ("graph", "smtp"))
 
@@ -353,7 +357,7 @@ class ScheduleRunner:
                         job_id=job_id, run_id=run_id, slot_id=slot_id,
                     )
                 if outcome.result.delivery_status == "unknown":
-                    raise RuntimeError(
+                    raise UnknownDeliveryOutcome(
                         f"Delivery outcome unknown; do not retry automatically: {outcome.result.error}"
                     )
                 if not outcome.result.ok:
@@ -361,11 +365,11 @@ class ScheduleRunner:
                         return outcome
                     raise RuntimeError(outcome.result.error or "delivery failed")
                 return outcome
+            except UnknownDeliveryOutcome:
+                raise
             except Exception as exc:
                 last_error = exc
                 prior_errors.append(str(exc))
-                if "Delivery outcome unknown; do not retry automatically:" in str(exc):
-                    raise
                 if attempt >= _TRANSIENT_ATTEMPTS:
                     raise
                 log.warning(

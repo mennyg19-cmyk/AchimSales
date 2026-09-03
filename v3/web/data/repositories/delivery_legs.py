@@ -20,7 +20,15 @@ class DeliveryLeg:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "DeliveryLeg":
-        return cls(**{key: row[key] for key in cls.__dataclass_fields__})
+        return cls(
+            id=row["id"],
+            job_id=row["job_id"],
+            run_id=row["run_id"],
+            slot_id=row["slot_id"],
+            kind=row["kind"],
+            status=row["status"],
+            error=row["error"],
+        )
 
 
 class DeliveryLegRepository:
