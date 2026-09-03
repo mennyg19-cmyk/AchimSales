@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.1 Loop A F1: CSRF-first anonymous status
+**What I had to decide:** Loop A required anonymous reconcile POST to return 401, but global CSRF aborts 400 before `@require_login`.
+**Options I considered:** (1) Exempt the routes or skip CSRF when unsigned-in so login can 401 first. (2) Keep CSRF-first 400 with no session token; 401 only after a CSRF token is present but no login.
+**What I chose:** (2). No new CSRF exemptions. Same order as claim-once and precious-repair.
+**Why:** Login CSRF must stay in force for unsigned-in POSTs. The handlers still cannot run without a developer session.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.1: fail-closed leftovers first
 **What I had to decide:** Phase 6 lists many leftover defects; some need owner product calls (commission display, retention windows, external-recipient policy). This PR's 0019 is delivery_legs, not the old schedule-slot 0019.
 **Options I considered:** (1) Implement the whole Phase 6 list now. (2) Slice 6.1 to already-specified fail-closed leftovers: persist `skip_sabbath=false`, never tenant-search a substitute SharePoint site, move reconcile diagnostics off query-string secrets.

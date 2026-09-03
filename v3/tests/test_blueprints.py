@@ -725,6 +725,11 @@ def test_reconcile_diagnostics_require_developer_post_and_csrf(tmp_path):
     anonymous = app.test_client()
     for path in paths:
         assert anonymous.post(path).status_code == 400
+        with anonymous.session_transaction() as session:
+            session["_csrf_token"] = _CSRF
+        denied = anonymous.post(path, headers={"X-CSRF-Token": _CSRF})
+        assert denied.status_code == 401
+        assert denied.get_json()["error"] == "Sign in required"
 
     admin = app.test_client()
     _login(admin, app, email="admin@x.com", role="admin")

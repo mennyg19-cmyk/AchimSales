@@ -1179,12 +1179,15 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Configured SharePoint rejects a missing or unresolvable `SP_SITE_URL` and never
   queries `sites?search=achim`; non-configured local mock behavior stays intact.
 - Each reconcile diagnostic requires a signed-in developer, POST, and CSRF; it
-  ignores the removed query-string key and denies other roles.
+  ignores the removed query-string key and denies other roles. Anonymous POST
+  without a CSRF token is 400 (global CSRF runs before login). Anonymous POST
+  with a CSRF token but no session user is 401 JSON.
 
 **Expected behavior:**
 - Clock schedules skip Shabbos only when their params omit the key or set it true.
 - Graph delivery only uses the tenant site explicitly configured by `SP_SITE_URL`.
-- Reconciliation remains a developer operation and cannot be triggered by a link.
+- Reconciliation remains a developer operation and cannot be triggered by a link
+  or by an unsigned-in POST.
 
 **Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_delivery.py`,
 `v3/tests/test_sabbath.py`
