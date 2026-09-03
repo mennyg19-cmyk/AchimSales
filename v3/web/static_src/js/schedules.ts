@@ -97,11 +97,13 @@ async function pollRunLog(
   const deadline = Date.now() + 90_000;
   let announced = "";
   while (Date.now() < deadline) {
-    await sleepUntilVisible(1500);
     if (isHidden()) {
       await sleepUntilVisible(deadline - Date.now());
       continue;
     }
+    // Sleep before the first fetch too: the caller already refreshed the log
+    // once when queuing the run, so an immediate re-read would be identical.
+    await sleepUntilVisible(1500);
     const runs = await refreshRunLog();
     const newest = runs[0];
     if (!newest) continue;

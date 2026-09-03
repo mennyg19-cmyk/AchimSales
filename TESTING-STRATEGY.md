@@ -1471,6 +1471,12 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - A hidden tab that remains hidden beyond a deadline times out instead of
   accumulating throttled timer iterations. `sleepUntilVisible` removes its
   visibility listener after either wake-up path.
+- Reconnecting to a report job older than ten minutes (page reload, Recent
+  Reports) must fetch its status at least once: the give-up window counts from
+  when this page began watching, while the elapsed display still counts from
+  the real job start.
+- Email me, the email modal, and the schedule run-log poll share the same
+  hidden-tab guard and wall-clock deadlines (60 s, 60 s, 90 s).
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated Chrome CDP lifecycle
 check; `cd v3 && npm run build`

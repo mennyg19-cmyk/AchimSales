@@ -1,3 +1,6 @@
+/** Tab-visibility helpers for pollers. `onVisible` fires only when the tab
+ *  flips hidden → visible, never at load, so callers tick once themselves. */
+
 export function isHidden(): boolean {
   return document.visibilityState === "hidden";
 }
