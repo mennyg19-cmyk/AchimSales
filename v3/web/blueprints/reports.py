@@ -56,7 +56,7 @@ from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
 from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
-from web.reporting.jobs import enqueue_report_run
+from web.reporting.jobs import JOB_TYPE, enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
 
 reports_bp = Blueprint("reports", __name__)
@@ -263,15 +263,30 @@ def _owned_job_or_404(job_id: str, uid: int | None):
 
 
 def _visible_job_or_404(job_id: str, p):
-    """Owner can always see their job. Admins can also see schedule.run jobs
-    (clock company runs have no owner, and that's the stuck-job we need to cancel)."""
+    """Owner can always see their job. Developers can read anyone's report.run.
+    Privileged users can also see schedule.run (clock jobs have no owner)."""
     job = _job_repo().get(job_id)
     uid = _user_id(p.email)
     if job is None or uid is None:
         abort(404, description="Unknown job")
     if job.owner_user_id == uid:
         return job
-    if _authz().is_developer(p):
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+    if job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p):
+        return job
+    if job.type == JOB_TYPE and _authz().is_developer(p):
+        return job
+    abort(404, description="Unknown job")
+
+
+def _cancellable_job_or_404(job_id: str, p):
+    """Owner can cancel their job. Privileged users can cancel schedule.run.
+    Report runs stay owner-only, including for developers."""
+    job = _job_repo().get(job_id)
+    uid = _user_id(p.email)
+    if job is None or uid is None:
+        abort(404, description="Unknown job")
+    if job.owner_user_id == uid:
         return job
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
     if job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p):
@@ -490,7 +505,7 @@ def cancel_job(job_id: str):
     error.
     """
     p = _principal_or_401()
-    job = _visible_job_or_404(job_id, p)
+    job = _cancellable_job_or_404(job_id, p)
     cancelled = _job_repo().cancel(job_id)
     if cancelled:
         _job_repo().append_log(job_id, {
@@ -600,6 +615,7 @@ def active_report_runs():
             "kept": _kept_still_valid(kept_until, now),
             "keep_name": (r.get("keep_name") or "").strip(),
             "owner_name": owners.get(r.get("owner_user_id")) or "",
+            "owned": r.get("owner_user_id") == uid,
             "log": _parse_job_log_field(r),
         })
     return jsonify({"jobs": jobs})

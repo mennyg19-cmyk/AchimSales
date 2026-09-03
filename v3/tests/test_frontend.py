@@ -171,6 +171,7 @@ def test_report_viewer_meeting_ux():
     assert "layout.clones" in src
     resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
     assert '(q.get("preset") || q.get("cview")) && !wanted) return false' in resume
+    assert "if (!st.ok) return false" in resume
     assert 'closePresetsPanel(); loadPreset(preset); });' in src
     assert "Updated Default." in src
     assert "Only managers and admins can change the Default view." in src
@@ -256,6 +257,9 @@ def test_report_viewer_meeting_ux():
     assert "data-job-url" in sched_js
     assert "function bindGridEdit" in sched_js
     assert "email_to_owner: listed.some" in sched_js
+    assert "email_on_no_data_me_only" in sched_js
+    assert "if (row.dataset.savedReportId)" in sched_js
+    assert "if (rec.value.trim() === origRec && path === origFolder) continue" in sched_js
     assert "run-log-steps" in sched_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert "table-layout: fixed" in css
@@ -271,6 +275,8 @@ def test_report_viewer_meeting_ux():
     assert 'startsWith("default:")' in wiz_js
     assert 'startsWith("company:")' in wiz_js
     assert "company views and Default" in personal
+    assert 'data-user-name="{{ current_user_name }}"' in personal
+    assert "picked.owner.user_id !== 0" in wiz_js
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
 
@@ -391,6 +397,8 @@ def test_live_job_log_shows_every_entry():
     assert 'class="home-fold"' in home
     assert '<details class="home-fold">' in home
     assert '<details class="home-fold" open' not in home
+    main_js = (_SRC / "js" / "main.ts").read_text(encoding="utf-8")
+    assert "job.kept && job.owned" in main_js
     run_page = (_V3 / "web" / "templates" / "schedule_run.html").read_text(encoding="utf-8")
     assert 'id="runJobLog"' in run_page
     log_js = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")

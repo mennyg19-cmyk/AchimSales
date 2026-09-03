@@ -776,7 +776,8 @@ def update_schedule(schedule_id: int):
         schedule_id, existing.owner_user_id, params=params,
         layout=layout, cadence=cadence,
         recipients=recipients, sharepoint_path=folder,
-        start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
+        start_date=existing.start_date if "start_date" not in body else (body.get("start_date") or None),
+        end_date=existing.end_date if "end_date" not in body else (body.get("end_date") or None),
         filename_template=(body.get("filename_template") or "").strip(),
         view_name=view_name,
     )

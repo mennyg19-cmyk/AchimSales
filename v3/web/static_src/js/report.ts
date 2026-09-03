@@ -1832,6 +1832,16 @@ async function resumeInFlight(): Promise<boolean> {
     ? jobs.find((j) => j.job_id === wanted && j.report_key === key)
     : jobs.find((j) => j.report_key === key &&
       (j.status === "running" || j.status === "queued" || j.status === "success"));
+  if (wanted && !mine) {
+    const jobUrl = (attr("data-job-url") || "").replace("__ID__", encodeURIComponent(wanted));
+    if (!jobUrl) return false;
+    try {
+      const st = await fetch(jobUrl, { headers: { Accept: "application/json" } });
+      if (!st.ok) return false;
+    } catch {
+      return false;
+    }
+  }
   const target = mine || (wanted ? { job_id: wanted, report_key: key, status: "running", age_seconds: 0 } : null);
   if (!target) return false;
   state.jobId = target.job_id;

@@ -108,7 +108,10 @@ function cadence(form: HTMLFormElement): { ok: boolean; cadence?: any; error?: s
 
 function syncOwnerLabel(): void {
   const picked = selectedView();
-  const name = picked?.owner.name || "";
+  const mine = wiz()?.getAttribute("data-user-name") || "";
+  const name = picked && picked.owner.user_id !== 0
+    ? (picked.owner.name || picked.owner.email || "")
+    : mine;
   const el = document.getElementById("psOwnerName");
   if (el) el.textContent = name || "the owner";
 }

@@ -628,6 +628,62 @@ def test_cannot_cancel_another_users_job(tmp_path):
     assert app.config["JOB_REPO"].get(job_id).status == "queued"  # untouched
 
 
+def test_developer_can_read_but_not_cancel_another_users_report_job(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    job_id = app.config["JOB_REPO"].enqueue(
+        JOB_TYPE, owner_user_id=uid, params={"report_key": "ordered"})
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    assert dev.get(f"/api/jobs/{job_id}").status_code == 200
+    assert dev.post(f"/api/jobs/{job_id}/cancel",
+                    headers={"X-CSRF-Token": _CSRF}).status_code == 404
+    assert app.config["JOB_REPO"].get(job_id).status == "queued"
+
+
+def test_developer_cannot_read_unrelated_job_type(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    job_id = app.config["JOB_REPO"].enqueue("echo", owner_user_id=uid, params={})
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    assert dev.get(f"/api/jobs/{job_id}").status_code == 404
+    assert dev.post(f"/api/jobs/{job_id}/cancel",
+                    headers={"X-CSRF-Token": _CSRF}).status_code == 404
+
+
+def test_schedule_put_without_dates_keeps_window_and_me_only(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    vid = _named_view(client)
+    created = client.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "start_date": "2026-09-01",
+        "end_date": "2026-12-31",
+        "email_on_no_data_me_only": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201
+    sid = created.get_json()["id"]
+    resp = client.put(f"/api/schedules/{sid}", json={
+        "cadence": {"freq": "daily", "time": "08:00"},
+        "email_to_owner": True,
+        "email_on_no_data_me_only": True,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    from web.data.repositories.schedules import ScheduleRepository
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    row = ScheduleRepository(app.config["DB"]).get(sid, uid)
+    assert row.start_date == "2026-09-01"
+    assert row.end_date == "2026-12-31"
+    assert row.params.get("email_on_no_data_me_only") is True
+
+
 def test_admin_cancels_unowned_schedule_job(tmp_path):
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
     app = _make_app(tmp_path)

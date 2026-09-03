@@ -4,6 +4,7 @@
      data-update-url-tpl="{{ url_for('schedules.update_schedule', schedule_id=0) }}"
      data-views-url="{{ url_for('schedules.list_schedulable_views') }}"
      data-privileged="{{ '1' if is_privileged else '' }}"
+     data-user-name="{{ current_user_name }}"
      data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
      data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
      data-od-status-url="{{ url_for('reports.onedrive_status') }}"

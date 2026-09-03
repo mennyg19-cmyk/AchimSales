@@ -8,6 +8,8 @@
 - Admin/developer `POST /api/schedules` with `company:<id>` creates a personal schedule of that view. Salesman gets 403.
 - Personal send of a company-view name uses live company_views params when the owner has no personal saved report of that name.
 - Developer `/api/reports/active?all=1` sees another user's report.run; admin `?all=1` does not.
+- Developer GET `/api/jobs/<id>` can read another user's `report.run`; cancel of that job is 404. Unrelated job types stay 404. Privileged cancel of `schedule.run` still works.
+- PUT `/api/schedules/<id>` without `start_date`/`end_date` keeps the existing window. Grid Done omits empty `saved_report_id` and skips unchanged rows.
 - Developer recent-runs includes `job_log`; others do not. History Steps is a details block.
 - Home page `home-fold` wraps My presets (closed). Pencil `psGridEditBtn` is on the schedules template. Grid save splits owner vs extras so the owner email is not dropped.
 

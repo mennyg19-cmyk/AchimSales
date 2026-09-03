@@ -260,6 +260,7 @@ interface ActiveReportJob {
   kept?: boolean;
   keep_name?: string;
   owner_name?: string;
+  owned?: boolean;
   log?: { t?: string; step?: string; detail?: string }[];
 }
 
@@ -407,7 +408,7 @@ function initReportJobsBar(): void {
         if (href) window.location.href = href;
       });
       row.appendChild(chip);
-      if (job.kept) {
+      if (job.kept && job.owned) {
         const rename = document.createElement("button");
         rename.type = "button";
         rename.className = "report-job-rename";

@@ -308,19 +308,23 @@ async function saveGridEdits(root: HTMLElement): Promise<void> {
     const owner = (row.dataset.ownerEmail || "").trim().toLowerCase();
     const listed = rec.value.split(",").map((s) => s.trim()).filter(Boolean);
     const extras = listed.filter((e) => e.toLowerCase() !== owner);
+    const origRec = (row.dataset.recipients || "").trim();
+    const origFolder = (row.dataset.sharepointPath || "").trim();
+    if (rec.value.trim() === origRec && path === origFolder) continue;
     const body: Record<string, unknown> = {
       cadence: JSON.parse(row.dataset.cadence || "{}"),
       recipients: extras.join(", "),
       email_to_owner: listed.some((e) => e.toLowerCase() === owner),
       filename_template: row.dataset.filenameTemplate || "",
-      saved_report_id: row.dataset.savedReportId || "",
       email_on_no_data: !!params.email_on_no_data,
+      email_on_no_data_me_only: !!params.email_on_no_data_me_only,
       email_cc: params.email_cc || "",
       email_bcc: params.email_bcc || "",
       folder_kind: kind,
       onedrive_path: kind === "sharepoint" ? "" : path,
       sharepoint_path: kind === "sharepoint" ? path : "",
     };
+    if (row.dataset.savedReportId) body.saved_report_id = row.dataset.savedReportId;
     const url = tpl.replace(/\/0$/, `/${row.dataset.id}`);
     const ok = await act(url, "PUT", body);
     if (!ok) {
