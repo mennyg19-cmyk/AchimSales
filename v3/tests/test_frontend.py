@@ -392,6 +392,20 @@ def test_settings_exclusions_use_customer_picker():
     assert "data-customers-url" in src
 
 
+def test_searchable_picker_has_keyboard_and_combobox_semantics():
+    picker = (_SRC / "js" / "searchable_picker.ts").read_text(encoding="utf-8")
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert 'search.setAttribute("aria-expanded", "false")' in picker
+    assert 'this.search.setAttribute("aria-controls", list.id)' in picker
+    assert 'list.setAttribute("role", "listbox")' in picker
+    assert 'row.setAttribute("role", "option")' in picker
+    assert 'event.key === "ArrowDown" || event.key === "ArrowUp"' in picker
+    assert 'event.key === "Home" || event.key === "End"' in picker
+    assert 'event.key === "Enter" || event.key === " "' in picker
+    assert 'this.search.setAttribute("aria-activedescendant"' in picker
+    assert 'import { SearchablePicker } from "./searchable_picker"' in report
+
+
 def test_admin_users_has_company_views_flag():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euCompanyViews"' in html

@@ -1359,3 +1359,23 @@ A cheaper model can use this file as a guide to run the full test suite without 
   while readable text and button labels remain AA-compliant.
 
 **Test file:** `v3/tests/test_frontend.py`; `cd v3 && npm run build`
+
+## Phase 8.4 searchable-picker keyboard
+**What to test:**
+- On Settings excluded customers and the report customer filter, focus the search
+  field, then use ArrowUp/ArrowDown and Home/End to move the active option.
+- Enter and Space toggle the active customer. Escape closes the list and leaves
+  focus on the search field so a user can continue typing.
+- Inspect the combobox, listbox, and options for `aria-expanded`,
+  `aria-controls`, `aria-activedescendant`, `role=listbox`, and `role=option`.
+
+**Expected behavior:**
+- Both customer pickers share `SearchablePicker`, preserve their current chrome,
+  and support the same keyboard flow.
+
+**Edge cases:**
+- Filtering to no matches leaves no active descendant. A mouse checkbox change
+  keeps selected state and ARIA selection in sync.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser keyboard check;
+`cd v3 && npm run build`

@@ -15,6 +15,7 @@
 
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
 import { closeDialog, openDialog } from "./dialog";
+import { SearchablePicker } from "./searchable_picker";
 
 declare const Tabulator: any;
 
@@ -1967,8 +1968,7 @@ interface LookupRow { key: string; name: string; salesman?: string; }
 
 const selectedCustomers = new Map<string, string>(); // account -> display name
 let customerOptions: LookupRow[] = [];
-let customerPickerOpen = false;       // is the options dropdown showing?
-let customerHandlersBound = false;    // document/window listeners bound once
+let customerPicker: SearchablePicker | null = null;
 let lookupPollTimer: number | null = null;
 let pendingSalesman: string | null = null; // deep-link salesman, applied after options load
 let previewTimer: number | null = null;
@@ -2143,138 +2143,26 @@ async function loadCustomers(): Promise<void> {
   renderCustomerPicker();
 }
 
-/** Position the options list as a fixed overlay under the search field, so no
- *  overflow ancestor (the filter row) can clip it. */
-function positionCustomerOptions(): void {
-  const host = $("customerPicker");
-  const search = host?.querySelector<HTMLElement>(".customer-search");
-  const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!search || !list || list.hidden) return;
-  const r = search.getBoundingClientRect();
-  list.style.position = "fixed";
-  list.style.top = `${Math.round(r.bottom + 2)}px`;
-  list.style.left = `${Math.round(r.left)}px`;
-  list.style.width = `${Math.round(r.width)}px`;
-}
-
-/** Bind document/window listeners that close + reposition the picker. Once. */
-function ensureCustomerHandlers(): void {
-  if (customerHandlersBound) return;
-  customerHandlersBound = true;
-  const inside = (t: Node) => {
-    const p = $("customerPicker");
-    const pills = $("customerPills");
-    return !!((p && p.contains(t)) || (pills && pills.contains(t)));
-  };
-  document.addEventListener("click", (e) => {
-    if (customerPickerOpen && !inside(e.target as Node)) closeCustomerOptions();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && customerPickerOpen) closeCustomerOptions();
-  });
-  window.addEventListener("scroll", positionCustomerOptions, true);
-  window.addEventListener("resize", positionCustomerOptions);
-}
-
-/** Build the persistent search input + (hidden) options list once. */
-function ensureCustomerInput(): HTMLInputElement | null {
-  const host = $("customerPicker");
-  if (!host) return null;
-  let search = host.querySelector<HTMLInputElement>(".customer-search");
-  if (search) return search;
-  host.innerHTML = "";
-  search = document.createElement("input");
-  search.type = "text";
-  search.className = "customer-search";
-  search.placeholder = host.dataset.placeholder || "All customers";
-  search.setAttribute("role", "combobox");
-  search.addEventListener("focus", () => { customerPickerOpen = true; renderCustomerOptions(); });
-  search.addEventListener("input", () => { customerPickerOpen = true; renderCustomerOptions(); });
-  host.appendChild(search);
-  const list = document.createElement("div");
-  list.className = "customer-options";
-  list.hidden = true;
-  host.appendChild(list);
-  return search;
-}
-
-function closeCustomerOptions(): void {
-  customerPickerOpen = false;
-  const list = $("customerPicker")?.querySelector<HTMLElement>(".customer-options");
-  if (list) list.hidden = true;
-}
-
-/** Render the open dropdown of matching customers (checkbox per row). */
-function renderCustomerOptions(): void {
-  const host = $("customerPicker");
-  const search = ensureCustomerInput();
-  const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!host || !search || !list) return;
-  if (!customerPickerOpen) { list.hidden = true; return; }
-
-  const q = search.value.trim().toLowerCase();
-  const matches = q
-    ? customerOptions.filter(
-        (c) => c.name.toLowerCase().includes(q) || c.key.toLowerCase().includes(q),
-      )
-    : customerOptions;
-
-  list.innerHTML = "";
-  matches.slice(0, 200).forEach((c) => {
-    const row = document.createElement("label");
-    row.className = "customer-option";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = selectedCustomers.has(c.key);
-    cb.addEventListener("change", () => {
-      if (cb.checked) selectedCustomers.set(c.key, c.name);
-      else selectedCustomers.delete(c.key);
-      renderCustomerPills();
-      refreshPreviewIfOpen();
-    });
-    row.appendChild(cb);
-    const text = document.createElement("span");
-    text.textContent = `${c.key} — ${c.name}`;
-    row.appendChild(text);
-    list.appendChild(row);
-  });
-  if (!matches.length) {
-    const empty = document.createElement("div");
-    empty.className = "customer-empty";
-    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
-    list.appendChild(empty);
-  }
-  list.hidden = false;
-  positionCustomerOptions();
-}
-
-/** Render the selected customers as removable pills (separate from the field). */
-function renderCustomerPills(): void {
-  const host = $("customerPills");
-  if (!host) return;
-  host.innerHTML = "";
-  selectedCustomers.forEach((name, key) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "customer-chip";
-    chip.textContent = `${name} ✕`;
-    chip.title = `Remove ${key}`;
-    chip.addEventListener("click", () => {
-      selectedCustomers.delete(key);
-      renderCustomerPills();
-      if (customerPickerOpen) renderCustomerOptions();
-      refreshPreviewIfOpen();
-    });
-    host.appendChild(chip);
-  });
-}
-
 function renderCustomerPicker(): void {
   if (!hasFilter("customerPicker")) return;
-  ensureCustomerHandlers();
-  ensureCustomerInput();
-  renderCustomerPills();
-  renderCustomerOptions();
+  const host = $("customerPicker");
+  const pills = $("customerPills");
+  if (!host || !pills) return;
+  if (!customerPicker) {
+    customerPicker = new SearchablePicker({
+      host,
+      pills,
+      placeholder: host.dataset.placeholder || "All customers",
+      formatOption: (customer) => `${customer.key} — ${customer.name}`,
+      onChange: () => {
+        selectedCustomers.clear();
+        customerPicker?.selectedKeys().forEach((key) => selectedCustomers.set(key, key));
+        refreshPreviewIfOpen();
+      },
+    });
+  }
+  customerPicker.setOptions(customerOptions);
+  customerPicker.setSelected([...selectedCustomers.keys()]);
 }
 
 function setLookupStatusText(text: string): void {
