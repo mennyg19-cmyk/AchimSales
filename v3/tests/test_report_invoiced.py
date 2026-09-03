@@ -373,7 +373,7 @@ def test_commissions_fall_back_to_master_for_blank_sp_rate():
     assert simple["Commissions"] == 50.0
 
 
-def test_commissions_keep_highest_present_sp_rate():
+def test_commissions_calculate_with_highest_present_sp_rate():
     facts = S.to_facts([
         {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
          "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000", "commission": "0"},
@@ -382,7 +382,8 @@ def test_commissions_keep_highest_present_sp_rate():
     ])
     comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
                                 ytd_facts=facts, year=2026, end_month=4))["commissions"]
-    assert comm["salesmen"][0]["commission_pct"] == 0.10
+    assert comm["salesmen"][0]["commission_pct"] == 0.05
+    assert comm["salesmen"][0]["ytd"]["commission"] == 200.0
 
 
 def test_commissions_simple_fallback_without_ytd():
