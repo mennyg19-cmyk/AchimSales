@@ -123,15 +123,23 @@ class ScheduleRunner:
         name = getattr(sched, "view_name", None)
         if not name or normalize_view_name(name) == DEFAULT_VIEW_NAME:
             return stored
-        view = self.saved_reports.get_by_name(
-            sched.owner_user_id, sched.report_key, name)
-        if view is not None:
-            live = dict(view.params or {})
-        else:
+        live = None
+        if stored.get("view_source") == "company":
             cv = self.company_views.get_by_name(sched.report_key, name)
-            if cv is None:
-                return stored
-            live = dict(cv.params or {})
+            if cv is not None:
+                live = dict(cv.params or {})
+        else:
+            view = self.saved_reports.get_by_name(
+                sched.owner_user_id, sched.report_key, name)
+            if view is not None:
+                live = dict(view.params or {})
+            else:
+                cv = self.company_views.get_by_name(sched.report_key, name)
+                if cv is None:
+                    return stored
+                live = dict(cv.params or {})
+        if live is None:
+            return stored
         for key in _DELIVERY_PARAM_KEYS:
             if key in stored:
                 live[key] = stored[key]
@@ -633,7 +641,7 @@ class ScheduleRunner:
 _DELIVERY_PARAM_KEYS = {
     "split_by_salesman", "email_to_salesmen", "email_salesman_keys",
     "email_cc", "email_bcc", "email_on_no_data", "email_on_no_data_me_only",
-    "folder_kind", "skip_sabbath",
+    "folder_kind", "skip_sabbath", "view_source",
 }
 
 

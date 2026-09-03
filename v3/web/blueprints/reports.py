@@ -279,19 +279,23 @@ def _visible_job_or_404(job_id: str, p):
     abort(404, description="Unknown job")
 
 
+def _can_cancel_job(job, p) -> bool:
+    uid = _user_id(p.email)
+    if job is None or uid is None:
+        return False
+    if job.owner_user_id == uid:
+        return True
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+    return job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p)
+
+
 def _cancellable_job_or_404(job_id: str, p):
     """Owner can cancel their job. Privileged users can cancel schedule.run.
     Report runs stay owner-only, including for developers."""
     job = _job_repo().get(job_id)
-    uid = _user_id(p.email)
-    if job is None or uid is None:
+    if not _can_cancel_job(job, p):
         abort(404, description="Unknown job")
-    if job.owner_user_id == uid:
-        return job
-    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
-    if job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p):
-        return job
-    abort(404, description="Unknown job")
+    return job
 
 
 def _job_scope_ok(p, job) -> bool:
@@ -474,9 +478,12 @@ def run_report(report_key: str):
 
 def _job_status_payload(job, p) -> dict:
     """Status/progress for everyone; step log only for developers."""
+    uid = _user_id(p.email)
     payload = {
         "job_id": job.id, "status": job.status, "progress": job.progress,
         "error": job.error, "result_ref": job.result_ref,
+        "owned": job.owner_user_id == uid,
+        "can_cancel": _can_cancel_job(job, p),
     }
     if _authz().is_developer(p):
         from web.data.repositories.jobs import _step_label

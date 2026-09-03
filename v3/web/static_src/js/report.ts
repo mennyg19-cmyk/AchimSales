@@ -1676,17 +1676,22 @@ function showCancel(visible: boolean): void {
 
 async function cancelRun(): Promise<void> {
   const jobId = activeRunJobId;
-  runAborted = true;        // the poll loop bails on its next tick
-  showCancel(false);
-  if (!jobId) { clearStatus(); return; }
+  if (!jobId) { showCancel(false); clearStatus(); return; }
   setStatus("Cancelling…");
   try {
-    await fetch(attr("data-cancel-url").replace("__ID__", jobId), {
+    const res = await fetch(attr("data-cancel-url").replace("__ID__", jobId), {
       method: "POST", headers: csrfHeaders(),
     });
+    if (!res.ok) {
+      setStatus("Could not cancel this run.", "error");
+      return;
+    }
   } catch {
-    // Even if the cancel request fails, we've already stopped watching the job.
+    setStatus("Could not cancel this run.", "error");
+    return;
   }
+  runAborted = true;
+  showCancel(false);
   setStatus("Run cancelled.");
 }
 
@@ -1705,7 +1710,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
 
   for (let i = 0; i < 600; i++) {
     if (runAborted) return; // user cancelled; cancelRun() owns the status line
-    let job: { status?: string; progress?: number; error?: unknown; step?: string; log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[] };
+    let job: { status?: string; progress?: number; error?: unknown; step?: string; can_cancel?: boolean; log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[] };
     try {
       const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`status ${res.status}`);
@@ -1736,7 +1741,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
     if (job.status === "cancelled") throw new Error("The run was cancelled.");
     // Only offer Cancel once the job is actually running on the server; a
     // queued job hasn't started, so there's nothing to stop yet.
-    showCancel(job.status === "running");
+    showCancel(job.status === "running" && !!job.can_cancel);
     const label = (job.step || "").trim()
       || `Building report… ${job.progress || 0}%`;
     setStatus(`${label} (${fmtElapsed(Date.now() - started)})`);

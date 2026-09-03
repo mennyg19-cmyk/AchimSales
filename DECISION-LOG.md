@@ -1,3 +1,9 @@
+## 2026-09-03 Company-view schedules keep their source
+**What I had to decide:** How to tell a personal schedule of a company view from a personal view of the same name.
+**What I chose:** Store `view_source=company` on the schedule params. The runner and the schedules grid resolve company_views first when that flag is set. Personal/default schedules omit it and still prefer the owner's saved view.
+**Why:** Name-only lookup sent the personal filters (and could mail the wrong window) when both views were named Collision.
+**Status:** DECIDED
+
 ## 2026-09-03 Admins can schedule company views
 **What you asked for:** Admins and developers should be able to set up schedules using company views.
 **What I chose:** Company named views (Daily Ordered, Heshy Open Orders, …) sit in the wizard Company group with Default. `POST /api/schedules` accepts `company:<id>`. The send uses the live company-view filters, same as a personal named view. Salesmen do not see or schedule them. Company (master) add/edit stays hidden.

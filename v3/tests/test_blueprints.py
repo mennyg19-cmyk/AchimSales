@@ -637,7 +637,12 @@ def test_developer_can_read_but_not_cancel_another_users_report_job(tmp_path):
         JOB_TYPE, owner_user_id=uid, params={"report_key": "ordered"})
     dev = app.test_client()
     _login(dev, app, email="dev@x.com", role="developer")
-    assert dev.get(f"/api/jobs/{job_id}").status_code == 200
+    seen = dev.get(f"/api/jobs/{job_id}").get_json()
+    assert seen["can_cancel"] is False
+    assert seen["owned"] is False
+    own = client.get(f"/api/jobs/{job_id}").get_json()
+    assert own["can_cancel"] is True
+    assert own["owned"] is True
     assert dev.post(f"/api/jobs/{job_id}/cancel",
                     headers={"X-CSRF-Token": _CSRF}).status_code == 404
     assert app.config["JOB_REPO"].get(job_id).status == "queued"
@@ -2027,9 +2032,36 @@ def test_admin_can_schedule_company_view(tmp_path):
     uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
     row = ScheduleRepository(app.config["DB"]).get(sid, uid)
     assert row.view_name == "Daily Ordered"
+    assert row.params.get("view_source") == "company"
     html = c.get("/schedules").get_data(as_text=True)
     assert f'data-saved-report-id="{daily["id"]}"' in html
     assert 'data-view-name="Daily Ordered"' in html
+
+
+def test_company_view_schedule_keeps_identity_when_personal_name_matches(tmp_path):
+    app = _make_app(tmp_path)
+    c = app.test_client()
+    _login(c, app)
+    _put_company_view(c, name="Collision", params={"period": "yesterday"})
+    _named_view(c, name="Collision", params={"period": "all_time"})
+    views = [
+        v for g in c.get("/api/schedules/views").get_json()["groups"] for v in g["views"]
+    ]
+    company = next(
+        v for v in views
+        if v["name"] == "Collision" and str(v["id"]).startswith("company:"))
+    created = c.post("/api/schedules", json={
+        "saved_report_id": company["id"],
+        "cadence": {"freq": "daily", "time": "08:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201, created.get_data(as_text=True)
+    from web.data.repositories.schedules import ScheduleRepository
+    sid = created.get_json()["id"]
+    uid = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    row = ScheduleRepository(app.config["DB"]).get(sid, uid)
+    assert row.params.get("view_source") == "company"
+    html = c.get("/schedules").get_data(as_text=True)
+    assert f'data-saved-report-id="{company["id"]}"' in html
 
 
 def test_developer_can_schedule_company_view(tmp_path):

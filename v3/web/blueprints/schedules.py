@@ -233,10 +233,22 @@ def _users() -> UserRepository:
 
 _DEFAULT_VIEW_TOKEN = "default:"
 _COMPANY_VIEW_TOKEN = "company:"
+_VIEW_SOURCE_COMPANY = "company"
 _DELIVERY_PARAM_KEYS = {
     "email_on_no_data", "email_on_no_data_me_only",
-    "email_cc", "email_bcc", "folder_kind",
+    "email_cc", "email_bcc", "folder_kind", "view_source",
 }
+
+
+def _is_company_view_schedule(params: dict | None) -> bool:
+    return (params or {}).get("view_source") == _VIEW_SOURCE_COMPANY
+
+
+def _stamp_view_source(params: dict, *, company: bool) -> None:
+    if company:
+        params["view_source"] = _VIEW_SOURCE_COMPANY
+    else:
+        params.pop("view_source", None)
 
 
 def _default_view_token(report_key: str) -> str:
@@ -483,15 +495,19 @@ def schedules_page():
     items.sort(key=lambda r: (r["owner_name"].lower(), r["report_title"].lower()))
     saved = _saved_reports()
     for row in items:
-        preset = saved.get_by_name(
-            row["owner_user_id"], row["report_key"], row["view_name"])
-        if preset is not None:
-            row["saved_report_id"] = preset.id
-        elif row["view_name"] == DEFAULT_VIEW_NAME:
-            row["saved_report_id"] = _default_view_token(row["report_key"])
-        else:
+        if _is_company_view_schedule(row["params"]):
             cv = _company_views().get_by_name(row["report_key"], row["view_name"])
             row["saved_report_id"] = _company_view_token(cv.id) if cv else ""
+        else:
+            preset = saved.get_by_name(
+                row["owner_user_id"], row["report_key"], row["view_name"])
+            if preset is not None:
+                row["saved_report_id"] = preset.id
+            elif row["view_name"] == DEFAULT_VIEW_NAME:
+                row["saved_report_id"] = _default_view_token(row["report_key"])
+            else:
+                cv = _company_views().get_by_name(row["report_key"], row["view_name"])
+                row["saved_report_id"] = _company_view_token(cv.id) if cv else ""
         row["folder_kind"] = (row["params"] or {}).get("folder_kind") or "onedrive"
     groups = _group_personal_rows(items, is_privileged)
     context = {
@@ -652,6 +668,7 @@ def create_schedule():
             body, owner, privileged=privileged, folder=folder)
         params = _delivery_params(body, view_params, privileged=privileged)
         params.update(folder_extra)
+        _stamp_view_source(params, company=False)
         sid = _repo().create(
             owner.id, report_key, params=params,
             layout={}, cadence=cadence,
@@ -675,6 +692,7 @@ def create_schedule():
             body, owner, privileged=privileged, folder=folder)
         params = _delivery_params(body, dict(cv.params or {}), privileged=privileged)
         params.update(folder_extra)
+        _stamp_view_source(params, company=True)
         sid = _repo().create(
             owner.id, cv.report_key, params=params,
             layout=cv.layout or {}, cadence=cadence,
@@ -697,6 +715,7 @@ def create_schedule():
         body, owner, privileged=privileged, folder=folder)
     params = _delivery_params(body, preset.params, privileged=privileged)
     params.update(folder_extra)
+    _stamp_view_source(params, company=False)
     sid = _repo().create(
         owner.id, preset.report_key, params=params,
         layout=preset.layout or {}, cadence=cadence,
@@ -755,23 +774,34 @@ def update_schedule(schedule_id: int):
             k: v for k, v in view_params.items()
             if k not in _DELIVERY_PARAM_KEYS
         }
-        backed = _saved_reports().get_by_name(
-            existing.owner_user_id, existing.report_key, normalize_view_name(view_name))
-        if backed is not None:
-            view_params = dict(backed.params or {})
-            layout = backed.layout or layout
-        else:
+        if _is_company_view_schedule(existing.params):
             cv = _company_views().get_by_name(
                 existing.report_key, normalize_view_name(view_name))
             if cv is not None:
                 view_params = dict(cv.params or {})
                 layout = cv.layout or layout
+        else:
+            backed = _saved_reports().get_by_name(
+                existing.owner_user_id, existing.report_key, normalize_view_name(view_name))
+            if backed is not None:
+                view_params = dict(backed.params or {})
+                layout = backed.layout or layout
+            else:
+                cv = _company_views().get_by_name(
+                    existing.report_key, normalize_view_name(view_name))
+                if cv is not None:
+                    view_params = dict(cv.params or {})
+                    layout = cv.layout or layout
     cadence = _parse_cadence(body)
     folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
     recipients = _recipients_for_view_schedule(
         body, owner, privileged=privileged, folder=folder)
     params = _delivery_params(body, view_params, privileged=privileged)
     params.update(folder_extra)
+    if "saved_report_id" in body:
+        _stamp_view_source(params, company=_parse_company_view_id(body) is not None)
+    else:
+        _stamp_view_source(params, company=_is_company_view_schedule(existing.params))
     ok = _repo().update(
         schedule_id, existing.owner_user_id, params=params,
         layout=layout, cadence=cadence,

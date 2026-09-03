@@ -172,6 +172,10 @@ def test_report_viewer_meeting_ux():
     resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
     assert '(q.get("preset") || q.get("cview")) && !wanted) return false' in resume
     assert "if (!st.ok) return false" in resume
+    cancel = src.split("async function cancelRun", 1)[1].split("async function poll", 1)[0]
+    assert "if (!res.ok)" in cancel
+    assert "Could not cancel this run." in cancel
+    assert "showCancel(job.status === \"running\" && !!job.can_cancel)" in src
     assert 'closePresetsPanel(); loadPreset(preset); });' in src
     assert "Updated Default." in src
     assert "Only managers and admins can change the Default view." in src
