@@ -10,7 +10,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Empty OData `visible_keys` set empties rows (scoped to nobody, not unrestricted). Recognized salesman keys filter rows. A missing salesman column empties rows when scope is set.
 
 **Expected behavior:**
-- Browser responses prevent framing, MIME sniffing, and unscoped third-party execution without overwriting an existing header.
+- Browser responses prevent framing, MIME sniffing, and unscoped third-party execution without overwriting an existing header. Current v3 pages still load Feather/Tabulator from unpkg, so CSP allows `https://unpkg.com` (not jsDelivr, not Google Maps).
 - The legacy app cannot enable development authentication in Azure or production.
 - An OData report cannot expose all rows when its scope column cannot be identified.
 

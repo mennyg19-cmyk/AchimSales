@@ -20,3 +20,11 @@ def test_dev_bypass_refuses_azure_and_prod(monkeypatch):
     monkeypatch.delenv("WEBSITE_SITE_NAME")
     monkeypatch.setenv("APP_ENV", "PrOd")
     assert not config._dev_bypass_enabled()
+
+
+def test_preset_copy_rejects_path_traversal():
+    from webapp.report_api import _safe_path_part
+
+    assert _safe_path_part("../../../tmp", "shared") == "shared"
+    assert _safe_path_part("MKolko", "shared") == "MKolko"
+    assert _safe_path_part("a/b", "shared") == "shared"

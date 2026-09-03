@@ -8,6 +8,12 @@
 **Why:** PR #1 diverged 2026-08-26 (`330d1bc`), 58 behind / 124 ahead of `main`. Cherry-pick or merge would wipe salesman filter, rename, Excel bands, Users & access, and review security. You asked for a **new** PR from current `main`, which also overrides the standing “same agent → same PR” preference for this ask only.
 **Status:** DECIDED
 
+## 2026-09-03 Phase 1: defer APP_ENV allowlist for legacy DEV_BYPASS
+**What I had to decide:** Whether Phase 1 should require `APP_ENV=dev` (allowlist) for `DEV_BYPASS_AUTH`, matching v3's fail-closed default.
+**What I chose:** Keep the Azure/`APP_ENV=prod` denylist for this phase. Production is Azure App Service (`WEBSITE_SITE_NAME` is set). Align the Dockerfile/non-Azure host later.
+**Why:** Trust-boundary F5. Changing container env is a deploy-settings change, not needed to close the Azure bypass hole.
+**Status:** DECIDED — deferred past Phase 1.
+
 ## 2026-09-02 Go-live: inventory live v3, do not rebuild from scratch
 **What you asked for:** Plain-English report of today's fixes; database changes if possible; merge into main; then rebuild-protocol multi-model inventory of the entire site; then browser-click every feature autonomously with commit messages; edge cases; check schedules and Excel output.
 **What I had to decide:** (1) Whether rebuild Phase 2–4 (architecture + from-scratch rebuild) starts after inventory. (2) Where test-log commits go after merging #33. (3) Grill before Phase 0.

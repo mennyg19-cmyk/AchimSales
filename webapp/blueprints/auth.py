@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 
-from webapp.config import DEV_BYPASS_AUTH
+from webapp.config import _dev_bypass_enabled
 from webapp.helpers import get_current_user, get_salesmen_list, require_login
 from webapp.user_map import get_user, is_developer
 
@@ -59,7 +59,7 @@ def login():
     _remember_next()
     if get_current_user():
         return _redirect_after_login()
-    if DEV_BYPASS_AUTH:
+    if _dev_bypass_enabled():
         return render_template("login_dev.html")
     return render_template("login.html")
 
@@ -68,7 +68,7 @@ def login():
 def login_start():
     """Redirect to Microsoft login."""
     _remember_next()
-    if DEV_BYPASS_AUTH:
+    if _dev_bypass_enabled():
         return redirect(url_for("auth.dev_login"))
     try:
         from webapp.auth import build_login_url
@@ -83,7 +83,7 @@ def login_start():
 @auth_bp.route("/dev-login", methods=["GET", "POST"])
 def dev_login():
     """Dev-only: bypass Microsoft login, pick a role to sign in as."""
-    if not DEV_BYPASS_AUTH:
+    if not _dev_bypass_enabled():
         return redirect("/login")
 
     if request.method == "POST":

@@ -11,7 +11,17 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from report_engine.lib import salesman_key
+
 log = logging.getLogger(__name__)
+
+
+def _public_run_params(params: dict[str, Any] | None) -> dict[str, Any]:
+    """Drop Live-internal underscore keys so a v3 client cannot steer copy paths."""
+    return {
+        key: value for key, value in (params or {}).items()
+        if not str(key).startswith("_")
+    }
 
 
 def build_odata_payload(
@@ -22,8 +32,7 @@ def build_odata_payload(
     """Run the live OData report and return a v3-compatible payload."""
     from webapp.report_api import run_report
 
-    run_params = dict(params or {})
-    result = run_report(report_key, run_params)
+    result = run_report(report_key, _public_run_params(params))
     if not result.get("success"):
         raise RuntimeError(result.get("error") or f"Live OData run failed for {report_key}")
 
@@ -193,8 +202,11 @@ def _scope_tab(tab: dict, visible_keys: set[str]) -> dict:
         out = dict(tab)
         out["rows"] = []
         return out
-    allowed = {str(k).strip() for k in visible_keys}
-    filtered = [r for r in rows if str(r.get(col, "")).strip() in allowed]
+    allowed = {salesman_key(str(k)) for k in visible_keys}
+    allowed.discard("")
+    filtered = [
+        r for r in rows if salesman_key(str(r.get(col, ""))) in allowed
+    ]
     out = dict(tab)
     out["rows"] = filtered
     return out

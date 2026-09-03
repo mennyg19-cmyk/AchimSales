@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-# 'unsafe-inline' stays for existing page scripts. Feather and Tabulator are
-# local. Google Maps stays on Google's CDN (dynamic loader, no SRI).
+# 'unsafe-inline' stays for existing page scripts. Feather and Tabulator still
+# load from unpkg (not vendored on current main). Maps is legacy-only; omit it.
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' "
-    "https://maps.googleapis.com https://maps.gstatic.com; "
-    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
     "img-src 'self' data: blob: https:; "
     "font-src 'self' data:; "
     "connect-src 'self' https:; "

@@ -71,6 +71,8 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     timeout-minutes: 15
+    permissions:
+      contents: read
     
     steps:
       - name: Download artifact from build job
