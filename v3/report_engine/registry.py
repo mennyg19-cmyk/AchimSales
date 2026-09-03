@@ -44,7 +44,8 @@ REGISTRY: tuple[ReportSpec, ...] = (
     # v3: Fulfillment % on By Customer / By Item / By Order / By Salesman
     # (plus Full Data). Cached v2 payloads must not be reused.
     ReportSpec("ordered", "Ordered", ReportStatus.BUILT, builder_version=9, salesman_default=True),
-    ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, builder_version=2, salesman_default=True),
+    # Cached v2 payloads still used master fallback for an explicit SP commission of 0.
+    ReportSpec("invoiced", "Invoiced", ReportStatus.BUILT, builder_version=3, salesman_default=True),
     ReportSpec("salesman", "Salesman", ReportStatus.BUILT, builder_version=2),
     # v3: months before Total Qty / $ / Avg / Book / Salesman on all tabs.
     # Cached v4 payloads still had Sep after Salesman and By Item without $.

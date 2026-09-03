@@ -60,7 +60,7 @@ def test_sql_cutover_bumps_only_builder_cache_namespace():
     assert {key: versions[key] for key in (
         "ordered", "invoiced", "salesman", "number_4", "customer_activity", "item_averages",
     )} == {
-        "ordered": 9, "invoiced": 2, "salesman": 2, "number_4": 6,
+        "ordered": 9, "invoiced": 3, "salesman": 2, "number_4": 6,
         "customer_activity": 2, "item_averages": 2,
     }
     shared = {"report_key": "ordered", "identity": "dev@x.com", "scope_token": "ALL",

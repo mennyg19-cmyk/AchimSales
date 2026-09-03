@@ -1274,5 +1274,6 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Edge cases:**
 - Fractional values pass through and only values greater than one convert from
   whole-percent form. Mixed present zero and 10% rates retain the existing 10% max.
+- Invoiced `builder_version` is 3 so a 7-day cache from before this fix is not reused.
 
 **Test file:** `v3/tests/test_report_invoiced.py`
