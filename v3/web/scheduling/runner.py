@@ -679,6 +679,8 @@ def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") ->
 
 
 def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
+    from web.jobs.trace import snapshot
+
     r = outcome.result
     meta = {
         "summary": _summary_message(outcome, ok=r.ok),
@@ -692,6 +694,9 @@ def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
         "recipients": r.recipients,
         "error": r.error or "",
     }
+    job_log = snapshot()
+    if job_log:
+        meta["job_log"] = job_log
     if outcome.deliveries:
         meta["deliveries"] = outcome.deliveries
     if manual:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 from urllib.parse import quote, urlparse
 
@@ -68,6 +69,10 @@ class SharePointService:
         return bool(self.cfg.tenant_id and self.cfg.client_id
                     and self.cfg.client_secret)
 
+    def _requests(self):
+        import requests
+        return requests
+
     def root_path(self) -> str:
         return self._root
 
@@ -85,7 +90,7 @@ class SharePointService:
         if not self.is_configured():
             self._mock_or_raise("list folders")
             return _mock_folders(rel_path)
-        import requests
+        requests = self._requests()
 
         url = f"{self._drive_base()}/root:/{self._abs(rel_path)}:/children"
         r = requests.get(url, headers={"Authorization": f"Bearer {self._get_token()}"}, timeout=TIMEOUT)
@@ -112,10 +117,11 @@ class SharePointService:
                      filename, len(content), rel_folder)
             return {"webUrl": f"mock://{rel_folder}/{filename}", "name": filename,
                     "id": f"mock-{rel_folder}-{filename}".replace(" ", "_"), "mock": True}
-        import requests
-
         from web.delivery.graph_upload import resolve_web_url, upload_drive_item
+        from web.jobs.trace import step as job_step
 
+        requests = self._requests()
+        job_step("sharepoint", f"uploading {filename} ({len(content)} bytes) to {rel_folder or '(root)'}")
         self._ensure_folder(rel_folder)
         path = f"{self._abs(rel_folder)}/{quote(filename)}"
         base = self._drive_base()
@@ -134,6 +140,7 @@ class SharePointService:
         )
         if not url:
             log.warning("SharePoint uploaded %s but Graph returned no webUrl", filename)
+        job_step("sharepoint", f"saved {filename}" + (f" {url}" if url else " (no link yet)"))
         return {"webUrl": url or None, "name": body.get("name") or filename,
                 "id": body.get("id")}
 
@@ -152,7 +159,7 @@ class SharePointService:
     def _get_token(self) -> str:
         if self._token:
             return self._token
-        import requests
+        requests = self._requests()
 
         url = f"https://login.microsoftonline.com/{self.cfg.tenant_id}/oauth2/v2.0/token"
         r = requests.post(url, data={
@@ -169,29 +176,38 @@ class SharePointService:
     def _resolve_drive_id(self) -> str:
         if self._drive_id:
             return self._drive_id
-        import requests
+        requests = self._requests()
+        from web.jobs.trace import step as job_step
 
         headers = {"Authorization": f"Bearer {self._get_token()}"}
         site_url = (self.cfg.sp_site_url or "").strip()
-
-        site_id: str | None = None
 
         if site_url:
             parsed = urlparse(site_url.rstrip("/"))
             host = parsed.netloc
             path = (parsed.path or "").strip("/")
             site_ref = f"{host}:/{path}" if path else host
+            job_step("sharepoint", f"looking up site {site_ref} (first Graph use this process)")
+            t0 = time.monotonic()
             site = requests.get(f"{GRAPH_BASE}/sites/{site_ref}", headers=headers, timeout=TIMEOUT)
-            if site.ok:
-                site_id = site.json()["id"]
-            else:
-                log.warning("SP_SITE_URL resolved to 404 (%s), falling back to search", site_ref)
-
-        if site_id is None:
+            if not site.ok:
+                raise RuntimeError(
+                    f"SharePoint site lookup failed: SP_SITE_URL returned HTTP "
+                    f"{site.status_code} for {site_url}. Fix the SP_SITE_URL app setting."
+                )
+            site_id = site.json()["id"]
+            job_step("sharepoint", f"site ok in {int((time.monotonic() - t0) * 1000)}ms")
+        else:
+            job_step("sharepoint", "SP_SITE_URL empty; searching up to 5 sites named achim")
             r = requests.get(f"{GRAPH_BASE}/sites?search=achim", headers=headers, timeout=TIMEOUT)
             r.raise_for_status()
+            deadline = time.monotonic() + 45
+            checked = 0
             for s in r.json().get("value", []):
+                if checked >= 5 or time.monotonic() > deadline:
+                    break
                 sid = s.get("id")
+                checked += 1
                 dr = requests.get(f"{GRAPH_BASE}/sites/{sid}/drive", headers=headers, timeout=TIMEOUT)
                 if dr.status_code != 200:
                     continue
@@ -202,9 +218,11 @@ class SharePointService:
                 if test.status_code == 200:
                     self._drive_id = did
                     log.info("resolved SharePoint drive %s via search", did)
+                    job_step("sharepoint", f"resolved drive via search after {checked} site(s)")
                     return did
             raise RuntimeError("Could not find SharePoint site with Direct Reports folder")
 
+        job_step("sharepoint", "resolving document library")
         drive = requests.get(f"{GRAPH_BASE}/sites/{site_id}/drive",
                              headers=headers, timeout=TIMEOUT)
         drive.raise_for_status()
@@ -213,11 +231,13 @@ class SharePointService:
         return self._drive_id
 
     def _ensure_folder(self, rel_path: str) -> None:
-        import requests
+        requests = self._requests()
+        from web.jobs.trace import step as job_step
 
         segments = [s for s in self._root.split("/") if s] + _validate_segments(rel_path)
         if not segments:
             return
+        job_step("sharepoint", f"ensuring folders {'/'.join(segments)}")
         headers = {"Authorization": f"Bearer {self._get_token()}", "Content-Type": "application/json"}
         base = self._drive_base()
         current_enc = ""

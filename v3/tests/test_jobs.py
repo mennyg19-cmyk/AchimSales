@@ -71,6 +71,25 @@ def test_progress_writes_through(db):
     assert jobs.get(jid).progress == 100  # mark_success forces 100
 
 
+def test_handler_writes_live_step_log(db):
+    worker = JobWorker(db)
+    jobs = JobRepository(db)
+
+    def tagged(ctx):
+        from web.jobs.trace import step
+        step("report", "building invoiced")
+        return "ref"
+
+    worker.register("echo", tagged)
+    jid = jobs.enqueue("echo")
+    worker.process_next()
+    done = jobs.get(jid)
+    steps = [e["step"] for e in done.log]
+    assert steps[0] == "job" and steps[-1] == "job"
+    assert "report" in steps
+    assert "building invoiced" in [e["detail"] for e in done.log]
+
+
 def test_drain_processes_all_queued(db):
     worker = JobWorker(db)
     worker.register("echo", lambda ctx: "")

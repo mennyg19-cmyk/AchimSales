@@ -105,6 +105,9 @@ class ReportingApiClient:
         session = self._session_or_default()
 
         last_exc: Exception | None = None
+        from web.jobs.trace import step as job_step
+
+        job_step("reporting_api", f"POST {report_id}")
         for attempt in range(self.retries + 1):
             t0 = time.monotonic()
             try:
@@ -121,8 +124,13 @@ class ReportingApiClient:
                 # Timing of SUCCESSFUL calls: this is the data that decides a safe
                 # timeout. A wedged proc never reaches here (it times out), so the
                 # max value across real runs is the longest a good call ever takes.
+                took = time.monotonic() - t0
+                row_count = (body or {}).get("row_count")
                 log.info("Reporting API OK %s in %.1fs (rows=%s)", report_id,
-                         time.monotonic() - t0, (body or {}).get("row_count"))
+                         took, row_count)
+                job_step("reporting_api",
+                         f"HTTP {status} {report_id} rows={row_count}",
+                         ms=took * 1000)
                 _capture_raw_response(report_id, params, body)
                 rows = body.get("rows")
                 if not isinstance(rows, list):

@@ -83,16 +83,23 @@ class JobWorker:
         return count
 
     def _run(self, job: Job) -> None:
+        from web.jobs.trace import bind, step, unbind
+
         handler = self.handlers.get(job.type)
         if handler is None:
             self.repo.mark_failure(job.id, f"no handler for job type {job.type!r}")
             return
+        bind(job.id, self.repo)
         try:
+            step("job", f"{job.type} started")
             result_ref = handler(JobContext(job, self.repo)) or ""
+            step("job", "finished")
             self.repo.mark_success(job.id, result_ref)
         except Exception as exc:  # noqa: BLE001 - record failure, keep worker alive
             log.exception("job %s (%s) failed", job.id, job.type)
             self.repo.mark_failure(job.id, str(exc))
+        finally:
+            unbind()
 
     # --- background lifecycle ----------------------------------------------
 

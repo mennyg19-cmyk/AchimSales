@@ -754,3 +754,48 @@ def test_delivery_expands_folder_tokens_and_strips_home(tmp_path, monkeypatch):
     )
     assert outcome.result.ok
     assert seen["sharepoint_path"] == "Salesman Report/Customer Activity/August 2026"
+
+
+class _FakeGraphResp:
+    def __init__(self, status, payload=None):
+        self.status_code = status
+        self.ok = 200 <= status < 400
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"http {self.status_code}")
+
+
+class _SiteUrlHttp:
+    def __init__(self):
+        self.urls: list[str] = []
+
+    def get(self, url, **kwargs):
+        self.urls.append(url)
+        if "/sites?search=" in url:
+            raise AssertionError("must not search the tenant when SP_SITE_URL is set")
+        return _FakeGraphResp(404, {})
+
+    def post(self, url, **kwargs):
+        self.urls.append(url)
+        if "oauth2" in url:
+            return _FakeGraphResp(200, {"access_token": "tok"})
+        return _FakeGraphResp(200, {})
+
+
+def test_sharepoint_site_url_404_does_not_search_tenant(tmp_path):
+    http = _SiteUrlHttp()
+    cfg = _cfg(
+        tmp_path, app_env="prod", tenant_id="t", client_id="c", client_secret="s",
+        sp_site_url="https://achimonline.sharepoint.com/sites/DoesNotExist",
+    )
+    sp = SharePointService(cfg)
+    sp._requests = lambda: http  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="SP_SITE_URL"):
+        sp.upload_file("Invoiced/Daily", "a.xlsx", b"x")
+    assert any("/sites/" in u for u in http.urls)
+    assert not any("search=" in u for u in http.urls)

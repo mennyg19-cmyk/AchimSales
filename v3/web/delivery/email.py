@@ -202,6 +202,10 @@ class EmailService:
 
         # Upload first so a link-only email (YTD / other large workbooks) can
         # include the SharePoint or OneDrive URL instead of a rejected Graph send.
+        from web.jobs.trace import step as job_step
+        if upload_path:
+            dest = "OneDrive" if onedrive_user else "SharePoint"
+            job_step("delivery", f"{dest} {upload_path}/{filename}")
         sp_saved, sp_url, sp_err = self._maybe_folder(
             upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
         record_path = folder_path or (upload_path if sp_saved else None)
@@ -221,6 +225,8 @@ class EmailService:
             graph = self._graph_mailer()
             if graph is not None:
                 try:
+                    from web.jobs.trace import step as job_step
+                    job_step("email", f"Graph sendMail to {', '.join(recipients[:5])}")
                     sent_url = self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
                         filename, attach, body_html=body_html,

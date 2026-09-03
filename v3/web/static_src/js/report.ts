@@ -1704,7 +1704,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
 
   for (let i = 0; i < 600; i++) {
     if (runAborted) return; // user cancelled; cancelRun() owns the status line
-    let job: { status?: string; progress?: number; error?: unknown };
+    let job: { status?: string; progress?: number; error?: unknown; step?: string };
     try {
       const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`status ${res.status}`);
@@ -1735,7 +1735,9 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
     // Only offer Cancel once the job is actually running on the server; a
     // queued job hasn't started, so there's nothing to stop yet.
     showCancel(job.status === "running");
-    setStatus(`Building report… ${job.progress || 0}% (${fmtElapsed(Date.now() - started)})`);
+    const label = (job.step || "").trim()
+      || `Building report… ${job.progress || 0}%`;
+    setStatus(`${label} (${fmtElapsed(Date.now() - started)})`);
     await new Promise((r) => setTimeout(r, 1000));
   }
   throw new Error("Timed out waiting for the report (over 10 minutes). Try a narrower date range.");

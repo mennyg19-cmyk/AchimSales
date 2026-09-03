@@ -109,7 +109,11 @@ schedules supply YTD / MTD / yesterday. Managers who have the flag can edit
 them from Saved views. Personal schedules send a **named saved view** (3
 steps: view, when, where). Admins and developers can also schedule **Default**
 from More → Schedule or the personal wizard. Company schedules stay on the
-old 5-step wizard under Settings (admins and developers).
+old 5-step wizard under Settings (admins and developers). While a report or
+schedule job is running, the status line (and Run now) shows the live step:
+Reporting API, workbook, SharePoint/OneDrive, email. Schedule history keeps
+that log. First SharePoint use of a worker looks up `SP_SITE_URL` only; a
+bad URL fails instead of searching every site in the tenant.
 
 ```powershell
 .\deploy.ps1              # build zip and deploy to Azure

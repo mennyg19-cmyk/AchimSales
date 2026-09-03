@@ -434,9 +434,11 @@ def run_report(report_key: str):
 def job_status(job_id: str):
     p = _principal_or_401()
     job = _owned_job_or_404(job_id, _user_id(p.email))
+    from web.data.repositories.jobs import _step_label
     return jsonify({
         "job_id": job.id, "status": job.status, "progress": job.progress,
         "error": job.error, "result_ref": job.result_ref,
+        "log": job.log, "step": _step_label(job.log),
     })
 
 
@@ -1136,11 +1138,13 @@ def _recent_jobs(db, limit: int = 10) -> list[dict]:
     API by design - that mismatch shows up plainly here."""
     with db.precious() as conn:
         rows = conn.execute(
-            "SELECT id, type, status, owner_user_id, created_at FROM jobs"
-            " ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+                "SELECT id, type, status, owner_user_id, created_at, log_json FROM jobs"
+                " ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    from web.data.repositories.jobs import _parse_log, _step_label
     return [
         {"id": r["id"], "type": r["type"], "status": r["status"],
-         "owner_user_id": r["owner_user_id"], "created_at": r["created_at"]}
+         "owner_user_id": r["owner_user_id"], "created_at": r["created_at"],
+         "step": _step_label(_parse_log(r["log_json"] if "log_json" in r.keys() else "[]"))}
         for r in rows
     ]
 

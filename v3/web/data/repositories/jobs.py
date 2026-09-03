@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -37,6 +37,25 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_log(raw: str | None) -> list:
+    try:
+        data = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _step_label(log: list) -> str:
+    if not log:
+        return ""
+    last = log[-1] if isinstance(log[-1], dict) else {}
+    name = str(last.get("step") or "").strip()
+    detail = str(last.get("detail") or "").strip()
+    if name and detail:
+        return f"{name}: {detail}"
+    return name or detail
+
+
 @dataclass(frozen=True)
 class Job:
     id: str
@@ -51,6 +70,7 @@ class Job:
     error: str
     kept_until: str | None = None
     keep_name: str = ""
+    log: list = field(default_factory=list)
 
     @classmethod
     def from_row(cls, r: sqlite3.Row) -> "Job":
@@ -63,6 +83,7 @@ class Job:
             result_ref=r["result_ref"], error=r["error"],
             kept_until=r["kept_until"] if "kept_until" in keys else None,
             keep_name=(r["keep_name"] if "keep_name" in keys else "") or "",
+            log=_parse_log(r["log_json"] if "log_json" in keys else "[]"),
         )
 
 
@@ -113,7 +134,8 @@ class JobRepository:
             if not row:
                 return None
             updated = conn.execute(
-                "UPDATE jobs SET status='running', started_at=? WHERE id=? AND status='queued'",
+                "UPDATE jobs SET status='running', started_at=?, log_json='[]'"
+                " WHERE id=? AND status='queued'",
                 (_now(), row["id"]),
             )
             if updated.rowcount != 1:
@@ -123,6 +145,18 @@ class JobRepository:
     def set_progress(self, job_id: str, progress: int) -> None:
         with self.db.precious() as conn:
             conn.execute("UPDATE jobs SET progress=? WHERE id=?", (max(0, min(100, progress)), job_id))
+
+    def append_log(self, job_id: str, entry: dict[str, Any]) -> None:
+        with self.db.precious() as conn:
+            row = conn.execute("SELECT log_json FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if row is None:
+                return
+            items = _parse_log(row["log_json"] if "log_json" in row.keys() else "[]")
+            items.append(entry)
+            conn.execute(
+                "UPDATE jobs SET log_json=? WHERE id=?",
+                (json.dumps(items[-80:]), job_id),
+            )
 
     def mark_success(self, job_id: str, result_ref: str = "") -> None:
         # Guarded to 'running': never resurrect a terminal (e.g. cancelled) job.

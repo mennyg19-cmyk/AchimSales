@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Live job steps; stop searching every SharePoint site on first save
+**What you asked for:** Invoiced-yesterday does not take this long. Figure out why the job stayed running after SQL finished. Maybe a new schedule's first SharePoint save.
+**What I had to decide:** Whether I can see this live job from the agent VM; what to store in the live log; what to do when SP_SITE_URL is wrong.
+**What I chose:** This VM still cannot read Azure logs or precious.db, so this exact run is gone. After SQL returns, `schedule.run` still does workbook + Graph. v3 SharePoint, on the first Graph use of a worker (deploy recycle, or a new folder save that is the first upload), resolved the drive by searching every tenant site named "achim" whenever SP_SITE_URL was not HTTP 200 — 30s per site, no cap. Legacy already failed loud on 404; v3 did not. A new schedule's `_ensure_folder` is extra Graph POSTs on top of that. I stop the search when SP_SITE_URL is set (raise with the HTTP status). Empty URL (local) may search at most 5 sites / 45s. Jobs get a live `log_json` the UI polls (report status line, Run now button, history). Graph mail token uses the same 30s HTTP POST as SharePoint so msal cannot hang with no timeout. The log stores timings and counts, not the raw API row payload.
+**Why:** Your first-SharePoint guess is the only path in this app that runs after the DBA's query returns and can sit in `running` for many minutes without a SQL excuse. Without a live step log we would keep guessing.
+**Status:** DECIDED
+
 ## 2026-09-03 Sales reps can be assigned additional SalesGroups
 **What you asked for:** Allow a sales rep to see another chosen sales rep's information like a manager can.
 **What I chose:** Users & access shows the existing per-salesman checkbox grid for both managers and salesmen. A salesman's primary SalesGroup is always included, and admins/developers can check additional groups. The login remains a salesman, so this does not grant manager reports, commissions, company-view editing, or admin access.

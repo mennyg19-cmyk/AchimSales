@@ -2,6 +2,17 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Live job step log; first SharePoint save does not search the whole tenant
+
+**What to test:**
+- A finished `report.run` job's `GET /api/jobs/<id>` includes `log` entries with a `reporting_api` step (HTTP status + row count, not the raw rows).
+- The worker writes `job started` / `job finished` around a handler; extra `step()` calls from the handler show up in `jobs.log`.
+- Company Run now sets `owner_user_id` so the clicker can poll `/api/jobs/<id>`. History HTML includes the run log.
+- `SharePointService.upload_file` with a configured `SP_SITE_URL` that Graph returns 404 for raises naming `SP_SITE_URL` and does **not** call `sites?search=`.
+- Schedules and company schedules templates have `data-job-url`; `schedules.ts` polls that job instead of giving up on the run-log table after 90 seconds.
+
+**Test file:** `v3/tests/test_jobs.py`, `v3/tests/test_delivery.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
 ## The salesmen_master SP is the only salesman master (no v3 table)
 
 **What to test:**

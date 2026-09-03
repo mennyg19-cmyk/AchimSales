@@ -1,7 +1,7 @@
 """Send mail through Microsoft Graph (app-only), same path as live / rebuild.
 
 No mailbox password — uses GRAPH_TENANT_ID / CLIENT_ID / CLIENT_SECRET already
-on the App Service. Stdlib HTTP + msal (already a v3 dep).
+on the App Service. Same client-credentials POST as SharePoint (30s timeout).
 """
 
 from __future__ import annotations
@@ -38,18 +38,22 @@ class GraphMailer:
         self._client_secret = client_secret
 
     def _token(self) -> str:
-        import msal
+        import requests
 
+        url = (
+            f"https://login.microsoftonline.com/{self._tenant_id}/oauth2/v2.0/token"
+        )
         try:
-            app = msal.ConfidentialClientApplication(
-                self._client_id,
-                authority=f"https://login.microsoftonline.com/{self._tenant_id}",
-                client_credential=self._client_secret,
-            )
-            token_response = app.acquire_token_for_client(scopes=[_GRAPH_SCOPE])
+            r = requests.post(url, data={
+                "client_id": self._client_id,
+                "client_secret": self._client_secret,
+                "scope": _GRAPH_SCOPE,
+                "grant_type": "client_credentials",
+            }, timeout=_TIMEOUT_SECONDS)
+            r.raise_for_status()
+            token = r.json().get("access_token")
         except Exception as exc:  # noqa: BLE001
             raise GraphMailError("Could not get a Microsoft Graph token to send mail.") from exc
-        token = token_response.get("access_token")
         if not token:
             raise GraphMailError("Could not get a Microsoft Graph token to send mail.")
         return token

@@ -1217,6 +1217,7 @@ def run_master(schedule_id: int):
     _require_master_edit(p, sched)
     job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
                                   schedule_id=schedule_id, schedule_type=MASTER,
+                                  owner_user_id=_uid(p.email),
                                   ignore_sabbath=True, manual=True)
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202

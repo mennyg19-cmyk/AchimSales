@@ -18,14 +18,20 @@ type RunLogRow = {
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
+  const data = await actJson(url, method, body);
+  return data !== null;
+}
+
+async function actJson(url: string, method: string, body?: unknown): Promise<Record<string, unknown> | null> {
   try {
     const res = await fetch(url, {
       method, headers: jsonHeaders(), credentials: "same-origin",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    return await res.json().catch(() => ({}));
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -93,17 +99,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function pollRunLog(beforeIds: Set<number>): Promise<void> {
-  const deadline = Date.now() + 90_000;
+async function pollJob(jobId: string, onStep: (label: string) => void): Promise<void> {
+  const panel = document.getElementById("runLogPanel");
+  const tpl = panel?.getAttribute("data-job-url") || "";
+  if (!tpl || !jobId) return;
+  const url = tpl.replace("__ID__", jobId);
+  const deadline = Date.now() + 15 * 60 * 1000;
   while (Date.now() < deadline) {
-    await sleep(1500);
-    const runs = await refreshRunLog();
-    const newest = runs[0];
-    if (!newest) continue;
-    const isNew = !beforeIds.has(newest.id);
-    const done = newest.status === "success" || newest.status === "failure";
-    if (isNew && done) return;
-    if (isNew && newest.status === "running") continue;
+    await sleep(1000);
+    try {
+      const res = await fetch(url, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) continue;
+      const job = await res.json() as { status?: string; step?: string };
+      if (job.step) onStep(job.step);
+      if (job.status === "success" || job.status === "failure" || job.status === "cancelled") {
+        return;
+      }
+    } catch {
+      // keep polling
+    }
   }
 }
 
@@ -119,19 +136,21 @@ function bindRowActions(): void {
       b.disabled = true;
       b.textContent = "Running…";
       document.getElementById("runLogPanel")?.setAttribute("open", "");
-      const before = await refreshRunLog();
-      const beforeIds = new Set(before.map((r) => r.id));
-      const ok = await act(b.dataset.url!, "POST", {});
-      b.textContent = ok ? "Queued" : "Failed";
-      if (ok) {
-        await refreshRunLog();
-        void pollRunLog(beforeIds).finally(() => {
-          b.disabled = false;
-          b.textContent = "Run now";
-        });
-      } else {
+      await refreshRunLog();
+      const data = await actJson(b.dataset.url!, "POST", {});
+      const jobId = typeof data?.job_id === "string" ? data.job_id : "";
+      if (!jobId) {
+        b.textContent = "Failed";
         setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
+        return;
       }
+      b.textContent = "Queued";
+      await pollJob(jobId, (step) => {
+        b.textContent = step.length > 48 ? step.slice(0, 45) + "…" : step;
+      });
+      await refreshRunLog();
+      b.disabled = false;
+      b.textContent = "Run now";
     });
   });
   document.querySelectorAll<HTMLButtonElement>(".js-copy").forEach((b) => {
