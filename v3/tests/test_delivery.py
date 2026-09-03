@@ -1007,6 +1007,44 @@ def test_graph_throttle_waits_once_with_capped_retry_after(monkeypatch, status_c
     assert delays == [60]
 
 
+def test_graph_throttle_then_401_refreshes_token_once(monkeypatch):
+    from web.delivery.graph_auth import retry_graph_response
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {"Retry-After": "1"}
+
+    responses = iter([Response(429), Response(401), Response(200)])
+    token_calls = []
+    monkeypatch.setattr("web.delivery.graph_auth.time.sleep", lambda *_: None)
+    assert retry_graph_response(
+        lambda _token: next(responses),
+        lambda refresh: token_calls.append(refresh) or ("fresh" if refresh else "stale"),
+    ).status_code == 200
+    assert token_calls == [False, False, True]
+
+
+def test_graph_401_then_throttle_retries_once(monkeypatch):
+    from web.delivery.graph_auth import retry_graph_response
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {"Retry-After": "1"}
+
+    responses = iter([Response(401), Response(429), Response(200)])
+    token_calls = []
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_auth.time.sleep", delays.append)
+    assert retry_graph_response(
+        lambda _token: next(responses),
+        lambda refresh: token_calls.append(refresh) or ("fresh" if refresh else "stale"),
+    ).status_code == 200
+    assert token_calls == [False, True, False]
+    assert delays == [1]
+
+
 def test_folder_put_401_uses_a_fresh_token():
     from web.delivery.graph_upload import upload_drive_item
 

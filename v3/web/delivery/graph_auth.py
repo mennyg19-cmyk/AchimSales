@@ -103,14 +103,22 @@ def retry_graph_response(
     send: Callable[[str], Any],
     token: Callable[[bool], str],
 ) -> Any:
-    """Retry one rejected credential or one throttled/unavailable Graph request."""
+    """Retry one rejected credential and one throttled/unavailable Graph request."""
+    retried_401 = False
+    retried_throttle = False
     response = send(token(False))
-    if getattr(response, "status_code", None) == 401:
-        response = send(token(True))
-    if getattr(response, "status_code", None) in (429, 503):
-        time.sleep(retry_after_seconds(getattr(response, "headers", {}).get("Retry-After")))
-        response = send(token(False))
-    return response
+    while True:
+        status = getattr(response, "status_code", None)
+        if status == 401 and not retried_401:
+            retried_401 = True
+            response = send(token(True))
+            continue
+        if status in (429, 503) and not retried_throttle:
+            retried_throttle = True
+            time.sleep(retry_after_seconds(getattr(response, "headers", {}).get("Retry-After")))
+            response = send(token(False))
+            continue
+        return response
 
 
 def graph_get(url: str, token: Callable[[bool], str], *, timeout: float) -> Any:
