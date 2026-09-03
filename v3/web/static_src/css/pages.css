@@ -800,8 +800,6 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .settings-hub .customer-picker { margin-top: 8px; }
 .settings-hub .customer-pills { padding-bottom: 0; margin-top: 8px; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.beta-source-key { min-width: 0; }
-.beta-source-select { font-size: 13px; padding: 6px 8px; min-height: 44px; max-width: 100%; }
 .nd-user { margin-bottom: 12px; }
 .dbx-warn {
     background: var(--warning-light, #fef3c7); color: var(--text);
