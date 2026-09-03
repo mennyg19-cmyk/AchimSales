@@ -1,5 +1,21 @@
 # Decision Log
 
+## 2026-09-03 Phase 6.6: 90-day prune of jobs, run log, and magic-link tokens
+**What I had to decide:** Next Phase 6 leftover after the 6.5 gate. Phase 4.4 parked 90-day job-history prune in “Phase 7” so daily cleanup would not flap `/readyz`.
+**Options I considered:** (1) Q2 explicit-zero / Q3 varies / Q8 / Q9 vs Send now / 0019-legacy slots. (2) The named Q10 leftover: prune magic-link tokens, old jobs, and run history at 90 days (legs already 90-day).
+**What I chose:** (2). Wire it into existing daily `run_cleanup` without changing `/readyz`. Terminal jobs older than 90 days go; queued/running stay; a still-valid Keep still protects its job row. `report_run_log` and `magic_link_tokens` older than 90 days go. Live `webapp` magic-link tokens prune the same way (that is the real attempt table). Do not change delivery-leg TTL. Do not make readiness wait on this prune.
+**Why:** Q10 already set 90 days. Phase 4.4 only kept it out of the heartbeat slice. Legs are already done. Other leftovers still mix product calls or a Q9 conflict.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
+## 2026-09-03 Phase 6.5 gate closed
+**What I chose:** Close Phase 6.5 on `1f79c4b`. Trust-boundary N/A.
+**Why:** Loops A+B+C zero; Agent Guardrails green on HEAD; live Keep cache rows survive 7-day age prune and expired Keep rows are deleted.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 6.5: prune expired Keep payloads, keep live Keep rows
 **What I had to decide:** Next Phase 6 leftover after the 6.4 gate.
 **Options I considered:** (1) Q2 explicit-zero / Q3 varies / Q8 / Q9 vs Send now / 0019-legacy slots / 90-day job history. (2) The named defect: cleanup’s 7-day cache prune ignores Keep, so a 30-day Keep dies at day 8, and expired Keep rows linger until that age cut.
