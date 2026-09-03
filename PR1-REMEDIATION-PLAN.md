@@ -441,7 +441,11 @@ Live gate:
 - [x] Fix admin/dashboard table reflow at 320px and 200% zoom. Evidence: `.table-wrap` contains `#userTable`, `#salesmanTable`, and `#dashTable`; tiles shrink via `minmax(min(140px, 100%), 1fr)` plus `min-width: 0`. Chrome CDP layout viewports 320 and 160 CSS px: document `scrollWidth == clientWidth` on `/admin/users` and `/dashboard`. Gate closed on `7bb2ae6`. Loops A+B+C zero. Trust-boundary N/A.
 - [x] Correct all four-theme contrast failures. Evidence: `v3/tests/test_frontend.py` stdlib WCAG pairs for four themes; `--primary-foreground` / `--success-foreground` / `--error-foreground`; distinct dark/mono-dark `--primary-hover`. Gate closed on `b00e2b4`. Loops A+B+C zero after F1 hover and Loop C craft fixes. Trust-boundary N/A.
 - [x] Complete searchable-picker option navigation and focus return. Evidence: shared `SearchablePicker` supplies Arrow/Home/End, Enter/Space, Escape, combobox/listbox/option ARIA, and focus return. Loop A F1 (nested checkbox in `role=option`) closed by presentational `aria-hidden` chrome. Chrome CDP on Settings exclusions and Ordered customers. Gate closed on `364a84e`. Loops A+B+C zero. Trust-boundary N/A.
-- [ ] Complete toolbar and tab-option menu keyboard behavior.
+- [x] Complete toolbar and tab-option menu keyboard behavior. Evidence:
+  `v3/tests/test_frontend.py` — 22 passed; authenticated Chrome CDP with a
+  mocked completed Ordered result verified Arrow/Home/End, Enter, Escape focus
+  return, and Tab close on Export, More, and tab options. The tab caret is a
+  named `aria-haspopup=menu` button; tablist behavior remains deferred.
 - [ ] Add live status/error announcements for admin, dashboard, Settings, and schedule sends.
 - [ ] Bring remaining help/filter/chip/day/close controls to 44px targets.
 - [ ] Respect reduced motion for JavaScript scrolling.
