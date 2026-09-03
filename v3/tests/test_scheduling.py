@@ -672,6 +672,52 @@ def test_runner_company_view_schedule_ignores_same_named_personal_view(tmp_path)
     assert params.get("period") == "yesterday"
 
 
+def test_runner_personal_layout_ignores_same_named_company_view(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.company_views import CompanyViewRepository
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    uid = UserRepository(db).upsert("admin@x.com", display_name="Admin", role="admin").id
+    CompanyViewRepository(db).upsert(
+        "ordered", "Collision", params={"period": "yesterday"},
+        layout={"order": ["company-only"]}, updated_by=uid)
+    SavedReportRepository(db).create(
+        uid, "ordered", "Collision", {"period": "all_time"},
+        {"order": ["personal-only"]})
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    personal_sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"email_on_no_data": True, "folder_kind": "onedrive"},
+        layout={"order": ["personal-only"]}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="admin@x.com", view_name="Collision")
+    runner.run(personal_sid, PERSONAL)
+    assert delivery.calls[-1]["layout"] == {"order": ["personal-only"]}
+    company_sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"view_source": "company", "email_on_no_data": True, "folder_kind": "onedrive"},
+        layout={"order": ["stale"]}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="admin@x.com", view_name="Collision")
+    runner.run(company_sid, PERSONAL)
+    assert delivery.calls[-1]["layout"] == {"order": ["company-only"]}
+
+
 def test_runner_personal_filename_uses_view_name_not_report_title(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)

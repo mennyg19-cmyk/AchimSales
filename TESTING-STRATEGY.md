@@ -6,7 +6,7 @@
 - Settings has no Company schedules button. Company page has no Personal schedules link, Add/Edit/Copy/Delete, or wizard. Copy API still works.
 - `/api/schedules/views` Company group has named company views (`company:<id>`) then Default.
 - Admin/developer `POST /api/schedules` with `company:<id>` creates a personal schedule of that view. Salesman gets 403.
-- That schedule stores `view_source=company` so a same-named personal view does not steal the send or the grid token.
+- That schedule stores `view_source=company` so a same-named personal view does not steal the send or the grid token. A personal schedule of that name keeps its own layout; a company-view schedule uses the live company layout.
 - Personal send of a company-view name uses live company_views params when the owner has no personal saved report of that name.
 - Developer `/api/reports/active?all=1` sees another user's report.run; admin `?all=1` does not.
 - Developer GET `/api/jobs/<id>` can read another user's `report.run`; `can_cancel` is false; cancel of that job is 404. Unrelated job types stay 404. Privileged cancel of `schedule.run` still works. Cancel on the report page only shows when `can_cancel` is true and does not claim success on a failed POST.

@@ -145,11 +145,25 @@ class ScheduleRunner:
                 live[key] = stored[key]
         return live
 
-    def _layout_for(self, sched) -> dict:
+    def _layout_for(self, sched, schedule_type: str = PERSONAL) -> dict:
         name = getattr(sched, "view_name", None)
         named = {}
         if name and normalize_view_name(name) != DEFAULT_VIEW_NAME:
-            named = self.company_views.get_layout(sched.report_key, name)
+            use_company = schedule_type == MASTER
+            stored = dict(getattr(sched, "params", None) or {})
+            if schedule_type == PERSONAL:
+                if stored.get("view_source") == "company":
+                    use_company = True
+                else:
+                    owner_id = getattr(sched, "owner_user_id", None)
+                    personal = (
+                        self.saved_reports.get_by_name(
+                            owner_id, sched.report_key, name)
+                        if owner_id else None
+                    )
+                    use_company = personal is None
+            if use_company:
+                named = self.company_views.get_layout(sched.report_key, name)
         return resolve_send_layout(
             name,
             sched.layout,
@@ -404,7 +418,7 @@ class ScheduleRunner:
                         report_key=sched.report_key, identity=identity,
                         visible_salesman_keys=scope,
                         builder_version=builder_version,
-                        params=_report_params(params), layout=self._layout_for(sched),
+                        params=_report_params(params), layout=self._layout_for(sched, schedule_type),
                         recipients="; ".join(test_to) if test_to else sched.recipients,
                         subject=send_subject, report_name=report_name,
                         sharepoint_path=_sharepoint_for_test(test_to, sched.sharepoint_path),
@@ -539,7 +553,7 @@ class ScheduleRunner:
             full = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                 builder_version=builder_version, params=_report_params(params),
-                layout=self._layout_for(sched),
+                layout=self._layout_for(sched, MASTER),
                 recipients=test_recips if test_to else sched.recipients,
                 subject=subject,
                 report_name=report_name,
@@ -575,7 +589,7 @@ class ScheduleRunner:
             split_params["salesman"] = [key]
             outcome = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                builder_version=builder_version, params=split_params, layout=self._layout_for(sched),
+                builder_version=builder_version, params=split_params, layout=self._layout_for(sched, MASTER),
                 recipients=test_recips if test_to else email,
                 subject=f"{subject} - {key}",
                 report_name=f"{report_name} - {key}", sharepoint_path="",
