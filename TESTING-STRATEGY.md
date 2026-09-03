@@ -11,7 +11,7 @@
 - Developer `/api/reports/active?all=1` sees another user's report.run; admin `?all=1` does not.
 - Developer GET `/api/jobs/<id>` can read another user's `report.run`; `can_cancel` is false; cancel of that job is 404. Unrelated job types stay 404. Privileged cancel of `schedule.run` still works. Cancel on the report page only shows when `can_cancel` is true and does not claim success on a failed POST.
 - PUT `/api/schedules/<id>` without `start_date`/`end_date` keeps the existing window. Grid Done omits empty `saved_report_id` and skips unchanged rows.
-- Personal wizard stores optional `email_subject` / `email_html` with `{Schedule}` `{SharePointUrl}` `{DownloadButton}` tokens. Blank keeps the auto subject/body. Grid PUT without those keys keeps them. Script tags are stripped.
+- Personal wizard stores optional `email_subject` / `email_html` with `{Schedule}` `{SharePointUrl}` `{DownloadButton}` tokens. Blank keeps the auto subject/body. Grid PUT without those keys keeps them. Script tags and `javascript:` hrefs are stripped on store. `[TEST]` and the retry-after-failure subject mark stay on a custom subject.
 - Developer recent-runs includes `job_log`; others do not. History Steps is a details block.
 - Home page `home-fold` wraps My presets (closed). Pencil `psGridEditBtn` is on the schedules template. Grid save splits owner vs extras so the owner email is not dropped.
 

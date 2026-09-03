@@ -34,6 +34,7 @@ from web.data.repositories.schedules import (
 )
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
+from web.delivery.email_template import RETRY_SUBJECT_MARK
 from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
@@ -53,7 +54,6 @@ _FAIL_NOTICE_WAIT_S = 15 * 60
 _FAIL_NOTICE_PENDING = "pending"
 _FAIL_NOTICE_SENT = "sent"
 _FAIL_NOTICE_SUPERSEDED = "superseded"
-_RETRY_SUBJECT_MARK = " — retried after a failure"
 _RECOVERED_RETRY_REASON = "an earlier worker run failed or was interrupted"
 _PRIOR_FAIL_REASON = "an earlier run of this schedule failed today"
 
@@ -66,7 +66,7 @@ def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str
     reasons = "; ".join(
         str(err).strip() for err in prior_errors if str(err).strip()
     ) or "unknown error"
-    marked = subject if _RETRY_SUBJECT_MARK in subject else f"{subject}{_RETRY_SUBJECT_MARK}"
+    marked = subject if RETRY_SUBJECT_MARK in subject else f"{subject}{RETRY_SUBJECT_MARK}"
     body = (
         "This send failed once, then retried and succeeded.\n"
         f"First attempt: {reasons}\n\n"

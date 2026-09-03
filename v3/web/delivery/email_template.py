@@ -15,6 +15,7 @@ from web.delivery.filename_template import token_values
 
 _TOKEN_RE = re.compile(r"\{[A-Za-z]+\}")
 _BTN_BG = "#2563eb"
+RETRY_SUBJECT_MARK = " — retried after a failure"
 _STYLE_BAD = re.compile(r"expression|javascript|url\s*\(", re.I)
 
 _ALLOWED: dict[str, frozenset[str]] = {
@@ -137,10 +138,15 @@ def apply_mail_templates(
             subject = resolved
             if subject_default.startswith("[TEST] ") and not subject.startswith("[TEST] "):
                 subject = f"[TEST] {subject}"
+            if RETRY_SUBJECT_MARK in subject_default and RETRY_SUBJECT_MARK not in subject:
+                subject = f"{subject}{RETRY_SUBJECT_MARK}"
     html_tpl = (body_html_template or "").strip()
     if not html_tpl:
         return subject, body_text_default, body_html_default
     html = sanitize_html(expand_tokens(html_tpl, mapping))
+    retry_intro = (body_text_default or "")
+    if retry_intro.startswith("This send failed once"):
+        html = f"<p>{escape(retry_intro).replace(chr(10), '<br>')}</p>" + html
     if (
         not attached
         and file_url
