@@ -18,6 +18,9 @@ let customerPicker: SearchablePicker | null = null;
 let salesmanEmailOptions: SalesmanEmailRow[] = [];
 let lookupsStarted = false;
 let lookupPollTimer: number | null = null;
+// pollLookupStatus re-runs per report key; keep one visible listener and swap the tick.
+let lookupTick: (() => Promise<void>) | null = null;
+onVisible(() => { if (lookupPollTimer != null && lookupTick) void lookupTick(); });
 let pendingSalesmen: string[] = [];
 let pendingLayout: Record<string, unknown> = {};
 let pendingEmailSalesmen: string[] = [];
@@ -555,8 +558,8 @@ function pollLookupStatus(): void {
   };
   void tick();
   stopLookupPoll();
+  lookupTick = tick;
   lookupPollTimer = window.setInterval(() => { void tick(); }, 2500);
-  onVisible(() => { if (lookupPollTimer != null) void tick(); });
 }
 
 async function ensureLookups(): Promise<void> {
