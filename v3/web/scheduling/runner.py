@@ -566,6 +566,7 @@ class ScheduleRunner:
             sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
             sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
             outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
+            legs=[leg for outcome in outcomes for leg in outcome.result.legs],
         )
         return DeliveryOutcome(
             result=result, row_count=sum(o.row_count for o in outcomes), deliveries=deliveries,
@@ -683,6 +684,7 @@ def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") ->
         "sharepoint_url": r.sharepoint_url or "",
         "eml": r.eml_name,
         "outbox_id": r.outbox_id,
+        "legs": list(r.legs),
     }
 
 
@@ -700,6 +702,8 @@ def _output_meta(outcome: DeliveryOutcome) -> dict:
         "recipients": r.recipients,
         "error": r.error or "",
     }
+    if r.legs:
+        meta["legs"] = list(r.legs)
     if outcome.deliveries:
         meta["deliveries"] = outcome.deliveries
     return meta
@@ -738,6 +742,7 @@ def _combine_outcomes(outcomes: list[DeliveryOutcome]) -> DeliveryOutcome:
         sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
         sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
         outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
+        legs=[leg for outcome in outcomes for leg in outcome.result.legs],
     )
     return DeliveryOutcome(
         result=result,
@@ -775,6 +780,10 @@ def _summary_message(outcome: DeliveryOutcome, *, ok: bool) -> str:
             bits.append(f"SharePoint failed: {r.sharepoint_error}")
         if r.error and not ok:
             bits.append(r.error)
+    if r.legs:
+        bits.append("legs: " + ", ".join(
+            f"{leg['kind']}={leg['status']}" for leg in r.legs
+        ))
     if not bits:
         return "OK" if ok else (r.error or "delivery failed")
     prefix = "OK: " if ok else "Failed: "

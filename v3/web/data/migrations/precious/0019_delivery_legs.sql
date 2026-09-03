@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS delivery_legs (
     job_id TEXT,
     run_id INTEGER,
     slot_id TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind = 'email'),
+    kind TEXT NOT NULL CHECK (kind IN ('email', 'folder')),
     status TEXT NOT NULL CHECK (status IN ('prepared', 'sending', 'accepted', 'sent', 'failed', 'unknown')),
     error TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

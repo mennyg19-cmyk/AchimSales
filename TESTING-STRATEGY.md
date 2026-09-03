@@ -136,6 +136,17 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_jobs.py`
 
+## Phase 5.2 separate email and folder legs
+**What to test:**
+- A dual delivery creates one `folder` and one `email` leg with the same durable job/run/slot identity.
+- Folder-only delivery creates only a verified folder leg. A missing `webUrl` and item id fails the folder leg while a successful Graph email remains sent and is not retried.
+- The workbook and EML artifact exist before either external leg reaches `sending`. Developer diagnostics and schedule output metadata include leg kind and status.
+
+**Expected behavior:**
+- Each external delivery channel has an independent durable state. A folder failure is visible as `failed`; Graph connection loss remains `unknown` and is never automatically resent.
+
+**Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

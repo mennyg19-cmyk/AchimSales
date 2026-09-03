@@ -1042,6 +1042,8 @@ def reporting_api_diagnostics():
     ]
     liveness["oldest_active_job_age_seconds"] = max(active_ages, default=None)
     liveness["disk"] = _database_disk_usage(current_app.config["DB"])
+    from web.data.repositories.delivery_legs import DeliveryLegRepository
+    delivery_legs = DeliveryLegRepository(current_app.config["DB"]).list_recent()
     return jsonify({
         "reporting_api": _probe_reporting_api(cfg, run_live=run_live),
         "jobs": jobs,
@@ -1049,6 +1051,14 @@ def reporting_api_diagnostics():
         "claim_probe": _claim_probe(current_app.config["DB"]),
         "me": {"email": p.email, "user_id": _user_id(p.email), "role": p.role},
         "recent_jobs": _recent_jobs(current_app.config["DB"]),
+        "delivery_legs": [
+            {
+                "id": leg.id, "job_id": leg.job_id, "run_id": leg.run_id,
+                "slot_id": leg.slot_id, "kind": leg.kind, "status": leg.status,
+                "error": leg.error,
+            }
+            for leg in delivery_legs
+        ],
         "wiring": _worker_wiring(worker, current_app.config["DB"]),
         "worker": {
             "pid": os.getpid(),

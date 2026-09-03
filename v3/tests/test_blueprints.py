@@ -11,6 +11,7 @@ import pytest
 from web import create_app
 from web.config import Config
 from web.data.migrate import migrate
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.users import UserRepository
 from web.reporting.jobs import JOB_TYPE, make_report_run_handler
 from web.reporting.report_service import ReportService
@@ -660,6 +661,15 @@ def test_reporting_api_diagnostics_reports_state(tmp_path):
     assert "liveness" in data
     assert data["liveness"]["oldest_active_job_age_seconds"] is None
     assert set(data["liveness"]["disk"]) == {"total", "used", "free"}
+    leg_id = DeliveryLegRepository(app.config["DB"]).create(
+        job_id="diagnostic-job", run_id=1, slot_id="manual:diagnostic-job", kind="folder")
+    DeliveryLegRepository(app.config["DB"]).update(leg_id, status="failed", error="remote item missing")
+    data = client.get("/api/reports/diagnostics/reporting-api").get_json()
+    assert data["delivery_legs"][0] == {
+        "id": leg_id, "job_id": "diagnostic-job", "run_id": 1,
+        "slot_id": "manual:diagnostic-job", "kind": "folder", "status": "failed",
+        "error": "remote item missing",
+    }
 
 
 def test_precious_repair_mutating_actions_require_post(tmp_path):

@@ -1,4 +1,4 @@
-"""Durable state for individual outbound email delivery attempts."""
+"""Durable state for individual outbound email and folder delivery attempts."""
 from __future__ import annotations
 
 import sqlite3
@@ -35,12 +35,12 @@ class DeliveryLegRepository:
     def __init__(self, db: Database):
         self.db = db
 
-    def create(self, *, job_id: str | None, run_id: int | None, slot_id: str) -> int:
+    def create(self, *, job_id: str | None, run_id: int | None, slot_id: str, kind: str) -> int:
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO delivery_legs(job_id, run_id, slot_id, kind, status)"
-                " VALUES (?, ?, ?, 'email', 'prepared')",
-                (job_id, run_id, slot_id),
+                " VALUES (?, ?, ?, ?, 'prepared')",
+                (job_id, run_id, slot_id, kind),
             )
             return cur.lastrowid
 
@@ -57,6 +57,15 @@ class DeliveryLegRepository:
                 "SELECT id, job_id, run_id, slot_id, kind, status, error"
                 " FROM delivery_legs WHERE job_id=? ORDER BY id",
                 (job_id,),
+            ).fetchall()
+        return [DeliveryLeg.from_row(row) for row in rows]
+
+    def list_recent(self, *, limit: int = 20) -> list[DeliveryLeg]:
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT id, job_id, run_id, slot_id, kind, status, error"
+                " FROM delivery_legs ORDER BY id DESC LIMIT ?",
+                (limit,),
             ).fetchall()
         return [DeliveryLeg.from_row(row) for row in rows]
 

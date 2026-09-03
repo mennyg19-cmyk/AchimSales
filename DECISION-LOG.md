@@ -1,5 +1,19 @@
 # Decision Log
 
+## 2026-09-03 Phase 5.2: folder and email are independent delivery legs
+**What I chose:** Create one `folder` leg for each requested SharePoint/OneDrive upload and one `email` leg for each email target, sharing the existing job/run/slot identity.
+**Why:** A folder failure after mail acceptance must remain visible without changing the accepted email outcome or causing another Graph send.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra
+**Runner:** spawn
+
+## 2026-09-03 Phase 5.2: folder success requires a returned Graph item
+**What I chose:** Mark a folder leg `sent` only when upload returns `webUrl` or an item id; otherwise mark that folder leg `failed`.
+**Why:** Upload completion without a remotely addressable item is not verified delivery. Mock uploads follow the same rule.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra
+**Runner:** spawn
+
 ## 2026-09-03 Phase 5.1 Loop C: defer DeliveryContext
 **What I chose:** Keep the existing `job_id`/`run_id`/`slot_id` parameters; do not add `DeliveryContext`.
 **Why:** F1 and F2 are narrow correctness-of-pattern fixes. A shared context belongs in 5.2 if folder or notice legs need the same trio.

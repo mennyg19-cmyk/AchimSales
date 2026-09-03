@@ -249,7 +249,67 @@ def test_manual_delivery_leg_uses_durable_job_id(tmp_path):
     )
     leg = DeliveryLegRepository(svc.outbox.db).get_by_job("durable-job")[0]
     assert res.delivery_status == "sent"
-    assert leg.slot_id == "manual:durable-job" and leg.status == "sent"
+    assert leg.slot_id == "manual:durable-job" and leg.kind == "email" and leg.status == "sent"
+
+
+def test_dual_delivery_creates_independent_email_and_folder_legs(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = lambda *args: {"id": "remote-item"}  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+        job_id="dual-job", slot_id="personal:1:2026-06-01:0800",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("dual-job")
+    assert res.ok and [(leg.kind, leg.status) for leg in legs] == [
+        ("folder", "sent"), ("email", "sent")]
+    assert {(leg.job_id, leg.slot_id) for leg in legs} == {
+        ("dual-job", "personal:1:2026-06-01:0800")}
+
+
+def test_folder_only_creates_one_verified_folder_leg(email):
+    svc, _, db = email
+    res = svc.deliver(
+        subject="S", recipients_raw="", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+        job_id="folder-job", slot_id="manual:folder-job",
+    )
+    legs = DeliveryLegRepository(db).get_by_job("folder-job")
+    assert res.ok and [(leg.kind, leg.status) for leg in legs] == [("folder", "sent")]
+
+
+def test_folder_missing_remote_item_fails_without_resending_email(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = lambda *args: {}  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+        job_id="missing-folder", slot_id="manual:missing-folder",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("missing-folder")
+    assert res.ok and len(graph.calls) == 1
+    assert [(leg.kind, leg.status) for leg in legs] == [("folder", "failed"), ("email", "sent")]
+
+
+def test_email_artifact_exists_before_folder_leg_is_sending(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    updates = []
+    update = svc.delivery_legs.update
+
+    def track(leg_id, *, status, error=""):
+        if status == "sending":
+            updates.append(any(svc.cfg.outbox_dir.glob("*.eml")))
+        update(leg_id, status=status, error=error)
+
+    svc.delivery_legs.update = track  # type: ignore[method-assign]
+    svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+    )
+    assert updates == [True, True]
 
 
 def test_unknown_graph_delivery_keeps_unknown_leg(tmp_path):
@@ -371,6 +431,7 @@ def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path
         subject="Daily 5am Number 4", recipients_raw="a@x.com", body_text="",
         report_name="Number 4", filename="Daily_5am_Number_4.xlsx",
         xlsx_bytes=big, sharepoint_path="",
+        job_id="oversize-fallback", slot_id="manual:oversize-fallback",
     )
     assert res.ok and res.send_channel == "graph"
     assert folders == [TEST_SHAREPOINT_FOLDER]
@@ -382,6 +443,8 @@ def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path
     assert graph.calls[0]["xlsx_bytes"] is None
     assert res.sharepoint_saved is True
     assert res.sharepoint_url == url
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("oversize-fallback")
+    assert [(leg.kind, leg.status) for leg in legs] == [("folder", "sent"), ("email", "sent")]
 
 
 def test_graph_oversize_fallback_upload_failure_still_sends_email(tmp_path):
@@ -396,12 +459,15 @@ def test_graph_oversize_fallback_upload_failure_still_sends_email(tmp_path):
     res = svc.deliver(
         subject="S", recipients_raw="a@x.com", body_text="",
         report_name="Ordered", filename="big.xlsx", xlsx_bytes=big,
+        job_id="oversize-fail", slot_id="manual:oversize-fail",
     )
     assert res.ok and res.send_channel == "graph"
     assert graph.calls[0]["xlsx_bytes"] is None
     assert "Download it from SharePoint" in graph.calls[0]["body_text"]
     assert graph.calls[0]["body_html"] is None
     assert res.sharepoint_saved is False
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("oversize-fail")
+    assert [(leg.kind, leg.status) for leg in legs] == [("folder", "failed"), ("email", "sent")]
 
 
 def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
@@ -422,7 +488,8 @@ def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
     )
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
                       report_name="Ordered", filename="ordered.xlsx",
-                      xlsx_bytes=b"PK\x03\x04")
+                      xlsx_bytes=b"PK\x03\x04",
+                      job_id="graph-413", slot_id="manual:graph-413")
     assert res.ok and res.send_channel == "graph"
     assert len(graph.calls) == 2
     assert graph.calls[0]["xlsx_bytes"] == b"PK\x03\x04"
@@ -432,6 +499,8 @@ def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
     assert "Download workbook" in graph.calls[1]["body_html"]
     assert url in graph.calls[1]["body_html"]
     assert res.sharepoint_url == url
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("graph-413")
+    assert {(leg.kind, leg.status) for leg in legs} == {("email", "sent"), ("folder", "sent")}
 
 
 def test_sharepoint_mock_lists_folders(tmp_path):

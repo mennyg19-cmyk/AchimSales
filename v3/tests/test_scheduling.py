@@ -112,6 +112,8 @@ def test_runner_personal_records_success(stack):
     hist = ScheduleRunRepository(db).list_for_schedule(sid, PERSONAL)
     assert len(hist) == 1 and hist[0].status == "success" and hist[0].rows == 2
     assert OutboxRepository(db).list_recent()
+    assert hist[0].output_meta["legs"] == [{"kind": "email", "status": "prepared"}]
+    assert "legs: email=prepared" in hist[0].debug_log
 
 
 def test_schedule_runner_keeps_enqueue_slot_after_midnight(stack):
