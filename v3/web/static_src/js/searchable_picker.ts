@@ -118,32 +118,34 @@ export class SearchablePicker {
 
   private ensureSearch(): HTMLInputElement {
     let search = this.host.querySelector<HTMLInputElement>(".customer-search");
-    if (search) return search;
-    this.host.innerHTML = "";
-    search = document.createElement("input");
-    search.type = "text";
-    search.className = "customer-search";
-    search.placeholder = this.placeholder;
+    if (!search) {
+      this.host.innerHTML = "";
+      search = document.createElement("input");
+      search.type = "text";
+      search.className = "customer-search";
+      search.placeholder = this.placeholder;
+      this.host.appendChild(search);
+    }
     search.setAttribute("role", "combobox");
     search.setAttribute("aria-autocomplete", "list");
     search.setAttribute("aria-expanded", "false");
     search.addEventListener("focus", () => this.open());
     search.addEventListener("input", () => this.open());
     search.addEventListener("keydown", (event) => this.handleKeydown(event));
-    this.host.appendChild(search);
     return search;
   }
 
   private ensureList(): HTMLElement {
     let list = this.host.querySelector<HTMLElement>(".customer-options");
-    if (list) return list;
-    list = document.createElement("div");
-    list.className = "customer-options";
-    list.id = `searchable-picker-${++pickerNumber}`;
+    if (!list) {
+      list = document.createElement("div");
+      list.className = "customer-options";
+      list.hidden = true;
+      this.host.appendChild(list);
+    }
+    if (!list.id) list.id = `searchable-picker-${++pickerNumber}`;
     list.setAttribute("role", "listbox");
-    list.hidden = true;
     this.search.setAttribute("aria-controls", list.id);
-    this.host.appendChild(list);
     return list;
   }
 
