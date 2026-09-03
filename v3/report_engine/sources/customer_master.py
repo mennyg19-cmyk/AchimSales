@@ -16,7 +16,6 @@ from report_engine.lib import first_of, iso_date, map_release, text
 
 def to_fact(raw: Mapping) -> CustomerFact:
     return CustomerFact(
-        source="reporting_api",
         customer_account=text(first_of(raw, "CustomerAccount", "customer_account", "customeraccount", "AccountNum")),
         customer_name=text(first_of(raw, "CustomerName", "customer_name", "customername", "Name")),
         sales_group=text(first_of(raw, "SalesGroup", "sales_group", "salesgroup", "Salesman")),

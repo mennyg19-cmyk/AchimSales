@@ -397,8 +397,8 @@ def init_db():
 
 
 def seed_beta_report_sources():
-    """Ensure the Beta SQL/OData source map table exists with defaults."""
-    # Keep in sync with v3/web/beta_sources.py _DEFAULT_SQL until Phase 3.2.
+    """Ensure the leftover Live Beta source-map table exists with defaults."""
+    # v3 no longer reads this table (Phase 3.3). Live /legacy Settings still may.
     sql_keys = (
         "ordered", "invoiced", "customer_activity", "salesman",
         "number_4", "customer_last_order", "item_averages",

@@ -48,7 +48,7 @@ class Config:
     # and boot-prime never enqueue dashboard.refresh jobs - so a slow/wedged
     # Reporting API can't tie up worker slots with a refresh nobody asked for.
     dashboard_refresh_enabled: bool = True
-    # Home app (is_beta): reports-only surface with hybrid SQL/OData sources.
+    # Home app (is_beta): reports-only SQL surface.
     # Dashboard stays off. Login is Live's (/legacy/login).
     is_beta: bool = False
     redirect_path: str = "/auth/callback"

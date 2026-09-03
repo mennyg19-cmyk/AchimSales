@@ -1,8 +1,11 @@
 # D365 Sales Reports
 
-Automated sales reporting from Dynamics 365 F&O via OData. Reports run on
-scheduled Azure Automation jobs, on demand via a Flask web app, or locally
-from the CLI.
+Automated sales reporting from Dynamics 365 F&O. Reports run on scheduled Azure
+Automation jobs, on demand via a Flask web app, or locally from the CLI.
+
+OData remains only in the CLI/Azure Automation path under `reports/`, `core/`,
+`data/`, and `runbooks/`; the Flask v3 app uses the Reporting API and has no
+OData runtime.
 
 ## Reports
 
@@ -115,21 +118,19 @@ python run.py ordered
 
 | Mount | Code | Role |
 |-------|------|------|
-| `/` | `v3/` (`is_beta`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
+| `/` | `v3/` (`is_beta`) | Site home — SQL reports through the Reporting API. |
 | `/legacy` | `webapp/` | Former Live — OData, Excel-first, email distributions |
 | `/test` | `v3/` | SQL sandbox — direct link only |
 | `/beta` | — | Redirects to `/` (old bookmarks) |
 | `/test-next` | `rebuild/` | Rebuild preview — retire after home is stable |
 
 Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
-Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings). Sales by State is SQL only and is not in that list.
-
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
 On the home site, **Settings** is the control panel (same ~800px width as Live): You,
-People, Reports, Delivery, History, and (developers) Database explorer,
-notification diagnostic, and beta SQL/OData sources. Live Email Distributions
+People, Reports, Delivery, History, and (developers) Database explorer and
+notification diagnostic. Live Email Distributions
 stay on Live only. Beta's sqlite file is on local disk (`BETA_PRECIOUS_DB_PATH`)
 and is restored/replicated by Litestream (same as `/test`), so Settings like
 schedule test mode survive an App Service recycle.

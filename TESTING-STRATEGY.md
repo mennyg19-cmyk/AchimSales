@@ -2,19 +2,19 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
-## Phase 1 containment: headers, legacy bypass, and OData scope
+## Phase 1 containment: headers, legacy bypass, and salesman scope
 
 **What to test:**
 - Every configured security header is applied; CSP allows unpkg (Feather/Tabulator), excludes jsDelivr and Google Maps; HSTS appears only in production.
 - `DEV_BYPASS_AUTH=true` still works locally but is refused on Azure or when `APP_ENV=prod`. Auth routes call `_dev_bypass_enabled()` live, not a frozen import.
-- Empty OData `visible_keys` set empties rows. Sheet values match via `salesman_key()`. A missing salesman column empties rows when scope is set. Underscore params are not forwarded to Live `run_report`. Preset copy rejects `..` and slashes in the salesman folder name.
+- Empty SQL salesman scopes return no rows. Pivoted report rows match with `salesman_key()`. Preset copy rejects `..` and slashes in the salesman folder name.
 
 **Expected behavior:**
 - Browser responses prevent framing, MIME sniffing, and unscoped third-party execution without overwriting an existing header. Current v3 pages still load Feather/Tabulator from unpkg, so CSP allows `https://unpkg.com` (not jsDelivr, not Google Maps).
 - The legacy app cannot enable development authentication in Azure or production.
-- An OData report cannot expose all rows when its scope column cannot be identified.
+- A SQL report cannot expose rows outside the caller's salesman scope.
 
-**Test file:** `v3/tests/test_security_headers.py`, `v3/tests/test_legacy_dev_bypass.py`, `v3/tests/test_odata_scope.py`
+**Test file:** `v3/tests/test_security_headers.py`, `v3/tests/test_legacy_dev_bypass.py`, `v3/tests/test_report_number_4.py`, `v3/tests/test_report_salesman.py`
 
 ## Phase 2 DB-authoritative authentication
 
@@ -36,26 +36,36 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Every built registry key has a SQL path: `ReportService` orchestrators cover Ordered (`_orch_ordered`), Invoiced (`_orch_invoiced`), Salesman (`_orch_salesman`), Number 4 (`_orch_number_4`), Customer Activity (`_orch_customer_activity`), Item Averages (`_orch_item_averages`), and Sales by State (`_orch_sales_by_state`).
 - Customer's Last Order uses the in-app `ReportService.last_order_rows()` call to the `customer_last_orders` stored procedure.
 - Item Averages uses the Number 4 By Item stored procedure. Sales by State uses its summary, NYC, and detail stored procedures.
-- Beta defaults Number 4, Customer's Last Order, and Item Averages to SQL. Schema setup upgrades existing `item_averages=odata` Live rows to SQL.
 
 **Expected behavior:**
 - Customer Aging remains BACKLOG and has no fake SQL path.
 - Sales by State is SQL-only because it is not a selectable hybrid source.
 - A Beta operator can run Item Averages without changing Settings.
 
-**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_sales_by_state.py`, `tests/test_beta_sources.py`
+**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_sales_by_state.py`
 
 ## Phase 3.2 SQL-only v3 execution
 
 **What to test:**
-- A Beta-context `ReportService.builder_for()` run uses the SQL orchestrator even when the old source map says `odata`.
+- A Beta-context `ReportService.builder_for()` run uses the SQL orchestrator.
 - Developer Settings keeps Database explorer and Notification diagnostic, but has no source selector; both old source endpoints return 404.
 - The six hybrid reports use new builder versions, producing different cache keys without adding a source field.
 
 **Expected behavior:**
-- v3 never imports the OData bridge while executing reports, and old OData cache payloads cannot be reused.
+- v3 uses SQL report builders, and old cache payloads cannot be reused.
 
 **Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_blueprints.py`
+
+## Phase 3.3 v3 OData runtime removal
+
+**What to test:**
+- The app factory imports neither the deleted v3 OData modules nor the CLI OData clients.
+- Every built report retains a SQL path. Salesman scope tests still fail closed for an empty scope.
+
+**Expected behavior:**
+- Flask v3 runs SQL reports only. OData remains in the separate CLI/Azure Automation path.
+
+**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_number_4.py`, `v3/tests/test_report_salesman.py`
 
 ## Only developers mint developers; Add user does not overwrite
 
@@ -577,7 +587,6 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - YTD drops rows with no current-year qty or dollars.
 - Every tab sets `default_group` to Item #.
 - Live Excel By Item and By Customer share the same trailing headers.
-- OData extra_files dicts are read as paths; Item/Customer sheet names do not collide.
 - Ordered / Item Averages column lists are not reordered.
 
 **Expected behavior:**
@@ -591,7 +600,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - SP aliases AvgPrice / BookPrice become Avg Price / Book Price.
 - Saved Default with Sep after Salesman still emails and shows Sep before Total Qty.
 
-**Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_odata_number4.py`, `v3/tests/test_delivery.py`, `tests/test_number_4.py`
+**Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_delivery.py`, `tests/test_number_4.py`
 
 ## Sales by State (SQL only)
 
@@ -600,11 +609,10 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Third catalog key is `sales_by_state_filtered` (not `sales_by_state_detail`).
 - Summary sorts by sales amount. NYC sales amount appears on the first row only, even if the SP repeats it.
 - Detail Excel serial dates become YYYY-MM-DD; negative amounts stay negative.
-- Report is built, not on the Settings SQL/OData list, and not a salesman default.
+- Report is built and not a salesman default.
 
 **Expected behavior:**
 - Admin reports list shows Sales by State. Salesman inherit list does not.
-- `get_source("sales_by_state")` is sql.
 
 **Edge cases:**
 - Custom period dates override the year window when both start and end are set.
@@ -863,7 +871,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Salesman `/settings` is `container-narrow`, has You (profile, theme, exclusions), no admin/developer blocks.
 - Admin has People, Reports, Delivery, History; not Database explorer.
-- Developer has explorer, notification diagnostic, beta sources.
+- Developer has explorer and notification diagnostic.
 - `POST /api/admin/report-visibility` hides a report unless a per-user allow override exists.
 - Exclusions save without the dashboard blueprint (Beta).
 - `/admin/schedule-runs` and `/admin/run-log` are admin-only.

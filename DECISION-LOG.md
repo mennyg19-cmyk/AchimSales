@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 3.3: delete v3 OData runtime, leave Live seed table
+**What I had to decide:** Whether deleting `odata_bridge.py` / `beta_sources.py` also meant a precious migration to drop `beta_report_sources`, rewriting historical v3 markdown, or touching Live `webapp/`.
+**Options I considered:** (1) Add v3 migration 0017/0018 to drop the map. (2) Leave the Live sqlite table and seed, stop v3 from reading it. (3) Also rewrite `v3/docs/odata-vs-sp-mismatch.md` and `REVIEW-LOG.md`.
+**What I chose:** Option 2. Flask v3 has no OData runtime. Graph mail keeps `@odata.type`. CLI/Automation OData under `reports/`, `core/`, `data/`, `runbooks/` stays. No 0017/0018. Historical docs stay. `/legacy` `/test` `/test-next` stay mounted.
+**Why:** Plan 3.4 is keep Automation OData. A precious drop would fight “do not edit 0016 / do not add 0017-0018 this PR until owner says.” Live Settings can still show the old map; v3 ignores it.
+**Status:** DECIDED
+
 ## 2026-09-03 Phase 3.1: SQL-backed reports cannot stay on OData
 **What I had to decide:** How to make Item Averages (and Number 4 / Last Order) run SQL on Beta when Live already stored `odata` in `beta_report_sources`.
 **Options I considered:** (1) Change defaults only (`INSERT OR IGNORE` leaves existing odata). (2) One-time UPDATE of SQL-backed keys to sql on schema ensure / Live seed. (3) Jump straight to deleting the source map.

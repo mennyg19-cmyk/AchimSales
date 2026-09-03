@@ -7,7 +7,7 @@ from report_engine.sources import invoiced as S
 
 
 def _sm(key, number, full_name, pct, display=""):
-    return SalesmanFact(source="reporting_api", key=key, number=number,
+    return SalesmanFact(key=key, number=number,
                         full_name=full_name, display_name=display, commission_pct=pct)
 
 

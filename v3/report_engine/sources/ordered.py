@@ -42,7 +42,6 @@ _SHIPPING_DOLLAR_KEYS = ("ShippingDollars", "Shipping $", "ShippingAmount")
 
 def to_fact(raw: Mapping) -> OrderLineFact:
     return OrderLineFact(
-        source="reporting_api",
         company=text(first_of(raw, "Company", "DataAreaId")),
         sales_order_number=text(first_of(raw, "SalesOrderNumber", "SalesId", "OrderNumber")),
         sales_order_name=text(first_of(raw, "SalesOrderName", "SalesName", "OrderName")),
@@ -85,7 +84,6 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
     """
     customer_name = text(first_of(raw, "customername", "CustomerName", "Name"))
     return OrderLineFact(
-        source="reporting_api",
         company="",
         sales_order_number=text(first_of(raw, "SalesOrderNumber", "SalesId", "OrderNumber")),
         sales_order_name=customer_name,

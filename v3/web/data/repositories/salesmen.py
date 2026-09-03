@@ -51,7 +51,7 @@ class SalesmanRepository:
             ).fetchall()
         return {
             r["key"]: SalesmanFact(
-                source="reporting_api", key=r["key"], number=r["number"],
+                key=r["key"], number=r["number"],
                 full_name=r["full_name"], display_name=r["display_name"],
                 commission_pct=float(r["commission_pct"] or 0.0),
             )

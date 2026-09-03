@@ -71,7 +71,6 @@ def to_fact(raw: Mapping) -> InvoiceChargeFact:
     else:
         total = round(subtotal + tariff + freight + cc + misc, 2)
     return InvoiceChargeFact(
-        source="reporting_api",
         invoice_number=invoice_number,
         invoice_date=iso_date(first_of(raw, "InvoiceDate", "Invoice Date")),
         customer_account=text(first_of(raw, "CustomerAccount", "InvoiceAccount")),
