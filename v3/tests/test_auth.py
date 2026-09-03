@@ -37,7 +37,6 @@ def _seed_salesman_scope(db, email, role, keys):
     u = users.upsert(email, role=role)
     with db.precious() as conn:
         for k in keys:
-            conn.execute("INSERT OR IGNORE INTO salesmen(key) VALUES (?)", (k,))
             conn.execute(
                 "INSERT INTO user_salesman_access(user_id, salesman_key) VALUES (?, ?)",
                 (u.id, k),

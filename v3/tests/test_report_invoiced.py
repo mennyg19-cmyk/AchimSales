@@ -7,7 +7,8 @@ from report_engine.sources import invoiced as S
 
 
 def _sm(key, number, full_name, pct, display=""):
-    return SalesmanFact(source="reporting_api", key=key, number=number,
+    # `number` is kept in the signature only so call sites read like the old master rows.
+    return SalesmanFact(source="reporting_api", key=key,
                         full_name=full_name, display_name=display, commission_pct=pct)
 
 
@@ -272,7 +273,7 @@ def test_commissions_monthly_pivot_math():
     assert apr["net_commission"] == 900.0
     assert apr["commission"] == 45.0                # 900 * 0.05
     assert sm["ytd"]["total_payable"] == 45.0
-    assert sm["salesman_number"]
+    assert "salesman_number" not in sm             # numbers are gone from the cards
     assert len(sm["monthly"]) == 4  # end_month=4 → no future months
     assert sm["monthly"][-1]["month"] == 4
 

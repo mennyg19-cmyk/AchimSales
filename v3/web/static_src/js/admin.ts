@@ -1,8 +1,8 @@
 /**
  * Admin "Users & access" page. Server renders the current state; this wires the
- * mutations (add/edit/delete user, per-salesman + per-report access, salesman
- * active toggle + edit) as JSON calls against the admin API. All endpoints are
- * privilege-guarded server-side; this is purely UX.
+ * mutations (add/edit/delete user, per-salesman + per-report access) as JSON
+ * calls against the admin API. Salesmen themselves are read-only here (D365 is
+ * the master). All endpoints are privilege-guarded server-side; this is purely UX.
  */
 
 const root = document.getElementById("adminUsers");
@@ -10,7 +10,6 @@ const usersUrl = root?.getAttribute("data-users-url") || "";
 const csrf = root?.getAttribute("data-csrf") || "";
 const salesGroupsUrl = root?.getAttribute("data-sales-groups-url") || "";
 const lookupStatusUrl = root?.getAttribute("data-lookup-status-url") || "";
-const salesmenBase = usersUrl.replace(/\/users$/, "/salesmen");
 
 type SalesGroupRow = { key: string; name: string };
 let salesGroups: SalesGroupRow[] = [];
@@ -262,42 +261,6 @@ async function deleteUser(): Promise<void> {
   else setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Delete failed");
 }
 
-// --- salesman edit + active toggle -----------------------------------------
-let editingSmKey = "";
-
-function initSalesmen(): void {
-  document.querySelectorAll<HTMLInputElement>(".sm-active-toggle").forEach((box) => {
-    box.addEventListener("change", async () => {
-      const key = box.getAttribute("data-key") || "";
-      box.disabled = true;
-      const resp = await api(`${salesmenBase}/${encodeURIComponent(key)}`, "PUT",
-        { is_active: box.checked });
-      if (!resp.ok) box.checked = !box.checked;
-      box.disabled = false;
-    });
-  });
-}
-
-function openSmModal(tr: HTMLTableRowElement): void {
-  editingSmKey = tr.dataset.key || "";
-  (($("esNumber") as HTMLInputElement)).value = tr.dataset.number || "";
-  (($("esFull") as HTMLInputElement)).value = tr.dataset.full || "";
-  (($("esDisplay") as HTMLInputElement)).value = tr.dataset.display || "";
-  setMsg("esMsg", "");
-  show("editSmModal");
-}
-
-async function saveSm(): Promise<void> {
-  if (!editingSmKey) return;
-  const resp = await api(`${salesmenBase}/${encodeURIComponent(editingSmKey)}`, "PUT", {
-    number: (($("esNumber") as HTMLInputElement)).value,
-    full_name: (($("esFull") as HTMLInputElement)).value,
-    display_name: (($("esDisplay") as HTMLInputElement)).value,
-  });
-  if (resp.ok) window.location.reload();
-  else setMsg("esMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
-}
-
 // --- helpers ----------------------------------------------------------------
 function show(id: string): void {
   const el = $(id);
@@ -317,17 +280,12 @@ function initEvents(): void {
     const t = e.target as HTMLElement;
     if (t.closest(".btn-edit-user")) {
       openUserModal(t.closest("tr") as HTMLTableRowElement);
-    } else if (t.closest(".btn-edit-sm")) {
-      openSmModal(t.closest("tr") as HTMLTableRowElement);
     } else if (t.closest("[data-close-user]") || t.id === "editUserModal") {
       hide("editUserModal");
-    } else if (t.closest("[data-close-sm]") || t.id === "editSmModal") {
-      hide("editSmModal");
     }
   });
   $("euSave")?.addEventListener("click", saveUser);
   $("euDelete")?.addEventListener("click", deleteUser);
-  $("esSave")?.addEventListener("click", saveSm);
   $("euRole")?.addEventListener("change", () => {
     const role = ($("euRole") as HTMLSelectElement | null)?.value || "";
     syncEditRole(role);
@@ -341,7 +299,6 @@ if (root) {
     initSearch();
     initAddUser();
     initSalesGroups();
-    initSalesmen();
     initEvents();
   });
 }

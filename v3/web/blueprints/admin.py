@@ -1,4 +1,5 @@
-"""Admin: user/access + salesman management (privileged only).
+"""Admin: user/access management (privileged only). Salesmen are read-only here;
+D365 (the salesmen_master SP) is their master.
 
 Every route re-resolves privilege from the DB via Authorization (never the
 session role) and fails closed. Mutations are JSON APIs consumed by admin.ts;
@@ -8,8 +9,6 @@ JS too. Kept separate from settings.py so the thin per-user settings stay thin.
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from report_engine import registry
@@ -17,7 +16,6 @@ from report_engine.lib import salesman_key
 from web.auth.decorators import require_login
 from web.auth.principal import ROLE_ADMIN, ROLE_DEVELOPER, ROLE_SALESMAN, VALID_ROLES
 from web.auth.session import current_principal
-from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 
 admin_bp = Blueprint("admin", __name__)
@@ -72,12 +70,8 @@ def _users() -> UserRepository:
     return UserRepository(_db())
 
 
-def _salesmen() -> SalesmanRepository:
-    return SalesmanRepository(_db())
-
-
 def _directory():
-    """SP-backed salesman master (emails, commission); local table as fallback."""
+    """Salesman master from the salesmen_master SP (names, emails, commission)."""
     return current_app.config["SALESMAN_DIRECTORY"]
 
 
@@ -106,11 +100,13 @@ def users_page():
         return blocked
     users = _users().list_all()
     built = sorted(registry.built_reports(), key=lambda s: s.title)
-    # Grid rows are the local table (number, names, Active toggle); the Email
-    # column shows what D365 says, since split-mail reads the SP now.
-    local = _salesmen().list_all()
-    emails = _directory().emails_by_keys([s.key for s in local])
-    salesmen = [replace(s, email=emails.get(s.key) or s.email) for s in local]
+    # `key` is normalized to match user_salesman_access rows (manager checkboxes);
+    # `raw` is the D365 SalesGroup shown in the read-only list.
+    salesmen = sorted(
+        ({"key": salesman_key(m.key), "raw": m.key, "name": m.name or m.key, "email": m.email}
+         for m in _directory().rows(wait=False)),
+        key=lambda s: s["name"].lower(),
+    )
     return render_template(
         "admin_users.html", active_tab="settings", users=users,
         roles=VALID_ROLES, reports=[{"key": s.key, "title": s.title} for s in built],
@@ -312,27 +308,6 @@ def set_report_access(user_id: int):
     else:
         return jsonify({"error": "access must be inherit|allow|deny"}), 400
     return jsonify({"report_key": report_key, "access": access})
-
-
-# --- salesman edit ----------------------------------------------------------
-
-@admin_bp.put("/api/admin/salesmen/<key>")
-@require_login
-def update_salesman(key: str):
-    blocked = _guard()
-    if blocked:
-        return blocked
-    body = request.get_json(silent=True) or {}
-    fields: dict = {}
-    # Email is no longer editable here: it comes from D365 (salesmen_master SP).
-    for name in ("number", "full_name", "display_name"):
-        if name in body:
-            fields[name] = str(body[name]).strip()
-    if "is_active" in body:
-        fields["is_active"] = bool(body["is_active"])
-    if not _salesmen().update(key, **fields):
-        return jsonify({"error": "Unknown salesman or no editable fields"}), 404
-    return jsonify({"key": key, **fields})
 
 
 # --- export history (admin-only) -------------------------------------------

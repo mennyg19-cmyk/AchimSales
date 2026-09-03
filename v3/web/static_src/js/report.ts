@@ -42,7 +42,6 @@ interface CommissionMonth {
 }
 interface CommissionSalesman {
   salesman?: string;
-  salesman_number: string;
   salesman_name: string;
   commission_pct: number;
   monthly: CommissionMonth[];
@@ -975,9 +974,9 @@ function renderCommissionCards(tab: Tab, host: HTMLElement): void {
 
   salesmen.forEach((s) => {
     const months = s.monthly || [];
-    const num = String(s.salesman_number || s.salesman || "").trim();
-    const name = String(s.salesman_name || "").trim();
-    const titleText = `${num} - ${name}`.replace(/^ - | - $/g, "").trim() || name || num;
+    // Card title is the salesman's name; the old "080 - Name" number prefix is gone
+    // (salesmen are identified by SalesGroup now, not a number).
+    const titleText = String(s.salesman_name || s.salesman || "").trim();
 
     const block = document.createElement("div");
     block.className = "commission-live-block";

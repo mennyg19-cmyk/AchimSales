@@ -31,7 +31,6 @@ from web.data.repositories.schedules import (
     ScheduleRepository,
     ScheduleRunRepository,
 )
-from web.data.repositories.salesmen import SalesmanRepository
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
@@ -81,6 +80,14 @@ def _sharepoint_for_test(test_to, live_path: str) -> str:
     return TEST_SHAREPOINT_FOLDER if live_path else ""
 
 
+class _NoSalesmen:
+    def get_email(self, key: str) -> str:
+        return ""
+
+    def keys_with_email(self) -> list[str]:
+        return []
+
+
 class ScheduleRunner:
     def __init__(self, *, schedule_repo: ScheduleRepository,
                  master_repo: MasterScheduleRepository, run_repo: ScheduleRunRepository,
@@ -93,9 +100,9 @@ class ScheduleRunner:
         self.authz = authz
         self.delivery = delivery
         self.settings = settings or AppSettingsRepository(user_repo.db)
-        # Split-mail addresses: the SalesmanDirectory (SP first) in the app; the
-        # local table when a test builds the runner without one.
-        self.salesmen = salesmen or SalesmanRepository(user_repo.db)
+        # Split-mail addresses come from the SalesmanDirectory (salesmen_master SP).
+        # None (tests without one) means no salesman has an address.
+        self.salesmen = salesmen or _NoSalesmen()
         self.defaults = ReportDefaultRepository(user_repo.db)
         self.company_views = CompanyViewRepository(user_repo.db)
 

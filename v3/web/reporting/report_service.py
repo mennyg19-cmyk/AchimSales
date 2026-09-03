@@ -113,8 +113,8 @@ def _resolved_year(params: dict) -> int:
 class ReportService:
     def __init__(self, client, salesmen_repo, *, customer_mirror: CustomerMirror | None = None):
         self.client = client
-        # Anything with all_as_facts(): in the app this is the SalesmanDirectory
-        # (SP-backed, local table as fallback); tests pass a plain repo/fake.
+        # Anything with all_as_facts(): the SalesmanDirectory (salesmen_master SP)
+        # in the app; tests pass a fake.
         self.salesmen_repo = salesmen_repo
         self.customer_mirror = customer_mirror
 
@@ -356,7 +356,6 @@ def _salesman_pick_keys(picks: list[str], salesmen: dict[str, SalesmanFact]) -> 
                     key,
                     salesman_key(row.display_name),
                     salesman_key(row.full_name),
-                    salesman_key(row.number),
                 }
                 if pk in aliases:
                     fact = row
@@ -365,7 +364,6 @@ def _salesman_pick_keys(picks: list[str], salesmen: dict[str, SalesmanFact]) -> 
             wanted.add(fact.key)
             wanted.add(salesman_key(fact.display_name))
             wanted.add(salesman_key(fact.full_name))
-            wanted.add(salesman_key(fact.number))
     wanted.discard("")
     return wanted
 

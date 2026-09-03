@@ -240,11 +240,10 @@ def test_run_log_forbidden_for_salesman(tmp_path):
     assert client.get("/admin/run-log").status_code == 403
 
 
-def _seed_salesman(app, key="redwards", number="42"):
-    with app.config["DB"].precious() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO salesmen(key, number, display_name, is_active)"
-            " VALUES (?, ?, ?, 1)", (key, number, "R Edwards"))
+def _seed_salesman(app, raw="REdwards", *, email="", customers=()):
+    """Put one salesman in the salesmen_master SP the app reads."""
+    _with_lookups(app, list(customers), master_rows=[
+        {"Salesman": raw, "SalesmanName": "R Edwards", "Email": email}])
 
 
 def test_admin_user_crud_and_scope(tmp_path):
@@ -309,11 +308,8 @@ def test_admin_can_rename_user(tmp_path):
 
 def test_create_user_links_matching_salesman_email(tmp_path):
     app = _make_app(tmp_path)
-    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
-    SalesmanRepository(app.config["DB"]).upsert_many([
-        SalesmanSeed(raw_key="HGoldberg", number="9", full_name="H Goldberg",
-                     display_name="H Goldberg", email="heshy@x.com"),
-    ])
+    _with_lookups(app, [], master_rows=[
+        {"Salesman": "HGoldberg", "SalesmanName": "H Goldberg", "Email": "heshy@x.com"}])
     client = app.test_client()
     _login(client, app)
     created = client.post("/api/admin/users", json={
@@ -504,44 +500,26 @@ def test_admin_salesman_access_normalizes_raw_group(tmp_path):
     assert scope.get_json()["keys"] == ["hkaufman"]
 
 
-def test_admin_salesman_active_toggle(tmp_path):
+def test_admin_salesman_edit_api_is_gone(tmp_path):
+    """D365 is the salesman master: no local edit, toggle, or email field."""
     app = _make_app(tmp_path)
     _seed_salesman(app)
     client = app.test_client()
     _login(client, app)
     resp = client.put("/api/admin/salesmen/redwards", json={"is_active": False},
                       headers={"X-CSRF-Token": _CSRF})
-    assert resp.status_code == 200
-    from web.data.repositories.salesmen import SalesmanRepository
-    rows = {s.key: s for s in SalesmanRepository(app.config["DB"]).list_all()}
-    assert rows["redwards"].is_active is False
-
-
-def test_admin_cannot_edit_salesman_email_anymore(tmp_path):
-    """Email comes from the salesmen_master SP now; the local copy is read-only."""
-    app = _make_app(tmp_path)
-    _seed_salesman(app)
-    client = app.test_client()
-    _login(client, app)
-    resp = client.put("/api/admin/salesmen/redwards", json={"email": "rep@x.com"},
-                      headers={"X-CSRF-Token": _CSRF})
-    assert resp.status_code == 404  # no editable fields
-    from web.data.repositories.salesmen import SalesmanRepository
-    rows = {s.key: s for s in SalesmanRepository(app.config["DB"]).list_all()}
-    assert rows["redwards"].email == ""
+    assert resp.status_code in (404, 405)
     html = client.get("/admin/users").get_data(as_text=True)
+    assert "sm-active-toggle" not in html
     assert 'id="esEmail"' not in html
+    assert 'id="editSmModal"' not in html
+    assert "R Edwards" in html                      # read-only D365 list
 
 
 def test_admin_salesmen_grid_shows_sp_email_and_split_mail_uses_it(tmp_path):
-    """The SP's Email wins over the local table for the grid, the wizard's
-    salesmen-emails lookup, and the Users & access auto-grant."""
+    """The SP's Email feeds the read-only grid, the wizard's salesmen-emails
+    lookup, the Users & access auto-grant, and the manager checkboxes."""
     app = _make_app(tmp_path)
-    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
-    SalesmanRepository(app.config["DB"]).upsert_many([
-        SalesmanSeed(raw_key="REdwards", number="42", full_name="R Edwards",
-                     display_name="REdwards", email="old@x.com"),
-    ])
     _with_lookups(app, [], master_rows=[
         {"Salesman": "REdwards", "SalesmanName": "Reggie Edwards", "Email": "reggie@x.com",
          "CommissionPercentage": 5},
@@ -551,7 +529,8 @@ def test_admin_salesmen_grid_shows_sp_email_and_split_mail_uses_it(tmp_path):
     client = app.test_client()
     _login(client, app)
     html = client.get("/admin/users").get_data(as_text=True)
-    assert "reggie@x.com" in html and "old@x.com" not in html
+    assert "reggie@x.com" in html
+    assert 'value="newhire"' in html                 # manager checkbox = normalized key
     emails = client.get("/api/master-schedules/lookups/salesmen-emails").get_json()["salesmen"]
     assert {(r["key"], r["email"]) for r in emails} == {
         ("REdwards", "reggie@x.com"), ("NewHire", "new@x.com")}
@@ -561,8 +540,7 @@ def test_admin_salesmen_grid_shows_sp_email_and_split_mail_uses_it(tmp_path):
     keys = client.get(f"/api/admin/users/{uid}/salesman-access").get_json()["keys"]
     assert keys == ["newhire"]
     facts = app.config["SALESMAN_DIRECTORY"].all_as_facts()
-    assert facts["redwards"].number == "42"                 # still local
-    assert facts["redwards"].full_name == "Reggie Edwards"  # from the SP
+    assert facts["redwards"].full_name == "Reggie Edwards"
     assert facts["redwards"].commission_pct == 0.05         # 5 -> fraction
     assert facts["newhire"].commission_pct == 0.04
 
@@ -959,13 +937,12 @@ def _with_lookups(app, rows, master_rows=None):
     """Replace the app's LookupService with one over a configured fake client
     that returns `rows` for customer_master (and `master_rows` for
     salesmen_master), and populate it synchronously."""
-    from web.data.repositories.salesmen import SalesmanRepository
     from web.reporting.lookups import LookupService
     from web.reporting.salesman_directory import SalesmanDirectory
 
     by_report = {"customer_master": rows, "salesmen_master": master_rows or []}
     client = _FakeClient(by_report, configured=True)
-    directory = SalesmanDirectory(client, SalesmanRepository(app.config["DB"]))
+    directory = SalesmanDirectory(client, app.config["DB"])
     service = ReportService(client, directory)
     lookup = LookupService(service, directory)
     lookup._populate()  # synchronous fetch so the endpoints are deterministic
@@ -2093,12 +2070,9 @@ def test_master_schedule_lookups_admin_only(tmp_path):
 
     admin = app.test_client()
     _login(admin, app)
-    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
-    SalesmanRepository(app.config["DB"]).upsert_many([
-        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
-                     display_name="M Kolko", email="m@x.com"),
-        SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
-                     display_name="A Grossman", email=""),
+    _with_lookups(app, rows, master_rows=[
+        {"Salesman": "MKolko", "SalesmanName": "M Kolko", "Email": "m@x.com"},
+        {"Salesman": "AGrossman", "SalesmanName": "A Grossman", "Email": ""},
     ])
     sm = admin.get("/api/master-schedules/lookups/salesmen").get_json()["salesmen"]
     assert {r["key"] for r in sm} >= {"MKolko", "AGrossman"}
@@ -2683,13 +2657,8 @@ def _clo_real_rows(sales_group):
 
 def _grant_clo_salesman(app, *, salesman_group):
     from report_engine.lib import salesman_key
-    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
 
     db = app.config["DB"]
-    # Access keys are normalized; the salesmen table is no longer required.
-    SalesmanRepository(db).upsert_many([SalesmanSeed(
-        raw_key=salesman_group, number="1", full_name=salesman_group,
-        display_name=salesman_group)])
     user = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="salesman")
     with db.precious() as conn:
         conn.execute(
@@ -2838,12 +2807,8 @@ def test_report_visibility_api_and_history_pages(tmp_path):
 
 def _grant_salesman_scope(app, email, salesman_group):
     from report_engine.lib import salesman_key
-    from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
 
     db = app.config["DB"]
-    SalesmanRepository(db).upsert_many([SalesmanSeed(
-        raw_key=salesman_group, number="1", full_name=salesman_group,
-        display_name=salesman_group)])
     user = UserRepository(db).upsert(email, display_name="Rep", role="salesman")
     with db.precious() as conn:
         conn.execute(

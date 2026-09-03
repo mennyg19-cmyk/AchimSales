@@ -2,18 +2,20 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
-## Salesman email and commission come from the salesmen_master SP
+## The salesmen_master SP is the only salesman master (no v3 table)
 
 **What to test:**
-- `SalesmanDirectory.rows()`: SP `Email` / `CommissionPercentage` / `SalesmanName` win; local table fills blanks; `6` becomes `0.06`; a local row with Active off hides the SP row; active local rows the SP lacks are appended.
-- `all_as_facts()`: number and short display name stay local; full name and commission come from the SP.
-- `get_email`, `emails_by_keys`, `keys_with_email`, `keys_for_email` read the merged list. Before the SP answers (or unconfigured) they read the local table with the old raw-key rule.
-- One SP call per TTL; a failure waits the cooldown before retrying; `rows(wait=False)` never calls the SP.
-- Users & access: Salesmen grid Email column shows the SP address; `PUT /api/admin/salesmen/<key>` with only `email` is 404; `#esEmail` is gone.
-- Wizard `salesmen-emails` and the new-user auto-grant use the SP address. Schedule runner split-mail uses the directory (`salesmen=` kwarg).
-- `LookupService.salesmen()` values come from `sp_rows()` (never local normalized keys); names for customer-only groups still come from the directory.
+- `SalesmanDirectory.rows()` is the SP list sorted by name: blank keys and `IsActive` false rows dropped; `CommissionPercentage` 6 becomes 0.06.
+- `all_as_facts()`: full and display name are `SalesmanName`; commission from the SP. `SalesmanFact` has no `number`.
+- `get_email`, `emails_by_keys`, `keys_with_email`, `keys_for_email` read the SP list.
+- A successful fetch writes `cache.db` `salesmen_master_cache`; a new process whose SP call fails reads that copy (`master_source == "cache"`). No SP and no cache → empty list (`"none"`).
+- One SP call per TTL; a failure waits the cooldown; `rows(wait=False)` never calls the SP.
+- Migration `0019_drop_salesmen` removes the `salesmen` table; `0006_salesmen_master_cache` adds the cache table.
+- Users & access: read-only "Salesmen in D365" list; no `sm-active-toggle`, `#esEmail`, or `#editSmModal`; `PUT /api/admin/salesmen/<key>` is gone. Manager checkbox values are normalized keys.
+- Invoiced commissions cards have no `salesman_number`; the card title is the name (grid + Excel).
+- Schedule runner split-mail reads the directory (`salesmen=` kwarg); without one nobody has an address.
 
-**Test file:** `v3/tests/test_salesman_directory.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`
+**Test file:** `v3/tests/test_salesman_directory.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_report_service.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_report_invoiced.py`
 
 ## Developer raw Reporting API passthrough
 
@@ -27,7 +29,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **What to test:**
 - `LookupService.salesmen()` lists every row from `salesmen_master` (`POST /api/reports/salesmen_master/run`), including a salesman with no customers. Blank keys and `IsActive` false rows are dropped.
-- Name is the SP's name, else the v3 salesmen table display name, else the raw key.
+- Name is the SP's name, else the raw key.
 - A customer SalesGroup missing from the master is still appended.
 - If the master SP fails, customers still populate (`status == ready`) and the dropdown falls back to customer SalesGroups.
 - `/api/reports/<key>/salesmen`, `/api/master-schedules/lookups/salesmen`, `/api/report/customer-last-order/salesmen`, and `/api/admin/sales-groups` all return the master-only salesman. Scoped users still see only their keys.

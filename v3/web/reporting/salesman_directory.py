@@ -1,18 +1,16 @@
-"""Salesman master: ``rpt.usp_salesmen_master`` first, the local table as fallback.
+"""Salesman master: ``rpt.usp_salesmen_master`` is the only source.
 
 The SP (``POST /api/reports/salesmen_master/run``) returns every salesman with
 ``Salesman`` (raw SalesGroup), ``SalesmanName``, ``Email`` and
-``CommissionPercentage``. That is now the source for names, split-mail
-addresses and the commission fallback used by the Invoiced commissions cards.
+``CommissionPercentage``. It feeds every salesman dropdown, split-mail
+addresses, the Users & access email auto-grant, and the commission fallback on
+the Invoiced commissions cards. There is no local salesman table any more; to
+add, rename, retire or re-address a salesman, change D365.
 
-The local ``salesmen`` table still supplies the salesman number and the short
-display name, fills any blank the SP leaves, and is the whole answer while the
-SP has not answered yet in this process (or is not configured). A local row
-switched to inactive hides that salesman everywhere: that toggle is the admin's
-opt-out for a retired rep the SP still lists.
-
-Cached per process for ``ttl_seconds``. A failed refresh keeps the last good
-list and waits ``retry_cooldown_seconds`` before trying again.
+Cached in memory for ``ttl_seconds`` and, when a database is given, written to
+``cache.db`` (``salesmen_master_cache``) on every successful fetch so a worker
+that boots while the SP is down still has the last good list. A failed refresh
+keeps what we have and waits ``retry_cooldown_seconds`` before trying again.
 """
 
 from __future__ import annotations
@@ -71,20 +69,11 @@ def master_salesman(raw: dict) -> MasterSalesman | None:
     )
 
 
-def _local_raw_key(row) -> str:
-    """The table stores a normalized key; display_name is the raw SalesGroup when
-    it normalizes back to that key (e.g. REdwards), which is what the SPs want."""
-    display = (row.display_name or "").strip()
-    if display and " " not in display and salesman_key(display) == row.key:
-        return display
-    return row.key
-
-
 class SalesmanDirectory:
-    def __init__(self, client, repo, *, ttl_seconds: int = 3600,
+    def __init__(self, client, db=None, *, ttl_seconds: int = 3600,
                  retry_cooldown_seconds: int = 15):
         self.client = client
-        self.repo = repo
+        self.db = db
         self.ttl = ttl_seconds
         self.retry_cooldown = retry_cooldown_seconds
         self._lock = threading.Lock()
@@ -105,9 +94,8 @@ class SalesmanDirectory:
             return
         try:
             raw_rows = self.client.run_report("salesmen_master", {}).rows
-        except Exception as exc:  # noqa: BLE001 - callers fall back to the local table
-            log.warning("salesmen_master SP unreachable; using the last good list "
-                        "or the local salesmen table: %s", exc)
+        except Exception as exc:  # noqa: BLE001 - callers keep the cached list
+            log.warning("salesmen_master SP unreachable; using the last good list: %s", exc)
             self._failed_at = time.time()
             self._state["error"] = str(exc)
             return
@@ -120,6 +108,7 @@ class SalesmanDirectory:
             self._master = rows
             self._fetched_at = time.time()
         self._state.update(raw_count=len(raw_rows), columns=columns, error=None)
+        self._write_cache(rows)
 
     def _refresh_if_stale(self) -> None:
         now = time.time()
@@ -129,95 +118,88 @@ class SalesmanDirectory:
             return
         self.refresh()
 
+    # -- disk cache (last good list across restarts) -------------------------
+
+    def _write_cache(self, rows: list[MasterSalesman]) -> None:
+        if self.db is None:
+            return
+        try:
+            with self.db.cache() as conn:
+                conn.execute("DELETE FROM salesmen_master_cache")
+                conn.executemany(
+                    "INSERT INTO salesmen_master_cache(salesman, name, email, commission_pct)"
+                    " VALUES (?, ?, ?, ?)",
+                    [(r.key, r.name, r.email, r.commission_pct) for r in rows],
+                )
+        except Exception as exc:  # noqa: BLE001 - the cache is best-effort
+            log.warning("could not write salesmen_master_cache: %s", exc)
+
+    def _read_cache(self) -> list[MasterSalesman]:
+        if self.db is None:
+            return []
+        try:
+            with self.db.cache() as conn:
+                rows = conn.execute(
+                    "SELECT salesman, name, email, commission_pct FROM salesmen_master_cache"
+                    " ORDER BY name, salesman"
+                ).fetchall()
+        except Exception as exc:  # noqa: BLE001 - cache.db can vanish between boots
+            log.warning("could not read salesmen_master_cache: %s", exc)
+            return []
+        return [MasterSalesman(key=r["salesman"], name=r["name"], email=r["email"],
+                               commission_pct=float(r["commission_pct"] or 0.0))
+                for r in rows]
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             master = self._master
+        if master is not None:
+            source = "sp"
+        elif self._read_cache():
+            source = "cache"
+        else:
+            source = "none"
         return {
             "master_row_count": len(master) if master is not None else 0,
             "master_raw_count": self._state["raw_count"],
             "master_columns": list(self._state["columns"]),
             "master_error": self._state["error"],
-            "master_source": "sp" if master is not None else "local",
+            "master_source": source,
         }
 
-    # -- merged view --------------------------------------------------------
+    # -- reads --------------------------------------------------------------
 
-    def _local(self) -> tuple[dict, dict[str, float]]:
-        local = {s.key: s for s in self.repo.list_all()}
-        commissions = {k: f.commission_pct for k, f in self.repo.all_as_facts().items()}
-        return local, commissions
-
-    def sp_rows(self) -> list[MasterSalesman] | None:
-        """SP salesmen with local blanks filled; None until the SP has answered.
-
-        Local rows marked inactive are excluded even when the SP lists them.
-        Never calls the SP, so dropdown renders do not block on it.
-        """
+    def rows(self, *, wait: bool = True) -> list[MasterSalesman]:
+        """Every salesman: this process's SP fetch, else the last good list on
+        disk. ``wait`` refreshes a stale cache first; pass ``wait=False`` from
+        request paths that must not block (the lookup warm-up refreshes in the
+        background)."""
+        if wait:
+            self._refresh_if_stale()
         with self._lock:
             master = list(self._master) if self._master is not None else None
         if master is None:
-            return None
-        local, commissions = self._local()
+            master = self._read_cache()
         out: list[MasterSalesman] = []
         seen: set[str] = set()
         for m in master:
             norm = salesman_key(m.key)
-            loc = local.get(norm)
-            if norm in seen or (loc is not None and not loc.is_active):
+            if norm in seen:
                 continue
             seen.add(norm)
-            out.append(MasterSalesman(
-                key=m.key,
-                name=m.name or (loc.display_name or loc.full_name if loc else "") or m.key,
-                email=m.email or (loc.email if loc else ""),
-                commission_pct=m.commission_pct or commissions.get(norm, 0.0),
-            ))
-        return out
-
-    def rows(self, *, wait: bool = True) -> list[MasterSalesman]:
-        """Every salesman we know: ``sp_rows()`` plus active local rows the SP does
-        not list (deactivate them in Users & access to drop them). Before the SP
-        has answered this is the local table alone. ``wait`` refreshes a stale
-        cache first; pass ``wait=False`` from request paths that must not block.
-        """
-        if wait:
-            self._refresh_if_stale()
-        out = list(self.sp_rows() or [])
-        seen = {salesman_key(m.key) for m in out}
-        local, commissions = self._local()
-        for norm, loc in local.items():
-            if norm in seen or not loc.is_active:
-                continue
-            seen.add(norm)
-            out.append(MasterSalesman(
-                key=_local_raw_key(loc),
-                name=loc.display_name or loc.full_name or norm,
-                email=loc.email,
-                commission_pct=commissions.get(norm, 0.0),
-            ))
-        return out
+            out.append(m)
+        return sorted(out, key=lambda m: ((m.name or m.key).lower(), m.key))
 
     def all_as_facts(self) -> dict[str, SalesmanFact]:
-        """{normalized key -> SalesmanFact} for the report builders.
-
-        Number and short display name stay local (the SP has neither); full name
-        and commission come from the SP when it has them.
-        """
-        local_facts = self.repo.all_as_facts()
-        out: dict[str, SalesmanFact] = {}
-        for m in self.rows():
-            norm = salesman_key(m.key)
-            loc = local_facts.get(norm)
-            out[norm] = SalesmanFact(
-                source="reporting_api", key=norm,
-                number=loc.number if loc else "",
-                full_name=m.name or (loc.full_name if loc else ""),
-                display_name=(loc.display_name if loc else "") or m.name or m.key,
+        """{normalized key -> SalesmanFact} for the report builders."""
+        return {
+            salesman_key(m.key): SalesmanFact(
+                source="reporting_api", key=salesman_key(m.key),
+                full_name=m.name or m.key, display_name=m.name or m.key,
                 commission_pct=m.commission_pct,
             )
-        return out
-
-    # -- emails (split-mail, auto-grant) ------------------------------------
+            for m in self.rows()
+        }
 
     def get_email(self, key: str) -> str:
         norm = salesman_key(key)

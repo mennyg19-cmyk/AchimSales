@@ -14,7 +14,7 @@
   <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
   <h1 class="page-title">Users &amp; access</h1>
   <p class="page-subtitle">{{ users|length }} users. Roles and per-salesman scope are enforced live from the database.</p>
-  <p class="form-hint">This list is logins: who can sign in, plus their saved views and personal schedules. A salesman login picks a SalesGroup from the same D365 salesman list as report filters, so a new hire shows up before they own a customer. The Salesmen table below is still the local D365 salesman master (number, name, split-mail).</p>
+  <p class="form-hint">This list is logins: who can sign in, plus their saved views and personal schedules. A salesman login picks a SalesGroup from the same D365 salesman master as report filters, so a new hire shows up before they own a customer. The list below is what D365 says; there is no separate salesman table to maintain here.</p>
 </div>
 
 <details class="settings-card">
@@ -77,24 +77,19 @@
 </section>
 
 <section class="settings-card">
-  <h2 class="section-title">Salesmen ({{ salesmen|length }})</h2>
-  <p class="form-hint">Local D365 salesman master: number and names. Email and commission now come from D365 (salesmen_master) and are shown here read-only. Active off hides a salesman from dropdowns, split-mail, and access checkboxes even if D365 still lists them.</p>
+  <h2 class="section-title">Salesmen in D365 ({{ salesmen|length }})</h2>
+  <p class="form-hint">Read-only view of the D365 salesman master (salesmen_master). Names, emails, and commission come from here for every dropdown, split-mail, and the commissions cards. To add, rename, retire, or re-address a salesman, change D365.</p>
   <table class="simple-table" id="salesmanTable">
-    <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Active</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>SalesGroup</th><th>Email</th></tr></thead>
     <tbody>
       {% for s in salesmen %}
-      <tr data-key="{{ s.key }}" data-number="{{ s.number }}" data-full="{{ s.full_name }}" data-display="{{ s.display_name }}">
-        <td>{{ s.number }}</td>
-        <td class="cell-sm-name">{{ s.display_name }}</td>
+      <tr data-key="{{ s.key }}">
+        <td class="cell-sm-name">{{ s.name }}</td>
+        <td>{{ s.raw }}</td>
         <td>{{ s.email or '—' }}</td>
-        <td>
-          <label class="switch">
-            <input type="checkbox" class="sm-active-toggle" data-key="{{ s.key }}" {% if s.is_active %}checked{% endif %}>
-            <span class="switch-track"></span>
-          </label>
-        </td>
-        <td class="cell-actions"><button type="button" class="btn btn-outline btn-sm btn-edit-sm">Edit</button></td>
       </tr>
+      {% else %}
+      <tr><td colspan="3" class="form-hint">Not loaded yet. The list fills in once the Reporting API answers.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -134,7 +129,7 @@
         <p class="form-hint">Managers pick every group they can see. Admins/developers see all.</p>
         <div class="access-grid" id="euSalesmen">
           {% for s in salesmen %}
-          <label class="access-item"><input type="checkbox" value="{{ s.key }}"> {{ s.display_name }} ({{ s.number }})</label>
+          <label class="access-item"><input type="checkbox" value="{{ s.key }}"> {{ s.name }}</label>
           {% endfor %}
         </div>
       </div>
@@ -161,26 +156,6 @@
       <button type="button" class="btn btn-primary btn-sm" id="euSave">Save</button>
     </div>
     <div class="form-msg" id="euMsg"></div>
-  </div>
-</div>
-
-<!-- Edit salesman modal -->
-<div class="modal-overlay" id="editSmModal" style="display:none;">
-  <div class="modal">
-    <div class="modal-head"><h3>Edit salesman</h3>
-      <button type="button" class="modal-close" data-close-sm>&times;</button></div>
-    <div class="modal-body">
-      <label class="auth-field"><span class="auth-label">Number</span><input id="esNumber" type="text"></label>
-      <label class="auth-field"><span class="auth-label">Full name</span><input id="esFull" type="text"></label>
-      <label class="auth-field"><span class="auth-label">Display name</span><input id="esDisplay" type="text"></label>
-      <p class="form-hint">Email and commission come from D365 (salesmen_master) and are not edited here.</p>
-    </div>
-    <div class="modal-foot">
-      <span style="flex:1;"></span>
-      <button type="button" class="btn btn-outline btn-sm" data-close-sm>Cancel</button>
-      <button type="button" class="btn btn-primary btn-sm" id="esSave">Save</button>
-    </div>
-    <div class="form-msg" id="esMsg"></div>
   </div>
 </div>
 {% endblock %}

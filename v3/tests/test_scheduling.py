@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -13,7 +14,6 @@ from web.config import Config
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.outbox import OutboxRepository
-from web.data.repositories.salesmen import SalesmanRepository, SalesmanSeed
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -27,8 +27,38 @@ from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.scheduling import cadence as C
 from web.scheduling.runner import ScheduleRunner
+from web.reporting.http_client import ReportResult
+from web.reporting.salesman_directory import SalesmanDirectory
 from web.reporting.cache import ReportCache
 from web.reporting.runner import ReportRunner
+
+
+# --- salesman master stand-in (salesmen_master SP rows) ---------------------
+
+@dataclass
+class SalesmanSeed:
+    raw_key: str
+    number: str = ""
+    full_name: str = ""
+    display_name: str = ""
+    email: str = ""
+
+
+class _SpClient:
+    configured = True
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def run_report(self, report_id, params):
+        return ReportResult(report_id=report_id, columns=[], rows=list(self.rows),
+                            row_count=len(self.rows))
+
+
+def _directory(seeds):
+    rows = [{"Salesman": s.raw_key, "SalesmanName": s.full_name or s.display_name,
+             "Email": s.email} for s in seeds]
+    return SalesmanDirectory(_SpClient(rows))
 
 
 # --- cadence ---------------------------------------------------------------
@@ -232,7 +262,7 @@ def test_runner_master_manager_owner_is_scoped(tmp_path):
     migrate(db)
     from report_engine.lib import salesman_key
     mgr = UserRepository(db).upsert("mgr@x.com", display_name="Mgr", role="manager")
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
     ])
@@ -257,7 +287,7 @@ def test_runner_master_manager_owner_is_scoped(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Mgr book", params={}, layout={},
         cadence={"freq": "daily", "time": "08:00"}, recipients="m@x.com",
@@ -270,7 +300,7 @@ def test_runner_master_manager_owner_is_scoped(tmp_path):
 def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
         SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
@@ -292,7 +322,7 @@ def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_pa
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={
             "period": "yesterday",
@@ -321,7 +351,7 @@ def test_runner_master_fans_out_salesman_emails_with_full_management_copy(tmp_pa
 def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="MKolko", email="m@x.com"),
         SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
@@ -345,7 +375,7 @@ def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Salesmen Ordered", params={
             "period": "yesterday", "split_by_salesman": True,
@@ -363,7 +393,7 @@ def test_runner_split_all_fans_out_to_salesmen_with_email(tmp_path):
 def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
     ])
@@ -392,7 +422,7 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Salesmen Ordered", params={
             "period": "yesterday", "split_by_salesman": True,
@@ -415,7 +445,7 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
 def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
         SalesmanSeed(raw_key="NoMail", number="2", full_name="No Mail",
@@ -437,7 +467,7 @@ def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={
             "salesman": ["MKolko", "NoMail"],
@@ -551,7 +581,7 @@ def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
     migrate(db)
     from web.data.repositories.app_settings import AppSettingsRepository
     AppSettingsRepository(db).set_schedule_test(enabled=True, emails=["menny@x.com"])
-    SalesmanRepository(db).upsert_many([
+    salesmen = _directory([
         SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
                      display_name="M Kolko", email="m@x.com"),
         SalesmanSeed(raw_key="AGrossman", number="2", full_name="A Grossman",
@@ -573,7 +603,7 @@ def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
     runner = ScheduleRunner(
         schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
         run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
-        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+        authz=Authorization(db), delivery=delivery, salesmen=salesmen)  # type: ignore[arg-type]
     mid = MasterScheduleRepository(db).create(
         "ordered", "Nightly", params={"email_salesman_keys": ["MKolko", "AGrossman"]},
         layout={}, cadence={"freq": "daily", "time": "08:00"}, recipients="manager@x.com",

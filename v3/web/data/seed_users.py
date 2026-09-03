@@ -8,9 +8,8 @@ re-entered by hand.
 
 This reads the live DB *file* directly (read-only); it never imports live code,
 so v3 stays decoupled. Roles map 1:1 (admin|developer|manager|salesman). A
-user's salesman_key is mapped into v3's `user_salesman_access` (normalized).
-The access table no longer FKs `salesmen`, so a Live key still grants even when
-that group has no v3 salesman row.
+user's salesman_key is mapped into v3's `user_salesman_access` (normalized);
+the salesman master itself is D365 (salesmen_master SP), not a v3 table.
 
 Mirror semantics: re-running updates role/flags to match live, so live remains
 the source of truth for who can sign in. A v3 display name already set (Users

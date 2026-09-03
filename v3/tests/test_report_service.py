@@ -8,7 +8,6 @@ from report_engine.facts import SalesmanFact
 from report_engine.lib import salesman_key
 from report_engine.sources import invoiced as src_invoiced
 from report_engine.sources import ordered as src_ordered
-from web.data.repositories.salesmen import SalesmanRow
 from web.reporting.http_client import ReportResult, ReportingApiError
 from web.reporting.report_service import ReportService, fill_invoiced_sales_group, invoiced_skip_commissions
 
@@ -38,12 +37,8 @@ class _FakeClient:
 class _FakeSalesmenRepo:
     def all_as_facts(self):
         return {salesman_key("REdwards"): SalesmanFact(
-            source="reporting_api", key="redwards", number="080",
+            source="reporting_api", key="redwards",
             full_name="Reggie Edwards", display_name="Reggie", commission_pct=0.05)}
-
-    def list_all(self):
-        return [SalesmanRow(key="redwards", number="080", full_name="Reggie Edwards",
-                            display_name="Reggie", email="r@x.com", is_active=True)]
 
 
 def _svc(rows_by_id, fail_ids=None, mirror=None):
@@ -55,7 +50,7 @@ def _lookup(svc, **kwargs):
     from web.reporting.lookups import LookupService
     from web.reporting.salesman_directory import SalesmanDirectory
 
-    return LookupService(svc, SalesmanDirectory(svc.client, _FakeSalesmenRepo()), **kwargs)
+    return LookupService(svc, SalesmanDirectory(svc.client), **kwargs)
 
 
 def test_unknown_report_raises():
@@ -384,7 +379,7 @@ def test_lookup_salesmen_emits_raw_salesgroup_not_normalized_key():
     lk._populate()
     sm = lk.salesmen()
     assert [r["key"] for r in sm] == ["REdwards"]   # raw, not "redwards"
-    assert sm[0]["name"] == "Reggie"                # display enriched from master
+    assert sm[0]["name"] == "REdwards"              # no SP row -> raw SalesGroup
 
 
 _MASTER_ROWS = [
@@ -397,8 +392,8 @@ _MASTER_ROWS = [
 
 def test_lookup_salesmen_come_from_salesmen_master_even_without_customers():
     """The dropdown list is the salesmen_master SP: a salesman with no customers
-    still appears, inactive/blank rows are dropped, names come from the SP with
-    the v3 table's display name as the fallback."""
+    still appears, inactive/blank rows are dropped, a blank name falls back to
+    the SalesGroup."""
     svc = _svc({
         "customer_master": [
             {"CustomerAccount": "1", "CustomerName": "Acme", "SalesGroup": "REdwards"},
@@ -411,7 +406,7 @@ def test_lookup_salesmen_come_from_salesmen_master_even_without_customers():
     sm = lk.salesmen()
     assert [r["key"] for r in sm] == ["HKaufman", "REdwards"]
     assert sm[0]["name"] == "Heshy Kaufman"    # from the SP
-    assert sm[1]["name"] == "Reggie"           # SP blank -> v3 table overlay
+    assert sm[1]["name"] == "REdwards"         # SP blank -> SalesGroup
     status = lk.status()
     assert status["master_row_count"] == 2
     assert status["master_raw_count"] == 4
@@ -478,7 +473,7 @@ def test_lookup_dropdowns_populate_from_mirror_before_universe_warms():
     assert [c["key"] for c in custs] == ["100", "200"]
     sm = lk.salesmen()
     assert [r["key"] for r in sm] == ["REdwards"]   # raw SalesGroup from the mirror
-    assert sm[0]["name"] == "Reggie"                # still enriched from the master
+    assert sm[0]["name"] == "REdwards"
     assert lk.status()["mirror_row_count"] == 2
 
     # The authorization path resolves from the mirror too (same authoritative

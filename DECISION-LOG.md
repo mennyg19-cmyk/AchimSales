@@ -1,5 +1,19 @@
 # Decision Log
 
+## 2026-09-03 Drop the v3 salesmen table; D365 is the only salesman master
+**What you asked for:** Get rid of the extra salesman table and only use the SP and the users table. Salesman number is not needed anywhere; salesmen are identified by SalesGroup. Losing the in-app Active-off opt-out is fine.
+**What I had to decide:** What replaces the table's fallback role on a cold boot with the SP down; what happens to number, short display name, and Active off; whether to keep any salesman UI.
+**What I chose:** `SalesmanDirectory(client, db)` reads the SP and writes the last good list to `cache.db` `salesmen_master_cache` (rebuildable, not a master you edit). Cold boot with the SP down reads that copy; no SP and no cache means an empty list. `SalesmanFact.number` is removed; the Invoiced commissions card title is the name alone (grid and Excel). Display names are `SalesmanName`. No Active toggle: if D365 lists a salesman, they are in. Users & access keeps a read-only "Salesmen in D365" list; the edit modal, Active toggle, and `PUT /api/admin/salesmen/<key>` are gone. Manager checkboxes list the SP salesmen with normalized keys. Migration `0019_drop_salesmen` drops the table; `SalesmanRepository`, `seed_salesmen.py`, and the `salesman_map.xlsx` seed are deleted. Legacy `/legacy` app untouched.
+**Why:** Two masters drift. Every reader was already behind the directory after 2026-09-03's earlier change, so removing the table is removing a fallback, and the disk cache is a better fallback because it is always the SP's own data.
+**Status:** DECIDED — shipping this change. Irreversible on production `precious.db` once deployed (Litestream backups exist).
+
+## 2026-09-03 Salesman email and commission read from rpt.usp_salesmen_master
+**What you asked for:** "The word" on reading `Email` and `CommissionPercentage` from the SP and retiring the local table's copies.
+**What I had to decide:** How far "retire" goes; what a local Active-off row means when D365 still lists the rep; whether local-only rows disappear; whether `CommissionPercentage` is a percent or a fraction.
+**What I chose:** One `SalesmanDirectory` (SP first, hourly cache per process, last good list kept on failure) behind dropdown names, split-mail addresses, the Users & access email auto-grant, and the builders' commission fallback. Local table keeps number and short display name, fills blanks, and is the whole answer while the SP has not answered. Local Active off still hides a salesman everywhere (admin opt-out for a retired rep D365 still lists). Active local rows the SP does not list stay (deactivate to drop). Email is read-only in Users & access; `email` is no longer an editable field on the salesman API. Local email/commission columns are kept as fallback data, not dropped. Commission above 1 is treated as a whole percent (6 → 0.06), same rule as the invoiced SP's per-row rate.
+**Why:** Every reader already went through a handful of repo methods, so one directory with the same method names swaps the source without touching report math. Keeping the table as fallback means an SP outage degrades to yesterday's behavior instead of empty mail runs. The percent rule is a guess the invoiced adapter already makes; the raw SP shows `CommissionPercentage: 5`-style values, which fits.
+**Status:** DECIDED — shipping this change. Not done: dropping the local `email` / `commission_pct` columns or the seed-from-xlsx path.
+
 ## 2026-09-03 Salesman dropdowns read rpt.usp_salesmen_master
 **What you asked for:** Convert every salesman dropdown to `POST /api/reports/salesmen_master/run` so salesmen with no customers still show.
 **What I had to decide:** Column names (this VM cannot reach the Reporting API), what happens when that SP is down, and whether customer SalesGroups absent from the master stay in the list.

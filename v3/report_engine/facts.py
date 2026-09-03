@@ -97,10 +97,9 @@ class CustomerFact:
 
 @dataclass(frozen=True)
 class SalesmanFact:
-    """One salesman master record (salesman report, scoping)."""
+    """One salesman master record from the salesmen_master SP (names, commission)."""
     source: Source
     key: str
-    number: str
     full_name: str
     display_name: str
     commission_pct: float
