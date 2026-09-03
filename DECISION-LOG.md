@@ -1,5 +1,14 @@
 # Decision Log
 
+## 2026-09-03 Phase 8.9: pause or reschedule hidden-tab pollers
+**What I had to decide:** Next leftover after the 8.8 gate, and how to make ten pollers tab-aware.
+**Options I considered:** (1) Q8/Q9 (BLOCKED). (2) Phase 7 replica drop (waits on `/test`). (3) Per-file guards, duplicated ten times. (4) One tiny shared `visibility.ts` (`isHidden`, `onVisible`, `sleepUntilVisible`) inlined by esbuild into each bundle; interval ticks return early while hidden and re-tick on visible; job loops and dashboard refresh switch from iteration counts to wall-clock deadlines and wake early when the tab returns.
+**What I chose:** (4). Ten call sites across six bundles is far past Rule of 2. `clearInterval` on hide was rejected: more state, same effect, easier to leak timers.
+**Why:** Hidden tabs today keep hitting `/notifications` every 30 s and the active-jobs endpoint every 5 s, and browser throttling can stretch the report loop's "10 minutes" (600 × 1 s) into hours. Server-side 45-minute kill (Q11) untouched.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6-xhigh
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.8 gate closed
 **What I chose:** Close Phase 8.8 on `bc87667`. Trust-boundary N/A.
 **Why:** Loop A (Terra), Loop B (Sonnet), Loop C (Sonnet) all zero. Agent Guardrails green on HEAD. Loop C noted a missing TESTING-STRATEGY 8.8 section; added at gate close. Inline `matchMedia` at 3 sites kept (no shared module across those bundles). Ship.
