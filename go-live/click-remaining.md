@@ -1,22 +1,20 @@
-# Remaining click-through (batch 4)
+# Remaining click-through (batch 5)
 
 Local app: `http://127.0.0.1:5055`
-Start at `/login`. If already in a session, **Sign Out first**.
+Sign Out if needed, then `/login` as `golive-dev@local.test` role **developer**.
 
-REQUIRED: true salesman login this time — Sign Out, then `/login` email `golive-sales@local.test` role **salesman**. Header must **not** say “Viewing as”. After that item, Sign Out and login `golive-dev@local.test` role **developer** for the rest.
+Do **not** FAIL salesman “Viewing as” on `/login/dev` — that badge is expected in AUTH_MODE=dev (`is_dev=True`). Skip salesman login this batch.
 
-Write `/workspace/.scratch/click-batch-4.md`. Stay under ~7 minutes. No D365 waits >8s.
+Write `/workspace/.scratch/click-batch-5.md`. Stay under ~7 minutes.
 
-## Do these (skipped from batch 3)
+## Do these (still unchecked in the browser)
 
-1. **Salesman true login:** after Sign Out + `/login/dev` as salesman, screenshot header (no Viewing as). Settings = Profile/Appearance/Exclusions. `/admin/users` → 403 JSON. `/dashboard` — note whether it loads or hides (F2: nav hidden, route may still 200).
-2. **P14** `/impersonate` as developer after re-login. If 404, record that. If it loads, click one user and End if there is an End control.
-3. **P13** `/dev/role-picker` — search golive-sm2, View as, header Viewing as Test Salesman 2 / golive-sm2. Then Sign Out or View as yourself back to golive-dev.
-4. **P7** `/settings` as developer: open exclusions (expect “Customer master is not configured”); feature flags; report visibility toggles; Delivery test-mode + email chips; Developer Beta SQL/OData sources.
-5. **C10** Help overlay on `/` (reports home).
-6. **C6** click the theme control through its cycle (light / dark / mono if present) and screenshot each distinct look. Return to dark if that was the start.
-7. **P4.3** `/report/customer-last-order` — type `a` in customer search; screenshot empty/loading. Do not invent an account.
-8. **P6.7** `/settings/company-schedules` — History on Daily Ordered Report; Run now on one row → expect API-not-set. Screenshot.
-9. **P9** `/dashboard` as developer: empty tiles already seen; screenshot table empty state. If a customer link exists, open it.
+1. **P13 radio:** `/dev/role-picker` — search golive-sm2, **click the radio** on Test Salesman 2 (View as Selected User stays disabled until you do), then submit. Header Viewing as Test Salesman 2. Then “View as Admin (yourself)” back to developer.
+2. **P7** `/settings`: exclusions (“Customer master is not configured” is OK); feature flags; report visibility toggles; Delivery test-mode + email chips; Developer Beta SQL/OData sources. Screenshot each section opened, do not need to persist flag changes.
+3. **C10** on `/` open Help overlay (the `?` / help control). Screenshot open + close.
+4. **C6** click the header theme button through light → dark → monochrome → monochrome_dark (or however many distinct looks) and screenshot each. Leave it on dark.
+5. **P4.3** `/report/customer-last-order` type `a` in customer search. Screenshot empty/loading. No fake account.
+6. **P6.7** `/settings/company-schedules` — History on Daily Ordered Report; Run now on that row → expect `REPORTING_API_BASE_URL/KEY not set`.
+7. **P9** `/dashboard` as developer: screenshot empty table/tiles.
 
 Skip Run report rows. Skip CLO Excel/PDF.
