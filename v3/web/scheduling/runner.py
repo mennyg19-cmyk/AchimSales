@@ -61,8 +61,18 @@ class UnknownDeliveryOutcome(RuntimeError):
     """Graph may have accepted the mail; retrying could send a duplicate."""
 
 
+class NoDataNoticeFailed(RuntimeError):
+    """A required notice failed after another fan-out leg may have sent."""
+
+
 def _inbox_already_got_mail(result: DeliveryResult) -> bool:
-    return bool(result.sent_via_smtp or result.send_channel in ("graph", "smtp"))
+    failed_notice = any(
+        leg["kind"] == "notice" and leg["status"] == "failed"
+        for leg in result.legs
+    )
+    return not failed_notice and bool(
+        result.sent_via_smtp or result.send_channel in ("graph", "smtp")
+    )
 
 
 def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str]:
@@ -361,11 +371,20 @@ class ScheduleRunner:
                         f"Delivery outcome unknown; do not retry automatically: {outcome.result.error}"
                     )
                 if not outcome.result.ok:
+                    if any(
+                        leg["kind"] == "notice" and leg["status"] == "failed"
+                        for leg in outcome.result.legs
+                    ):
+                        raise NoDataNoticeFailed(
+                            outcome.result.error or "no-data notice delivery failed"
+                        )
                     if _inbox_already_got_mail(outcome.result):
                         return outcome
                     raise RuntimeError(outcome.result.error or "delivery failed")
                 return outcome
             except UnknownDeliveryOutcome:
+                raise
+            except NoDataNoticeFailed:
                 raise
             except Exception as exc:
                 last_error = exc
@@ -537,6 +556,7 @@ class ScheduleRunner:
                     outcome = notice_fn(
                         recipients=test_recips if test_to else email,
                         subject=nsubj, body_text=nbody, report_name=report_name,
+                        job_id=job_id, run_id=run_id, slot_id=slot_id,
                     )
             outcomes.append(outcome)
             deliveries.append(_delivery_leg(outcome, kind="split", salesman=key))
@@ -566,6 +586,10 @@ class ScheduleRunner:
             sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
             sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
             outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
+            delivery_status=next((
+                o.result.delivery_status for o in outcomes
+                if o.result.delivery_status == "unknown"
+            ), ""),
             legs=[leg for outcome in outcomes for leg in outcome.result.legs],
         )
         return DeliveryOutcome(
@@ -742,6 +766,10 @@ def _combine_outcomes(outcomes: list[DeliveryOutcome]) -> DeliveryOutcome:
         sharepoint_url=next((o.result.sharepoint_url for o in outcomes if o.result.sharepoint_url), None),
         sharepoint_error=next((o.result.sharepoint_error for o in outcomes if o.result.sharepoint_error), None),
         outbox_id=next((o.result.outbox_id for o in outcomes if o.result.outbox_id is not None), None),
+        delivery_status=next((
+            o.result.delivery_status for o in outcomes
+            if o.result.delivery_status == "unknown"
+        ), ""),
         legs=[leg for outcome in outcomes for leg in outcome.result.legs],
     )
     return DeliveryOutcome(

@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-03 Phase 5.3: no-data notices are kind=notice
+**What I chose:** Persist split no-data mail as `kind=notice` on the same job/run/slot as the schedule attempt. Widen unreleased 0019. Do not create a workbook `email` leg for that notice. A failed notice keeps the run from success/skip and does not Graph-retry an already-sent workbook.
+**Why:** Marking the workbook-email leg sent when no workbook was attempted, or treating a failed notice as skip/success because another fan-out copy reached the inbox, hides a required send.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
 ## 2026-09-03 Phase 5.2: folder and email are independent delivery legs
 **What I chose:** Create one `folder` leg for each requested SharePoint/OneDrive upload and one `email` leg for each email target, sharing the existing job/run/slot identity.
 **Why:** A folder failure after mail acceptance must remain visible without changing the accepted email outcome or causing another Graph send.

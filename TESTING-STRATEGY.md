@@ -147,6 +147,18 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
 
+## Phase 5.3 no-data notice legs
+**What to test:**
+- A zero-row salesman split creates one `notice` leg with the schedule job, run, and slot identity; it does not create a workbook email leg.
+- A rejected or unknown notice remains failed or unknown and does not retry a Graph-sent management workbook.
+- Successful notice legs appear in the schedule run metadata and developer diagnostics.
+
+**Expected behavior:**
+- No-data text mail is independently auditable from a workbook email or folder upload.
+- A required notice failure makes the schedule run fail without duplicating a delivered workbook.
+
+**Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_jobs.py`
+
 ## Only developers mint developers; Add user does not overwrite
 
 **What to test:**

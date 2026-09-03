@@ -433,7 +433,10 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
         def send_no_data_notice(self, **kwargs):
             self.notices.append(kwargs)
             return DeliveryOutcome(
-                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="n.eml"),
+                result=DeliveryResult(
+                    ok=True, recipients=[kwargs["recipients"]], eml_name="n.eml",
+                    legs=[{"kind": "notice", "status": "sent"}],
+                ),
                 row_count=0,
             )
 
@@ -447,7 +450,10 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
             "period": "yesterday", "split_by_salesman": True,
         }, layout={}, cadence={"freq": "daily", "time": "09:00"},
         recipients="manager@x.com")
-    runner.run(mid, MASTER)
+    runner.run(
+        mid, MASTER, job_id="notice-job",
+        slot_id="master:1:2026-06-01:0900",
+    )
 
     assert len(delivery.calls) == 2
     assert delivery.calls[1].get("email_on_empty") is False
@@ -457,8 +463,66 @@ def test_runner_empty_split_sends_no_data_notice_not_workbook(tmp_path):
     assert "yesterday" in notice["subject"]
     assert "No data for this salesman" in notice["body_text"]
     assert "mkolko" in notice["body_text"].lower()
+    assert notice["job_id"] == "notice-job"
+    assert isinstance(notice["run_id"], int)
+    assert notice["slot_id"] == "master:1:2026-06-01:0900"
     hist = ScheduleRunRepository(db).list_for_schedule(mid, MASTER)
     assert hist[0].status == "success"
+    assert {"kind": "notice", "status": "sent"} in hist[0].output_meta["legs"]
+
+
+@pytest.mark.parametrize("notice_status", ["failed", "unknown"])
+def test_runner_does_not_retry_sent_workbook_when_no_data_notice_fails(
+        tmp_path, monkeypatch, notice_status):
+    monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    SalesmanRepository(db).upsert_many([
+        SalesmanSeed(raw_key="MKolko", number="1", full_name="M Kolko",
+                     display_name="M Kolko", email="m@x.com"),
+    ])
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+            self.notices = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            is_split = bool(kwargs["params"].get("salesman"))
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=True, recipients=[kwargs["recipients"]],
+                    sent_via_smtp=not is_split, send_channel="graph" if not is_split else "",
+                    legs=[] if is_split else [{"kind": "email", "status": "sent"}],
+                ),
+                row_count=0 if is_split else 5,
+            )
+
+        def send_no_data_notice(self, **kwargs):
+            self.notices.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(
+                    ok=False, error="notice rejected", delivery_status=notice_status,
+                    legs=[{"kind": "notice", "status": notice_status}],
+                ),
+                row_count=0,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    mid = MasterScheduleRepository(db).create(
+        "ordered", "Salesmen Ordered", params={"split_by_salesman": True}, layout={},
+        cadence={"freq": "daily", "time": "09:00"}, recipients="manager@x.com")
+
+    with pytest.raises(RuntimeError, match="notice"):
+        runner.run(mid, MASTER)
+    assert len(delivery.calls) == 2
+    assert len(delivery.notices) == 1
+    assert ScheduleRunRepository(db).list_for_schedule(mid, MASTER)[0].status == "failure"
 
 
 def test_runner_master_skips_salesman_without_email_without_failing_run(tmp_path):

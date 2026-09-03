@@ -252,6 +252,35 @@ def test_manual_delivery_leg_uses_durable_job_id(tmp_path):
     assert leg.slot_id == "manual:durable-job" and leg.kind == "email" and leg.status == "sent"
 
 
+def test_no_data_notice_has_its_own_delivery_leg(tmp_path):
+    svc = _graph_svc(tmp_path, _FakeGraph())
+    delivery = DeliveryService(None, None, svc)  # type: ignore[arg-type]
+    res = delivery.send_no_data_notice(
+        recipients="a@x.com", subject="No data", body_text="No rows",
+        report_name="Ordered", job_id="notice-job", run_id=7,
+        slot_id="master:1:2026-06-01:0800",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("notice-job")
+    assert res.result.ok and [(leg.kind, leg.status) for leg in legs] == [("notice", "sent")]
+    assert (legs[0].run_id, legs[0].slot_id) == (7, "master:1:2026-06-01:0800")
+
+
+def test_failed_no_data_notice_stays_failed(tmp_path):
+    class FailedGraph(_FakeGraph):
+        def send(self, **kwargs):
+            raise GraphMailError("rejected", delivery_status="failed")
+
+    svc = _graph_svc(tmp_path, FailedGraph())
+    delivery = DeliveryService(None, None, svc)  # type: ignore[arg-type]
+    res = delivery.send_no_data_notice(
+        recipients="a@x.com", subject="No data", body_text="No rows",
+        report_name="Ordered", job_id="notice-failure", slot_id="manual:notice-failure",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("notice-failure")
+    assert res.result.ok is False and res.result.delivery_status == "failed"
+    assert [(leg.kind, leg.status) for leg in legs] == [("notice", "failed")]
+
+
 def test_dual_delivery_creates_independent_email_and_folder_legs(tmp_path):
     graph = _FakeGraph()
     svc = _graph_svc(tmp_path, graph)

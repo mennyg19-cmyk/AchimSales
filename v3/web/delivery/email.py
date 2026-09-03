@@ -189,7 +189,8 @@ class EmailService:
                 sharepoint_path: str | None = None,
                 onedrive_user: str | None = None,
                 cc_raw: str = "", bcc_raw: str = "", job_id: str | None = None,
-                run_id: int | None = None, slot_id: str | None = None) -> DeliveryResult:
+                run_id: int | None = None, slot_id: str | None = None,
+                email_kind: str = "email") -> DeliveryResult:
         recipients = split_recipients(recipients_raw)
         cc = split_recipients(cc_raw)
         bcc = split_recipients(bcc_raw)
@@ -222,7 +223,7 @@ class EmailService:
         if upload_path:
             folder_leg_id = self.delivery_legs.create(**leg_args, kind="folder")
         if has_email_target:
-            email_leg_id = self.delivery_legs.create(**leg_args, kind="email")
+            email_leg_id = self.delivery_legs.create(**leg_args, kind=email_kind)
 
         if folder_leg_id is not None:
             if xlsx_bytes:
@@ -289,7 +290,7 @@ class EmailService:
                               channel=channel, sp_path=record_path, sp_saved=sp_saved,
                               sp_url=sp_url, sp_error=sp_err, error=error,
                               email_leg_id=email_leg_id, snapshots=snapshots,
-                              delivery_status=delivery_status)
+                              delivery_status=delivery_status, email_kind=email_kind)
         return result
 
     # -- internals ----------------------------------------------------------
@@ -421,7 +422,7 @@ class EmailService:
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
                 sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="",
                 email_leg_id: int | None = None, snapshots: list[dict[str, str]] | None = None,
-                delivery_status: str = "") -> DeliveryResult:
+                delivery_status: str = "", email_kind: str = "email") -> DeliveryResult:
         # Email that already reached an inbox is success even if a folder
         # upload failed. Failing that used to make the scheduler retry and
         # Graph would send a second copy (test-mode Test folder is the usual case).
@@ -446,7 +447,7 @@ class EmailService:
             if sent:
                 self.delivery_legs.update(email_leg_id, status="accepted")
             self.delivery_legs.update(email_leg_id, status=status, error=error)
-            legs.append({"kind": "email", "status": status})
+            legs.append({"kind": email_kind, "status": status})
         if not channel and recipients and ok and not sent:
             channel = "outbox"
         outbox_id = self.outbox.enqueue(

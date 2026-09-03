@@ -100,5 +100,6 @@ class DeliveryService:
             subject=subject, recipients_raw=recipients, body_text=body_text,
             report_name=report_name, filename="", xlsx_bytes=None,
             job_id=job_id, run_id=run_id, slot_id=slot_id,
+            email_kind="notice",
         )
         return DeliveryOutcome(result=result, row_count=0)
