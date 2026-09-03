@@ -1775,7 +1775,9 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
   // Count from when the job really started (passed in when reconnecting to a
   // run from a prior visit) so the timer doesn't reset to zero on return.
   const started = Date.now() - (opts.elapsedMs || 0);
-  const deadline = started + 10 * 60 * 1000;
+  // The give-up window counts from when this page began watching, not from job
+  // start, so reconnecting to an old job always checks its status at least once.
+  const deadline = Date.now() + 10 * 60 * 1000;
 
   // One failed check-in (a brief gateway blip while the server is busy) must not
   // kill a run that's still going on the server. Only give up after several
@@ -3059,7 +3061,12 @@ async function emailMe(): Promise<void> {
   try {
     const jobId = await postEmailNow(me, attr("data-report-title") || "Report", "");
     const jobUrl = attr("data-job-url").replace("__ID__", jobId);
-    for (let i = 0; i < 60; i++) {
+    const deadline = Date.now() + 60 * 1000;
+    while (Date.now() < deadline) {
+      if (isHidden()) {
+        await sleepUntilVisible(deadline - Date.now());
+        continue;
+      }
       const j = await getJSON<{ status: string; error: string }>(jobUrl);
       if (!j) break;
       if (j.status === "success") {
@@ -3070,7 +3077,7 @@ async function emailMe(): Promise<void> {
         setStatus(j.error || "Could not send the email.", "error");
         return;
       }
-      await new Promise((r) => setTimeout(r, 1000));
+      await sleepUntilVisible(1000);
     }
     setStatus("Still sending — check your inbox shortly.");
   } catch (e) {
@@ -3082,7 +3089,12 @@ async function emailMe(): Promise<void> {
 
 async function pollEmailJob(jobId: string): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
-  for (let i = 0; i < 60; i++) {
+  const deadline = Date.now() + 60 * 1000;
+  while (Date.now() < deadline) {
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     const j = await getJSON<{ status: string; error: string }>(jobUrl);
     if (!j) break;
     if (j.status === "success") {
@@ -3094,7 +3106,7 @@ async function pollEmailJob(jobId: string): Promise<void> {
       emailMsg(j.error || "Delivery failed.", true);
       return;
     }
-    await new Promise((r) => setTimeout(r, 1000));
+    await sleepUntilVisible(1000);
   }
   emailMsg("Still processing — check the outbox shortly.", false);
 }

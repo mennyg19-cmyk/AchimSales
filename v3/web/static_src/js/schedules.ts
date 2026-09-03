@@ -4,6 +4,7 @@ import { esc, jsonHeaders } from "./http";
 import { bindMasterWizard } from "./master_wizard";
 import { bindPersonalWizard } from "./personal_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
+import { isHidden, sleepUntilVisible } from "./visibility";
 
 type RunLogRow = {
   id: number;
@@ -89,10 +90,6 @@ async function refreshRunLog(): Promise<RunLogRow[]> {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 async function pollRunLog(
   beforeIds: Set<number>,
   onRunUpdate: (run: RunLogRow) => void,
@@ -100,7 +97,11 @@ async function pollRunLog(
   const deadline = Date.now() + 90_000;
   let announced = "";
   while (Date.now() < deadline) {
-    await sleep(1500);
+    await sleepUntilVisible(1500);
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     const runs = await refreshRunLog();
     const newest = runs[0];
     if (!newest) continue;
