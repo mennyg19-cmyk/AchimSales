@@ -94,11 +94,16 @@ def _consume_magic_link_token(token: str) -> str | None:
     return row["email"] if row else None
 
 
-def _magic_link_url(token: str) -> str:
-    path = url_for("auth.consume_magic_link", token=token)
-    public_base_url = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
-    return f"{public_base_url}{path}" if public_base_url else url_for(
-        "auth.consume_magic_link", token=token, _external=True)
+def _public_base_url() -> str | None:
+    value = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    return value or None
+
+
+def _magic_link_url(token: str) -> str | None:
+    base = _public_base_url()
+    if base is None:
+        return None
+    return f"{base}{url_for('auth.consume_magic_link', token=token)}"
 
 
 @auth_bp.get("/login")
@@ -130,16 +135,19 @@ def request_magic_link():
     user = UserRepository(_db()).get_by_email(email) if "@" in email else None
     if user is not None and user.is_active and user.is_external:
         try:
-            token = _create_magic_link_token(user.email)
-            GraphMailer(_cfg().tenant_id, _cfg().client_id, _cfg().client_secret).send(
-                sender=_cfg().email_from,
-                to=[user.email],
-                subject="Your Sales Reports sign-in link",
-                body_text=(
-                    "Use this one-time link to sign in to Sales Reports. "
-                    f"It expires in {_MAGIC_LINK_TTL_MINUTES} minutes.\n\n{_magic_link_url(token)}"
-                ),
-            )
+            if _public_base_url() is None:
+                log.error("PUBLIC_BASE_URL is not set; not sending an external magic-link email")
+            else:
+                token = _create_magic_link_token(user.email)
+                GraphMailer(_cfg().tenant_id, _cfg().client_id, _cfg().client_secret).send(
+                    sender=_cfg().email_from,
+                    to=[user.email],
+                    subject="Your Sales Reports sign-in link",
+                    body_text=(
+                        "Use this one-time link to sign in to Sales Reports. "
+                        f"It expires in {_MAGIC_LINK_TTL_MINUTES} minutes.\n\n{_magic_link_url(token)}"
+                    ),
+                )
         except GraphMailError:
             log.exception("Could not send external magic-link email")
         except Exception:

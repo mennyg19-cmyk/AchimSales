@@ -488,6 +488,7 @@ def test_beta_magic_link_uses_active_external_v3_user_only(tmp_path, monkeypatch
             sent.append(kwargs)
 
     monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://reports.achimonline.com")
     client = application.test_client()
     page = client.get("/login")
     assert b'action="/login/magic-link"' in page.data
@@ -504,6 +505,9 @@ def test_beta_magic_link_uses_active_external_v3_user_only(tmp_path, monkeypatch
     }, follow_redirects=True)
     assert external.data == unknown.data == internal.data
     assert len(sent) == 1 and sent[0]["to"] == ["external@x.com"]
+    assert sent[0]["body_text"].startswith(
+        "Use this one-time link"
+    ) and "https://reports.achimonline.com/login/magic-link/" in sent[0]["body_text"]
     link = sent[0]["body_text"].rsplit("/", 1)[-1]
     with application.config["DB"].precious() as conn:
         row = conn.execute("SELECT token_hash, email, used FROM magic_link_tokens").fetchone()
@@ -535,6 +539,7 @@ def test_beta_magic_link_denies_user_disabled_after_request(tmp_path, monkeypatc
             sent.append(kwargs)
 
     monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://reports.achimonline.com")
     client = application.test_client()
     client.get("/login")
     with client.session_transaction() as session:
@@ -546,6 +551,41 @@ def test_beta_magic_link_denies_user_disabled_after_request(tmp_path, monkeypatc
     assert b"invalid or has expired" in response.data
     with client.session_transaction() as session:
         assert "v3_user" not in session
+
+
+def test_beta_magic_link_does_not_send_without_public_base_url(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).create(
+        "external@x.com", role="salesman", is_external=True)
+    sent = []
+
+    class Mailer:
+        def __init__(self, *_args):
+            pass
+
+        def send(self, **kwargs):
+            sent.append(kwargs)
+
+    monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    client = application.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    missing = client.post("/login/magic-link", data={
+        "email": "external@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    unknown = client.post("/login/magic-link", data={
+        "email": "unknown@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    assert missing.data == unknown.data
+    assert sent == []
+    with application.config["DB"].precious() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM magic_link_tokens").fetchone()[0] == 0
 
 
 def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
