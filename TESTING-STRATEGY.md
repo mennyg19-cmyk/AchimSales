@@ -1591,6 +1591,14 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **Test file:** `v3/tests/test_frontend.py`; `.scratch/phase8-matrix-browser-check.py`;
 `cd v3 && npm run build`
 
+### Fuller browser matrix annotation (2026-09-04)
+- Isolated SQLite + Chrome CDP discovers each role's accessible candidate pages,
+  then checks report, Settings, schedules, and People where allowed at 320, 375,
+  768, and 1280 CSS px in light, dark, monochrome, and monochrome-dark themes.
+- PASS: 224/224 allowed-page overflow checks and 1/1 disabled-account denial.
+  This is not a report-flow matrix; it does not exercise runs, delivery, exports,
+  Keep, or schedule sends. Evidence: `.scratch/phase8-full-matrix-evidence.json`.
+
 ## Phase 8.7 44px help, chip, day, and close targets
 **What to test:**
 - On a report page, measure title/filter help buttons, selected customer chips, and

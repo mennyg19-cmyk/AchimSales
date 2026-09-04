@@ -518,6 +518,13 @@ Browser matrix:
 - Flows: login, magic link, report run, every tab, filters, Saved views, Keep, export, email, cancel, Recent Reports, Schedule from report, personal/company schedules, Send now, Settings, People, diagnostics.
 - Failure states: API failure, slow job, cancellation, expired token, rejected Settings save, no data, missing email, failed upload, stale worker.
 
+Bounded overflow/access annotation (2026-09-04): isolated SQLite + Chrome CDP
+covered role-allowed report, Settings, schedules, and People pages at all four
+widths and themes: 224/224 allowed-page cases passed with no document-level
+horizontal scroll; a disabled account's login was 403 and its candidate pages
+redirected to `/login`. Evidence: `.scratch/phase8-full-matrix-evidence.json`.
+This does not exercise every listed report flow or failure state.
+
 Gate:
 
 - Browser evidence is attached.

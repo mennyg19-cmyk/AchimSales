@@ -1,3 +1,11 @@
+## 2026-09-04 Phase 8 bounded fuller browser matrix
+**What I had to decide:** Whether to combinatorial-test every Phase 8 report flow, or bound the leftover matrix to overflow and role access.
+**What I chose:** Bound it. Isolated Chrome CDP: 224 allowed-page width/theme cases plus disabled-login denial, 225/225 PASS. Do not claim magic-link, report run, Keep, export, email, or Send now coverage.
+**Why:** Representative 8.15 already covered live regions/tablist. Full flow×role×width×theme is not leftover hygiene.
+**Status:** DECIDED
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
 ## 2026-09-04 Phase 9.2 support/recovery inventory
 **What I had to decide:** Whether the leftover “no old route/test/tool/doc needed” bullet can be checked without unmounting.
 **What I chose:** Leave it unchecked. Keep `/legacy`, `/test`, `/test-next`, `/beta` redirect, their route tests, the universal Automation runbook/publisher, and the live-vs-`/test` parity diagnostic. Do not delete historical `GO-LIVE-DAY-REPORT.md` / `rebuild/REBUILD-PLAN.md` / retired `test/` in this leftover. Azure send-verify stays owner/ops.

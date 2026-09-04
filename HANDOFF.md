@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-04 (Phase 9.2 support/recovery inventory)
+Last updated: 2026-09-04 (leftover engineering unblocked is done)
 
-**Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Phase 9.3 closed on `232866c`. Do not merge until Phase 10. Do not merge leftover PR #1.
+**Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Do not merge until Phase 10. Do not merge leftover PR #1.
 
 ## Working tree
 
@@ -18,7 +18,7 @@ Last updated: 2026-09-04 (Phase 9.2 support/recovery inventory)
 | Path | Role |
 |------|------|
 | `PR1-REMEDIATION-PLAN.md` | Leftover worklist (`webapp-cache` in later sections means `main`) |
-| `REPORT-PARITY.md` | Archive-vs-v3 code-level parity (inventory, tabs, totals/exports) |
+| `REPORT-PARITY.md` | Archive-vs-v3 code-level parity |
 | `REPOSITORY-REVIEW.md` | Historical snapshot; remaining work is the plan |
 | `DECISION-LOG.md` | Newest-first; older entries in `DECISION-LOG-ARCHIVE.md` |
 | `.scratch/run-state.md` | Gate checkpoint (gitignored) |
@@ -35,12 +35,16 @@ Last updated: 2026-09-04 (Phase 9.2 support/recovery inventory)
 7. Do not run `python -m tools.parity` against live `/` vs `/test` cookies.
 8. Do not invent XLSX goldens.
 
-## What’s left
+## What’s left (owner / blocked)
 
-- **Next leftover:** optional Phase 8 fuller browser matrix (5 roles × 4 widths × 4 themes). Representative matrix already 6/6.
-- **Blocked / owner:** Q8, Q9, Phase 7 replica drop, 9.1 frozen goldens, 9.2 Azure Automation send-verify, Phase 10 merge. 9.2 “no old route needed” stays open until mounts can drop.
-- **9.1 unknowns (do not invent):** Ordered shipping/remainder; Number 4 By Item dollars; Last Order invoiced vs open; Customer Activity count footer; Salesman percent footer.
+- Q8 external-recipient approval; Q9 company Send now vs require-edit.
+- Phase 7 replica drop / `BETA_*`→`SITE_*` / unmount `/test`.
+- 9.1 frozen goldens (no in-repo sample workbooks).
+- 9.2 Azure Automation send-verify; 9.2 “no old route needed” until mounts drop.
+- Cookie rotation; Phase 10 merge to `main`.
+
+Phase 8 remaining listed flows (magic link, live report run, Keep, export, email, Send now) were not part of the bounded overflow matrix and need a live or fixture job if they are still required before go-live.
 
 ## Next action
 
-Commit 9.2 inventory into the plan, then optional Phase 8 fuller matrix. Keep draft. Do not merge.
+Keep draft. Do not merge. Remaining leftover is owner/blocked or go-live Phase 10.
