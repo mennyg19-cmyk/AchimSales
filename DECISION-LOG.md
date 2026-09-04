@@ -1,3 +1,11 @@
+## 2026-09-04 Phase 9.1 tab/column code compare
+**What I had to decide:** Whether three archive-vs-v3 column/scope differences are bugs.
+**What I chose:** Record them as unknown. Do not pick a product meaning. Ordered shipping/remainder fields, Number 4 By Item dollars, and Last Order invoiced-vs-open scope wait for goldens or owner. Invoiced explicit-zero commission rate is Q2 (intentional-diff). Four reports match at tab/column source.
+**Why:** Spec gate: no signed sample workbooks in this leftover.
+**Status:** DECIDED (inventory + code compare). Remaining 9.1 goldens still open.
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Phase 9.1 inventory does not use live cookies
 **What I had to decide:** How to start archive report parity without production session cookies or mounting old apps.
 **What I chose:** Isolated worktree at `archive/pre-cleanup-2026-08-27` (`b14d725`). Write `REPORT-PARITY.md` from code. Do not run `tools/parity` (that tool compares live `/` vs `/test` with cookies). Frozen goldens remain for a later slice. Customer Aging stays BACKLOG.

@@ -41,6 +41,28 @@ this table, including the Shipped alias and legacy Customer Aging.
 - Ordered Summary grouping follows CustomerAccount (Q4).
 - `/legacy`, `/test`, and `/test-next` mounts remain present by decision.
 
+## Code-level tab and column comparison
+
+This compares the isolated archive's builders/exporters with current v3
+builders. It records code shape only, not report values, totals, or live D365
+behavior. `match` means the listed tab/column shape is the same in the source
+compared. `intentional-diff` cites an approved decision. `unknown` means code
+shows a difference whose business equivalence cannot be proved here.
+
+| Report | Archive builder / exporter | Current v3 SQL builder | Tab comparison | Column comparison | Result |
+|---|---|---|---|---|---|
+| Ordered | `reports/ordered/writer.py` | `v3/report_engine/reports/ordered.py` | Summary, By Customer, By Item, By Order, By Salesman, Full Data — match. | Archive has QtyShipped/QtyOpen and shipped/released-dollar fields; v3 has SP QtyReserved/QtyReleased/QtyLeftToShip and Shipping $. The source change does not prove equivalent semantics. | unknown |
+| Invoiced / Shipped | `reports/invoiced/writer.py` | `v3/report_engine/reports/invoiced.py` | Invoiced: Summary by Customer, Commissions, Full Details, Credits, Invoices, conditional Audit - Reversals and Totals by Salesman — match. Shipped omits Commissions — match. | Summary/detail/credit/invoice and salesman-total fields match. Current commission output preserves an explicit zero Reporting-API rate instead of falling back to a master rate. | intentional-diff (Q2) |
+| Number 4 | `reports/number_4/writer_customer.py`, `writer_item.py` | `v3/report_engine/reports/number_4.py` | By Customer (12 Months/YTD), By Item (12 Months/YTD) — match. | By Customer month Qty/$, Total Qty/$, Avg Price, Salesman, Book Price — match. Archive By Item is quantity-only; current By Item keeps month $, Total $, Avg Price, and Book Price. No approved decision explains the difference. | unknown |
+| Customer Activity | `reports/customer_activity/writer.py` | `v3/report_engine/reports/customer_activity.py` | All, one salesman tab per assigned salesman, Unassigned — match. | All starts with Salesman; remaining fields are Customer Account, Customer Name, Last Order Date, PO #, Sales Order Number. Per-salesman/Unassigned omit Salesman — match. | match |
+| Customer's Last Order | `webapp/blueprints/reports.py`, `webapp/services/d365.py` | `v3/report_engine/reports/customer_last_order.py` | In-app customer picker with newest order and prior-order merge — match. | Item#, description, QtyOrdered, QtyShipped, QtyCancelled, UnitPrice, Total — match. Archive selects invoiced orders; current SQL contract says it includes open and uninvoiced logical orders. Code cannot establish equivalent result scope. | unknown |
+| Item Averages | `v3/report_engine/reports/item_averages.py` at `b14d725` | `v3/report_engine/reports/item_averages.py` | Item Averages — match. | Item #, Item Name, 12-Month Qty, Avg/Month, Avg/Week — match. Builder source is unchanged. | match |
+| Sales by State | `v3/report_engine/reports/sales_by_state.py` at `b14d725` | `v3/report_engine/reports/sales_by_state.py` | Summary, New York City, Detail — match. | State/sales totals; NYC invoice/address fields; detail invoice/date/customer/address fields — match. Builder source is unchanged. | match |
+| Salesman | `reports/salesman/writer.py` | `v3/report_engine/reports/salesman.py` | Jan through Dec — match. | Salesman/customer, month current/prior sales, dollar/percent change, YTD current/prior/change, full-year current/prior/change — match. Current `band` metadata preserves the archive's three display bands. | match |
+
+Finding count: 4 match, 1 intentional-diff, 3 unknown. Customer Aging is
+intentionally excluded: it remains BACKLOG and has no current v3 SQL path.
+
 ## Deferred golden/workbook comparison
 
 This inventory does not claim value parity. A later frozen-golden/workbook

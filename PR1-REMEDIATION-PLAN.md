@@ -535,13 +535,16 @@ Gate:
   `tools/parity` compares live `/` vs `/test` with session cookies. That is not archive-vs-v3 and is not run in this leftover (no production cookies). Frozen goldens remain.
 - [x] Do not mount old apps in Production.
 - [ ] Compare every retained report, relevant period/filter, role scope, tab list, column semantics, totals, exports, and schedule workbook.
+  Tab/column *code* compare is in `REPORT-PARITY.md` (4 match, 1 Q2 intentional-diff, 3 unknown). Totals, exports, role-scope workbooks, and frozen goldens remain.
 - [ ] Cover Ordered shipping/remainder, Invoiced credits/commissions, Number 4 YTD, Customer Activity, Customer Last Order, Item Averages, Sales by State, and Customer Aging if retained.
+  Code-level cover exists except Customer Aging BACKLOG. Ordered shipping/remainder, Number 4 By Item dollars, and Last Order open-vs-invoiced scope are **unknown** until goldens.
 - [x] Record approved intentional differences.
   Evidence: `REPORT-PARITY.md`. Customer Aging stays BACKLOG. Inventory slice does not claim value parity.
 
 ### 9.2 Feature parity
 
-- [ ] Explicitly decide the deleted in-app email-distribution feature.
+- [x] Explicitly decide the deleted in-app email-distribution feature.
+  Evidence: Q6 — in-app distributions stay retired. Azure Automation verify is still owner/ops.
 - [ ] Verify Azure Automation still sends every required distribution.
 - [ ] Verify no old route, test, tool, or document is needed for support/recovery.
 
