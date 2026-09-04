@@ -1,11 +1,11 @@
 # D365 Sales Reports
 
-Automated sales reporting from Dynamics 365 F&O. Reports run on scheduled Azure
-Automation jobs, on demand via a Flask web app, or locally from the CLI.
+Automated sales reporting from Dynamics 365 F&O. Reports run on demand and on
+in-app schedules in the Flask web app, or locally from the CLI. Azure
+Automation is not a current go-live path.
 
-OData remains only in the CLI/Azure Automation path under `reports/`, `core/`,
-`data/`, and `runbooks/`; the Flask v3 app uses the Reporting API and has no
-OData runtime.
+OData remains only in the CLI path under `reports/`, `core/`, `data/`, and
+`runbooks/`; the Flask v3 app uses the Reporting API and has no OData runtime.
 
 ## Reports
 
@@ -32,33 +32,12 @@ python run.py invoiced --salesman all --email            # shipped reports for a
 
 ## How It Runs
 
-### Azure Automation (production)
+### Azure Automation (retired as a go-live path)
 
-`runbooks/universal_runbook.py` is the sole runbook used in Azure Automation.
-It downloads the codebase from SharePoint, imports the appropriate report
-runner via `report_registry.json`, runs it, uploads the output, and sends a
-heartbeat email. If the whole job fails once (dropped Graph, non-zero exit),
-it waits 30 seconds and runs again before Azure marks it Failed. Fail then
-retry-success is one status email (the heartbeat names the failure). Azure
-Automation must call `main()` so that retry wrap runs. git push does not
-publish this file; use `.\deploy-runbook.ps1`.
-
-Home-site company schedules do the same extra delivery. `[FAIL]` mail waits
-15 minutes and is dropped if that schedule later succeeds. The success mail
-names the first failure.
-
-Home-site clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send
-waits for the next scheduled HH:MM, not motzei Shabbos. Yesterday/daily and
-in-month MTD wait for the next regular slot and widen the date range. last_7_days,
-last_month, month-end MTD, and all-time reports wait until the next weekday at
-that same clock (Friday 10pm skip → Monday 10pm). Month-end MTD also sends a
-catch-up through the last day of the skipped month when the makeup is next month.
-
-```
-universal_runbook.py ordered --period daily
-# Amazon ordered schedule (customers 9300/9301):
-#   ordered --customer 9300 9301 --period last_7_days --email
-```
+In-app company and personal schedules on the home site are the production
+sender. `runbooks/universal_runbook.py` remains in the repo unused. Do not
+treat Azure Automation as required. If that file is ever published again,
+use `.\deploy-runbook.ps1`; git push does not publish it.
 
 ### Web App (on-demand)
 
@@ -70,6 +49,17 @@ then owns the scheduler and durable job poller. `/healthz` is process liveness;
 `/readyz` stays 503 until that worker has completed bootstrap and both worker
 and scheduler heartbeats are fresh. The live `/legacy` email-distribution flock
 remains in-process.
+
+Home-site company schedules send extra delivery. `[FAIL]` mail waits 15 minutes
+and is dropped if that schedule later succeeds. The success mail names the
+first failure.
+
+Home-site clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send
+waits for the next scheduled HH:MM, not motzei Shabbos. Yesterday/daily and
+in-month MTD wait for the next regular slot and widen the date range. last_7_days,
+last_month, month-end MTD, and all-time reports wait until the next weekday at
+that same clock (Friday 10pm skip → Monday 10pm). Month-end MTD also sends a
+catch-up through the last day of the skipped month when the makeup is next month.
 
 ### External monitoring
 
@@ -237,8 +227,8 @@ deploy.ps1                  # Emergency-only Azure zip deploy
 webapp/                     # Legacy Flask app still mounted at /legacy
 v3/                         # Home-site Flask app, worker, source, and static_dist
 rebuild/                    # Preview app still mounted at /test-next
-config/, core/, data/, reports/ # CLI/Azure Automation support
-runbooks/                   # Azure Automation entrypoints
+config/, core/, data/, reports/ # CLI support (OData stays out of v3)
+runbooks/                   # unused Azure Automation entrypoints
 requirements.txt            # CLI/runbook dependencies
 webapp/requirements.txt     # Hash-locked deployed runtime dependencies
 ```

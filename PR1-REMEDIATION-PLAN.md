@@ -64,7 +64,7 @@ The sections below are PR #1's phases, unchanged except production branch is
 - A separately supervised process owns queued reports, exports, deliveries, schedules, cleanup, and worker heartbeats.
 - The web application is SQL/Reporting-API only.
 - No OData source selector, OData bridge, OData runner, OData cache-source logic, or OData-specific app tests remain under `v3/`.
-- OData may remain only in the separate CLI/Azure Automation implementation under `reports/`, `core/`, `data/`, and `runbooks/` while that production path still exists.
+- OData may remain only in the separate CLI implementation under `reports/`, `core/`, `data/`, and `runbooks/` until those files are deleted.
 - Every retained report has a working SQL implementation. Missing SQL support blocks removal of its OData fallback; it must not silently fall back.
 - Production sessions are revoked, authentication is DB-authoritative, and unknown/deleted users cannot provision themselves.
 - Delivery crash behavior is explicit and tested. Do not claim exactly-once email delivery without provider-backed evidence.
@@ -76,7 +76,7 @@ The sections below are PR #1's phases, unchanged except production branch is
 - **Worker service:** separate non-HTTP process that claims durable jobs and runs reports/exports/deliveries.
 - **Scheduler service:** schedule tick and cleanup loop owned by the worker service, not Flask.
 - **SQL report:** data comes through the configured Reporting API/stored procedures.
-- **OData outside the app:** CLI/Azure Automation may keep using OData. No `v3/` runtime code may import or mention it.
+- **OData outside the app:** CLI/runbook folders may keep OData. No `v3/` runtime code may import or mention it.
 
 ## Hard stops
 
@@ -85,7 +85,7 @@ The sections below are PR #1's phases, unchanged except production branch is
 - Do not edit old migration files already applied in Production. Add forward migrations.
 - Do not delete the archive tag `archive/pre-cleanup-2026-08-27`.
 - Do not restore deleted web generations into the active application.
-- Do not remove CLI/runbook OData code unless the owner separately retires Azure Automation.
+- Do not remove CLI/runbook OData code in this leftover unless the owner asks to delete those trees.
 - Do not substitute unit tests for the live restore, browser, report-parity, or authenticated smoke gates.
 - Do not convert ambiguous business rules into code without the owner decisions below.
 
@@ -557,17 +557,19 @@ Gate:
 ### 9.2 Feature parity
 
 - [x] Explicitly decide the deleted in-app email-distribution feature.
-  Evidence: Q6 — in-app distributions stay retired. Azure Automation verify is still owner/ops.
-- [ ] Verify Azure Automation still sends every required distribution.
+  Evidence: Q6 — in-app distributions stay retired.
+- [x] Verify Azure Automation still sends every required distribution.
+  Dropped 2026-09-04: owner no longer wants Azure Automation. In-app schedules
+  are the production sender. Runbook files stay in git unused until an explicit
+  delete. Do not treat Automation as a go-live gate.
 - [ ] Verify no old route, test, tool, or document is needed for support/recovery.
   Not yet true while mounts remain. Still required: `/legacy` (`webapp/`),
   `/test` (v3 sandbox), `/test-next` (`rebuild/`), `/beta` bookmark redirect;
-  `tests/test_wsgi_dispatch.py`, mounted magic-link coverage, `tests/test_runbook_retry.py`;
-  `runbooks/universal_runbook.py` + `deploy-runbook.ps1` + README Automation section;
-  `tools/parity/` as a live-vs-`/test` diagnostic (not archive goldens).
+  `tests/test_wsgi_dispatch.py`, mounted magic-link coverage.
+  `tools/parity/` remains a live-vs-`/test` diagnostic (not archive goldens).
+  `runbooks/` is leftover unused code, not a support requirement.
   Historical/unused (do not delete in this leftover): retired `test/`,
-  `GO-LIVE-DAY-REPORT.md`, `rebuild/REBUILD-PLAN.md`. Azure Automation send-verify
-  stays owner/ops. Do not unmount.
+  `GO-LIVE-DAY-REPORT.md`, `rebuild/REBUILD-PLAN.md`. Do not unmount.
 
 ### 9.3 Documentation and hygiene
 

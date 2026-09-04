@@ -1,3 +1,11 @@
+## 2026-09-04 Owner retired Azure Automation as a leftover/go-live path
+**What I had to decide:** Whether Phase 9.2 still requires proving Azure Automation sends every distribution.
+**What I chose:** Drop that leftover. In-app company/personal schedules are the production sender. Do not verify, publish, or keep Automation as a go-live gate. Leave `runbooks/` and `deploy-runbook.ps1` in the repo unused until an explicit delete is asked. Do not unmount `/legacy` `/test` `/test-next`.
+**Why:** Owner: “I dont want Azure Automation anymore, so leave that out.”
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Phase 8 bounded fuller browser matrix
 **What I had to decide:** Whether to combinatorial-test every Phase 8 report flow, or bound the leftover matrix to overflow and role access.
 **What I chose:** Bound it. Isolated Chrome CDP: 224 allowed-page width/theme cases plus disabled-login denial, 225/225 PASS. Do not claim magic-link, report run, Keep, export, email, or Send now coverage.
