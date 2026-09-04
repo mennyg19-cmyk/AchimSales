@@ -459,6 +459,18 @@ def test_admin_users_forbidden_for_salesman(tmp_path):
         json={"keys": ["redwards"]},
         headers={"X-CSRF-Token": _CSRF},
     ).status_code == 403
+    assert client.post(
+        "/api/admin/users",
+        json={"email": "new@x.com", "role": "salesman"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    manager = app.test_client()
+    _login(manager, app, email="manager@x.com", role="manager")
+    assert manager.post(
+        "/api/admin/users",
+        json={"email": "new@x.com", "role": "salesman"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
 
 
 def test_admin_sales_groups_match_report_lookup(tmp_path):
@@ -2551,6 +2563,45 @@ def test_master_schedule_admin_only(tmp_path):
     assert hist.status_code == 200
     assert "run history" in hist.get_data(as_text=True).lower()
     assert rep.get(f"/master-schedules/{mid}/history").status_code == 403
+
+
+def test_view_only_manager_can_run_but_not_edit_master_schedule(tmp_path):
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path, {})
+    admin = app.test_client()
+    _login(admin, app)
+    repo = MasterScheduleRepository(app.config["DB"])
+    admin_id = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    mid = repo.create(
+        "ordered", "Admin schedule", params={}, layout={},
+        cadence={"freq": "daily", "time": "06:00"}, recipients="team@x.com",
+        owner_user_id=admin_id,
+    )
+    manager = app.test_client()
+    _login(manager, app, email="manager@x.com", role="manager")
+    assert manager.post(
+        f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 202
+    assert manager.put(
+        f"/api/master-schedules/{mid}", json={"name": "Nope"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert manager.post(
+        f"/api/master-schedules/{mid}/copy", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert manager.post(
+        f"/api/master-schedules/{mid}/toggle", json={"active": False},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert manager.delete(
+        f"/api/master-schedules/{mid}", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    salesman = app.test_client()
+    _login(salesman, app, email="rep@x.com", role="salesman")
+    assert salesman.post(
+        f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
 
 
 def test_master_schedule_keeps_explicit_skip_sabbath_setting(tmp_path):

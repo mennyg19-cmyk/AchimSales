@@ -59,6 +59,33 @@
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
+## Q8 external-account provisioning and magic links
+**What to test:**
+- Manager and salesman POSTs to `/api/admin/users` return 403; MSAL and v3 magic-link
+  paths never create a user row.
+- The home External Rep Login posts to v3. Only an active external v3 user receives a
+  Graph-mailer request; unknown and internal addresses return the same success flash.
+- The stored token is a SHA-256 hash, replaces an existing token for that email, expires
+  after 15 minutes, and is usable once. Disabling the user after request denies consume.
+
+**Expected behavior:**
+- Admins and developers provision external accounts in People. Magic-link authentication
+  re-checks that account before creating the v3 session and never uses `/legacy`.
+
+**Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
+
+## Q9 view-only company Send now
+**What to test:**
+- A manager who neither owns nor runs a company schedule can POST its Run now endpoint.
+- That manager still gets 403 for update, copy, toggle, and delete; a salesman gets 403
+  for Run now.
+
+**Expected behavior:**
+- Company schedule visibility permits Run now. Existing master-edit rules govern every
+  other company schedule mutation.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
 ## Phase 1 containment: headers, legacy bypass, and salesman scope
 
 **What to test:**

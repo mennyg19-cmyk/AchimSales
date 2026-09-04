@@ -469,6 +469,85 @@ def test_beta_login_shows_microsoft_button(tmp_path):
     assert b"Developer sign-in" not in resp.data
 
 
+def test_beta_magic_link_uses_active_external_v3_user_only(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    repo.create("external@x.com", role="salesman", is_external=True)
+    repo.create("internal@x.com", role="salesman", is_external=False)
+    sent = []
+
+    class Mailer:
+        def __init__(self, *_args):
+            pass
+
+        def send(self, **kwargs):
+            sent.append(kwargs)
+
+    monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    client = application.test_client()
+    page = client.get("/login")
+    assert b'action="/login/magic-link"' in page.data
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    external = client.post("/login/magic-link", data={
+        "email": "external@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    unknown = client.post("/login/magic-link", data={
+        "email": "unknown@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    internal = client.post("/login/magic-link", data={
+        "email": "internal@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    assert external.data == unknown.data == internal.data
+    assert len(sent) == 1 and sent[0]["to"] == ["external@x.com"]
+    link = sent[0]["body_text"].rsplit("/", 1)[-1]
+    with application.config["DB"].precious() as conn:
+        row = conn.execute("SELECT token_hash, email, used FROM magic_link_tokens").fetchone()
+    assert row["email"] == "external@x.com"
+    assert row["token_hash"] != link and row["used"] == 0
+    assert client.get(f"/login/magic-link/{link}").status_code == 302
+    with client.session_transaction() as session:
+        assert session["v3_user"]["email"] == "external@x.com"
+    assert client.get(f"/login/magic-link/{link}", follow_redirects=True).status_code == 200
+    with application.config["DB"].precious() as conn:
+        assert conn.execute("SELECT used FROM magic_link_tokens").fetchone()["used"] == 1
+
+
+def test_beta_magic_link_denies_user_disabled_after_request(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    user = repo.create("external@x.com", role="salesman", is_external=True)
+    sent = []
+
+    class Mailer:
+        def __init__(self, *_args):
+            pass
+
+        def send(self, **kwargs):
+            sent.append(kwargs)
+
+    monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    client = application.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    client.post("/login/magic-link", data={"email": user.email, "csrf_token": token})
+    link = sent[0]["body_text"].rsplit("/", 1)[-1]
+    repo.update(user.id, is_active=False)
+    response = client.get(f"/login/magic-link/{link}", follow_redirects=True)
+    assert b"invalid or has expired" in response.data
+    with client.session_transaction() as session:
+        assert "v3_user" not in session
+
+
 def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
     from dataclasses import replace
 

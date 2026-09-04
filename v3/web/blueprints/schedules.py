@@ -1473,11 +1473,11 @@ def delete_master(schedule_id: int):
 @require_login
 def run_master(schedule_id: int):
     p = _principal()
-    _require_admin(p)
+    if not _authz().can_see_company_schedules(p):
+        abort(403, description="You can't run this schedule. Ask an admin.")
     sched = _master().get(schedule_id)
     if sched is None:
         abort(404, description="Unknown master schedule")
-    _require_master_edit(p, sched)
     job_id = enqueue_or_503(
         lambda: enqueue_schedule_run(
             current_app.config["JOB_REPO"], schedule_id=schedule_id,

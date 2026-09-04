@@ -7,10 +7,17 @@ here; the pixel-matched templates land in the front-end phase. Dev login is hard
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import os
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from flask import (
     Blueprint,
     abort,
     current_app,
+    flash,
     redirect,
     render_template,
     request,
@@ -23,10 +30,13 @@ from web.auth.principal import VALID_ROLES, Principal
 from web.auth.authorization import Authorization
 from web.auth.session import login, logout
 from web.data.repositories.users import User, UserRepository
+from web.delivery.graph_mail import GraphMailError, GraphMailer
 
 auth_bp = Blueprint("auth", __name__)
 
 _NEXT_KEY = "v3_login_next"
+_MAGIC_LINK_TTL_MINUTES = 15
+log = logging.getLogger(__name__)
 
 
 def _cfg():
@@ -52,6 +62,45 @@ def _login_or_403(user: User, *, name: str, is_dev: bool) -> None:
     login(Principal(email=user.email, name=name, role=user.role, is_dev=is_dev))
 
 
+def _create_magic_link_token(email: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    with _db().precious() as conn:
+        conn.execute("DELETE FROM magic_link_tokens WHERE email = ?", (email,))
+        conn.execute(
+            "INSERT INTO magic_link_tokens(token_hash, email, expires_at) VALUES (?, ?, ?)",
+            (
+                hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                email,
+                (now + timedelta(minutes=_MAGIC_LINK_TTL_MINUTES)).isoformat(),
+            ),
+        )
+    return token
+
+
+def _consume_magic_link_token(token: str) -> str | None:
+    if len(token) < 16:
+        return None
+    with _db().precious() as conn:
+        row = conn.execute(
+            """UPDATE magic_link_tokens SET used = 1
+               WHERE token_hash = ? AND used = 0 AND expires_at >= ?
+               RETURNING email""",
+            (
+                hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        ).fetchone()
+    return row["email"] if row else None
+
+
+def _magic_link_url(token: str) -> str:
+    path = url_for("auth.consume_magic_link", token=token)
+    public_base_url = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    return f"{public_base_url}{path}" if public_base_url else url_for(
+        "auth.consume_magic_link", token=token, _external=True)
+
+
 @auth_bp.get("/login")
 def login_page():
     cfg = _cfg()
@@ -72,6 +121,43 @@ def login_page():
         session[_NEXT_KEY] = _safe_next()  # carry intended destination across the redirect
         return redirect(msal_flow.build_login_url(cfg))
     return render_template("login.html", live_login=False, next_val=_safe_next(), roles=VALID_ROLES)
+
+
+@auth_bp.post("/login/magic-link")
+def request_magic_link():
+    """Request a v3 external-account sign-in link without revealing account state."""
+    email = (request.form.get("email") or "").strip().lower()
+    user = UserRepository(_db()).get_by_email(email) if "@" in email else None
+    if user is not None and user.is_active and user.is_external:
+        try:
+            token = _create_magic_link_token(user.email)
+            GraphMailer(_cfg().tenant_id, _cfg().client_id, _cfg().client_secret).send(
+                sender=_cfg().email_from,
+                to=[user.email],
+                subject="Your Sales Reports sign-in link",
+                body_text=(
+                    "Use this one-time link to sign in to Sales Reports. "
+                    f"It expires in {_MAGIC_LINK_TTL_MINUTES} minutes.\n\n{_magic_link_url(token)}"
+                ),
+            )
+        except GraphMailError:
+            log.exception("Could not send external magic-link email")
+        except Exception:
+            log.exception("Unexpected external magic-link error")
+    flash("If that email is registered as an active external account, you'll get a sign-in link in a minute.", "info")
+    return redirect(url_for("auth.login_page"))
+
+
+@auth_bp.get("/login/magic-link/<token>")
+def consume_magic_link(token: str):
+    """Consume one token and re-check the v3 account before granting a session."""
+    email = _consume_magic_link_token(token)
+    user = UserRepository(_db()).get_by_email(email) if email else None
+    if user is None or not user.is_active or not user.is_external:
+        flash("That sign-in link is invalid or has expired. Please request a new one.", "error")
+        return redirect(url_for("auth.login_page"))
+    _login_or_403(user, name=user.display_name or user.email, is_dev=user.role == "developer")
+    return redirect(url_for("reports.reports_list"))
 
 
 @auth_bp.post("/login/dev")

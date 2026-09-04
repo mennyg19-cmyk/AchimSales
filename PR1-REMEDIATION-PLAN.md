@@ -402,10 +402,13 @@ Implement only after owner decisions are recorded.
 - [x] Prune expired magic-link attempts, delivery legs, old jobs, and run history per approved retention. Evidence:
   `python3 -m pytest tests/test_jobs.py -q` — 35 passed; `python3 -m pytest tests/test_magic_links.py -q --noconftest` — 6 passed. Gate closed on `b4cdc3e`.
 - [x] Make SharePoint fail closed when configured `SP_SITE_URL` cannot resolve; never tenant-search a substitute site.
-- [ ] Require operate/edit permission for company **Send now**.
+- [x] Permit view-only managers to trigger company **Send now**; edit/copy/delete/toggle
+  remain `can_edit_master` only. Evidence: `v3/tests/test_blueprints.py::test_view_only_manager_can_run_but_not_edit_master_schedule`.
 - [x] Move public reconciliation diagnostics behind developer authentication and POST+CSRF; remove query-string secrets.
 - [x] Convert state-changing `claim-once` diagnostic to POST+CSRF or remove it.
-- [ ] Apply external-recipient policy.
+- [ ] External-recipient domain/approval policy is not implemented. Superseded Q8 work
+  provisions active external v3 accounts through People and uses magic links only for
+  those accounts; it does not add recipient approval or domain rules.
 
 Gate:
 

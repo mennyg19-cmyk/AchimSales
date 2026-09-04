@@ -1,3 +1,11 @@
+## 2026-09-04 Q8 is account provisioning, not pending mail approval
+**What I had to decide:** Owner locked Q8: external people do not self-register. Only admin/developer can add them in People. After the email exists they magic-link in.
+**What I chose:** Build that. No pending-recipient queue. Magic link must use the v3 `users` row (`is_external`, active). Home login form must not depend on live `app_users`. Keep `/legacy` magic-link as-is for the mounted Live app. Q9: view-only managers may POST company Send now; edit/delete stay `can_edit_master`. Do not unmount. Do not merge. Do not add an Azure slot.
+**Why:** Owner message 2026-09-04. Azure slots left for later (needs Standard S1+).
+**Status:** DECIDED — implementing
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Owner retired Azure Automation as a leftover/go-live path
 **What I had to decide:** Whether Phase 9.2 still requires proving Azure Automation sends every distribution.
 **What I chose:** Drop that leftover. In-app company/personal schedules are the production sender. Do not verify, publish, or keep Automation as a go-live gate. Leave `runbooks/` and `deploy-runbook.ps1` in the repo unused until an explicit delete is asked. Do not unmount `/legacy` `/test` `/test-next`.
