@@ -52,3 +52,11 @@ def test_runtime_lock_has_hashes_for_every_requirement():
 
     assert requirements
     assert all("--hash=" in requirement for requirement in requirements)
+
+
+def test_runtime_lock_pandas_pin_has_cp310_manylinux17_wheels():
+    # pandas 2.3.3 only ships cp310 on manylinux_2_28; Azure/CI use 3.10.
+    lock = (ROOT / "webapp/requirements.txt").read_text(encoding="utf-8")
+    match = re.search(r"^pandas==([0-9]+)\.([0-9]+)\.", lock, re.M)
+    assert match is not None
+    assert (int(match.group(1)), int(match.group(2))) < (2, 3)

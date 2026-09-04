@@ -1,8 +1,9 @@
 Flask>=3.1,<4
 msal>=1.31,<2
 python-dotenv>=1.0
-# Azure App Service is Python 3.10. pandas 3 / numpy 2.3+ need 3.11+.
-pandas>=2.0,<3
+# Azure App Service is Python 3.10. pandas 2.3 wheels are manylinux_2_28-only;
+# 2.2.x still ships manylinux_2_17 cp310 wheels. pandas 3 / numpy 2.3+ need 3.11+.
+pandas>=2.0,<2.3
 numpy>=1.26,<2.3
 openpyxl>=3.1
 requests>=2.31
