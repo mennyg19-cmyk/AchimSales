@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import quote
 
 from web.config import Config
+from web.delivery.graph_token import GraphAppToken, graph_call
 from web.delivery.sharepoint import _validate_segments
 
 log = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ _MOCK_TREE: dict[str, list[str]] = {
 class OneDriveService:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self._token: str | None = None
+        self._tokens = GraphAppToken(cfg.tenant_id, cfg.client_id, cfg.client_secret)
 
     def is_configured(self) -> bool:
         return bool(self.cfg.tenant_id and self.cfg.client_id
@@ -52,10 +53,8 @@ class OneDriveService:
         if not self.is_configured():
             self._mock_or_raise("list folders")
             return _mock_folders(rel_path)
-        import requests
 
-        r = requests.get(onedrive_children_url(user, rel_path),
-                         headers=self._headers(), timeout=TIMEOUT)
+        r = self._graph("get", onedrive_children_url(user, rel_path), timeout=TIMEOUT)
         if r.status_code == 404:
             return []
         r.raise_for_status()
@@ -90,7 +89,7 @@ class OneDriveService:
             item = f"{self._drive_root(user)}:{folder}/{quote(filename)}"
         else:
             item = f"{self._drive_root(user)}:/{quote(filename)}"
-        headers = self._headers()
+        headers = {"Authorization": f"Bearer {self._tokens.get(requests)}"}
         body = upload_drive_item(
             requests,
             put_url=f"{item}:/content",
@@ -113,34 +112,18 @@ class OneDriveService:
     def _drive_root(self, user: str) -> str:
         return f"{GRAPH_BASE}/users/{quote(user)}/drive/root"
 
-    def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._get_token()}"}
-
-    def _get_token(self) -> str:
-        if self._token:
-            return self._token
+    def _graph(self, verb: str, url: str, **kwargs):
         import requests
-
-        url = f"https://login.microsoftonline.com/{self.cfg.tenant_id}/oauth2/v2.0/token"
-        r = requests.post(url, data={
-            "client_id": self.cfg.client_id, "client_secret": self.cfg.client_secret,
-            "scope": "https://graph.microsoft.com/.default", "grant_type": "client_credentials",
-        }, timeout=TIMEOUT)
-        r.raise_for_status()
-        self._token = r.json()["access_token"]
-        return self._token
+        return graph_call(requests, self._tokens, verb, url, **kwargs)
 
     def _ensure_folder(self, user: str, rel_path: str) -> None:
-        import requests
-
         segments = _validate_segments(rel_path)
         if not segments:
             return
-        headers = {**self._headers(), "Content-Type": "application/json"}
         current_enc = ""
         for part in segments:
             parent = f"{self._drive_root(user)}:{current_enc}:/children" if current_enc else f"{self._drive_root(user)}/children"
-            r = requests.post(parent, headers=headers, timeout=TIMEOUT, json={
+            r = self._graph("post", parent, timeout=TIMEOUT, headers={"Content-Type": "application/json"}, json={
                 "name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
             if r.status_code not in (201, 409):
                 r.raise_for_status()

@@ -833,7 +833,9 @@ class _FakeGraphResp:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise RuntimeError(f"http {self.status_code}")
+            err = RuntimeError(f"http {self.status_code}")
+            err.response = self
+            raise err
 
 
 class _SiteUrlHttp:
@@ -865,3 +867,78 @@ def test_sharepoint_site_url_404_does_not_search_tenant(tmp_path):
         sp.upload_file("Invoiced/Daily", "a.xlsx", b"x")
     assert any("/sites/" in u for u in http.urls)
     assert not any("search=" in u for u in http.urls)
+
+
+class _StaleTokenHttp:
+    """First folder create 401s; a new token then 409s and the PUT succeeds."""
+
+    def __init__(self):
+        self.token_posts = 0
+        self.children_posts = 0
+        self.urls: list[str] = []
+
+    def get(self, url, **kwargs):
+        self.urls.append(url)
+        if "/sites/" in url and "/drive" not in url:
+            return _FakeGraphResp(200, {"id": "site-1"})
+        if url.endswith("/drive"):
+            return _FakeGraphResp(200, {"id": "drive-1"})
+        return _FakeGraphResp(200, {"webUrl": "https://achim.sharepoint.com/Test/n.xlsx"})
+
+    def post(self, url, **kwargs):
+        self.urls.append(url)
+        if "oauth2" in url:
+            self.token_posts += 1
+            return _FakeGraphResp(200, {"access_token": f"tok-{self.token_posts}", "expires_in": 3600})
+        if url.endswith("/children"):
+            self.children_posts += 1
+            if self.children_posts == 1:
+                return _FakeGraphResp(401, {})
+            return _FakeGraphResp(409, {})
+        return _FakeGraphResp(200, {})
+
+    def put(self, url, **kwargs):
+        self.urls.append(url)
+        return _FakeGraphResp(200, {
+            "id": "item-1", "name": "n.xlsx",
+            "webUrl": "https://achim.sharepoint.com/Test/n.xlsx",
+        })
+
+
+def test_sharepoint_retries_folder_create_after_401(tmp_path):
+    http = _StaleTokenHttp()
+    cfg = _cfg(
+        tmp_path, app_env="prod", tenant_id="t", client_id="c", client_secret="s",
+        sp_site_url="https://achimonline.sharepoint.com",
+    )
+    sp = SharePointService(cfg)
+    sp._requests = lambda: http  # type: ignore[method-assign]
+    sp._drive_id = "drive-1"
+    sp._tokens._token = "stale"
+    sp._tokens._valid_until = 10 ** 12
+    res = sp.upload_file("Test", "n.xlsx", b"x")
+    assert res["webUrl"] == "https://achim.sharepoint.com/Test/n.xlsx"
+    assert http.token_posts == 1
+    assert http.children_posts >= 2
+    assert not any("search=" in u for u in http.urls)
+
+
+def test_graph_app_token_skips_fetch_until_expiry():
+    from web.delivery.graph_token import GraphAppToken
+
+    class _TokHttp:
+        def __init__(self):
+            self.posts = 0
+
+        def post(self, url, **kwargs):
+            self.posts += 1
+            return _FakeGraphResp(200, {"access_token": f"t{self.posts}", "expires_in": 3600})
+
+    http = _TokHttp()
+    tok = GraphAppToken("t", "c", "s")
+    assert tok.get(http) == "t1"
+    assert tok.get(http) == "t1"
+    assert http.posts == 1
+    tok._valid_until = 0
+    assert tok.get(http) == "t2"
+    assert http.posts == 2

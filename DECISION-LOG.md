@@ -1,3 +1,10 @@
+## 2026-09-04 SharePoint Test upload 401 while mail still sent
+**What you asked for:** Why didn't personal #37 Number 4 land in SharePoint Test?
+**What I had to decide:** 401 on `folder D365 F&O` then Graph sendMail ok — permissions vs a dead cached token.
+**What I chose:** Dead cached token. SharePoint kept one Graph bearer for the life of the gunicorn worker; Graph mail fetches a new token on every send. Overnight (and any worker older than ~1 hour) the SharePoint bearer is rejected, the 12.9 MB file never uploads, and mail still goes out because recipients were set. Fix: honor `expires_in`, and on Graph 401 drop the cache and retry the folder call once.
+**Why:** The log has no site lookup (drive id already cached) and mail succeeded, which is the opposite of a missing SharePoint permission. 403 would be "token works, no access."
+**Status:** DECIDED
+
 ## 2026-09-03 Schedule emails can have a subject and HTML body
 **What you asked for:** Set subject and HTML body for schedule emails, with variables and buttons (SharePoint links). Full featured.
 **What I chose:** Per-schedule fields on the personal wizard Where step. Same `{Schedule}` chips as the filename, plus `{SharePointUrl}` and `{DownloadButton}`. Small Bold / SharePoint-link toolbar, no new editor package. Blank = today’s auto mail. Tokens fill in at send time after the file is uploaded.

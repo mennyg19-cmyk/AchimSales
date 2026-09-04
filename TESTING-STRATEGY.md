@@ -82,6 +82,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - The worker writes `job started` / `job finished` around a handler; extra `step()` calls from the handler show up in `jobs.log`.
 - Company Run now sets `owner_user_id` so the clicker can poll `/api/jobs/<id>`. History HTML includes the run log.
 - `SharePointService.upload_file` with a configured `SP_SITE_URL` that Graph returns 404 for raises naming `SP_SITE_URL` and does **not** call `sites?search=`.
+- A cached Graph token that Graph rejects with 401 is dropped and the folder create is retried with a new token (SharePoint Test folder after a long worker life). `expires_in` is honored so overnight jobs do not keep a dead bearer.
 - Schedules and company schedules templates have `data-job-url`; `schedules.ts` polls that job instead of giving up on the run-log table after 90 seconds.
 - Owner or admin can `POST /api/jobs/<id>/cancel` a queued/running `schedule.run`. A salesman cannot cancel a job they do not own. Admins can cancel a clock job with `owner_user_id` NULL. Cancelling a clock job frees its dedup key so the next enqueue is a new job. `GET /api/schedules/recent-runs` includes `active_jobs`. Personal and company schedule pages have `#activeJobs` and `data-cancel-url`.
 
