@@ -67,6 +67,8 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
   Graph-mailer request; unknown and internal addresses return the same success flash.
 - The stored token is a SHA-256 hash, replaces an existing token for that email, expires
   after 15 minutes, and is usable once. Disabling the user after request denies consume.
+- The emailed link uses `PUBLIC_BASE_URL` plus the app path. If that setting is empty,
+  no mail is sent and no token is stored; the flash is still generic.
 
 **Expected behavior:**
 - Admins and developers provision external accounts in People. Magic-link authentication
