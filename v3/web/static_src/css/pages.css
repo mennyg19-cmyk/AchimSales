@@ -337,6 +337,7 @@
     .report-tabbar-right { margin-left: 0; width: 100%; }
     .report-meta { white-space: normal; }
     .stat-grid, .dash-tiles { grid-template-columns: 1fr 1fr; }
+    .report-layout-toolbar > :last-child { grid-column: 1 / -1; }
     .modal-field-row { flex-wrap: wrap; }
     .ms-field-row .ms-field-block { min-width: 0; flex: 1 1 100%; }
     .page-head-actions { width: 100%; flex-wrap: wrap; }
@@ -839,6 +840,9 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
   gap: 12px;
   min-width: 0;
   max-width: 100%;
+}
+@media (max-width: 600px) {
+  .stat-grid { grid-template-columns: 1fr 1fr; }
 }
 .stat-card { padding: 18px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); min-width: 0; }
 .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }

@@ -496,6 +496,8 @@ def test_phone_layout_css_contracts():
 
     phone_layout = pages.split("@media (max-width: 600px)", 1)[1].split("\n}\n\n/* -- Run status -- */", 1)[0]
     assert "flex: 1 1 100%; min-width: 0; max-width: 100%;" in phone_layout
+    after_stat = pages.split(".stat-grid {", 1)[1]
+    assert "grid-template-columns: 1fr 1fr" in after_stat.split(".stat-card", 1)[0]
 
     help_button = pages.split(".help-btn", 1)[1].split("}", 1)[0]
     assert "min-width: 44px" in help_button
