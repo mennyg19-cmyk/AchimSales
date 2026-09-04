@@ -322,8 +322,25 @@
     /* Stack the filters and let Run report be a full-width primary action. */
     .filter-bar-row { flex-wrap: wrap; }
     .filter-fields { width: 100%; }
+    .filter-field, .filter-field-wide, .filter-field-customers {
+        flex: 1 1 100%; min-width: 0; max-width: 100%;
+    }
+    .filter-field select, .filter-field input {
+        min-width: 0; width: 100%;
+    }
     .filter-run-group { width: 100%; flex-direction: column; }
     .filter-run-btn { width: 100%; align-self: stretch; }
+    .report-top .report-controls { min-width: 0; flex: 1 1 100%; }
+    .report-layout-toolbar { display: grid; grid-template-columns: 1fr 1fr; }
+    .report-layout-toolbar .btn { width: 100%; }
+    .report-tabbar { flex-direction: column; align-items: stretch; }
+    .report-tabbar-right { margin-left: 0; width: 100%; }
+    .report-meta { white-space: normal; }
+    .stat-grid, .dash-tiles { grid-template-columns: 1fr 1fr; }
+    .modal-field-row { flex-wrap: wrap; }
+    .ms-field-row .ms-field-block { min-width: 0; flex: 1 1 100%; }
+    .page-head-actions { width: 100%; flex-wrap: wrap; }
+    .page-head-actions .btn { width: 100%; }
 }
 
 /* -- Run status -- */
@@ -969,10 +986,18 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .help-btn {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 44px; min-height: 44px; padding: 0; border-radius: 50%; cursor: pointer;
-    border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted);
+    border: none; background: transparent; color: var(--text-muted);
     font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle;
+    position: relative; margin: -13px;
 }
-.help-btn:hover { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.help-btn::before {
+    content: ""; position: absolute; inset: 13px; border: 1px solid var(--border);
+    border-radius: 50%;
+}
+.help-btn:hover, .help-btn:focus-visible { color: var(--primary-foreground); outline: none; }
+.help-btn:hover::before, .help-btn:focus-visible::before {
+    background: var(--primary); border-color: var(--primary);
+}
 
 /* ── Master schedules page (wizard) ── */
 .ms-wizard {

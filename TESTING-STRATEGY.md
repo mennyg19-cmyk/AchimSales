@@ -1707,3 +1707,17 @@ check; `cd v3 && npm run build`
 
 **Test file:** `v3/tests/test_frontend.py::test_report_tabs_have_tablist_semantics`;
 `cd v3 && npm run build`
+
+## Phone layout compactness
+**What to test:**
+- At 320px and 375px, open reports, Settings, dashboard, schedules, and Users &
+  access. Confirm header actions use a second row, filters stack, toolbar uses
+  two columns, dashboard tiles stay two columns, and active report jobs leave
+  room above the bottom navigation.
+
+**Expected behavior:**
+- Phone layouts remain compact without document-level horizontal scroll while
+  desktop layouts remain unchanged. Pinch zoom is available.
+
+**Test file:** `v3/tests/test_frontend.py::test_phone_layout_css_contracts`;
+`cd v3 && npm run build`

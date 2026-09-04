@@ -1,3 +1,12 @@
+## 2026-09-04 Site responsiveness is overflow, not a redesign
+**What I had to decide:** “The responsiveness of the site looks shit” could mean a visual restyle or a layout-overflow fix.
+**Options I considered:** (1) Redesign protocol (new look/feel). (2) CSS wrap/`min-width:0` so phone widths do not scroll the document sideways. (3) `overflow-x:hidden` on `html`/`body` only.
+**What I chose:** (2). Same leftover PR #35, keep draft. Enable pinch-zoom. Do not restyle colors/type/chrome. Do not hide overflow as the only fix.
+**Why:** The broken thing is horizontal overflow and unwrapped toolbars. A redesign was not asked. Hiding overflow would clip controls.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Merge origin/main (0b17176) into PR #35
 **What I had to decide:** How to take live save-view modal, custom schedule mail, job-log-for-devs, and Graph 401 refresh without dropping leftover worker/Graph/a11y work.
 **What I chose:** Keep both. Delivery-legs stays `0021`. Keep HTTP-only Gunicorn, `enqueue_or_503`, required clock `slot_id`, GraphTokenCache in `graph_auth.py` (not SharePoint `GraphAppToken`), no tenant SharePoint search, dialog helper, live regions including `#reportStatus`, tablist, Tabulator MIT. Take main's product: per-run log page, live saved-view send, save-view modal, custom subject/HTML + sanitizer, admin company-view scheduling, cancel `can_cancel`, `without_delivery_keys`. `pollJobLog` uses `sleepUntilVisible`. Do not restore `beta_sources`.

@@ -484,6 +484,25 @@ def test_phase_8_7_named_controls_have_44px_targets():
         assert "min-height: 44px" in rules
 
 
+def test_phone_layout_css_contracts():
+    shell = (_SRC / "css" / "shell.css").read_text(encoding="utf-8")
+    pages = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    base_html = (_V3 / "web" / "templates" / "base.html").read_text(encoding="utf-8")
+
+    phone_header = shell.split("@media (max-width: 479px) {", 1)[1].split("\n}\n", 1)[0]
+    assert ".header-right { flex: 1 1 100%; flex-wrap: nowrap; }" in phone_header
+    assert ".user-role { display: none; }" in phone_header
+    assert ".header-left { flex: 1 1 100%; }" in phone_header
+
+    phone_layout = pages.split("@media (max-width: 600px)", 1)[1].split("\n}\n\n/* -- Run status -- */", 1)[0]
+    assert "flex: 1 1 100%; min-width: 0; max-width: 100%;" in phone_layout
+
+    help_button = pages.split(".help-btn", 1)[1].split("}", 1)[0]
+    assert "min-width: 44px" in help_button
+    assert "min-height: 44px" in help_button
+    assert "user-scalable=no" not in base_html
+
+
 def test_searchable_picker_has_keyboard_and_combobox_semantics():
     picker = (_SRC / "js" / "searchable_picker.ts").read_text(encoding="utf-8")
     report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
