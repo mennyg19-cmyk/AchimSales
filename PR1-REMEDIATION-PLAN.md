@@ -554,6 +554,7 @@ Gate:
 - [x] Make `deploy.ps1` invoke the same tests/build/artifact/smoke pipeline or retire it. Evidence: `deploy.ps1` runs `tools/test_build_runtime_artifact.py` then the shared zip builder.
 - [x] Lock Python dependencies with hashes and test the exact deployed set. Evidence: `webapp/requirements.in` pins `pandas<2.3` / `numpy<2.3` so Azure Python 3.10 gets manylinux_2_17 cp310 wheels (`pandas==2.2.3`); hashed `webapp/requirements.txt`; `test_runtime_lock_has_hashes_for_every_requirement`; `pip install --dry-run --only-binary=:all: --python-version 3.10 --abi cp310 --platform manylinux_2_17_x86_64 --require-hashes` exit 0.
 - [x] Expand generated-output verification to every deployed static asset. Evidence: `v3/tests/test_static_dist.py`.
+  Gate closed on `232866c`. Loops A2+B+C zero blocking (Loop C optional N1 left). Agent Guardrails + GHAS zizmor 4/4 SUCCESS. Trust-boundary N/A.
 
 Gate:
 

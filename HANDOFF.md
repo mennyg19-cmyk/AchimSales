@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-04 (Phase 9.3 hygiene landing)
+Last updated: 2026-09-04 (Phase 9.3 gate closed)
 
-**Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Do not merge until Phase 10. Do not merge leftover PR #1.
+**Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Phase 9.3 closed on `232866c`. Do not merge until Phase 10. Do not merge leftover PR #1.
 
 ## Working tree
 
@@ -33,10 +33,10 @@ Last updated: 2026-09-04 (Phase 9.3 hygiene landing)
 
 ## What’s left
 
-- **This slice:** Phase 9.3 hygiene — one A/B/C review after the commit, keep draft.
-- **Blocked / owner:** Q8, Q9, Phase 7 replica drop, 9.1 archive parity, 9.2 Azure Automation verify, Phase 10 merge.
-- **Optional after 9.3 gate:** fuller Phase 8 browser matrix.
+- **Next leftover:** Phase 9.1 report parity vs `archive/pre-cleanup-2026-08-27` in an isolated checkout (do not mount old apps). Tag exists at `9172a657` (plan text still says `b14d725` — verify, do not assume).
+- **Blocked / owner:** Q8, Q9, Phase 7 replica drop, 9.2 Azure Automation verify, Phase 10 merge.
+- **Optional:** fuller Phase 8 browser matrix.
 
 ## Next action
 
-Commit 9.3, push, Loop A/B/C, keep draft. Do not merge.
+Phase 9.1 isolated archive parity. Keep draft. Do not merge.

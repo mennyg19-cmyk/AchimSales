@@ -1,3 +1,10 @@
+## 2026-09-04 Phase 9.3 hygiene gate closed
+**What I chose:** Close Phase 9.3 on `232866c`. Trust-boundary N/A. Optional Loop C nit (static_dist bundle list vs esbuild) left duplicated.
+**Why:** Loops A2+B+C zero blocking. F1 pandas 2.2.3 manylinux_2_17 cp310 closed. Agent Guardrails and GHAS zizmor 4/4 on HEAD. CI and `deploy.ps1` share `tools/build_runtime_artifact.py`. Do not merge.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Stop skipping leftover hygiene
 **What I had to decide:** Standing tonight defaults skipped Phase 9–10 and idled after each slice. User asked what is left and why the agent keeps stopping.
 **Options I considered:** (1) Stay idle. (2) Invent Q8/Q9 or merge to `main`. (3) Continue remaining non-blocked engineering: Phase 9.3 docs/hygiene, then optional fuller Phase 8 matrix.
