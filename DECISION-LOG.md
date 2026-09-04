@@ -1,5 +1,12 @@
 # Decision Log
 
+## 2026-09-04 Phase leftover 8.15 gate closed
+**What I chose:** Close leftover 8.15. Trust-boundary N/A. Loop C optional nit left (aria-live ternary also in `admin.ts`/`schedules.ts`; spec forbade a new helper). Representative browser matrix (not 5×4×4 combinatorial) is the Phase 8 leftover evidence; full matrix remains a later Phase 8 gate.
+**Why:** Loop A zero. Loop B zero. Loop C zero blocking. `77bdf10` + frontend 33 passed + CDP 6/6 PASS. Did not restyle. Did not split `report.ts`.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent (Loop A Terra; Loops B/C Sonnet)
+
 ## 2026-09-04 Finish tonight — defaults (user asked questions then work)
 **What I had to decide:** Batch leftover vs blocked product, browser-matrix depth, leftover-vs-merge order, and which chats we can mine.
 **What I chose:** Skip Q8/Q9, Phase 7 remainder, Phase 9 archive parity, and Phase 10 merge. Leftover phase is report `#reportStatus` live region plus a representative browser matrix (developer, 320+1280, default+dark). One A/B/C review after that whole leftover, not per todo. Then merge `origin/main` @ `0b17176` keep-both. Follow the user's leftover-first order because `#reportStatus`/`setStatus` match on main. Other-environment chats for PRs #36–#51 are not listed here; git + merged PR titles are canonical. The only other accessible chat with a diff is `bc-9539423f` (sales-rep scope; already on this PR via earlier main merge).
