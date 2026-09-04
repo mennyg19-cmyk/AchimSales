@@ -1,15 +1,19 @@
 # Repository Review and Cleanup Plan
 
+> Historical snapshot of `330d1bc` from 2026-08-27. Live remaining work is
+> tracked in `PR1-REMEDIATION-PLAN.md`.
+
 Reviewed revision: `330d1bc` (`webapp-cache`, identical to `origin/webapp-cache` on 2026-08-27)
 
-Status: implemented on `cursor/p0-security-containment-adb6` through Phase 9 (see `PR1-REMEDIATION-PLAN.md` and `REPORT-PARITY.md`). This file is the original review snapshot, not an open worklist.
+Status: historical review findings. Implementation status below is current as of
+2026-09-04. Phase 9.3 hygiene is on this leftover branch; Phase 10 merge is not.
 
 ## Implementation status (2026-09-01)
 
 | Original item | Status |
 |---------------|--------|
 | P0.1 tracked production cookies | Phase 1 — file untracked; rotation owner-confirmed; access-log review still BLOCKED |
-| P0.2 `cursor/**` Production deploys | Phase 1.1 — Action is `webapp-cache` only |
+| P0.2 `cursor/**` Production deploys | Phase 1.1 — Action is `main` only |
 | P0.3 OData salesman scope leak | Phase 3 — no OData under `v3/`; SQL only |
 | P0.4 Litestream empty-disk / wrong replica | Phase 7 repo gate closed; live Azure empty-disk drill BLOCKED |
 | P0.5 production `DEV_BYPASS_AUTH` | Phase 2 — prod refuses dev auth |
@@ -19,14 +23,16 @@ Status: implemented on `cursor/p0-security-containment-adb6` through Phase 9 (se
 | Report math (commission, Ordered identity, dates) | Phase 6 + Q1–Q11 |
 | UI/accessibility | Phase 8 closed |
 | Report/feature parity vs archive | Phase 9 (`REPORT-PARITY.md`) |
-| Docs, artifact, hashed deps, `git diff --check` | Phase 9 |
+| Docs, artifact, hashed deps, `git diff --check` | Phase 9.3 — this branch; see `PR1-REMEDIATION-PLAN.md` |
 | Merge / Production verify | Phase 10; owner approval required |
 
 **Still owner BLOCKED:** GitHub Environment `production` required reviewers; access-log review; live Litestream drill; `LIVE_DB_PATH` import evidence; Production merge/deploy.
 
 `is_beta=True` stays (README Rule Preferences). `/beta` 302 stays until cutover (Q7). In-app email distributions stay retired (Q6).
 
-## Original required outcome
+## Historical snapshot
+
+### Original required outcome
 
 - Keep one web site only: the current site served at `/`, formerly called Beta.
 - Remove the **Beta** pill from the top-left header.

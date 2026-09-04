@@ -38,7 +38,7 @@ LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
 SUPERVISOR_CMD="${ROOT}/supervise-web.sh"
 
 # 1. Defensive dependency install (Oryx usually already did this on deploy).
-pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
+pip install -q --require-hashes -r "${ROOT}/webapp/requirements.txt" || echo "startup: pip install warning (continuing)"
 
 # 1b. One-time move off the /home SMB share onto local disk (rule 5).
 #     SQLite's WAL mode can't share its index across processes on an SMB share,

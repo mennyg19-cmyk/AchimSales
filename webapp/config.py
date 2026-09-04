@@ -1,7 +1,7 @@
 """
 Web app configuration.
 
-Loads settings from the parent scripts/.env and adds web-specific config.
+Loads repository-root .env values for local use and Azure App Settings in production.
 """
 
 import os

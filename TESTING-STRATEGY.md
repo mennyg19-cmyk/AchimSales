@@ -1,5 +1,21 @@
 # Testing Strategy
 
+## Phase 9.3 docs and artifact hygiene
+
+**What to test:**
+- Build the allowlisted runtime artifact and verify required entrypoints, committed
+  `static_dist`, and hash-locked root requirements are present while source and
+  local-state paths are absent.
+- Compare every non-map file in `static_dist` with esbuild entrypoints and public
+  passthrough files; public files must match their sources byte-for-byte.
+
+**Expected behavior:**
+- CI and emergency zip deploy use `tools/build_runtime_artifact.py`; CI uploads
+  only its destination directory and validates `webapp/requirements.txt` with
+  `--require-hashes`.
+
+**Test file:** `tools/test_build_runtime_artifact.py`, `v3/tests/test_static_dist.py`
+
 ## Schedule UI: hide company setup, wizard dropdowns, dev history
 
 **What to test:**

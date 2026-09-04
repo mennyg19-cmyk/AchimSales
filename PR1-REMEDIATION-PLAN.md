@@ -1,7 +1,7 @@
 # PR #1 instructions on current `main`
 
-**Branch:** `cursor/pr1-on-main-551b`  
-**Base:** `main` at `263a76b` (2 Sep 2026 go-live), not `webapp-cache` / PR #1.  
+**Branch:** `cursor/pr1-on-main-551b`
+**Base:** `main` at `263a76b` (2 Sep 2026 go-live), not `webapp-cache` / PR #1.
 **Do not merge PR #1.** Do not deploy Production from this branch until Phase 10.
 
 This is the same remediation plan as PR #1, replayed on today's site so we keep
@@ -544,16 +544,16 @@ Gate:
 
 ### 9.3 Documentation and hygiene
 
-- [ ] Mark `REPOSITORY-REVIEW.md` as implemented/remaining or archive it; do not leave “fixes not started.”
-- [ ] Make root `.env.example` contain every required Production setting or point clearly to one canonical template.
-- [ ] Correct stale startup, Gunicorn, export, and deploy comments.
-- [ ] Remove stale `.gitignore` entries for deleted app generations.
-- [ ] Make `git diff --check` pass.
-- [ ] Keep only current decision history needed by operators/agents.
-- [ ] Use one allowlisted artifact builder for CI and manual emergency deployment.
-- [ ] Make `deploy.ps1` invoke the same tests/build/artifact/smoke pipeline or retire it.
-- [ ] Lock Python dependencies with hashes and test the exact deployed set.
-- [ ] Expand generated-output verification to every deployed static asset.
+- [x] Mark `REPOSITORY-REVIEW.md` as implemented/remaining or archive it; do not leave “fixes not started.” Evidence: historical banner and current status table.
+- [x] Make root `.env.example` contain every required Production setting or point clearly to one canonical template. Evidence: canonical v3 pointer and Azure dispatcher/Litestream inventory.
+- [x] Correct stale startup, Gunicorn, export, and deploy comments. Evidence: `deploy.ps1`, `webapp/config.py`, README directory structure.
+- [x] Remove stale `.gitignore` entries for deleted app generations. Evidence: deleted `test/` patterns.
+- [x] Make `git diff --check` pass. Evidence: `git diff --check` on the 9.3 working tree; `origin/main...HEAD` after this commit.
+- [x] Keep only current decision history needed by operators/agents. Evidence: `DECISION-LOG-ARCHIVE.md` plus live-log pointer.
+- [x] Use one allowlisted artifact builder for CI and manual emergency deployment. Evidence: `tools/test_build_runtime_artifact.py`.
+- [x] Make `deploy.ps1` invoke the same tests/build/artifact/smoke pipeline or retire it. Evidence: `deploy.ps1` runs `tools/test_build_runtime_artifact.py` then the shared zip builder.
+- [x] Lock Python dependencies with hashes and test the exact deployed set. Evidence: `webapp/requirements.in` pins `pandas<3` / `numpy<2.3` for Azure Python 3.10; hashed `webapp/requirements.txt`; `test_runtime_lock_has_hashes_for_every_requirement`; `pip install --dry-run --require-hashes -r webapp/requirements.txt`.
+- [x] Expand generated-output verification to every deployed static asset. Evidence: `v3/tests/test_static_dist.py`.
 
 Gate:
 

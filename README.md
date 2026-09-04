@@ -83,7 +83,8 @@ continues without replication when that key is missing.
 **Production branch is `main`.** Pushing `main` deploys
 https://reports.achimonline.com. Side branches (including Cloud Agent
 `cursor/**` work) do **not** auto-deploy; they wait for a pull request into
-`main`. Manual zip deploy is still `deploy.ps1`. Agent Guardrails Semgrep scans
+`main`. Manual zip deployment through `deploy.ps1` is emergency-only and uses
+the same shared artifact builder as CI. Agent Guardrails Semgrep scans
 `v3/` (the home site) only, not `webapp/` (`/legacy`). It still uses
 `p/default`, but skips rules that do not match this Flask + SQLite app
 (Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,
@@ -228,72 +229,18 @@ See `.env.example` for all required variables. Key groups:
 ## Directory Structure
 
 ```
-scripts/
-  app.py                    # Azure App Service / local entry point (gunicorn)
-  run.py                    # CLI entry point for all reports
-  deploy.ps1                # Deploy webapp to Azure App Service
-  requirements.txt          # Python deps for CLI / runbooks
-  report_registry.json      # Report definitions for universal_runbook
-  .env.example              # Environment variable template
-
-  config/
-    settings.py             # Central config (Azure Automation vars + .env)
-    paths.py                # Output path resolution
-    salesman_map.py         # Salesman lookup (delegates to Excel)
-    salesman_excel.py       # Loads salesman data from salesman_map.xlsx
-    salesman_map.xlsx       # Editable salesman/subscription data
-    commission_map.py       # Commission rates by salesman
-
-  core/
-    auth.py                 # MSAL auth (D365 + Graph tokens)
-    odata.py                # OData v4 client with pagination
-    http.py                 # Shared HTTP session with retries
-    dates.py                # US Eastern date utilities + period parsing
-    columns.py              # Column detection + numeric conversion
-    excel_styles.py         # Shared Excel styling constants
-    excel_writer.py         # Shared Excel writing utilities
-    email_report.py         # Send reports by email (Graph or SMTP)
-    logging.py              # Structured logging setup
-    validation.py           # DataFrame validation before Excel write
-
-  data/
-    field_maps.py           # OData field rename maps + $select lists
-    d365_entities.py        # Entity-specific D365 fetch functions
-
-  reports/
-    base.py                 # Abstract base runner with CLI arg parsing
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report
-    customer_activity/      # Customer Activity Report
-    customer_aging/         # Customer Aging Report
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced / Shipped Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report (By Item + By Customer)
-    customer_activity/      # Customer Activity Report
-
-  runbooks/
-    universal_runbook.py    # Self-contained Azure Automation runbook
-
-  tests/
-    conftest.py             # Shared pytest fixtures
-    test_ordered_builder.py
-    test_invoiced_loader.py
-    test_salesman_builder.py
-    compare_reports.py      # Cell-by-cell Excel comparison tool
-
-  webapp/                   # Flask web app (deployed to Azure App Service)
-    app.py                  # Flask app factory
-    blueprints/             # Route handlers (auth, reports, dashboard, settings, api)
-    services/               # D365 data access, authorization
-    templates/              # Jinja2 HTML templates
-    static/                 # JS, CSS, manifest
-    db.py                   # SQLite database (users, settings, history)
-    config.py               # Web-specific config
-    report_api.py           # Bridge to report runners
-    requirements.txt        # Web app deps (adds Flask, gunicorn)
+wsgi.py                     # Azure Gunicorn entry: wsgi:application
+startup.sh                  # App Service startup; launches the supervisor
+supervise-web.sh            # HTTP Gunicorn and v3 worker sibling processes
+tools/build_runtime_artifact.py # Shared CI/emergency deployment artifact builder
+deploy.ps1                  # Emergency-only Azure zip deploy
+webapp/                     # Legacy Flask app still mounted at /legacy
+v3/                         # Home-site Flask app, worker, source, and static_dist
+rebuild/                    # Preview app still mounted at /test-next
+config/, core/, data/, reports/ # CLI/Azure Automation support
+runbooks/                   # Azure Automation entrypoints
+requirements.txt            # CLI/runbook dependencies
+webapp/requirements.txt     # Hash-locked deployed runtime dependencies
 ```
 
 ## Rule Preferences
