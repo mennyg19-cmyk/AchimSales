@@ -1,3 +1,12 @@
+## 2026-09-04 Trust F1: private master Run now is owner/edit only
+**What I had to decide:** Trust-boundary found view-only managers could POST Run now on `is_shared=0` masters they cannot edit. Also F2 magic-link cooldown, F3 privileged+`is_external`.
+**Options I considered:** (1) 403 on private-not-editable. (2) 404 matching unknown ids. (3) Leave IDOR; document. (4) Add magic-link cooldown now.
+**What I chose:** (2) for F1: after load, require `is_shared` or `can_edit_master`; else 404. Do not add a cooldown (F2) or restrict privileged magic-link (F3–F6 stay info).
+**Why:** Q9 is company (shared) Send now. Private send-on-demand of someone else's schedule is object-level auth, not the F2 content-narrowing deferral. Cooldown is a product call and matches pre-existing anonymous mail; do not invent it here.
+**Status:** DECIDED (F1). F2/F3 deferred.
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Loop B F2: Q9 does not narrow company Send now to the clicker
 **What I had to decide:** Loop B asked for a test that a view-only manager's Run now narrows report content to that manager's `visible_salesman_keys`. That would change what recipients get depending on who clicked Send now.
 **Options I considered:** (1) Wire `ScheduleRunner._scope` to the job's `owner_user_id` for manual master runs. (2) Add that narrowing test against current code (it would fail: master scope uses schedule `run_as` then owner; clock ticks enqueue masters with `owner_user_id=None`). (3) Keep Q9 as trigger permission; assert the job is owned by the actor; do not change delivery scope.

@@ -1478,6 +1478,12 @@ def run_master(schedule_id: int):
     sched = _master().get(schedule_id)
     if sched is None:
         abort(404, description="Unknown master schedule")
+    if not (
+        sched.is_shared
+        or _authz().can_edit_master(
+            p, owner_user_id=sched.owner_user_id, run_as_user_id=sched.run_as_user_id)
+    ):
+        abort(404, description="Unknown master schedule")
     job_id = enqueue_or_503(
         lambda: enqueue_schedule_run(
             current_app.config["JOB_REPO"], schedule_id=schedule_id,

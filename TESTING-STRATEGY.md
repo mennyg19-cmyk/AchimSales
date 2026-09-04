@@ -83,12 +83,15 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
   for Run now.
 - The enqueued `schedule.run` job is owned by the acting manager (so they can see the
   in-flight Run now), not the admin who created the schedule.
+- A manager cannot Run now another user's `is_shared=0` master (404, same as unknown).
+  They can still run a shared company schedule, and their own private master.
 
 **Expected behavior:**
-- Company schedule visibility permits Run now. Existing master-edit rules govern every
-  other company schedule mutation. Job ownership is the actor. Master report scope is
-  still the schedule's `run_as` / owner (`ScheduleRunner._scope`), not the job owner.
-  Clock ticks still enqueue company runs with `owner_user_id=None`.
+- Company schedule visibility permits Run now on shared masters. Private masters
+  require `can_edit_master` (owner, run-as, or privileged). Existing master-edit
+  rules govern every other company schedule mutation. Job ownership is the actor.
+  Master report scope is still the schedule's `run_as` / owner (`ScheduleRunner._scope`),
+  not the job owner. Clock ticks still enqueue company runs with `owner_user_id=None`.
 
 **Test file:** `v3/tests/test_blueprints.py`
 

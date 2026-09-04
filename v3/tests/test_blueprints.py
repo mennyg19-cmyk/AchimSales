@@ -2612,6 +2612,44 @@ def test_view_only_manager_can_run_but_not_edit_master_schedule(tmp_path):
     ).status_code == 403
 
 
+def test_view_only_manager_cannot_run_private_master_schedule(tmp_path):
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path, {})
+    admin = app.test_client()
+    _login(admin, app)
+    repo = MasterScheduleRepository(app.config["DB"])
+    users = UserRepository(app.config["DB"])
+    admin_id = users.get_by_email("admin@x.com").id
+    private_id = repo.create(
+        "ordered", "Admin private", params={}, layout={},
+        cadence={"freq": "daily", "time": "06:00"}, recipients="secret@x.com",
+        owner_user_id=admin_id, is_shared=False,
+    )
+    manager = app.test_client()
+    _login(manager, app, email="manager@x.com", role="manager")
+    manager_id = users.get_by_email("manager@x.com").id
+    denied = manager.post(
+        f"/api/master-schedules/{private_id}/run", headers={"X-CSRF-Token": _CSRF},
+    )
+    assert denied.status_code == 404
+    own_private = repo.create(
+        "ordered", "Manager private", params={}, layout={},
+        cadence={"freq": "daily", "time": "06:00"}, recipients="me@x.com",
+        owner_user_id=manager_id, is_shared=False,
+    )
+    own = manager.post(
+        f"/api/master-schedules/{own_private}/run", headers={"X-CSRF-Token": _CSRF},
+    )
+    assert own.status_code == 202
+    job = app.config["JOB_REPO"].get(own.get_json()["job_id"])
+    assert job is not None
+    assert job.owner_user_id == manager_id
+    assert admin.post(
+        f"/api/master-schedules/{private_id}/run", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 202
+
+
 def test_master_schedule_keeps_explicit_skip_sabbath_setting(tmp_path):
     from web.blueprints.schedules import _normalize_master_params
     from web.data.repositories.schedules import MasterScheduleRepository
