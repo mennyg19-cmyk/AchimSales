@@ -1,3 +1,12 @@
+## 2026-09-04 Q8/Q9 review gate closed
+**What I had to decide:** Whether to re-run Loop C after the 6-line private Run now 404, and whether leftover code remains besides Azure/cutover.
+**Options I considered:** (1) Full A/B/C again. (2) Loop B + trust re-pass only (fix was small). (3) Invent more leftover code.
+**What I chose:** (2). Loop A/C stayed on the pre-F1 HEAD; Loop B and Fable trust re-passed `d90f116`. Magic-link cooldown (trust F2) stays deferred. No merge. Phase 7 Azure still blocked.
+**Why:** Review protocol: re-pass the family that found the issue; extra Loop C only if the fix is huge. Remaining work is owner Azure (`BETA_*`→`SITE_*`, unmount `/test`, cookie rotation, merge).
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Trust F1: private master Run now is owner/edit only
 **What I had to decide:** Trust-boundary found view-only managers could POST Run now on `is_shared=0` masters they cannot edit. Also F2 magic-link cooldown, F3 privileged+`is_external`.
 **Options I considered:** (1) 403 on private-not-editable. (2) 404 matching unknown ids. (3) Leave IDOR; document. (4) Add magic-link cooldown now.
