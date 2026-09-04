@@ -159,7 +159,7 @@ def order_number4_columns(fields: Sequence[str]) -> list[str]:
 
 
 def place_price_columns(fields: Sequence[str]) -> list[str]:
-    """Layout/OData helper: same Number 4 trailing order as the builder."""
+    """Apply the Number 4 trailing-column order."""
     return order_number4_columns(fields)
 
 

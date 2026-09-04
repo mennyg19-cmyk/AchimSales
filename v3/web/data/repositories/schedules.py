@@ -550,6 +550,8 @@ class ScheduleRunRepository:
             row = conn.execute(
                 "SELECT MAX(started_at) AS t FROM schedule_runs"
                 " WHERE schedule_id=? AND schedule_type=?"
+                " AND status NOT IN ('legacy', 'unknown')"
+                " AND COALESCE(json_extract(output_meta, '$.legacy'), 0) != 1"
                 " AND COALESCE(json_extract(output_meta, '$.manual'), 0) = 0",
                 (schedule_id, schedule_type),
             ).fetchone()

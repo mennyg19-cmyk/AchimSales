@@ -2,7 +2,6 @@
 
 from report_engine.registry import ReportStatus, get
 from report_engine.reports import sales_by_state as rpt
-from web.beta_sources import _ALL_KEYS, default_sources, get_source
 
 
 def test_summary_sorts_by_amount_and_keeps_blank_nyc():
@@ -60,6 +59,3 @@ def test_registry_sql_only_not_a_salesman_default():
     assert spec.status is ReportStatus.BUILT
     assert spec.salesman_default is False
     assert spec.privileged_only is False
-    assert "sales_by_state" not in _ALL_KEYS
-    assert "sales_by_state" not in default_sources()
-    assert get_source("sales_by_state") == "sql"

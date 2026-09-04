@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 
-from web.data.repositories.jobs import JobRepository
+from web.data.repositories.jobs import JobRepository, QueueAdmissionError
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -142,14 +142,21 @@ def _consider(job_repo, runs, repo, sched, schedule_type: str, now: datetime,
             regular = False
     if not makeup and not regular:
         return 0
+    try:
+        clock = str((getattr(sched, "cadence", None) or {}).get("time") or "").replace(":", "")
+        slot_id = f"{schedule_type}:{sched.id}:{C.eastern_date_iso(now)}:{clock}"
+        enqueue_schedule_run(
+            job_repo, schedule_id=sched.id, schedule_type=schedule_type,
+            owner_user_id=owner_user_id,
+            catch_up_for_date=skipped_iso if pending else None,
+            include_regular=regular,
+            slot_id=slot_id,
+        )
+    except QueueAdmissionError as exc:
+        log.warning("schedule %s:%s skipped this tick: %s", schedule_type, sched.id, exc)
+        return 0
     if pending:
         repo.set_catch_up(sched.id, False)
-    enqueue_schedule_run(
-        job_repo, schedule_id=sched.id, schedule_type=schedule_type,
-        owner_user_id=owner_user_id,
-        catch_up_for_date=skipped_iso if pending else None,
-        include_regular=regular,
-    )
     return 1
 
 

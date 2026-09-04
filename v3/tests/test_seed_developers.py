@@ -85,6 +85,25 @@ def test_copy_live_users_sets_developer_flag_on_insert_only(tmp_path):
     assert users.get_by_email("dev@x.com").display_name == "Renamed Dev"
 
 
+def test_copy_live_users_keeps_existing_v3_role(tmp_path):
+    from web.data.seed_users import copy_live_users
+
+    app = create_app(_cfg(tmp_path))
+    migrate(app.config["DB"])
+    db = app.config["DB"]
+    users = UserRepository(db)
+    copy_live_users(db, [
+        {"email": "rep@x.com", "role": "salesman", "salesman_key": None,
+         "display_name": "Rep", "dashboard_enabled": 0, "is_external": 0},
+    ])
+    users.update(users.get_by_email("rep@x.com").id, role="manager")
+    copy_live_users(db, [
+        {"email": "rep@x.com", "role": "salesman", "salesman_key": None,
+         "display_name": "Rep", "dashboard_enabled": 0, "is_external": 0},
+    ])
+    assert users.get_by_email("rep@x.com").role == "manager"
+
+
 def test_copy_live_users_grants_salesman_key_without_salesmen_row(tmp_path):
     from web.data.seed_users import copy_live_users
 

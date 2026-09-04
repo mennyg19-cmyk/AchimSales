@@ -1,9 +1,10 @@
 /**
- * Settings hub: flags, schedule test mode, exclusions, report visibility,
- * beta sources. Optimistic UI with rollback if the request fails.
+ * Settings hub: flags, schedule test mode, exclusions, and report visibility.
+ * Optimistic UI with rollback if the request fails.
  */
 
 import { SearchablePicker, type PickerItem } from "./searchable_picker";
+import { isHidden, onVisible } from "./visibility";
 
 function hub(): HTMLElement | null {
   return document.getElementById("settingsHub");
@@ -86,9 +87,12 @@ function parseExcluded(root: HTMLElement): string[] {
   }
 }
 
-function setExclHint(text: string): void {
+function setExclHint(text: string, isError = false): void {
   const hint = document.getElementById("exclHint");
-  if (hint) hint.textContent = text;
+  if (!hint) return;
+  hint.textContent = text;
+  hint.setAttribute("aria-live", isError ? "assertive" : "polite");
+  hint.setAttribute("role", isError ? "alert" : "status");
 }
 
 function initExclusions(): void {
@@ -124,11 +128,13 @@ function initExclusions(): void {
           picker.setSelected(revert);
           known = new Set(picker.selectedKeys());
           hydrating = false;
+          setExclHint("Could not save customer exclusions.", true);
         }).catch(() => {
           hydrating = true;
           picker.setSelected(revert);
           known = new Set(picker.selectedKeys());
           hydrating = false;
+          setExclHint("Could not save customer exclusions.", true);
         });
       };
       for (const account of added) persist(account, true, [...known].filter((k) => k !== account));
@@ -168,6 +174,7 @@ function initExclusions(): void {
   const pollStatus = () => {
     if (!statusUrl) return;
     const tick = async () => {
+      if (isHidden()) return;
       const resp = await fetch(statusUrl);
       if (!resp.ok) return;
       const s = await resp.json().catch(() => ({})) as {
@@ -185,42 +192,19 @@ function initExclusions(): void {
         return;
       }
       if (s.status === "loading") setExclHint("Loading customers…");
-      else if (s.status === "error") setExclHint("Customer master still warming — retrying…");
+      else if (s.status === "error") setExclHint("Customer master still warming — retrying…", true);
       else if (s.configured === false) setExclHint("Customer master is not configured.");
     };
     tick();
     pollTimer = window.setInterval(tick, 2500);
+    onVisible(() => { if (pollTimer != null) void tick(); });
   };
 
   loadCustomers().then((count) => {
     if (count > 0) return;
     pollStatus();
   }).catch(() => {
-    setExclHint("Could not load customers.");
-  });
-}
-
-function initBetaSources(): void {
-  const root = hub();
-  const url = root?.getAttribute("data-beta-url") || "";
-  const msg = document.getElementById("betaSourcesMsg");
-  if (!root || !url) return;
-  root.querySelectorAll<HTMLSelectElement>(".beta-source-select").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const report_key = sel.getAttribute("data-key") || "";
-      const source = sel.value;
-      sel.disabled = true;
-      try {
-        const resp = await postJson(url, { report_key, source });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error((data as { error?: string }).error || String(resp.status));
-        if (msg) { msg.hidden = false; msg.textContent = `${report_key} → ${source}`; }
-      } catch (err) {
-        if (msg) { msg.hidden = false; msg.textContent = err instanceof Error ? err.message : "Could not save."; }
-      } finally {
-        sel.disabled = false;
-      }
-    });
+    setExclHint("Could not load customers.", true);
   });
 }
 
@@ -254,10 +238,12 @@ function initScheduleTest(): void {
   const msg = document.getElementById("testModeMsg");
   if (!toggle || !chips || !form || !input || !url) return;
 
-  const show = (text: string) => {
+  const show = (text: string, isError = false) => {
     if (!msg) return;
     msg.textContent = text;
     msg.hidden = !text;
+    msg.setAttribute("aria-live", isError ? "assertive" : "polite");
+    msg.setAttribute("role", isError ? "alert" : "status");
   };
 
   const save = async (payload: { enabled?: boolean; emails?: string[] }) => {
@@ -281,7 +267,7 @@ function initScheduleTest(): void {
       apply(await save({ emails: next }));
       show("");
     } catch (err) {
-      show(err instanceof Error ? err.message : "Could not update test emails.");
+      show(err instanceof Error ? err.message : "Could not update test emails.", true);
     }
   });
 
@@ -300,7 +286,7 @@ function initScheduleTest(): void {
       input.value = "";
       show("");
     } catch (err) {
-      show(err instanceof Error ? err.message : "Could not add that address.");
+      show(err instanceof Error ? err.message : "Could not add that address.", true);
     }
   });
 
@@ -308,7 +294,7 @@ function initScheduleTest(): void {
     const enabled = toggle.checked;
     if (enabled && emailsFromDom(chips).length === 0) {
       toggle.checked = false;
-      show("Add at least one test email before turning test mode on.");
+      show("Add at least one test email before turning test mode on.", true);
       return;
     }
     toggle.disabled = true;
@@ -317,7 +303,7 @@ function initScheduleTest(): void {
       show(enabled ? "Test mode on. Company schedule mail goes only to the list below." : "");
     } catch (err) {
       toggle.checked = !enabled;
-      show(err instanceof Error ? err.message : "Could not update test mode.");
+      show(err instanceof Error ? err.message : "Could not update test mode.", true);
     } finally {
       toggle.disabled = false;
     }
@@ -329,7 +315,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initFlagToggles();
   initVisibilityToggles();
   initExclusions();
-  initBetaSources();
   initScheduleTest();
 });
 

@@ -32,11 +32,13 @@ from flask import (
 
 import io
 import os
+import shutil
 import socket
 import time
 from urllib.parse import urlencode, urlparse
 
 from report_engine import registry
+from report_engine.dates import EmptyCustomRangeError
 from report_engine.registry import ReportStatus
 from report_engine.lib import salesman_key
 from report_engine.reports import customer_last_order as clo
@@ -54,10 +56,12 @@ from web.data.repositories.users import User, UserRepository
 from web.delivery.email import split_recipients
 from web.delivery.graph_errors import graph_error_message
 from web.delivery.jobs import enqueue_delivery
+from web.jobs.keep import _kept_still_valid
 from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
 from web.reporting.jobs import JOB_TYPE, enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
+from web.queue_admission import enqueue_or_503
 
 reports_bp = Blueprint("reports", __name__)
 
@@ -461,10 +465,16 @@ def run_report(report_key: str):
         abort(403, description="Unknown user")
     visible = authz.visible_salesman_keys(p)
     params = _params_for_viewer(p, report_key, params)
-    job_id = enqueue_report_run(
-        _job_repo(), report_key=report_key, identity=p.email,
-        visible_salesman_keys=visible, builder_version=spec.builder_version,
-        params=params, owner_user_id=uid,
+    try:
+        P.translate(report_key, params)
+    except EmptyCustomRangeError as exc:
+        abort(400, description=str(exc))
+    job_id = enqueue_or_503(
+        lambda: enqueue_report_run(
+            _job_repo(), report_key=report_key, identity=p.email,
+            visible_salesman_keys=visible, builder_version=spec.builder_version,
+            params=params, owner_user_id=uid,
+        )
     )
 
     # In prod the background worker drains the queue; only in non-prod (no poller)
@@ -533,6 +543,7 @@ def report_result(job_id: str):
     _assert_scope_compatible(p, job)
     if job.status != "success":
         return jsonify({"status": job.status, "error": job.error}), 409
+    _assert_kept_result_not_expired(job, datetime.now(timezone.utc).replace(tzinfo=None))
     cached = _cache().get(job.result_ref)
     if cached is None:
         abort(404, description="Result expired; please re-run")
@@ -564,16 +575,9 @@ def _age_seconds(ts: str | None, now: datetime | None = None) -> int | None:
     return int((now - dt).total_seconds())
 
 
-def _kept_still_valid(kept_until: str | None, now: datetime) -> bool:
-    if not kept_until:
-        return False
-    try:
-        dt = datetime.fromisoformat(kept_until)
-    except ValueError:
-        return False
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt > now
+def _assert_kept_result_not_expired(job, now: datetime) -> None:
+    if job.kept_until and not _kept_still_valid(job.kept_until, now):
+        abort(404, description="Result expired; please re-run")
 
 
 @reports_bp.get("/api/reports/active")
@@ -664,14 +668,17 @@ def export_report(report_key: str, job_id: str):
     _assert_scope_compatible(p, job)
     if job.status != "success":
         abort(409, description="Report is not ready to export")
+    _assert_kept_result_not_expired(job, datetime.now(timezone.utc).replace(tzinfo=None))
     if not _cache().exists(job.result_ref):  # cheap presence check (no payload deserialize)
         abort(404, description="Result expired; please re-run")
     layout = request.get_json(silent=True)
     if not isinstance(layout, dict):  # ignore missing/malformed bodies (e.g. a JSON array)
         layout = {}
-    export_id = enqueue_export(
-        _job_repo(), owner_user_id=uid, source_job_id=job_id, report_key=report_key,
-        report_name=spec.title, layout=layout,
+    export_id = enqueue_or_503(
+        lambda: enqueue_export(
+            _job_repo(), owner_user_id=uid, source_job_id=job_id, report_key=report_key,
+            report_name=spec.title, layout=layout,
+        )
     )
     # Non-prod has no background poller; drain inline so a local export resolves.
     worker = current_app.config["JOB_WORKER"]
@@ -1022,7 +1029,7 @@ def preview_body(report_key: str):
             "report_id": report_id, "method": "POST", "url": url,
             "body": body, "configured": bool(base and cfg.reporting_api_key),
         })
-    except KeyError as exc:
+    except (KeyError, EmptyCustomRangeError) as exc:
         return jsonify({
             "report_id": None, "method": "POST", "url": None, "body": {},
             "configured": bool(base and cfg.reporting_api_key),
@@ -1107,43 +1114,60 @@ def reporting_api_diagnostics():
     the endpoint' without guessing. Developer-only (exposes the API host)."""
     p = _require_developer_principal()
     cfg = current_app.config["APP_CONFIG"]
-    from web import is_background_leader_process
+    from web import is_worker_process
+    from web.jobs import status
     worker = current_app.config["JOB_WORKER"]
     run_live = request.args.get("live") in ("1", "true", "yes")
+    jobs = _job_repo().status_summary()
+    liveness = status.snapshot(current_app.config["DB"])
+    active_ages = [
+        row["age_seconds"] for row in jobs["active"] if row["age_seconds"] is not None
+    ]
+    liveness["oldest_active_job_age_seconds"] = max(active_ages, default=None)
+    liveness["disk"] = _database_disk_usage(current_app.config["DB"])
+    from web.data.repositories.delivery_legs import DeliveryLegRepository
+    delivery_legs = DeliveryLegRepository(current_app.config["DB"]).list_recent()
     return jsonify({
         "reporting_api": _probe_reporting_api(cfg, run_live=run_live),
-        "jobs": _job_repo().status_summary(),
+        "jobs": jobs,
+        "liveness": liveness,
         "claim_probe": _claim_probe(current_app.config["DB"]),
         "me": {"email": p.email, "user_id": _user_id(p.email), "role": p.role},
         "recent_jobs": _recent_jobs(current_app.config["DB"]),
+        "delivery_legs": [
+            {
+                "id": leg.id, "job_id": leg.job_id, "run_id": leg.run_id,
+                "slot_id": leg.slot_id, "kind": leg.kind, "status": leg.status,
+                "error": leg.error,
+            }
+            for leg in delivery_legs
+        ],
         "wiring": _worker_wiring(worker, current_app.config["DB"]),
         "worker": {
             "pid": os.getpid(),
-            "is_leader_process": is_background_leader_process(),
+            "is_worker": is_worker_process(),
             **worker.health(),
         },
     })
 
 
-@reports_bp.get("/api/reports/diagnostics/reconcile-salesman-invoiced")
+def _database_disk_usage(db) -> dict:
+    try:
+        usage = shutil.disk_usage(db.precious_path.parent)
+    except OSError as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return {"total": usage.total, "used": usage.used, "free": usage.free}
+
+
+@reports_bp.post("/api/reports/diagnostics/reconcile-salesman-invoiced")
+@require_login
 def reconcile_salesman_invoiced_diagnostic():
     """One-shot: monthly_salesman_yoy vs invoiced_report Total Invoice.
 
-    Gated by env DIAG_RECONCILE_KEY (?k=...). When the key is unset, returns 404.
     Optional ?scope=ty|ly|all (default all). Split ty/ly avoids App Service 230s
     gateway timeout when both invoiced windows are large.
     """
-    import hmac
-
-    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
-    provided = (request.args.get("k") or "").strip()
-    if (
-        not expected
-        or not provided
-        or len(expected) != len(provided)
-        or not hmac.compare_digest(expected, provided)
-    ):
-        abort(404)
+    _require_developer_principal()
 
     service = current_app.config.get("REPORT_SERVICE")
     client = getattr(service, "client", None) if service is not None else None
@@ -1166,24 +1190,15 @@ def reconcile_salesman_invoiced_diagnostic():
         return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
 
-@reports_bp.get("/api/reports/diagnostics/reconcile-number4-invoiced")
+@reports_bp.post("/api/reports/diagnostics/reconcile-number4-invoiced")
+@require_login
 def reconcile_number4_invoiced_diagnostic():
     """One-shot: Number 4 rolling-12 vs invoiced_report (subtotal + Total Invoice).
 
-    Gated by env DIAG_RECONCILE_KEY (?k=...). Optional ?view=by_customer|by_item,
-    ?month=1..12 (index into the rolling window, 1=oldest) for gateway-safe slices.
+    Optional ?view=by_customer|by_item, ?month=1..12 (index into the rolling
+    window, 1=oldest) for gateway-safe slices.
     """
-    import hmac
-
-    expected = (os.environ.get("DIAG_RECONCILE_KEY") or "").strip()
-    provided = (request.args.get("k") or "").strip()
-    if (
-        not expected
-        or not provided
-        or len(expected) != len(provided)
-        or not hmac.compare_digest(expected, provided)
-    ):
-        abort(404)
+    _require_developer_principal()
 
     service = current_app.config.get("REPORT_SERVICE")
     client = getattr(service, "client", None) if service is not None else None
@@ -1694,7 +1709,7 @@ def email_now(report_key: str):
     if sharepoint_path and not authz.has_sharepoint_access(p):
         abort(403, description="You don't have SharePoint delivery access.")
 
-    job_id = enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
+    job_id = enqueue_or_503(lambda: enqueue_delivery(_job_repo(), owner_user_id=uid, payload={
         "report_key": report_key, "identity": p.email,
         "visible_keys": _visible_list(authz.visible_salesman_keys(p)),
         "builder_version": spec.builder_version,
@@ -1702,7 +1717,7 @@ def email_now(report_key: str):
         "layout": body.get("layout") or {}, "recipients": recipients,
         "subject": (body.get("subject") or "").strip(), "report_name": spec.title,
         "sharepoint_path": sharepoint_path,
-    })
+    }))
     worker = current_app.config["JOB_WORKER"]
     if not worker.running and not current_app.config["APP_CONFIG"].is_prod:
         worker.drain()

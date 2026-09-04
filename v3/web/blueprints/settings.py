@@ -79,22 +79,12 @@ def settings_page():
         ]
     uid = _uid(p.email)
     excluded = ExclusionRepository(current_app.config["DB"]).get(uid) if uid else set()
-    beta_sources = {}
-    if _is_developer(p):
-        try:
-            from web.beta_sources import get_sources
-            beta_sources = get_sources()
-        except Exception:  # noqa: BLE001 - page still renders
-            current_app.logger.exception("beta sources load failed")
-            from web.beta_sources import default_sources
-            beta_sources = default_sources()
     from web.scheduling.ui_flags import SHOW_COMPANY_SCHEDULE_SETUP
     return render_template(
         "settings.html", active_tab="settings", profile=p, flags=flags,
         test_mode_on=test_mode_on, test_emails=test_emails,
         is_admin=is_admin, is_developer=_is_developer(p),
         reports=reports, excluded=sorted(excluded),
-        beta_sources=beta_sources,
         company_schedule_setup=SHOW_COMPANY_SCHEDULE_SETUP,
     )
 
@@ -223,32 +213,6 @@ def settings_customers():
     salesman = (request.args.get("salesman") or "").strip() or None
     visible = current_app.config["AUTHZ"].visible_salesman_keys(p)
     return jsonify({"customers": _lookups().customers_visible(visible, salesman)})
-
-
-@settings_bp.get("/api/dev/beta-sources")
-@require_login
-def get_beta_sources():
-    if not _is_developer(current_principal()):
-        return jsonify({"error": "Forbidden"}), 403
-    from web.beta_sources import get_sources
-    return jsonify({"sources": get_sources()})
-
-
-@settings_bp.post("/api/dev/beta-sources")
-@require_login
-def set_beta_source():
-    if not _is_developer(current_principal()):
-        return jsonify({"error": "Forbidden"}), 403
-    body = request.get_json(silent=True) or {}
-    key = (body.get("report_key") or "").strip()
-    source = (body.get("source") or "").strip().lower()
-    from web.beta_sources import set_source
-    try:
-        set_source(key, source)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    from web.beta_sources import get_source
-    return jsonify({"report_key": key, "source": get_source(key)})
 
 
 @settings_bp.post("/settings/theme")

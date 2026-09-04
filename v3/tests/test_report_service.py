@@ -37,7 +37,7 @@ class _FakeClient:
 class _FakeSalesmenRepo:
     def all_as_facts(self):
         return {salesman_key("REdwards"): SalesmanFact(
-            source="reporting_api", key="redwards",
+            key="redwards",
             full_name="Reggie Edwards", display_name="Reggie", commission_pct=0.05)}
 
 

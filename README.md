@@ -1,8 +1,11 @@
 # D365 Sales Reports
 
-Automated sales reporting from Dynamics 365 F&O via OData. Reports run on
-scheduled Azure Automation jobs, on demand via a Flask web app, or locally
-from the CLI.
+Automated sales reporting from Dynamics 365 F&O. Reports run on demand and on
+in-app schedules in the Flask web app, or locally from the CLI. Azure
+Automation is not a current go-live path.
+
+OData remains only in the CLI path under `reports/`, `core/`, `data/`, and
+`runbooks/`; the Flask v3 app uses the Reporting API and has no OData runtime.
 
 ## Reports
 
@@ -29,20 +32,27 @@ python run.py invoiced --salesman all --email            # shipped reports for a
 
 ## How It Runs
 
-### Azure Automation (production)
+### Azure Automation (retired as a go-live path)
 
-`runbooks/universal_runbook.py` is the sole runbook used in Azure Automation.
-It downloads the codebase from SharePoint, imports the appropriate report
-runner via `report_registry.json`, runs it, uploads the output, and sends a
-heartbeat email. If the whole job fails once (dropped Graph, non-zero exit),
-it waits 30 seconds and runs again before Azure marks it Failed. Fail then
-retry-success is one status email (the heartbeat names the failure). Azure
-Automation must call `main()` so that retry wrap runs. git push does not
-publish this file; use `.\deploy-runbook.ps1`.
+In-app company and personal schedules on the home site are the production
+sender. `runbooks/universal_runbook.py` remains in the repo unused. Do not
+treat Azure Automation as required. If that file is ever published again,
+use `.\deploy-runbook.ps1`; git push does not publish it.
 
-Home-site company schedules do the same extra delivery. `[FAIL]` mail waits
-15 minutes and is dropped if that schedule later succeeds. The success mail
-names the first failure.
+### Web App (on-demand)
+
+The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimonline.com).
+Gunicorn is HTTP-only: it serves requests and reads/enqueues durable state. On
+App Service, `supervise-web.sh` runs Gunicorn beside `python3 -m
+web.jobs.worker_main`; the worker applies v3 migrations and idempotent seeds,
+then owns the scheduler and durable job poller. `/healthz` is process liveness;
+`/readyz` stays 503 until that worker has completed bootstrap and both worker
+and scheduler heartbeats are fresh. The live `/legacy` email-distribution flock
+remains in-process.
+
+Home-site company schedules send extra delivery. `[FAIL]` mail waits 15 minutes
+and is dropped if that schedule later succeeds. The success mail names the
+first failure.
 
 Home-site clock runs skip Shabbos/Yom Tov (Hebcal, Brooklyn). A skipped send
 waits for the next scheduled HH:MM, not motzei Shabbos. Yesterday/daily and
@@ -51,20 +61,20 @@ last_month, month-end MTD, and all-time reports wait until the next weekday at
 that same clock (Friday 10pm skip → Monday 10pm). Month-end MTD also sends a
 catch-up through the last day of the skipped month when the makeup is next month.
 
-```
-universal_runbook.py ordered --period daily
-# Amazon ordered schedule (customers 9300/9301):
-#   ordered --customer 9300 9301 --period last_7_days --email
-```
+### External monitoring
 
-### Web App (on-demand)
-
-The Flask app is Azure App Service `achim-sales-reports` (https://reports.achimonline.com).
+Probe `/readyz`, not only `/healthz`. Developers can use
+`/api/reports/diagnostics/reporting-api` for queue age, both heartbeats, last
+cleanup, worker process identity, and disk usage. Also watch Azure disk metrics.
+For Litestream, compare Blob last-modified time with the local SQLite mtime;
+replication only runs when `LITESTREAM_AZURE_ACCOUNT_KEY` is set, so startup
+continues without replication when that key is missing.
 
 **Production branch is `main`.** Pushing `main` deploys
 https://reports.achimonline.com. Side branches (including Cloud Agent
 `cursor/**` work) do **not** auto-deploy; they wait for a pull request into
-`main`. Manual zip deploy is still `deploy.ps1`. Agent Guardrails Semgrep scans
+`main`. Manual zip deployment through `deploy.ps1` is emergency-only and uses
+the same shared artifact builder as CI. Agent Guardrails Semgrep scans
 `v3/` (the home site) only, not `webapp/` (`/legacy`). It still uses
 `p/default`, but skips rules that do not match this Flask + SQLite app
 (Django CSRF/SQL, raw-SQL execute with `?` params, CDN integrity hashes,
@@ -140,21 +150,22 @@ python run.py ordered
 
 | Mount | Code | Role |
 |-------|------|------|
-| `/` | `v3/` (`is_beta`) | Site home — reports; hybrid SQL/OData per report. **Sales by State is SQL only** (no Settings origin toggle). |
+| `/` | `v3/` (`is_beta`) | Site home — SQL reports through the Reporting API. |
 | `/legacy` | `webapp/` | Former Live — OData, Excel-first, email distributions |
 | `/test` | `v3/` | SQL sandbox — direct link only |
 | `/beta` | — | Redirects to `/` (old bookmarks) |
 | `/test-next` | `rebuild/` | Rebuild preview — retire after home is stable |
 
 Enable the home swap with `BETA_MOUNT_ENABLED=1` (already on in prod). If Beta fails to boot, `/` stays the old Live app. `/test` still needs `V3_MOUNT_ENABLED=1`.
-Developers flip SQL/OData per report under Developer Tools → Beta report data sources (on `/legacy` settings). Sales by State is SQL only and is not in that list.
-
+For the home site, prefer `SITE_PRECIOUS_DB_PATH` and `SITE_CACHE_DB_PATH`;
+the older `PRECIOUS_DB_PATH` and `CACHE_DB_PATH` names remain supported during
+the staged Azure setting migration. `/test` continues to use `BETA_*` paths.
 On the home site, **Recent Reports** (header, looks like a link) opens recent and kept runs. **Keep this run**
 asks for an optional name; the bottom-right pill can be minimized.
 
 On the home site, **Settings** is the control panel (same ~800px width as Live): You,
-People, Reports, Delivery, History, and (developers) Database explorer,
-notification diagnostic, and beta SQL/OData sources. Live Email Distributions
+People, Reports, Delivery, History, and (developers) Database explorer and
+notification diagnostic. Live Email Distributions
 stay on Live only. Developers can also see any Reporting API SP's raw response
 at `/api/dev/reporting/<report_id>/run` (query string = SP params, e.g.
 `/api/dev/reporting/salesmen_master/run`); nothing is dropped or scoped.
@@ -208,72 +219,18 @@ See `.env.example` for all required variables. Key groups:
 ## Directory Structure
 
 ```
-scripts/
-  app.py                    # Azure App Service / local entry point (gunicorn)
-  run.py                    # CLI entry point for all reports
-  deploy.ps1                # Deploy webapp to Azure App Service
-  requirements.txt          # Python deps for CLI / runbooks
-  report_registry.json      # Report definitions for universal_runbook
-  .env.example              # Environment variable template
-
-  config/
-    settings.py             # Central config (Azure Automation vars + .env)
-    paths.py                # Output path resolution
-    salesman_map.py         # Salesman lookup (delegates to Excel)
-    salesman_excel.py       # Loads salesman data from salesman_map.xlsx
-    salesman_map.xlsx       # Editable salesman/subscription data
-    commission_map.py       # Commission rates by salesman
-
-  core/
-    auth.py                 # MSAL auth (D365 + Graph tokens)
-    odata.py                # OData v4 client with pagination
-    http.py                 # Shared HTTP session with retries
-    dates.py                # US Eastern date utilities + period parsing
-    columns.py              # Column detection + numeric conversion
-    excel_styles.py         # Shared Excel styling constants
-    excel_writer.py         # Shared Excel writing utilities
-    email_report.py         # Send reports by email (Graph or SMTP)
-    logging.py              # Structured logging setup
-    validation.py           # DataFrame validation before Excel write
-
-  data/
-    field_maps.py           # OData field rename maps + $select lists
-    d365_entities.py        # Entity-specific D365 fetch functions
-
-  reports/
-    base.py                 # Abstract base runner with CLI arg parsing
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report
-    customer_activity/      # Customer Activity Report
-    customer_aging/         # Customer Aging Report
-    ordered/                # Ordered Report
-    invoiced/               # Invoiced / Shipped Report
-    salesman/               # Salesman Report
-    number_4/               # Number 4 Report (By Item + By Customer)
-    customer_activity/      # Customer Activity Report
-
-  runbooks/
-    universal_runbook.py    # Self-contained Azure Automation runbook
-
-  tests/
-    conftest.py             # Shared pytest fixtures
-    test_ordered_builder.py
-    test_invoiced_loader.py
-    test_salesman_builder.py
-    compare_reports.py      # Cell-by-cell Excel comparison tool
-
-  webapp/                   # Flask web app (deployed to Azure App Service)
-    app.py                  # Flask app factory
-    blueprints/             # Route handlers (auth, reports, dashboard, settings, api)
-    services/               # D365 data access, authorization
-    templates/              # Jinja2 HTML templates
-    static/                 # JS, CSS, manifest
-    db.py                   # SQLite database (users, settings, history)
-    config.py               # Web-specific config
-    report_api.py           # Bridge to report runners
-    requirements.txt        # Web app deps (adds Flask, gunicorn)
+wsgi.py                     # Azure Gunicorn entry: wsgi:application
+startup.sh                  # App Service startup; launches the supervisor
+supervise-web.sh            # HTTP Gunicorn and v3 worker sibling processes
+tools/build_runtime_artifact.py # Shared CI/emergency deployment artifact builder
+deploy.ps1                  # Emergency-only Azure zip deploy
+webapp/                     # Legacy Flask app still mounted at /legacy
+v3/                         # Home-site Flask app, worker, source, and static_dist
+rebuild/                    # Preview app still mounted at /test-next
+config/, core/, data/, reports/ # CLI support (OData stays out of v3)
+runbooks/                   # unused Azure Automation entrypoints
+requirements.txt            # CLI/runbook dependencies
+webapp/requirements.txt     # Hash-locked deployed runtime dependencies
 ```
 
 ## Rule Preferences

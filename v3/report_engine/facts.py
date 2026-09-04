@@ -1,18 +1,12 @@
-"""Typed report facts - the semantic layer between data sources and builders.
+"""Typed report facts - the semantic layer between SQL rows and builders.
 
-A "fact" is one business row in a source-agnostic, normalized shape. Source
-adapters (sources/) produce facts from either the on-prem Reporting API (web
-path) or D365 OData (CLI/runbook path); builders (reports/) consume ONLY facts.
-This is what lets the parity harness separate *rule* drift from *source* drift:
-feed identical facts to two builders and the only difference can be the rules.
+A "fact" is one normalized business row. SQL adapters (sources/) produce facts;
+builders (reports/) consume only facts.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
-
-Source = Literal["reporting_api", "odata"]
 
 
 @dataclass(frozen=True)
@@ -23,7 +17,6 @@ class OrderLineFact:
     on which SP fed the row: ``usp_ordered_report`` has reserved + delivery
     remainder (no shipped qty); ``salesline_release`` has shipped qty.
     """
-    source: Source
     company: str
     sales_order_number: str
     sales_order_name: str
@@ -67,7 +60,6 @@ class InvoiceChargeFact:
 
     commission_pct is a fraction (0.06 = 6%), matching the master + live math.
     """
-    source: Source
     invoice_number: str
     invoice_date: str          # 'YYYY-MM-DD' (day precision) or ''
     customer_account: str
@@ -82,13 +74,12 @@ class InvoiceChargeFact:
     sales_group: str
     salesman_name: str = ""
     is_credit: bool = False
-    commission_pct: float = 0.0
+    commission_pct: float | None = None
 
 
 @dataclass(frozen=True)
 class CustomerFact:
     """One customer master record (customer activity / last order)."""
-    source: Source
     customer_account: str
     customer_name: str
     sales_group: str
@@ -98,7 +89,6 @@ class CustomerFact:
 @dataclass(frozen=True)
 class SalesmanFact:
     """One salesman master record from the salesmen_master SP (names, commission)."""
-    source: Source
     key: str
     full_name: str
     display_name: str

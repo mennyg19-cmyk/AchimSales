@@ -1,0 +1,19 @@
+Flask>=3.1,<4
+msal>=1.31,<2
+python-dotenv>=1.0
+# Azure App Service is Python 3.10. pandas 2.3 wheels are manylinux_2_28-only;
+# 2.2.x still ships manylinux_2_17 cp310 wheels. pandas 3 / numpy 2.3+ need 3.11+.
+pandas>=2.0,<2.3
+numpy>=1.26,<2.3
+openpyxl>=3.1
+requests>=2.31
+gunicorn>=22.0
+azure-identity>=1.15,<2
+azure-mgmt-automation>=1.0.0,<2
+
+# v3 app additional deps
+APScheduler>=3.10,<4
+# tzdata is the cross-platform fallback when the OS doesn't ship the
+# IANA zoneinfo database (matters on slim Docker images, harmless on
+# regular Linux/Azure App Service).
+tzdata>=2024.1

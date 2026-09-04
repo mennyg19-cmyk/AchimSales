@@ -8,7 +8,7 @@ from report_engine.sources import invoiced as S
 
 def _sm(key, number, full_name, pct, display=""):
     # `number` is kept in the signature only so call sites read like the old master rows.
-    return SalesmanFact(source="reporting_api", key=key,
+    return SalesmanFact(key=key,
                         full_name=full_name, display_name=display, commission_pct=pct)
 
 
@@ -283,12 +283,23 @@ def test_adapter_reads_commission_rate_as_fraction():
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "0.06"}).commission_pct == 0.06
     # ...and a whole percent (6) is normalized to 0.06 (guards a 100x mistake).
     assert S.to_fact({"InvoiceNumber": "X", "amount": "1", "commission": "6"}).commission_pct == 0.06
-    # Blank/zero -> no rate (builder will fall back to the master).
-    assert S.to_fact({"InvoiceNumber": "X", "amount": "1"}).commission_pct == 0.0
+    # Missing / blank / junk / negative -> no rate (builder falls back to master).
+    for commission in (None, "", "NULL", "nope", -1):
+        raw = {"InvoiceNumber": "X", "amount": "1"}
+        if commission is not None:
+            raw["commission"] = commission
+        assert S.to_fact(raw).commission_pct is None
+
+
+def test_adapter_keeps_explicit_zero_commission():
+    for commission in ("0", 0):
+        assert S.to_fact({"InvoiceNumber": "X", "amount": "1",
+                          "commission": commission}).commission_pct == 0.0
 
 
 def test_commissions_use_sp_rate_over_master():
-    # SP sends commission=0.10 in the rows; master says 0.05. The SP wins.
+    # SP sends commission=0.10 in the rows; directory says 0.05. The SP wins
+    # for both display and dollars (the local salesmen table is gone).
     facts = S.to_facts([
         {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
          "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
@@ -299,10 +310,11 @@ def test_commissions_use_sp_rate_over_master():
     sm = comm["salesmen"][0]
     assert sm["commission_pct"] == 0.10
     assert sm["ytd"]["commission"] == 100.0   # 1000 net * 0.10
+    assert comm["rows"][0]["Commission %"] == 0.10
 
 
 def test_commissions_use_sp_rate_without_master_entry():
-    # No master at all: the SP's per-row commission still drives the math.
+    # No directory row: the SP's per-row commission still drives display and math.
     facts = S.to_facts([
         {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-03-10",
          "amount": "2000", "salesman": "NEWREP", "Total Invoice": "2000",
@@ -313,6 +325,52 @@ def test_commissions_use_sp_rate_without_master_entry():
     sm = comm["salesmen"][0]
     assert sm["commission_pct"] == 0.04
     assert sm["ytd"]["commission"] == 80.0    # 2000 net * 0.04
+    assert comm["rows"][0]["Commission %"] == 0.04
+
+
+def test_commissions_keep_explicit_zero_sp_rate():
+    facts = S.to_facts([{
+        "InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+        "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+        "commission": "0",
+    }])
+    monthly = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                   ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    assert monthly["salesmen"][0]["commission_pct"] == 0.0
+    assert monthly["salesmen"][0]["ytd"]["commission"] == 0.0
+    assert monthly["rows"][0]["Commission %"] == 0.0
+
+    simple = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]["rows"][0]
+    assert simple["Percent"] == 0.0
+    assert simple["Commissions"] == 0.0
+
+
+def test_commissions_fall_back_to_master_for_blank_sp_rate():
+    facts = S.to_facts([{
+        "InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+        "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000",
+    }])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    assert comm["salesmen"][0]["commission_pct"] == 0.05
+    assert comm["salesmen"][0]["ytd"]["commission"] == 50.0
+
+    simple = _tabs_by_key(B.build(facts, salesmen=_salesmen()))["commissions"]["rows"][0]
+    assert simple["Percent"] == 0.05
+    assert simple["Commissions"] == 50.0
+
+
+def test_commissions_calculate_with_highest_present_sp_rate():
+    facts = S.to_facts([
+        {"InvoiceNumber": "INV1", "CustomerAccount": "1", "InvoiceDate": "2026-04-10",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000", "commission": "0"},
+        {"InvoiceNumber": "INV2", "CustomerAccount": "1", "InvoiceDate": "2026-04-11",
+         "amount": "1000", "salesman": "REdwards", "Total Invoice": "1000", "commission": "0.10"},
+    ])
+    comm = _tabs_by_key(B.build(facts, salesmen=_salesmen(),
+                                ytd_facts=facts, year=2026, end_month=4))["commissions"]
+    assert comm["salesmen"][0]["commission_pct"] == 0.10
+    assert comm["salesmen"][0]["ytd"]["commission"] == 200.0
 
 
 def test_commissions_simple_fallback_without_ytd():

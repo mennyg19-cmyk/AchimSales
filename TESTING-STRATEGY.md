@@ -1,5 +1,32 @@
 # Testing Strategy
 
+## Phase 9.1 archive report-parity inventory
+
+**What to test:**
+- Isolated tag `archive/pre-cleanup-2026-08-27` peels to `b14d725` and still has `webapp/` and `rebuild/`.
+- Every named leftover report is listed as archive-present vs current v3 SQL/BACKLOG. Customer Aging stays BACKLOG. No live D365 numbers.
+
+**Expected behavior:**
+- Inventory does not claim workbook value parity. `tools/parity` (live vs `/test` cookies) is not the archive comparison.
+
+**Test file:** `REPORT-PARITY.md`; `v3/tests/test_report_sql_coverage.py`
+
+## Phase 9.3 docs and artifact hygiene
+
+**What to test:**
+- Build the allowlisted runtime artifact and verify required entrypoints, committed
+  `static_dist`, and hash-locked root requirements are present while source and
+  local-state paths are absent.
+- Compare every non-map file in `static_dist` with esbuild entrypoints and public
+  passthrough files; public files must match their sources byte-for-byte.
+
+**Expected behavior:**
+- CI and emergency zip deploy use `tools/build_runtime_artifact.py`; CI uploads
+  only its destination directory and validates `webapp/requirements.txt` with
+  `--require-hashes`.
+
+**Test file:** `tools/test_build_runtime_artifact.py`, `v3/tests/test_static_dist.py`
+
 ## Schedule UI: hide company setup, wizard dropdowns, dev history
 
 **What to test:**
@@ -31,6 +58,213 @@
 
 
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
+
+## Q8 external-account provisioning and magic links
+**What to test:**
+- Manager and salesman POSTs to `/api/admin/users` return 403; MSAL and v3 magic-link
+  paths never create a user row.
+- The home External Rep Login posts to v3. Only an active external v3 user receives a
+  Graph-mailer request; unknown and internal addresses return the same success flash.
+- The stored token is a SHA-256 hash, replaces an existing token for that email, expires
+  after 15 minutes, and is usable once. Disabling the user after request denies consume.
+- The emailed link uses `PUBLIC_BASE_URL` plus the app path. If that setting is empty,
+  no mail is sent and no token is stored; the flash is still generic.
+
+**Expected behavior:**
+- Admins and developers provision external accounts in People. Magic-link authentication
+  re-checks that account before creating the v3 session and never uses `/legacy`.
+
+**Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
+
+## Q9 view-only company Send now
+**What to test:**
+- A manager who neither owns nor runs a company schedule can POST its Run now endpoint.
+- That manager still gets 403 for update, copy, toggle, and delete; a salesman gets 403
+  for Run now.
+- The enqueued `schedule.run` job is owned by the acting manager (so they can see the
+  in-flight Run now), not the admin who created the schedule.
+- A manager cannot Run now another user's `is_shared=0` master (404, same as unknown).
+  They can still run a shared company schedule, and their own private master.
+
+**Expected behavior:**
+- Company schedule visibility permits Run now on shared masters. Private masters
+  require `can_edit_master` (owner, run-as, or privileged). Existing master-edit
+  rules govern every other company schedule mutation. Job ownership is the actor.
+  Master report scope is still the schedule's `run_as` / owner (`ScheduleRunner._scope`),
+  not the job owner. Clock ticks still enqueue company runs with `owner_user_id=None`.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
+## Phase 1 containment: headers, legacy bypass, and salesman scope
+
+**What to test:**
+- Every configured security header is applied; CSP allows unpkg (Feather/Tabulator), excludes jsDelivr and Google Maps; HSTS appears only in production.
+- `DEV_BYPASS_AUTH=true` still works locally but is refused on Azure or when `APP_ENV=prod`. Auth routes call `_dev_bypass_enabled()` live, not a frozen import.
+- Empty SQL salesman scopes return no rows. Pivoted report rows match with `salesman_key()`. Preset copy rejects `..` and slashes in the salesman folder name.
+
+**Expected behavior:**
+- Browser responses prevent framing, MIME sniffing, and unscoped third-party execution without overwriting an existing header. Current v3 pages still load Feather/Tabulator from unpkg, so CSP allows `https://unpkg.com` (not jsDelivr, not Google Maps).
+- The legacy app cannot enable development authentication in Azure or production.
+- A SQL report cannot expose rows outside the caller's salesman scope.
+
+**Test file:** `v3/tests/test_security_headers.py`, `v3/tests/test_legacy_dev_bypass.py`, `v3/tests/test_report_number_4.py`, `v3/tests/test_report_salesman.py`
+
+## Phase 2 DB-authoritative authentication
+
+**What to test:**
+- MSAL callback denies unknown users without inserting a v3 row and admits a known active row.
+- Beta drops an unknown Live identity without creating a v3 user; existing v3 rows retain their stored permissions.
+- Live magic-link tokens are stored as hashes, can be consumed once, replace any outstanding token for the same email, and use `PUBLIC_BASE_URL` when configured.
+- `flask seed-users-from-live` inserts missing emails but does not overwrite an existing v3 role or flags.
+- A developer impersonating a missing or inactive v3 user stays signed in as themselves; the role picker 404s instead of logging them out.
+
+**Expected behavior:**
+- Users & access is the only identity authority. Bearer tokens never appear in the Live database as plaintext.
+
+**Test file:** `v3/tests/test_auth.py`, `tests/test_magic_links.py`
+
+## Phase 3.1 SQL report coverage
+
+**What to test:**
+- Every built registry key has a SQL path: `ReportService` orchestrators cover Ordered (`_orch_ordered`), Invoiced (`_orch_invoiced`), Salesman (`_orch_salesman`), Number 4 (`_orch_number_4`), Customer Activity (`_orch_customer_activity`), Item Averages (`_orch_item_averages`), and Sales by State (`_orch_sales_by_state`).
+- Customer's Last Order uses the in-app `ReportService.last_order_rows()` call to the `customer_last_orders` stored procedure.
+- Item Averages uses the Number 4 By Item stored procedure. Sales by State uses its summary, NYC, and detail stored procedures.
+
+**Expected behavior:**
+- Customer Aging remains BACKLOG and has no fake SQL path.
+- Sales by State is SQL-only because it is not a selectable hybrid source.
+- A Beta operator can run Item Averages without changing Settings.
+
+**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_sales_by_state.py`
+
+## Phase 3.2 SQL-only v3 execution
+
+**What to test:**
+- A Beta-context `ReportService.builder_for()` run uses the SQL orchestrator.
+- Developer Settings keeps Database explorer and Notification diagnostic, but has no source selector; both old source endpoints return 404.
+- The six hybrid reports use new builder versions, producing different cache keys without adding a source field.
+
+**Expected behavior:**
+- v3 uses SQL report builders, and old cache payloads cannot be reused.
+
+**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_blueprints.py`
+
+## Phase 3.3 v3 OData runtime removal
+
+**What to test:**
+- The app factory imports neither the deleted v3 OData modules nor the CLI OData clients.
+- Every built report retains a SQL path. Salesman scope tests still fail closed for an empty scope.
+
+**Expected behavior:**
+- Flask v3 runs SQL reports only. OData remains in the separate CLI/Azure Automation path.
+
+**Test file:** `v3/tests/test_report_sql_coverage.py`, `v3/tests/test_report_number_4.py`, `v3/tests/test_report_salesman.py`
+
+## Phase 4.1–4.2 HTTP-only Gunicorn and supervised worker
+
+**What to test:**
+- `create_app()` only wires routes and a stopped job worker; it does not migrate,
+  seed, schedule, or start a thread.
+- The standalone worker bootstraps an isolated SQLite database, starts its
+  services, and completes an enqueued durable job.
+- `/healthz` remains a 200 liveness check; `/readyz` stays 503 until bootstrap
+  completion plus fresh worker and scheduler heartbeats are stored.
+- `wsgi.py` does not invoke v3/Beta bootstrap during Gunicorn import, and
+  `supervise-web.sh` starts both required sibling processes.
+
+**Expected behavior:**
+- Azure can warm Gunicorn without waiting for migration. A missing or stale
+  worker makes readiness fail while preserving a live HTTP process.
+
+**Test file:** `v3/tests/test_jobs.py`, `v3/tests/test_smoke.py`,
+`tests/test_wsgi_process_ownership.py`
+
+## Phase 4.3 killable jobs and queue admission
+
+**What to test:**
+- The production poller starts a new interpreter for a claimed handler; a timeout
+  terminates that child, records a failure explaining the timeout, and frees
+  the worker slot.
+- A child command that cannot start records a durable failure and frees its worker slot.
+- The default worker capacity is one. Enqueue rejects new jobs at the named
+  depth; the poller still drains queued work and fails rows that exceeded the
+  named queue age.
+- `schedule.run`, then `report.deliver`, claim before `report.export`.
+- A scheduler startup error does not mark bootstrap complete or write a worker
+  heartbeat, so `/readyz` remains 503 while the supervisor keeps Gunicorn up.
+
+**Expected behavior:**
+- A timed-out child cannot continue after its durable job row is failed.
+- Interactive exports cannot starve scheduled delivery work.
+
+**Test file:** `v3/tests/test_jobs.py`
+
+## Phase 4.4 durable liveness and readiness
+
+**What to test:**
+- `/readyz` requires bootstrap plus fresh worker and scheduler heartbeats; `/healthz`
+  remains exactly `{status: ok}`.
+- Scheduler start writes a heartbeat and process identity; every schedule tick writes
+  its heartbeat even if enqueueing fails.
+- Worker startup and the daily 03:15 America/New_York cleanup prune seven-day cache
+  rows and tiered exports, recording cleanup only after both succeed.
+- Developer diagnostics expose liveness state, oldest active-job age, and disk usage.
+
+**Expected behavior:**
+- A running HTTP process with a dead or stalled worker/scheduler stays live but is not
+  ready. Cleanup state and process identity are observable by developers, not readiness
+  gates or public health endpoints.
+
+**Test file:** `v3/tests/test_smoke.py`, `v3/tests/test_jobs.py`,
+`v3/tests/test_blueprints.py`
+
+## Phase 5.1 honest delivery states
+**What to test:**
+- A mail leg moves from `prepared` to `sending`, then `accepted` and `sent` on Graph success; HTTP rejection is `failed`.
+- A timeout, URL error, reset, or other connection loss after `sendMail` submission is `unknown`; the schedule retry loop must stop after that result.
+- Tick jobs keep their enqueue-time Eastern slot ID, while manual `report.deliver` jobs use `manual:{job_id}`. Cleanup removes legs older than 90 days.
+
+**Expected behavior:**
+- The durable leg, not an ambiguous outbox state, is the audit record for each email attempt. An unknown Graph send remains operator-reconcilable and is never claimed as sent or retried automatically.
+
+**Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_jobs.py`
+
+## Phase 5.2 separate email and folder legs
+**What to test:**
+- A dual delivery creates one `folder` and one `email` leg with the same durable job/run/slot identity.
+- Folder-only delivery creates only a verified folder leg. A missing `webUrl` and item id fails the folder leg while a successful Graph email remains sent and is not retried.
+- The workbook and EML artifact exist before either external leg reaches `sending`. Developer diagnostics and schedule output metadata include leg kind and status.
+
+**Expected behavior:**
+- Each external delivery channel has an independent durable state. A folder failure is visible as `failed`; Graph connection loss remains `unknown` and is never automatically resent.
+
+**Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
+
+## Phase 5.3 no-data notice legs
+**What to test:**
+- A zero-row salesman split creates one `notice` leg with the schedule job, run, and slot identity; it does not create a workbook email leg.
+- A rejected or unknown notice remains failed or unknown and does not retry a Graph-sent management workbook.
+- Successful notice legs appear in the schedule run metadata and developer diagnostics.
+
+**Expected behavior:**
+- No-data text mail is independently auditable from a workbook email or folder upload.
+- A required notice failure makes the schedule run fail without duplicating a delivered workbook.
+
+**Test file:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_jobs.py`
+
+## Phase 5.4 Graph token refresh, throttling, and upload resume
+**What to test:**
+- Cached Graph app-only tokens are reused until the one-minute refresh window and then replaced without persistence.
+- A folder GET or rejected sendMail 401 gets one fresh token and one retry; a send connection failure is still unknown.
+- A 429 or 503 waits once for `Retry-After`, capped at 60 seconds.
+- A failed upload chunk queries its existing session and starts the next PUT at `nextExpectedRanges`.
+
+**Expected behavior:**
+- Mail, SharePoint, and OneDrive keep credentials only in process memory and avoid minting a token per request.
+- Retry behavior never turns an uncertain sendMail connection loss into a duplicate send.
+- A valid upload session continues from Graph's confirmed offset instead of creating a new session at byte zero.
+
+**Test file:** `v3/tests/test_delivery.py`
 
 ## Schedule filename is the email attachment name
 
@@ -87,7 +321,6 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Owner or admin can `POST /api/jobs/<id>/cancel` a queued/running `schedule.run`. A salesman cannot cancel a job they do not own. Admins can cancel a clock job with `owner_user_id` NULL. Cancelling a clock job frees its dedup key so the next enqueue is a new job. `GET /api/schedules/recent-runs` includes `active_jobs`. Personal and company schedule pages have `#activeJobs` and `data-cancel-url`.
 
 **Test file:** `v3/tests/test_jobs.py`, `v3/tests/test_delivery.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`, `v3/tests/test_reporting.py`, `v3/tests/test_report_service.py`
-
 ## The salesmen_master SP is the only salesman master (no v3 table)
 
 **What to test:**
@@ -115,7 +348,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **What to test:**
 - `LookupService.salesmen()` lists every row from `salesmen_master` (`POST /api/reports/salesmen_master/run`), including a salesman with no customers. Blank keys and `IsActive` false rows are dropped.
-- Name is the SP's name, else the raw key.
+- Name is the SP's name, else the v3 salesmen table display name, else the raw key.
 - A customer SalesGroup missing from the master is still appended.
 - If the master SP fails, customers still populate (`status == ready`) and the dropdown falls back to customer SalesGroups.
 - `/api/reports/<key>/salesmen`, `/api/master-schedules/lookups/salesmen`, `/api/report/customer-last-order/salesmen`, and `/api/admin/sales-groups` all return the master-only salesman. Scoped users still see only their keys.
@@ -146,15 +379,15 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - Beta `adopt_live_identity` does not replace an existing v3 display name, role, SalesGroup, or salesman-access from the Live cookie.
 - A demoted developer with a stale `_dev` cookie cannot open `/dev/role-picker` or `/api/admin/users`, and the DB role stays salesman.
 - A leftover impersonation cookie (`email` = an admin, `_dev` + `_dev_email` of a demoted developer) cannot keep admin access; the session becomes the actor; self-promotion PUT is 403.
-- A Live developer cookie with no v3 row creates the developer (does not 302/logout). Impersonation whose `_dev_email` is missing from v3 still logs out.
+- A Live cookie with no v3 row redirects to login without creating a v3 user. A known but inactive v3 row is the same deny. Impersonation whose `_dev_email` is missing from v3 still logs out.
 - After an unrestricted run/export, demoting the owner to a scoped salesman 403s download and hides the export from the list.
 - GET `/api/reports/diagnostics/claim-once` is 405; POST with CSRF reverts only a job this request claimed.
 
 **Expected behavior:**
-- Users & access is source of truth after the first v3 row exists. First Live login still creates the row and copies Live scope.
+- Users & access is the identity source of truth. Live login only adopts an active v3 row.
 - Developer-only tools and the role picker use the DB developer role, not the cookie.
 - Leftover impersonation after demotion drops to the actor's DB identity (or logs out if the actor row is gone).
-- A developer's first Live login (`_dev` cookie, no v3 row yet) still creates the developer row and does not clear the shared Live session.
+- A developer's first Live login (`_dev` cookie, no v3 row yet) clears the shared session and does not create a developer row.
 
 **Test file:** `v3/tests/test_auth.py`, `v3/tests/test_blueprints.py`
 
@@ -250,13 +483,12 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - `GET /api/admin/sales-groups` (privileged) returns the same keys as `LookupService.salesmen()` / report salesman filters. Salesman callers get 403.
 - Creating a salesman with `sales_group=HKaufman` stores the raw group and grants normalized access `hkaufman` even when that key is not in `salesmen`.
 - Updating a salesman SalesGroup replaces access; updating a manager with `sales_group` does not clobber checkbox access.
-- Editing a salesman exposes the per-salesman checkbox grid. Saving stores every checked group and always includes the primary SalesGroup.
 - `user_salesman_access` still FKs `users`, not `salesmen`. Direct access POST normalizes raw keys.
 - Live user copy grants a salesman_key that is not in `salesmen`.
 - Users & access template has `#addSalesGroup`, `#euSalesGroup`, `data-sales-groups-url`, `data-lookup-status-url`.
 
 **Expected behavior:**
-- Report filters and the user dropdown share the D365 SalesGroup values. Managers and salesmen can use the checkbox grid, but extra scope does not grant manager permissions.
+- Report filters and the user dropdown share customer_master SalesGroup values, not the salesmen table. Managers still use the checkbox grid.
 
 **Edge cases:**
 - Empty SalesGroup on a salesman clears access.
@@ -647,7 +879,6 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - YTD drops rows with no current-year qty or dollars.
 - Every tab sets `default_group` to Item #.
 - Live Excel By Item and By Customer share the same trailing headers.
-- OData extra_files dicts are read as paths; Item/Customer sheet names do not collide.
 - Ordered / Item Averages column lists are not reordered.
 
 **Expected behavior:**
@@ -661,7 +892,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - SP aliases AvgPrice / BookPrice become Avg Price / Book Price.
 - Saved Default with Sep after Salesman still emails and shows Sep before Total Qty.
 
-**Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_odata_number4.py`, `v3/tests/test_delivery.py`, `tests/test_number_4.py`
+**Test files:** `v3/tests/test_report_number_4.py`, `v3/tests/test_report_service.py`, `v3/tests/test_delivery.py`, `tests/test_number_4.py`
 
 ## Sales by State (SQL only)
 
@@ -670,11 +901,10 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Third catalog key is `sales_by_state_filtered` (not `sales_by_state_detail`).
 - Summary sorts by sales amount. NYC sales amount appears on the first row only, even if the SP repeats it.
 - Detail Excel serial dates become YYYY-MM-DD; negative amounts stay negative.
-- Report is built, not on the Settings SQL/OData list, and not a salesman default.
+- Report is built and not a salesman default.
 
 **Expected behavior:**
 - Admin reports list shows Sales by State. Salesman inherit list does not.
-- `get_source("sales_by_state")` is sql.
 
 **Edge cases:**
 - Custom period dates override the year window when both start and end are set.
@@ -835,12 +1065,12 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Skip-class periods (yesterday/daily, mid-month MTD, mid-year YTD) wait for the next regular HH:MM. They do not fire Saturday night after havdalah.
 - Reschedule-class periods (last_7_days, last_month, month-end MTD, year-end YTD, salesman/customer_activity) wait until the next Monday–Friday at the same HH:MM.
 - MTD skipped on Friday the 30th: Monday 10pm run covers MTD through the 30th, and if that makeup is next month, a second pass through month-end.
-- Manual Run now sets `manual` (and `ignore_sabbath`) so it still sends, even after today's clock run.
+- Manual Run now sets `ignore_sabbath` so it still sends.
 
 **Expected behavior:**
 - Company and personal clock runs skip Shabbos/Yom Tov (Brooklyn, 18-min candles) and make up at the scheduled clock time, not motzei Shabbos.
 - Date windows follow the period: widen yesterday/last_7_days; MTD self-heals in-month; cross-month MTD sends the skipped window plus month-end if needed.
-- Run now is a deliberate send and does not skip. It does not stamp today's clock slot.
+- Run now is a deliberate send and does not skip.
 
 **Test files:** `v3/tests/test_sabbath.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_catchup.py`
 
@@ -933,7 +1163,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Salesman `/settings` is `container-narrow`, has You (profile, theme, exclusions), no admin/developer blocks.
 - Admin has People, Reports, Delivery, History; not Database explorer.
-- Developer has explorer, notification diagnostic, beta sources.
+- Developer has explorer and notification diagnostic.
 - `POST /api/admin/report-visibility` hides a report unless a per-user allow override exists.
 - Exclusions save without the dashboard blueprint (Beta).
 - `/admin/schedule-runs` and `/admin/run-log` are admin-only.
@@ -993,19 +1223,17 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Admin can save several test emails and turn test mode on; cannot turn on with an empty list.
 - Salesman cannot POST the API.
-- Company and personal schedule Run now in test mode emails only the test list, `[TEST]` subject. SharePoint/OneDrive dumps to `Test` (not the live folder or the salesman's OneDrive).
+- Company schedule Run now in test mode emails only the test list, `[TEST]` subject, SharePoint dumps to `Test` (not the live Daily/YTD folder).
 - Split schedules still fan out in test mode; every file goes to the test list with the salesman in the subject/filename.
-- Personal schedules are redirected the same way as company schedules. Salesmen are not emailed.
+- Personal schedules ignore test mode.
 - Test mode on with no emails fails the run instead of sending to stored recipients.
-- Run now always sends, even if today's clock run already succeeded. It does not consume the day's scheduled slot. Each press is a new job (not collapsed onto a leftover tick).
 
 **Expected behavior:**
-- Settings shows the toggle and address chips. Copy says company and personal mail is redirected.
+- Settings shows the toggle and address chips.
 - `/schedules` shows a banner listing the test addresses while On.
 
 **Edge cases:**
 - Invalid addresses are dropped; salesman-split jobs still fan out, but every file (full + each salesman) goes to the test list. Salesmen are not emailed.
-- A recovered clock job after a successful clock send still skips. A recovered Run now after that send still delivers.
 
 **Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_blueprints.py`
 
@@ -1129,3 +1357,438 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - A failed or refused (unconfigured mailer) send is still audited and still consumes the day's run.
 
 **Test files:** `rebuild/tests/test_scheduling.py` (cadence, sabbath, deliveries), `rebuild/tests/test_schedule_routes.py` (authz, CSRF, once-a-day, catch-up after Shabbos, whole-run failure notify, manual run-now + ignore-Shabbos, notification ownership), `rebuild/tests/test_email.py` (failure-notice composition, escaping, audited-when-off).
+
+## Phase 6.1 fail-closed schedule, SharePoint, and diagnostics
+**What to test:**
+- Creating, copying, and updating a company schedule preserve explicit
+  `skip_sabbath: false` or `true`; an omitted key preserves the clock default.
+- Configured SharePoint rejects a missing or unresolvable `SP_SITE_URL` and never
+  queries `sites?search=achim`; non-configured local mock behavior stays intact.
+- Each reconcile diagnostic requires a signed-in developer, POST, and CSRF; it
+  ignores the removed query-string key and denies other roles. Anonymous POST
+  without a CSRF token is 400 (global CSRF runs before login). Anonymous POST
+  with a CSRF token but no session user is 401 JSON.
+
+**Expected behavior:**
+- Clock schedules skip Shabbos only when their params omit the key or set it true.
+- Graph delivery only uses the tenant site explicitly configured by `SP_SITE_URL`.
+- Reconciliation remains a developer operation and cannot be triggered by a link
+  or by an unsigned-in POST.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_delivery.py`,
+`v3/tests/test_sabbath.py`
+
+## Phase 6.2 commission-card salesman numbers
+**What to test:**
+- Two invoiced salesmen in the same reporting window retain their own salesman
+  numbers on their commission cards.
+
+**Expected behavior:**
+- Each card reads the number from the salesman fact for its current bucket, not
+  from another salesman's aggregation row.
+
+**Test file:** `v3/tests/test_report_invoiced.py`
+
+## Phase 6.3 custom-window validation after D365 clamp
+**What to test:**
+- A reversed 2026 custom range still swaps, while a range ending before D365
+  go-live raises after its start is clamped.
+- Unparseable ISO custom dates still omit date params; an empty post-clamp range
+  raises through the translator and returns 400 from report run and preview.
+
+**Expected behavior:**
+- Valid reversed picker dates keep their inclusive window. A syntactically valid
+  range with no post-go-live dates never becomes all-time or an inverted period.
+
+**Test file:** `v3/tests/test_dates.py`, `v3/tests/test_params.py`,
+`v3/tests/test_blueprints.py`
+
+## Phase 6.4 kept-run expiry
+**What to test:**
+- A successful kept run with cache still present returns 404 from both result
+  GET and export POST once `kept_until` is in the past.
+- The expired export request creates no export job. A future `kept_until` still
+  returns the cached result.
+
+**Expected behavior:**
+- Keep expiry prevents result access and export generation; an unkept run stays
+  governed by cache presence alone.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
+## Phase 6.5 kept payload cleanup
+**What to test:**
+- An eight-day-old cache row remains when a successful `report.run` has a future
+  `kept_until` and points to its cache key.
+- A one-day-old cache row is removed when its only successful Keep reference has
+  expired. The existing eight-day unkept cache prune still removes its row.
+
+**Expected behavior:**
+- Keep extends cache retention to its existing 30-day window. After that window,
+  cleanup removes the payload without waiting for the normal seven-day cache cutoff.
+  A shared key remains while any valid Keep still references it.
+
+**Test file:** `v3/tests/test_jobs.py`
+
+## Phase 6.6 90-day retention cleanup
+**What to test:**
+- Worker cleanup removes terminal jobs, report run-log rows, and v3 magic-link
+  tokens older than 90 days while retaining current jobs, queued jobs, and a
+  terminal job protected by a valid Keep.
+- Live startup cleanup removes 90-day-old `magic_link_tokens` while retaining
+  current tokens.
+
+**Expected behavior:**
+- Cleanup returns the row counts for each new retention target. Delivery legs
+  keep their existing 90-day pruning and readiness does not depend on cleanup.
+
+**Test file:** `v3/tests/test_jobs.py`, `tests/test_magic_links.py`
+
+## Phase 6.7 explicit-zero commission
+**What to test:**
+- The invoiced adapter maps missing, blank, and NULL commission values to `None`,
+  while explicit numeric or string zero remains `0.0`.
+- A zero rate supplied by the stored procedure wins over a 5% salesman master in
+  both the monthly cards and simple commission table.
+- A blank stored-procedure rate still uses the 5% master, and positive SP rates
+  continue to override the master.
+
+**Expected behavior:**
+- The app never turns an explicit per-invoice zero commission into a master-rate
+  commission. Missing rate data retains the existing fallback.
+
+**Edge cases:**
+- Fractional values pass through and only values greater than one convert from
+  whole-percent form. Mixed present zero and 10% rates retain the existing 10% max.
+- Invoiced `builder_version` is 3 so a 7-day cache from before this fix is not reused.
+
+**Test file:** `v3/tests/test_report_invoiced.py`
+
+## Phase 6.8 legacy schedule slots
+**What to test:**
+- A today-dated `schedule_runs` row marked `legacy`, `unknown`, or with
+  `output_meta.legacy=true` does not block the next due clock enqueue.
+- A real `success` run still blocks a second clock enqueue that Eastern day.
+- Save/On retains its intentional `last_claimed_at` claim and waits for tomorrow.
+
+**Expected behavior:**
+- Only attributable run history consumes the normal clock slot. Historical or
+  unknown rows cannot make a schedule look as though it already sent today.
+
+**Test file:** `v3/tests/test_scheduling.py`
+
+## Phase 6.9 commission display uses the same rate as the money
+**What to test:**
+- With a 10% stored-procedure rate and 5% salesmen_master directory rate, cards,
+  flat `Commission %`, and simple `Percent` display 10%, and commission dollars
+  use 10%. The local salesmen table is gone; there is no separate saved percent.
+- Explicit stored-procedure zero keeps both display and dollars at zero; blank
+  stored-procedure rate uses the directory 5% for both.
+- Without a directory row, display the stored-procedure math rate. Do not render
+  a “varies” value.
+
+**Expected behavior:**
+- Commission percentages and money both follow the approved per-invoice rate
+  policy (SP row when present, else the salesmen_master directory).
+
+**Test file:** `v3/tests/test_report_invoiced.py`, `v3/tests/test_report_sql_coverage.py`
+
+## Phase 7.1 staged home DB path aliases
+**What to test:**
+- Home config uses non-empty `SITE_PRECIOUS_DB_PATH` and `SITE_CACHE_DB_PATH`
+  before the older names, and falls back when the new names are unset or
+  whitespace-only.
+- `startup.sh` trims the same way before exporting into `PRECIOUS_DB_PATH` /
+  `CACHE_DB_PATH`, so Litestream does not get a blank path the app ignored.
+- Production rejects a `/home/site/...` path supplied through `SITE_*`.
+- Beta config continues to read only `BETA_PRECIOUS_DB_PATH` and
+  `BETA_CACHE_DB_PATH`.
+
+**Expected behavior:**
+- Azure can migrate the home database settings without changing Litestream's
+  existing `PRECIOUS_DB_PATH` interpolation or the `/test` database paths.
+
+**Test file:** `v3/tests/test_config.py`, `tests/test_startup_site_alias.py`
+
+## Phase 8.1 shared dialog helper
+**What to test:**
+- Open each named overlay: admin Edit user, SharePoint folder picker, External Rep Login, Customer Last Order export and previous-order picker, and report Email/Schedule.
+- Verify the initial field or first control receives focus; Tab and Shift+Tab stay inside; Escape and the close/cancel/backdrop controls close the overlay; focus returns to the opener.
+
+**Expected behavior:**
+- Every adopted overlay keeps its current visual treatment while exposing `role=dialog` and `aria-modal=true`, with the background inert until it closes.
+
+**Edge cases:**
+- Opening a second adopted overlay closes the first without restoring focus to its opener and cancels the first overlay's pending focus frame. A dialog with no focusable child focuses its dialog container.
+- An adopted overlay with a heading must expose that heading as the dialog name (`aria-labelledby` or `aria-label`). The helper fills a missing name from an id'd heading.
+
+**Test file:** browser keyboard check; `cd v3 && npm run build`
+
+## Phase 8.2 admin/dashboard table reflow
+**What to test:**
+- At a 320 CSS px viewport and a 160 CSS px viewport (320px at 200% zoom), check `/admin/users` user and salesman tables plus Customer Dashboard tiles and customer table.
+- Confirm `document.documentElement.scrollWidth <= document.documentElement.clientWidth` using layout viewport size, not `body.style.zoom`. Scroll each inner table wrap and activate Edit, View as, and a customer link.
+
+**Expected behavior:**
+- Tables remain tables. Wide rows scroll inside `.table-wrap`; the document does not scroll sideways or hide row actions.
+
+**Test file:** authenticated browser check; `cd v3 && npm run build`
+
+## Phase 8.3 four-theme contrast
+**What to test:**
+- Each theme's text, muted text, light text, button foreground, and alert colors
+  meet 4.5:1 on the surfaces where they render.
+- Role badges and status pills meet the 3:1 UI-chrome threshold in every theme.
+- The hardcoded commission-table header keeps white text at 4.5:1.
+
+**Expected behavior:**
+- Light, dark, monochrome, and monochrome-dark preserve their existing identities
+  while readable text and button labels remain AA-compliant.
+
+**Test file:** `v3/tests/test_frontend.py`; `cd v3 && npm run build`
+
+## Phase 8.4 searchable-picker keyboard
+**What to test:**
+- On Settings excluded customers and the report customer filter, focus the search
+  field, then use ArrowUp/ArrowDown and Home/End to move the active option.
+- Enter and Space toggle the active customer. Escape closes the list and leaves
+  focus on the search field so a user can continue typing.
+- Inspect the combobox, listbox, and options for `aria-expanded`,
+  `aria-controls`, `aria-activedescendant`, `role=listbox`, and `role=option`.
+
+**Expected behavior:**
+- Both customer pickers share `SearchablePicker`, preserve their current chrome,
+  and support the same keyboard flow.
+
+**Edge cases:**
+- Filtering to no matches leaves no active descendant. A mouse click on an
+  option row keeps selected state and ARIA selection in sync.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser keyboard check;
+`cd v3 && npm run build`
+
+## Phase 8.5 toolbar and tab-option menu keyboard
+**What to test:**
+- On a completed report, use ArrowDown/ArrowUp, Home/End, Enter/Space, Escape,
+  and Tab with the Export, More, and tab-option menus.
+- Verify disabled menu items are skipped, the tab caret is a named menu button,
+  and each menu reports the correct expanded state.
+
+**Expected behavior:**
+- Arrow keys move menu-item focus; Home and End reach the enabled bounds; Enter
+  and Space activate the focused action. Escape restores focus to the opener,
+  while Tab closes the menu and continues normal tabbing.
+
+**Edge cases:**
+- More may contain a disabled Schedule item. Right-click still opens the same
+  tab-option menu, but tab navigation remains out of scope.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser keyboard check;
+`cd v3 && npm run build`
+
+## Phase 8.6 live status and error announcements
+**What to test:**
+- Trigger an admin add/edit/delete error and inspect `#addUserMsg` and `#euMsg`
+  for assertive alert semantics. The salesman-edit `#esMsg` node is gone with
+  the D365 salesman grid.
+- Refresh the dashboard, load Settings exclusions or test-mode feedback, and run a
+  personal or company schedule; inspect their status nodes through queued, running,
+  success, and failure states.
+
+**Expected behavior:**
+- Progress and successful status messages are polite status regions. Errors are
+  assertive alerts, without changing the page appearance.
+
+**Edge cases:**
+- A failed dashboard enqueue restores its button and announces the failure.
+- Run-now polling announces each new state once; report-page status is covered by
+  Phase 8.15.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser inspection;
+`cd v3 && npm run build`
+
+## Phase 8.15 report live status and representative browser matrix
+**What to test:**
+- `#reportStatus` starts as a polite status region, switches to an assertive alert
+  for errors, and writes only to `#reportStatusText` so Cancel remains present.
+- In isolated authenticated Chrome CDP, check the report error path, schedules
+  status region, 320/1280 widths on reports and Settings, dark report controls,
+  and completed-report tablist semantics.
+
+**Expected behavior:**
+- Report progress is announced politely; an error is announced assertively without
+  changing the status bar’s visual treatment or removing Cancel.
+- The representative browser matrix has no document-level horizontal scroll.
+
+**Edge cases:**
+- The live-region attributes exist while the status bar is hidden.
+- The error route uses no real D365 report run.
+
+**Test file:** `v3/tests/test_frontend.py`; `.scratch/phase8-matrix-browser-check.py`;
+`cd v3 && npm run build`
+
+### Fuller browser matrix annotation (2026-09-04)
+- Isolated SQLite + Chrome CDP discovers each role's accessible candidate pages,
+  then checks report, Settings, schedules, and People where allowed at 320, 375,
+  768, and 1280 CSS px in light, dark, monochrome, and monochrome-dark themes.
+- PASS: 224/224 allowed-page overflow checks and 1/1 disabled-account denial.
+  This is not a report-flow matrix; it does not exercise runs, delivery, exports,
+  Keep, or schedule sends. Evidence: `.scratch/phase8-full-matrix-evidence.json`.
+
+## Phase 8.7 44px help, chip, day, and close targets
+**What to test:**
+- On a report page, measure title/filter help buttons, selected customer chips, and
+  email/schedule modal close buttons.
+- On Settings, measure exclusion and test-email removal chips; on a schedule
+  wizard, measure day chips; measure the SharePoint picker close when reachable.
+
+**Expected behavior:**
+- `.help-btn`, `.modal-close`, `.sp-picker-close`, `.customer-chip`, and
+  `.sched-day-chip` each have computed width and height of at least 44 CSS px.
+- The controls retain their existing circle, pill, and day-chip appearance.
+
+**Edge cases:**
+- Filter-bar help shares `.help-btn`; wide day chips remain at least 44px tall.
+- Test-email removal chips use `.customer-chip` and meet the same target.
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated browser measurement;
+`cd v3 && npm run build`
+
+## Phase 8.8 Reduced motion for JavaScript scrolling
+**What to test:**
+- Switch report tabs; open a personal or company schedule wizard step.
+
+**Expected behavior:**
+- With `prefers-reduced-motion: reduce` active, the three `scrollIntoView` calls
+  (`report.ts` tab panel, `personal_wizard.ts`, `master_wizard.ts`) scroll
+  instantly (`behavior: "auto"`). Otherwise they scroll smoothly as before.
+
+**Edge cases:**
+- `searchable_picker.ts` already scrolls instantly; `main.ts` only reads
+  `scrollY`. No CSS `scroll-behavior` exists.
+
+**Test file:** source inspection of the three call sites; browser check with
+`--force-prefers-reduced-motion`; `cd v3 && npm run build`
+
+## Phase 8.9 Hidden-tab pollers
+**What to test:**
+- Hide `/reports/ordered` while a queued report job is polling, then confirm no
+  job or lookup poll request runs for at least six seconds.
+- Return the page to the foreground and confirm the pending poll requests again
+  within 200ms.
+- Verify report and export waits use 10- and 15-minute wall-clock deadlines;
+  dashboard refresh uses a two-minute deadline.
+
+**Expected behavior:**
+- Background tabs make no poller fetches. Returning to the tab resumes each
+  poller immediately without changing its existing result, error, or cancel UI.
+
+**Edge cases:**
+- A hidden tab that remains hidden beyond a deadline times out instead of
+  accumulating throttled timer iterations. `sleepUntilVisible` removes its
+  visibility listener after either wake-up path.
+- Reconnecting to a report job older than ten minutes (page reload, Recent
+  Reports) must fetch its status at least once: the give-up window counts from
+  when this page began watching, while the elapsed display still counts from
+  the real job start.
+- Email me, the email modal, and the schedule run-log poll share the same
+  hidden-tab guard and wall-clock deadlines (60 s, 60 s, 90 s).
+
+## Phase 8.10 No "check the outbox" copy for users
+**What to test:**
+- Send from the report email modal and let the 60 s client wait expire.
+
+**Expected behavior:**
+- The modal says "Still sending — you can close this window." It promises no
+  outcome, since the job can still fail. Nothing user-facing mentions an
+  outbox; that is a developer-only `.eml` artifact. Schedule history's
+  delivery-channel rows keep the word because they describe the real channel
+  to admins.
+
+**Edge cases:**
+- Closing the modal, or starting another send, retires the previous poll: it
+  must not write a message into a later dialog or auto-close it on the old
+  job's success.
+
+**Test file:** `v3/tests/test_frontend.py` (no `outbox` in any `static_src/js`
+file); `cd v3 && npm run build`
+
+**Test file:** `v3/tests/test_frontend.py`; authenticated Chrome CDP lifecycle
+check; `cd v3 && npm run build`
+
+## Phase 8.11 schedule wizard errors when saved views fail to load
+**What to test:**
+- Open Add schedule when the views endpoint fails (HTTP error or network).
+- On company schedules, pick a report so the saved-view dropdown loads, with
+  the presets endpoint failing.
+
+**Expected behavior:**
+- Personal wizard shows an error on `#psMsg`, not “No named views yet.”
+- Company wizard shows an error on `#masterMsg` and still offers Default.
+
+**Test file:** `v3/tests/test_frontend.py`; `cd v3 && npm run build`
+
+## Phase 8.12 report module boot order (no circular imports)
+**What to test:**
+- `report.ts` and the modules it imports (`filename_preview`, `dialog`,
+  `searchable_picker`, `visibility`) form an acyclic graph.
+- `DOMContentLoaded` applies the salesman deep-link after lookup options exist,
+  and does not auto-run until in-flight resume and named-view open have finished.
+
+**Expected behavior:**
+- No import cycle. Do not split `report.ts` for this leftover.
+- Boot order: `applyDeepLink` (stash `pendingSalesman`, do not write the empty
+  salesman `<select>`) → `initCustomRangeToggle` → `initLookups` /
+  `loadCompanyDefault` → `resumeInFlight` → if not resumed,
+  `autoOpenPresetIfRequested` → optional `run()`.
+- `initLookups` calls `loadSalesmen` before `applySalesman(pendingSalesman)`.
+- The `if (!resumed)` block is brace-matched: `autoOpenPresetIfRequested` and the
+  auto-run `run()` must sit inside it, not merely appear later in the file.
+
+**Edge cases:**
+- `period=custom` deep-link still runs `applyDeepLink` before the custom-range
+  toggle's first sync, so the date inputs appear.
+- `collectParams` still reads `pendingSalesman` when the dropdown is empty.
+
+**Test file:** `v3/tests/test_frontend.py::test_report_module_has_no_import_cycles_and_boots_in_order`,
+`test_boot_order_helper_rejects_denested_preset_open`
+
+## Phase 8.13 Tabulator MIT license and attribution
+**What to test:**
+- Open any report page (Tabulator 6.3.1 loads from unpkg).
+- Open `/static/licenses/tabulator-MIT.txt`.
+
+**Expected behavior:**
+- The report page names Tabulator 6.3.1 and links to the MIT license file.
+- The file contains Oli Folkerd’s MIT copyright and permission notice.
+- Source under `static_src/public/licenses/` matches `static_dist` (esbuild `copyPublic`).
+
+**Test file:** `v3/tests/test_frontend.py::test_tabulator_mit_license_is_attributed`;
+`cd v3 && npm run build`
+
+## Phase 8.14 report sheet tablist
+**What to test:**
+- On a completed multi-sheet report, move between sheet tabs with ArrowLeft,
+  ArrowRight, Home, and End; use ArrowDown/ArrowUp on a tab caret.
+
+**Expected behavior:**
+- Sheet labels are tabs in a named tablist with one shared labelled panel.
+  Arrow navigation activates and focuses the selected sheet; the sibling caret
+  still opens its tab-option menu.
+
+**Test file:** `v3/tests/test_frontend.py::test_report_tabs_have_tablist_semantics`;
+`cd v3 && npm run build`
+
+## Phone layout compactness
+**What to test:**
+- At 320px and 375px, open reports, Settings, dashboard, schedules, and Users &
+  access. Confirm header actions use a second row, filters stack, toolbar uses
+  two columns, dashboard tiles stay two columns, and active report jobs leave
+  room above the bottom navigation.
+
+**Expected behavior:**
+- Phone layouts remain compact without document-level horizontal scroll while
+  desktop layouts remain unchanged. Pinch zoom is available.
+
+**Test file:** `v3/tests/test_frontend.py::test_phone_layout_css_contracts`;
+`cd v3 && npm run build`

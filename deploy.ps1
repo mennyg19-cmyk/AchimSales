@@ -1,5 +1,6 @@
-# Deploy the webapp to Azure App Service via zip.
-# Prod setup: built-in Python 3.10 runtime, gunicorn app:app.
+# Emergency-only deployment to Azure App Service via the shared runtime artifact.
+# Normal production delivery is a push to main. Azure starts startup.sh, which
+# supervises gunicorn wsgi:application and web.jobs.worker_main as siblings.
 #
 # Usage:
 #   .\deploy.ps1   # build zip, deploy, wait for site to restart
@@ -8,57 +9,13 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
+python -m pytest tools/test_build_runtime_artifact.py -q --noconftest
+if ($LASTEXITCODE -ne 0) { throw "runtime artifact tests failed (exit $LASTEXITCODE)" }
+
 $zipPath = Join-Path $scriptDir "app.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-
-# Files/dirs to keep out of the deployment zip. Anything not in the prod
-# runtime path (runbooks/, tests/, local-only tooling, secrets).
-$exclude = @(
-    ".env", ".env.example", "app.zip",
-    "deploy.ps1", "deploy-runbook.ps1",
-    ".azure", ".pytest_cache", ".git", ".cursor", ".codegraph", ".scratch",
-    ".dockerignore", "Dockerfile",
-    "tests", "logs", "runbooks", "webapp-cache",
-    "SETUP_INSTRUCTIONS.txt",
-    "_history_backup", "_report_output", "__pycache__",
-    "app.db", "AchimReportsApp.zip", "_server.log",
-    "outbox"
-)
-$excludeExt = @(".md")
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::Open($zipPath, 'Create')
-try {
-    Get-ChildItem -Path $scriptDir -Recurse -File | Where-Object {
-        $rel = $_.FullName.Substring($scriptDir.Length + 1)
-        $parts = $rel -split '\\'
-        $skip = $false
-        foreach ($part in $parts) {
-            foreach ($ex in $exclude) {
-                if ($part -eq $ex) { $skip = $true; break }
-            }
-            if ($skip) { break }
-        }
-        if (-not $skip) {
-            foreach ($ext in $excludeExt) {
-                if ($_.Extension -eq $ext) { $skip = $true; break }
-            }
-        }
-        -not $skip
-    } | ForEach-Object {
-        $rel = $_.FullName.Substring($scriptDir.Length + 1)
-        $entryName = $rel -replace '\\', '/'
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $entryName) | Out-Null
-    }
-
-    # Oryx builder expects requirements.txt at the zip root.
-    $webappReq = Join-Path $scriptDir "webapp\requirements.txt"
-    if (Test-Path $webappReq) {
-        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $webappReq, "requirements.txt") | Out-Null
-    }
-} finally {
-    $zip.Dispose()
-}
+python tools/build_runtime_artifact.py --zip $zipPath
+if ($LASTEXITCODE -ne 0) { throw "runtime artifact build failed (exit $LASTEXITCODE)" }
 
 $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
 Write-Host "Built app.zip ($zipSize MB)" -ForegroundColor DarkGray

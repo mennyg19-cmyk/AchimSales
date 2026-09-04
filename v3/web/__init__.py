@@ -7,8 +7,6 @@ registered as later phases land - this file stays thin.
 """
 
 from __future__ import annotations
-
-import os
 import time
 
 from flask import Flask, jsonify, session
@@ -23,6 +21,14 @@ from web.data.repositories.feature_flags import FeatureFlagRepository
 from web.data.repositories.report_config import ReportConfigRepository
 from web.data.repositories.users import UserRepository
 from web.extensions import init_csrf
+from web.security_headers import apply_security_headers
+
+_WORKER_PROCESS = False
+
+
+def is_worker_process() -> bool:
+    """True in the sibling worker after start_worker_services(); False in Gunicorn."""
+    return _WORKER_PROCESS
 
 
 def create_app(config: Config | None = None) -> Flask:
@@ -54,6 +60,12 @@ def create_app(config: Config | None = None) -> Flask:
     app.config["AUTHZ"] = Authorization(db)
 
     init_csrf(app)
+
+    @app.after_request
+    def _security_headers(response):
+        cfg = app.config["APP_CONFIG"]
+        return apply_security_headers(response, hsts=bool(getattr(cfg, "is_prod", False)))
+
     _register_reporting(app, cfg, db)
     _register_context(app, cfg, db)
     _register_blueprints(app, cfg)
@@ -64,10 +76,10 @@ def create_app(config: Config | None = None) -> Flask:
 
 
 def _register_reporting(app: Flask, cfg: Config, db) -> None:
-    """Build the reporting stack (no background threads here - wsgi starts those).
+    """Build the reporting stack without starting background work.
 
     Routes enqueue runs onto the durable job table and read results from the one
-    cache; the worker (started by `bootstrap_background`) drains the queue.
+    cache; the sibling worker process drains the queue.
     """
     from web.dashboard.jobs import DASHBOARD_REFRESH_JOB_TYPE, make_refresh_handler
     from web.dashboard.mirror import MirrorService
@@ -102,7 +114,9 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
     service = ReportService(client, salesmen)
     cache = ReportCache(db)
     runner = ReportRunner(cache)
-    worker = JobWorker(db)
+    worker = JobWorker(
+        db, is_beta=cfg.is_beta, app_env=cfg.app_env, auth_mode=cfg.auth_mode
+    )
     run_log = ReportRunLogRepository(db)
     worker.register(JOB_TYPE, make_report_run_handler(runner, service.builder_for, run_log))
 
@@ -136,7 +150,7 @@ def _register_reporting(app: Flask, cfg: Config, db) -> None:
         service, salesmen, mirror_customers=dash_repo.all)
     app.config["REPORT_CACHE"] = cache
     app.config["EXPORT_REPO"] = exports
-    app.config["JOB_REPO"] = JobRepository(db)
+    app.config["JOB_REPO"] = worker.repo
     app.config["RUN_LOG_REPO"] = run_log
     app.config["JOB_WORKER"] = worker
     app.config["SHAREPOINT_SERVICE"] = sharepoint
@@ -373,21 +387,25 @@ def _register_cli(app: Flask, db) -> None:
         applied = migrate(db)
         print("Applied migrations:", applied)
 
+    @app.cli.command("seed-users-from-live")
+    def seed_users_from_live_cmd():  # pragma: no cover - invoked via Flask CLI
+        # One-time import; normal boot must not overwrite Users & access.
+        _seed_users_from_live(app, db)
 
-def bootstrap_background(app: Flask) -> None:
-    """Prod-only side effects: migrate, seed admins, start the worker.
+    @app.cli.command("bootstrap")
+    def bootstrap_cmd():  # pragma: no cover - invoked via `flask bootstrap`
+        """Apply migrations and idempotent seeds without starting background work."""
+        bootstrap_database(app)
 
-    Kept OUT of create_app so tests can build an app without spawning threads or
-    touching schema. The wsgi entrypoint calls this once per process. Seeding is
-    individually guarded so a bad data file can never stop the app from booting.
-    """
+
+def bootstrap_database(app: Flask) -> None:
+    """Apply migrations and idempotent seeds for the worker-owned database."""
     from web.data.migrate import migrate
 
     db = app.config["DB"]
     migrate(db)
     _seed_feature_flags(app, db)      # default flags so nav gating is deterministic
     _seed_report_config(app, db)
-    _seed_users_from_live(app, db)    # mirror the live user directory into v3
     _seed_admins(app, db)             # explicit env admins override the mirror
     _seed_developers(app, db)         # explicit env developers win last (outrank admin)
     cfg = app.config["APP_CONFIG"]
@@ -397,69 +415,31 @@ def bootstrap_background(app: Flask) -> None:
         _seed_master_schedules(app, db, _AZURE_SCHEDULES)
     _seed_company_views(app, db)
 
-    # Background OWNERSHIP (the job worker + the cron scheduler + orphan recovery)
-    # must run in exactly ONE process. Under gunicorn we have multiple workers, so
-    # we elect a single owner with an exclusive OS file lock (see
-    # _is_background_leader). Without this, every worker's recover_orphans() would
-    # requeue jobs another worker is actively running -> duplicate report
-    # deliveries + schedule fires.
-    if _is_background_leader(app):
-        app.logger.info("v3 background ownership acquired by this worker (pid=%s)", os.getpid())
-        worker = app.config.get("JOB_WORKER")
-        if worker is not None:
-            worker.start()
-        if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
-            _cancel_pending_dashboard_refreshes(app, db)
-        # Schedule cron on Live and Beta (each mount has its own precious DB).
-        _start_scheduler(app, db)
-    else:
-        app.logger.info("v3 background ownership held by another worker; skipping (pid=%s)", os.getpid())
+
+def start_worker_services(app: Flask) -> None:
+    """Start the scheduler and durable-job poller in the worker process only."""
+    global _WORKER_PROCESS
+    from web.jobs import status
+
+    db = app.config["DB"]
+    if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
+        _cancel_pending_dashboard_refreshes(app, db)
+    _start_scheduler(app, db)
+    status.mark_bootstrap_finished(db)
+    status.beat(db)
+    app.config["JOB_WORKER"].start(heartbeat=lambda: status.beat(db))
+    _WORKER_PROCESS = True
 
 
-# Held open for the whole process lifetime so the advisory lock below stays held.
-_BG_LOCK_FH = None
-
-
-def is_background_leader_process() -> bool:
-    """True in the one gunicorn worker that won the background lock (and therefore
-    actually runs the job poller + scheduler). Lets the admin diagnostic say
-    whether it's talking to the leader or a follower."""
-    return _BG_LOCK_FH is not None
-
-
-def _is_background_leader(app: Flask) -> bool:
-    """Elect exactly ONE process to own v3 background work (job worker + cron).
-
-    Uses a real OS advisory lock instead of the gunicorn env signal. That signal
-    depends on post_fork setting the env BEFORE the worker imports the app, which
-    is unreliable in our dispatcher: the live app is imported during the worker's
-    synchronous load while v3 bootstraps in a later daemon thread, so the two read
-    different env values (observed in prod). An exclusive, non-blocking flock is
-    immune to that ordering - the one worker that grabs it wins and holds it until
-    the process dies.
-
-    Fail-open to leader=True when fcntl is unavailable (Windows/local dev) or the
-    lock can't be taken for an unexpected reason, so single-process/dev still runs
-    background work.
-    """
-    global _BG_LOCK_FH
-    try:
-        import fcntl
-    except Exception:  # noqa: BLE001 - non-POSIX (local dev): single process owns it
-        return True
-    cfg = app.config["APP_CONFIG"]
-    lock_path = cfg.precious_db_path.parent / ".v3-background.lock"
-    try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fh = open(lock_path, "w")  # noqa: SIM115 - intentionally kept open
-        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        return False  # another worker already holds the lock
-    except Exception:  # noqa: BLE001 - never block boot on an unexpected lock error
-        app.logger.exception("v3 background lock errored; assuming leader")
-        return True
-    _BG_LOCK_FH = fh  # keep the handle alive so GC can't drop the lock
-    return True
+def stop_worker_services(app: Flask) -> None:
+    global _WORKER_PROCESS
+    worker = app.config.get("JOB_WORKER")
+    if worker is not None:
+        worker.stop()
+    scheduler = app.config.get("SCHEDULER")
+    if scheduler is not None:
+        scheduler.shutdown()
+    _WORKER_PROCESS = False
 
 
 def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:
@@ -482,18 +462,16 @@ def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:
 
 
 def _start_scheduler(app: Flask, db) -> None:
-    """Start the once-a-minute cron tick that enqueues due schedules.
-
-    Best-effort: if APScheduler isn't installed (e.g. some local envs) the tick
-    simply doesn't run - schedules can still be triggered with "Run now" - and
-    boot is never blocked.
-    """
+    """Start the once-a-minute cron tick that enqueues due schedules."""
     from web.dashboard.jobs import enqueue_refresh
+    from web.jobs import status
+    from web.jobs.cleanup import run_cleanup
     from web.jobs.scheduler import Scheduler
     from web.scheduling.tick import make_tick
 
     job_repo = app.config["JOB_REPO"]
     dashboard_on = app.config["APP_CONFIG"].dashboard_refresh_enabled
+    schedule_tick = make_tick(db, job_repo, app.config.get("SCHEDULE_RUNNER"))
 
     def _tick_mirror():
         try:
@@ -501,23 +479,37 @@ def _start_scheduler(app: Flask, db) -> None:
         except Exception:  # noqa: BLE001 - a tick failure must not kill the scheduler
             app.logger.exception("dashboard mirror tick failed")
 
-    try:
-        scheduler = Scheduler()
-        scheduler.add_cron(
-            "schedule-tick",
-            make_tick(db, job_repo, app.config.get("SCHEDULE_RUNNER")),
-            minute="*",
-        )
-        # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence). Skipped
-        # entirely when the dashboard refresh is turned off.
-        if dashboard_on:
-            scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
-        scheduler.start()
-        app.config["SCHEDULER"] = scheduler
-        app.logger.info("schedule cron started (dashboard mirror %s)",
-                        "on" if dashboard_on else "OFF")
-    except Exception:  # noqa: BLE001 - scheduler is optional; never block boot
-        app.logger.exception("scheduler start failed (schedules will only run via Run now)")
+    scheduler = Scheduler()
+
+    def _schedule_tick():
+        try:
+            schedule_tick()
+        finally:
+            status.beat_scheduler(db)
+
+    def _cleanup():
+        try:
+            run_cleanup(db)
+        except Exception:  # noqa: BLE001 - cleanup must not stop scheduling
+            app.logger.exception("worker cleanup failed")
+
+    scheduler.add_cron(
+        "schedule-tick",
+        _schedule_tick,
+        minute="*",
+    )
+    scheduler.add_cron("cache-cleanup", _cleanup, hour=3, minute=15)
+    # Dashboard customer mirror: rebuild every 4 hours (LIVE cadence). Skipped
+    # entirely when the dashboard refresh is turned off.
+    if dashboard_on:
+        scheduler.add_cron("dashboard-mirror", _tick_mirror, hour="*/4", minute=5)
+    scheduler.start()
+    status.beat_scheduler(db)
+    status.write_process_identity(db)
+    app.config["SCHEDULER"] = scheduler
+    app.logger.info("schedule cron started (dashboard mirror %s)",
+                    "on" if dashboard_on else "OFF")
+    _cleanup()
 
     # Prime the mirror on boot if it's empty so the dashboard isn't blank on a
     # cold container (LIVE does an immediate refresh when the cache is empty).
@@ -598,12 +590,7 @@ def _seed_developers(app: Flask, db) -> None:
 
 
 def _seed_users_from_live(app: Flask, db) -> None:
-    """Mirror the live app's user directory (roles + flags) into v3's users table.
-
-    Live (webapp/) is the authoritative list of who may sign in. Reading it here
-    means every existing account works on /test without manual re-entry. Guarded:
-    a missing/locked live DB must never block boot.
-    """
+    """One-time Live directory import. Existing v3 roles are kept."""
     from web.data.seed_users import live_db_path, seed_users_from_live
 
     try:

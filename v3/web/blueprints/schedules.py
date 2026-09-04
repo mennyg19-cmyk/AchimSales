@@ -39,6 +39,7 @@ from web.scheduling.delivery_keys import PERSONAL_DELIVERY_PARAM_KEYS, without_d
 from web.scheduling import cadence as C
 from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
+from web.queue_admission import enqueue_or_503
 
 schedules_bp = Blueprint("schedules", __name__)
 
@@ -879,10 +880,13 @@ def delete_schedule(schedule_id: int):
 def run_schedule(schedule_id: int):
     p = _principal()
     existing = _personal_or_404(schedule_id, p)
-    job_id = enqueue_schedule_run(
-        current_app.config["JOB_REPO"],
-        schedule_id=schedule_id, schedule_type=PERSONAL,
-        owner_user_id=existing.owner_user_id, ignore_sabbath=True, manual=True)
+    job_id = enqueue_or_503(
+        lambda: enqueue_schedule_run(
+            current_app.config["JOB_REPO"],
+            schedule_id=schedule_id, schedule_type=PERSONAL,
+            owner_user_id=existing.owner_user_id, ignore_sabbath=True, manual=True,
+        )
+    )
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202
 
@@ -1144,6 +1148,8 @@ def _normalize_master_params(raw: dict | None, *, allow_salesman_delivery: bool 
         s = str(src.get(key) or "").strip()
         if s:
             out[key] = s
+    if "skip_sabbath" in src:
+        out["skip_sabbath"] = _as_bool(src["skip_sabbath"])
     out["email_on_no_data"] = _as_bool(src.get("email_on_no_data"))
     out["email_on_no_data_me_only"] = _as_bool(src.get("email_on_no_data_me_only"))
     kind = str(src.get("folder_kind") or "").strip()
@@ -1467,14 +1473,23 @@ def delete_master(schedule_id: int):
 @require_login
 def run_master(schedule_id: int):
     p = _principal()
-    _require_admin(p)
+    if not _authz().can_see_company_schedules(p):
+        abort(403, description="You can't run this schedule. Ask an admin.")
     sched = _master().get(schedule_id)
     if sched is None:
         abort(404, description="Unknown master schedule")
-    _require_master_edit(p, sched)
-    job_id = enqueue_schedule_run(current_app.config["JOB_REPO"],
-                                  schedule_id=schedule_id, schedule_type=MASTER,
-                                  owner_user_id=_uid(p.email),
-                                  ignore_sabbath=True, manual=True)
+    if not (
+        sched.is_shared
+        or _authz().can_edit_master(
+            p, owner_user_id=sched.owner_user_id, run_as_user_id=sched.run_as_user_id)
+    ):
+        abort(404, description="Unknown master schedule")
+    job_id = enqueue_or_503(
+        lambda: enqueue_schedule_run(
+            current_app.config["JOB_REPO"], schedule_id=schedule_id,
+            schedule_type=MASTER, owner_user_id=_uid(p.email),
+            ignore_sabbath=True, manual=True,
+        )
+    )
     _drain_if_dev()
     return jsonify({"job_id": job_id}), 202

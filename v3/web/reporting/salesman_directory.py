@@ -194,7 +194,7 @@ class SalesmanDirectory:
         """{normalized key -> SalesmanFact} for the report builders."""
         return {
             salesman_key(m.key): SalesmanFact(
-                source="reporting_api", key=salesman_key(m.key),
+                key=salesman_key(m.key),
                 full_name=m.name or m.key, display_name=m.name or m.key,
                 commission_pct=m.commission_pct,
             )

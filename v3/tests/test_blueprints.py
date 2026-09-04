@@ -6,11 +6,14 @@ Reporting API client and the worker drained inline (no background thread).
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from web import create_app
 from web.config import Config
 from web.data.migrate import migrate
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.users import UserRepository
 from web.reporting.jobs import JOB_TYPE, make_report_run_handler
 from web.reporting.report_service import ReportService
@@ -229,6 +232,30 @@ def test_run_poll_result_export_flow(tmp_path):
                for e in client.get("/api/reports/exports").get_json()["exports"])
 
 
+def test_run_returns_503_when_job_queue_is_full(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"ordered_report": []})
+    app.config["JOB_REPO"].queue_max_depth = 1
+    app.config["JOB_REPO"].enqueue("echo")
+    client = app.test_client()
+    _login(client, app)
+    run = client.post(
+        "/api/reports/ordered/run", json={"period": "all_time"},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert run.status_code == 503
+
+
+def test_run_rejects_custom_window_empty_after_go_live_clamp(tmp_path):
+    app = _make_app(tmp_path, rows_by_report={"ordered_report": []})
+    client = app.test_client()
+    _login(client, app)
+    response = client.post("/api/reports/ordered/run", json={
+        "period": "custom", "start_date": "2024-01-01", "end_date": "2024-12-31",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert response.status_code == 400
+    assert "D365 go-live" in response.get_data(as_text=True)
+
+
 def test_run_log_records_and_renders(tmp_path):
     rows = {"ordered_report": [
         {"SalesOrderNumber": "SO1", "CustomerAccount": "100", "Item": "ITM-1",
@@ -430,6 +457,18 @@ def test_admin_users_forbidden_for_salesman(tmp_path):
     assert client.post(
         "/api/admin/users/1/salesman-access",
         json={"keys": ["redwards"]},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert client.post(
+        "/api/admin/users",
+        json={"email": "new@x.com", "role": "salesman"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    manager = app.test_client()
+    _login(manager, app, email="manager@x.com", role="manager")
+    assert manager.post(
+        "/api/admin/users",
+        json={"email": "new@x.com", "role": "salesman"},
         headers={"X-CSRF-Token": _CSRF},
     ).status_code == 403
 
@@ -873,6 +912,60 @@ def test_keep_report_run_stores_name(tmp_path):
     assert mine["finished_at"]
 
 
+def test_kept_run_expiry_blocks_result_and_export_without_enqueuing(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post(
+        "/api/reports/ordered/run", json={"period": "all_time"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).get_json()["job_id"]
+    kept = client.post(
+        f"/api/reports/runs/{job_id}/keep", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert kept.status_code == 200
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET kept_until=? WHERE id=?",
+            ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(), job_id),
+        )
+    job = app.config["JOB_REPO"].get(job_id)
+    assert app.config["REPORT_CACHE"].exists(job.result_ref)
+    job_count = len(app.config["JOB_REPO"].list_for_user(job.owner_user_id))
+
+    result = client.get(f"/api/reports/result/{job_id}")
+    export = client.post(
+        f"/api/reports/ordered/export/{job_id}", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert result.status_code == export.status_code == 404
+    assert "Result expired; please re-run" in result.get_data(as_text=True)
+    assert "Result expired; please re-run" in export.get_data(as_text=True)
+    assert len(app.config["JOB_REPO"].list_for_user(job.owner_user_id)) == job_count
+
+
+def test_kept_run_with_future_expiry_still_returns_result(tmp_path):
+    app = _make_app(tmp_path, rows_by_report=_ordered_rows())
+    client = app.test_client()
+    _login(client, app)
+    job_id = client.post(
+        "/api/reports/ordered/run", json={"period": "all_time"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).get_json()["job_id"]
+    client.post(
+        f"/api/reports/runs/{job_id}/keep", json={},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    with app.config["DB"].precious() as conn:
+        conn.execute(
+            "UPDATE jobs SET kept_until=? WHERE id=?",
+            ((datetime.now(timezone.utc) + timedelta(days=1)).isoformat(), job_id),
+        )
+
+    assert client.get(f"/api/reports/result/{job_id}").status_code == 200
+
+
 def test_active_report_runs_is_owner_scoped(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
@@ -910,6 +1003,20 @@ def test_reporting_api_diagnostics_reports_state(tmp_path):
     # without a network call but still reports structure.
     assert data["reporting_api"]["configured"] is False
     assert "by_status" in data["jobs"] and "active" in data["jobs"]
+    assert data["worker"]["is_worker"] is False
+    assert data["worker"]["started"] is False
+    assert "liveness" in data
+    assert data["liveness"]["oldest_active_job_age_seconds"] is None
+    assert set(data["liveness"]["disk"]) == {"total", "used", "free"}
+    leg_id = DeliveryLegRepository(app.config["DB"]).create(
+        job_id="diagnostic-job", run_id=1, slot_id="manual:diagnostic-job", kind="folder")
+    DeliveryLegRepository(app.config["DB"]).update(leg_id, status="failed", error="remote item missing")
+    data = client.get("/api/reports/diagnostics/reporting-api").get_json()
+    assert data["delivery_legs"][0] == {
+        "id": leg_id, "job_id": "diagnostic-job", "run_id": 1,
+        "slot_id": "manual:diagnostic-job", "kind": "folder", "status": "failed",
+        "error": "remote item missing",
+    }
 
 
 def test_precious_repair_mutating_actions_require_post(tmp_path):
@@ -954,6 +1061,35 @@ def test_claim_once_mutating_requires_post(tmp_path):
     assert body["select_found_id"] == jid
     assert body["reverted"] is True
     assert app.config["JOB_REPO"].get(jid).status == "queued"
+
+
+def test_reconcile_diagnostics_require_developer_post_and_csrf(tmp_path):
+    app = _make_app(tmp_path)
+    paths = (
+        "/api/reports/diagnostics/reconcile-salesman-invoiced",
+        "/api/reports/diagnostics/reconcile-number4-invoiced",
+    )
+    anonymous = app.test_client()
+    for path in paths:
+        assert anonymous.post(path).status_code == 400
+        with anonymous.session_transaction() as session:
+            session["_csrf_token"] = _CSRF
+        denied = anonymous.post(path, headers={"X-CSRF-Token": _CSRF})
+        assert denied.status_code == 401
+        assert denied.get_json()["error"] == "Sign in required"
+
+    admin = app.test_client()
+    _login(admin, app, email="admin@x.com", role="admin")
+    for path in paths:
+        assert admin.post(path, headers={"X-CSRF-Token": _CSRF}).status_code == 403
+
+    developer = app.test_client()
+    _login(developer, app, email="dev@x.com", role="developer")
+    for path in paths:
+        assert developer.get(path).status_code == 405
+        assert developer.post(path).status_code == 400
+        response = developer.post(f"{path}?k=ignored", headers={"X-CSRF-Token": _CSRF})
+        assert response.status_code == 503
 
 
 def test_admin_unknown_user_access_is_404(tmp_path):
@@ -1272,6 +1408,17 @@ def test_preview_body_shows_sp_params_for_developer(tmp_path):
     assert body["report_id"] == "ordered_report"
     assert body["body"]["SalesGroup"] == "REdwards"
     assert "CreatedDateTimeFrom" in body["body"]
+
+
+def test_preview_body_rejects_custom_window_empty_after_go_live_clamp(tmp_path):
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app, email="dev@x.com", role="developer")
+    response = client.post("/api/reports/ordered/preview-body", json={
+        "period": "custom", "start_date": "2024-01-01", "end_date": "2024-12-31",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert response.status_code == 200
+    assert "D365 go-live" in response.get_json()["warning"]
 
 
 def test_preview_body_forbidden_for_non_developer(tmp_path):
@@ -2418,6 +2565,127 @@ def test_master_schedule_admin_only(tmp_path):
     assert rep.get(f"/master-schedules/{mid}/history").status_code == 403
 
 
+def test_view_only_manager_can_run_but_not_edit_master_schedule(tmp_path):
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path, {})
+    admin = app.test_client()
+    _login(admin, app)
+    repo = MasterScheduleRepository(app.config["DB"])
+    users = UserRepository(app.config["DB"])
+    admin_id = users.get_by_email("admin@x.com").id
+    mid = repo.create(
+        "ordered", "Admin schedule", params={}, layout={},
+        cadence={"freq": "daily", "time": "06:00"}, recipients="team@x.com",
+        owner_user_id=admin_id,
+    )
+    manager = app.test_client()
+    _login(manager, app, email="manager@x.com", role="manager")
+    manager_id = users.get_by_email("manager@x.com").id
+    ran = manager.post(
+        f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF},
+    )
+    assert ran.status_code == 202
+    job = app.config["JOB_REPO"].get(ran.get_json()["job_id"])
+    assert job is not None
+    assert job.owner_user_id == manager_id
+    assert job.owner_user_id != admin_id
+    assert job.params["schedule_id"] == mid
+    assert manager.put(
+        f"/api/master-schedules/{mid}", json={"name": "Nope"},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert manager.post(
+        f"/api/master-schedules/{mid}/copy", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert manager.post(
+        f"/api/master-schedules/{mid}/toggle", json={"active": False},
+        headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    assert manager.delete(
+        f"/api/master-schedules/{mid}", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+    salesman = app.test_client()
+    _login(salesman, app, email="rep@x.com", role="salesman")
+    assert salesman.post(
+        f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 403
+
+
+def test_view_only_manager_cannot_run_private_master_schedule(tmp_path):
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path, {})
+    admin = app.test_client()
+    _login(admin, app)
+    repo = MasterScheduleRepository(app.config["DB"])
+    users = UserRepository(app.config["DB"])
+    admin_id = users.get_by_email("admin@x.com").id
+    private_id = repo.create(
+        "ordered", "Admin private", params={}, layout={},
+        cadence={"freq": "daily", "time": "06:00"}, recipients="secret@x.com",
+        owner_user_id=admin_id, is_shared=False,
+    )
+    manager = app.test_client()
+    _login(manager, app, email="manager@x.com", role="manager")
+    manager_id = users.get_by_email("manager@x.com").id
+    denied = manager.post(
+        f"/api/master-schedules/{private_id}/run", headers={"X-CSRF-Token": _CSRF},
+    )
+    assert denied.status_code == 404
+    own_private = repo.create(
+        "ordered", "Manager private", params={}, layout={},
+        cadence={"freq": "daily", "time": "06:00"}, recipients="me@x.com",
+        owner_user_id=manager_id, is_shared=False,
+    )
+    own = manager.post(
+        f"/api/master-schedules/{own_private}/run", headers={"X-CSRF-Token": _CSRF},
+    )
+    assert own.status_code == 202
+    job = app.config["JOB_REPO"].get(own.get_json()["job_id"])
+    assert job is not None
+    assert job.owner_user_id == manager_id
+    assert admin.post(
+        f"/api/master-schedules/{private_id}/run", headers={"X-CSRF-Token": _CSRF},
+    ).status_code == 202
+
+
+def test_master_schedule_keeps_explicit_skip_sabbath_setting(tmp_path):
+    from web.blueprints.schedules import _normalize_master_params
+    from web.data.repositories.schedules import MasterScheduleRepository
+
+    app = _make_app(tmp_path)
+    client = app.test_client()
+    _login(client, app)
+    base = {
+        "name": "Nightly", "report_key": "ordered", "recipients": "team@x.com",
+        "cadence": {"freq": "daily", "time": "06:00"},
+    }
+    created = client.post(
+        "/api/master-schedules",
+        json={**base, "params": {"skip_sabbath": False}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert created.status_code == 201
+    mid = created.get_json()["id"]
+    repo = MasterScheduleRepository(app.config["DB"])
+    assert repo.get(mid).params["skip_sabbath"] is False
+    copied = client.post(
+        f"/api/master-schedules/{mid}/copy", headers={"X-CSRF-Token": _CSRF},
+    )
+    assert copied.status_code == 201
+    assert repo.get(copied.get_json()["id"]).params["skip_sabbath"] is False
+
+    updated = client.put(
+        f"/api/master-schedules/{mid}",
+        json={**base, "params": {"skip_sabbath": True}},
+        headers={"X-CSRF-Token": _CSRF},
+    )
+    assert updated.status_code == 200
+    assert repo.get(mid).params["skip_sabbath"] is True
+    assert "skip_sabbath" not in _normalize_master_params({})
+
+
 def test_company_schedules_list_sorted_by_name(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
@@ -3357,8 +3625,10 @@ def test_dev_reporting_passthrough_returns_every_column(tmp_path):
     app.config["REPORT_SERVICE"].client.configured = False
     assert dev.get("/api/dev/reporting/salesmen_master/run").status_code == 503
     html = dev.get("/settings").get_data(as_text=True)
-    assert "Database explorer" in html and "Beta report data sources" in html
-    # SQL-only: not on the Beta source selector. Global visibility still lists it.
-    assert 'class="beta-source-select" data-key="sales_by_state"' not in html
+    assert "Database explorer" in html and "Notification diagnostic" in html
+    assert "Beta report data sources" not in html
+    assert "beta-source-select" not in html
     assert 'class="vis-toggle" data-key="sales_by_state"' in html
     assert dev.get("/dev/notif-diagnostic").status_code == 200
+    assert dev.get("/api/dev/beta-sources").status_code == 404
+    assert dev.post("/api/dev/beta-sources", headers={"X-CSRF-Token": _CSRF}).status_code == 404

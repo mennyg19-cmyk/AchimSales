@@ -1,6 +1,7 @@
 /** Live job log shared by the report viewer and schedule Run now. */
 
 import { esc } from "./http";
+import { isHidden, sleepUntilVisible } from "./visibility";
 
 export type JobLogEntry = {
   t?: string;
@@ -58,9 +59,13 @@ export async function pollJobLog(
   let waited = false;
   while (Date.now() < deadline) {
     if (isStale?.()) return;
-    if (waited) await new Promise((r) => window.setTimeout(r, 1000));
+    if (waited) await sleepUntilVisible(1000);
     waited = true;
     if (isStale?.()) return;
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     try {
       const res = await fetch(url, {
         credentials: "same-origin",

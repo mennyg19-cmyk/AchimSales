@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from report_engine.dates import (
     D365_GO_LIVE,
+    EmptyCustomRangeError,
     parse_custom_range,
     parse_period,
     sp_datetime,
@@ -55,6 +56,8 @@ def _resolve_window(params: dict) -> tuple[date | None, date | None]:
             return (None, None)
         try:
             p = parse_custom_range(start_raw, end_raw)
+        except EmptyCustomRangeError:
+            raise
         except ValueError:
             # Unparseable custom dates -> omit the filter rather than 500.
             return (None, None)

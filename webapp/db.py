@@ -6,6 +6,7 @@ module -- zero extra dependencies.
 """
 
 import json
+import hashlib
 import logging
 import os
 import re as _re
@@ -124,11 +125,11 @@ CREATE TABLE IF NOT EXISTS app_users (
 );
 
 -- One-time login tokens for external (magic-link) sign-in. We store a
--- random opaque token (URL-safe), the user's email, expiry, and a flag
+-- SHA-256 hash of the random opaque token, the user's email, expiry, and a flag
 -- so we can mark it consumed after the first successful click. Unused
 -- tokens auto-expire after 15 minutes.
 CREATE TABLE IF NOT EXISTS magic_link_tokens (
-    token         TEXT PRIMARY KEY,
+    token_hash    TEXT PRIMARY KEY,
     email         TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     expires_at    TEXT NOT NULL,
@@ -330,6 +331,11 @@ def init_db():
         for tbl in ("draft_order_lines", "draft_orders",
                     "customer_addresses", "price_cache", "product_cache"):
             conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+        magic_link_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(magic_link_tokens)")
+        }
+        if "token" in magic_link_columns:
+            conn.execute("DROP TABLE magic_link_tokens")
         conn.commit()
 
         conn.executescript(_SCHEMA)
@@ -391,17 +397,14 @@ def init_db():
 
 
 def seed_beta_report_sources():
-    """Ensure the Beta SQL/OData source map table exists with defaults."""
-    defaults = {
-        "ordered": "sql",
-        "invoiced": "sql",
-        "customer_activity": "sql",
-        "salesman": "sql",
-        "number_4": "odata",
-        "customer_last_order": "odata",
-        "item_averages": "odata",
-        "customer_aging": "odata",
-    }
+    """Ensure the leftover Live Beta source-map table exists with defaults."""
+    # v3 no longer reads this table (Phase 3.3). Live /legacy Settings still may.
+    sql_keys = (
+        "ordered", "invoiced", "customer_activity", "salesman",
+        "number_4", "customer_last_order", "item_averages",
+    )
+    defaults = {key: "sql" for key in sql_keys}
+    defaults["customer_aging"] = "odata"
     conn = get_db()
     try:
         conn.execute(
@@ -416,6 +419,14 @@ def seed_beta_report_sources():
                 "INSERT OR IGNORE INTO beta_report_sources (report_key, source) VALUES (?, ?)",
                 (key, source),
             )
+        conn.execute(
+            """UPDATE beta_report_sources
+               SET source = 'sql', updated_at = datetime('now')
+               WHERE report_key IN ({})""".format(
+                ", ".join("?" for _ in sql_keys)
+            ),
+            sql_keys,
+        )
         conn.commit()
     except Exception:
         log.exception("beta_report_sources seed failed")
@@ -1231,12 +1242,16 @@ _USER_EMAIL_REFS: list[tuple[str, str]] = [
 ]
 
 
+def _magic_link_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
     """Generate a fresh one-time login token for *email*. Returns the token.
 
     The token is URL-safe and 32 random bytes (~43 chars base64), opaque to
-    the user. We also clean out any expired tokens for the same email so
-    the table doesn't grow forever.
+    the user. Any outstanding token for the same email is replaced so only
+    one live link exists at a time.
     """
     import secrets
     from datetime import datetime, timedelta, timezone
@@ -1249,13 +1264,13 @@ def create_magic_link_token(email: str, ttl_minutes: int = 15) -> str:
     conn = get_db()
     try:
         conn.execute(
-            "DELETE FROM magic_link_tokens WHERE email = ? AND (expires_at < ? OR consumed_at IS NOT NULL)",
-            (email_norm, now.isoformat()),
+            "DELETE FROM magic_link_tokens WHERE email = ?",
+            (email_norm,),
         )
         conn.execute(
-            """INSERT INTO magic_link_tokens (token, email, created_at, expires_at)
+            """INSERT INTO magic_link_tokens (token_hash, email, created_at, expires_at)
                VALUES (?, ?, ?, ?)""",
-            (token, email_norm, now.isoformat(), expires.isoformat()),
+            (_magic_link_token_hash(token), email_norm, now.isoformat(), expires.isoformat()),
         )
         conn.commit()
     finally:
@@ -1276,22 +1291,31 @@ def consume_magic_link_token(token: str) -> str | None:
     conn = get_db()
     try:
         row = conn.execute(
-            """SELECT email, expires_at, consumed_at FROM magic_link_tokens
-               WHERE token = ?""",
-            (token,),
+            """UPDATE magic_link_tokens
+               SET consumed_at = ?
+               WHERE token_hash = ? AND consumed_at IS NULL AND expires_at >= ?
+               RETURNING email""",
+            (now, _magic_link_token_hash(token), now),
         ).fetchone()
-        if not row:
-            return None
-        if row["consumed_at"]:
-            return None
-        if row["expires_at"] < now:
-            return None
-        conn.execute(
-            "UPDATE magic_link_tokens SET consumed_at = ? WHERE token = ?",
-            (now, token),
-        )
         conn.commit()
-        return row["email"]
+        return row["email"] if row else None
+    finally:
+        conn.close()
+
+
+def prune_magic_link_tokens(max_age_days: int = 90) -> int:
+    """Delete expired magic-link audit rows."""
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+    conn = get_db()
+    try:
+        removed = conn.execute(
+            "DELETE FROM magic_link_tokens WHERE julianday(created_at) < julianday(?)",
+            (cutoff,),
+        ).rowcount
+        conn.commit()
+        return removed
     finally:
         conn.close()
 

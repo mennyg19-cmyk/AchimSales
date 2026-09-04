@@ -23,6 +23,8 @@
     {% endif %}
 </div>
 
+<p class="form-msg" id="runStatus" role="status" aria-live="polite"></p>
+
 {% if test_mode_on %}
 <div class="alert alert-warn" role="status">
     Test mode is on. Schedule mail (company and personal) goes to {{ test_emails|join(', ') }}. Live folders are not written. Salesman splits still run, to this list.

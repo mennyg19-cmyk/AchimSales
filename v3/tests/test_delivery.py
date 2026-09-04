@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import io
+import urllib.error
+
 import pytest
 
 from web.config import Config
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.repositories.outbox import OutboxRepository
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.delivery.email import MAX_GRAPH_ATTACH_BYTES, EmailService, split_recipients
-from web.delivery.graph_mail import GraphMailError
+from web.delivery.graph_mail import GraphMailError, GraphMailer
 from web.delivery.layout import apply_layout, expand_clones
 from web.delivery.service import DeliveryService
 from web.delivery.onedrive import onedrive_children_url
@@ -197,7 +201,7 @@ def test_email_writes_eml_and_logs_outbox(email):
     assert res.sent_via_smtp is False
     assert (cfg.outbox_dir / res.eml_name).exists()
     row = OutboxRepository(db).get(res.outbox_id)
-    assert row and row.status == "outbox" and row.attachment_meta["filename"] == "ordered.xlsx"
+    assert row and row.status == "prepared" and row.attachment_meta["filename"] == "ordered.xlsx"
 
 
 def test_delivery_attachment_uses_schedule_filename_template(tmp_path, monkeypatch):
@@ -273,6 +277,157 @@ def test_email_sends_via_graph_when_configured(tmp_path):
     assert len(graph.calls) == 1
     assert graph.calls[0]["to"] == ["a@x.com"]
     assert OutboxRepository(db).get(res.outbox_id).status == "sent"
+
+
+def test_manual_delivery_leg_uses_durable_job_id(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        job_id="durable-job", slot_id="manual:durable-job",
+    )
+    leg = DeliveryLegRepository(svc.outbox.db).get_by_job("durable-job")[0]
+    assert res.delivery_status == "sent"
+    assert leg.slot_id == "manual:durable-job" and leg.kind == "email" and leg.status == "sent"
+
+
+def test_no_data_notice_has_its_own_delivery_leg(tmp_path):
+    svc = _graph_svc(tmp_path, _FakeGraph())
+    delivery = DeliveryService(None, None, svc)  # type: ignore[arg-type]
+    res = delivery.send_no_data_notice(
+        recipients="a@x.com", subject="No data", body_text="No rows",
+        report_name="Ordered", job_id="notice-job", run_id=7,
+        slot_id="master:1:2026-06-01:0800",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("notice-job")
+    assert res.result.ok and [(leg.kind, leg.status) for leg in legs] == [("notice", "sent")]
+    assert (legs[0].run_id, legs[0].slot_id) == (7, "master:1:2026-06-01:0800")
+
+
+def test_failed_no_data_notice_stays_failed(tmp_path):
+    class FailedGraph(_FakeGraph):
+        def send(self, **kwargs):
+            raise GraphMailError("rejected", delivery_status="failed")
+
+    svc = _graph_svc(tmp_path, FailedGraph())
+    delivery = DeliveryService(None, None, svc)  # type: ignore[arg-type]
+    res = delivery.send_no_data_notice(
+        recipients="a@x.com", subject="No data", body_text="No rows",
+        report_name="Ordered", job_id="notice-failure", slot_id="manual:notice-failure",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("notice-failure")
+    assert res.result.ok is False and res.result.delivery_status == "failed"
+    assert [(leg.kind, leg.status) for leg in legs] == [("notice", "failed")]
+
+
+def test_dual_delivery_creates_independent_email_and_folder_legs(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = lambda *args: {"id": "remote-item"}  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+        job_id="dual-job", slot_id="personal:1:2026-06-01:0800",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("dual-job")
+    assert res.ok and [(leg.kind, leg.status) for leg in legs] == [
+        ("folder", "sent"), ("email", "sent")]
+    assert {(leg.job_id, leg.slot_id) for leg in legs} == {
+        ("dual-job", "personal:1:2026-06-01:0800")}
+
+
+def test_folder_only_creates_one_verified_folder_leg(email):
+    svc, _, db = email
+    res = svc.deliver(
+        subject="S", recipients_raw="", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+        job_id="folder-job", slot_id="manual:folder-job",
+    )
+    legs = DeliveryLegRepository(db).get_by_job("folder-job")
+    assert res.ok and [(leg.kind, leg.status) for leg in legs] == [("folder", "sent")]
+
+
+def test_folder_missing_remote_item_fails_without_resending_email(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = lambda *args: {}  # type: ignore[method-assign]
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+        job_id="missing-folder", slot_id="manual:missing-folder",
+    )
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("missing-folder")
+    assert res.ok and len(graph.calls) == 1
+    assert [(leg.kind, leg.status) for leg in legs] == [("folder", "failed"), ("email", "sent")]
+
+
+def test_email_artifact_exists_before_folder_leg_is_sending(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    updates = []
+    update = svc.delivery_legs.update
+
+    def track(leg_id, *, status, error=""):
+        if status == "sending":
+            updates.append(any(svc.cfg.outbox_dir.glob("*.eml")))
+        update(leg_id, status=status, error=error)
+
+    svc.delivery_legs.update = track  # type: ignore[method-assign]
+    svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        filename="ordered.xlsx", xlsx_bytes=b"x", sharepoint_path="Ordered/Daily",
+    )
+    assert updates == [True, True]
+
+
+def test_unknown_graph_delivery_keeps_unknown_leg(tmp_path):
+    class ConnectionLost(_FakeGraph):
+        def send(self, **kwargs):
+            raise GraphMailError("connection lost", delivery_status="unknown")
+
+    svc = _graph_svc(tmp_path, ConnectionLost())
+    res = svc.deliver(
+        subject="S", recipients_raw="a@x.com", body_text="", report_name="Ordered",
+        job_id="unknown-job", slot_id="manual:unknown-job",
+    )
+    leg = DeliveryLegRepository(svc.outbox.db).get_by_job("unknown-job")[0]
+    assert res.ok is False and res.delivery_status == "unknown"
+    assert leg.status == "unknown"
+
+
+def test_graph_mail_classifies_http_reject_and_connection_loss(monkeypatch):
+    mailer = GraphMailer("tenant", "client", "secret")
+    monkeypatch.setattr(mailer, "_token", lambda: "token")
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: Response())
+    assert mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="") is None
+
+    request_error = urllib.error.HTTPError(
+        "https://graph.example", 400, "bad request", {}, io.BytesIO(b"rejected"),
+    )
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(request_error))
+    with pytest.raises(GraphMailError) as rejected:
+        mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert rejected.value.delivery_status == "failed"
+
+    lost_calls = []
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *args, **kwargs: lost_calls.append(1) or (_ for _ in ()).throw(TimeoutError("connection lost")),
+    )
+    with pytest.raises(GraphMailError) as unknown:
+        mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert unknown.value.delivery_status == "unknown"
+    assert lost_calls == [1]
 
 
 def test_email_requires_a_target(email):
@@ -373,6 +528,7 @@ def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path
         subject="Daily 5am Number 4", recipients_raw="a@x.com", body_text="",
         report_name="Number 4", filename="Daily_5am_Number_4.xlsx",
         xlsx_bytes=big, sharepoint_path="",
+        job_id="oversize-fallback", slot_id="manual:oversize-fallback",
     )
     assert res.ok and res.send_channel == "graph"
     assert folders == [TEST_SHAREPOINT_FOLDER]
@@ -384,6 +540,8 @@ def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path
     assert graph.calls[0]["xlsx_bytes"] is None
     assert res.sharepoint_saved is True
     assert res.sharepoint_url == url
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("oversize-fallback")
+    assert [(leg.kind, leg.status) for leg in legs] == [("folder", "sent"), ("email", "sent")]
 
 
 def test_graph_oversize_fallback_upload_failure_still_sends_email(tmp_path):
@@ -398,12 +556,15 @@ def test_graph_oversize_fallback_upload_failure_still_sends_email(tmp_path):
     res = svc.deliver(
         subject="S", recipients_raw="a@x.com", body_text="",
         report_name="Ordered", filename="big.xlsx", xlsx_bytes=big,
+        job_id="oversize-fail", slot_id="manual:oversize-fail",
     )
     assert res.ok and res.send_channel == "graph"
     assert graph.calls[0]["xlsx_bytes"] is None
     assert "Download it from SharePoint" in graph.calls[0]["body_text"]
     assert graph.calls[0]["body_html"] is None
     assert res.sharepoint_saved is False
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("oversize-fail")
+    assert [(leg.kind, leg.status) for leg in legs] == [("folder", "failed"), ("email", "sent")]
 
 
 def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
@@ -424,7 +585,8 @@ def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
     )
     res = svc.deliver(subject="S", recipients_raw="a@x.com", body_text="hi",
                       report_name="Ordered", filename="ordered.xlsx",
-                      xlsx_bytes=b"PK\x03\x04")
+                      xlsx_bytes=b"PK\x03\x04",
+                      job_id="graph-413", slot_id="manual:graph-413")
     assert res.ok and res.send_channel == "graph"
     assert len(graph.calls) == 2
     assert graph.calls[0]["xlsx_bytes"] == b"PK\x03\x04"
@@ -434,6 +596,8 @@ def test_graph_retries_without_attachment_after_413_includes_link(tmp_path):
     assert "Download workbook" in graph.calls[1]["body_html"]
     assert url in graph.calls[1]["body_html"]
     assert res.sharepoint_url == url
+    legs = DeliveryLegRepository(svc.outbox.db).get_by_job("graph-413")
+    assert {(leg.kind, leg.status) for leg in legs} == {("email", "sent"), ("folder", "sent")}
 
 
 def test_sharepoint_mock_lists_folders(tmp_path):
@@ -822,105 +986,380 @@ def test_delivery_expands_folder_tokens_and_strips_home(tmp_path, monkeypatch):
     assert seen["sharepoint_path"] == "Salesman Report/Customer Activity/August 2026"
 
 
-class _FakeGraphResp:
-    def __init__(self, status, payload=None):
-        self.status_code = status
-        self.ok = 200 <= status < 400
-        self._payload = payload or {}
+def test_graph_token_cache_refreshes_before_expiry(monkeypatch):
+    from web.delivery.graph_auth import GraphTokenCache
 
-    def json(self):
-        return self._payload
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            err = RuntimeError(f"http {self.status_code}")
-            err.response = self
-            raise err
-
-
-class _SiteUrlHttp:
-    def __init__(self):
-        self.urls: list[str] = []
-
-    def get(self, url, **kwargs):
-        self.urls.append(url)
-        if "/sites?search=" in url:
-            raise AssertionError("must not search the tenant when SP_SITE_URL is set")
-        return _FakeGraphResp(404, {})
-
-    def post(self, url, **kwargs):
-        self.urls.append(url)
-        if "oauth2" in url:
-            return _FakeGraphResp(200, {"access_token": "tok"})
-        return _FakeGraphResp(200, {})
+    now = [100.0]
+    monkeypatch.setattr("web.delivery.graph_auth.time.monotonic", lambda: now[0])
+    tokens = iter([
+        {"access_token": "first", "expires_in": 120},
+        {"access_token": "second", "expires_in": 120},
+    ])
+    cache = GraphTokenCache()
+    assert cache.get(lambda: next(tokens)) == "first"
+    now[0] = 150.0
+    assert cache.get(lambda: next(tokens)) == "first"
+    now[0] = 160.0
+    assert cache.get(lambda: next(tokens)) == "second"
 
 
-def test_sharepoint_site_url_404_does_not_search_tenant(tmp_path):
-    http = _SiteUrlHttp()
-    cfg = _cfg(
+def test_sharepoint_get_401_refreshes_token_once(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(tmp_path, tenant_id="tenant", client_id="client", client_secret="secret"))
+    service._drive_id = "drive"
+    token_calls = []
+    monkeypatch.setattr(service, "_get_token", lambda refresh=False: token_calls.append(refresh) or "new")
+
+    class Response:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    responses = iter([Response(401, {}), Response(200, {"value": []})])
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: next(responses))
+    assert service.list_folders() == []
+    assert token_calls == [False, True]
+
+
+def test_configured_sharepoint_requires_resolvable_site_url(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
+        tmp_path, tenant_id="tenant", client_id="client", client_secret="secret",
+    ))
+    calls = []
+    monkeypatch.setattr(
+        "web.delivery.sharepoint.graph_get",
+        lambda url, *args, **kwargs: calls.append(url),
+    )
+    with pytest.raises(RuntimeError, match="SP_SITE_URL"):
+        service._resolve_drive_id()
+    assert calls == []
+
+
+def test_configured_sharepoint_never_searches_for_a_replacement_site(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
+        tmp_path, tenant_id="tenant", client_id="client", client_secret="secret",
+        sp_site_url="https://contoso.sharepoint.com/sites/reports",
+    ))
+    calls = []
+
+    class NotFound:
+        ok = False
+
+    monkeypatch.setattr(
+        "web.delivery.sharepoint.graph_get",
+        lambda url, *args, **kwargs: calls.append(url) or NotFound(),
+    )
+    with pytest.raises(RuntimeError, match="SP_SITE_URL could not be resolved"):
+        service._resolve_drive_id()
+    assert calls == [f"https://graph.microsoft.com/v1.0/sites/contoso.sharepoint.com:/sites/reports"]
+    assert not any("sites?search=" in url for url in calls)
+
+
+def test_graph_mail_retries_rejected_401_once_with_fresh_token(monkeypatch):
+    mailer = GraphMailer("tenant", "client", "secret")
+    tokens = iter(["old", "new"])
+    monkeypatch.setattr(mailer, "_token", lambda: next(tokens))
+    cleared = []
+    monkeypatch.setattr(mailer, "_clear_token", lambda: cleared.append(True))
+    authorizations = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    def send(request, **kwargs):
+        authorizations.append(request.get_header("Authorization"))
+        if len(authorizations) == 1:
+            raise urllib.error.HTTPError("https://graph.example", 401, "unauthorized", {}, io.BytesIO())
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", send)
+    mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert authorizations == ["Bearer old", "Bearer new"]
+    assert cleared == [True]
+
+
+@pytest.mark.parametrize("status_code", [429, 503])
+def test_graph_throttle_waits_once_with_capped_retry_after(monkeypatch, status_code):
+    from web.delivery.graph_auth import retry_graph_response
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {"Retry-After": "300"}
+
+    responses = iter([Response(status_code), Response(200)])
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_auth.time.sleep", delays.append)
+    assert retry_graph_response(lambda token: next(responses), lambda refresh: "token").status_code == 200
+    assert delays == [60]
+
+
+def test_graph_throttle_then_401_refreshes_token_once(monkeypatch):
+    from web.delivery.graph_auth import retry_graph_response
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {"Retry-After": "1"}
+
+    responses = iter([Response(429), Response(401), Response(200)])
+    token_calls = []
+    monkeypatch.setattr("web.delivery.graph_auth.time.sleep", lambda *_: None)
+    assert retry_graph_response(
+        lambda _token: next(responses),
+        lambda refresh: token_calls.append(refresh) or ("fresh" if refresh else "stale"),
+    ).status_code == 200
+    assert token_calls == [False, False, True]
+
+
+def test_graph_401_then_throttle_retries_once(monkeypatch):
+    from web.delivery.graph_auth import retry_graph_response
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {"Retry-After": "1"}
+
+    responses = iter([Response(401), Response(429), Response(200)])
+    token_calls = []
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_auth.time.sleep", delays.append)
+    assert retry_graph_response(
+        lambda _token: next(responses),
+        lambda refresh: token_calls.append(refresh) or ("fresh" if refresh else "stale"),
+    ).status_code == 200
+    assert token_calls == [False, True, False]
+    assert delays == [1]
+
+
+def test_folder_put_401_uses_a_fresh_token():
+    from web.delivery.graph_upload import upload_drive_item
+
+    class Response:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.headers = {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    class Requests:
+        def __init__(self):
+            self.headers = []
+
+        def put(self, url, **kwargs):
+            self.headers.append(kwargs["headers"]["Authorization"])
+            return Response(401 if len(self.headers) == 1 else 200, {"id": "item"})
+
+    requests = Requests()
+    refreshes = []
+    assert upload_drive_item(
+        requests, put_url="https://graph/content", session_url="unused",
+        headers={"Authorization": "Bearer stale"}, content=b"file", put_timeout=10,
+        token=lambda refresh: refreshes.append(refresh) or ("fresh" if refresh else "stale"),
+    ) == {"id": "item"}
+    assert refreshes == [False, True]
+    assert requests.headers == ["Bearer stale", "Bearer fresh"]
+
+
+def test_upload_session_resumes_at_graph_next_expected_range():
+    from web.delivery.graph_upload import CHUNK_SIZE, SIMPLE_UPLOAD_MAX, upload_drive_item
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, payload=None):
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class Requests:
+        def __init__(self):
+            self.puts = []
+
+        def post(self, *args, **kwargs):
+            return Response({"uploadUrl": "https://upload/session"})
+
+        def put(self, url, **kwargs):
+            self.puts.append(kwargs["headers"]["Content-Range"])
+            if len(self.puts) == 1:
+                raise RuntimeError("connection reset")
+            return Response({"id": "item"})
+
+        def get(self, url, **kwargs):
+            return Response({"nextExpectedRanges": [f"{CHUNK_SIZE}-"]})
+
+    requests = Requests()
+    upload_drive_item(
+        requests, put_url="https://graph/content", session_url="https://graph/session",
+        headers={"Authorization": "Bearer token"}, content=b"x" * SIMPLE_UPLOAD_MAX,
+        put_timeout=10,
+    )
+    assert requests.puts[0].startswith("bytes 0-")
+    assert requests.puts[1].startswith(f"bytes {CHUNK_SIZE}-")
+
+
+def test_retry_after_uses_http_date_and_default():
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+    from web.delivery.graph_auth import retry_after_seconds
+
+    assert retry_after_seconds(None) == 1
+    far = datetime.now(UTC) + timedelta(seconds=300)
+    assert retry_after_seconds(format_datetime(far, usegmt=True)) == 60
+    soon = datetime.now(UTC) + timedelta(seconds=12)
+    delay = retry_after_seconds(format_datetime(soon, usegmt=True))
+    assert 1 <= delay <= 12
+
+
+def test_graph_mail_retries_throttle_once(monkeypatch):
+    mailer = GraphMailer("tenant", "client", "secret")
+    monkeypatch.setattr(mailer, "_token", lambda: "token")
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_mail.time.sleep", delays.append)
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    calls = []
+
+    def send(request, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(
+                "https://graph.example", 429, "throttle", {"Retry-After": "300"}, io.BytesIO(),
+            )
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", send)
+    mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert calls == [1, 1]
+    assert delays == [60]
+
+
+@pytest.mark.parametrize("first, second", [(401, 429), (429, 401)])
+def test_graph_mail_retries_401_and_throttle_in_either_order(monkeypatch, first, second):
+    mailer = GraphMailer("tenant", "client", "secret")
+    tokens = iter(["t1", "t2", "t3"])
+    monkeypatch.setattr(mailer, "_token", lambda: next(tokens))
+    cleared = []
+    monkeypatch.setattr(mailer, "_clear_token", lambda: cleared.append(True))
+    delays = []
+    monkeypatch.setattr("web.delivery.graph_mail.time.sleep", delays.append)
+    authorizations = []
+    pending = [first, second]
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self):
+            return b""
+
+    def send(request, **kwargs):
+        authorizations.append(request.get_header("Authorization"))
+        if pending:
+            code = pending.pop(0)
+            headers = {"Retry-After": "1"} if code in (429, 503) else {}
+            raise urllib.error.HTTPError(
+                "https://graph.example", code, "retry", headers, io.BytesIO(),
+            )
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", send)
+    mailer.send(sender="reports@x.com", to=["a@x.com"], subject="S", body_text="")
+    assert authorizations == ["Bearer t1", "Bearer t2", "Bearer t3"]
+    assert cleared == [True]
+    assert delays == [1]
+
+
+def test_sharepoint_folder_create_401_refreshes_token_once(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
+        tmp_path, tenant_id="tenant", client_id="client", client_secret="secret",
+    ))
+    service._drive_id = "drive"
+    token_calls = []
+    monkeypatch.setattr(
+        service, "_get_token",
+        lambda refresh=False: token_calls.append(refresh) or ("fresh" if refresh else "stale"),
+    )
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise RuntimeError(f"http {self.status_code}")
+
+    posts = []
+
+    def post(url, **kwargs):
+        posts.append(kwargs["headers"]["Authorization"])
+        if len(posts) == 1:
+            return Response(401)
+        return Response(201)
+
+    monkeypatch.setattr("requests.post", post)
+    service._ensure_folder("")
+    assert posts[0] == "Bearer stale"
+    assert posts[1] == "Bearer fresh"
+    assert token_calls[:2] == [False, True]
+
+
+def test_sharepoint_site_url_404_does_not_search_tenant(tmp_path, monkeypatch):
+    service = SharePointService(_cfg(
         tmp_path, app_env="prod", tenant_id="t", client_id="c", client_secret="s",
         sp_site_url="https://achimonline.sharepoint.com/sites/DoesNotExist",
+    ))
+    calls = []
+
+    class NotFound:
+        ok = False
+        status_code = 404
+
+    monkeypatch.setattr(
+        "web.delivery.sharepoint.graph_get",
+        lambda url, *args, **kwargs: calls.append(url) or NotFound(),
     )
-    sp = SharePointService(cfg)
-    sp._requests = lambda: http  # type: ignore[method-assign]
     with pytest.raises(RuntimeError, match="SP_SITE_URL"):
-        sp.upload_file("Invoiced/Daily", "a.xlsx", b"x")
-    assert any("/sites/" in u for u in http.urls)
-    assert not any("search=" in u for u in http.urls)
-
-
-class _StaleTokenHttp:
-    """First folder create 401s; a new token then 409s and the PUT succeeds."""
-
-    def __init__(self):
-        self.token_posts = 0
-        self.children_posts = 0
-        self.urls: list[str] = []
-
-    def get(self, url, **kwargs):
-        self.urls.append(url)
-        if "/sites/" in url and "/drive" not in url:
-            return _FakeGraphResp(200, {"id": "site-1"})
-        if url.endswith("/drive"):
-            return _FakeGraphResp(200, {"id": "drive-1"})
-        return _FakeGraphResp(200, {"webUrl": "https://achim.sharepoint.com/Test/n.xlsx"})
-
-    def post(self, url, **kwargs):
-        self.urls.append(url)
-        if "oauth2" in url:
-            self.token_posts += 1
-            return _FakeGraphResp(200, {"access_token": f"tok-{self.token_posts}", "expires_in": 3600})
-        if url.endswith("/children"):
-            self.children_posts += 1
-            if self.children_posts == 1:
-                return _FakeGraphResp(401, {})
-            return _FakeGraphResp(409, {})
-        return _FakeGraphResp(200, {})
-
-    def put(self, url, **kwargs):
-        self.urls.append(url)
-        return _FakeGraphResp(200, {
-            "id": "item-1", "name": "n.xlsx",
-            "webUrl": "https://achim.sharepoint.com/Test/n.xlsx",
-        })
-
-
-def test_sharepoint_retries_folder_create_after_401(tmp_path):
-    http = _StaleTokenHttp()
-    cfg = _cfg(
-        tmp_path, app_env="prod", tenant_id="t", client_id="c", client_secret="s",
-        sp_site_url="https://achimonline.sharepoint.com",
-    )
-    sp = SharePointService(cfg)
-    sp._requests = lambda: http  # type: ignore[method-assign]
-    sp._drive_id = "drive-1"
-    sp._tokens._token = "stale"
-    sp._tokens._valid_until = 10 ** 12
-    res = sp.upload_file("Test", "n.xlsx", b"x")
-    assert res["webUrl"] == "https://achim.sharepoint.com/Test/n.xlsx"
-    assert http.token_posts == 1
-    assert http.children_posts >= 2
-    assert not any("search=" in u for u in http.urls)
+        service.upload_file("Invoiced/Daily", "a.xlsx", b"x")
+    assert calls
+    assert any("/sites/" in url for url in calls)
+    assert not any("search=" in url for url in calls)
 
 
 def test_graph_app_token_skips_fetch_until_expiry():
@@ -932,7 +1371,13 @@ def test_graph_app_token_skips_fetch_until_expiry():
 
         def post(self, url, **kwargs):
             self.posts += 1
-            return _FakeGraphResp(200, {"access_token": f"t{self.posts}", "expires_in": 3600})
+            class _TokResp:
+                status_code = 200
+                def json(self_inner):
+                    return {"access_token": f"t{self.posts}", "expires_in": 3600}
+                def raise_for_status(self_inner):
+                    return None
+            return _TokResp()
 
     http = _TokHttp()
     tok = GraphAppToken("t", "c", "s")
