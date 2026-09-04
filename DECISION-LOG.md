@@ -1,3 +1,12 @@
+## 2026-09-04 Loop B F2: Q9 does not narrow company Send now to the clicker
+**What I had to decide:** Loop B asked for a test that a view-only manager's Run now narrows report content to that manager's `visible_salesman_keys`. That would change what recipients get depending on who clicked Send now.
+**Options I considered:** (1) Wire `ScheduleRunner._scope` to the job's `owner_user_id` for manual master runs. (2) Add that narrowing test against current code (it would fail: master scope uses schedule `run_as` then owner; clock ticks enqueue masters with `owner_user_id=None`). (3) Keep Q9 as trigger permission; assert the job is owned by the actor; do not change delivery scope.
+**What I chose:** (3). Extend `test_view_only_manager_can_run_but_not_edit_master_schedule` to assert `job.owner_user_id` is the manager. Leave `_scope` and clock enqueue unchanged. Do not invent clicker-scoped company mail.
+**Why:** Adopted Q9 is "may trigger Send now," not "send a manager-scoped subset." `test_runner_master_manager_owner_is_scoped` already covers a manager-owned master. Job owner exists so `_active_schedule_jobs` can show the manager their in-flight Run now.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Q8 is account provisioning, not pending mail approval
 **What I had to decide:** Owner locked Q8: external people do not self-register. Only admin/developer can add them in People. After the email exists they magic-link in.
 **What I chose:** Build that. No pending-recipient queue. Magic link must use the v3 `users` row (`is_external`, active). Home login form must not depend on live `app_users`. Keep `/legacy` magic-link as-is for the mounted Live app. Q9: view-only managers may POST company Send now; edit/delete stay `can_edit_master`. Do not unmount. Do not merge. Do not add an Azure slot.

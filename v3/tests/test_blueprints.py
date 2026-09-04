@@ -2572,7 +2572,8 @@ def test_view_only_manager_can_run_but_not_edit_master_schedule(tmp_path):
     admin = app.test_client()
     _login(admin, app)
     repo = MasterScheduleRepository(app.config["DB"])
-    admin_id = UserRepository(app.config["DB"]).get_by_email("admin@x.com").id
+    users = UserRepository(app.config["DB"])
+    admin_id = users.get_by_email("admin@x.com").id
     mid = repo.create(
         "ordered", "Admin schedule", params={}, layout={},
         cadence={"freq": "daily", "time": "06:00"}, recipients="team@x.com",
@@ -2580,9 +2581,16 @@ def test_view_only_manager_can_run_but_not_edit_master_schedule(tmp_path):
     )
     manager = app.test_client()
     _login(manager, app, email="manager@x.com", role="manager")
-    assert manager.post(
+    manager_id = users.get_by_email("manager@x.com").id
+    ran = manager.post(
         f"/api/master-schedules/{mid}/run", headers={"X-CSRF-Token": _CSRF},
-    ).status_code == 202
+    )
+    assert ran.status_code == 202
+    job = app.config["JOB_REPO"].get(ran.get_json()["job_id"])
+    assert job is not None
+    assert job.owner_user_id == manager_id
+    assert job.owner_user_id != admin_id
+    assert job.params["schedule_id"] == mid
     assert manager.put(
         f"/api/master-schedules/{mid}", json={"name": "Nope"},
         headers={"X-CSRF-Token": _CSRF},

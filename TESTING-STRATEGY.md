@@ -81,10 +81,14 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - A manager who neither owns nor runs a company schedule can POST its Run now endpoint.
 - That manager still gets 403 for update, copy, toggle, and delete; a salesman gets 403
   for Run now.
+- The enqueued `schedule.run` job is owned by the acting manager (so they can see the
+  in-flight Run now), not the admin who created the schedule.
 
 **Expected behavior:**
 - Company schedule visibility permits Run now. Existing master-edit rules govern every
-  other company schedule mutation.
+  other company schedule mutation. Job ownership is the actor. Master report scope is
+  still the schedule's `run_as` / owner (`ScheduleRunner._scope`), not the job owner.
+  Clock ticks still enqueue company runs with `owner_user_id=None`.
 
 **Test file:** `v3/tests/test_blueprints.py`
 
