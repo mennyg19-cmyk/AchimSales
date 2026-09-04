@@ -123,15 +123,23 @@ developers always see and can create, edit, and delete those views (Save for
 views flag (off by default; developers on, unused for admins). Toggle it on
 Users & access. Daily Ordered groups Summary by salesman then customer (A-Z),
 By Customer by salesman only (customers A-Z inside, not grouped), and leaves
-By Order ungrouped. Company views do not store a date window; company
-schedules supply YTD / MTD / yesterday. Managers who have the flag can edit
+By Order ungrouped. Company views can store a date window when you check
+that box on Save this view; they can still be saved without one. Company
+schedules supply their own YTD / MTD / yesterday at send time. Managers who have the flag can edit
 them from Saved views. Personal schedules send a **named saved view** (3
-steps: view, when, where). Admins and developers can also schedule **Default**
-from More → Schedule or the personal wizard. Company schedules stay on the
-old 5-step wizard under Settings (admins and developers). While a report or
+steps: view, when, where). The Where step can set an email subject and HTML
+body with the same `{Schedule}` / `{Period}` chips as the filename, plus
+`{SharePointUrl}` and `{DownloadButton}` (Outlook-safe). Leave them blank for
+the usual auto subject and note. Admins and developers can also schedule **Default**
+and named **company views** (Daily Ordered, Heshy Open Orders) from More →
+Schedule or the personal wizard Company group. Company schedules stay on the
+old 5-step wizard under Settings (admins and developers) but that add/edit UI is
+hidden for now (`SHOW_COMPANY_SCHEDULE_SETUP`); existing company rows still run. While a report or
 schedule job is running, the status line (and Run now) shows the live step:
-Reporting API, workbook, SharePoint/OneDrive, email. Schedule history keeps
-that log. First SharePoint use of a worker looks up `SP_SITE_URL` only; a
+Reporting API, workbook, SharePoint/OneDrive, email. Each recent run has a
+Log page (Time, Step, Detail for that job only). The schedule row History
+button still lists every run for that schedule. First SharePoint use of a
+worker looks up `SP_SITE_URL` only; a
 bad URL fails instead of searching every site in the tenant.
 
 ```powershell

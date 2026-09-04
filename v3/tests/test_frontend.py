@@ -250,10 +250,20 @@ def test_report_viewer_meeting_ux():
     assert 'textContent = "Delete"' in src
     assert "Add subgroup" in src
     assert "groupPills" in src
-    assert "Save this view as (same name overwrites this view)" in src
+    assert "function openSaveViewModal" in src
+    assert "function confirmSaveView" in src
+    assert 'id="saveViewModal"' in (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert "include_window" in src
+    assert "function syncSavePeriodRow" in src
+    assert 'window.prompt("Save as a company view"' not in src
     assert "layout.clones" in src
     resume = src.split("async function resumeInFlight", 1)[1].split("async function", 1)[0]
     assert '(q.get("preset") || q.get("cview")) && !wanted) return false' in resume
+    assert "if (!st.ok) return false" in resume
+    cancel = src.split("async function cancelRun", 1)[1].split("async function poll", 1)[0]
+    assert "if (!res.ok)" in cancel
+    assert "Could not cancel this run." in cancel
+    assert "showCancel(job.status === \"running\" && !!job.can_cancel)" in src
     assert 'closePresetsPanel(); loadPreset(preset); });' in src
     assert "Updated Default." in src
     assert "Only managers and admins can change the Default view." in src
@@ -280,7 +290,7 @@ def test_report_viewer_meeting_ux():
     assert "data?.others" in src
     assert "for ${ownerLabel}." in src
     assert "autoRunRequested = periodIsRunnable(view?.params)" in src
-    assert "params: collectCompanyViewParams()" in src
+    assert "includeWindow ? collectParams() : collectCompanyViewParams()" in src
     assert "Apply this view’s filters (does not run the report)" not in src
     cview = src.split("async function autoOpenPresetIfRequested", 1)[1].split("const id = q.get", 1)[0]
     assert "if (!view) return;" in cview
@@ -293,7 +303,7 @@ def test_report_viewer_meeting_ux():
     assert 'c.field === "Net Price"' in src
     assert "c.sum === false" in src
     assert "function saveForCompany" in src
-    assert "Save as a company view:" in src
+    assert "Save the date window" in (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert "Load Default or a named saved view to schedule it." in src
     assert "isDefaultViewId(loadedNamedView.id)" in src
     remember = src.split("function rememberNamedView", 1)[1].split("function isLoadedViewDirty", 1)[0]
@@ -332,10 +342,17 @@ def test_report_viewer_meeting_ux():
     assert "container-narrow" not in sched
     assert "ps-sched-table" in sched
     assert "ps-owner-row" in sched
+    assert 'id="psGridEditBtn"' in sched
     assert "data-job-url" in sched
     sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
     assert "function pollJob" in sched_js
     assert "data-job-url" in sched_js
+    assert "function bindGridEdit" in sched_js
+    assert "email_to_owner: listed.some" in sched_js
+    assert "email_on_no_data_me_only" in sched_js
+    assert "if (row.dataset.savedReportId)" in sched_js
+    assert "if (rec.value.trim() === origRec && path === origFolder) continue" in sched_js
+    assert "run-log-steps" in sched_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert "table-layout: fixed" in css
     company_page = (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
@@ -343,9 +360,22 @@ def test_report_viewer_meeting_ux():
     assert "data-job-url" in company_page
     personal = (_V3 / "web" / "templates" / "personal_schedule_wizard.html").read_text(encoding="utf-8")
     assert 'id="psWizard"' in personal
-    assert "Default plus named views." in personal
+    assert "Whose views?" in personal
+    assert 'id="psOwnerSelect"' in personal
+    assert 'id="psViewSelect"' in personal
     wiz_js = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
     assert 'startsWith("default:")' in wiz_js
+    assert 'startsWith("company:")' in wiz_js
+    assert "company views and Default" in personal
+    assert 'data-user-name="{{ current_user_name }}"' in personal
+    assert "picked.owner.user_id !== 0" in wiz_js
+    assert 'id="psEmailSubject"' in personal
+    assert 'id="psEmailBody"' in personal
+    assert "{DownloadButton}" in personal
+    assert "{SharePointUrl}" in personal
+    assert "email_subject:" in wiz_js
+    assert "email_html: emailHtml()" in wiz_js
+    assert "function wrapSharePointLink" in wiz_js
     company = (_V3 / "web" / "templates" / "master_schedules.html").read_text(encoding="utf-8")
     assert "<th>View</th>" in company
 
@@ -356,6 +386,10 @@ def test_new_schedules_default_filename_template():
     assert f'DEFAULT_FILENAME_TEMPLATE = "{default}"' in preview
     py = (_V3 / "web" / "delivery" / "filename_template.py").read_text(encoding="utf-8")
     assert f'DEFAULT_FILENAME_TEMPLATE = "{default}"' in py
+    wiz_js = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
+    assert "picked?.view.name" in wiz_js
+    report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert "loadedNamedView.name" in report_js
     for rel in (
         "templates/personal_schedule_wizard.html",
         "templates/master_schedules.html",
@@ -428,7 +462,8 @@ def test_phase_8_6_live_status_announcements():
     assert 'announceRun("Schedule run queued.")' in schedules
     assert 'announceRun("Could not start the schedule run.", true)' in schedules
     assert "announceRun(step)" in schedules
-    assert 'job.status === "cancelled"' in schedules
+    job_log = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")
+    assert 'job.status === "cancelled"' in job_log
 
 
 def test_report_status_is_a_live_region():
@@ -544,7 +579,7 @@ def test_hidden_tab_pollers_use_shared_visibility_helpers():
     visibility = (_SRC / "js" / "visibility.ts").read_text(encoding="utf-8")
     for name in ("isHidden", "onVisible", "sleepUntilVisible"):
         assert f"export function {name}" in visibility
-    for filename in ("main.ts", "report.ts", "master_wizard.ts", "settings.ts", "admin.ts", "dashboard.ts", "schedules.ts"):
+    for filename in ("main.ts", "report.ts", "master_wizard.ts", "settings.ts", "admin.ts", "dashboard.ts", "job_log.ts"):
         source = (_SRC / "js" / filename).read_text(encoding="utf-8")
         assert '"./visibility"' in source
 
@@ -727,18 +762,53 @@ def test_tabulator_mit_license_is_attributed(tmp_path):
 def test_live_job_log_shows_every_entry():
     report_html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="jobLiveLog"' in report_html
+    assert 'id="jobLiveLogPanel"' in report_html
     assert "live-job-log" in report_html
     report_js = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
     assert 'from "./job_log"' in report_js
     assert 'renderJobLog($("jobLiveLog"), job.log)' in report_js
     sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
-    assert "renderJobLog(live, job.log)" in sched_js
+    assert 'from "./job_log"' in sched_js
+    assert "renderJobLog(ol, stepLogs[i])" in sched_js
+    assert "pollJobLog(url, live" in sched_js
+    main_src = (_SRC / "js" / "main.ts").read_text(encoding="utf-8")
+    assert 'from "./job_log"' in main_src
+    assert "renderJobLog(ol, job.log)" in main_src
+    assert "live-job-entry" not in main_src
+    assert 'li class="live-job-entry"' not in sched_js
+    assert "js-watch-job" in sched_js
+    assert "canSeeJobLog" in sched_js
+    assert 'href="${esc(r.log_url)}">Log</a>' in sched_js
+    assert "data-job-log" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert "{% if is_developer %}" in report_html
+    panel_at = report_html.find('id="jobLiveLogPanel"')
+    assert "{% if is_developer %}" in report_html[max(0, panel_at - 120):panel_at]
     assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert 'id="liveJobLog"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
+    assert 'href="{{ r.log_url }}">Log</a>' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    assert "schedule_history" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
+    hist = (_V3 / "web" / "templates" / "schedule_history.html").read_text(encoding="utf-8")
+    assert "run-history-steps" in hist
+    home = (_V3 / "web" / "templates" / "reports_list.html").read_text(encoding="utf-8")
+    assert 'class="home-fold"' in home
+    assert '<details class="home-fold">' in home
+    assert '<details class="home-fold" open' not in home
+    assert "job.kept && job.owned" in main_src
+    run_page = (_V3 / "web" / "templates" / "schedule_run.html").read_text(encoding="utf-8")
+    assert 'id="runJobLog"' in run_page
     log_js = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")
     assert "export function renderJobLog" in log_js
+    assert "export async function pollJobLog" in log_js
+    assert "live-job-entry" in log_js
+    assert "live-job-step" in log_js
+    assert "live-job-detail" in log_js
+    assert "jobLiveLogPanel" in log_js
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     assert ".live-job-log" in css
+    assert ".live-job-entry" in css
+    assert ".live-job-step" in css
+    assert ".live-job-detail" in css
+    assert ".job-live-log-panel" in css
     assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert 'id="activeJobs"' in (_V3 / "web" / "templates" / "company_schedules.html").read_text(encoding="utf-8")
     assert "data-cancel-url" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")

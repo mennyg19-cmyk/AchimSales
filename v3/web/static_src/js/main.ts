@@ -5,6 +5,7 @@
  */
 
 import "./dialog";
+import { renderJobLog, type JobLogEntry } from "./job_log";
 import { isHidden, onVisible } from "./visibility";
 
 declare const feather: { replace: () => void } | undefined;
@@ -264,6 +265,9 @@ interface ActiveReportJob {
   finished_at?: string | null;
   kept?: boolean;
   keep_name?: string;
+  owner_name?: string;
+  owned?: boolean;
+  log?: JobLogEntry[];
 }
 
 const JOBS_MIN_KEY = "achim.reportJobs.minimized";
@@ -400,7 +404,7 @@ function initReportJobsBar(): void {
       const meta = document.createElement("span");
       meta.className = "report-job-meta";
       const when = formatJobWhen(job.finished_at || job.created_at);
-      meta.textContent = [when, statusWord(job)].filter(Boolean).join(" · ");
+      meta.textContent = [job.owner_name, when, statusWord(job)].filter(Boolean).join(" · ");
       text.appendChild(label);
       text.appendChild(meta);
       chip.appendChild(dot);
@@ -410,7 +414,7 @@ function initReportJobsBar(): void {
         if (href) window.location.href = href;
       });
       row.appendChild(chip);
-      if (job.kept) {
+      if (job.kept && job.owned) {
         const rename = document.createElement("button");
         rename.type = "button";
         rename.className = "report-job-rename";
@@ -421,6 +425,19 @@ function initReportJobsBar(): void {
           void renameKept(job);
         });
         row.appendChild(rename);
+      }
+      if (job.log && job.log.length) {
+        const steps = document.createElement("details");
+        steps.className = "report-job-steps";
+        const sum = document.createElement("summary");
+        sum.textContent = "Steps";
+        sum.dataset.noGuard = "1";
+        steps.appendChild(sum);
+        const ol = document.createElement("ol");
+        ol.className = "live-job-log";
+        renderJobLog(ol, job.log);
+        steps.appendChild(ol);
+        row.appendChild(steps);
       }
       panel.appendChild(row);
     });

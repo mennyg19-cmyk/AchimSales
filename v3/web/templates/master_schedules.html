@@ -1,4 +1,5 @@
 {# Shared 5-step wizard. Company list is managers/admins only. #}
+{% if company_schedule_setup %}
 <div id="msWizard" class="ms-wizard" hidden
      data-create-url="{{ url_for('schedules.create_master') }}"
      data-personal-create-url="{{ url_for('schedules.create_schedule') }}"
@@ -316,6 +317,7 @@
         </div>
     </form>
 </div>
+{% endif %}
 
 {% if can_see_company %}
 <section id="company" class="company-schedules-section">
@@ -379,18 +381,18 @@
                     {% endif %}
                 </td>
                 <td class="row-actions">
-                    {% if s.can_edit %}
+                    {% if company_schedule_setup and s.can_edit %}
                     <button type="button" class="btn btn-sm btn-outline js-edit">Edit</button>
                     <button type="button" class="btn btn-sm btn-outline js-copy"
                             data-url="{{ url_for('schedules.copy_master', schedule_id=s.id) }}">Copy</button>
-                    {% else %}
+                    {% elif company_schedule_setup and not s.can_edit %}
                     <span class="ms-field-hint">You can’t edit this schedule. Speak to an admin.</span>
                     {% endif %}
                     <button type="button" class="btn btn-sm btn-outline js-run"
                             data-url="{{ url_for('schedules.run_master', schedule_id=s.id) }}">Run now</button>
                     <a class="btn btn-sm btn-outline"
                        href="{{ url_for('schedules.master_history', schedule_id=s.id) }}">History</a>
-                    {% if s.can_edit %}
+                    {% if company_schedule_setup and s.can_edit %}
                     <button type="button" class="btn btn-sm btn-outline js-delete"
                             data-url="{{ url_for('schedules.delete_master', schedule_id=s.id) }}"
                             data-confirm="Delete this master schedule?">Delete</button>
@@ -404,7 +406,7 @@
 {% else %}
 <div class="empty-state" id="msEmpty">
     <i data-feather="clock"></i>
-    <p>No company schedules yet. Tap <strong>Add a schedule</strong> and choose Share with admins and managers.</p>
+    <p>No company schedules yet.</p>
 </div>
 {% endif %}
 </section>

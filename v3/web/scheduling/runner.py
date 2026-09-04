@@ -24,6 +24,7 @@ from web.data.repositories.report_defaults import (
     normalize_view_name,
     resolve_send_layout,
 )
+from web.data.repositories.saved_reports import SavedReportRepository
 from web.data.repositories.schedules import (
     MASTER,
     PERSONAL,
@@ -33,9 +34,11 @@ from web.data.repositories.schedules import (
 )
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
+from web.delivery.email_template import RETRY_SUBJECT_MARK
 from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
+from web.scheduling.delivery_keys import MASTER_DELIVERY_PARAM_KEYS, without_delivery_keys
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
@@ -52,7 +55,6 @@ _FAIL_NOTICE_WAIT_S = 15 * 60
 _FAIL_NOTICE_PENDING = "waiting"
 _FAIL_NOTICE_SENT = "sent"
 _FAIL_NOTICE_SUPERSEDED = "superseded"
-_RETRY_SUBJECT_MARK = " — retried after a failure"
 _RECOVERED_RETRY_REASON = "an earlier worker run failed or was interrupted"
 _PRIOR_FAIL_REASON = "an earlier run of this schedule failed today"
 
@@ -87,7 +89,7 @@ def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str
     reasons = "; ".join(
         str(err).strip() for err in prior_errors if str(err).strip()
     ) or "unknown error"
-    marked = subject if _RETRY_SUBJECT_MARK in subject else f"{subject}{_RETRY_SUBJECT_MARK}"
+    marked = subject if RETRY_SUBJECT_MARK in subject else f"{subject}{RETRY_SUBJECT_MARK}"
     body = (
         "This send failed once, then retried and succeeded.\n"
         f"First attempt: {reasons}\n\n"
@@ -128,12 +130,64 @@ class ScheduleRunner:
         self.salesmen = salesmen or _NoSalesmen()
         self.defaults = ReportDefaultRepository(user_repo.db)
         self.company_views = CompanyViewRepository(user_repo.db)
+        self.saved_reports = SavedReportRepository(user_repo.db)
 
-    def _layout_for(self, sched) -> dict:
+    def _params_for(self, sched, schedule_type: str) -> dict:
+        """Personal named views send the live saved view, not a stale snapshot.
+        A personal schedule of a company view does the same from company_views.
+
+        Delivery keys (cc, folder, no-data mail) stay on the schedule row.
+        Company (master) schedules keep their own period. A company view may store a
+        period for the report page; that does not override a master schedule.
+        """
+        stored = dict(sched.params or {})
+        if schedule_type != PERSONAL:
+            return stored
+        name = getattr(sched, "view_name", None)
+        if not name or normalize_view_name(name) == DEFAULT_VIEW_NAME:
+            return stored
+        live = None
+        if stored.get("view_source") == "company":
+            cv = self.company_views.get_by_name(sched.report_key, name)
+            if cv is not None:
+                live = dict(cv.params or {})
+        else:
+            view = self.saved_reports.get_by_name(
+                sched.owner_user_id, sched.report_key, name)
+            if view is not None:
+                live = dict(view.params or {})
+            else:
+                cv = self.company_views.get_by_name(sched.report_key, name)
+                if cv is None:
+                    return stored
+                live = dict(cv.params or {})
+        if live is None:
+            return stored
+        filters = without_delivery_keys(live, MASTER_DELIVERY_PARAM_KEYS)
+        for key in _DELIVERY_PARAM_KEYS:
+            if key in stored:
+                filters[key] = stored[key]
+        return filters
+
+    def _layout_for(self, sched, schedule_type: str) -> dict:
         name = getattr(sched, "view_name", None)
         named = {}
         if name and normalize_view_name(name) != DEFAULT_VIEW_NAME:
-            named = self.company_views.get_layout(sched.report_key, name)
+            use_company = schedule_type == MASTER
+            stored = dict(getattr(sched, "params", None) or {})
+            if schedule_type == PERSONAL:
+                if stored.get("view_source") == "company":
+                    use_company = True
+                else:
+                    owner_id = getattr(sched, "owner_user_id", None)
+                    personal = (
+                        self.saved_reports.get_by_name(
+                            owner_id, sched.report_key, name)
+                        if owner_id else None
+                    )
+                    use_company = personal is None
+            if use_company:
+                named = self.company_views.get_layout(sched.report_key, name)
         return resolve_send_layout(
             name,
             sched.layout,
@@ -150,7 +204,10 @@ class ScheduleRunner:
         if sched is None:
             raise RuntimeError(f"schedule {schedule_type}:{schedule_id} not found")
 
-        run_id = self.run_repo.start(schedule_id, schedule_type, manual=manual)
+        extra = {"job_id": job_id} if job_id else None
+        run_id = self.run_repo.start(
+            schedule_id, schedule_type, manual=manual, extra_meta=extra,
+        )
         try:
             raise_if_cancelled()
             if recovered and not manual and self._already_sent_today(schedule_id, schedule_type):
@@ -176,7 +233,10 @@ class ScheduleRunner:
                     return run_id
             identity, scope = self._scope(sched, schedule_type)
             spec = registry.get(sched.report_key)
-            base_params = _with_viewer_limits(self.authz, sched, schedule_type, sched.params)
+            base_params = _with_viewer_limits(
+                self.authz, sched, schedule_type,
+                self._params_for(sched, schedule_type),
+            )
             # Re-authorize the owner live (personal schedules only; masters are
             # admin-owned + unrestricted). A run that the owner can no longer
             # perform - report access pulled, account disabled, SharePoint revoked
@@ -213,7 +273,7 @@ class ScheduleRunner:
             for window in windows:
                 raise_if_cancelled()
                 window_subject, window_name = _window_labels(
-                    subject, getattr(sched, "name", "") or report_name, window,
+                    subject, _schedule_label(sched, report_name), window,
                 )
                 try:
                     outcome = self._deliver_window(
@@ -257,6 +317,7 @@ class ScheduleRunner:
             if existing is None or existing.status == "running":
                 self.run_repo.finish(
                     run_id, status="cancelled", debug_log="Cancelled",
+                    output_meta=_log_meta(),
                 )
             raise
         except Exception as exc:  # noqa: BLE001 - record then re-raise to fail the job
@@ -289,10 +350,10 @@ class ScheduleRunner:
         self._supersede_pending_fail_notices(schedule_id, schedule_type)
         self.run_repo.finish(
             run_id, status="failure", debug_log=error,
-            output_meta={
+            output_meta=_log_meta({
                 "fail_notice": _FAIL_NOTICE_PENDING,
                 "fail_error": error,
-            },
+            }),
         )
 
     def _supersede_pending_fail_notices(self, schedule_id: int, schedule_type: str) -> None:
@@ -385,7 +446,7 @@ class ScheduleRunner:
                         report_key=sched.report_key, identity=identity,
                         visible_salesman_keys=scope,
                         builder_version=builder_version,
-                        params=_report_params(params), layout=self._layout_for(sched),
+                        params=_report_params(params), layout=self._layout_for(sched, schedule_type),
                         recipients="; ".join(test_to) if test_to else sched.recipients,
                         subject=send_subject, report_name=report_name,
                         sharepoint_path=_sharepoint_for_test(test_to, sched.sharepoint_path),
@@ -401,6 +462,8 @@ class ScheduleRunner:
                         schedule_name=schedule_name,
                         body_text=send_body,
                         job_id=job_id, run_id=run_id, slot_id=slot_id,
+                        subject_template=str(params.get("email_subject") or ""),
+                        body_html_template=str(params.get("email_html") or ""),
                     )
                 if outcome.result.delivery_status == "unknown":
                     raise UnknownDeliveryOutcome(
@@ -532,7 +595,7 @@ class ScheduleRunner:
             full = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
                 builder_version=builder_version, params=_report_params(params),
-                layout=self._layout_for(sched),
+                layout=self._layout_for(sched, MASTER),
                 recipients=test_recips if test_to else sched.recipients,
                 subject=subject,
                 report_name=report_name,
@@ -547,6 +610,8 @@ class ScheduleRunner:
                     else ("; ".join(test_empty) if empty_to_test else None)
                 ),
                 job_id=job_id, run_id=run_id, slot_id=slot_id,
+                subject_template=str(params.get("email_subject") or ""),
+                body_html_template=str(params.get("email_html") or ""),
             )
             outcomes.append(full)
             deliveries.append(_delivery_leg(full, kind="full"))
@@ -567,7 +632,7 @@ class ScheduleRunner:
             split_params["salesman"] = [key]
             outcome = self.delivery.run_and_deliver(
                 report_key=sched.report_key, identity=identity, visible_salesman_keys=scope,
-                builder_version=builder_version, params=split_params, layout=self._layout_for(sched),
+                builder_version=builder_version, params=split_params, layout=self._layout_for(sched, MASTER),
                 recipients=test_recips if test_to else email,
                 subject=f"{subject} - {key}",
                 report_name=f"{report_name} - {key}", sharepoint_path="",
@@ -638,11 +703,7 @@ class ScheduleRunner:
         return []
 
 
-_DELIVERY_PARAM_KEYS = {
-    "split_by_salesman", "email_to_salesmen", "email_salesman_keys",
-    "email_cc", "email_bcc", "email_on_no_data", "email_on_no_data_me_only",
-    "folder_kind", "skip_sabbath",
-}
+_DELIVERY_PARAM_KEYS = MASTER_DELIVERY_PARAM_KEYS
 
 
 def _onedrive_user(sched, schedule_type: str, identity: str) -> str:
@@ -750,9 +811,14 @@ def _delivery_leg(outcome: DeliveryOutcome, *, kind: str, salesman: str = "") ->
     }
 
 
-def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
+def _log_meta(extra: dict | None = None) -> dict:
     from web.jobs.trace import snapshot
+    meta = dict(extra or {})
+    meta["job_log"] = snapshot()
+    return meta
 
+
+def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
     r = outcome.result
     meta = {
         "summary": _summary_message(outcome, ok=r.ok),
@@ -768,14 +834,23 @@ def _output_meta(outcome: DeliveryOutcome, *, manual: bool = False) -> dict:
     }
     if r.legs:
         meta["legs"] = list(r.legs)
-    job_log = snapshot()
-    if job_log:
-        meta["job_log"] = job_log
+    meta.update(_log_meta())
     if outcome.deliveries:
         meta["deliveries"] = outcome.deliveries
     if manual:
         meta["manual"] = True
     return meta
+
+
+def _schedule_label(sched, report_name: str) -> str:
+    """Name used in {Schedule} on the workbook. Master has a name; personal uses the view."""
+    named = str(getattr(sched, "name", "") or "").strip()
+    if named:
+        return named
+    view = str(getattr(sched, "view_name", "") or "").strip()
+    if view and normalize_view_name(view) != DEFAULT_VIEW_NAME:
+        return view
+    return report_name
 
 
 def _window_labels(subject: str, schedule_name: str, window: dict) -> tuple[str, str]:

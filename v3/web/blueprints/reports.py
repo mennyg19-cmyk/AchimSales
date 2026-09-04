@@ -59,7 +59,7 @@ from web.delivery.jobs import enqueue_delivery
 from web.jobs.keep import _kept_still_valid
 from web.reporting import params as P
 from web.reporting.export_jobs import EXPORT_JOB_TYPE, enqueue_export
-from web.reporting.jobs import enqueue_report_run
+from web.reporting.jobs import JOB_TYPE, enqueue_report_run
 from web.reporting.report_service import drop_commissions_tab
 from web.queue_admission import enqueue_or_503
 
@@ -246,6 +246,17 @@ def _built_spec_or_404(report_key: str):
     return spec
 
 
+def _parse_job_log_field(row) -> list:
+    raw = row.get("log_json") if hasattr(row, "get") else None
+    if not raw:
+        return []
+    try:
+        entries = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return entries if isinstance(entries, list) else []
+
+
 def _owned_job_or_404(job_id: str, uid: int | None):
     # Fail closed: require a real current-user id AND an exact owner match. This
     # keeps NULL-owner (system/orphaned) jobs unreadable through the user APIs.
@@ -256,8 +267,8 @@ def _owned_job_or_404(job_id: str, uid: int | None):
 
 
 def _visible_job_or_404(job_id: str, p):
-    """Owner can always see their job. Admins can also see schedule.run jobs
-    (clock company runs have no owner, and that's the stuck-job we need to cancel)."""
+    """Owner can always see their job. Developers can read anyone's report.run.
+    Privileged users can also see schedule.run (clock jobs have no owner)."""
     job = _job_repo().get(job_id)
     uid = _user_id(p.email)
     if job is None or uid is None:
@@ -267,7 +278,28 @@ def _visible_job_or_404(job_id: str, p):
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
     if job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p):
         return job
+    if job.type == JOB_TYPE and _authz().is_developer(p):
+        return job
     abort(404, description="Unknown job")
+
+
+def _can_cancel_job(job, p) -> bool:
+    uid = _user_id(p.email)
+    if job is None or uid is None:
+        return False
+    if job.owner_user_id == uid:
+        return True
+    from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
+    return job.type == SCHEDULE_RUN_JOB_TYPE and _authz().is_privileged(p)
+
+
+def _cancellable_job_or_404(job_id: str, p):
+    """Owner can cancel their job. Privileged users can cancel schedule.run.
+    Report runs stay owner-only, including for developers."""
+    job = _job_repo().get(job_id)
+    if not _can_cancel_job(job, p):
+        abort(404, description="Unknown job")
+    return job
 
 
 def _job_scope_ok(p, job) -> bool:
@@ -454,17 +486,28 @@ def run_report(report_key: str):
     return jsonify({"job_id": job_id}), 202
 
 
+def _job_status_payload(job, p) -> dict:
+    """Status/progress for everyone; step log only for developers."""
+    uid = _user_id(p.email)
+    payload = {
+        "job_id": job.id, "status": job.status, "progress": job.progress,
+        "error": job.error, "result_ref": job.result_ref,
+        "owned": job.owner_user_id == uid,
+        "can_cancel": _can_cancel_job(job, p),
+    }
+    if _authz().is_developer(p):
+        from web.data.repositories.jobs import _step_label
+        payload["log"] = job.log
+        payload["step"] = _step_label(job.log)
+    return payload
+
+
 @reports_bp.get("/api/jobs/<job_id>")
 @require_login
 def job_status(job_id: str):
     p = _principal_or_401()
     job = _visible_job_or_404(job_id, p)
-    from web.data.repositories.jobs import _step_label
-    return jsonify({
-        "job_id": job.id, "status": job.status, "progress": job.progress,
-        "error": job.error, "result_ref": job.result_ref,
-        "log": job.log, "step": _step_label(job.log),
-    })
+    return jsonify(_job_status_payload(job, p))
 
 
 @reports_bp.post("/api/jobs/<job_id>/cancel")
@@ -479,7 +522,7 @@ def cancel_job(job_id: str):
     error.
     """
     p = _principal_or_401()
-    job = _visible_job_or_404(job_id, p)
+    job = _cancellable_job_or_404(job_id, p)
     cancelled = _job_repo().cancel(job_id)
     if cancelled:
         _job_repo().append_log(job_id, {
@@ -495,7 +538,7 @@ def cancel_job(job_id: str):
 @require_login
 def report_result(job_id: str):
     p = _principal_or_401()
-    job = _owned_job_or_404(job_id, _user_id(p.email))
+    job = _visible_job_or_404(job_id, p)
     _authz().assert_report_runnable(p, job.params.get("report_key"))
     _assert_scope_compatible(p, job)
     if job.status != "success":
@@ -549,8 +592,19 @@ def active_report_runs():
         return jsonify({"jobs": []})
     titles = {s.key: s.title for s in registry.built_reports()}
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    want_all = request.args.get("all") == "1" and _authz().is_developer(p)
+    rows = (
+        _job_repo().report_runs_all(limit=80) if want_all
+        else _job_repo().report_runs_for_user(uid, limit=30)
+    )
+    owners = {}
+    if want_all:
+        owners = {
+            u.id: (u.display_name or u.email)
+            for u in _users_repo().list_all()
+        }
     jobs = []
-    for r in _job_repo().report_runs_for_user(uid, limit=30):
+    for r in rows:
         status = r["status"]
         kept_until = r.get("kept_until")
         if status not in ("queued", "running"):
@@ -570,7 +624,10 @@ def active_report_runs():
             "finished_at": r["finished_at"],
             "kept_until": kept_until or None,
             "kept": _kept_still_valid(kept_until, now),
-            "keep_name": (r["keep_name"] or "").strip() if "keep_name" in r.keys() else "",
+            "keep_name": (r.get("keep_name") or "").strip(),
+            "owner_name": owners.get(r.get("owner_user_id")) or "",
+            "owned": r.get("owner_user_id") == uid,
+            "log": _parse_job_log_field(r) if want_all else [],
         })
     return jsonify({"jobs": jobs})
 
@@ -1598,11 +1655,14 @@ def put_company_view(report_key: str):
     name = (body.get("name") or "").strip()
     if not name:
         abort(400, description="A view name is required")
+    raw = body.get("params") if isinstance(body.get("params"), dict) else {}
+    # Period is optional: company schedules still own their window, but a
+    # company view can keep yesterday/YTD when the saver checks that box.
+    params = dict(raw) if body.get("include_window") else params_without_window(raw)
     try:
         row = _company_views_repo().upsert(
             report_key, name,
-            params=params_without_window(
-                body.get("params") if isinstance(body.get("params"), dict) else {}),
+            params=params,
             layout=body.get("layout") if isinstance(body.get("layout"), dict) else {},
             updated_by=uid,
         )

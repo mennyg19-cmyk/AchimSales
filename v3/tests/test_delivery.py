@@ -204,6 +204,45 @@ def test_email_writes_eml_and_logs_outbox(email):
     assert row and row.status == "prepared" and row.attachment_meta["filename"] == "ordered.xlsx"
 
 
+def test_delivery_attachment_uses_schedule_filename_template(tmp_path, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    frozen = datetime(2026, 9, 3, 8, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen if tz is None else frozen.astimezone(tz)
+
+    monkeypatch.setattr("web.delivery.filename_template.datetime", FrozenDateTime)
+
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    cfg = _cfg(tmp_path)
+    email = EmailService(cfg, OutboxRepository(db), SharePointService(cfg))
+    payload = {"tabs": [{"key": "t", "name": "T",
+                         "columns": [{"field": "a"}],
+                         "rows": [{"a": 1}]}]}
+    from web.reporting.cache import ReportCache
+    from web.reporting.runner import ReportRunner
+    svc = DeliveryService(
+        ReportRunner(ReportCache(db)), lambda key: (lambda params, vk: payload), email,
+    )
+    outcome = svc.run_and_deliver(
+        report_key="invoiced", identity="u@x.com", visible_salesman_keys=None,
+        builder_version=1, params={"period": "yesterday"}, layout={},
+        recipients="a@x.com", subject="S", report_name="Invoiced Report",
+        filename_template="{Schedule}_{Period}",
+        schedule_name="Yesterday invoiced",
+    )
+    assert outcome.result.ok
+    raw = (cfg.outbox_dir / outcome.result.eml_name).read_bytes()
+    assert b"Yesterday_invoiced_yesterday.xlsx" in raw
+    row = OutboxRepository(db).get(outcome.result.outbox_id)
+    assert row.attachment_meta["filename"] == "Yesterday_invoiced_yesterday.xlsx"
+
+
 def test_email_text_only_has_no_attachment(email):
     svc, cfg, db = email
     res = svc.deliver(subject="Ordered Report - No Data Found (yesterday)",
@@ -444,6 +483,33 @@ def test_graph_omits_attachment_when_workbook_too_large(tmp_path):
     assert "mock://Ordered/YTD/Ordered_Report_YTD.xlsx" in html
     assert "#2563eb" in html
     assert res.sharepoint_saved is True
+
+
+def test_graph_custom_html_uses_sharepoint_url_token(tmp_path):
+    graph = _FakeGraph()
+    svc = _graph_svc(tmp_path, graph)
+    svc.sharepoint.upload_file = (  # type: ignore[method-assign]
+        lambda folder, name, content: {
+            "webUrl": f"mock://{folder}/{name}", "name": name, "id": "1",
+        }
+    )
+    res = svc.deliver(
+        subject="Scheduled: Daily Ordered (2026-09-03)",
+        recipients_raw="a@x.com", body_text="",
+        report_name="Ordered Report", filename="file.xlsx",
+        xlsx_bytes=b"PK\x03\x04small",
+        sharepoint_path="Ordered/Daily",
+        subject_template="{Schedule} {Period}",
+        body_html_template="<p>Hi {Schedule}</p>{DownloadButton}",
+        schedule_name="Daily Ordered",
+        params={"period": "yesterday"},
+    )
+    assert res.ok
+    call = graph.calls[0]
+    assert call["subject"] == "Daily Ordered yesterday"
+    assert "Download workbook" in (call["body_html"] or "")
+    assert "mock://Ordered/Daily/file.xlsx" in (call["body_html"] or "")
+    assert "Daily Ordered" in (call["body_html"] or "")
 
 
 def test_graph_oversize_without_folder_uploads_fallback_and_html_button(tmp_path):
@@ -1294,3 +1360,30 @@ def test_sharepoint_site_url_404_does_not_search_tenant(tmp_path, monkeypatch):
     assert calls
     assert any("/sites/" in url for url in calls)
     assert not any("search=" in url for url in calls)
+
+
+def test_graph_app_token_skips_fetch_until_expiry():
+    from web.delivery.graph_token import GraphAppToken
+
+    class _TokHttp:
+        def __init__(self):
+            self.posts = 0
+
+        def post(self, url, **kwargs):
+            self.posts += 1
+            class _TokResp:
+                status_code = 200
+                def json(self_inner):
+                    return {"access_token": f"t{self.posts}", "expires_in": 3600}
+                def raise_for_status(self_inner):
+                    return None
+            return _TokResp()
+
+    http = _TokHttp()
+    tok = GraphAppToken("t", "c", "s")
+    assert tok.get(http) == "t1"
+    assert tok.get(http) == "t1"
+    assert http.posts == 1
+    tok._valid_until = 0
+    assert tok.get(http) == "t2"
+    assert http.posts == 2

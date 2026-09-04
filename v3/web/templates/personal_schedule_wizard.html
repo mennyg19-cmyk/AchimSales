@@ -4,6 +4,7 @@
      data-update-url-tpl="{{ url_for('schedules.update_schedule', schedule_id=0) }}"
      data-views-url="{{ url_for('schedules.list_schedulable_views') }}"
      data-privileged="{{ '1' if is_privileged else '' }}"
+     data-user-name="{{ current_user_name }}"
      data-has-sharepoint="{{ '1' if has_sharepoint else '' }}"
      data-od-folders-url="{{ url_for('reports.onedrive_folders') }}"
      data-od-status-url="{{ url_for('reports.onedrive_status') }}"
@@ -27,8 +28,15 @@
     <form id="psForm" class="ms-wizard-body" novalidate>
         <section class="ms-pane" data-pane="1">
             <h3 class="ms-pane-title" tabindex="-1">Which saved view should go out?</h3>
-            <p class="ms-pane-help">{% if is_privileged %}Default plus named views. Company views and custom date ranges are not on this list.{% else %}Named views only. Default, company views, and custom date ranges are not on this list.{% endif %}</p>
-            <div id="psViewList" class="ms-report-grid" role="radiogroup" aria-label="Saved view"></div>
+            <p class="ms-pane-help">{% if is_privileged %}Pick Company (company views and Default) or a salesman, then a view.{% else %}Pick a named view.{% endif %}</p>
+            <label class="ms-field ms-field-block">
+                <span>Whose views?</span>
+                <select id="psOwnerSelect"></select>
+            </label>
+            <label class="ms-field ms-field-block">
+                <span>View</span>
+                <select id="psViewSelect" name="saved_report_id"></select>
+            </label>
             <p id="psViewEmpty" class="ms-pane-help" hidden>No named views yet. Open a report, save a view, then come back.</p>
         </section>
 
@@ -88,6 +96,35 @@
                 </span>
                 <span class="ms-filename-preview">Will save as <strong id="psFilenamePreview"></strong></span>
             </label>
+
+            <label class="ms-field ms-field-block">
+                <span>Email subject (optional)</span>
+                <input type="text" id="psEmailSubject" maxlength="240"
+                       placeholder="Leave blank for Scheduled: view name (date)">
+                <span class="ms-field-hint">Insert:
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Schedule}">Schedule</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Report}">Report</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Period}">Period</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{YYYY}">YYYY</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{Month}">Month</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{DD}">DD</button>
+                    <button type="button" class="fn-token js-ps-subj-token" data-token="{SharePointUrl}">SharePoint URL</button>
+                </span>
+            </label>
+            <div class="ms-field ms-field-block">
+                <span>Email body (optional HTML)</span>
+                <div class="ms-mail-toolbar" role="toolbar" aria-label="Email body">
+                    <button type="button" class="btn btn-sm btn-outline" id="psMailBold">Bold</button>
+                    <button type="button" class="btn btn-sm btn-outline" id="psMailLink">SharePoint link</button>
+                    <button type="button" class="fn-token" id="psMailDownload" data-token="{DownloadButton}">Download button</button>
+                    <button type="button" class="fn-token js-ps-body-token" data-token="{SharePointUrl}">SharePoint URL</button>
+                    <button type="button" class="fn-token js-ps-body-token" data-token="{Schedule}">Schedule</button>
+                    <button type="button" class="fn-token js-ps-body-token" data-token="{Filename}">Filename</button>
+                </div>
+                <div id="psEmailBody" class="ms-mail-editor" contenteditable="true" role="textbox"
+                     aria-label="Email body" data-placeholder="Leave blank for the usual note. Insert a download button or SharePoint link for large files."></div>
+                <span class="ms-field-hint">Outlook-safe HTML. Blank keeps today’s auto text. Tokens fill in when the mail sends.</span>
+            </div>
 
             <label class="ms-choice" id="psEmailOwnerRow">
                 <input type="checkbox" id="psEmailOwner" checked>

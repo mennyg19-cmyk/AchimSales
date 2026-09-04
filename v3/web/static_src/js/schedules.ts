@@ -1,11 +1,10 @@
 // Schedules management pages (personal + company). Create uses the shared wizard.
 
 import { esc, jsonHeaders } from "./http";
-import { renderJobLog } from "./job_log";
+import { pollJobLog, renderJobLog, type JobLogEntry } from "./job_log";
 import { bindMasterWizard } from "./master_wizard";
 import { bindPersonalWizard } from "./personal_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
-import { isHidden, sleepUntilVisible } from "./visibility";
 
 type RunLogRow = {
   id: number;
@@ -16,7 +15,8 @@ type RunLogRow = {
   finished_at?: string | null;
   rows?: number | null;
   message?: string;
-  history_url: string;
+  log_url?: string;
+  job_log?: JobLogEntry[];
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
@@ -69,10 +69,14 @@ function renderActiveJobs(jobs: ActiveJob[]): void {
   el.innerHTML = jobs.map((j) => {
     const step = j.step ? ` <span class="active-job-step">${esc(j.step)}</span>` : "";
     return `<div class="active-job">
-      <div class="active-job-label">${esc(j.label)} — ${esc(j.status)}${step}</div>
+      <button type="button" class="active-job-label js-watch-job" data-job-id="${esc(j.id)}">${esc(j.label)} — ${esc(j.status)}${step}</button>
       <button type="button" class="btn btn-sm btn-outline js-cancel-job" data-job-id="${esc(j.id)}">Cancel</button>
     </div>`;
   }).join("");
+}
+
+function canSeeJobLog(): boolean {
+  return document.getElementById("runLogPanel")?.getAttribute("data-job-log") === "1";
 }
 
 function renderRunLog(runs: RunLogRow[]): void {
@@ -88,27 +92,43 @@ function renderRunLog(runs: RunLogRow[]): void {
     body.innerHTML = `<p class="run-log-empty">No schedule runs yet. Use Run now or wait for the next cadence.</p>`;
     return;
   }
+  const withLog = canSeeJobLog();
+  const stepLogs: JobLogEntry[][] = [];
   const rows = runs.map((r) => {
     const when = r.finished_at || r.started_at || "—";
     const status = (r.status || "queued").replace(/^./, (c) => c.toUpperCase());
     const rowCount = r.rows == null ? "—" : String(r.rows);
+    const log = r.job_log || [];
+    let logCell = "";
+    if (withLog) {
+      const link = r.log_url ? `<a class="btn btn-sm btn-outline" href="${esc(r.log_url)}">Log</a>` : "";
+      let steps = "";
+      if (log.length) {
+        stepLogs.push(log);
+        steps = `<details class="run-log-steps"><summary>Steps</summary><ol class="live-job-log js-run-steps"></ol></details>`;
+      }
+      logCell = `<td>${link}${steps}</td>`;
+    }
     return `<tr>
       <td class="run-log-when">${esc(when)}</td>
       <td><span class="mini-flag">${esc(r.kind)}</span> ${esc(r.title)}</td>
       <td><span class="${badgeClass(r.status)}">${esc(status)}</span></td>
       <td>${esc(rowCount)}</td>
       <td class="run-log-msg">${esc(r.message || "—")}</td>
-      <td><a class="btn btn-sm btn-outline" href="${esc(r.history_url)}">History</a></td>
+      ${logCell}
     </tr>`;
   }).join("");
   body.innerHTML = `<div class="table-wrap run-log-table-wrap">
     <table class="data-table run-log-table">
       <thead><tr>
-        <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th><th></th>
+        <th>When</th><th>Schedule</th><th>Status</th><th>Rows</th><th>What happened</th>${withLog ? "<th></th>" : ""}
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
+  body.querySelectorAll<HTMLOListElement>("ol.js-run-steps").forEach((ol, i) => {
+    renderJobLog(ol, stepLogs[i]);
+  });
 }
 
 async function refreshRunLog(): Promise<RunLogRow[]> {
@@ -130,38 +150,26 @@ async function refreshRunLog(): Promise<RunLogRow[]> {
   }
 }
 
+let watchGen = 0;
+
 async function pollJob(jobId: string, onStep: (label: string) => void): Promise<void> {
   const panel = document.getElementById("runLogPanel");
   const tpl = panel?.getAttribute("data-job-url") || "";
   if (!tpl || !jobId) return;
   const url = tpl.replace("__ID__", jobId);
   const live = document.getElementById("liveJobLog");
-  const deadline = Date.now() + 15 * 60 * 1000;
-  while (Date.now() < deadline) {
-    await sleepUntilVisible(1000);
-    if (isHidden()) {
-      await sleepUntilVisible(deadline - Date.now());
-      continue;
-    }
-    try {
-      const res = await fetch(url, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) continue;
-      const job = await res.json() as {
-        status?: string; step?: string;
-        log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[];
-      };
-      renderJobLog(live, job.log);
-      if (job.step) onStep(job.step);
-      if (job.status === "success" || job.status === "failure" || job.status === "cancelled") {
-        return;
-      }
-    } catch {
-      // keep polling
-    }
-  }
+  const gen = ++watchGen;
+  await pollJobLog(url, live, onStep, () => gen !== watchGen);
+}
+
+async function watchActiveJob(jobId: string): Promise<void> {
+  document.getElementById("runLogPanel")?.setAttribute("open", "");
+  await pollJob(jobId, (step) => {
+    document.querySelectorAll<HTMLElement>(".js-watch-job").forEach((el) => {
+      if (el.dataset.jobId === jobId) el.title = step;
+    });
+  });
+  await refreshRunLog();
 }
 
 function bindRowActions(): void {
@@ -286,18 +294,87 @@ function bindSortableTables(): void {
   });
 }
 
+function bindGridEdit(): void {
+  const root = document.getElementById("schedulesRoot");
+  const btn = document.getElementById("psGridEditBtn");
+  if (!root || !btn) return;
+  btn.addEventListener("click", () => {
+    const on = root.classList.toggle("ps-grid-editing");
+    btn.classList.toggle("btn-primary", on);
+    btn.classList.toggle("btn-outline", !on);
+    const label = btn.querySelector("span");
+    if (label) label.textContent = on ? "Done" : "Edit table";
+    root.querySelectorAll<HTMLElement>(".js-grid-text").forEach((el) => { el.hidden = on; });
+    root.querySelectorAll<HTMLInputElement>(".js-grid-input").forEach((el) => { el.hidden = !on; });
+    if (!on) void saveGridEdits(root);
+  });
+}
+
+async function saveGridEdits(root: HTMLElement): Promise<void> {
+  const tpl = root.getAttribute("data-update-url-tpl") || "";
+  if (!tpl) return;
+  for (const row of root.querySelectorAll<HTMLTableRowElement>("tr[data-id][data-kind='personal']")) {
+    const rec = row.querySelector<HTMLInputElement>('input[data-field="recipients"]');
+    const folder = row.querySelector<HTMLInputElement>('input[data-field="folder"]');
+    if (!rec || !folder) continue;
+    const params = JSON.parse(row.dataset.params || "{}");
+    const kind = row.dataset.folderKind || "onedrive";
+    const path = folder.value.trim();
+    const owner = (row.dataset.ownerEmail || "").trim().toLowerCase();
+    const listed = rec.value.split(",").map((s) => s.trim()).filter(Boolean);
+    const extras = listed.filter((e) => e.toLowerCase() !== owner);
+    const origRec = (row.dataset.recipients || "").trim();
+    const origFolder = (row.dataset.sharepointPath || "").trim();
+    if (rec.value.trim() === origRec && path === origFolder) continue;
+    const body: Record<string, unknown> = {
+      cadence: JSON.parse(row.dataset.cadence || "{}"),
+      recipients: extras.join(", "),
+      email_to_owner: listed.some((e) => e.toLowerCase() === owner),
+      filename_template: row.dataset.filenameTemplate || "",
+      email_on_no_data: !!params.email_on_no_data,
+      email_on_no_data_me_only: !!params.email_on_no_data_me_only,
+      email_cc: params.email_cc || "",
+      email_bcc: params.email_bcc || "",
+      folder_kind: kind,
+      onedrive_path: kind === "sharepoint" ? "" : path,
+      sharepoint_path: kind === "sharepoint" ? path : "",
+    };
+    if (row.dataset.savedReportId) body.saved_report_id = row.dataset.savedReportId;
+    const url = tpl.replace(/\/0$/, `/${row.dataset.id}`);
+    const ok = await act(url, "PUT", body);
+    if (!ok) {
+      window.alert("Could not save a row. Check recipients and folder, then try again.");
+      return;
+    }
+  }
+  location.reload();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   bindRowActions();
   bindSortableTables();
   bindPersonalWizard();
+  bindGridEdit();
   bindMasterWizard();
   bindSharePointPicker();
   document.getElementById("activeJobs")?.addEventListener("click", async (ev) => {
-    const btn = (ev.target as HTMLElement).closest("button.js-cancel-job") as HTMLButtonElement | null;
-    if (!btn?.dataset.jobId) return;
-    btn.disabled = true;
-    await cancelJob(btn.dataset.jobId);
-    await refreshRunLog();
+    const target = ev.target as HTMLElement;
+    const cancel = target.closest("button.js-cancel-job") as HTMLButtonElement | null;
+    if (cancel?.dataset.jobId) {
+      cancel.disabled = true;
+      await cancelJob(cancel.dataset.jobId);
+      await refreshRunLog();
+      return;
+    }
+    const watch = target.closest("button.js-watch-job") as HTMLButtonElement | null;
+    if (watch?.dataset.jobId) void watchActiveJob(watch.dataset.jobId);
   });
-  void refreshRunLog();
+  const runLog = document.getElementById("runJobLog");
+  const jobUrl = runLog?.getAttribute("data-job-url") || "";
+  if (runLog && jobUrl) void pollJobLog(jobUrl, runLog);
+  void (async () => {
+    await refreshRunLog();
+    const first = document.querySelector<HTMLElement>(".js-watch-job")?.dataset.jobId;
+    if (first) void watchActiveJob(first);
+  })();
 });

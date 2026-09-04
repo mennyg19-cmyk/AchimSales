@@ -490,21 +490,29 @@ class ScheduleRunRepository:
         self.db = db
 
     def start(self, schedule_id: int | None, schedule_type: str = PERSONAL,
-              started_at: str | None = None, *, manual: bool = False) -> int:
-        meta = json.dumps({"manual": True} if manual else {})
+              started_at: str | None = None, *, manual: bool = False,
+              extra_meta: dict | None = None) -> int:
+        meta: dict = {}
+        if extra_meta:
+            meta.update(extra_meta)
+        if manual:
+            meta["manual"] = True
         with self.db.precious() as conn:
             cur = conn.execute(
                 "INSERT INTO schedule_runs(schedule_id, schedule_type, status,"
                 " started_at, output_meta) VALUES (?, ?, 'running', ?, ?)",
-                (schedule_id, schedule_type, started_at or _now(), meta),
+                (schedule_id, schedule_type, started_at or _now(), json.dumps(meta)),
             )
             return cur.lastrowid
 
     def finish(self, run_id: int, *, status: str, rows: int | None = None,
                output_meta: dict | None = None, debug_log: str = "") -> None:
-        meta = dict(output_meta or {})
         existing = self.get(run_id)
-        if existing and (existing.output_meta or {}).get("manual"):
+        old = dict((existing.output_meta or {}) if existing else {})
+        meta = dict(old)
+        if output_meta:
+            meta.update(output_meta)
+        if old.get("manual"):
             meta["manual"] = True
         with self.db.precious() as conn:
             conn.execute(

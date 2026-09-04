@@ -1,4 +1,82 @@
-# Decision Log
+## 2026-09-04 Merge origin/main (0b17176) into PR #35
+**What I had to decide:** How to take live save-view modal, custom schedule mail, job-log-for-devs, and Graph 401 refresh without dropping leftover worker/Graph/a11y work.
+**What I chose:** Keep both. Delivery-legs stays `0021`. Keep HTTP-only Gunicorn, `enqueue_or_503`, required clock `slot_id`, GraphTokenCache in `graph_auth.py` (not SharePoint `GraphAppToken`), no tenant SharePoint search, dialog helper, live regions including `#reportStatus`, tablist, Tabulator MIT. Take main's product: per-run log page, live saved-view send, save-view modal, custom subject/HTML + sanitizer, admin company-view scheduling, cancel `can_cancel`, `without_delivery_keys`. `pollJobLog` uses `sleepUntilVisible`. Do not restore `beta_sources`.
+**Why:** Live `main` is the current site. Leftover 8.15 and Phase 5 Graph cache are this PR's contracts. Duplicate `job_id=` from the merge was dropped.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
+## 2026-09-04 Saved-view params cannot carry schedule mail HTML
+**What I had to decide:** Trust-boundary F1 — salesman plants `email_html` on a saved view, schedule create copies it, admin Edit runs it via `innerHTML`.
+**What I chose:** Strip delivery keys when seeding a schedule from a view (`without_delivery_keys`). Same strip on the runner live-view overlay. Sanitize mail fields when copying from an existing row and when rendering `/schedules`.
+**Why:** Delivery keys belong on the schedule. Mail send was already sanitized; the hole was the admin editor.
+**Status:** DECIDED
+
+## 2026-09-04 SharePoint Test upload 401 while mail still sent
+**What you asked for:** Why didn't personal #37 Number 4 land in SharePoint Test?
+**What I had to decide:** 401 on `folder D365 F&O` then Graph sendMail ok — permissions vs a dead cached token.
+**What I chose:** Dead cached token. SharePoint kept one Graph bearer for the life of the gunicorn worker; Graph mail fetches a new token on every send. Overnight (and any worker older than ~1 hour) the SharePoint bearer is rejected, the 12.9 MB file never uploads, and mail still goes out because recipients were set. Fix: honor `expires_in`, and on Graph 401 drop the cache and retry the folder call once.
+**Why:** The log has no site lookup (drive id already cached) and mail succeeded, which is the opposite of a missing SharePoint permission. 403 would be "token works, no access."
+**Status:** DECIDED
+
+## 2026-09-03 Schedule emails can have a subject and HTML body
+**What you asked for:** Set subject and HTML body for schedule emails, with variables and buttons (SharePoint links). Full featured.
+**What I chose:** Per-schedule fields on the personal wizard Where step. Same `{Schedule}` chips as the filename, plus `{SharePointUrl}` and `{DownloadButton}`. Small Bold / SharePoint-link toolbar, no new editor package. Blank = today’s auto mail. Tokens fill in at send time after the file is uploaded.
+**Why:** Outlook strips CSS buttons; the app already had a table-cell download button for oversized files. A Word-like editor would be a second stack that mail clients would gut.
+**Status:** DECIDED
+
+## 2026-09-03 Company-view schedules keep their source
+**What I had to decide:** How to tell a personal schedule of a company view from a personal view of the same name.
+**What I chose:** Store `view_source=company` on the schedule params. The runner and the schedules grid resolve company_views first when that flag is set. Personal/default schedules omit it and still prefer the owner's saved view.
+**Why:** Name-only lookup sent the personal filters (and could mail the wrong window) when both views were named Collision.
+**Status:** DECIDED
+
+## 2026-09-03 Admins can schedule company views
+**What you asked for:** Admins and developers should be able to set up schedules using company views.
+**What I chose:** Company named views (Daily Ordered, Heshy Open Orders, …) sit in the wizard Company group with Default. `POST /api/schedules` accepts `company:<id>`. The send uses the live company-view filters, same as a personal named view. Salesmen do not see or schedule them. Company (master) add/edit stays hidden.
+**Why:** Company views are the shared layouts people actually mail. Default-only in that dropdown left Daily Ordered off the personal wizard.
+**Status:** DECIDED
+
+## 2026-09-03 Schedule UI: hide company setup, two-dropdown wizard, dev grid
+**What you asked for:** Hide company schedule add/edit (keep the code). Devs see all report runs and schedule history with steps behind a dropdown. Wizard step 1 is salesman/company then views. Home presets collapsed. Devs can edit the schedules grid from a pencil.
+**What I chose:** `SHOW_COMPANY_SCHEDULE_SETUP = False` hides Settings button, Add/Edit/Copy/Delete, and the 5-step wizard. Clock jobs and Run now stay. Developers get `?all=1` Recent Reports, all schedule runs on /schedules, and Steps `<details>`. Wizard uses two selects. Home Company views / My presets are `<details>` closed. Pencil toggles recipients/folder inputs.
+**Why:** Company setup is moving to personal named-view schedules. Devs still need the old list for Run now and history.
+**Status:** DECIDED
+
+## 2026-09-03 Company views can keep a period
+**What you asked for:** Saving a company view dropped the period even though you want that option. Save this view used a browser prompt.
+**What I had to decide:** Whether the period is always stored, and what lives in the new popup.
+**What I chose:** An in-app Save this view modal (name, Save for, “Save the date window”). PUT `/company-views` takes `include_window`. Off or omitted still strips period. Company schedules still send their own period.
+**Why:** The old strip was so schedules could pick YTD/MTD/yesterday. That still works. The report-page view should be allowed to remember yesterday when you ask it to. Browser `prompt` is the native alert look.
+**Status:** DECIDED
+
+## 2026-09-03 Schedule filename is the email attachment name
+**What you asked for:** The filename in schedule setup is not used on the email attachment.
+**What I had to decide:** What `{Schedule}` means on a personal schedule, which has no name field.
+**What I chose:** Personal named views use the view name for `{Schedule}` (same as the setup preview). Master schedules still use the schedule name. Default view falls back to the report title. The resolved name is the Graph/SMTP attachment filename.
+**Why:** The wizard preview used the view name; the runner passed the report title because `Schedule` has no `name`. Default `{Schedule}_{MM}-{DD}-{YYYY}` then mailed `Invoiced_Report_…xlsx` instead of `Yesterday_invoiced_…xlsx`.
+**Status:** DECIDED
+
+## 2026-09-03 Job log is developer-only
+**What you asked for:** The job log on the report page and everywhere should only be visible to devs.
+**What I had to decide:** Whether admin also sees it; whether Cancel and the coarse status line stay; whether the JSON API must hide `log` too.
+**What I chose:** Live DB role `developer` only (`authz.is_developer`). Admins, managers, and salesmen do not get the panel, Log button, run-log page, history step log, or `log`/`step` on `GET /api/jobs`. Cancel, recent-run status/rows/summary, and "Building report…" stay. Schedules keep a hidden `#liveJobLog` so poll-until-done still works.
+**Why:** The log has API params and first-row samples. That is diagnostic, same as API preview. Hiding only the HTML would still leak it on poll.
+**Status:** DECIDED
+
+## 2026-09-03 Personal schedule sends the live view period
+**What you asked for:** Avig's yesterday view works on the report page (yesterday + YTD commissions) but the schedule ran all_time. Job log on the report page should collapse.
+**What I had to decide:** Whether the schedule row's stored params or the named saved view wins at send time.
+**What I chose:** Personal named views send the live saved-view filters (period included). Delivery keys stay on the schedule. Company schedules still use their own period. Report-page job log is a collapsible Job log panel.
+**Why:** The GUI always reads the view. The runner used a snapshot copied when the schedule was created, so an edited view (or a leftover all_time snapshot) sent the wrong window.
+**Status:** DECIDED
+
+## 2026-09-03 Recent run Log is that job only (hotfix)
+**What you asked for:** History under the recent run log was the whole schedule. After reload or opening someone else's job, the log was empty or one mashed line with no fields.
+**What I had to decide:** Whether the schedule table History button also becomes per-run.
+**What I chose:** Recent run log button is **Log** → `/schedules/runs/<id>` (that run only, Time/Step/Detail). Schedule table **History** stays all-runs. Persist `job_id` on start and `job_log` on success/failure/cancel (`finish` keeps existing `job_id`). Privileged users can open someone else's personal run; a salesman cannot. Reload while running polls the active job into the live log.
+**Why:** The recent-run History URL was the schedule history page, live log was session-only, failed finishes wiped the log, and entries were `t — step: detail` on one line.
+**Status:** DECIDED — hotfix deviation (self-review + tests; auth on the new route is owner-or-privileged / admin for company).
 
 ## 2026-09-04 Phase leftover 8.15 gate closed
 **What I chose:** Close leftover 8.15. Trust-boundary N/A. Loop C optional nit left (aria-live ternary also in `admin.ts`/`schedules.ts`; spec forbade a new helper). Representative browser matrix (not 5×4×4 combinatorial) is the Phase 8 leftover evidence; full matrix remains a later Phase 8 gate.

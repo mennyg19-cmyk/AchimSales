@@ -1,5 +1,35 @@
 # Testing Strategy
 
+## Schedule UI: hide company setup, wizard dropdowns, dev history
+
+**What to test:**
+- Settings has no Company schedules button. Company page has no Personal schedules link, Add/Edit/Copy/Delete, or wizard. Copy API still works.
+- `/api/schedules/views` Company group has named company views (`company:<id>`) then Default.
+- Admin/developer `POST /api/schedules` with `company:<id>` creates a personal schedule of that view. Salesman gets 403.
+- That schedule stores `view_source=company` so a same-named personal view does not steal the send or the grid token. A personal schedule of that name keeps its own layout; a company-view schedule uses the live company layout.
+- Personal send of a company-view name uses live company_views params when the owner has no personal saved report of that name.
+- Developer `/api/reports/active?all=1` sees another user's report.run; admin `?all=1` does not.
+- Developer GET `/api/jobs/<id>` can read another user's `report.run`; `can_cancel` is false; cancel of that job is 404. Unrelated job types stay 404. Privileged cancel of `schedule.run` still works. Cancel on the report page only shows when `can_cancel` is true and does not claim success on a failed POST.
+- PUT `/api/schedules/<id>` without `start_date`/`end_date` keeps the existing window. Grid Done omits empty `saved_report_id` and skips unchanged rows.
+- Personal wizard stores optional `email_subject` / `email_html` with `{Schedule}` `{SharePointUrl}` `{DownloadButton}` tokens. Blank keeps the auto subject/body. Grid PUT without those keys keeps them. Script tags and `javascript:` / `data:` hrefs are stripped on store, including encoded newlines/tabs. Subject CR/LF (including `&#13;`) are unfolded so Graph/SMTP cannot fail on a folded header. `[TEST]` and the retry-after-failure subject mark stay on a custom subject, even at the 240-character cap. A saved view's `params` cannot smuggle `email_html` / `email_subject` / `email_cc` onto a schedule or a send; salesman-planted markup does not appear on `GET /schedules` for an admin.
+- Developer recent-runs includes `job_log`; others do not. History Steps is a details block.
+- Home page `home-fold` wraps My presets (closed). Pencil `psGridEditBtn` is on the schedules template. Grid save splits owner vs extras so the owner email is not dropped.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
+
+
+## Company views can keep a period
+
+**What to test:**
+- PUT `/company-views` without `include_window` still drops `period`.
+- PUT with `include_window: true` stores `period`.
+- Save this view is `#saveViewModal` (name, Save for, date-window checkbox), not `window.prompt`.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
+
+
 Testing plan built alongside code. Each feature/module gets an entry documenting what to test, expected behavior, and edge cases. See `testing-protocol.mdc` for rules.
 
 ## Phase 1 containment: headers, legacy bypass, and salesman scope
@@ -172,6 +202,46 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - A valid upload session continues from Graph's confirmed offset instead of creating a new session at byte zero.
 
 **Test file:** `v3/tests/test_delivery.py`
+
+## Schedule filename is the email attachment name
+
+**What to test:**
+- Personal named-view schedule passes `schedule_name` = view name (not report title) and the stored `filename_template` into delivery.
+- `run_and_deliver` puts the resolved template on the .eml attachment and outbox `attachment_meta.filename`.
+- Personal wizard preview uses `view.name`; report Schedule modal uses the loaded named view.
+
+**Test file:** `v3/tests/test_scheduling.py`, `v3/tests/test_delivery.py`, `v3/tests/test_frontend.py`
+
+## Job log is developer-only
+
+**What to test:**
+- Developer `GET /api/jobs/<id>` includes `log` and `step`. Admin/salesman get status without those keys.
+- `/schedules/runs/<id>` is 200 for developer, 404 for admin, salesman owner, and stranger.
+- Report page `#jobLiveLogPanel` only when developer. Cancel still renders for others.
+- Recent-runs JSON omits `log_url` unless developer. History has no Log / job_log for non-devs.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
+
+## Personal schedule uses the live saved-view period
+
+**What to test:**
+- A personal named-view schedule whose row still has `period: all_time` sends the live view's `yesterday` (and keeps schedule delivery keys such as `email_on_no_data`).
+- Company/master schedules still send the period stored on the schedule, not a company view.
+- Report page has `#jobLiveLogPanel` wrapping `#jobLiveLog`.
+
+**Test file:** `v3/tests/test_scheduling.py`, `v3/tests/test_frontend.py`
+
+## Recent run Log is that job only
+
+**What to test:**
+- `GET /api/schedules/recent-runs` `log_url` is `/schedules/runs/<run id>`, not `/schedules/<schedule id>/history`.
+- `GET /schedules/runs/<id>` shows that run's log with Time / Step / Detail (`live-job-entry`). Schedule table History still goes to schedule history.
+- Salesman 404 on someone else's run. Owner 200. Privileged 200 on someone else's personal run.
+- Failure `finish` keeps `job_id` and stores `job_log`. `finish` does not drop `job_id` from start meta.
+- Frontend: recent log button is Log; `renderJobLog` writes `live-job-step` / `live-job-detail`; reload watches the first active job.
+
+**Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_repositories_delivery.py`, `v3/tests/test_frontend.py`
+
 ## Live job step log; first SharePoint save does not search the whole tenant
 
 **What to test:**
@@ -183,6 +253,7 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 - The worker writes `job started` / `job finished` around a handler; extra `step()` calls from the handler show up in `jobs.log`.
 - Company Run now sets `owner_user_id` so the clicker can poll `/api/jobs/<id>`. History HTML includes the run log.
 - `SharePointService.upload_file` with a configured `SP_SITE_URL` that Graph returns 404 for raises naming `SP_SITE_URL` and does **not** call `sites?search=`.
+- A cached Graph token that Graph rejects with 401 is dropped and the folder create is retried with a new token (SharePoint Test folder after a long worker life). `expires_in` is honored so overnight jobs do not keep a dead bearer.
 - Schedules and company schedules templates have `data-job-url`; `schedules.ts` polls that job instead of giving up on the run-log table after 90 seconds.
 - Owner or admin can `POST /api/jobs/<id>/cancel` a queued/running `schedule.run`. A salesman cannot cancel a job they do not own. Admins can cancel a clock job with `owner_user_id` NULL. Cancelling a clock job frees its dedup key so the next enqueue is a new job. `GET /api/schedules/recent-runs` includes `active_jobs`. Personal and company schedule pages have `#activeJobs` and `data-cancel-url`.
 
@@ -558,7 +629,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Expected behavior:**
 - Company Daily Ordered Summary is salesman then customer. By Customer is salesman only. By Order is flat. Per-rep files still drop the extra Salesman group.
-- Company views do not store a date window; schedules own YTD / MTD / yesterday.
+- Company views may store a date window when `include_window` is set; schedules still own their send period.
 
 **Edge cases:**
 - Same customer with two item numbers stays together and items sort A-Z.

@@ -79,11 +79,13 @@ def settings_page():
         ]
     uid = _uid(p.email)
     excluded = ExclusionRepository(current_app.config["DB"]).get(uid) if uid else set()
+    from web.scheduling.ui_flags import SHOW_COMPANY_SCHEDULE_SETUP
     return render_template(
         "settings.html", active_tab="settings", profile=p, flags=flags,
         test_mode_on=test_mode_on, test_emails=test_emails,
         is_admin=is_admin, is_developer=_is_developer(p),
         reports=reports, excluded=sorted(excluded),
+        company_schedule_setup=SHOW_COMPANY_SCHEDULE_SETUP,
     )
 
 
