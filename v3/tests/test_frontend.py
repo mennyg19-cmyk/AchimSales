@@ -431,6 +431,16 @@ def test_phase_8_6_live_status_announcements():
     assert 'job.status === "cancelled"' in schedules
 
 
+def test_report_status_is_a_live_region():
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert 'id="reportStatus" class="report-status" role="status" aria-live="polite" hidden' in html
+    assert 'const txt = $("reportStatusText");' in report
+    assert 'if (txt) txt.textContent = msg; else el.textContent = msg;' in report
+    assert 'setAttribute("aria-live", kind === "error" ? "assertive" : "polite")' in report
+    assert 'setAttribute("role", kind === "error" ? "alert" : "status")' in report
+
+
 def test_phase_8_7_named_controls_have_44px_targets():
     css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
     for selector in (".help-btn", ".modal-close", ".sp-picker-close", ".customer-chip", ".sched-day-chip"):

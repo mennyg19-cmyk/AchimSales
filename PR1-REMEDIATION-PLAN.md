@@ -448,7 +448,7 @@ Live gate:
   named `aria-haspopup=menu` button; tablist behavior remains deferred.
   Loop A F1 (outside-click restoreFocus) closed on `63be8cf`/`6b7cce0`.
   Gate closed on `6b7cce0`. Loops A+B+C zero. Trust-boundary N/A.
-- [x] Add live status/error announcements for admin, dashboard, Settings, and schedule sends. Evidence: `#addUserMsg`, `#euMsg`, `#esMsg`, `#dashRefreshStatus`, `#exclHint`, `#testModeMsg`, and page-level `#runStatus` are live regions; errors switch to `role=alert` / assertive. Isolated authenticated browser inspected admin, dashboard, Settings, and schedules on 2026-09-03. Report-page `#reportStatus` remains deferred. Loop A F1 (queued labeled running) and F2 (silent access/exclusion failures) closed on `c9c01a7`. Gate closed on `c9c01a7`. Loops A+B+C zero. Trust-boundary N/A.
+- [x] Add live status/error announcements for admin, dashboard, Settings, schedule sends, and report runs. Evidence: `#addUserMsg`, `#euMsg`, `#esMsg`, `#dashRefreshStatus`, `#exclHint`, `#testModeMsg`, page-level `#runStatus`, and report `#reportStatus` are live regions; errors switch to `role=alert` / assertive. Isolated authenticated browser inspected admin, dashboard, Settings, and schedules on 2026-09-03. Phase 8.15 source test and representative Chrome CDP matrix evidence are recorded in `.scratch/phase-8-15-impl-notes.md`. Loop A F1 (queued labeled running) and F2 (silent access/exclusion failures) closed on `c9c01a7`. Gate closed on `c9c01a7`. Loops A+B+C zero. Trust-boundary N/A.
 - [x] Bring remaining help/filter/chip/day/close controls to 44px targets. Evidence:
   authenticated Chrome CDP measured report help and modal close at 44×44;
   report/Settings customer chips at 102.56×44; weekday and wide day chips at

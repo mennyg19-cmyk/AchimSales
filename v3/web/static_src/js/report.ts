@@ -106,6 +106,8 @@ function setStatus(msg: string, kind: "info" | "error" = "info"): void {
   if (txt) txt.textContent = msg; else el.textContent = msg;
   el.className = "report-status report-status-" + kind;
   el.hidden = false;
+  el.setAttribute("aria-live", kind === "error" ? "assertive" : "polite");
+  el.setAttribute("role", kind === "error" ? "alert" : "status");
 }
 
 function clearStatus(): void {

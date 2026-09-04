@@ -1467,10 +1467,30 @@ A cheaper model can use this file as a guide to run the full test suite without 
 
 **Edge cases:**
 - A failed dashboard enqueue restores its button and announces the failure.
-- Run-now polling announces each new state once, while report-page status remains
-  unchanged.
+- Run-now polling announces each new state once; report-page status is covered by
+  Phase 8.15.
 
 **Test file:** `v3/tests/test_frontend.py`; authenticated browser inspection;
+`cd v3 && npm run build`
+
+## Phase 8.15 report live status and representative browser matrix
+**What to test:**
+- `#reportStatus` starts as a polite status region, switches to an assertive alert
+  for errors, and writes only to `#reportStatusText` so Cancel remains present.
+- In isolated authenticated Chrome CDP, check the report error path, schedules
+  status region, 320/1280 widths on reports and Settings, dark report controls,
+  and completed-report tablist semantics.
+
+**Expected behavior:**
+- Report progress is announced politely; an error is announced assertively without
+  changing the status bar’s visual treatment or removing Cancel.
+- The representative browser matrix has no document-level horizontal scroll.
+
+**Edge cases:**
+- The live-region attributes exist while the status bar is hidden.
+- The error route uses no real D365 report run.
+
+**Test file:** `v3/tests/test_frontend.py`; `.scratch/phase8-matrix-browser-check.py`;
 `cd v3 && npm run build`
 
 ## Phase 8.7 44px help, chip, day, and close targets

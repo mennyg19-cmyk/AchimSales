@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-09-04 Finish tonight — defaults (user asked questions then work)
+**What I had to decide:** Batch leftover vs blocked product, browser-matrix depth, leftover-vs-merge order, and which chats we can mine.
+**What I chose:** Skip Q8/Q9, Phase 7 remainder, Phase 9 archive parity, and Phase 10 merge. Leftover phase is report `#reportStatus` live region plus a representative browser matrix (developer, 320+1280, default+dark). One A/B/C review after that whole leftover, not per todo. Then merge `origin/main` @ `0b17176` keep-both. Follow the user's leftover-first order because `#reportStatus`/`setStatus` match on main. Other-environment chats for PRs #36–#51 are not listed here; git + merged PR titles are canonical. The only other accessible chat with a diff is `bc-9539423f` (sales-rep scope; already on this PR via earlier main merge).
+**Why:** User said ask then finish tonight. Those four skips are still BLOCKED or owner/Azure work. Combinatorial matrix is a gate, not a checkbox.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-03 Phase 8.14 gate closed
 **What I chose:** Close Phase 8.14. Trust-boundary N/A. Loop C optional nits left (wrap-math vs `moveMenuFocus`; `key`/`event.key` naming matches the caret handler).
 **Why:** Loop A F1 (tab id collision) closed `3bcb187`. A re-pass zero. Loop B zero. Loop C zero blocking. Isolated CDP PASS. Did not restyle. Did not split `report.ts`.
