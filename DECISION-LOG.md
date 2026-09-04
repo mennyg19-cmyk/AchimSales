@@ -1,3 +1,11 @@
+## 2026-09-04 Phase 9.2 support/recovery inventory
+**What I had to decide:** Whether the leftover “no old route/test/tool/doc needed” bullet can be checked without unmounting.
+**What I chose:** Leave it unchecked. Keep `/legacy`, `/test`, `/test-next`, `/beta` redirect, their route tests, the universal Automation runbook/publisher, and the live-vs-`/test` parity diagnostic. Do not delete historical `GO-LIVE-DAY-REPORT.md` / `rebuild/REBUILD-PLAN.md` / retired `test/` in this leftover. Azure send-verify stays owner/ops.
+**Why:** Phase 7 still forbids unmount. Q6 retired in-app distributions as product, not as mounted `/legacy` code.
+**Status:** DECIDED (inventory). Bullet stays open until mounts can drop.
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
 ## 2026-09-04 Phase 9.1 totals/export/role-scope code compare
 **What I had to decide:** Whether archive-vs-v3 footer and schedule-fanout differences are bugs, and whether frozen goldens can be invented.
 **What I chose:** Record Customer Activity count footer and Salesman percent-footer as unknown. Keep the three earlier semantic unknowns. Invoiced explicit-zero commission stays Q2. Do not invent XLSX goldens; owner samples are required. Schedule management-vs-salesman fanout is an implementation change, not delivery proof.

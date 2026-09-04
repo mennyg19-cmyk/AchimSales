@@ -553,6 +553,14 @@ Gate:
   Evidence: Q6 — in-app distributions stay retired. Azure Automation verify is still owner/ops.
 - [ ] Verify Azure Automation still sends every required distribution.
 - [ ] Verify no old route, test, tool, or document is needed for support/recovery.
+  Not yet true while mounts remain. Still required: `/legacy` (`webapp/`),
+  `/test` (v3 sandbox), `/test-next` (`rebuild/`), `/beta` bookmark redirect;
+  `tests/test_wsgi_dispatch.py`, mounted magic-link coverage, `tests/test_runbook_retry.py`;
+  `runbooks/universal_runbook.py` + `deploy-runbook.ps1` + README Automation section;
+  `tools/parity/` as a live-vs-`/test` diagnostic (not archive goldens).
+  Historical/unused (do not delete in this leftover): retired `test/`,
+  `GO-LIVE-DAY-REPORT.md`, `rebuild/REBUILD-PLAN.md`. Azure Automation send-verify
+  stays owner/ops. Do not unmount.
 
 ### 9.3 Documentation and hygiene
 
