@@ -35,7 +35,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import User, UserRepository
 from web.scheduling.personal_views import is_custom_date_params, is_schedulable_saved_view
 from web.scheduling.ui_flags import SHOW_COMPANY_SCHEDULE_SETUP
-from web.scheduling.delivery_keys import PERSONAL_DELIVERY_PARAM_KEYS
+from web.scheduling.delivery_keys import PERSONAL_DELIVERY_PARAM_KEYS, without_delivery_keys
 from web.scheduling import cadence as C
 from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
@@ -404,7 +404,7 @@ def _recipients_for_view_schedule(body: dict, owner: User, *, privileged: bool,
 
 
 def _delivery_params(body: dict, view_params: dict, *, privileged: bool) -> dict:
-    params = dict(view_params or {})
+    params = without_delivery_keys(view_params)
     params["email_on_no_data"] = bool(body.get("email_on_no_data"))
     params["email_on_no_data_me_only"] = (
         bool(body.get("email_on_no_data_me_only")) if privileged else False
@@ -418,22 +418,43 @@ def _delivery_params(body: dict, view_params: dict, *, privileged: bool) -> dict
     return params
 
 
+def _clean_mail_field(key: str, raw) -> str:
+    text = raw.strip() if isinstance(raw, str) else ""
+    if not text:
+        return ""
+    if key == "email_html":
+        return sanitize_html(text).strip()
+    if key == "email_subject":
+        return sanitize_subject(text)
+    return text
+
+
 def _apply_mail_templates(params: dict, body: dict, existing_params: dict | None = None) -> None:
     src = existing_params or {}
     for key in ("email_subject", "email_html"):
         if key in body:
-            raw = body.get(key)
-            text = raw.strip() if isinstance(raw, str) else ""
-            if key == "email_html" and text:
-                text = sanitize_html(text).strip()
-            elif key == "email_subject" and text:
-                text = sanitize_subject(text)
-            if text:
-                params[key] = text
-            else:
-                params.pop(key, None)
+            text = _clean_mail_field(key, body.get(key))
         elif src.get(key):
-            params[key] = src[key]
+            text = _clean_mail_field(key, src.get(key))
+        else:
+            continue
+        if text:
+            params[key] = text
+        else:
+            params.pop(key, None)
+
+
+def _mail_params_for_page(params: dict) -> dict:
+    out = dict(params or {})
+    for key in ("email_subject", "email_html"):
+        if key not in out:
+            continue
+        text = _clean_mail_field(key, out.get(key))
+        if text:
+            out[key] = text
+        else:
+            out.pop(key, None)
+    return out
 
 
 def _personal_or_404(schedule_id: int, p):
@@ -512,7 +533,7 @@ def schedules_page():
             "name": spec.title if spec else s.report_key,
             "report_title": spec.title if spec else s.report_key,
             "cadence": C.describe(s.cadence), "cadence_raw": s.cadence or {},
-            "params": s.params or {}, "recipients": s.recipients,
+            "params": _mail_params_for_page(s.params or {}), "recipients": s.recipients,
             "sharepoint_path": s.sharepoint_path, "is_active": s.is_active,
             "last_run": _runs().last_run_at(s.id, PERSONAL),
             "filename_template": getattr(s, "filename_template", "") or "",

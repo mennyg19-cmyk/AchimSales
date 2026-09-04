@@ -596,6 +596,44 @@ def test_runner_personal_named_view_uses_live_period_not_stale_schedule(tmp_path
     assert delivery.calls[0]["email_on_empty"] is True
 
 
+def test_runner_does_not_take_cc_from_live_saved_view(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    uid = UserRepository(db).upsert("avig@x.com", display_name="Avig", role="salesman").id
+    SavedReportRepository(db).create(
+        uid, "invoiced", "Yesterday invoiced",
+        {"period": "yesterday", "email_cc": "sneak@x.com"}, {})
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    sid = ScheduleRepository(db).create(
+        uid, "invoiced",
+        params={"period": "all_time", "email_on_no_data": True},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="avig@x.com", view_name="Yesterday invoiced")
+    runner.run(sid, PERSONAL)
+    call = delivery.calls[0]
+    assert call["params"].get("period") == "yesterday"
+    assert not (call["params"].get("email_cc") or "")
+    assert (call.get("cc_raw") or "") == ""
+
+
 def test_runner_personal_company_view_uses_live_period_not_stale_schedule(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)

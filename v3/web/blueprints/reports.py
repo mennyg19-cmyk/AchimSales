@@ -623,7 +623,7 @@ def active_report_runs():
             "keep_name": (r.get("keep_name") or "").strip(),
             "owner_name": owners.get(r.get("owner_user_id")) or "",
             "owned": r.get("owner_user_id") == uid,
-            "log": _parse_job_log_field(r),
+            "log": _parse_job_log_field(r) if want_all else [],
         })
     return jsonify({"jobs": jobs})
 

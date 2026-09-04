@@ -38,7 +38,7 @@ from web.delivery.email_template import RETRY_SUBJECT_MARK
 from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
-from web.scheduling.delivery_keys import MASTER_DELIVERY_PARAM_KEYS
+from web.scheduling.delivery_keys import MASTER_DELIVERY_PARAM_KEYS, without_delivery_keys
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
@@ -141,10 +141,11 @@ class ScheduleRunner:
                 live = dict(cv.params or {})
         if live is None:
             return stored
+        filters = without_delivery_keys(live, MASTER_DELIVERY_PARAM_KEYS)
         for key in _DELIVERY_PARAM_KEYS:
             if key in stored:
-                live[key] = stored[key]
-        return live
+                filters[key] = stored[key]
+        return filters
 
     def _layout_for(self, sched, schedule_type: str) -> dict:
         name = getattr(sched, "view_name", None)

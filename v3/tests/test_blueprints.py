@@ -748,6 +748,34 @@ def test_schedule_stores_email_subject_and_html(tmp_path):
     assert not row.params.get("email_html")
 
 
+def test_schedule_does_not_copy_mail_templates_from_saved_view(tmp_path):
+    app = _make_app(tmp_path)
+    rep = app.test_client()
+    _login(rep, app, email="rep@x.com", role="salesman")
+    vid = _named_view(rep, params={
+        "period": "last_month",
+        "email_html": '<img src=x onerror="alert(document.cookie)">',
+        "email_subject": "x\r\nBcc: victim@example.com",
+    })
+    created = rep.post("/api/schedules", json={
+        "saved_report_id": vid,
+        "cadence": {"freq": "daily", "time": "08:00"},
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert created.status_code == 201, created.get_data(as_text=True)
+    from web.data.repositories.schedules import ScheduleRepository
+    sid = created.get_json()["id"]
+    uid = UserRepository(app.config["DB"]).get_by_email("rep@x.com").id
+    row = ScheduleRepository(app.config["DB"]).get(sid, uid)
+    assert not row.params.get("email_html")
+    assert not row.params.get("email_subject")
+    assert row.params.get("period") == "last_month"
+    admin = app.test_client()
+    _login(admin, app)
+    page = admin.get("/schedules").get_data(as_text=True)
+    assert "onerror" not in page
+    assert "Bcc: victim" not in page
+
+
 def test_admin_cancels_unowned_schedule_job(tmp_path):
     from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE
     app = _make_app(tmp_path)

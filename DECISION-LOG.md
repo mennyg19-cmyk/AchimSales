@@ -1,3 +1,9 @@
+## 2026-09-04 Saved-view params cannot carry schedule mail HTML
+**What I had to decide:** Trust-boundary F1 — salesman plants `email_html` on a saved view, schedule create copies it, admin Edit runs it via `innerHTML`.
+**What I chose:** Strip delivery keys when seeding a schedule from a view (`without_delivery_keys`). Same strip on the runner live-view overlay. Sanitize mail fields when copying from an existing row and when rendering `/schedules`.
+**Why:** Delivery keys belong on the schedule. Mail send was already sanitized; the hole was the admin editor.
+**Status:** DECIDED
+
 ## 2026-09-04 SharePoint Test upload 401 while mail still sent
 **What you asked for:** Why didn't personal #37 Number 4 land in SharePoint Test?
 **What I had to decide:** 401 on `folder D365 F&O` then Graph sendMail ok — permissions vs a dead cached token.
