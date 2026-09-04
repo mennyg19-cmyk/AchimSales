@@ -1,6 +1,6 @@
 # Session Handoff
 
-Last updated: 2026-09-04 (Q8/Q9 trust F1: private Run now gated)
+Last updated: 2026-09-04 (Q8/Q9 review gate closed on `d90f116`)
 
 **Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Do not merge. Do not deploy this branch to Production.
 
@@ -16,11 +16,12 @@ Q8: only admin/developer add external People rows; magic link on v3 `users` (`is
 
 ## What’s left until cutover (code vs Azure)
 
-- Re-pass Loop B + premier trust-boundary after private Run-now 404.
+Leftover **code** for Q8/Q9 is done. Remaining is owner/Azure:
+
 - Phase 7 Azure `BETA_*`→`SITE_*` / unmount `/test`.
 - Cookie rotation; Phase 10 merge.
 - Optional: owner sample workbooks; Azure slot after S1 upgrade.
 
 ## Next action
 
-Re-pass review after F1. Keep draft. No merge.
+Do not merge. Wait for Phase 7 Azure / `/test` unmount. Keep draft.

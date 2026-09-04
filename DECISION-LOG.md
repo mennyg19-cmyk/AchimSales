@@ -20,7 +20,7 @@
 **What I had to decide:** Owner locked Q8: external people do not self-register. Only admin/developer can add them in People. After the email exists they magic-link in.
 **What I chose:** Build that. No pending-recipient queue. Magic link must use the v3 `users` row (`is_external`, active). Home login form must not depend on live `app_users`. Keep `/legacy` magic-link as-is for the mounted Live app. Q9: view-only managers may POST company Send now; edit/delete stay `can_edit_master`. Do not unmount. Do not merge. Do not add an Azure slot.
 **Why:** Owner message 2026-09-04. Azure slots left for later (needs Standard S1+).
-**Status:** DECIDED — implementing
+**Status:** DECIDED
 **Model:** cursor-grok-4.6
 **Runner:** parent
 
