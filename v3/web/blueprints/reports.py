@@ -247,10 +247,10 @@ def _parse_job_log_field(row) -> list:
     if not raw:
         return []
     try:
-        data = json.loads(raw)
+        entries = json.loads(raw)
     except (TypeError, json.JSONDecodeError):
         return []
-    return data if isinstance(data, list) else []
+    return entries if isinstance(entries, list) else []
 
 
 def _owned_job_or_404(job_id: str, uid: int | None):

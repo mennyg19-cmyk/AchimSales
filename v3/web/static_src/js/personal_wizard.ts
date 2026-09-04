@@ -169,11 +169,11 @@ function renderViews(groups: ViewGroup[], selectedId: string): void {
   const empty = document.getElementById("psViewEmpty");
   if (!ownerSel) return;
   ownerSel.innerHTML = "";
-  const list = [...groups];
-  if (lockedView && !list.some((g) => ownerKey(g) === ownerKey(lockedView!.owner))) {
-    list.unshift(lockedView.owner);
+  const ownerGroups = [...groups];
+  if (lockedView && !ownerGroups.some((g) => ownerKey(g) === ownerKey(lockedView!.owner))) {
+    ownerGroups.unshift(lockedView.owner);
   }
-  const flat = list.flatMap((g) => g.views);
+  const flat = ownerGroups.flatMap((g) => g.views);
   if (!flat.length && !lockedView) {
     if (empty) empty.hidden = false;
     fillViewSelect(undefined, "");
@@ -181,17 +181,17 @@ function renderViews(groups: ViewGroup[], selectedId: string): void {
   }
   if (empty) empty.hidden = true;
   const picked = selectedId
-    ? list.find((g) => g.views.some((v) => String(v.id) === selectedId)
+    ? ownerGroups.find((g) => g.views.some((v) => String(v.id) === selectedId)
       || (lockedView && String(lockedView.view.id) === selectedId && ownerKey(g) === ownerKey(lockedView.owner)))
-    : list[0];
-  list.forEach((g) => {
+    : ownerGroups[0];
+  ownerGroups.forEach((g) => {
     const o = document.createElement("option");
     o.value = ownerKey(g);
     o.textContent = g.email ? `${g.name} (${g.email})` : g.name;
     if (picked && ownerKey(g) === ownerKey(picked)) o.selected = true;
     ownerSel.appendChild(o);
   });
-  const group = list.find((g) => ownerKey(g) === ownerSel.value) || list[0];
+  const group = ownerGroups.find((g) => ownerKey(g) === ownerSel.value) || ownerGroups[0];
   fillViewSelect(group, selectedId);
   syncOwnerLabel();
 }
@@ -278,8 +278,7 @@ function wrapSharePointLink(): void {
   const sel = window.getSelection();
   const text = (sel && sel.rangeCount && ed.contains(sel.anchorNode))
     ? sel.toString() : "";
-  const label = (text.trim() || "Open in SharePoint")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const label = esc(text.trim() || "Open in SharePoint");
   const html = `<a href="{SharePointUrl}">${label}</a>`;
   if (sel && sel.rangeCount && ed.contains(sel.anchorNode) && text) {
     document.execCommand("insertHTML", false, html);

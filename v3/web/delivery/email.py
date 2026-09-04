@@ -26,7 +26,11 @@ from uuid import uuid4
 
 from web.config import Config
 from web.data.repositories.outbox import OutboxRepository
-from web.delivery.email_template import apply_mail_templates, download_button_html
+from web.delivery.email_template import (
+    DOWNLOAD_BUTTON_BG,
+    apply_mail_templates,
+    download_button_html,
+)
 from web.delivery.graph_mail import GraphMailError, GraphMailer
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
 from web.delivery.onedrive import OneDriveService
@@ -90,7 +94,7 @@ def _download_email_html(intro: str, filename: str, xlsx_bytes: bytes, file_url:
         f"{download_button_html(file_url)}"
         '<p style="margin:0;font-size:13px;color:#64748b;">'
         "If the button does not open, copy this link:<br>"
-        f'<a href="{href}" style="color:#2563eb;word-break:break-all;">{url_html}</a></p>'
+        f'<a href="{href}" style="color:{DOWNLOAD_BUTTON_BG};word-break:break-all;">{url_html}</a></p>'
         "</div>"
     )
 

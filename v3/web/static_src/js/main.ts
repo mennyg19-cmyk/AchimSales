@@ -4,6 +4,8 @@
  * page-loading overlay, and custom pull-to-refresh. Behavior matches live.
  */
 
+import { renderJobLog, type JobLogEntry } from "./job_log";
+
 declare const feather: { replace: () => void } | undefined;
 
 declare global {
@@ -261,7 +263,7 @@ interface ActiveReportJob {
   keep_name?: string;
   owner_name?: string;
   owned?: boolean;
-  log?: { t?: string; step?: string; detail?: string }[];
+  log?: JobLogEntry[];
 }
 
 const JOBS_MIN_KEY = "achim.reportJobs.minimized";
@@ -429,12 +431,7 @@ function initReportJobsBar(): void {
         steps.appendChild(sum);
         const ol = document.createElement("ol");
         ol.className = "live-job-log";
-        job.log.forEach((e) => {
-          const li = document.createElement("li");
-          li.className = "live-job-entry";
-          li.textContent = [e.t, e.step, e.detail].filter(Boolean).join(" — ");
-          ol.appendChild(li);
-        });
+        renderJobLog(ol, job.log);
         steps.appendChild(ol);
         row.appendChild(steps);
       }

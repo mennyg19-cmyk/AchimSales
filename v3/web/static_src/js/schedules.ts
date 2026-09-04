@@ -1,7 +1,7 @@
 // Schedules management pages (personal + company). Create uses the shared wizard.
 
 import { esc, jsonHeaders } from "./http";
-import { renderJobLog, pollJobLog } from "./job_log";
+import { pollJobLog, renderJobLog, type JobLogEntry } from "./job_log";
 import { bindMasterWizard } from "./master_wizard";
 import { bindPersonalWizard } from "./personal_wizard";
 import { bindSharePointPicker } from "./sharepoint_picker";
@@ -16,7 +16,7 @@ type RunLogRow = {
   rows?: number | null;
   message?: string;
   log_url?: string;
-  job_log?: { t?: string; step?: string; detail?: string }[];
+  job_log?: JobLogEntry[];
 };
 
 async function act(url: string, method: string, body?: unknown): Promise<boolean> {
@@ -93,20 +93,21 @@ function renderRunLog(runs: RunLogRow[]): void {
     return;
   }
   const withLog = canSeeJobLog();
+  const stepLogs: JobLogEntry[][] = [];
   const rows = runs.map((r) => {
     const when = r.finished_at || r.started_at || "—";
     const status = (r.status || "queued").replace(/^./, (c) => c.toUpperCase());
     const rowCount = r.rows == null ? "—" : String(r.rows);
     const log = r.job_log || [];
-    let extra = "";
+    let logCell = "";
     if (withLog) {
       const link = r.log_url ? `<a class="btn btn-sm btn-outline" href="${esc(r.log_url)}">Log</a>` : "";
-      const steps = log.length
-        ? `<details class="run-log-steps"><summary>Steps</summary><ol class="live-job-log">${
-          log.map((e) => `<li class="live-job-entry"><span>${esc(e.t || "")}</span><span class="live-job-step">${esc(e.step || "")}</span><span class="live-job-detail">${esc(e.detail || "")}</span></li>`).join("")
-        }</ol></details>`
-        : "";
-      extra = `<td>${link}${steps}</td>`;
+      let steps = "";
+      if (log.length) {
+        stepLogs.push(log);
+        steps = `<details class="run-log-steps"><summary>Steps</summary><ol class="live-job-log js-run-steps"></ol></details>`;
+      }
+      logCell = `<td>${link}${steps}</td>`;
     }
     return `<tr>
       <td class="run-log-when">${esc(when)}</td>
@@ -114,7 +115,7 @@ function renderRunLog(runs: RunLogRow[]): void {
       <td><span class="${badgeClass(r.status)}">${esc(status)}</span></td>
       <td>${esc(rowCount)}</td>
       <td class="run-log-msg">${esc(r.message || "—")}</td>
-      ${extra}
+      ${logCell}
     </tr>`;
   }).join("");
   body.innerHTML = `<div class="table-wrap run-log-table-wrap">
@@ -125,6 +126,9 @@ function renderRunLog(runs: RunLogRow[]): void {
       <tbody>${rows}</tbody>
     </table>
   </div>`;
+  body.querySelectorAll<HTMLOListElement>("ol.js-run-steps").forEach((ol, i) => {
+    renderJobLog(ol, stepLogs[i]);
+  });
 }
 
 async function refreshRunLog(): Promise<RunLogRow[]> {

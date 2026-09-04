@@ -35,6 +35,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import User, UserRepository
 from web.scheduling.personal_views import is_custom_date_params, is_schedulable_saved_view
 from web.scheduling.ui_flags import SHOW_COMPANY_SCHEDULE_SETUP
+from web.scheduling.delivery_keys import PERSONAL_DELIVERY_PARAM_KEYS
 from web.scheduling import cadence as C
 from web.scheduling.jobs import SCHEDULE_RUN_JOB_TYPE, enqueue_schedule_run
 from web.scheduling.tick import hold_until_next_slot
@@ -235,11 +236,7 @@ def _users() -> UserRepository:
 _DEFAULT_VIEW_TOKEN = "default:"
 _COMPANY_VIEW_TOKEN = "company:"
 _VIEW_SOURCE_COMPANY = "company"
-_DELIVERY_PARAM_KEYS = {
-    "email_on_no_data", "email_on_no_data_me_only",
-    "email_cc", "email_bcc", "folder_kind", "view_source",
-    "email_subject", "email_html",
-}
+_DELIVERY_PARAM_KEYS = PERSONAL_DELIVERY_PARAM_KEYS
 
 
 def _is_company_view_schedule(params: dict | None) -> bool:
@@ -259,6 +256,19 @@ def _default_view_token(report_key: str) -> str:
 
 def _company_view_token(view_id: int) -> str:
     return f"{_COMPANY_VIEW_TOKEN}{view_id}"
+
+
+def _company_view_token_for(report_key: str, name: str) -> str:
+    cv = _company_views().get_by_name(report_key, name)
+    return _company_view_token(cv.id) if cv else ""
+
+
+def _company_view_params_and_layout(
+        report_key: str, name: str, fallback_layout: dict) -> tuple[dict, dict] | None:
+    cv = _company_views().get_by_name(report_key, name)
+    if cv is None:
+        return None
+    return dict(cv.params or {}), cv.layout or fallback_layout
 
 
 def _parse_company_view_id(body: dict) -> int | None:
@@ -516,8 +526,8 @@ def schedules_page():
     saved = _saved_reports()
     for row in items:
         if _is_company_view_schedule(row["params"]):
-            cv = _company_views().get_by_name(row["report_key"], row["view_name"])
-            row["saved_report_id"] = _company_view_token(cv.id) if cv else ""
+            row["saved_report_id"] = _company_view_token_for(
+                row["report_key"], row["view_name"])
         else:
             preset = saved.get_by_name(
                 row["owner_user_id"], row["report_key"], row["view_name"])
@@ -526,8 +536,8 @@ def schedules_page():
             elif row["view_name"] == DEFAULT_VIEW_NAME:
                 row["saved_report_id"] = _default_view_token(row["report_key"])
             else:
-                cv = _company_views().get_by_name(row["report_key"], row["view_name"])
-                row["saved_report_id"] = _company_view_token(cv.id) if cv else ""
+                row["saved_report_id"] = _company_view_token_for(
+                    row["report_key"], row["view_name"])
         row["folder_kind"] = (row["params"] or {}).get("folder_kind") or "onedrive"
     groups = _group_personal_rows(items, is_privileged)
     context = {
@@ -670,6 +680,39 @@ def recent_runs():
     return jsonify({"runs": runs, "active_jobs": _active_schedule_jobs(p)})
 
 
+def _create_personal_from_view(
+        p, body: dict, *, owner: User, report_key: str, view_params: dict,
+        layout: dict, view_name: str, company: bool):
+    privileged = _authz().is_privileged(p)
+    cadence = _parse_cadence(body)
+    folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
+    recipients = _recipients_for_view_schedule(
+        body, owner, privileged=privileged, folder=folder)
+    params = _delivery_params(body, view_params, privileged=privileged)
+    params.update(folder_extra)
+    _stamp_view_source(params, company=company)
+    _apply_mail_templates(params, body)
+    sid = _repo().create(
+        owner.id, report_key, params=params,
+        layout=layout or {}, cadence=cadence,
+        recipients=recipients, sharepoint_path=folder,
+        start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
+        filename_template=_filename_template_for_create(body),
+        view_name=view_name,
+    )
+    created = _repo().get(sid, owner.id)
+    if created:
+        _hold_if_due(_repo(), created, PERSONAL)
+    return jsonify({"id": sid, "owner_user_id": owner.id}), 201
+
+
+def _owner_or_400(user_id: int) -> User:
+    owner = _users().get_by_id(user_id)
+    if owner is None:
+        abort(400, description="That view has no owner.")
+    return owner
+
+
 @schedules_bp.post("/api/schedules")
 @require_login
 def create_schedule():
@@ -679,78 +722,21 @@ def create_schedule():
     if _parse_default_report_key(body) is not None:
         report_key, view_params = _load_default_schedule(
             body, p, privileged=privileged)
-        owner = _users().get_by_id(_uid(p.email))
-        if owner is None:
-            abort(400, description="That view has no owner.")
-        cadence = _parse_cadence(body)
-        folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
-        recipients = _recipients_for_view_schedule(
-            body, owner, privileged=privileged, folder=folder)
-        params = _delivery_params(body, view_params, privileged=privileged)
-        params.update(folder_extra)
-        _stamp_view_source(params, company=False)
-        _apply_mail_templates(params, body)
-        sid = _repo().create(
-            owner.id, report_key, params=params,
-            layout={}, cadence=cadence,
-            recipients=recipients, sharepoint_path=folder,
-            start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
-            filename_template=_filename_template_for_create(body),
-            view_name=DEFAULT_VIEW_NAME,
-        )
-        created = _repo().get(sid, owner.id)
-        if created:
-            _hold_if_due(_repo(), created, PERSONAL)
-        return jsonify({"id": sid, "owner_user_id": owner.id}), 201
+        return _create_personal_from_view(
+            p, body, owner=_owner_or_400(_uid(p.email)),
+            report_key=report_key, view_params=view_params,
+            layout={}, view_name=DEFAULT_VIEW_NAME, company=False)
     if _parse_company_view_id(body) is not None:
         cv = _load_company_view_schedule(body, p, privileged=privileged)
-        owner = _users().get_by_id(_uid(p.email))
-        if owner is None:
-            abort(400, description="That view has no owner.")
-        cadence = _parse_cadence(body)
-        folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
-        recipients = _recipients_for_view_schedule(
-            body, owner, privileged=privileged, folder=folder)
-        params = _delivery_params(body, dict(cv.params or {}), privileged=privileged)
-        params.update(folder_extra)
-        _stamp_view_source(params, company=True)
-        _apply_mail_templates(params, body)
-        sid = _repo().create(
-            owner.id, cv.report_key, params=params,
-            layout=cv.layout or {}, cadence=cadence,
-            recipients=recipients, sharepoint_path=folder,
-            start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
-            filename_template=_filename_template_for_create(body),
-            view_name=cv.name,
-        )
-        created = _repo().get(sid, owner.id)
-        if created:
-            _hold_if_due(_repo(), created, PERSONAL)
-        return jsonify({"id": sid, "owner_user_id": owner.id}), 201
+        return _create_personal_from_view(
+            p, body, owner=_owner_or_400(_uid(p.email)),
+            report_key=cv.report_key, view_params=dict(cv.params or {}),
+            layout=cv.layout or {}, view_name=cv.name, company=True)
     preset = _load_schedulable_view(body, p, privileged=privileged)
-    owner = _users().get_by_id(preset.user_id)
-    if owner is None:
-        abort(400, description="That view has no owner.")
-    cadence = _parse_cadence(body)
-    folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
-    recipients = _recipients_for_view_schedule(
-        body, owner, privileged=privileged, folder=folder)
-    params = _delivery_params(body, preset.params, privileged=privileged)
-    params.update(folder_extra)
-    _stamp_view_source(params, company=False)
-    _apply_mail_templates(params, body)
-    sid = _repo().create(
-        owner.id, preset.report_key, params=params,
-        layout=preset.layout or {}, cadence=cadence,
-        recipients=recipients, sharepoint_path=folder,
-        start_date=body.get("start_date") or None, end_date=body.get("end_date") or None,
-        filename_template=_filename_template_for_create(body),
-        view_name=preset.name,
-    )
-    created = _repo().get(sid, owner.id)
-    if created:
-        _hold_if_due(_repo(), created, PERSONAL)
-    return jsonify({"id": sid, "owner_user_id": owner.id}), 201
+    return _create_personal_from_view(
+        p, body, owner=_owner_or_400(preset.user_id),
+        report_key=preset.report_key, view_params=preset.params,
+        layout=preset.layout or {}, view_name=preset.name, company=False)
 
 
 @schedules_bp.put("/api/schedules/<int:schedule_id>")
@@ -798,11 +784,10 @@ def update_schedule(schedule_id: int):
             if k not in _DELIVERY_PARAM_KEYS
         }
         if _is_company_view_schedule(existing.params):
-            cv = _company_views().get_by_name(
-                existing.report_key, normalize_view_name(view_name))
-            if cv is not None:
-                view_params = dict(cv.params or {})
-                layout = cv.layout or layout
+            live = _company_view_params_and_layout(
+                existing.report_key, normalize_view_name(view_name), layout)
+            if live is not None:
+                view_params, layout = live
         else:
             backed = _saved_reports().get_by_name(
                 existing.owner_user_id, existing.report_key, normalize_view_name(view_name))
@@ -810,11 +795,10 @@ def update_schedule(schedule_id: int):
                 view_params = dict(backed.params or {})
                 layout = backed.layout or layout
             else:
-                cv = _company_views().get_by_name(
-                    existing.report_key, normalize_view_name(view_name))
-                if cv is not None:
-                    view_params = dict(cv.params or {})
-                    layout = cv.layout or layout
+                live = _company_view_params_and_layout(
+                    existing.report_key, normalize_view_name(view_name), layout)
+                if live is not None:
+                    view_params, layout = live
     cadence = _parse_cadence(body)
     folder, folder_extra = _personal_folder_and_kind(p, body, privileged=privileged)
     recipients = _recipients_for_view_schedule(

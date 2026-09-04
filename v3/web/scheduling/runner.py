@@ -38,6 +38,7 @@ from web.delivery.email_template import RETRY_SUBJECT_MARK
 from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
+from web.scheduling.delivery_keys import MASTER_DELIVERY_PARAM_KEYS
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
 from web.scheduling.sabbath import melacha_assur, skip_sabbath_enabled
@@ -145,7 +146,7 @@ class ScheduleRunner:
                 live[key] = stored[key]
         return live
 
-    def _layout_for(self, sched, schedule_type: str = PERSONAL) -> dict:
+    def _layout_for(self, sched, schedule_type: str) -> dict:
         name = getattr(sched, "view_name", None)
         named = {}
         if name and normalize_view_name(name) != DEFAULT_VIEW_NAME:
@@ -656,11 +657,7 @@ class ScheduleRunner:
         return []
 
 
-_DELIVERY_PARAM_KEYS = {
-    "split_by_salesman", "email_to_salesmen", "email_salesman_keys",
-    "email_cc", "email_bcc", "email_on_no_data", "email_on_no_data_me_only",
-    "folder_kind", "skip_sabbath", "view_source", "email_subject", "email_html",
-}
+_DELIVERY_PARAM_KEYS = MASTER_DELIVERY_PARAM_KEYS
 
 
 def _onedrive_user(sched, schedule_type: str, identity: str) -> str:

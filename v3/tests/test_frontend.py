@@ -390,7 +390,13 @@ def test_live_job_log_shows_every_entry():
     assert 'renderJobLog($("jobLiveLog"), job.log)' in report_js
     sched_js = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
     assert 'from "./job_log"' in sched_js
+    assert "renderJobLog(ol, stepLogs[i])" in sched_js
     assert "pollJobLog(url, live" in sched_js
+    main_src = (_SRC / "js" / "main.ts").read_text(encoding="utf-8")
+    assert 'from "./job_log"' in main_src
+    assert "renderJobLog(ol, job.log)" in main_src
+    assert "live-job-entry" not in main_src
+    assert 'li class="live-job-entry"' not in sched_js
     assert "js-watch-job" in sched_js
     assert "canSeeJobLog" in sched_js
     assert 'href="${esc(r.log_url)}">Log</a>' in sched_js
@@ -408,8 +414,7 @@ def test_live_job_log_shows_every_entry():
     assert 'class="home-fold"' in home
     assert '<details class="home-fold">' in home
     assert '<details class="home-fold" open' not in home
-    main_js = (_SRC / "js" / "main.ts").read_text(encoding="utf-8")
-    assert "job.kept && job.owned" in main_js
+    assert "job.kept && job.owned" in main_src
     run_page = (_V3 / "web" / "templates" / "schedule_run.html").read_text(encoding="utf-8")
     assert 'id="runJobLog"' in run_page
     log_js = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")

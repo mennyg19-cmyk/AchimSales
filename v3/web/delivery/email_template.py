@@ -14,7 +14,7 @@ from html.parser import HTMLParser
 from web.delivery.filename_template import token_values
 
 _TOKEN_RE = re.compile(r"\{[A-Za-z]+\}")
-_BTN_BG = "#2563eb"
+DOWNLOAD_BUTTON_BG = "#2563eb"
 RETRY_SUBJECT_MARK = " — retried after a failure"
 _STYLE_BAD = re.compile(r"expression|javascript|url\s*\(", re.I)
 
@@ -48,8 +48,8 @@ def download_button_html(file_url: str, *, label: str = "Download workbook") -> 
     return (
         '<table role="presentation" cellspacing="0" cellpadding="0" border="0" '
         'style="margin:12px 0;">'
-        f'<tr><td align="center" bgcolor="{_BTN_BG}" style="border-radius:6px;'
-        f'background-color:{_BTN_BG};">'
+        f'<tr><td align="center" bgcolor="{DOWNLOAD_BUTTON_BG}" style="border-radius:6px;'
+        f'background-color:{DOWNLOAD_BUTTON_BG};">'
         f'<a href="{href}" target="_blank" '
         'style="display:inline-block;padding:12px 22px;'
         "font-family:Segoe UI,Calibri,Arial,sans-serif;font-size:15px;font-weight:600;"
@@ -115,7 +115,7 @@ def _clean_subject(text: str) -> str:
 
 
 def sanitize_subject(text: str, *, max_len: int = _SUBJECT_MAX) -> str:
-    """Unfold HTML entities and strip header-illegal control characters."""
+    """Unfold entities, strip tags and control chars, then truncate."""
     return _clean_subject(text)[:max(0, max_len)].rstrip()
 
 
@@ -188,7 +188,7 @@ def apply_mail_templates(
 
 def _safe_href(value: str) -> str | None:
     v = unescape((value or "").strip())
-    if v.startswith("{") and v.endswith("}") and _TOKEN_RE.fullmatch(v):
+    if _TOKEN_RE.fullmatch(v):
         return v
     compact = "".join(ch for ch in v if ch.isprintable() and not ch.isspace()).lower()
     if compact.startswith(("javascript:", "data:", "vbscript:")):
@@ -234,11 +234,7 @@ class _AllowlistParser(HTMLParser):
                     parts.append('target="_blank"')
             else:
                 parts.append(f'{key}="{escape(str(val), quote=True)}"')
-        joined = " ".join(parts)
-        if tag in _VOID:
-            self.out += f"<{joined}>"
-        else:
-            self.out += f"<{joined}>"
+        self.out += f"<{' '.join(parts)}>"
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
