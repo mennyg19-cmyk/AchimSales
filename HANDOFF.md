@@ -39,4 +39,4 @@ Last updated: 2026-09-04 (Phase 9.3 gate closed)
 
 ## Next action
 
-Phase 9.1 isolated archive parity. Keep draft. Do not merge.
+Phase 9.1 inventory is in `REPORT-PARITY.md`. Remaining 9.1 is frozen goldens (not `tools/parity` live cookies). Keep draft. Do not merge.

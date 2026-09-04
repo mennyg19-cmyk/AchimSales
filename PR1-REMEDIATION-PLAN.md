@@ -529,12 +529,15 @@ Gate:
 
 ### 9.1 Report parity without restoring old routes
 
-- [ ] Check out `archive/pre-cleanup-2026-08-27` in an isolated environment.
+- [x] Check out `archive/pre-cleanup-2026-08-27` in an isolated environment.
+  Evidence: `/tmp/achim-archive-pre-cleanup` at peeled `b14d725`. `webapp/` and `rebuild/` present. Old apps not mounted on this branch.
 - [ ] Restore `tools/parity` only in that isolated verification workspace, or build frozen golden comparisons.
-- [ ] Do not mount old apps in Production.
+  `tools/parity` compares live `/` vs `/test` with session cookies. That is not archive-vs-v3 and is not run in this leftover (no production cookies). Frozen goldens remain.
+- [x] Do not mount old apps in Production.
 - [ ] Compare every retained report, relevant period/filter, role scope, tab list, column semantics, totals, exports, and schedule workbook.
 - [ ] Cover Ordered shipping/remainder, Invoiced credits/commissions, Number 4 YTD, Customer Activity, Customer Last Order, Item Averages, Sales by State, and Customer Aging if retained.
-- [ ] Record approved intentional differences.
+- [x] Record approved intentional differences.
+  Evidence: `REPORT-PARITY.md`. Customer Aging stays BACKLOG. Inventory slice does not claim value parity.
 
 ### 9.2 Feature parity
 

@@ -1,5 +1,16 @@
 # Testing Strategy
 
+## Phase 9.1 archive report-parity inventory
+
+**What to test:**
+- Isolated tag `archive/pre-cleanup-2026-08-27` peels to `b14d725` and still has `webapp/` and `rebuild/`.
+- Every named leftover report is listed as archive-present vs current v3 SQL/BACKLOG. Customer Aging stays BACKLOG. No live D365 numbers.
+
+**Expected behavior:**
+- Inventory does not claim workbook value parity. `tools/parity` (live vs `/test` cookies) is not the archive comparison.
+
+**Test file:** `REPORT-PARITY.md`; `v3/tests/test_report_sql_coverage.py`
+
 ## Phase 9.3 docs and artifact hygiene
 
 **What to test:**

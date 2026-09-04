@@ -1,3 +1,11 @@
+## 2026-09-04 Phase 9.1 inventory does not use live cookies
+**What I had to decide:** How to start archive report parity without production session cookies or mounting old apps.
+**What I chose:** Isolated worktree at `archive/pre-cleanup-2026-08-27` (`b14d725`). Write `REPORT-PARITY.md` from code. Do not run `tools/parity` (that tool compares live `/` vs `/test` with cookies). Frozen goldens remain for a later slice. Customer Aging stays BACKLOG.
+**Why:** Q6/SQL-only/Q3/Q4 are already decided. Value compare needs fixtures or owner-approved goldens, not production cookies in this leftover.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Phase 9.3 hygiene gate closed
 **What I chose:** Close Phase 9.3 on `232866c`. Trust-boundary N/A. Optional Loop C nit (static_dist bundle list vs esbuild) left duplicated.
 **Why:** Loops A2+B+C zero blocking. F1 pandas 2.2.3 manylinux_2_17 cp310 closed. Agent Guardrails and GHAS zizmor 4/4 on HEAD. CI and `deploy.ps1` share `tools/build_runtime_artifact.py`. Do not merge.
