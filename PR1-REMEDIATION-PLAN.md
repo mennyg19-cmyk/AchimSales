@@ -533,11 +533,17 @@ Gate:
   Evidence: `/tmp/achim-archive-pre-cleanup` at peeled `b14d725`. `webapp/` and `rebuild/` present. Old apps not mounted on this branch.
 - [ ] Restore `tools/parity` only in that isolated verification workspace, or build frozen golden comparisons.
   `tools/parity` compares live `/` vs `/test` with session cookies. That is not archive-vs-v3 and is not run in this leftover (no production cookies). Frozen goldens remain.
+  Fixture search found no in-repo `.xlsx`/`.xlsm` workbooks in either worktree;
+  frozen goldens are blocked pending owner sample workbooks.
 - [x] Do not mount old apps in Production.
 - [ ] Compare every retained report, relevant period/filter, role scope, tab list, column semantics, totals, exports, and schedule workbook.
-  Tab/column *code* compare is in `REPORT-PARITY.md` (4 match, 1 Q2 intentional-diff, 3 unknown). Totals, exports, role-scope workbooks, and frozen goldens remain.
+  Code-level tab/column/totals/export/role-scope/scheduled-workbook comparison is
+  in `REPORT-PARITY.md`; value parity and relevant-period/filter proof remain
+  blocked on frozen owner workbooks.
 - [ ] Cover Ordered shipping/remainder, Invoiced credits/commissions, Number 4 YTD, Customer Activity, Customer Last Order, Item Averages, Sales by State, and Customer Aging if retained.
-  Code-level cover exists except Customer Aging BACKLOG. Ordered shipping/remainder, Number 4 By Item dollars, and Last Order open-vs-invoiced scope are **unknown** until goldens.
+  Code-level coverage exists except Customer Aging BACKLOG. Ordered shipping/remainder,
+  Number 4 By Item dollars, Last Order open-vs-invoiced scope, Customer Activity's
+  count footer, and Salesman's percentage footer are **unknown** until goldens.
 - [x] Record approved intentional differences.
   Evidence: `REPORT-PARITY.md`. Customer Aging stays BACKLOG. Inventory slice does not claim value parity.
 

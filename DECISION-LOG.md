@@ -1,3 +1,11 @@
+## 2026-09-04 Phase 9.1 totals/export/role-scope code compare
+**What I had to decide:** Whether archive-vs-v3 footer and schedule-fanout differences are bugs, and whether frozen goldens can be invented.
+**What I chose:** Record Customer Activity count footer and Salesman percent-footer as unknown. Keep the three earlier semantic unknowns. Invoiced explicit-zero commission stays Q2. Do not invent XLSX goldens; owner samples are required. Schedule management-vs-salesman fanout is an implementation change, not delivery proof.
+**Why:** No in-repo workbook fixtures in either worktree. Spec gate forbids picking product meaning from code shape.
+**Status:** DECIDED (code-level 9.1 done). Value goldens BLOCKED on owner samples.
+**Model:** gpt-5.6-terra-medium
+**Runner:** spawn
+
 ## 2026-09-04 Phase 9.1 tab/column code compare
 **What I had to decide:** Whether three archive-vs-v3 column/scope differences are bugs.
 **What I chose:** Record them as unknown. Do not pick a product meaning. Ordered shipping/remainder fields, Number 4 By Item dollars, and Last Order invoiced-vs-open scope wait for goldens or owner. Invoiced explicit-zero commission rate is Q2 (intentional-diff). Four reports match at tab/column source.

@@ -1,6 +1,6 @@
 # Session Handoff
 
-Last updated: 2026-09-04 (Phase 9.1 tab/column code compare)
+Last updated: 2026-09-04 (Phase 9.1 code-level parity done)
 
 **Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Phase 9.3 closed on `232866c`. Do not merge until Phase 10. Do not merge leftover PR #1.
 
@@ -18,7 +18,7 @@ Last updated: 2026-09-04 (Phase 9.1 tab/column code compare)
 | Path | Role |
 |------|------|
 | `PR1-REMEDIATION-PLAN.md` | Leftover worklist (`webapp-cache` in later sections means `main`) |
-| `REPORT-PARITY.md` | Archive-vs-v3 inventory + tab/column code compare |
+| `REPORT-PARITY.md` | Archive-vs-v3 inventory, tab/column, totals/export/role-scope |
 | `REPOSITORY-REVIEW.md` | Historical snapshot; remaining work is the plan |
 | `DECISION-LOG.md` | Newest-first; older entries in `DECISION-LOG-ARCHIVE.md` |
 | `.scratch/run-state.md` | Gate checkpoint (gitignored) |
@@ -33,14 +33,16 @@ Last updated: 2026-09-04 (Phase 9.1 tab/column code compare)
 5. No GitHub Environment approval gate until the owner creates that Environment.
 6. Cookie/`FLASK_SECRET_KEY` rotation is Azure-only, not git.
 7. Do not run `python -m tools.parity` against live `/` vs `/test` cookies.
+8. Do not invent XLSX goldens.
 
 ## What’s left
 
-- **Next leftover:** Phase 9.1 remaining — totals, exports, role-scope workbooks, scheduled workbooks, then frozen goldens. No live D365. No production cookies. No signed sample workbooks in-repo.
-- **9.1 unknowns (do not invent):** Ordered shipping/remainder field names; Number 4 By Item dollars; Last Order invoiced vs open/uninvoiced scope.
-- **Blocked / owner:** Q8, Q9, Phase 7 replica drop, 9.2 Azure Automation verify, Phase 10 merge.
+- **Next leftover:** Phase 9.2 — document which old routes/tests/tools/docs are still required for support/recovery (mounts stay). Azure Automation send-verify is owner/ops.
+- **9.1 value goldens:** BLOCKED on owner sample workbooks. Code-level inventory + tab/column + totals/export/role-scope are in `REPORT-PARITY.md`.
+- **9.1 unknowns (do not invent):** Ordered shipping/remainder; Number 4 By Item dollars; Last Order invoiced vs open; Customer Activity count footer; Salesman percent footer.
+- **Blocked / owner:** Q8, Q9, Phase 7 replica drop, 9.2 Azure Automation verify, Phase 10 merge, 9.1 frozen goldens.
 - **Optional:** fuller Phase 8 browser matrix (5 roles × 4 widths × 4 themes).
 
 ## Next action
 
-Commit tab/column compare, then continue 9.1 totals/exports/role-scope from code. Keep draft. Do not merge.
+Commit totals/export compare, then Phase 9.2 support/recovery inventory. Keep draft. Do not merge.

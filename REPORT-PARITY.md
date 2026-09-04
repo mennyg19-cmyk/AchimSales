@@ -74,3 +74,77 @@ D365 query was made in this slice. Customer Aging is BACKLOG until v3 gains a
 real Reporting-API path.
 
 Old apps were NOT mounted on the leftover branch.
+
+## Code-level totals, exports, role scope, and scheduled workbooks
+
+This is a source comparison of the isolated `b14d725` archive and current v3.
+It does not compare report values, workbook bytes, or live D365 behavior.
+
+- **Ordered — unknown.** Both implementations write literal computed totals,
+  not Excel `SUM` formulas. The archive writer creates per-customer Summary
+  totals plus literal totals on the other sheets; current v3's common XLSX
+  exporter totals typed money/int fields (and does not total Net Price).
+  Shipping/remainder fields remain the existing unknown, so their total
+  equivalence cannot be established. Both produce XLSX, not CSV. Archive
+  salesman output omitted By Salesman; current scoped output omits it too.
+- **Invoiced / Shipped — intentional-diff (Q2).** Archive and current write
+  literal computed totals, including the commission workbook's monthly/YTD
+  values; neither source writes Excel formulas. Both export XLSX only, with
+  the same workbook tabs and Shipped omitting Commissions. Current v3 keeps an
+  explicit zero Reporting-API commission rate rather than falling back to a
+  master rate, as approved by Q2. Scheduled salesman-scoped output reapplies
+  live authorization and omits Commissions.
+- **Number 4 — unknown.** Archive totals are literal per-group and grand
+  calculations; current v3 precomputes month/Total Qty/Total $ values and the
+  common exporter adds literal typed-field totals. Both export XLSX only.
+  Archive By Item is quantity-only, while v3 carries dollars, price, and book
+  price; the existing unapproved By Item-dollar difference also prevents a
+  totals-equivalence finding. Scope filtering is applied before the workbook.
+- **Customer Activity — unknown.** Both produce XLSX only and retain the
+  All/per-salesman/Unassigned workbook shape. Archive writes a literal
+  `Total (<count> customers)` footer on every sheet; v3's generic exporter
+  writes a `Total` footer but has no numeric customer-count field to sum.
+  Role filtering is present in both paths, but the changed footer is not tied
+  to an approved product decision.
+- **Customer's Last Order — unknown.** Both calculate literal line totals and
+  displayed totals. This report uses a PDF export, not XLSX/CSV; the current
+  PDF writer is unchanged from the archive v3 implementation. The archive
+  selected invoiced orders while current v3 includes open/uninvoiced logical
+  orders, so total and role-scope equivalence remains the existing unknown.
+  It has no scheduled workbook builder.
+- **Item Averages — match.** The unchanged v3 builder computes 12-month Qty,
+  Avg/Month, and Avg/Week before common XLSX export; no CSV or Excel formulas
+  exist. It is privileged-only, so no salesman-scoped workbook is built.
+- **Sales by State — match.** The unchanged v3 builder keeps its SQL totals as
+  values and uses the common XLSX-only exporter; no CSV or Excel formulas
+  exist. It is company-wide and not salesman-scoped.
+- **Salesman — unknown.** Archive writes literal per-salesman and grand
+  monthly totals, including calculated percentage changes. Current v3 computes
+  row percentages before its common XLSX-only exporter, whose generic footer
+  intentionally leaves percent columns blank. Role filtering occurs before
+  the 12 Jan–Dec sheets, but the changed percentage-footer behavior has no
+  approved decision.
+
+Current v3 uses one `build_workbook()` path for standard report exports and
+one `DeliveryService.run_and_deliver()` path for scheduled XLSX workbooks.
+Personal schedules re-authorize the owner and retain that owner's salesman
+scope; master schedules are unrestricted unless explicitly run as a
+non-privileged user, then use that user's scope. Invoiced scheduled workbooks
+also remove Commissions for principals without commission access. Archive
+legacy runners generated separate management and salesman files; current
+master schedules can fan out selected salesman workbooks plus a full
+management copy. This is an implementation change, not proof of equivalent
+deliveries.
+
+Frozen XLSX goldens are **blocked**: a fixture search found no in-repository
+`.xlsx` or `.xlsm` workbook fixture in either worktree. Owner-provided sample
+workbooks are required; none were invented. Customer Aging remains BACKLOG.
+
+Totals/export/role-scope outcome count: 2 match, 1 approved intentional-diff,
+5 unknown; Customer Aging BACKLOG. Focused current-v3 report/export/schedule
+tests: `cd v3 && python3 -m pytest tests/test_reporting.py
+tests/test_report_service.py tests/test_report_ordered.py
+tests/test_report_invoiced.py tests/test_report_number_4.py
+tests/test_report_customer_activity.py tests/test_report_customer_last_order.py
+tests/test_report_item_averages.py tests/test_report_sales_by_state.py
+tests/test_report_salesman.py tests/test_scheduling.py -q` — 240 passed.
