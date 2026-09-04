@@ -367,6 +367,7 @@ def test_admin_users_has_sales_group_dropdown():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euSalesGroup"' in html
     assert 'id="addSalesGroup"' in html
+    assert "Managers and sales reps can see every checked SalesGroup" in html
     assert 'id="salesmanTable"' not in html
     assert "Managers and sales reps can see every checked SalesGroup" in html
     assert "data-sales-groups-url" in html
