@@ -494,10 +494,14 @@ def test_phone_layout_css_contracts():
     assert ".user-role { display: none; }" in phone_header
     assert ".header-left { flex: 1 1 100%; }" in phone_header
 
-    phone_layout = pages.split("@media (max-width: 600px)", 1)[1].split("\n}\n\n/* -- Run status -- */", 1)[0]
+    phone_layout = pages.rsplit("@media (max-width: 600px)", 1)[1]
     assert "flex: 1 1 100%; min-width: 0; max-width: 100%;" in phone_layout
-    after_stat = pages.split(".stat-grid {", 1)[1]
-    assert "grid-template-columns: 1fr 1fr" in after_stat.split(".stat-card", 1)[0]
+    assert ".report-meta { white-space: normal; }" in phone_layout
+    assert ".report-tabbar { flex-direction: column; align-items: stretch; }" in phone_layout
+    assert ".ms-field-row .ms-field-block { min-width: 0; flex: 1 1 100%; }" in phone_layout
+    assert "grid-template-columns: 1fr 1fr" in phone_layout
+    after_meta = pages.split(".report-meta {", 1)[1]
+    assert after_meta.rfind("white-space: nowrap") < after_meta.rfind("white-space: normal")
 
     help_button = pages.split(".help-btn", 1)[1].split("}", 1)[0]
     assert "min-width: 44px" in help_button
