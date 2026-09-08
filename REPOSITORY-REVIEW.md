@@ -12,7 +12,7 @@ Status: historical review findings. Implementation status below is current as of
 
 | Original item | Status |
 |---------------|--------|
-| P0.1 tracked production cookies | Phase 1 — file untracked; rotation owner-confirmed; access-log review still BLOCKED |
+| P0.1 tracked production cookies | Phase 1 — file untracked; rotation owner-confirmed 31 Aug 2026 (after 12 Aug leak); access-log review still BLOCKED |
 | P0.2 `cursor/**` Production deploys | Phase 1.1 — Action is `main` only |
 | P0.3 OData salesman scope leak | Phase 3 — no OData under `v3/`; SQL only |
 | P0.4 Litestream empty-disk / wrong replica | Phase 7 repo gate closed; live Azure empty-disk drill BLOCKED |

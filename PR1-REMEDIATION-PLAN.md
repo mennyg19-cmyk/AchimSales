@@ -147,10 +147,14 @@ Gate:
 
 Owner/external actions:
 
-- [ ] Rotate `FLASK_SECRET_KEY` and `FLASK_SECRET` in Azure.
-- [ ] Confirm old `session` and `v3_session` cookies no longer authenticate.
+- [x] Rotate `FLASK_SECRET_KEY` and `FLASK_SECRET` in Azure.
+  Evidence: owner walkthrough 31 Aug 2026 (~13:54 UTC), reply “ok, i think it worked.” After leak `f286ce2` (12 Aug 2026 21:52 +0300). Do not rotate again.
+- [x] Confirm old `session` and `v3_session` cookies no longer authenticate.
+  Evidence: same 31 Aug confirmation after save/restart (everyone had to sign in again).
 - [ ] Review access logs from the cookie-file exposure window.
-- [ ] Decide whether to rewrite Git history.
+  Window: 12 Aug 2026 21:52 +0300 through 31 Aug 2026 rotation. Still owner.
+- [x] Decide whether to rewrite Git history.
+  Evidence: do not rewrite (no force-push). Stolen cookies are killed by rotation, not history edit.
 
 Repository actions:
 

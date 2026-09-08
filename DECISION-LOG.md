@@ -1,3 +1,11 @@
+## 2026-09-08 Flask cookie secrets already rotated (31 Aug)
+**What I had to decide:** Whether to rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` again as the next Azure leftover step.
+**What I chose:** Treat rotation as done. Do not rotate a second time. Do not print keys. Do not delete `beta_live_session.py` yet (`/legacy` still mounted). Next leftover owner item is access-log review for 12–31 Aug 2026. Do not merge.
+**Why:** Leak was commit `f286ce2` on 12 Aug 2026 21:52 +0300. Owner rotated on 31 Aug 2026 (~13:54 UTC) in the Repository review handoff chat and said it worked. 31 Aug is after 12 Aug. Owner: “ok, next.”
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-08 Skip /test vs beta database compare for now
 **What I had to decide:** Whether to compare Azure `PRECIOUS_*` (`/test`) against `BETA_*` (home) and then delete the `/test` database.
 **What I chose:** Skip. Home beta remains the source of truth. Do not copy `PRECIOUS_*` onto `SITE_*` as a data move. Do not unmount `/test`. Do not delete either sqlite file or its Litestream replica. I cannot see Azure DBs from this VM; no compare was run.
