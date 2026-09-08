@@ -4,6 +4,8 @@ For the owner and whoever owns the office stored procs. This is the current **ho
 
 **Target:** one POST per user-facing report. SQL returns a flat table (and commission/YTD numbers already finished). The web app filters, groups in the grid, exports, and emails. No invoice math in Python.
 
+Dummy response shape (Invoiced): `sample-invoiced-response.json`. Top level `data.raw` + `data.tabs.<tab>.rows`.
+
 His preview already works that way for Invoiced Full Data. The leftover on our side is the **workbook clone**: extra tabs and extra API pulls so Excel looks like last year’s Live file.
 
 Customer Aging has no v3 SQL path (BACKLOG). It is not in this list.
