@@ -1088,3 +1088,54 @@ def test_export_salesman_default_columns_still_start_blue_at_e():
     assert _font_rgb(ws["E2"]).endswith("0000CC")
     assert _font_rgb(ws["I2"]).endswith("008000")
     assert _font_rgb(ws["M2"]).endswith("800080")
+
+
+def _fill_hex(cell) -> str:
+    fg = getattr(cell.fill, "fgColor", None)
+    rgb = getattr(fg, "rgb", None) if fg is not None else None
+    return str(rgb or "").upper()
+
+
+def test_export_commission_blocks_use_blue_grey_yellow():
+    """Commissions Excel matches the live blue header / grey net / yellow pay blocks."""
+    openpyxl = pytest.importorskip("openpyxl")
+    payload = {"tabs": [{
+        "key": "commissions", "name": "Commissions", "layout": "commission_cards",
+        "year": 2026, "month_labels": ["Jan", "Feb"],
+        "salesmen": [{
+            "salesman_name": "Mendy Kolko", "commission_pct": 0.05,
+            "monthly": [
+                {"subtotal_invoices": 100, "tariff_charges": 0, "freight_charges": 0,
+                 "cc_charges": 0, "total_invoices": 100, "credits": -10,
+                 "net_commission": 90, "commission": 4.5},
+                {"subtotal_invoices": 50, "tariff_charges": 0, "freight_charges": 0,
+                 "cc_charges": 0, "total_invoices": 50, "credits": 0,
+                 "net_commission": 50, "commission": 2.5},
+            ],
+            "ytd": {
+                "subtotal_invoices": 150, "tariff_charges": 0, "freight_charges": 0,
+                "cc_charges": 0, "total_invoices": 150, "credits": -10,
+                "net_commission": 140, "commission": 7.0, "total_payable": 7.0,
+            },
+        }],
+    }]}
+    ws = openpyxl.load_workbook(io.BytesIO(payload_to_xlsx(payload)))["Commissions"]
+    assert ws["A1"].value == "Commissions Summary (2026)"
+    assert ws["A3"].value == "Mendy Kolko"
+    assert _fill_hex(ws["A3"]).endswith("5B9BD5")
+    assert _font_rgb(ws["A3"]).endswith("FFFFFF")
+    assert ws["C3"].value == "Jan-26"
+    assert ws["B4"].value == "$"
+    assert ws["A9"].value == "Total Credits:"
+    assert ws["C9"].value == -10
+    assert "(" in (ws["C9"].number_format or "")
+    assert ws["A10"].value == "Net Commission Amount (Less Freight and CC)"
+    assert _fill_hex(ws["A10"]).endswith("EBEEF1")
+    assert ws["A10"].font.bold is True
+    assert ws["A11"].value == "Commission:"
+    assert _fill_hex(ws["A11"]).endswith("FFFF00")
+    assert ws["B11"].value == pytest.approx(0.05)
+    assert ws["A12"].value == "Total Payable: Mendy Kolko"
+    assert _fill_hex(ws["A12"]).endswith("FFFF00")
+    assert _fill_hex(ws["E12"]).endswith("FFFF00")
+    assert ws["E12"].value == pytest.approx(7.0)

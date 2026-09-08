@@ -1,5 +1,17 @@
 # Testing Strategy
 
+## Commissions tab uses live blue / grey / yellow blocks
+
+**What to test:**
+- Excel Commissions sheet: salesman header fill `#5B9BD5` with white bold text; net row `#EBEEF1` bold; Commission and Total Payable `#FFFF00`.
+- Spacer column is `$` on money/net/pay rows and the commission % on the Commission row. Credits use a parentheses number format.
+- On-screen cards keep the same palette (blue header, grey net, yellow commission/pay) and the `$` spacer.
+
+**Expected behavior:**
+- Downloaded / emailed Commissions tab matches the live Commissions Format screenshot, not the pale-blue group banner used on other sheets.
+
+**Test file:** `v3/tests/test_reporting.py`
+
 ## Customer account is never the salesman
 
 **What to test:**

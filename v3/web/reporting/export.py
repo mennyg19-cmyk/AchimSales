@@ -101,6 +101,14 @@ _FONT_BAND_PURPLE = Font(color="800080")
 _FONT_BAND_RED = Font(color="FF0000")
 _BAND_FONTS = (_FONT_BAND_BLUE, _FONT_BAND_GREEN, _FONT_BAND_PURPLE)
 _FILL_LIGHT_GREY = PatternFill("solid", fgColor="E8E8E8")
+# Live Commissions Format.xlsx block palette (blue header / grey net / yellow pay).
+_COMM_BLUE = PatternFill("solid", fgColor="5B9BD5")
+_COMM_GREY = PatternFill("solid", fgColor="EBEEF1")
+_COMM_YELLOW = PatternFill("solid", fgColor="FFFF00")
+_COMM_HDR_FONT = Font(bold=True, color="FFFFFF")
+_COMM_BOLD = Font(bold=True)
+_COMM_ACCT = '#,##0.00_);(#,##0.00)'
+_COMM_CENTER = Alignment(horizontal="center")
 # Salesman identity columns never get YoY color bands.
 _SALESMAN_ID_FIELDS = frozenset({
     "Sort Number", "Salesman", "Cust. #", "Customer Name", "SalesmanNumber",
@@ -558,6 +566,17 @@ def _stream_grid(ws, metas, rows: list, group_fields: list[str],
                                    fill=grand_fill, font=grand_font))
 
 
+def _comm_cells(ws, label, spacer, amounts, *, fill, font, spacer_fmt=None) -> list:
+    """One commissions-block row: label | $ or % | months | YTD."""
+    line = [_cell(ws, _safe_text(label), font=font, fill=fill, border=_BORDER)]
+    line.append(_cell(ws, spacer, fmt=spacer_fmt, font=font, fill=fill, border=_BORDER,
+                      align=_COMM_CENTER))
+    for amount in amounts:
+        fmt = _COMM_ACCT if isinstance(amount, (int, float)) else None
+        line.append(_cell(ws, amount, fmt=fmt, font=font, fill=fill, border=_BORDER))
+    return line
+
+
 def _stream_commission(ws, tab: dict) -> None:
     """Per-salesman monthly + YTD block (live Excel commissions layout)."""
     year = tab.get("year") or ""
@@ -573,54 +592,55 @@ def _stream_commission(ws, tab: dict) -> None:
         return
     ws.column_dimensions["A"].width = 48
     ws.column_dimensions["B"].width = 8
+    for idx in range(len(labels) + 1):
+        ws.column_dimensions[get_column_letter(idx + 3)].width = 13
 
     lines = [
-        ("SubTotal Invoices:", "subtotal_invoices"),
-        ("Total Tariff Charges:", "tariff_charges"),
-        ("Total Freight Charges:", "freight_charges"),
-        ("Total CC Charges:", "cc_charges"),
-        ("Total Invoices: (SubTotal+Tariff+Freight+CC)", "total_invoices"),
-        ("Total Credits:", "credits"),
-        ("Net Commission Amount (Less Freight and CC)", "net_commission"),
-        ("Commission:", "commission"),
+        ("SubTotal Invoices:", "subtotal_invoices", "money"),
+        ("Total Tariff Charges:", "tariff_charges", "money"),
+        ("Total Freight Charges:", "freight_charges", "money"),
+        ("Total CC Charges:", "cc_charges", "money"),
+        ("Total Invoices: (SubTotal+Tariff+Freight+CC)", "total_invoices", "money"),
+        ("Total Credits:", "credits", "money"),
+        ("Net Commission Amount (Less Freight and CC)", "net_commission", "net"),
+        ("Commission:", "commission", "comm"),
     ]
     ws.append([])  # row 2 spacer (block starts on row 3, matching the live layout)
-    center = Alignment(horizontal="center")
     yy = str(year)[-2:] if year else ""
     for s in salesmen:
         title_sm = str(s.get("salesman_name") or s.get("salesman") or "").strip()
-        banner = [_cell(ws, _safe_text(title_sm), font=_GROUP_FONT, fill=_GROUP_FILL)]
-        banner.append(_cell(ws, "", font=_GROUP_FONT, fill=_GROUP_FILL))
+        banner = [_cell(ws, _safe_text(title_sm), font=_COMM_HDR_FONT, fill=_COMM_BLUE,
+                        border=_BORDER)]
+        banner.append(_cell(ws, "", font=_COMM_HDR_FONT, fill=_COMM_BLUE, border=_BORDER,
+                            align=_COMM_CENTER))
         for lab in labels:
             hdr = f"{lab}-{yy}" if yy else lab
-            banner.append(_cell(ws, _safe_text(hdr), font=_GROUP_FONT, fill=_GROUP_FILL, align=center))
-        banner.append(_cell(ws, "YTD Total", font=_GROUP_FONT, fill=_GROUP_FILL, align=center))
+            banner.append(_cell(ws, _safe_text(hdr), font=_COMM_HDR_FONT, fill=_COMM_BLUE,
+                                align=_COMM_CENTER, border=_BORDER))
+        banner.append(_cell(ws, "YTD Total", font=_COMM_HDR_FONT, fill=_COMM_BLUE,
+                            align=_COMM_CENTER, border=_BORDER))
         ws.append(banner)
         monthly = s.get("monthly") or []
         ytd = s.get("ytd") or {}
         pct = float(s.get("commission_pct") or 0.0)
-        for label, field in lines:
-            line = [_cell(ws, _safe_text(label), font=_TOTAL_FONT)]
-            if field == "commission":
-                line.append(_cell(ws, pct, fmt=_FMT["percent"]))
+        for label, field, kind in lines:
+            amounts = [float((monthly[mi] if mi < len(monthly) else {}).get(field) or 0.0)
+                       for mi in range(len(labels))]
+            amounts.append(float(ytd.get(field) or 0.0))
+            if kind == "net":
+                fill, font, spacer, spacer_fmt = _COMM_GREY, _COMM_BOLD, "$", None
+            elif kind == "comm":
+                fill, font, spacer, spacer_fmt = _COMM_YELLOW, _COMM_BOLD, pct, _FMT["percent"]
             else:
-                line.append(_cell(ws, ""))
-            for mi in range(len(labels)):
-                m = monthly[mi] if mi < len(monthly) else {}
-                line.append(_cell(ws, float(m.get(field) or 0.0), fmt=_FMT["money"]))
-            line.append(_cell(ws, float(ytd.get(field) or 0.0), fmt=_FMT["money"], font=_TOTAL_FONT))
-            ws.append(line)
-        pay = [_cell(ws, _safe_text(f"Total Payable: {title_sm}"), font=_TOTAL_FONT)]
-        pay.append(_cell(ws, ""))
-        for _ in labels:
-            pay.append(_cell(ws, ""))
-        pay.append(_cell(
-            ws,
-            float(ytd.get("total_payable") or ytd.get("commission") or 0.0),
-            fmt=_FMT["money"],
-            font=_TOTAL_FONT,
+                fill, font, spacer, spacer_fmt = None, None, "$", None
+            ws.append(_comm_cells(ws, label, spacer, amounts, fill=fill, font=font,
+                                  spacer_fmt=spacer_fmt))
+        pay_amounts = [None] * len(labels)
+        pay_amounts.append(float(ytd.get("total_payable") or ytd.get("commission") or 0.0))
+        ws.append(_comm_cells(
+            ws, f"Total Payable: {title_sm}", "$", pay_amounts,
+            fill=_COMM_YELLOW, font=_COMM_BOLD,
         ))
-        ws.append(pay)
         ws.append([])  # blank row between salesmen
 
 def _tab_groups_and_sorters(

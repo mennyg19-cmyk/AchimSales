@@ -932,7 +932,11 @@ function n(v: unknown): number {
   return isFinite(x) ? x : 0;
 }
 function fmtMoney(v: unknown): string {
-  return n(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
+  const x = n(v);
+  const abs = Math.abs(x).toLocaleString("en-US", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+  return x < 0 ? `(${abs})` : abs;
 }
 
 function monthHeaderLabel(month: number, year: number | undefined): string {
@@ -1019,6 +1023,8 @@ function renderCommissionCards(tab: Tab, host: HTMLElement): void {
       tdPct.className = "comm-pct";
       if (mr.kind === "comm") {
         tdPct.textContent = `${(n(s.commission_pct) * 100).toFixed(2)}%`;
+      } else {
+        tdPct.textContent = "$";
       }
       tr.appendChild(tdPct);
       months.forEach((m) => {
@@ -1037,9 +1043,12 @@ function renderCommissionCards(tab: Tab, host: HTMLElement): void {
     pay.className = "comm-row-pay";
     const payLab = document.createElement("td");
     payLab.className = "comm-label";
-    payLab.colSpan = 2;
     payLab.textContent = `Total Payable: ${titleText}`;
     pay.appendChild(payLab);
+    const payPct = document.createElement("td");
+    payPct.className = "comm-pct";
+    payPct.textContent = "$";
+    pay.appendChild(payPct);
     months.forEach(() => {
       const td = document.createElement("td");
       td.textContent = "";

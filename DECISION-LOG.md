@@ -1,3 +1,10 @@
+## 2026-09-08 Commissions tab uses live blue / grey / yellow
+**What you asked for:** Format the Commissions tab like the Excel screenshot (blue header, grey net, yellow commission and payable).
+**What I had to decide:** Restyle only the Excel export vs also the on-screen `$` spacer. The on-screen table already had the colors.
+**What I chose:** Excel blocks get `#5B9BD5` / `#EBEEF1` / `#FFFF00`. Money rows put `$` in the spacer column and show amounts without a second dollar sign (negatives in parentheses). On-screen spacer matches that `$` column.
+**Why:** The screenshot is the live Commissions Format.xlsx palette. Other sheets keep the grey header / pale group banner.
+**Status:** DECIDED
+
 ## 2026-09-08 Named-view schedule sends pick up Save this view (layout too)
 **What you asked for:** Changing a view did not affect the scheduled file until each schedule was resaved.
 **What I had to decide:** Keep layout as a per-schedule snapshot vs overlay the live saved view the same way filters already do.
