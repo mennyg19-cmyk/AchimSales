@@ -1,3 +1,11 @@
+## 2026-09-08 Owner confirmed People census
+**What I had to decide:** Whether v3 Users & access is complete enough to proceed to Azure cutover.
+**What I chose:** Treat People as done. Next Azure step is `PUBLIC_BASE_URL=https://reports.achimonline.com` on App Service `achim-sales-reports`. Do not merge. Do not rotate secrets yet. Do not unmount `/test`.
+**Why:** Owner: “the users are good.” PR #35 still denies unknown Microsoft/magic-link emails, so the live list must already cover everyone who should sign in.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-04 Q8/Q9 review gate closed
 **What I had to decide:** Whether to re-run Loop C after the 6-line private Run now 404, and whether leftover code remains besides Azure/cutover.
 **Options I considered:** (1) Full A/B/C again. (2) Loop B + trust re-pass only (fix was small). (3) Invent more leftover code.
