@@ -1,8 +1,8 @@
 # Session Handoff
 
-Last updated: 2026-09-08 (access-log review skipped: no logs)
+Last updated: 2026-09-08 (REPORT-TAB-HANDOFF.md; leftover merge paused)
 
-**Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Do not merge. Do not deploy this branch to Production.
+**Status:** Draft PR #35 on `cursor/pr1-on-main-551b`. Do not merge. Do not deploy this branch to Production. Live restore drill skipped (no slot).
 
 ## Working tree
 
@@ -26,4 +26,4 @@ Q8/Q9 as before. Home (`BETA_*`) is the live data. `/test` stays. Azure Automati
 
 ## Next action
 
-Owner skips or schedules the live empty-disk restore drill. Do not wipe Production sqlite from chat. Keep draft. No merge.
+Owner/DBA use `REPORT-TAB-HANDOFF.md` (tab math vs SQL vs grid). Do not merge PR #35. Do not deploy over production.

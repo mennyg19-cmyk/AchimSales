@@ -1,3 +1,11 @@
+## 2026-09-08 Report tab handoff for SQL-owned math
+**What I had to decide:** Whether leftover Flask tab-building stays, or we document what can move to stored procs so the UI can work like the brother’s presentation app.
+**What I chose:** Write `REPORT-TAB-HANDOFF.md`. Do not change report builders or unmount in this slice. Do not merge PR #35. Do not deploy over production.
+**Why:** Owner asked for a per-tab handoff: commissions (and similar) belong in SQL; group-by tabs belong in the grid.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-08 No App Service logs for the cookie-file window
 **What I had to decide:** Whether Phase 1.2 access-log review can close without Azure HTTP/app logs.
 **What I chose:** Skip the review. Do not invent a log pass. Do not rotate secrets again. Do not merge. Next leftover is the live Litestream empty-disk drill, which I will not run on Production B1 without a slot.
