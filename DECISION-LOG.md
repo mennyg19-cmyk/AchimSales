@@ -1,3 +1,11 @@
+## 2026-09-08 Owner set PUBLIC_BASE_URL
+**What I had to decide:** Whether to proceed to the staged `SITE_*` database aliases.
+**What I chose:** Treat `PUBLIC_BASE_URL` as done. Next: add `SITE_PRECIOUS_DB_PATH` / `SITE_CACHE_DB_PATH` as copies of existing `PRECIOUS_DB_PATH` / `CACHE_DB_PATH`. Do not change `BETA_*`. Do not delete old names. Do not merge. Do not unmount `/test`.
+**Why:** Owner: “done” after the PUBLIC_BASE_URL Azure step. `SITE_*` is ignored on current `main` and becomes the `/test` (non-beta) name after PR #35. Pointing `SITE_*` at the home `BETA_*` files while `/test` is still mounted would mix two apps on one sqlite.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-08 Owner confirmed People census
 **What I had to decide:** Whether v3 Users & access is complete enough to proceed to Azure cutover.
 **What I chose:** Treat People as done. Next Azure step is `PUBLIC_BASE_URL=https://reports.achimonline.com` on App Service `achim-sales-reports`. Do not merge. Do not rotate secrets yet. Do not unmount `/test`.
