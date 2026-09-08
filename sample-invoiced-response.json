@@ -1,0 +1,284 @@
+{
+  "data": {
+    "report_key": "invoiced",
+    "title": "Invoiced",
+    "from_date": "2026-08-31",
+    "to_date": "2026-09-06",
+    "raw": [
+      {
+        "InvoiceNumber": "IN01008282",
+        "CustomerAccount": "C-1001",
+        "CustomerName": "HD SUPPLY",
+        "InvoiceDate": "2026-09-02",
+        "salesorder": "SO-88021",
+        "CustomerRequisition": "PO-441",
+        "salesman": "DDweck",
+        "SalesmanName": "Dweck, David",
+        "SalesGroup": "SG01",
+        "Commission": 0.05,
+        "amount": 1000.0,
+        "Tariff Charges": 10.0,
+        "Freight Charges": 20.0,
+        "CC Charges": 0.0,
+        "Misc Charges": 5.0,
+        "Total Invoice": 1035.0,
+        "IsCredit": false
+      },
+      {
+        "InvoiceNumber": "FCRD-004181",
+        "CustomerAccount": "C-1002",
+        "CustomerName": "MAZER WHOLESALE",
+        "InvoiceDate": "2026-09-03",
+        "salesorder": "SO-88099",
+        "CustomerRequisition": "",
+        "salesman": "DDweck",
+        "SalesmanName": "Dweck, David",
+        "SalesGroup": "SG01",
+        "Commission": 0.05,
+        "amount": -50.0,
+        "Tariff Charges": 0.0,
+        "Freight Charges": 0.0,
+        "CC Charges": 0.0,
+        "Misc Charges": 0.0,
+        "Total Invoice": -50.0,
+        "IsCredit": true
+      },
+      {
+        "InvoiceNumber": "IN01008290",
+        "CustomerAccount": "C-2001",
+        "CustomerName": "AMAZON.COM DEDC, LLC",
+        "InvoiceDate": "2026-09-04",
+        "salesorder": "SO-90110",
+        "CustomerRequisition": "AMZ-77",
+        "salesman": "HKaufman",
+        "SalesmanName": "Kaufman, Herschel",
+        "SalesGroup": "SG02",
+        "Commission": 0.03,
+        "amount": 500.0,
+        "Tariff Charges": 0.0,
+        "Freight Charges": 15.0,
+        "CC Charges": 5.0,
+        "Misc Charges": 0.0,
+        "Total Invoice": 520.0,
+        "IsCredit": false
+      }
+    ],
+    "tabs": {
+      "full_details": {
+        "name": "Full Details",
+        "rows": [
+          {
+            "InvoiceNumber": "IN01008282",
+            "CustomerAccount": "C-1001",
+            "CustomerName": "HD SUPPLY",
+            "InvoiceDate": "2026-09-02",
+            "SalesOrderNumber": "SO-88021",
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "SubTotal Invoices": 1000.0,
+            "Tariff Charges": 10.0,
+            "Freight Charges": 20.0,
+            "CC Charges": 0.0,
+            "Misc Charges": 5.0,
+            "Total Invoice": 1035.0
+          },
+          {
+            "InvoiceNumber": "FCRD-004181",
+            "CustomerAccount": "C-1002",
+            "CustomerName": "MAZER WHOLESALE",
+            "InvoiceDate": "2026-09-03",
+            "SalesOrderNumber": "SO-88099",
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "SubTotal Invoices": -50.0,
+            "Tariff Charges": 0.0,
+            "Freight Charges": 0.0,
+            "CC Charges": 0.0,
+            "Misc Charges": 0.0,
+            "Total Invoice": -50.0
+          },
+          {
+            "InvoiceNumber": "IN01008290",
+            "CustomerAccount": "C-2001",
+            "CustomerName": "AMAZON.COM DEDC, LLC",
+            "InvoiceDate": "2026-09-04",
+            "SalesOrderNumber": "SO-90110",
+            "Salesman": "HKaufman",
+            "SalesmanName": "Kaufman, Herschel",
+            "SubTotal Invoices": 500.0,
+            "Tariff Charges": 0.0,
+            "Freight Charges": 15.0,
+            "CC Charges": 5.0,
+            "Misc Charges": 0.0,
+            "Total Invoice": 520.0
+          }
+        ]
+      },
+      "credits": {
+        "name": "Credits",
+        "rows": [
+          {
+            "InvoiceNumber": "FCRD-004181",
+            "CustomerAccount": "C-1002",
+            "CustomerName": "MAZER WHOLESALE",
+            "InvoiceDate": "2026-09-03",
+            "SalesOrderNumber": "SO-88099",
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "SubTotal Invoices": -50.0,
+            "Tariff Charges": 0.0,
+            "Freight Charges": 0.0,
+            "CC Charges": 0.0,
+            "Misc Charges": 0.0,
+            "Total Invoice": -50.0
+          }
+        ]
+      },
+      "invoices": {
+        "name": "Invoices",
+        "rows": [
+          {
+            "InvoiceNumber": "IN01008282",
+            "CustomerAccount": "C-1001",
+            "CustomerName": "HD SUPPLY",
+            "InvoiceDate": "2026-09-02",
+            "SalesOrderNumber": "SO-88021",
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "SubTotal Invoices": 1000.0,
+            "Tariff Charges": 10.0,
+            "Freight Charges": 20.0,
+            "CC Charges": 0.0,
+            "Misc Charges": 5.0,
+            "Total Invoice": 1035.0
+          },
+          {
+            "InvoiceNumber": "IN01008290",
+            "CustomerAccount": "C-2001",
+            "CustomerName": "AMAZON.COM DEDC, LLC",
+            "InvoiceDate": "2026-09-04",
+            "SalesOrderNumber": "SO-90110",
+            "Salesman": "HKaufman",
+            "SalesmanName": "Kaufman, Herschel",
+            "SubTotal Invoices": 500.0,
+            "Tariff Charges": 0.0,
+            "Freight Charges": 15.0,
+            "CC Charges": 5.0,
+            "Misc Charges": 0.0,
+            "Total Invoice": 520.0
+          }
+        ]
+      },
+      "summary_by_customer": {
+        "name": "Summary by Customer",
+        "rows": [
+          {
+            "CustomerAccount": "C-1001",
+            "CustomerName": "HD SUPPLY",
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "InvoiceCount": 1,
+            "SubTotal Invoices": 1000.0,
+            "Total Tariff Charges": 10.0,
+            "Total Freight Charges": 20.0,
+            "Total CC Charges": 0.0,
+            "Total Misc Charges": 5.0,
+            "Total Invoices": 1035.0
+          },
+          {
+            "CustomerAccount": "C-1002",
+            "CustomerName": "MAZER WHOLESALE",
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "InvoiceCount": 1,
+            "SubTotal Invoices": -50.0,
+            "Total Tariff Charges": 0.0,
+            "Total Freight Charges": 0.0,
+            "Total CC Charges": 0.0,
+            "Total Misc Charges": 0.0,
+            "Total Invoices": -50.0
+          },
+          {
+            "CustomerAccount": "C-2001",
+            "CustomerName": "AMAZON.COM DEDC, LLC",
+            "Salesman": "HKaufman",
+            "SalesmanName": "Kaufman, Herschel",
+            "InvoiceCount": 1,
+            "SubTotal Invoices": 500.0,
+            "Total Tariff Charges": 0.0,
+            "Total Freight Charges": 15.0,
+            "Total CC Charges": 5.0,
+            "Total Misc Charges": 0.0,
+            "Total Invoices": 520.0
+          }
+        ]
+      },
+      "totals_by_salesman": {
+        "name": "Totals by Salesman",
+        "rows": [
+          {
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "InvoiceCount": 2,
+            "SubTotal Invoices": 950.0,
+            "Tariff Charges": 10.0,
+            "Freight Charges": 20.0,
+            "CC Charges": 0.0,
+            "Misc Charges": 5.0,
+            "Total Invoice": 985.0
+          },
+          {
+            "Salesman": "HKaufman",
+            "SalesmanName": "Kaufman, Herschel",
+            "InvoiceCount": 1,
+            "SubTotal Invoices": 500.0,
+            "Tariff Charges": 0.0,
+            "Freight Charges": 15.0,
+            "CC Charges": 5.0,
+            "Misc Charges": 0.0,
+            "Total Invoice": 520.0
+          }
+        ]
+      },
+      "audit_reversals": {
+        "name": "Audit - Reversals",
+        "rows": []
+      },
+      "commissions": {
+        "name": "Commissions",
+        "rows": [
+          {
+            "Salesman": "DDweck",
+            "SalesmanName": "Dweck, David",
+            "Percent": 0.05,
+            "Month": "Sep",
+            "SubTotal Invoices": 1000.0,
+            "Tariff Charges": 10.0,
+            "Freight Charges": 20.0,
+            "CC Charges": 0.0,
+            "Misc Charges": 5.0,
+            "Total Invoices": 1035.0,
+            "Credits": -50.0,
+            "NetCommission": 965.0,
+            "CommissionDollars": 48.25
+          },
+          {
+            "Salesman": "HKaufman",
+            "SalesmanName": "Kaufman, Herschel",
+            "Percent": 0.03,
+            "Month": "Sep",
+            "SubTotal Invoices": 500.0,
+            "Tariff Charges": 0.0,
+            "Freight Charges": 15.0,
+            "CC Charges": 5.0,
+            "Misc Charges": 0.0,
+            "Total Invoices": 520.0,
+            "Credits": 0.0,
+            "NetCommission": 500.0,
+            "CommissionDollars": 15.0
+          }
+        ]
+      }
+    }
+  }
+}
