@@ -12,7 +12,7 @@ Status: historical review findings. Implementation status below is current as of
 
 | Original item | Status |
 |---------------|--------|
-| P0.1 tracked production cookies | Phase 1 — file untracked; rotation owner-confirmed 31 Aug 2026 (after 12 Aug leak); access-log review still BLOCKED |
+| P0.1 tracked production cookies | Phase 1 — file untracked; rotation owner-confirmed 31 Aug 2026 (after 12 Aug leak); access-log review skipped 2026-09-08 (no logs) |
 | P0.2 `cursor/**` Production deploys | Phase 1.1 — Action is `main` only |
 | P0.3 OData salesman scope leak | Phase 3 — no OData under `v3/`; SQL only |
 | P0.4 Litestream empty-disk / wrong replica | Phase 7 repo gate closed; live Azure empty-disk drill BLOCKED |
@@ -26,7 +26,7 @@ Status: historical review findings. Implementation status below is current as of
 | Docs, artifact, hashed deps, `git diff --check` | Phase 9.3 — this branch; see `PR1-REMEDIATION-PLAN.md` |
 | Merge / Production verify | Phase 10; owner approval required |
 
-**Still owner BLOCKED:** GitHub Environment `production` required reviewers; access-log review; live Litestream drill; `LIVE_DB_PATH` import evidence; Production merge/deploy.
+**Still owner BLOCKED:** GitHub Environment `production` required reviewers; live Litestream empty-disk drill; `LIVE_DB_PATH` import evidence; Production merge/deploy. Access-log review skipped 2026-09-08 (no logs).
 
 `is_beta=True` stays (README Rule Preferences). `/beta` 302 stays until cutover (Q7). In-app email distributions stay retired (Q6).
 

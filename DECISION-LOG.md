@@ -1,3 +1,11 @@
+## 2026-09-08 No App Service logs for the cookie-file window
+**What I had to decide:** Whether Phase 1.2 access-log review can close without Azure HTTP/app logs.
+**What I chose:** Skip the review. Do not invent a log pass. Do not rotate secrets again. Do not merge. Next leftover is the live Litestream empty-disk drill, which I will not run on Production B1 without a slot.
+**Why:** Owner: “no logs.” Nothing in this VM or the portal check produced a 12–31 Aug 2026 access trail to inspect.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-08 Flask cookie secrets already rotated (31 Aug)
 **What I had to decide:** Whether to rotate `FLASK_SECRET_KEY` / `FLASK_SECRET` again as the next Azure leftover step.
 **What I chose:** Treat rotation as done. Do not rotate a second time. Do not print keys. Do not delete `beta_live_session.py` yet (`/legacy` still mounted). Next leftover owner item is access-log review for 12–31 Aug 2026. Do not merge.
