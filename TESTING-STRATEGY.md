@@ -1,5 +1,18 @@
 # Testing Strategy
 
+## Customer account is never the salesman
+
+**What to test:**
+- `sales_group_of` / `sales_group_value` skip a SalesGroup/Salesman that equals the customer account (case-insensitive, trimmed). Named groups and numeric salesman codes that are not the account stay.
+- Ordered `ORD00858403`: blank SalesGroup + Salesman=`00011609` (the account) → fact `sales_group=""`, Full Data Salesman blank, By Salesman `(none)`.
+- Invoiced adapter and `fill_invoiced_sales_group` do the same; numeric `"029"` still maps via customer master to `REdwards`.
+- Customer master, lookups dropdown, Customer Activity, Number 4, Customer's Last Order: account-as-salesman is unassigned, not a fake salesman id.
+
+**Expected behavior:**
+- No sales group → unassigned. Never group under the customer number.
+
+**Test files:** `v3/tests/test_lib.py`, `v3/tests/test_report_ordered.py`, `v3/tests/test_report_invoiced.py`, `v3/tests/test_report_service.py`, `v3/tests/test_report_customer_activity.py`, `v3/tests/test_report_number_4.py`, `v3/tests/test_report_customer_last_order.py`
+
 ## Quiet retry-success mail; rich final failure
 
 **What to test:**

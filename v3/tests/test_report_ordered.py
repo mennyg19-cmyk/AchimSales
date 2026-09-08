@@ -265,3 +265,30 @@ def test_summary_remainder_uses_sp_shipping_dollars():
     so2 = next(r for r in full["rows"] if r["SalesOrderNumber"] == "SO2")
     assert so2["Released $"] == 0.0
     assert so2["Open $"] == 0.0
+
+
+def test_blank_salesgroup_does_not_use_customer_account_as_salesman():
+    """ORD00858403: Salesman was the customer number when SalesGroup was empty."""
+    raw = {
+        "SalesOrderNumber": "ORD00858403", "CustomerAccount": "00011609",
+        "customername": "Sample", "SalesGroup": "", "Salesman": "00011609",
+        "CreatedDateTime": "2026-03-01T08:30:00", "LineNumber": "1",
+        "Item": "ITM-A", "ItemDescription": "Widget", "SalesPrice": "1",
+        "SalesStatus": "Open", "QuantityOrdered": "1", "QuantityReserved": "0",
+        "CancelledQTY": "0", "ReleasedQuantity": "0", "DeliveryRemainder": "1",
+        "Ordered $": "1", "Shipped $": "0", "Cancelled $": "0",
+    }
+    f = S.to_fact_ordered_report(raw)
+    assert f.sales_group == ""
+    assert S.to_fact(raw).sales_group == ""
+    tabs = {t["key"]: t for t in B.build(S.to_facts_ordered_report([raw]))}
+    full = tabs["full_data"]["rows"][0]
+    assert full["SalesOrderNumber"] == "ORD00858403"
+    assert full["Salesman"] == ""
+    by_sm = tabs["by_salesman"]["rows"][0]
+    assert by_sm["Salesman"] == "(none)"
+
+
+def test_named_salesgroup_wins_over_account_in_salesman_field():
+    raw = dict(_rows()[0], SalesGroup="REdwards", Salesman="100")
+    assert S.to_fact_ordered_report(raw).sales_group == "REdwards"

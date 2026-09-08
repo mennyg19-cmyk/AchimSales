@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 
 from report_engine.facts import OrderLineFact
-from report_engine.lib import as_int, first_of, iso_date, map_release, num, text
+from report_engine.lib import as_int, first_of, iso_date, map_release, num, sales_group_of, text
 
 # Customer Activity's "last order" needs a true order/created date, so we only
 # accept those here - never a requested ship/receipt date (LIVE uses the header
@@ -41,15 +41,17 @@ _SHIPPING_DOLLAR_KEYS = ("ShippingDollars", "Shipping $", "ShippingAmount")
 
 
 def to_fact(raw: Mapping) -> OrderLineFact:
+    customer_account = text(first_of(raw, "CustomerAccount", "customeraccount", "AccountNum"))
     return OrderLineFact(
         source="reporting_api",
         company=text(first_of(raw, "Company", "DataAreaId")),
         sales_order_number=text(first_of(raw, "SalesOrderNumber", "SalesId", "OrderNumber")),
         sales_order_name=text(first_of(raw, "SalesOrderName", "SalesName", "OrderName")),
         order_date=iso_date(first_of(raw, *_ORDER_DATE_KEYS)),
-        customer_account=text(first_of(raw, "CustomerAccount", "customeraccount", "AccountNum")),
+        customer_account=customer_account,
         customer_name=text(first_of(raw, "customername", "CustomerName", "Name")),
-        sales_group=text(first_of(raw, "SalesGroup", "salesgroup", "Salesman")),
+        sales_group=sales_group_of(
+            raw, "SalesGroup", "salesgroup", "Salesman", customer_account=customer_account),
         po_number=text(first_of(raw, "CustomerRequisition", "CustomerReq", "PONumber", "PO #")),
         line_number=as_int(first_of(raw, "LineNumber", "LineNum")),
         item_number=text(first_of(raw, "Item", "ItemId", "ItemNumber", "Item#")),
@@ -84,15 +86,17 @@ def to_fact_ordered_report(raw: Mapping) -> OrderLineFact:
     OrderStatus blank until the SP provides it.
     """
     customer_name = text(first_of(raw, "customername", "CustomerName", "Name"))
+    customer_account = text(first_of(raw, "CustomerAccount", "customeraccount", "AccountNum"))
     return OrderLineFact(
         source="reporting_api",
         company="",
         sales_order_number=text(first_of(raw, "SalesOrderNumber", "SalesId", "OrderNumber")),
         sales_order_name=customer_name,
         order_date=iso_date(first_of(raw, "CreatedDateTime", "OrderDate")),
-        customer_account=text(first_of(raw, "CustomerAccount", "customeraccount", "AccountNum")),
+        customer_account=customer_account,
         customer_name=customer_name,
-        sales_group=text(first_of(raw, "SalesGroup", "salesgroup", "Salesman")),
+        sales_group=sales_group_of(
+            raw, "SalesGroup", "salesgroup", "Salesman", customer_account=customer_account),
         po_number=text(first_of(raw, "CustomerRequisition", "CustomerReq", "PONumber", "PO #")),
         line_number=as_int(first_of(raw, "LineNumber", "LineNum")),
         item_number=text(first_of(raw, "Item", "ItemId", "ItemNumber", "Item#")),

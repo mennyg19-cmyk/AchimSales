@@ -1,3 +1,10 @@
+## 2026-09-08 Empty SalesGroup stays unassigned; never use the customer account
+**What you asked for:** ORD00858403 had no sales group but the Ordered report put it under salesman 00011609, which is the customer number. Leave it unassigned, sitewide.
+**What I had to decide:** Drop every numeric salesman code vs only values that equal that row's CustomerAccount. Invoiced still uses codes like 029 and maps them through customer master.
+**What I chose:** Shared `sales_group_value` / `sales_group_of`: skip a SalesGroup/Salesman that equals the customer account. Empty stays unassigned. Named customer-master SalesGroup still fills invoiced numeric codes.
+**Why:** Dynamics copies the account into Salesman when SalesGroup is blank. Treating that as a salesman is wrong. Rejecting all-numeric codes would break 029 → REdwards.
+**Status:** DECIDED
+
 ## 2026-09-08 Quiet retry-success mail; dump the log on final failure
 **What you asked for:** Don't email me when a job failed, retried, and then succeeded. Only tell me about failures if retries did not work, and then send the whole log.
 **What I chose:** Success (including fail-then-retry) is a normal heartbeat / report email with no mention of the blip. `[FAIL]` / runbook FAILURE still wait for retries to finish. The final failure mail includes every attempt, traceback, job/runbook log, and run details.

@@ -78,6 +78,38 @@ def first_of(raw: Mapping[str, Any], *keys: str) -> Any:
     return None
 
 
+_ACCOUNT_KEYS = (
+    "CustomerAccount", "customeraccount", "AccountNum", "InvoiceAccount",
+    "customer_account", "Customer Account", "Cust. #", "Customer #",
+)
+
+
+def sales_group_value(value: Any, customer_account: Any = "") -> str:
+    """A salesman / SalesGroup field, or '' when it is the customer account.
+
+    Dynamics repeats CustomerAccount in Salesman when SalesGroup is empty.
+    That is not a salesman — leave it unassigned. Named groups and numeric
+    salesman codes (029) that are not the account stay as-is.
+    """
+    sg = text(value)
+    acct = text(customer_account)
+    if not sg:
+        return ""
+    if acct and sg.casefold() == acct.casefold():
+        return ""
+    return sg
+
+
+def sales_group_of(raw: Mapping[str, Any], *keys: str, customer_account: str = "") -> str:
+    """First non-blank sales-group field that is not the customer account."""
+    account = text(customer_account) or text(first_of(raw, *_ACCOUNT_KEYS))
+    for key in keys:
+        sg = sales_group_value(raw.get(key), account)
+        if sg:
+            return sg
+    return ""
+
+
 def date_only(value: Any) -> str:
     """Deprecated name — use iso_date. Kept as an alias so old call sites stay safe."""
     return iso_date(value)

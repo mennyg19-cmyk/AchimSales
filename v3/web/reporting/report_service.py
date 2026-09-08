@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 from report_engine.dates import D365_GO_LIVE, month_chunks, sp_datetime, today_eastern
 from report_engine.facts import InvoiceChargeFact, SalesmanFact
-from report_engine.lib import filter_facts_by_scope, salesman_key
+from report_engine.lib import filter_facts_by_scope, salesman_key, sales_group_value
 from report_engine.reports import customer_activity as rpt_customer_activity
 from report_engine.reports import invoiced as rpt_invoiced
 from report_engine.reports import item_averages as rpt_item_averages
@@ -79,7 +79,8 @@ def _known_salesman_labels(salesmen: dict[str, SalesmanFact],
                 known.add(label)
                 known.add(salesman_key(label))
     if customers_by_acct:
-        for sg in customers_by_acct.values():
+        for acct, sg in customers_by_acct.items():
+            sg = sales_group_value(sg, acct)
             if sg:
                 known.add(sg)
                 known.add(salesman_key(sg))
@@ -98,14 +99,21 @@ def fill_invoiced_sales_group(
     customers_by_acct: dict[str, str],
     salesmen: dict[str, SalesmanFact],
 ) -> list[InvoiceChargeFact]:
-    """Keep a real SalesGroup from the invoiced SP; otherwise use the customer dropdown."""
+    """Keep a real SalesGroup from the invoiced SP; otherwise use the customer dropdown.
+
+    Never copy a customer account into sales_group — that is not a salesman.
+    """
     known = _known_salesman_labels(salesmen, customers_by_acct)
     out: list[InvoiceChargeFact] = []
     for fact in facts:
+        sg = sales_group_value(fact.sales_group, fact.customer_account)
+        if sg != (fact.sales_group or "").strip():
+            fact = replace(fact, sales_group=sg)
         if not _sales_group_needs_lookup(fact, known):
             out.append(fact)
             continue
-        cust_sg = (customers_by_acct.get(fact.customer_account) or "").strip()
+        cust_sg = sales_group_value(
+            customers_by_acct.get(fact.customer_account) or "", fact.customer_account)
         if not cust_sg:
             out.append(fact)
             continue
@@ -232,13 +240,13 @@ class ReportService:
                 mapped = lookups.customer_sales_groups()
                 if mapped:
                     return mapped
-        return {
-            (getattr(f, "customer_account", "") or "").strip():
-                (getattr(f, "sales_group", "") or "").strip()
-            for f in self._customer_universe()
-            if (getattr(f, "customer_account", "") or "").strip()
-            and (getattr(f, "sales_group", "") or "").strip()
-        }
+        mapped: dict[str, str] = {}
+        for f in self._customer_universe():
+            acct = (getattr(f, "customer_account", "") or "").strip()
+            sg = sales_group_value(getattr(f, "sales_group", ""), acct)
+            if acct and sg and acct not in mapped:
+                mapped[acct] = sg
+        return mapped
 
     def _with_dropdown_salesman(
         self,

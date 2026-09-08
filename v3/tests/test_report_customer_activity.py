@@ -23,6 +23,17 @@ def test_all_tab_has_every_customer_with_salesman_column():
     assert [t["name"] for t in tabs][0] == "All"
 
 
+def test_customer_account_as_salesman_goes_to_unassigned():
+    rows = B.clean_rows([
+        {"Salesman": "00011609", "Customer Account": "00011609",
+         "Customer Name": "Solo", "Last Order Date": "N/A",
+         "PO #": "N/A", "Sales Order Number": "N/A"},
+    ])
+    tabs = B.build(rows)
+    assert rows[0]["Salesman"] == ""
+    assert [t["name"] for t in tabs if t["key"] != "all"] == ["Unassigned"]
+
+
 def test_clean_rows_normalizes_last_order_date_to_yyyy_mm_dd():
     rows = B.clean_rows([
         {"Salesman": "REdwards", "Customer Account": "100", "Customer Name": "Acme",

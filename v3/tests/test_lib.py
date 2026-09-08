@@ -52,6 +52,29 @@ def test_salesman_key_normalizes():
     assert lib.salesman_key(None) == ""
 
 
+def test_sales_group_value_drops_customer_account():
+    assert lib.sales_group_value("00011609", "00011609") == ""
+    assert lib.sales_group_value("REdwards", "00011609") == "REdwards"
+    assert lib.sales_group_value("029", "100") == "029"
+    assert lib.sales_group_value("", "100") == ""
+    assert lib.sales_group_value("REdwards", "") == "REdwards"
+    assert lib.sales_group_value("00011609", "00011609 ") == ""
+
+
+def test_sales_group_of_skips_account_in_salesman_field():
+    row = {
+        "CustomerAccount": "00011609",
+        "SalesGroup": "",
+        "Salesman": "00011609",
+    }
+    assert lib.sales_group_of(row, "SalesGroup", "salesgroup", "Salesman") == ""
+    row["SalesGroup"] = "REdwards"
+    assert lib.sales_group_of(row, "SalesGroup", "salesgroup", "Salesman") == "REdwards"
+    row["SalesGroup"] = ""
+    row["Salesman"] = "REdwards"
+    assert lib.sales_group_of(row, "SalesGroup", "salesgroup", "Salesman") == "REdwards"
+
+
 def test_map_release_converts_in_order():
     rows = [1, 2, 3]
     assert lib.map_release(rows, lambda n: n * 10) == [10, 20, 30]

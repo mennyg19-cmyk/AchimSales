@@ -210,3 +210,8 @@ def test_scope_filter_matches_salesman_case_insensitively():
     assert [r["Customer #"] for r in mine] == ["100"]
     assert B.filter_rows_by_salesman(rows, None) == rows       # unrestricted
     assert B.filter_rows_by_salesman(rows, set()) == []        # no access
+
+
+def test_clean_rows_does_not_use_customer_number_as_salesman():
+    rows = B.clean_rows([_row(**{"Customer #": "00011609", "Salesman": "00011609"})])
+    assert rows[0]["Salesman"] == ""

@@ -810,7 +810,7 @@ def _clo_rows_or_403(p, account: str):
     it can't resolve the account we fall back to Salesman on the SP rows and only
     authorize when there ARE rows (an empty unknown account leaks nothing).
     """
-    from report_engine.lib import first_of, text as _text
+    from report_engine.lib import first_of, sales_group_of, text as _text
 
     info = _lookups().customer(account)
     rows = _report_service().last_order_rows(account)
@@ -822,7 +822,8 @@ def _clo_rows_or_403(p, account: str):
         name = ""
         for r in rows:
             if not sales_group:
-                sales_group = _text(first_of(r, "Salesman", "SalesGroup"))
+                sales_group = sales_group_of(
+                    r, "Salesman", "SalesGroup", customer_account=account)
             if not name:
                 name = _text(first_of(r, "Customer Name", "CustomerName", "customername"))
             if sales_group and name:

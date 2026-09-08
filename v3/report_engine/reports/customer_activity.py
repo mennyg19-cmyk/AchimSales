@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from typing import Iterable, Sequence
 
-from report_engine.lib import iso_date, salesman_key
+from report_engine.lib import iso_date, salesman_key, sales_group_value
 
 _BASE_COLS = [
     {"field": "Customer Account", "header": "Customer Account", "type": "text"},
@@ -39,8 +39,13 @@ def _cell(column: dict, row: dict):
 
 def clean_rows(rows: Iterable[dict]) -> list[dict]:
     """Keep the stored procedure's rows; normalize date columns to YYYY-MM-DD."""
-    return [{column["field"]: _cell(column, row) for column in _ALL_COLS}
-            for row in rows]
+    out = []
+    for row in rows:
+        cleaned = {column["field"]: _cell(column, row) for column in _ALL_COLS}
+        cleaned["Salesman"] = sales_group_value(
+            cleaned.get("Salesman"), cleaned.get("Customer Account"))
+        out.append(cleaned)
+    return out
 
 
 def filter_rows_by_salesman(rows: list[dict], visible_keys) -> list[dict]:

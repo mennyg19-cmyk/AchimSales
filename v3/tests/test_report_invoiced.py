@@ -92,6 +92,19 @@ def test_adapter_prefers_salesgroup_over_numeric_salesman():
     assert fact.salesman_name == "Robert Edwards"
 
 
+def test_adapter_does_not_use_customer_account_as_salesman():
+    fact = S.to_fact({
+        "InvoiceNumber": "INV1", "InvoiceAccount": "00011609",
+        "SalesGroup": "", "salesman": "00011609", "amount": "10",
+    })
+    assert fact.sales_group == ""
+    fact = S.to_fact({
+        "InvoiceNumber": "INV1", "InvoiceAccount": "100",
+        "salesman": "029", "amount": "10",
+    })
+    assert fact.sales_group == "029"
+
+
 def test_adapter_accepts_new_invoiced_report_field_names():
     fact = S.to_fact({
         "InvoiceNumber": "INV9",

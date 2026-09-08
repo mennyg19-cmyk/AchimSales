@@ -22,7 +22,7 @@ import threading
 import time
 from typing import Any
 
-from report_engine.lib import salesman_key
+from report_engine.lib import salesman_key, sales_group_value
 from web.reporting.report_service import ReportService
 from web.reporting.salesman_directory import SalesmanDirectory
 
@@ -136,7 +136,8 @@ class LookupService:
         out = [{"key": m.key, "name": m.name or m.key} for m in self.directory.rows(wait=False)]
         seen = {salesman_key(r["key"]) for r in out}
         for f in self._universe():
-            sg = (getattr(f, "sales_group", "") or "").strip()
+            acct = (getattr(f, "customer_account", "") or "").strip()
+            sg = sales_group_value(getattr(f, "sales_group", ""), acct)
             norm = salesman_key(sg)
             if not sg or norm in seen:
                 continue
@@ -153,7 +154,7 @@ class LookupService:
             acct = (getattr(f, "customer_account", "") or "").strip()
             if not acct:
                 continue
-            sg = (getattr(f, "sales_group", "") or "").strip()
+            sg = sales_group_value(getattr(f, "sales_group", ""), acct)
             if sm and sg != sm:
                 continue
             if acct in seen:
@@ -192,7 +193,7 @@ class LookupService:
             if (getattr(f, "customer_account", "") or "").strip() == acct:
                 return {"key": acct,
                         "name": (getattr(f, "customer_name", "") or "").strip() or acct,
-                        "salesman": (getattr(f, "sales_group", "") or "").strip()}
+                        "salesman": sales_group_value(getattr(f, "sales_group", ""), acct)}
         return None
 
     def customer_sales_groups(self) -> dict[str, str]:
@@ -200,7 +201,7 @@ class LookupService:
         out: dict[str, str] = {}
         for f in self._universe():
             acct = (getattr(f, "customer_account", "") or "").strip()
-            sg = (getattr(f, "sales_group", "") or "").strip()
+            sg = sales_group_value(getattr(f, "sales_group", ""), acct)
             if acct and sg and acct not in out:
                 out[acct] = sg
         return out

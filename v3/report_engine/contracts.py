@@ -90,7 +90,7 @@ DRIFT_LEDGER: tuple[DriftDecision, ...] = (
     DriftDecision("number_4", "salesman_source",
                   "Salesman source: order line first, customer master fallback.",
                   chosen=DriftChoice.NEW, signed_off=True, owner="menny",
-                  rationale="User chose: use order line's SalesGroup; if empty fall back to customer master's current rep."),
+                  rationale="User chose: use order line's SalesGroup; if empty fall back to customer master's current named SalesGroup. Never use CustomerAccount as the salesman — that stays unassigned."),
     DriftDecision("salesman", "group_key_cardinality",
                   "Salesman grouping grain (one row per SalesGroup vs combined).",
                   chosen=DriftChoice.LIVE_ROOT, signed_off=True, owner="menny",

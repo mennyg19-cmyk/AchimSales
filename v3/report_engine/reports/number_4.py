@@ -23,7 +23,7 @@ from datetime import date
 from typing import Iterable, Sequence
 
 from report_engine.dates import today_eastern
-from report_engine.lib import num, salesman_key
+from report_engine.lib import num, salesman_key, sales_group_value, text
 
 # Fixed trailing columns; everything else ending in "Qty" or "$" is a month.
 AVG_PRICE = "Avg Price"
@@ -210,6 +210,14 @@ def clean_rows(rows: Iterable[dict]) -> list[dict]:
         for header, value in raw.items():
             field = canonical_header(header)
             cleaned[field] = value if _column_type(field) == "text" else round(num(value), 2)
+        acct = text(
+            cleaned.get("Customer #")
+            or cleaned.get("CustomerAccount")
+            or cleaned.get("Customer Account")
+            or cleaned.get("Cust. #")
+        )
+        if SALESMAN_COLUMN in cleaned:
+            cleaned[SALESMAN_COLUMN] = sales_group_value(cleaned.get(SALESMAN_COLUMN), acct)
         out.append(cleaned)
     return out
 

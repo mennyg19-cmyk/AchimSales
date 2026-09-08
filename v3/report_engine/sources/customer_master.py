@@ -11,15 +11,19 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 
 from report_engine.facts import CustomerFact
-from report_engine.lib import first_of, iso_date, map_release, text
+from report_engine.lib import first_of, iso_date, map_release, sales_group_of, text
 
 
 def to_fact(raw: Mapping) -> CustomerFact:
+    customer_account = text(first_of(
+        raw, "CustomerAccount", "customer_account", "customeraccount", "AccountNum"))
     return CustomerFact(
         source="reporting_api",
-        customer_account=text(first_of(raw, "CustomerAccount", "customer_account", "customeraccount", "AccountNum")),
+        customer_account=customer_account,
         customer_name=text(first_of(raw, "CustomerName", "customer_name", "customername", "Name")),
-        sales_group=text(first_of(raw, "SalesGroup", "sales_group", "salesgroup", "Salesman")),
+        sales_group=sales_group_of(
+            raw, "SalesGroup", "sales_group", "salesgroup", "Salesman",
+            customer_account=customer_account),
         last_order_date=iso_date(first_of(raw, "LastOrderDate", "last_order_date")),
     )
 

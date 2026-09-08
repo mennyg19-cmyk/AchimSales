@@ -95,3 +95,12 @@ def test_no_rows_yields_empty_view():
     view = B.build([])
     assert view.headers == [] and view.lines == [] and view.primary is None
     assert view.totals["total"] == 0
+
+
+def test_logical_orders_do_not_use_customer_account_as_salesman():
+    rows = [_row(1, "ORD00858403", "PO1", "2026-03-01",
+                 "ITM-A", "W", 1, 1, 0, 1, 1,
+                 account="00011609", name="Solo", salesman="00011609")]
+    orders = B.logical_orders(rows)
+    assert orders[0].salesman == ""
+    assert orders[0].order_number == "ORD00858403"

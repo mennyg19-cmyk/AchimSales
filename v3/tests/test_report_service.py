@@ -189,6 +189,18 @@ def test_fill_invoiced_sales_group_keeps_endpoint_salesgroup():
     assert out[0].sales_group == "REdwards"
 
 
+def test_fill_invoiced_sales_group_drops_customer_account_as_salesman():
+    fact = src_invoiced.to_fact({
+        "InvoiceNumber": "I1", "InvoiceAccount": "00011609",
+        "salesman": "00011609", "amount": "10",
+    })
+    salesmen = _FakeSalesmenRepo().all_as_facts()
+    out = fill_invoiced_sales_group([fact], {"00011609": "00011609"}, salesmen)
+    assert out[0].sales_group == ""
+    out = fill_invoiced_sales_group([fact], {}, salesmen)
+    assert out[0].sales_group == ""
+
+
 def test_invoiced_numeric_salesman_uses_customer_master():
     invoiced = [{"Invoice": "I1", "InvoiceAccount": "100", "InvoiceDate": "2026-03-01",
                  "Amount": "100", "salesman": "029"}]
@@ -198,6 +210,17 @@ def test_invoiced_numeric_salesman_uses_customer_master():
     full = next(t for t in out["tabs"] if t["key"] == "full_data")
     assert full["rows"][0]["Salesman"] == "REdwards"
     assert "customer_master" in svc.client.calls
+
+
+def test_invoiced_customer_account_salesman_stays_unassigned():
+    invoiced = [{"Invoice": "I1", "InvoiceAccount": "00011609", "InvoiceDate": "2026-03-01",
+                 "Amount": "100", "salesman": "00011609"}]
+    customers = [{"CustomerAccount": "00011609", "CustomerName": "Solo",
+                  "SalesGroup": "", "Salesman": "00011609"}]
+    svc = _svc({"invoiced_report": invoiced, "customer_master": customers})
+    out = svc.builder_for("invoiced")({"_skip_commissions": True}, None)
+    full = next(t for t in out["tabs"] if t["key"] == "full_data")
+    assert full["rows"][0]["Salesman"] == "Unassigned"
 
 
 def test_invoiced_known_salesgroup_skips_customer_master():
@@ -518,6 +541,24 @@ def test_lookup_dropdowns_populate_from_mirror_before_universe_warms():
     assert lk.customer_sales_groups() == {"100": "REdwards", "200": "REdwards"}
 
 
+def test_lookup_skips_customer_account_used_as_sales_group():
+    svc = _svc({
+        "customer_master": [
+            {"CustomerAccount": "00011609", "CustomerName": "Solo",
+             "SalesGroup": "", "Salesman": "00011609"},
+            {"CustomerAccount": "100", "CustomerName": "Acme", "SalesGroup": "REdwards"},
+        ],
+        "salesmen_master": [{"SalesGroup": "REdwards", "SalesmanName": "Reggie Edwards"}],
+    })
+    lk = _lookup(svc)
+    lk._populate()
+    assert [r["key"] for r in lk.salesmen()] == ["REdwards"]
+    assert lk.customer("00011609")["salesman"] == ""
+    assert lk.customer_sales_groups() == {"100": "REdwards"}
+    solo = next(c for c in lk.customers() if c["key"] == "00011609")
+    assert solo["salesman"] == ""
+
+
 def test_customer_activity_uses_sp_rows():
     rows = [{
         "Salesman": "REdwards", "Customer Account": "100", "Customer Name": "Acme",
@@ -529,6 +570,20 @@ def test_customer_activity_uses_sp_rows():
     assert len(all_tab["rows"]) == 1
     assert all_tab["rows"][0]["Customer Account"] == "100"
     assert all_tab["name"] == "All"
+
+
+def test_customer_activity_account_as_salesman_is_unassigned():
+    rows = [{
+        "Salesman": "00011609", "Customer Account": "00011609", "Customer Name": "Solo",
+        "Last Order Date": "N/A", "PO #": "N/A", "Sales Order Number": "N/A",
+    }]
+    svc = _svc({"customer_activity": rows})
+    out = svc.builder_for("customer_activity")({}, None)
+    all_tab = next(t for t in out["tabs"] if t["key"] == "all")
+    assert all_tab["rows"][0]["Salesman"] == ""
+    names = [t["name"] for t in out["tabs"]]
+    assert "Unassigned" in names
+    assert "00011609" not in names
 
 
 def test_scope_filters_facts_to_visible_keys():

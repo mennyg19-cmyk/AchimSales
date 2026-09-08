@@ -14,7 +14,7 @@ import re
 from typing import Iterable, Mapping
 
 from report_engine.facts import InvoiceChargeFact
-from report_engine.lib import first_of, iso_date, map_release, num, text
+from report_engine.lib import first_of, iso_date, map_release, num, sales_group_of, text
 
 # Credit notes carry CRD / CM / FC anywhere in the invoice number when SQL
 # does not send IsCredit. Substring match, case-insensitive (matches LIVE).
@@ -33,11 +33,15 @@ def _is_credit(raw: Mapping, invoice_number: str) -> bool:
 
 
 def _sales_group_label(raw: Mapping) -> str:
-    """SalesGroup from the invoiced endpoint; salesman / SalesmanName if that is blank."""
-    group = text(first_of(raw, "SalesGroup"))
-    if group:
-        return group
-    return text(first_of(raw, "salesman", "Salesman")) or text(first_of(raw, "SalesmanName"))
+    """SalesGroup from the invoiced endpoint; salesman / SalesmanName if that is blank.
+
+    Never treat the customer account as a salesman (Dynamics often copies it
+    into Salesman when SalesGroup is empty).
+    """
+    return sales_group_of(
+        raw, "SalesGroup", "salesman", "Salesman", "SalesmanName",
+        customer_account=text(first_of(raw, "CustomerAccount", "InvoiceAccount")),
+    )
 
 
 def _commission_fraction(raw: Mapping) -> float:

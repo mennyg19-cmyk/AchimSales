@@ -18,7 +18,7 @@ from datetime import date, datetime
 from typing import Any
 
 from report_engine.dates import today_eastern
-from report_engine.lib import iso_date, num
+from report_engine.lib import iso_date, num, sales_group_value
 
 
 _MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -315,7 +315,8 @@ def reconcile(
 
     for r in inv_ty_rows:
         total = _invoice_total(r)
-        sm_raw = str(_get(r, "SalesGroup", "Salesman", "SalesmanName", "salesman") or "").strip()
+        sm_raw = sales_group_value(
+            _get(r, "SalesGroup", "Salesman", "SalesmanName", "salesman"), acct)
         acct = str(_get(r, "CustomerAccount", "InvoiceAccount", "AccountNum") or "").strip()
         pair = (_norm(sm_raw), acct)
         inv_ytd[pair] = round(inv_ytd.get(pair, 0.0) + total, 2)
