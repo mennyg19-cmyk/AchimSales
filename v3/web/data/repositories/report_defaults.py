@@ -35,11 +35,11 @@ def resolve_send_layout(view_name: str | None, stored: dict | None,
                         company_named: dict | None = None) -> dict:
     """Layout to apply at send time.
 
-    Named/Custom views use the snapshot on the schedule unless the name is a
-    company view with a live layout (edits apply on the next send). Default
-    with no snapshot uses the company Default. Default that already has a
-    snapshot (seeded tab lists, report-page lock-in) keeps that snapshot so a
-    Default edit does not rewrite those files.
+    Named views use the live saved-view layout when one is passed in
+    (personal or company). Otherwise they keep the snapshot on the schedule.
+    Default with no snapshot uses the company Default. Default that already
+    has a snapshot keeps that snapshot so a Default edit does not rewrite
+    those files.
     """
     stored_layout = stored if isinstance(stored, dict) else {}
     if normalize_view_name(view_name) != DEFAULT_VIEW_NAME:

@@ -94,6 +94,18 @@ Testing plan built alongside code. Each feature/module gets an entry documenting
 
 **Test file:** `v3/tests/test_blueprints.py`, `v3/tests/test_frontend.py`
 
+## Personal named views send live layout (not a schedule snapshot)
+
+**What to test:**
+- A personal named-view schedule whose row still has an old `layout` / `period` sends the live saved view’s layout and filters. Delivery keys stay on the schedule.
+- A personal schedule of a company view still uses the company layout, not a same-named personal view.
+- Company/master schedules still send their own period.
+
+**Expected behavior:**
+- Save this view is enough. You do not resave each schedule for tabs/columns/sorts/filters to hit the next send.
+
+**Test file:** `v3/tests/test_scheduling.py`
+
 ## Personal schedule uses the live saved-view period
 
 **What to test:**

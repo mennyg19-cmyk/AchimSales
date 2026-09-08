@@ -195,29 +195,32 @@ class ScheduleRunner:
         return filters
 
     def _layout_for(self, sched, schedule_type: str) -> dict:
+        """Named views send the live saved layout, not a stale schedule snapshot."""
         name = getattr(sched, "view_name", None)
-        named = {}
+        live = {}
         if name and normalize_view_name(name) != DEFAULT_VIEW_NAME:
-            use_company = schedule_type == MASTER
             stored = dict(getattr(sched, "params", None) or {})
-            if schedule_type == PERSONAL:
-                if stored.get("view_source") == "company":
-                    use_company = True
+            use_company = (
+                schedule_type == MASTER or stored.get("view_source") == "company"
+            )
+            if schedule_type == PERSONAL and not use_company:
+                owner_id = getattr(sched, "owner_user_id", None)
+                personal = (
+                    self.saved_reports.get_by_name(
+                        owner_id, sched.report_key, name)
+                    if owner_id else None
+                )
+                if personal is not None:
+                    live = dict(personal.layout or {})
                 else:
-                    owner_id = getattr(sched, "owner_user_id", None)
-                    personal = (
-                        self.saved_reports.get_by_name(
-                            owner_id, sched.report_key, name)
-                        if owner_id else None
-                    )
-                    use_company = personal is None
+                    use_company = True
             if use_company:
-                named = self.company_views.get_layout(sched.report_key, name)
+                live = self.company_views.get_layout(sched.report_key, name)
         return resolve_send_layout(
             name,
             sched.layout,
             self.defaults.get_layout(sched.report_key),
-            named,
+            live,
         )
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,

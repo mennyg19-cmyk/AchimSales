@@ -1,3 +1,10 @@
+## 2026-09-08 Named-view schedule sends pick up Save this view (layout too)
+**What you asked for:** Changing a view did not affect the scheduled file until each schedule was resaved.
+**What I had to decide:** Keep layout as a per-schedule snapshot vs overlay the live saved view the same way filters already do.
+**What I chose:** Personal named views send the live saved-view layout at run time. Company-view personal schedules still use the company layout. Default schedules with a snapshot still keep that snapshot. Company/master schedules still own their period.
+**Why:** Filters were already live. Layout was copied onto the schedule row at create/resave, so column/tab edits never reached the email. Resaving only recopied that snapshot.
+**Status:** DECIDED
+
 ## 2026-09-08 Empty SalesGroup stays unassigned; never use the customer account
 **What you asked for:** ORD00858403 had no sales group but the Ordered report put it under salesman 00011609, which is the customer number. Leave it unassigned, sitewide.
 **What I had to decide:** Drop every numeric salesman code vs only values that equal that row's CustomerAccount. Invoiced still uses codes like 029 and maps them through customer master.
