@@ -1,3 +1,11 @@
+## 2026-09-08 Skip /test vs beta database compare for now
+**What I had to decide:** Whether to compare Azure `PRECIOUS_*` (`/test`) against `BETA_*` (home) and then delete the `/test` database.
+**What I chose:** Skip. Home beta remains the source of truth. Do not copy `PRECIOUS_*` onto `SITE_*` as a data move. Do not unmount `/test`. Do not delete either sqlite file or its Litestream replica. I cannot see Azure DBs from this VM; no compare was run.
+**Why:** Owner: “skip this for now.” Weeks of work are on home (`BETA_*`). `/test` stays mounted until a later cutover step.
+**Status:** DECIDED
+**Model:** cursor-grok-4.6
+**Runner:** parent
+
 ## 2026-09-08 Owner set PUBLIC_BASE_URL
 **What I had to decide:** Whether to proceed to the staged `SITE_*` database aliases.
 **What I chose:** Treat `PUBLIC_BASE_URL` as done. Next: add `SITE_PRECIOUS_DB_PATH` / `SITE_CACHE_DB_PATH` as copies of existing `PRECIOUS_DB_PATH` / `CACHE_DB_PATH`. Do not change `BETA_*`. Do not delete old names. Do not merge. Do not unmount `/test`.
