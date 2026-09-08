@@ -25,6 +25,7 @@ from email.message import EmailMessage
 from uuid import uuid4
 
 from web.config import Config
+from web.data.repositories.delivery_legs import DeliveryLegRepository
 from web.data.repositories.outbox import OutboxRepository
 from web.delivery.email_template import (
     DOWNLOAD_BUTTON_BG,
@@ -142,16 +143,20 @@ class DeliveryResult:
     sharepoint_url: str | None = None
     sharepoint_error: str | None = None
     outbox_id: int | None = None
+    delivery_status: str = ""
+    legs: list[dict[str, str]] = field(default_factory=list)
 
 
 class EmailService:
     def __init__(self, cfg: Config, outbox: OutboxRepository, sharepoint: SharePointService,
-                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None):
+                 graph: GraphMailer | None = None, onedrive: OneDriveService | None = None,
+                 delivery_legs: DeliveryLegRepository | None = None):
         self.cfg = cfg
         self.outbox = outbox
         self.sharepoint = sharepoint
         self.onedrive = onedrive
         self._graph = graph
+        self.delivery_legs = delivery_legs or DeliveryLegRepository(outbox.db)
 
     def _graph_mailer(self) -> GraphMailer | None:
         if self._graph is not None:
@@ -176,7 +181,9 @@ class EmailService:
                 report_name: str, filename: str = "", xlsx_bytes: bytes | None = None,
                 sharepoint_path: str | None = None,
                 onedrive_user: str | None = None,
-                cc_raw: str = "", bcc_raw: str = "",
+                cc_raw: str = "", bcc_raw: str = "", job_id: str | None = None,
+                run_id: int | None = None, slot_id: str | None = None,
+                email_kind: str = "email",
                 subject_template: str = "", body_html_template: str = "",
                 schedule_name: str = "", params: dict | None = None) -> DeliveryResult:
         recipients = split_recipients(recipients_raw)
@@ -186,6 +193,7 @@ class EmailService:
         if not recipients and not folder_path:
             return DeliveryResult(ok=False, error="No valid recipients.")
 
+        has_email_target = bool(recipients or cc or bcc)
         attach = xlsx_bytes if _graph_attachable(xlsx_bytes) else None
         # Oversized Graph mail needs a file URL. Test mode must not write the
         # live Daily/YTD folder — use Test under Direct Reports instead.
@@ -195,18 +203,38 @@ class EmailService:
                 recipients or cc or bcc):
             upload_path = TEST_SHAREPOINT_FOLDER
 
-        # Upload first so a link-only email (YTD / other large workbooks) can
-        # include the SharePoint or OneDrive URL instead of a rejected Graph send.
-        from web.jobs.trace import step as job_step
+        body, body_html = _email_bodies(
+            body_text, report_name, filename, xlsx_bytes, attach, None)
+        msg = self._compose(subject, recipients, body, report_name, filename, attach,
+                            cc=cc, bcc=bcc, body_html=body_html)
+        eml_name = self._write_eml(msg, report_name)
+        leg_args = {
+            "job_id": job_id, "run_id": run_id,
+            "slot_id": slot_id or f"manual:{job_id or 'direct'}",
+        }
+        snapshots: list[dict[str, str]] = []
+        folder_leg_id = None
+        email_leg_id = None
         if upload_path:
-            dest = "OneDrive" if onedrive_user else "SharePoint"
-            job_step("delivery", f"{dest} {upload_path}/{filename}")
-        sp_saved, sp_url, sp_err = self._maybe_folder(
-            upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
+            folder_leg_id = self.delivery_legs.create(**leg_args, kind="folder")
+        if has_email_target:
+            email_leg_id = self.delivery_legs.create(**leg_args, kind=email_kind)
+
+        if folder_leg_id is not None:
+            if xlsx_bytes:
+                self.delivery_legs.update(folder_leg_id, status="sending")
+                sp_saved, sp_url, sp_err = self._maybe_folder(
+                    upload_path, filename, xlsx_bytes, onedrive_user=onedrive_user)
+            else:
+                sp_saved, sp_url, sp_err = False, None, "Workbook was not written"
+            self._finish_folder_leg(
+                folder_leg_id, saved=sp_saved, error=sp_err, snapshots=snapshots)
+        else:
+            sp_saved, sp_url, sp_err = False, None, None
+
         record_path = folder_path or (upload_path if sp_saved else None)
         if not folder_path:
             sp_err = None if not sp_saved else sp_err
-
         body, body_html = _email_bodies(
             body_text, report_name, filename, xlsx_bytes, attach, sp_url,
             folder_path=upload_path if (sp_saved and not sp_url) else None)
@@ -220,17 +248,20 @@ class EmailService:
         )
         msg = self._compose(subject, recipients, body, report_name, filename, attach,
                             cc=cc, bcc=bcc, body_html=body_html)
-        eml_name = self._write_eml(msg, report_name)
+        (self.cfg.outbox_dir / eml_name).write_bytes(bytes(msg))
 
         sent = False
         channel = ""
-        if recipients or cc or bcc:
+        delivery_status = ""
+        error = ""
+        if has_email_target:
             graph = self._graph_mailer()
             if graph is not None:
+                self.delivery_legs.update(email_leg_id, status="sending")
                 try:
                     from web.jobs.trace import step as job_step
                     job_step("email", f"Graph sendMail to {', '.join(recipients[:5])}")
-                    sent_url = self._graph_send(
+                    sent_url, fallback = self._graph_send(
                         graph, recipients, cc, bcc, subject or report_name, body,
                         filename, attach, body_html=body_html,
                         report_name=report_name, intro=body_text,
@@ -241,33 +272,33 @@ class EmailService:
                         schedule_name=schedule_name, params=params,
                     )
                     if sent_url:
-                        sp_url = sent_url
-                        sp_saved = True
+                        sp_url, sp_saved = sent_url, True
+                    sp_url, sp_saved, sp_err, record_path = self._record_fallback_folder_leg(
+                        fallback, snapshots, leg_args, xlsx_bytes,
+                        sp_url, sp_saved, sp_err, record_path)
                     sent = True
                     channel = "graph"
                 except GraphMailError as exc:
                     log.exception("Graph send failed")
-                    return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        channel="", sp_path=record_path, sp_saved=sp_saved,
-                                        sp_url=sp_url, sp_error=sp_err,
-                                        error=f"Graph failed: {exc}")
+                    error = f"Graph failed: {exc}"
+                    delivery_status = exc.delivery_status
             elif self.cfg.smtp_host:
+                self.delivery_legs.update(email_leg_id, status="sending")
                 try:
                     self._smtp_send(msg, recipients + cc + bcc)
                     sent = True
                     channel = "smtp"
                 except Exception as exc:  # noqa: BLE001 - record, never crash the run
                     log.exception("SMTP send failed")
-                    return self._record(subject, recipients, filename, eml_name, sent=False,
-                                        channel="", sp_path=record_path, sp_saved=sp_saved,
-                                        sp_url=sp_url, sp_error=sp_err,
-                                        error=f"SMTP failed: {exc}")
+                    error = f"SMTP failed: {exc}"
             else:
                 channel = "outbox"
 
         result = self._record(subject, recipients, filename, eml_name, sent=sent,
                               channel=channel, sp_path=record_path, sp_saved=sp_saved,
-                              sp_url=sp_url, sp_error=sp_err)
+                              sp_url=sp_url, sp_error=sp_err, error=error,
+                              email_leg_id=email_leg_id, snapshots=snapshots,
+                              delivery_status=delivery_status, email_kind=email_kind)
         return result
 
     # -- internals ----------------------------------------------------------
@@ -321,17 +352,19 @@ class EmailService:
                 body_html=body_html, filename=filename if attach else "",
                 xlsx_bytes=attach, cc=cc or None, bcc=bcc or None,
             )
-            return file_url
+            return file_url, None
         except GraphMailError as exc:
             if attach is None or not _is_size_rejection(exc):
                 raise
             log.warning("Graph rejected the attachment (%s); retrying without it", exc)
             url = file_url
             retry_folder = None
+            fallback = None
             if not url and xlsx_bytes and filename:
-                saved, url, _err = self._maybe_folder(
+                saved, url, err = self._maybe_folder(
                     TEST_SHAREPOINT_FOLDER, filename, xlsx_bytes,
                     onedrive_user=onedrive_user)
+                fallback = (saved, url, err)
                 if saved:
                     file_url = url
                     if not url:
@@ -353,7 +386,41 @@ class EmailService:
                 body_html=retry_html, filename="", xlsx_bytes=None,
                 cc=cc or None, bcc=bcc or None,
             )
-            return url
+            return url, fallback
+
+    def _record_fallback_folder_leg(
+            self, fallback, snapshots, leg_args, xlsx_bytes,
+            sp_url, sp_saved, sp_err, record_path):
+        if fallback is None:
+            return sp_url, sp_saved, sp_err, record_path
+        saved, url, fallback_err = fallback
+        if saved:
+            sp_url, sp_saved, sp_err = url, True, None
+            record_path = record_path or TEST_SHAREPOINT_FOLDER
+        already_sent = any(
+            row["kind"] == "folder" and row["status"] == "sent" for row in snapshots)
+        if not already_sent:
+            self._add_folder_leg(
+                leg_args, xlsx_bytes, saved=saved,
+                error=fallback_err, snapshots=snapshots)
+        return sp_url, sp_saved, sp_err, record_path
+
+    def _finish_folder_leg(self, leg_id: int, *, saved: bool, error: str | None,
+                           snapshots: list[dict[str, str]]) -> None:
+        status = "sent" if saved else "failed"
+        self.delivery_legs.update(
+            leg_id, status=status,
+            error="" if saved else (error or "Folder upload did not return a remote item"),
+        )
+        snapshots.append({"kind": "folder", "status": status})
+
+    def _add_folder_leg(self, leg_args, xlsx_bytes, *, saved: bool, error: str | None,
+                        snapshots: list[dict[str, str]]) -> int:
+        leg_id = self.delivery_legs.create(**leg_args, kind="folder")
+        if xlsx_bytes:
+            self.delivery_legs.update(leg_id, status="sending")
+        self._finish_folder_leg(leg_id, saved=saved, error=error, snapshots=snapshots)
+        return leg_id
 
     def _maybe_folder(self, path, filename, xlsx_bytes, *, onedrive_user: str | None):
         if not path or not xlsx_bytes:
@@ -366,13 +433,15 @@ class EmailService:
             else:
                 res = self.sharepoint.upload_file(path, filename, xlsx_bytes)
             url = str(res.get("webUrl") or "").strip() or None
-            return True, url, None
+            return bool(url or res.get("id")), url, None
         except Exception as exc:  # noqa: BLE001
             log.exception("%s upload failed", "OneDrive" if onedrive_user else "SharePoint")
             return False, None, str(exc)
 
     def _record(self, subject, recipients, filename, eml_name, *, sent, channel="",
-                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="") -> DeliveryResult:
+                sp_path=None, sp_saved=False, sp_url=None, sp_error=None, error="",
+                email_leg_id: int | None = None, snapshots: list[dict[str, str]] | None = None,
+                delivery_status: str = "", email_kind: str = "email") -> DeliveryResult:
         # Email that already reached an inbox is success even if a folder
         # upload failed. Failing that used to make the scheduler retry and
         # Graph would send a second copy (test-mode Test folder is the usual case).
@@ -391,7 +460,13 @@ class EmailService:
                 error = sp_miss
         email_delivered = bool(recipients) and not error
         ok = (email_delivered or sp_saved) and not error
-        status = "sent" if (ok and sent) else ("outbox" if ok else "failed")
+        status = delivery_status or ("sent" if (ok and sent) else ("prepared" if ok else "failed"))
+        legs = list(snapshots or [])
+        if email_leg_id is not None:
+            if sent:
+                self.delivery_legs.update(email_leg_id, status="accepted")
+            self.delivery_legs.update(email_leg_id, status=status, error=error)
+            legs.append({"kind": email_kind, "status": status})
         if not channel and recipients and ok and not sent:
             channel = "outbox"
         outbox_id = self.outbox.enqueue(
@@ -404,4 +479,5 @@ class EmailService:
             ok=ok, error=error, recipients=recipients, eml_name=eml_name,
             sent_via_smtp=sent, send_channel=channel, sharepoint_saved=sp_saved,
             sharepoint_url=sp_url, sharepoint_error=sp_error, outbox_id=outbox_id,
+            delivery_status=status, legs=legs,
         )

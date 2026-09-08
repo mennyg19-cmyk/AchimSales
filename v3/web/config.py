@@ -25,6 +25,11 @@ def _env_path(name: str, default: str) -> Path:
     return Path(os.environ.get(name, default)).expanduser()
 
 
+def _env_alias_path(preferred_name: str, fallback_name: str, default: str) -> Path:
+    preferred_value = os.environ.get(preferred_name, "").strip()
+    return Path(preferred_value or os.environ.get(fallback_name, default)).expanduser()
+
+
 class ConfigError(RuntimeError):
     """Raised when the environment is unsafe to boot (fail-closed)."""
 
@@ -48,7 +53,7 @@ class Config:
     # and boot-prime never enqueue dashboard.refresh jobs - so a slow/wedged
     # Reporting API can't tie up worker slots with a refresh nobody asked for.
     dashboard_refresh_enabled: bool = True
-    # Home app (is_beta): reports-only surface with hybrid SQL/OData sources.
+    # Home app (is_beta): reports-only SQL surface.
     # Dashboard stays off. Login is Live's (/legacy/login).
     is_beta: bool = False
     redirect_path: str = "/auth/callback"
@@ -175,8 +180,16 @@ def load_config(*, is_beta: bool = False) -> Config:
             False if is_beta else _env_bool("DASHBOARD_REFRESH_ENABLED", True)
         ),
         is_beta=is_beta,
-        precious_db_path=_env_path(precious_env, precious_default),
-        cache_db_path=_env_path(cache_env, cache_default),
+        precious_db_path=(
+            _env_path(precious_env, precious_default)
+            if is_beta
+            else _env_alias_path("SITE_PRECIOUS_DB_PATH", precious_env, precious_default)
+        ),
+        cache_db_path=(
+            _env_path(cache_env, cache_default)
+            if is_beta
+            else _env_alias_path("SITE_CACHE_DB_PATH", cache_env, cache_default)
+        ),
         litestream_blob_url=os.environ.get("LITESTREAM_BLOB_URL", "").strip(),
         new_app_marker=_env_bool("NEW_APP_MARKER", True),
         outbox_dir=_env_path("OUTBOX_DIR", "./.data/outbox"),

@@ -4,6 +4,8 @@
  * by both the dashboard list and the customer-detail page (exclusion toggle).
  */
 
+import { isHidden, sleepUntilVisible } from "./visibility";
+
 declare global {
   interface Window {
     triggerDashRefresh?: () => void;
@@ -36,24 +38,50 @@ function initDashboard(): void {
 
   // Refresh: enqueue, then poll the status until the row count changes.
   const btn = document.getElementById("dashRefreshBtn") as HTMLButtonElement | null;
+  const refreshStatus = document.getElementById("dashRefreshStatus");
+  const announceRefresh = (text: string, isError = false) => {
+    if (!refreshStatus) return;
+    refreshStatus.textContent = text;
+    refreshStatus.setAttribute("aria-live", isError ? "assertive" : "polite");
+    refreshStatus.setAttribute("role", isError ? "alert" : "status");
+  };
   async function doRefresh(): Promise<void> {
     if (!btn) return;
     btn.disabled = true;
     btn.textContent = "Refreshing\u2026";
+    announceRefresh("Refreshing dashboard data.");
     const before = (await fetch(statusUrl).then((r) => r.json()).catch(() => ({}))).last_refreshed;
-    await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
-    let tries = 0;
+    const queued = await fetch(refreshUrl, { method: "POST", headers: headers(csrf) }).catch(() => null);
+    if (!queued?.ok) {
+      btn.disabled = false;
+      btn.textContent = "Refresh data";
+      announceRefresh("Could not start the dashboard refresh.", true);
+      return;
+    }
+    const deadline = Date.now() + 2 * 60 * 1000;
     const poll = async (): Promise<void> => {
-      tries += 1;
+      if (isHidden()) {
+        await sleepUntilVisible(deadline - Date.now());
+        if (Date.now() < deadline) void poll();
+        return;
+      }
       const s = await fetch(statusUrl).then((r) => r.json()).catch(() => ({}));
       if (s.last_refreshed && s.last_refreshed !== before) {
+        announceRefresh("Dashboard data refreshed.");
         window.location.reload();
         return;
       }
-      if (tries < 40) setTimeout(poll, 3000);
-      else if (btn) { btn.disabled = false; btn.textContent = "Refresh data"; }
+      if (Date.now() < deadline) {
+        await sleepUntilVisible(Math.min(3000, deadline - Date.now()));
+        if (Date.now() < deadline) void poll();
+      } else if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Refresh data";
+        announceRefresh("Dashboard refresh is taking longer than expected.", true);
+      }
     };
-    setTimeout(poll, 3000);
+    await sleepUntilVisible(3000);
+    void poll();
   }
   if (btn) btn.addEventListener("click", doRefresh);
   window.triggerDashRefresh = doRefresh; // hook for pull-to-refresh

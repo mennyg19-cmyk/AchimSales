@@ -13,6 +13,7 @@ export type PickerOptions = {
 
 const openPickers = new Set<SearchablePicker>();
 let docBound = false;
+let pickerNumber = 0;
 
 function bindDocumentOnce(): void {
   if (docBound) return;
@@ -40,6 +41,7 @@ export class SearchablePicker {
   private isOpen = false;
   private search: HTMLInputElement;
   private list: HTMLElement;
+  private activeKey: string | null = null;
 
   constructor(opts: PickerOptions) {
     this.host = opts.host;
@@ -95,6 +97,8 @@ export class SearchablePicker {
   close(): void {
     this.isOpen = false;
     this.list.hidden = true;
+    this.search.setAttribute("aria-expanded", "false");
+    this.setActive(null);
   }
 
   handleOutsideClick(target: Node): void {
@@ -114,27 +118,34 @@ export class SearchablePicker {
 
   private ensureSearch(): HTMLInputElement {
     let search = this.host.querySelector<HTMLInputElement>(".customer-search");
-    if (search) return search;
-    this.host.innerHTML = "";
-    search = document.createElement("input");
-    search.type = "text";
-    search.className = "customer-search";
-    search.placeholder = this.placeholder;
+    if (!search) {
+      this.host.innerHTML = "";
+      search = document.createElement("input");
+      search.type = "text";
+      search.className = "customer-search";
+      search.placeholder = this.placeholder;
+      this.host.appendChild(search);
+    }
     search.setAttribute("role", "combobox");
     search.setAttribute("aria-autocomplete", "list");
+    search.setAttribute("aria-expanded", "false");
     search.addEventListener("focus", () => this.open());
     search.addEventListener("input", () => this.open());
-    this.host.appendChild(search);
+    search.addEventListener("keydown", (event) => this.handleKeydown(event));
     return search;
   }
 
   private ensureList(): HTMLElement {
     let list = this.host.querySelector<HTMLElement>(".customer-options");
-    if (list) return list;
-    list = document.createElement("div");
-    list.className = "customer-options";
-    list.hidden = true;
-    this.host.appendChild(list);
+    if (!list) {
+      list = document.createElement("div");
+      list.className = "customer-options";
+      list.hidden = true;
+      this.host.appendChild(list);
+    }
+    if (!list.id) list.id = `searchable-picker-${++pickerNumber}`;
+    list.setAttribute("role", "listbox");
+    this.search.setAttribute("aria-controls", list.id);
     return list;
   }
 
@@ -143,30 +154,87 @@ export class SearchablePicker {
     this.renderOptions();
   }
 
-  private renderOptions(): void {
-    const q = this.search.value.trim().toLowerCase();
-    const matches = q
-      ? this.items.filter(
-          (i) => i.name.toLowerCase().includes(q) || i.key.toLowerCase().includes(q),
-        )
+  private handleKeydown(event: KeyboardEvent): void {
+    const options = this.visibleOptions();
+    if (event.key === "Escape") {
+      if (!this.isOpen) return;
+      event.preventDefault();
+      this.close();
+      this.search.focus();
+      return;
+    }
+    if (!options.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      this.open();
+      const activeIndex = options.findIndex((item) => item.key === this.activeKey);
+      const nextIndex = event.key === "ArrowDown"
+        ? Math.min(activeIndex + 1, options.length - 1)
+        : Math.max(activeIndex - 1, 0);
+      this.setActive(options[nextIndex].key);
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      this.open();
+      this.setActive(options[event.key === "Home" ? 0 : options.length - 1].key);
+      return;
+    }
+    if ((event.key === "Enter" || event.key === " ") && this.activeKey) {
+      event.preventDefault();
+      const item = options.find((option) => option.key === this.activeKey);
+      if (item) this.toggle(item);
+    }
+  }
+
+  private visibleOptions(): PickerItem[] {
+    const query = this.search.value.trim().toLowerCase();
+    const matches = query
+      ? this.items.filter((item) => item.name.toLowerCase().includes(query) || item.key.toLowerCase().includes(query))
       : this.items;
+    return matches.slice(0, 200);
+  }
+
+  private setActive(key: string | null): void {
+    this.activeKey = key;
+    if (key) this.search.setAttribute("aria-activedescendant", `${this.list.id}-option-${key}`);
+    else this.search.removeAttribute("aria-activedescendant");
+    this.list.querySelectorAll<HTMLElement>(".customer-option").forEach((option) => {
+      option.classList.toggle("is-active", option.id === `${this.list.id}-option-${key}`);
+    });
+    this.list.querySelector<HTMLElement>(".customer-option.is-active")?.scrollIntoView({ block: "nearest" });
+  }
+
+  private toggle(item: PickerItem): void {
+    if (this.selected.has(item.key)) this.selected.delete(item.key);
+    else this.selected.set(item.key, item.name);
+    this.renderPills();
+    this.renderOptions();
+    this.onChange?.();
+    this.search.focus();
+  }
+
+  private renderOptions(): void {
+    const matches = this.visibleOptions();
+    if (!matches.some((item) => item.key === this.activeKey)) this.activeKey = null;
     this.list.innerHTML = "";
-    matches.slice(0, 200).forEach((item) => {
-      const row = document.createElement("label");
+    matches.forEach((item) => {
+      const row = document.createElement("div");
       row.className = "customer-option";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = this.selected.has(item.key);
-      cb.addEventListener("change", () => {
-        if (cb.checked) this.selected.set(item.key, item.name);
-        else this.selected.delete(item.key);
-        this.renderPills();
-        this.onChange?.();
-      });
-      row.appendChild(cb);
+      row.id = `${this.list.id}-option-${item.key}`;
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(this.selected.has(item.key)));
+      const checkbox = document.createElement("span");
+      checkbox.className = "customer-option-checkbox";
+      checkbox.setAttribute("aria-hidden", "true");
+      row.appendChild(checkbox);
       const text = document.createElement("span");
       text.textContent = this.formatOption(item);
       row.appendChild(text);
+      row.addEventListener("click", () => {
+        this.activeKey = item.key;
+        this.toggle(item);
+      });
       this.list.appendChild(row);
     });
     if (!matches.length) {
@@ -176,6 +244,8 @@ export class SearchablePicker {
       this.list.appendChild(empty);
     }
     this.list.hidden = false;
+    this.search.setAttribute("aria-expanded", "true");
+    this.setActive(this.activeKey);
     this.reposition();
   }
 

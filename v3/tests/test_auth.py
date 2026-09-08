@@ -338,6 +338,42 @@ def test_msal_callback_without_flow_is_rejected(app):
     assert resp.status_code == 400
 
 
+def test_msal_callback_denies_unknown_user_without_creating_row(app, monkeypatch):
+    from web.auth import msal_flow
+
+    monkeypatch.setattr(msal_flow, "complete_login", lambda _cfg: {
+        "email": "unknown@x.com", "name": "Unknown",
+    })
+    response = app.test_client().get("/auth/callback")
+    assert response.status_code == 403
+    assert b"Access denied" in response.data
+    assert UserRepository(app.config["DB"]).get_by_email("unknown@x.com") is None
+
+
+def test_msal_callback_logs_in_known_active_user(app, monkeypatch):
+    from web.auth import msal_flow
+
+    UserRepository(app.config["DB"]).upsert("known@x.com", role="salesman")
+    monkeypatch.setattr(msal_flow, "complete_login", lambda _cfg: {
+        "email": "known@x.com", "name": "Known",
+    })
+    client = app.test_client()
+    assert client.get("/auth/callback").status_code == 302
+    with client.session_transaction() as sess:
+        assert sess["v3_user"]["email"] == "known@x.com"
+
+
+def test_msal_callback_denies_inactive_user(app, monkeypatch):
+    from web.auth import msal_flow
+
+    user = UserRepository(app.config["DB"]).upsert("inactive@x.com", role="salesman")
+    UserRepository(app.config["DB"]).update(user.id, is_active=False)
+    monkeypatch.setattr(msal_flow, "complete_login", lambda _cfg: {
+        "email": "inactive@x.com", "name": "Inactive",
+    })
+    assert app.test_client().get("/auth/callback").status_code == 403
+
+
 # --- impersonation ----------------------------------------------------------
 
 def test_impersonate_start_and_end(app):
@@ -433,6 +469,125 @@ def test_beta_login_shows_microsoft_button(tmp_path):
     assert b"Developer sign-in" not in resp.data
 
 
+def test_beta_magic_link_uses_active_external_v3_user_only(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    repo.create("external@x.com", role="salesman", is_external=True)
+    repo.create("internal@x.com", role="salesman", is_external=False)
+    sent = []
+
+    class Mailer:
+        def __init__(self, *_args):
+            pass
+
+        def send(self, **kwargs):
+            sent.append(kwargs)
+
+    monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://reports.achimonline.com")
+    client = application.test_client()
+    page = client.get("/login")
+    assert b'action="/login/magic-link"' in page.data
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    external = client.post("/login/magic-link", data={
+        "email": "external@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    unknown = client.post("/login/magic-link", data={
+        "email": "unknown@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    internal = client.post("/login/magic-link", data={
+        "email": "internal@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    assert external.data == unknown.data == internal.data
+    assert len(sent) == 1 and sent[0]["to"] == ["external@x.com"]
+    assert sent[0]["body_text"].startswith(
+        "Use this one-time link"
+    ) and "https://reports.achimonline.com/login/magic-link/" in sent[0]["body_text"]
+    link = sent[0]["body_text"].rsplit("/", 1)[-1]
+    with application.config["DB"].precious() as conn:
+        row = conn.execute("SELECT token_hash, email, used FROM magic_link_tokens").fetchone()
+    assert row["email"] == "external@x.com"
+    assert row["token_hash"] != link and row["used"] == 0
+    assert client.get(f"/login/magic-link/{link}").status_code == 302
+    with client.session_transaction() as session:
+        assert session["v3_user"]["email"] == "external@x.com"
+    assert client.get(f"/login/magic-link/{link}", follow_redirects=True).status_code == 200
+    with application.config["DB"].precious() as conn:
+        assert conn.execute("SELECT used FROM magic_link_tokens").fetchone()["used"] == 1
+
+
+def test_beta_magic_link_denies_user_disabled_after_request(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    user = repo.create("external@x.com", role="salesman", is_external=True)
+    sent = []
+
+    class Mailer:
+        def __init__(self, *_args):
+            pass
+
+        def send(self, **kwargs):
+            sent.append(kwargs)
+
+    monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://reports.achimonline.com")
+    client = application.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    client.post("/login/magic-link", data={"email": user.email, "csrf_token": token})
+    link = sent[0]["body_text"].rsplit("/", 1)[-1]
+    repo.update(user.id, is_active=False)
+    response = client.get(f"/login/magic-link/{link}", follow_redirects=True)
+    assert b"invalid or has expired" in response.data
+    with client.session_transaction() as session:
+        assert "v3_user" not in session
+
+
+def test_beta_magic_link_does_not_send_without_public_base_url(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).create(
+        "external@x.com", role="salesman", is_external=True)
+    sent = []
+
+    class Mailer:
+        def __init__(self, *_args):
+            pass
+
+        def send(self, **kwargs):
+            sent.append(kwargs)
+
+    monkeypatch.setattr("web.blueprints.auth.GraphMailer", Mailer)
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    client = application.test_client()
+    client.get("/login")
+    with client.session_transaction() as session:
+        token = session["_csrf_token"]
+    missing = client.post("/login/magic-link", data={
+        "email": "external@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    unknown = client.post("/login/magic-link", data={
+        "email": "unknown@x.com", "csrf_token": token,
+    }, follow_redirects=True)
+    assert missing.data == unknown.data
+    assert sent == []
+    with application.config["DB"].precious() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM magic_link_tokens").fetchone()[0] == 0
+
+
 def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
     from dataclasses import replace
 
@@ -470,31 +625,7 @@ def test_role_picker_impersonates_and_allows_switch_again(tmp_path):
         assert not s["v3_user"].get("impersonating")
 
 
-def test_merge_picker_users_adds_v3_only_email():
-    from web.blueprints.auth import merge_picker_users
-
-    def u(uid: int, email: str, name: str, role: str) -> User:
-        return User(
-            id=uid, email=email, display_name=name, role=role,
-            is_active=True, is_external=False, dashboard_enabled=False,
-            sharepoint_access=False, test_access=False, can_see_company_views=False,
-        )
-
-    rows = merge_picker_users(
-        [{"email": "live@x.com", "display_name": "Live Name", "role": "salesman"}],
-        [u(1, "live@x.com", "V3 Name", "admin"), u(2, "new@x.com", "New Hire", "salesman")],
-    )
-    by = {r["email"]: r for r in rows}
-    assert set(by) == {"live@x.com", "new@x.com"}
-    assert by["live@x.com"]["role"] == "admin"
-    assert by["live@x.com"]["display_name"] == "V3 Name"
-    assert by["new@x.com"]["display_name"] == "New Hire"
-    assert by["new@x.com"]["role"] == "salesman"
-
-
-def test_role_picker_includes_v3_user_absent_from_live(tmp_path, monkeypatch):
-    import sys
-    import types
+def test_role_picker_includes_v3_user_absent_from_live(tmp_path):
     from dataclasses import replace
 
     cfg = replace(_dev_cfg(tmp_path), is_beta=True)
@@ -503,17 +634,6 @@ def test_role_picker_includes_v3_user_absent_from_live(tmp_path, monkeypatch):
     UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer", display_name="Dev")
     UserRepository(application.config["DB"]).upsert(
         "newbie@x.com", role="salesman", display_name="New Hire")
-
-    live_db = types.ModuleType("webapp.db")
-    live_db.get_all_users = lambda: [
-        {"email": "dev@x.com", "display_name": "Dev", "role": "developer"},
-    ]
-    live_db.get_setting = lambda *a, **k: "light"
-    live_db.get_user_by_email = lambda email: None
-    webapp = types.ModuleType("webapp")
-    webapp.db = live_db
-    monkeypatch.setitem(sys.modules, "webapp", webapp)
-    monkeypatch.setitem(sys.modules, "webapp.db", live_db)
 
     client = application.test_client()
     with client.session_transaction() as s:
@@ -551,6 +671,8 @@ def test_beta_adopt_keeps_v3_user_edits(tmp_path):
     assert row.role == "manager"
     assert row.sales_group == "HKaufman"
     assert repo.get_salesman_access(u.id) == {"hkaufman"}
+    with client.session_transaction() as s:
+        assert (s.get("v3_user") or {}).get("name") == "Renamed"
 
 
 def test_stale_dev_cookie_cannot_use_role_picker_or_admin(tmp_path):
@@ -614,7 +736,7 @@ def test_stale_dev_impersonation_cookie_cannot_keep_admin(tmp_path):
     assert repo.get_by_email("boss@x.com").role == "admin"
 
 
-def test_live_developer_first_login_creates_v3_row(tmp_path):
+def test_live_developer_first_login_is_denied_without_creating_v3_row(tmp_path):
     from dataclasses import replace
 
     cfg = replace(_dev_cfg(tmp_path), is_beta=True)
@@ -629,12 +751,68 @@ def test_live_developer_first_login_creates_v3_row(tmp_path):
             "_dev_email": "newdev@x.com",
         }
         s["_csrf_token"] = "t"
-    assert client.get("/").status_code == 200
-    row = repo.get_by_email("newdev@x.com")
-    assert row is not None and row.role == "developer"
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/login" in (response.headers.get("Location") or "")
+    assert repo.get_by_email("newdev@x.com") is None
     with client.session_transaction() as s:
-        assert (s.get("user") or {}).get("email") == "newdev@x.com"
+        assert not s.get("user")
+        assert not s.get("v3_user")
+
+
+def test_inactive_live_cookie_logs_out_without_creating_or_updating(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    repo = UserRepository(application.config["DB"])
+    user = repo.upsert("rep@x.com", role="salesman", display_name="Rep")
+    repo.update(user.id, is_active=False)
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "rep@x.com", "name": "Live Rep", "role": "admin",
+            "salesman_key": "REdwards",
+        }
+        s["_csrf_token"] = "t"
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/login" in (response.headers.get("Location") or "")
+    row = repo.get_by_email("rep@x.com")
+    assert row is not None and not row.is_active and row.role == "salesman"
+    with client.session_transaction() as s:
+        assert not s.get("user")
+        assert not s.get("v3_user")
+
+
+def test_impersonating_missing_v3_user_stays_developer(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    UserRepository(application.config["DB"]).upsert("dev@x.com", role="developer", display_name="Dev")
+    client = application.test_client()
+    with client.session_transaction() as s:
+        s["user"] = {
+            "email": "ghost@x.com", "name": "Ghost (as Dev)", "role": "salesman",
+            "salesman_key": None, "_dev": True, "_dev_name": "Dev",
+            "_dev_email": "dev@x.com",
+        }
+        s["_csrf_token"] = "t"
+    assert client.get("/").status_code == 200
+    with client.session_transaction() as s:
+        assert (s.get("v3_user") or {}).get("email") == "dev@x.com"
         assert (s.get("v3_user") or {}).get("role") == "developer"
+        assert not (s.get("v3_user") or {}).get("impersonating")
+    picker = client.get("/dev/role-picker")
+    assert picker.status_code == 200
+    assert b"ghost@x.com" not in picker.data
+    missing = client.post(
+        "/dev/role-picker", data={"target_email": "ghost@x.com", "csrf_token": "t"}
+    )
+    assert missing.status_code == 404
 
 
 def test_stale_impersonation_with_missing_actor_logs_out(tmp_path):

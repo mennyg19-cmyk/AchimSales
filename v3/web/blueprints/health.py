@@ -7,7 +7,8 @@ probe. It must NOT leak auth mode, secrets, paths, or any operational detail
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, url_for
+from flask import Blueprint, current_app, jsonify, url_for
+from web.jobs.status import is_ready
 
 health_bp = Blueprint("health", __name__)
 
@@ -15,6 +16,13 @@ health_bp = Blueprint("health", __name__)
 @health_bp.get("/healthz")
 def healthz():
     return {"status": "ok"}, 200
+
+
+@health_bp.get("/readyz")
+def readyz():
+    if is_ready(current_app.config["DB"]):
+        return {"status": "ready"}, 200
+    return {"status": "starting"}, 503
 
 
 @health_bp.get("/manifest.json")

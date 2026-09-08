@@ -291,13 +291,23 @@ def run_customer_aging(params: dict) -> dict:
     return _run_class_report(CustomerAgingReportRunner, argv, "customer_aging")
 
 
+def _safe_path_part(raw: str, fallback: str) -> str:
+    """Single directory name only. Reject traversal and empty junk."""
+    if not raw or ".." in raw or "/" in raw or "\\" in raw:
+        return fallback
+    cleaned = "".join(
+        c if c.isalnum() or c in (" ", "-", "_") else "_" for c in raw
+    ).strip()
+    return cleaned or fallback
+
+
 def _copy_to_preset_dir(filepath: str, salesman_key: str, preset_name: str) -> str:
     """Copy a report file into the salesman/<key>/<preset_name>/ directory."""
     import shutil
     from config.paths import get_direct_reports_root
 
-    safe_preset = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in preset_name).strip()
-    safe_sm = salesman_key or "shared"
+    safe_preset = _safe_path_part(preset_name, "preset")
+    safe_sm = _safe_path_part(salesman_key, "shared")
     dest_dir = os.path.join(get_direct_reports_root(), "salesman", safe_sm, safe_preset)
     os.makedirs(dest_dir, exist_ok=True)
     dest_path = os.path.join(dest_dir, os.path.basename(filepath))

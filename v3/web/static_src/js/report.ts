@@ -14,7 +14,10 @@
  */
 
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename } from "./filename_preview";
+import { closeDialog, openDialog } from "./dialog";
 import { renderJobLog } from "./job_log";
+import { SearchablePicker } from "./searchable_picker";
+import { isHidden, onVisible, sleepUntilVisible } from "./visibility";
 
 declare const Tabulator: any;
 
@@ -103,6 +106,8 @@ function setStatus(msg: string, kind: "info" | "error" = "info"): void {
   if (txt) txt.textContent = msg; else el.textContent = msg;
   el.className = "report-status report-status-" + kind;
   el.hidden = false;
+  el.setAttribute("aria-live", kind === "error" ? "assertive" : "polite");
+  el.setAttribute("role", kind === "error" ? "alert" : "status");
 }
 
 function clearStatus(): void {
@@ -1062,37 +1067,80 @@ function renderCommissionCards(tab: Tab, host: HTMLElement): void {
 // Tabs
 // --------------------------------------------------------------------------
 
+function reportTabId(key: string): string {
+  return `report-tab-${encodeURIComponent(key)}`;
+}
+
 function renderTabs(): void {
   const tabsEl = $("reportTabs");
   if (!tabsEl) return;
+  const tabPanel = $("reportTabPanel");
+  tabsEl.setAttribute("role", "tablist");
+  tabsEl.setAttribute("aria-label", "Report sheets");
   tabsEl.innerHTML = "";
   state.order.forEach((key) => {
     const tab = state.tabs[key];
     if (!tab) return;
+    const tabId = reportTabId(key);
+    const tabEl = document.createElement("div");
+    tabEl.className = "report-tab" + (key === state.active ? " active" : "");
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "report-tab" + (key === state.active ? " active" : "");
+    btn.className = "report-tab-label";
+    btn.id = tabId;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-controls", "reportTabPanel");
+    btn.setAttribute("aria-selected", String(key === state.active));
+    btn.tabIndex = key === state.active ? 0 : -1;
     const nameSpan = document.createElement("span");
     nameSpan.textContent = tab.name;
     btn.appendChild(nameSpan);
-    const caret = document.createElement("span");
+    const caret = document.createElement("button");
+    caret.type = "button";
     caret.className = "report-tab-caret";
     caret.textContent = "\u25be";
     caret.title = "Tab options";
+    caret.setAttribute("aria-label", `Options for ${tab.name}`);
+    caret.setAttribute("aria-haspopup", "menu");
+    caret.setAttribute("aria-expanded", "false");
     caret.addEventListener("click", (e) => {
       e.stopPropagation();
       const r = caret.getBoundingClientRect();
-      openTabMenuAt(key, r.left + window.scrollX, r.bottom + window.scrollY);
+      openTabMenuAt(key, r.left + window.scrollX, r.bottom + window.scrollY, caret);
     });
-    btn.appendChild(caret);
+    caret.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      const r = caret.getBoundingClientRect();
+      openTabMenuAt(key, r.left + window.scrollX, r.bottom + window.scrollY, caret);
+      if (tabMenuEl) moveMenuFocus(tabMenuEl, event.key === "ArrowDown" ? "first" : "last");
+    });
     btn.addEventListener("click", () => activateTab(key));
-    btn.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      openTabMenuAt(key, (e as MouseEvent).pageX, (e as MouseEvent).pageY);
+    btn.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const tabKeys = state.order.filter((tabKey) => state.tabs[tabKey]);
+      const index = tabKeys.indexOf(key);
+      if (index < 0) return;
+      event.preventDefault();
+      const nextIndex = event.key === "Home" ? 0
+        : event.key === "End" ? tabKeys.length - 1
+        : (index + (event.key === "ArrowLeft" ? -1 : 1) + tabKeys.length) % tabKeys.length;
+      const nextKey = tabKeys[nextIndex];
+      if (nextKey === key) return;
+      activateTab(nextKey);
     });
-    tabsEl.appendChild(btn);
+    tabEl.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      openTabMenuAt(key, (e as MouseEvent).pageX, (e as MouseEvent).pageY, caret);
+    });
+    tabEl.append(btn, caret);
+    tabsEl.appendChild(tabEl);
   });
   tabsEl.hidden = state.order.length === 0;
+  tabPanel?.setAttribute(
+    "aria-labelledby",
+    state.active && state.tabs[state.active] ? reportTabId(state.active) : "",
+  );
 }
 
 function activateTab(key: string): void {
@@ -1100,29 +1148,83 @@ function activateTab(key: string): void {
   captureActive();
   state.active = key;
   renderTabs();
+  document.querySelector<HTMLButtonElement>('#reportTabs [role="tab"][aria-selected="true"]')?.focus();
   buildTable(state.tabs[key]);
   syncColumnsButton(state.tabs[key]);
 }
 
 let tabMenuEl: HTMLElement | null = null;
-function closeTabMenu(): void {
+let tabMenuOpener: HTMLButtonElement | null = null;
+function closeTabMenu(restoreFocus = false): void {
   tabMenuEl?.remove();
   tabMenuEl = null;
+  tabMenuOpener?.setAttribute("aria-expanded", "false");
+  if (restoreFocus && tabMenuOpener?.isConnected) tabMenuOpener.focus();
+  tabMenuOpener = null;
 }
-function openTabMenuAt(key: string, x: number, y: number): void {
+function enabledMenuItems(menu: HTMLElement): HTMLButtonElement[] {
+  return Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+}
+
+function moveMenuFocus(menu: HTMLElement, target: "first" | "last" | 1 | -1): void {
+  const items = enabledMenuItems(menu);
+  if (!items.length) return;
+  if (target === "first") { items[0].focus(); return; }
+  if (target === "last") { items[items.length - 1].focus(); return; }
+  const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  items[(index + target + items.length) % items.length].focus();
+}
+
+function bindMenuKeyboard(
+  menu: HTMLElement,
+  close: (restoreFocus?: boolean) => void,
+): void {
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") { event.preventDefault(); moveMenuFocus(menu, 1); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); moveMenuFocus(menu, -1); }
+    else if (event.key === "Home") { event.preventDefault(); moveMenuFocus(menu, "first"); }
+    else if (event.key === "End") { event.preventDefault(); moveMenuFocus(menu, "last"); }
+    else if (event.key === "Escape") { event.preventDefault(); close(true); }
+    else if (event.key === "Tab") close();
+    else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      (document.activeElement as HTMLButtonElement | null)?.click();
+    }
+  });
+}
+
+function bindToolbarMenu(
+  menu: HTMLElement,
+  opener: HTMLButtonElement,
+  close: (restoreFocus?: boolean) => void,
+  open: () => void,
+): void {
+  bindMenuKeyboard(menu, close);
+  opener.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    open();
+    moveMenuFocus(menu, event.key === "ArrowDown" ? "first" : "last");
+  });
+}
+
+function openTabMenuAt(key: string, x: number, y: number, opener: HTMLButtonElement): void {
   closeTabMenu();
   const tab = state.tabs[key];
   if (!tab) return;
   const menu = document.createElement("div");
   menu.className = "tab-context-menu";
+  menu.setAttribute("role", "menu");
   menu.style.left = x + "px";
   menu.style.top = y + "px";
 
   const mk = (label: string, fn: () => void, danger = false) => {
     const b = document.createElement("button");
+    b.type = "button";
     b.className = "tab-context-item" + (danger ? " danger" : "");
     b.textContent = label;
     b.addEventListener("click", () => { closeTabMenu(); fn(); });
+    b.setAttribute("role", "menuitem");
     menu.appendChild(b);
   };
   mk("Duplicate tab", () => duplicateTab(key));
@@ -1132,7 +1234,10 @@ function openTabMenuAt(key: string, x: number, y: number): void {
   }
   document.body.appendChild(menu);
   tabMenuEl = menu;
-  setTimeout(() => document.addEventListener("click", closeTabMenu, { once: true }), 0);
+  tabMenuOpener = opener;
+  opener.setAttribute("aria-expanded", "true");
+  bindMenuKeyboard(menu, closeTabMenu);
+  setTimeout(() => document.addEventListener("click", () => closeTabMenu(), { once: true }), 0);
 }
 
 function duplicateTab(key: string): void {
@@ -1384,7 +1489,12 @@ function isExportPageActive(): boolean {
  *  Recent exports for manual download — no surprise file appearing later. */
 async function pollExport(id: string, autoDownload: boolean): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", id);
-  for (let i = 0; i < 600; i++) {
+  const deadline = Date.now() + 15 * 60 * 1000;
+  while (Date.now() < deadline) {
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
     if (!res.ok) break;
     const job = await res.json();
@@ -1401,7 +1511,7 @@ async function pollExport(id: string, autoDownload: boolean): Promise<void> {
       if (exportStatusActive()) setStatus(job.error || "The export failed. Please try again.", "error");
       return;
     }
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleepUntilVisible(1500);
   }
 }
 
@@ -1420,6 +1530,7 @@ function fmtBytes(n: number): string {
 }
 
 async function loadExports(): Promise<void> {
+  if (isHidden()) return;
   const list = $("exportsList");
   if (!list) return;
   const data = await getJSON<{ exports: ExportRow[] }>(attr("data-exports-url"));
@@ -1434,6 +1545,7 @@ async function loadExports(): Promise<void> {
     exportsPollTimer = null;
   }
 }
+onVisible(() => { if (exportsPollTimer != null) void loadExports(); });
 
 function renderExports(rows: ExportRow[]): void {
   const list = $("exportsList");
@@ -1481,7 +1593,7 @@ function showExportsPanel(): void {
   if (!panel) return;
   panel.hidden = false;
   loadExports();
-  panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  panel.scrollIntoView({ block: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 }
 
 function setExportBuildingStatus(): void {
@@ -1701,6 +1813,9 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
   // Count from when the job really started (passed in when reconnecting to a
   // run from a prior visit) so the timer doesn't reset to zero on return.
   const started = Date.now() - (opts.elapsedMs || 0);
+  // The give-up window counts from when this page began watching, not from job
+  // start, so reconnecting to an old job always checks its status at least once.
+  const deadline = Date.now() + 10 * 60 * 1000;
 
   // One failed check-in (a brief gateway blip while the server is busy) must not
   // kill a run that's still going on the server. Only give up after several
@@ -1708,8 +1823,12 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
   const maxConsecutiveErrors = 5;
   let consecutiveErrors = 0;
 
-  for (let i = 0; i < 600; i++) {
+  while (Date.now() < deadline) {
     if (runAborted) return; // user cancelled; cancelRun() owns the status line
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     let job: { status?: string; progress?: number; error?: unknown; step?: string; can_cancel?: boolean; log?: { t?: string; step?: string; detail?: string; ms?: number; elapsed_ms?: number }[] };
     try {
       const res = await fetch(jobUrl, { headers: { Accept: "application/json" } });
@@ -1723,7 +1842,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
         throw new Error("Lost track of the job (it may have expired) — try running again.");
       }
       setStatus(`Building report… reconnecting (${fmtElapsed(Date.now() - started)})`);
-      await new Promise((r) => setTimeout(r, 1000));
+      await sleepUntilVisible(1000);
       continue;
     }
     if (job.status === "success") {
@@ -1745,7 +1864,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
     const label = (job.step || "").trim()
       || `Building report… ${job.progress || 0}%`;
     setStatus(`${label} (${fmtElapsed(Date.now() - started)})`);
-    await new Promise((r) => setTimeout(r, 1000));
+    await sleepUntilVisible(1000);
   }
   throw new Error("Timed out waiting for the report (over 10 minutes). Try a narrower date range.");
 }
@@ -1873,12 +1992,14 @@ function setToolbarEnabled(hasData: boolean): void {
 // Export / More dropdown menus
 // --------------------------------------------------------------------------
 
-function closeExportMenu(): void {
+function closeExportMenu(restoreFocus = false): void {
   const menu = $("exportMenu");
   if (!menu || menu.hidden) return;
   menu.hidden = true;
-  $("exportMenuBtn")?.setAttribute("aria-expanded", "false");
+  const opener = $("exportMenuBtn") as HTMLButtonElement | null;
+  opener?.setAttribute("aria-expanded", "false");
   document.removeEventListener("click", onExportMenuOutside, true);
+  if (restoreFocus && opener) opener.focus();
 }
 
 function onExportMenuOutside(e: MouseEvent): void {
@@ -1894,17 +2015,26 @@ function toggleExportMenu(e: MouseEvent): void {
   const opening = menu.hidden;
   closeMoreMenu();
   if (!opening) { closeExportMenu(); return; }
+  openExportMenu();
+}
+
+function openExportMenu(): void {
+  const menu = $("exportMenu");
+  const btn = $("exportMenuBtn") as HTMLButtonElement | null;
+  if (!menu || !btn || btn.disabled) return;
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
   setTimeout(() => document.addEventListener("click", onExportMenuOutside, true), 0);
 }
 
-function closeMoreMenu(): void {
+function closeMoreMenu(restoreFocus = false): void {
   const menu = $("moreMenu");
   if (!menu || menu.hidden) return;
   menu.hidden = true;
-  $("moreBtn")?.setAttribute("aria-expanded", "false");
+  const opener = $("moreBtn") as HTMLButtonElement | null;
+  opener?.setAttribute("aria-expanded", "false");
   document.removeEventListener("click", onMoreMenuOutside, true);
+  if (restoreFocus && opener) opener.focus();
 }
 
 function onMoreMenuOutside(e: MouseEvent): void {
@@ -1920,6 +2050,13 @@ function toggleMoreMenu(e: MouseEvent): void {
   const opening = menu.hidden;
   closeExportMenu();
   if (!opening) { closeMoreMenu(); return; }
+  openMoreMenu();
+}
+
+function openMoreMenu(): void {
+  const menu = $("moreMenu");
+  const btn = $("moreBtn") as HTMLButtonElement | null;
+  if (!menu || !btn) return;
   menu.hidden = false;
   btn.setAttribute("aria-expanded", "true");
   syncScheduleButton();
@@ -1985,8 +2122,7 @@ interface LookupRow { key: string; name: string; salesman?: string; }
 
 const selectedCustomers = new Map<string, string>(); // account -> display name
 let customerOptions: LookupRow[] = [];
-let customerPickerOpen = false;       // is the options dropdown showing?
-let customerHandlersBound = false;    // document/window listeners bound once
+let customerPicker: SearchablePicker | null = null;
 let lookupPollTimer: number | null = null;
 let pendingSalesman: string | null = null; // deep-link salesman, applied after options load
 let previewTimer: number | null = null;
@@ -2161,138 +2297,26 @@ async function loadCustomers(): Promise<void> {
   renderCustomerPicker();
 }
 
-/** Position the options list as a fixed overlay under the search field, so no
- *  overflow ancestor (the filter row) can clip it. */
-function positionCustomerOptions(): void {
-  const host = $("customerPicker");
-  const search = host?.querySelector<HTMLElement>(".customer-search");
-  const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!search || !list || list.hidden) return;
-  const r = search.getBoundingClientRect();
-  list.style.position = "fixed";
-  list.style.top = `${Math.round(r.bottom + 2)}px`;
-  list.style.left = `${Math.round(r.left)}px`;
-  list.style.width = `${Math.round(r.width)}px`;
-}
-
-/** Bind document/window listeners that close + reposition the picker. Once. */
-function ensureCustomerHandlers(): void {
-  if (customerHandlersBound) return;
-  customerHandlersBound = true;
-  const inside = (t: Node) => {
-    const p = $("customerPicker");
-    const pills = $("customerPills");
-    return !!((p && p.contains(t)) || (pills && pills.contains(t)));
-  };
-  document.addEventListener("click", (e) => {
-    if (customerPickerOpen && !inside(e.target as Node)) closeCustomerOptions();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && customerPickerOpen) closeCustomerOptions();
-  });
-  window.addEventListener("scroll", positionCustomerOptions, true);
-  window.addEventListener("resize", positionCustomerOptions);
-}
-
-/** Build the persistent search input + (hidden) options list once. */
-function ensureCustomerInput(): HTMLInputElement | null {
-  const host = $("customerPicker");
-  if (!host) return null;
-  let search = host.querySelector<HTMLInputElement>(".customer-search");
-  if (search) return search;
-  host.innerHTML = "";
-  search = document.createElement("input");
-  search.type = "text";
-  search.className = "customer-search";
-  search.placeholder = host.dataset.placeholder || "All customers";
-  search.setAttribute("role", "combobox");
-  search.addEventListener("focus", () => { customerPickerOpen = true; renderCustomerOptions(); });
-  search.addEventListener("input", () => { customerPickerOpen = true; renderCustomerOptions(); });
-  host.appendChild(search);
-  const list = document.createElement("div");
-  list.className = "customer-options";
-  list.hidden = true;
-  host.appendChild(list);
-  return search;
-}
-
-function closeCustomerOptions(): void {
-  customerPickerOpen = false;
-  const list = $("customerPicker")?.querySelector<HTMLElement>(".customer-options");
-  if (list) list.hidden = true;
-}
-
-/** Render the open dropdown of matching customers (checkbox per row). */
-function renderCustomerOptions(): void {
-  const host = $("customerPicker");
-  const search = ensureCustomerInput();
-  const list = host?.querySelector<HTMLElement>(".customer-options");
-  if (!host || !search || !list) return;
-  if (!customerPickerOpen) { list.hidden = true; return; }
-
-  const q = search.value.trim().toLowerCase();
-  const matches = q
-    ? customerOptions.filter(
-        (c) => c.name.toLowerCase().includes(q) || c.key.toLowerCase().includes(q),
-      )
-    : customerOptions;
-
-  list.innerHTML = "";
-  matches.slice(0, 200).forEach((c) => {
-    const row = document.createElement("label");
-    row.className = "customer-option";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = selectedCustomers.has(c.key);
-    cb.addEventListener("change", () => {
-      if (cb.checked) selectedCustomers.set(c.key, c.name);
-      else selectedCustomers.delete(c.key);
-      renderCustomerPills();
-      refreshPreviewIfOpen();
-    });
-    row.appendChild(cb);
-    const text = document.createElement("span");
-    text.textContent = `${c.key} — ${c.name}`;
-    row.appendChild(text);
-    list.appendChild(row);
-  });
-  if (!matches.length) {
-    const empty = document.createElement("div");
-    empty.className = "customer-empty";
-    empty.textContent = customerOptions.length ? "No matches" : "Loading…";
-    list.appendChild(empty);
-  }
-  list.hidden = false;
-  positionCustomerOptions();
-}
-
-/** Render the selected customers as removable pills (separate from the field). */
-function renderCustomerPills(): void {
-  const host = $("customerPills");
-  if (!host) return;
-  host.innerHTML = "";
-  selectedCustomers.forEach((name, key) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "customer-chip";
-    chip.textContent = `${name} ✕`;
-    chip.title = `Remove ${key}`;
-    chip.addEventListener("click", () => {
-      selectedCustomers.delete(key);
-      renderCustomerPills();
-      if (customerPickerOpen) renderCustomerOptions();
-      refreshPreviewIfOpen();
-    });
-    host.appendChild(chip);
-  });
-}
-
 function renderCustomerPicker(): void {
   if (!hasFilter("customerPicker")) return;
-  ensureCustomerHandlers();
-  ensureCustomerInput();
-  renderCustomerPills();
-  renderCustomerOptions();
+  const host = $("customerPicker");
+  const pills = $("customerPills");
+  if (!host || !pills) return;
+  if (!customerPicker) {
+    customerPicker = new SearchablePicker({
+      host,
+      pills,
+      placeholder: host.dataset.placeholder || "All customers",
+      formatOption: (customer) => `${customer.key} — ${customer.name}`,
+      onChange: () => {
+        selectedCustomers.clear();
+        customerPicker?.selectedKeys().forEach((key) => selectedCustomers.set(key, key));
+        refreshPreviewIfOpen();
+      },
+    });
+  }
+  customerPicker.setOptions(customerOptions);
+  customerPicker.setSelected([...selectedCustomers.keys()]);
 }
 
 function setLookupStatusText(text: string): void {
@@ -2306,6 +2330,7 @@ function pollLookupStatus(): void {
   const url = attr("data-lookup-status-url");
   if (!url) return;
   const tick = async () => {
+    if (isHidden()) return;
     const s = await getJSON<any>(url);
     if (!s) return;
     if (s.status === "ready" || (s.cached_row_count || 0) > 0) {
@@ -2321,6 +2346,7 @@ function pollLookupStatus(): void {
   };
   tick();
   lookupPollTimer = window.setInterval(tick, 2500);
+  onVisible(() => { if (lookupPollTimer != null) void tick(); });
 }
 
 async function initLookups(): Promise<void> {
@@ -3086,16 +3112,33 @@ function emailMsg(text: string, isError: boolean): void {
 function openEmailModal(): void {
   const modal = $("emailModal");
   if (!modal) return;
+  // Reopening starts a fresh session: retire any earlier send, including one
+  // whose POST is still in flight, so nothing from before can write here.
+  emailSendSeq++;
+  watchedEmailJob = null;
+  const sendBtn = $("emailSend") as HTMLButtonElement | null;
+  if (sendBtn) sendBtn.disabled = false;
   (($("emailSubject") as HTMLInputElement)).value = document.title || "Report";
   (($("emailRecipients") as HTMLInputElement)).value = "";
   emailMsg("", false);
-  modal.hidden = false;
+  openDialog(modal);
   emailSp.init();
 }
 
+// The send job the modal is currently watching. Starting another send retires
+// the old poll, and a hidden modal (closed by any path, including Escape in
+// dialog.ts) stops it writing, so a stale poll never touches a later dialog.
+let watchedEmailJob: string | null = null;
+let emailSendSeq = 0;
+
+function emailModalWatching(jobId: string): boolean {
+  return watchedEmailJob === jobId && $("emailModal")?.hidden === false;
+}
+
 function closeEmailModal(): void {
+  watchedEmailJob = null;
   const modal = $("emailModal");
-  if (modal) modal.hidden = true;
+  if (modal) closeDialog(modal);
 }
 
 async function postEmailNow(recipients: string, subject: string, sharepointPath: string): Promise<string> {
@@ -3123,14 +3166,17 @@ async function sendEmail(): Promise<void> {
   }
   const sendBtn = $("emailSend") as HTMLButtonElement | null;
   if (sendBtn) sendBtn.disabled = true;
+  const seq = ++emailSendSeq;
+  watchedEmailJob = null;
   emailMsg("Sending…", false);
   try {
     const jobId = await postEmailNow(recipients, subject, emailSp.path() || "");
+    if (seq !== emailSendSeq) return;
     await pollEmailJob(jobId);
   } catch (e) {
-    emailMsg((e as Error).message || "Could not send.", true);
+    if (seq === emailSendSeq) emailMsg((e as Error).message || "Could not send.", true);
   } finally {
-    if (sendBtn) sendBtn.disabled = false;
+    if (seq === emailSendSeq && sendBtn) sendBtn.disabled = false;
   }
 }
 
@@ -3146,7 +3192,12 @@ async function emailMe(): Promise<void> {
   try {
     const jobId = await postEmailNow(me, attr("data-report-title") || "Report", "");
     const jobUrl = attr("data-job-url").replace("__ID__", jobId);
-    for (let i = 0; i < 60; i++) {
+    const deadline = Date.now() + 60 * 1000;
+    while (Date.now() < deadline) {
+      if (isHidden()) {
+        await sleepUntilVisible(deadline - Date.now());
+        continue;
+      }
       const j = await getJSON<{ status: string; error: string }>(jobUrl);
       if (!j) break;
       if (j.status === "success") {
@@ -3157,7 +3208,7 @@ async function emailMe(): Promise<void> {
         setStatus(j.error || "Could not send the email.", "error");
         return;
       }
-      await new Promise((r) => setTimeout(r, 1000));
+      await sleepUntilVisible(1000);
     }
     setStatus("Still sending — check your inbox shortly.");
   } catch (e) {
@@ -3169,21 +3220,30 @@ async function emailMe(): Promise<void> {
 
 async function pollEmailJob(jobId: string): Promise<void> {
   const jobUrl = attr("data-job-url").replace("__ID__", jobId);
-  for (let i = 0; i < 60; i++) {
+  const deadline = Date.now() + 60 * 1000;
+  watchedEmailJob = jobId;
+  const stillWatching = () => emailModalWatching(jobId);
+  while (Date.now() < deadline) {
+    if (isHidden()) {
+      await sleepUntilVisible(deadline - Date.now());
+      continue;
+    }
     const j = await getJSON<{ status: string; error: string }>(jobUrl);
+    if (!stillWatching()) return;
     if (!j) break;
     if (j.status === "success") {
       emailMsg("Delivered.", false);
-      setTimeout(closeEmailModal, 1200);
+      setTimeout(() => { if (stillWatching()) closeEmailModal(); }, 1200);
       return;
     }
     if (j.status === "failure" || j.status === "cancelled") {
       emailMsg(j.error || "Delivery failed.", true);
       return;
     }
-    await new Promise((r) => setTimeout(r, 1000));
+    await sleepUntilVisible(1000);
+    if (!stillWatching()) return;
   }
-  emailMsg("Still processing — check the outbox shortly.", false);
+  if (stillWatching()) emailMsg("Still sending — you can close this window.", false);
 }
 
 // -- schedule modal ---------------------------------------------------------
@@ -3261,7 +3321,7 @@ function openScheduleModal(): void {
   updateSchedFilenamePreview();
   schedMsg("", false);
   syncCadenceFields();
-  modal.hidden = false;
+  openDialog(modal);
   scheduleOd.init();
   if (attr("data-has-sharepoint") === "1") scheduleSp.init();
 }
@@ -3280,7 +3340,7 @@ function updateSchedFilenamePreview(): void {
 
 function closeScheduleModal(): void {
   const modal = $("scheduleModal");
-  if (modal) modal.hidden = true;
+  if (modal) closeDialog(modal);
 }
 
 function collectCadence(): { ok: boolean; cadence?: any; error?: string } {
@@ -3399,6 +3459,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("refreshBtn")?.addEventListener("click", () => run({ preserveLayout: true }));
   $("resetBtn")?.addEventListener("click", resetView);
   $("exportMenuBtn")?.addEventListener("click", toggleExportMenu);
+  const exportMenu = $("exportMenu");
+  const exportMenuBtn = $("exportMenuBtn") as HTMLButtonElement | null;
+  if (exportMenu && exportMenuBtn) bindToolbarMenu(exportMenu, exportMenuBtn, closeExportMenu, openExportMenu);
   $("exportBtn")?.addEventListener("click", () => { closeExportMenu(); exportExcel(); });
   $("keepBtn")?.addEventListener("click", keepCurrentRun);
   $("exportsBtn")?.addEventListener("click", (e) => {
@@ -3431,6 +3494,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     togglePresetsPanel();
   });
   $("moreBtn")?.addEventListener("click", toggleMoreMenu);
+  const moreMenu = $("moreMenu");
+  const moreBtn = $("moreBtn") as HTMLButtonElement | null;
+  if (moreMenu && moreBtn) bindToolbarMenu(moreMenu, moreBtn, closeMoreMenu, openMoreMenu);
   $("emailBtn")?.addEventListener("click", openEmailModal);
   $("emailMeBtn")?.addEventListener("click", () => { void emailMe(); });
   $("emailClose")?.addEventListener("click", closeEmailModal);

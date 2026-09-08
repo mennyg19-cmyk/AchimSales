@@ -2,6 +2,7 @@
 
 import { esc } from "./http";
 import { stripReportsHome } from "./filename_preview";
+import { closeDialog, openDialog } from "./dialog";
 
 // --------------------------------------------------------------------------
 // SharePoint folder picker
@@ -123,7 +124,7 @@ async function spLoadPath(path: string): Promise<void> {
 
 function spClose(value: string | null): void {
   const ov = spOverlay();
-  if (ov) ov.style.display = "none";
+  if (ov) closeDialog(ov);
   if (spResolver) { const r = spResolver; spResolver = null; r(value); }
 }
 
@@ -146,7 +147,7 @@ async function openSharePointPicker(initialPath: string): Promise<string | null>
     }
   } catch { /* use default */ }
 
-  ov.style.display = "flex";
+  openDialog(ov);
   return new Promise((resolve) => {
     spResolver = resolve;
     spLoadPath(initialPath);

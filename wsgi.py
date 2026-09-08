@@ -6,7 +6,7 @@ This is the single module gunicorn serves:
 
 It wires apps behind one process via werkzeug's DispatcherMiddleware:
 
-    /          -> v3 in beta mode              [site home; hybrid SQL/OData]
+    /          -> v3 in beta mode              [site home; SQL reports]
     /legacy    -> live Flask app (webapp/)     [former home; OData]
     /test      -> v3 app (v3/web/)             [SQL sandbox]
     /beta      -> 302 to the same path without /beta
@@ -77,30 +77,8 @@ def _write_boot_error(text: str) -> None:
             continue
 
 
-def _bootstrap_v3_async(v3_web, app) -> None:
-    """Run v3's migrate/seed/worker-start OFF the worker-import path.
-
-    bootstrap_background touches SQLite (migrations + seeding) and starts the job
-    worker. Doing that synchronously during `import wsgi` can block the gunicorn
-    worker long enough to miss Azure's container warmup probe, which silently kills
-    the whole site. Running it in a daemon thread lets the dispatcher come up
-    immediately; v3's schema/seed land a moment later (healthz + login start don't
-    need them).
-    """
-    import threading
-
-    def _run():
-        try:
-            v3_web.bootstrap_background(app)
-            log.info("v3 bootstrap_background complete")
-        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
-            log.exception("v3 bootstrap_background failed (v3 stays mounted, may be degraded)")
-
-    threading.Thread(target=_run, name="v3-bootstrap", daemon=True).start()
-
-
 def _build_v3_app():
-    """Create the v3 app (fast, pure wiring). Bootstrap runs async, not here."""
+    """Create the v3 app for HTTP requests only."""
     v3_root = str(_REPO_ROOT / "v3")
     # Insert at the FRONT so v3's top-level packages (web, report_engine) win over
     # any same-named site-package. The live app imports webapp, never these names,
@@ -111,11 +89,10 @@ def _build_v3_app():
     import web as v3_web
 
     app = v3_web.create_app()
-    _bootstrap_v3_async(v3_web, app)
     return app
 
 
-if _env_bool("V3_MOUNT_ENABLED"):
+if _env_bool("V3_MOUNT_ENABLED"):  # same flag as v3/web/jobs/worker_main.enabled_apps
     try:
         MOUNTS[_TEST_MOUNT] = _build_v3_app()
         log.info("v3 mounted at %s", _TEST_MOUNT)
@@ -176,8 +153,7 @@ else:
 
 
 def _build_beta_app():
-    """Create the Beta surface: v3 look + reports-only + hybrid SQL/OData sources."""
-    import threading
+    """Create the Beta surface for HTTP requests only."""
 
     v3_root = str(_REPO_ROOT / "v3")
     if v3_root in sys.path:
@@ -191,20 +167,11 @@ def _build_beta_app():
 
         cfg = _load(is_beta=True)
     app = v3_web.create_app(cfg)
-
-    def _run():
-        try:
-            v3_web.bootstrap_background(app)
-            log.info("beta bootstrap_background complete")
-        except Exception:  # noqa: BLE001 - never crash the process from a daemon thread
-            log.exception("beta bootstrap_background failed (beta stays mounted, may be degraded)")
-
-    threading.Thread(target=_run, name="beta-bootstrap", daemon=True).start()
     return app
 
 
 _beta_app = None
-if _env_bool("BETA_MOUNT_ENABLED"):
+if _env_bool("BETA_MOUNT_ENABLED"):  # same flag as v3/web/jobs/worker_main.enabled_apps
     try:
         if _LEGACY_MOUNT in ("", "/", _TEST_MOUNT):
             raise ValueError(

@@ -1,7 +1,7 @@
 """Send mail through Microsoft Graph (app-only), same path as live / rebuild.
 
 No mailbox password — uses GRAPH_TENANT_ID / CLIENT_ID / CLIENT_SECRET already
-on the App Service. Same client-credentials POST as SharePoint (30s timeout).
+on the App Service. Stdlib HTTP + msal (already a v3 dep).
 """
 
 from __future__ import annotations
@@ -10,9 +10,13 @@ import base64
 import html
 import json
 import logging
+import socket
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import quote
+
+from web.delivery.graph_auth import GraphTokenCache, retry_after_seconds
 
 log = logging.getLogger(__name__)
 
@@ -23,12 +27,14 @@ _TIMEOUT_SECONDS = 60
 
 
 class GraphMailError(RuntimeError):
-    """Token failure or Graph rejected the send."""
+    """Graph send failure with its durable delivery classification."""
 
-    def __init__(self, message: str, status_code: int | None = None, detail: str = ""):
+    def __init__(self, message: str, status_code: int | None = None, detail: str = "",
+                 delivery_status: str = "failed"):
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail
+        self.delivery_status = delivery_status
 
 
 class GraphMailer:
@@ -36,27 +42,29 @@ class GraphMailer:
         self._tenant_id = tenant_id
         self._client_id = client_id
         self._client_secret = client_secret
+        self._token_cache = GraphTokenCache()
+        self._msal_app = None
 
     def _token(self) -> str:
-        import requests
+        import msal
 
-        url = (
-            f"https://login.microsoftonline.com/{self._tenant_id}/oauth2/v2.0/token"
-        )
         try:
-            r = requests.post(url, data={
-                "client_id": self._client_id,
-                "client_secret": self._client_secret,
-                "scope": _GRAPH_SCOPE,
-                "grant_type": "client_credentials",
-            }, timeout=_TIMEOUT_SECONDS)
-            r.raise_for_status()
-            token = r.json().get("access_token")
+            if self._msal_app is None:
+                self._msal_app = msal.ConfidentialClientApplication(
+                    self._client_id,
+                    authority=f"https://login.microsoftonline.com/{self._tenant_id}",
+                    client_credential=self._client_secret,
+                )
+            return self._token_cache.get(
+                lambda: self._msal_app.acquire_token_for_client(scopes=[_GRAPH_SCOPE])
+            )
         except Exception as exc:  # noqa: BLE001
             raise GraphMailError("Could not get a Microsoft Graph token to send mail.") from exc
-        if not token:
-            raise GraphMailError("Could not get a Microsoft Graph token to send mail.")
-        return token
+
+    def _clear_token(self) -> None:
+        self._token_cache.clear()
+        if self._msal_app is not None:
+            self._msal_app.remove_tokens_for_client()
 
     def send(
         self,
@@ -97,34 +105,40 @@ class GraphMailer:
             message["bccRecipients"] = [{"emailAddress": {"address": addr}} for addr in bcc]
         payload = json.dumps({"message": message, "saveToSentItems": True}).encode("utf-8")
         url = _GRAPH_SEND_URL.format(user=quote(sender, safe=""))
-        try:
+        retried_401 = retried_throttle = False
+        while True:
             request = urllib.request.Request(
-                url,
-                data=payload,
-                method="POST",
-                headers={
-                    "Authorization": f"Bearer {self._token()}",
-                    "Content-Type": "application/json",
-                },
+                url, data=payload, method="POST",
+                headers={"Authorization": f"Bearer {self._token()}",
+                         "Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-                response.read()
-        except GraphMailError:
-            raise
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:500]
-            log.warning("Graph sendMail failed: HTTP %s %s", exc.code, detail)
-            from web.jobs.trace import step as job_step
-            job_step("email", f"sendMail HTTP {exc.code}: {detail[:200]}")
-            raise GraphMailError(
-                f"Microsoft Graph rejected the send (HTTP {exc.code}).",
-                status_code=exc.code, detail=detail,
-            ) from exc
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Graph sendMail error: %s", exc)
-            from web.jobs.trace import step as job_step
-            job_step("email", f"sendMail error: {exc}")
-            raise GraphMailError("Microsoft Graph could not be reached to send mail.") from exc
+            try:
+                with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+                    response.read()
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code == 401 and not retried_401:
+                    retried_401 = True
+                    self._clear_token()
+                    continue
+                if exc.code in (429, 503) and not retried_throttle:
+                    retried_throttle = True
+                    time.sleep(retry_after_seconds(exc.headers.get("Retry-After")))
+                    continue
+                detail = exc.read().decode("utf-8", "replace")[:500]
+                log.warning("Graph sendMail failed: HTTP %s %s", exc.code, detail)
+                from web.jobs.trace import step as job_step
+                job_step("email", f"sendMail HTTP {exc.code}: {detail[:200]}")
+                raise GraphMailError(
+                    f"Microsoft Graph rejected the send (HTTP {exc.code}).",
+                    status_code=exc.code, detail=detail,
+                ) from exc
+            except (TimeoutError, socket.timeout, urllib.error.URLError, ConnectionResetError, OSError) as exc:
+                log.warning("Graph sendMail outcome is unknown after request: %s", exc)
+                raise GraphMailError(
+                    "Microsoft Graph connection failed after submitting the send; delivery is unknown.",
+                    delivery_status="unknown",
+                ) from exc
         from web.jobs.trace import step as job_step
         job_step("email", f"sendMail ok to {', '.join(to[:8])}")
         log.info("Report email sent via Graph from %s to %s", sender, to)

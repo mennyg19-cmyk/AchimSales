@@ -17,6 +17,7 @@
     </div>
     <div class="page-head-actions">
         <button type="button" id="dashRefreshBtn" class="btn btn-outline">Refresh data</button>
+        <span class="form-msg" id="dashRefreshStatus" role="status" aria-live="polite"></span>
     </div>
 </div>
 
@@ -34,6 +35,7 @@
 </div>
 
 {% if customers %}
+<div class="table-wrap">
 <table class="simple-table" id="dashTable">
     <thead><tr>
         <th>Customer</th><th>Salesman</th><th>Status</th>
@@ -54,6 +56,7 @@
         {% endfor %}
     </tbody>
 </table>
+</div>
 {% else %}
 <div class="empty-state"><i data-feather="users"></i>
     <p>No customers yet. Tap <strong>Refresh data</strong> to build the dashboard from the latest orders.</p></div>

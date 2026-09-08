@@ -3,6 +3,7 @@
 import { DEFAULT_FILENAME_TEMPLATE, previewFilename, previewFolder } from "./filename_preview";
 import { esc, jsonHeaders } from "./http";
 import { pickerFromSelect, SearchablePicker, type PickerItem } from "./searchable_picker";
+import { isHidden, onVisible } from "./visibility";
 
 const TOTAL_STEPS = 5;
 let wizardStep = 1;
@@ -17,6 +18,9 @@ let customerPicker: SearchablePicker | null = null;
 let salesmanEmailOptions: SalesmanEmailRow[] = [];
 let lookupsStarted = false;
 let lookupPollTimer: number | null = null;
+// pollLookupStatus re-runs per report key; keep one visible listener and swap the tick.
+let lookupTick: (() => Promise<void>) | null = null;
+onVisible(() => { if (lookupPollTimer != null && lookupTick) void lookupTick(); });
 let pendingSalesmen: string[] = [];
 let pendingLayout: Record<string, unknown> = {};
 let pendingEmailSalesmen: string[] = [];
@@ -60,6 +64,7 @@ function masterMsg(text: string, isError: boolean): void {
   el.textContent = text;
   el.hidden = !text;
   el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
+  el.setAttribute("aria-live", isError ? "assertive" : "polite");
   el.setAttribute("role", isError ? "alert" : "status");
 }
 
@@ -162,13 +167,31 @@ async function loadSavedViews(reportKey: string): Promise<void> {
     sel.value = "default";
     return;
   }
-  const data = await getJSON<{
+  let data: {
     default?: { layout?: Record<string, unknown> };
     company?: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[];
     presets: { id: number; name: string; params?: Record<string, unknown>; layout?: Record<string, unknown> }[];
-  }>(
-    `/api/reports/${encodeURIComponent(reportKey)}/presets`,
-  );
+  } | null = null;
+  try {
+    const res = await fetch(`/api/reports/${encodeURIComponent(reportKey)}/presets`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) {
+      masterMsg("Could not load saved views for this report. Try again.", true);
+      return;
+    }
+    data = await res.json();
+    if (!data || typeof data !== "object" || Array.isArray(data)
+        || !Array.isArray((data as { presets?: unknown }).presets)) {
+      masterMsg("Could not load saved views for this report. Try again.", true);
+      return;
+    }
+  } catch {
+    masterMsg("Could not load saved views for this report. Check your connection and try again.", true);
+    return;
+  }
+  masterMsg("", false);
   const defLayout = (data?.default?.layout && typeof data.default.layout === "object")
     ? data.default.layout : {};
   sel.options[0].dataset.preset = JSON.stringify({ params: {}, layout: defLayout });
@@ -520,6 +543,7 @@ function pollLookupStatus(): void {
   const url = wizardRoot()?.getAttribute("data-lookup-status-url") || "";
   if (!url) return;
   const tick = async () => {
+    if (isHidden()) return;
     const s = await getJSON<{
       status?: string;
       cached_row_count?: number;
@@ -553,6 +577,7 @@ function pollLookupStatus(): void {
   };
   void tick();
   stopLookupPoll();
+  lookupTick = tick;
   lookupPollTimer = window.setInterval(() => { void tick(); }, 2500);
 }
 
@@ -663,7 +688,7 @@ function openWizard(): void {
   if (!wiz) return;
   wiz.hidden = false;
   document.getElementById("msEmpty")?.setAttribute("hidden", "");
-  wiz.scrollIntoView({ behavior: "smooth", block: "start" });
+  wiz.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   void initOdPicker();
 }
 

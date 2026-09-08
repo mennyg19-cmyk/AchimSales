@@ -12,13 +12,19 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable
 
 from web.data.connection import Database
 from web.jobs.trace import LOG_CAP
 
 _ACTIVE = ("queued", "running")
+DEFAULT_QUEUE_MAX_DEPTH = 100
+DEFAULT_QUEUE_MAX_AGE_SECONDS = 60 * 60
+
+
+class QueueAdmissionError(RuntimeError):
+    """Raised when inserting another queued job would exceed the queue limit."""
 
 # How many times crash-recovery will requeue a job before giving up on it. A job
 # that keeps dying mid-run (an out-of-memory report the OS SIGKILLs never gets to
@@ -89,13 +95,17 @@ class Job:
 
 
 class JobRepository:
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, *, queue_max_depth: int = DEFAULT_QUEUE_MAX_DEPTH,
+                 queue_max_age_seconds: float = DEFAULT_QUEUE_MAX_AGE_SECONDS):
         self.db = db
+        self.queue_max_depth = max(1, queue_max_depth)
+        self.queue_max_age_seconds = max(1, queue_max_age_seconds)
 
     def enqueue(self, job_type: str, *, owner_user_id: int | None = None,
-                dedup_key: str | None = None, params: dict[str, Any] | None = None) -> str:
+                dedup_key: str | None = None, params: dict[str, Any] | None = None,
+                job_id: str | None = None) -> str:
         """Create a job, or return the existing active job id for the same dedup_key."""
-        job_id = uuid.uuid4().hex
+        job_id = job_id or uuid.uuid4().hex
         with self.db.precious() as conn:
             if dedup_key:
                 existing = conn.execute(
@@ -104,6 +114,13 @@ class JobRepository:
                 ).fetchone()
                 if existing:
                     return existing["id"]
+            depth = conn.execute(
+                "SELECT COUNT(*) AS depth FROM jobs WHERE status='queued'"
+            ).fetchone()["depth"]
+            if depth >= self.queue_max_depth:
+                raise QueueAdmissionError(
+                    f"job queue is full (max depth {self.queue_max_depth})"
+                )
             try:
                 conn.execute(
                     "INSERT INTO jobs(id, type, status, owner_user_id, dedup_key, params_json)"
@@ -127,10 +144,15 @@ class JobRepository:
             return Job.from_row(row) if row else None
 
     def claim_next(self) -> Job | None:
-        """Atomically move the oldest queued job to running and return it."""
+        """Claim the oldest priority job, preserving FIFO within each priority."""
         with self.db.precious() as conn:
             row = conn.execute(
-                "SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+                "SELECT * FROM jobs WHERE status = 'queued'"
+                " ORDER BY CASE type"
+                " WHEN 'schedule.run' THEN 0"
+                " WHEN 'report.deliver' THEN 1"
+                " WHEN 'report.export' THEN 2"
+                " ELSE 1 END, created_at LIMIT 1"
             ).fetchone()
             if not row:
                 return None
@@ -142,6 +164,50 @@ class JobRepository:
             if updated.rowcount != 1:
                 return None  # another worker claimed it
             return Job.from_row(conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone())
+
+    def expire_queued_older_than(self, max_age_seconds: float | None = None) -> int:
+        """Fail queued jobs that exceeded their permitted wait time."""
+        max_age_seconds = self.queue_max_age_seconds if max_age_seconds is None else max_age_seconds
+        cutoff = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() - max_age_seconds,
+            tz=timezone.utc,
+        ).isoformat()
+        with self.db.precious() as conn:
+            expired = conn.execute(
+                "UPDATE jobs SET status='failure', error=?, finished_at=?"
+                " WHERE status='queued' AND julianday(created_at) <= julianday(?)",
+                (
+                    f"job sat in the queue too long (max age {max_age_seconds:g} seconds)",
+                    _now(),
+                    cutoff,
+                ),
+            )
+            return expired.rowcount
+
+    def prune_terminal_older_than(self, *, older_than_days: int,
+                                  kept_still_valid: Callable[[str | None, datetime], bool]) -> int:
+        """Delete old terminal jobs unless a Keep still protects them."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT id, kept_until FROM jobs"
+                " WHERE status IN ('success', 'failure', 'cancelled')"
+                " AND julianday(created_at) < julianday(?)",
+                (cutoff,),
+            ).fetchall()
+            removable_ids = [
+                row["id"] for row in rows
+                if not kept_still_valid(row["kept_until"], now)
+            ]
+            if not removable_ids:
+                return 0
+            conn.executemany(
+                "DELETE FROM jobs WHERE id=?"
+                " AND status IN ('success', 'failure', 'cancelled')",
+                [(job_id,) for job_id in removable_ids],
+            )
+            return len(removable_ids)
 
     def set_progress(self, job_id: str, progress: int) -> None:
         with self.db.precious() as conn:

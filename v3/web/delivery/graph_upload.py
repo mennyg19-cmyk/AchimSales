@@ -7,7 +7,10 @@ must use an upload session or Graph rejects the request.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any, Protocol
+
+from web.delivery.graph_auth import retry_graph_response
 
 log = logging.getLogger(__name__)
 
@@ -127,41 +130,83 @@ def upload_drive_item(
     content: bytes,
     put_timeout: float,
     session_timeout: float = 30,
+    token: Callable[[bool], str] | None = None,
 ) -> dict[str, Any]:
     """PUT small files; createUploadSession + ranged PUTs when over 4 MB."""
+    def current_token(refresh: bool) -> str:
+        if token:
+            return token(refresh)
+        return headers["Authorization"].removeprefix("Bearer ")
+
+    def authenticated_headers(access_token: str, extra: dict[str, str]) -> dict[str, str]:
+        return {**headers, **extra, "Authorization": f"Bearer {access_token}"}
+
     if len(content) < SIMPLE_UPLOAD_MAX:
-        r = requests.put(
-            put_url,
-            headers={**headers, "Content-Type": "application/octet-stream"},
-            data=content, timeout=put_timeout,
+        r = retry_graph_response(
+            lambda access_token: requests.put(
+                put_url,
+                headers=authenticated_headers(access_token, {"Content-Type": "application/octet-stream"}),
+                data=content, timeout=put_timeout,
+            ),
+            current_token,
         )
         if r.status_code not in (200, 201):
             r.raise_for_status()
         return r.json()
 
-    r = requests.post(
-        session_url,
-        headers={**headers, "Content-Type": "application/json"},
-        json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
-        timeout=session_timeout,
+    r = retry_graph_response(
+        lambda access_token: requests.post(
+            session_url,
+            headers=authenticated_headers(access_token, {"Content-Type": "application/json"}),
+            json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
+            timeout=session_timeout,
+        ),
+        current_token,
     )
     r.raise_for_status()
     upload_url = r.json()["uploadUrl"]
     size = len(content)
     start = 0
     last = None
+    resumed = False
     while start < size:
         end = min(start + CHUNK_SIZE, size)
         chunk = content[start:end]
-        last = requests.put(
-            upload_url,
-            data=chunk,
-            headers={
-                "Content-Length": str(len(chunk)),
-                "Content-Range": f"bytes {start}-{end - 1}/{size}",
-            },
-            timeout=put_timeout,
-        )
-        last.raise_for_status()
-        start = end
+        try:
+            last = retry_graph_response(
+                lambda _access_token: requests.put(
+                    upload_url, data=chunk,
+                    headers={"Content-Length": str(len(chunk)),
+                             "Content-Range": f"bytes {start}-{end - 1}/{size}"},
+                    timeout=put_timeout,
+                ),
+                current_token,
+            )
+            last.raise_for_status()
+            start = end
+        except Exception:
+            if resumed:
+                raise
+            session = requests.get(upload_url, timeout=session_timeout)
+            session.raise_for_status()
+            ranges = session.json().get("nextExpectedRanges") or []
+            next_start = _next_expected_offset(ranges)
+            if next_start is None or next_start >= size:
+                raise
+            log.warning(
+                "Graph upload chunk failed at byte %s; resuming existing session at byte %s",
+                start, next_start, exc_info=True,
+            )
+            resumed = True
+            start = next_start
     return last.json() if last is not None else {}
+
+
+def _next_expected_offset(ranges: list[Any]) -> int | None:
+    """Read the first byte offset Graph still expects from its session status."""
+    if not ranges or not isinstance(ranges[0], str):
+        return None
+    try:
+        return int(ranges[0].split("-", 1)[0])
+    except ValueError:
+        return None

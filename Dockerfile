@@ -1,11 +1,5 @@
-# Sales Reports -- unified container for live (/), v3 (/test), and rebuild (/test-next).
-# One image serves them by running wsgi:application under gunicorn.
-#
-# Installs on top of python:3.12-slim:
-#   - msodbcsql18          -> required by pyodbc for on-prem SQL Server
-#   - unixodbc-dev         -> build-time ODBC headers for pyodbc
-#   - WeasyPrint runtime   -> Cairo, Pango, GDK-PixBuf for PDF exports
-#   - fonts-dejavu         -> WeasyPrint fallback font so PDFs never render blank
+# Sales Reports container image. Azure App Service currently uses startup.sh,
+# not this Dockerfile; keep its runtime dependencies in sync with the lock.
 
 FROM python:3.12-slim AS base
 
@@ -37,7 +31,7 @@ WORKDIR /app
 # webapp/requirements.txt already covers live + v3 (+ rebuild shares the same stack).
 COPY webapp/requirements.txt /tmp/live-requirements.txt
 RUN pip install --upgrade pip \
- && pip install -r /tmp/live-requirements.txt
+ && pip install --require-hashes -r /tmp/live-requirements.txt
 
 COPY . /app
 

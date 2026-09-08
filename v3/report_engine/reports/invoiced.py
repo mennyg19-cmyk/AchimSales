@@ -158,27 +158,31 @@ def _year_of(row: dict) -> int | None:
 
 def _row_rates_by_salesman(rows: Iterable[dict]) -> dict[str, float]:
     """Highest commission rate the SP sent per salesman key (rows should agree;
-    max ignores blank/zero rows like credits). Empty when the SP sends none."""
+    max includes zero. Empty when the SP sends none."""
     rates: dict[str, float] = {}
     for r in rows:
         sg = r.get("_sales_group") or ""
         if not sg:
             continue
-        rate = num(r.get("_commission_pct"))
+        rate = r.get("_commission_pct")
+        if rate is None:
+            continue
         key = salesman_key(sg)
-        if rate > rates.get(key, 0.0):
+        if key not in rates or rate > rates[key]:
             rates[key] = rate
     return rates
 
 
 def _commission_rate(sales_group: str, salesmen: Mapping[str, SalesmanFact],
                      row_rates: Mapping[str, float]) -> float:
-    """The rate to use for one salesman: the SP's per-row rate when present,
-    otherwise the salesman master. Both are fractions (0.06 = 6%)."""
+    """SP per-row rate when present, otherwise the salesmen_master directory.
+
+    Both are fractions (0.06 = 6%). Display and dollars use this same rate:
+    the local salesmen table is gone, so there is no separate saved percent.
+    """
     key = salesman_key(sales_group)
-    row_rate = row_rates.get(key, 0.0)
-    if row_rate > 0:
-        return row_rate
+    if key in row_rates:
+        return row_rates[key]
     sm = salesmen.get(key)
     return sm.commission_pct if sm else 0.0
 
@@ -272,7 +276,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         if not sg:
             continue
         rate = _commission_rate(sg, salesmen, row_rates)
-        if rate <= 0:
+        if rate <= 0 and salesman_key(sg) not in row_rates:
             continue
         # Guard against a caller passing a wider window than Jan 1..period end:
         # only count rows in the report year (LIVE fetches exactly that window).
@@ -287,6 +291,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
             "label": r.get("Salesman") or sg,
             "name": r.get("SalesmanName") or (sm.full_name or sm.display_name if sm else "") or sg,
             "pct": rate,
+            "display_pct": _commission_rate(sg, salesmen, row_rates),
             "monthly": [dict(subtotal=0.0, tariff=0.0, freight=0.0, cc=0.0, misc=0.0,
                              credits=0.0)
                         for _ in range(end_month)],
@@ -304,6 +309,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
     salesmen_out: list[dict] = []
     for bucket_key in sorted(by_sm, key=lambda k: by_sm[k]["name"].lower()):
         bucket = by_sm[bucket_key]
+        sm = salesmen.get(bucket_key)
         pct = bucket["pct"]
         ytd = dict(subtotal_invoices=0.0, tariff_charges=0.0, freight_charges=0.0,
                    cc_charges=0.0, misc_charges=0.0, total_invoices=0.0, credits=0.0,
@@ -341,7 +347,7 @@ def _commissions_monthly(ytd_rows: Sequence[dict], salesmen: Mapping[str, Salesm
         salesmen_out.append({
             "salesman": bucket["label"],
             "salesman_name": bucket["name"],
-            "commission_pct": pct, "monthly": monthly_out, "ytd": ytd,
+            "commission_pct": bucket["display_pct"], "monthly": monthly_out, "ytd": ytd,
         })
 
     def _g(field: str) -> float:
@@ -398,12 +404,12 @@ def _commissions_simple(summary_rows: Sequence[dict],
     rows: list[dict] = []
     for r in summary_rows:
         sg = r.get("_sales_group") or ""
-        pct = _commission_rate(sg, salesmen, row_rates) if sg else 0.0
+        rate = _commission_rate(sg, salesmen, row_rates) if sg else 0.0
         base = round(num(r.get("SubTotal Invoices")) + num(r.get("Total Tariff Charges")), 2)
         out = _public(r)
-        out["Percent"] = pct
+        out["Percent"] = rate
         out["Commission Base"] = base
-        out["Commissions"] = round(base * pct, 2)
+        out["Commissions"] = round(base * rate, 2)
         rows.append(out)
     rows.sort(key=lambda r: -num(r.get("Commissions")))
     return {"key": "commissions", "name": "Commissions",

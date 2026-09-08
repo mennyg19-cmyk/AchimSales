@@ -8,9 +8,8 @@
 #   2. Best-effort Litestream: restore precious.db from Azure Blob on a cold
 #      instance, then run gunicorn UNDER `litestream replicate` so every write is
 #      streamed offsite. This is the durability story for precious.db (rule 5).
-#   3. Launch gunicorn with --config=gunicorn.conf.py so the leader-election
-#      post_fork hook runs (exactly ONE worker owns the email-distribution loop
-#      AND the v3 job worker + scheduler -- no duplicate sends).
+#   3. Launch the HTTP-only Gunicorn process and its sibling v3 worker under a
+#      small supervisor. The worker owns v3 migrations, seeds, scheduling, and jobs.
 #
 # CRITICAL: this process also serves the site home (Beta) at "/" via the
 # dispatcher, so every Litestream step is FAIL-OPEN. If the binary can't be
@@ -21,22 +20,25 @@
 # abort the boot.
 set -u
 
+_export_trimmed_alias() {
+  # Match load_config: whitespace-only SITE_* is unset, not a Litestream path.
+  local raw trimmed
+  raw="${1:-}"
+  trimmed="${raw#"${raw%%[![:space:]]*}"}"
+  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+  if [ -n "${trimmed}" ]; then
+    export "$2=${trimmed}"
+  fi
+}
+
 ROOT="/home/site/wwwroot"
-WORKERS="${WEB_CONCURRENCY:-2}"
-THREADS="${GUNICORN_THREADS:-8}"
-# 230s aligns with Azure App Service's front-end idle cap. Big report exports
-# build the .xlsx synchronously in-request (openpyxl styles every cell), so a
-# short worker timeout would kill the worker mid-build and surface as a generic
-# "could not build" in the browser. Override via the GUNICORN_TIMEOUT app setting.
-TIMEOUT="${GUNICORN_TIMEOUT:-230}"
-PORT="${PORT:-8000}"
 LS_BIN="/home/bin/litestream"
 LS_VERSION="${LITESTREAM_VERSION:-v0.3.13}"
 
-GUNICORN_CMD="gunicorn --config=${ROOT}/gunicorn.conf.py --bind=0.0.0.0:${PORT} --workers=${WORKERS} --worker-class=gthread --threads=${THREADS} --timeout=${TIMEOUT} --access-logfile=- --error-logfile=- wsgi:application"
+SUPERVISOR_CMD="${ROOT}/supervise-web.sh"
 
 # 1. Defensive dependency install (Oryx usually already did this on deploy).
-pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warning (continuing)"
+pip install -q --require-hashes -r "${ROOT}/webapp/requirements.txt" || echo "startup: pip install warning (continuing)"
 
 # 1b. One-time move off the /home SMB share onto local disk (rule 5).
 #     SQLite's WAL mode can't share its index across processes on an SMB share,
@@ -50,6 +52,8 @@ pip install -q -r "${ROOT}/requirements.txt" || echo "startup: pip install warni
 #     the now-frozen /home file. Only precious.db is seeded; cache.db is disposable.
 HOME_SEED_DB="/home/site/v3data/precious.db"
 SEED_MARKER="/home/site/v3data/.migrated-to-local"
+_export_trimmed_alias "${SITE_PRECIOUS_DB_PATH:-}" PRECIOUS_DB_PATH
+_export_trimmed_alias "${SITE_CACHE_DB_PATH:-}" CACHE_DB_PATH
 PRECIOUS="${PRECIOUS_DB_PATH:-/home/site/v3data/precious.db}"
 case "${PRECIOUS}" in
   /home/*) echo "startup: precious.db still on /home (${PRECIOUS}); no local seed" ;;
@@ -111,11 +115,10 @@ if [ -x "${LS_BIN}" ] && [ -n "${LITESTREAM_AZURE_ACCOUNT_KEY:-}" ] && [ -f "${R
         ;;
     esac
   fi
-  echo "startup: launching gunicorn under litestream replicate"
-  exec "${LS_BIN}" replicate -config "${ROOT}/litestream.yml" -exec "${GUNICORN_CMD}"
+  echo "startup: launching web supervisor under litestream replicate"
+  exec "${LS_BIN}" replicate -config "${ROOT}/litestream.yml" -exec "${SUPERVISOR_CMD}"
 fi
 
-# 3. Fallback: no Litestream -> launch gunicorn directly (still --config, so the
-#    leader gate is active either way).
-echo "startup: litestream not active; launching gunicorn directly"
-exec ${GUNICORN_CMD}
+# 3. Fallback: no Litestream -> launch the supervised web unit directly.
+echo "startup: litestream not active; launching web supervisor directly"
+exec "${SUPERVISOR_CMD}"

@@ -16,7 +16,12 @@ from typing import Any
 from urllib.parse import quote
 
 from web.config import Config
-from web.delivery.graph_token import GraphAppToken, graph_call
+from web.delivery.graph_auth import (
+    GraphTokenCache,
+    cached_app_token,
+    ensure_drive_folders,
+    graph_get,
+)
 from web.delivery.sharepoint import _validate_segments
 
 log = logging.getLogger(__name__)
@@ -37,7 +42,7 @@ _MOCK_TREE: dict[str, list[str]] = {
 class OneDriveService:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self._tokens = GraphAppToken(cfg.tenant_id, cfg.client_id, cfg.client_secret)
+        self._token_cache = GraphTokenCache()
 
     def is_configured(self) -> bool:
         return bool(self.cfg.tenant_id and self.cfg.client_id
@@ -54,7 +59,7 @@ class OneDriveService:
             self._mock_or_raise("list folders")
             return _mock_folders(rel_path)
 
-        r = self._graph("get", onedrive_children_url(user, rel_path), timeout=TIMEOUT)
+        r = graph_get(onedrive_children_url(user, rel_path), self._get_token, timeout=TIMEOUT)
         if r.status_code == 404:
             return []
         r.raise_for_status()
@@ -89,17 +94,17 @@ class OneDriveService:
             item = f"{self._drive_root(user)}:{folder}/{quote(filename)}"
         else:
             item = f"{self._drive_root(user)}:/{quote(filename)}"
-        headers = {"Authorization": f"Bearer {self._tokens.get(requests)}"}
         body = upload_drive_item(
             requests,
             put_url=f"{item}:/content",
             session_url=f"{item}:/createUploadSession",
-            headers=headers,
+            headers=self._headers(),
             content=content, put_timeout=UPLOAD_TIMEOUT,
+            token=self._get_token,
         )
         item_get = item if item.endswith(":") else f"{item}:"
         url = resolve_web_url(
-            requests, headers=headers, body=body,
+            requests, headers=self._headers(), body=body,
             get_url=item_get,
             items_base=f"{GRAPH_BASE}/users/{quote(user)}/drive/items",
             timeout=TIMEOUT,
@@ -112,23 +117,26 @@ class OneDriveService:
     def _drive_root(self, user: str) -> str:
         return f"{GRAPH_BASE}/users/{quote(user)}/drive/root"
 
-    def _graph(self, verb: str, url: str, **kwargs):
-        import requests
-        return graph_call(requests, self._tokens, verb, url, **kwargs)
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._get_token()}"}
+
+    def _get_token(self, refresh: bool = False) -> str:
+        return cached_app_token(
+            self._token_cache, refresh=refresh,
+            tenant_id=self.cfg.tenant_id, client_id=self.cfg.client_id,
+            client_secret=self.cfg.client_secret, timeout=TIMEOUT,
+        )
 
     def _ensure_folder(self, user: str, rel_path: str) -> None:
         segments = _validate_segments(rel_path)
         if not segments:
             return
-        current_enc = ""
-        for part in segments:
-            parent = f"{self._drive_root(user)}:{current_enc}:/children" if current_enc else f"{self._drive_root(user)}/children"
-            r = self._graph("post", parent, timeout=TIMEOUT, headers={"Content-Type": "application/json"}, json={
-                "name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
-            if r.status_code not in (201, 409):
-                r.raise_for_status()
-            seg_enc = quote(part)
-            current_enc = f"{current_enc}/{seg_enc}" if current_enc else f"/{seg_enc}"
+        root = self._drive_root(user)
+        ensure_drive_folders(
+            segments, self._get_token,
+            lambda enc: f"{root}:{enc}:/children" if enc else f"{root}/children",
+            timeout=TIMEOUT, leading_slash=True,
+        )
 
 
 def onedrive_children_url(user_email: str, rel_path: str = "") -> str:

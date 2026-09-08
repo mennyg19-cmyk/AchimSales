@@ -181,8 +181,16 @@ function bindRowActions(): void {
   });
   document.querySelectorAll<HTMLButtonElement>(".js-run").forEach((b) => {
     b.addEventListener("click", async () => {
+      const runStatus = document.getElementById("runStatus");
+      const announceRun = (text: string, isError = false) => {
+        if (!runStatus) return;
+        runStatus.textContent = text;
+        runStatus.setAttribute("aria-live", isError ? "assertive" : "polite");
+        runStatus.setAttribute("role", isError ? "alert" : "status");
+      };
       b.disabled = true;
       b.textContent = "Running…";
+      announceRun("Schedule run is starting.");
       document.getElementById("runLogPanel")?.setAttribute("open", "");
       renderJobLog(document.getElementById("liveJobLog"), []);
       await refreshRunLog();
@@ -190,6 +198,7 @@ function bindRowActions(): void {
       const jobId = typeof data?.job_id === "string" ? data.job_id : "";
       if (!jobId) {
         b.textContent = "Failed";
+        announceRun("Could not start the schedule run.", true);
         setTimeout(() => { b.disabled = false; b.textContent = "Run now"; }, 2500);
         return;
       }
@@ -203,9 +212,11 @@ function bindRowActions(): void {
         await cancelJob(jobId);
       });
       b.textContent = "Queued";
+      announceRun("Schedule run queued.");
       await pollJob(jobId, (step) => {
         b.textContent = "Running…";
         b.title = step;
+        announceRun(step);
       });
       cancelBtn.remove();
       await refreshRunLog();

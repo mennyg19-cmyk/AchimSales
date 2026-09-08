@@ -5,6 +5,9 @@
  * the master). All endpoints are privilege-guarded server-side; this is purely UX.
  */
 
+import { closeDialog, openDialog } from "./dialog";
+import { isHidden, onVisible } from "./visibility";
+
 const root = document.getElementById("adminUsers");
 const usersUrl = root?.getAttribute("data-users-url") || "";
 const csrf = root?.getAttribute("data-csrf") || "";
@@ -119,6 +122,7 @@ async function loadSalesGroups(): Promise<number> {
 function pollSalesGroups(): void {
   if (!lookupStatusUrl) return;
   const tick = async () => {
+    if (isHidden()) return;
     try {
       const resp = await fetch(lookupStatusUrl);
       if (!resp.ok) return;
@@ -144,6 +148,7 @@ function pollSalesGroups(): void {
   };
   tick();
   lookupPollTimer = window.setInterval(tick, 2500);
+  onVisible(() => { if (lookupPollTimer != null) void tick(); });
 }
 
 function initSalesGroups(): void {
@@ -174,7 +179,7 @@ function initAddUser(): void {
     if (resp.ok) {
       window.location.reload();
     } else if (msg) {
-      msg.textContent = (await resp.json().catch(() => ({}))).error || "Failed to add user";
+      setMsg("addUserMsg", (await resp.json().catch(() => ({}))).error || "Failed to add user", true);
     }
   });
 }
@@ -182,7 +187,7 @@ function initAddUser(): void {
 // --- edit user modal --------------------------------------------------------
 let editingUserId = "";
 
-function openUserModal(tr: HTMLTableRowElement): void {
+function openUserModal(tr: HTMLTableRowElement, opener: HTMLElement): void {
   editingUserId = tr.dataset.userId || "";
   const title = $("editUserTitle");
   if (title) title.textContent = `Edit ${tr.dataset.email}`;
@@ -218,7 +223,8 @@ function openUserModal(tr: HTMLTableRowElement): void {
   });
 
   setMsg("euMsg", "");
-  show("editUserModal");
+  const modal = $("editUserModal");
+  if (modal) openDialog(modal, opener);
 }
 
 async function saveUser(): Promise<void> {
@@ -235,28 +241,38 @@ async function saveUser(): Promise<void> {
     sales_group: role === "salesman" ? salesGroup : "",
   });
   if (!resp.ok) {
-    setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed");
+    setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Save failed", true);
     return;
   }
-  if (role === "manager" || role === "salesman") {
-    const keys = new Set(Array.from(
-      document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
-    ).map((c) => c.value));
-    if (role === "salesman" && salesGroup) keys.add(salesmanKey(salesGroup));
-    const scopeResp = await api(
-      `${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys: [...keys] }
-    );
-    if (!scopeResp.ok) {
-      setMsg("euMsg", (await scopeResp.json().catch(() => ({}))).error || "Access save failed");
+  try {
+    if (role === "manager" || role === "salesman") {
+      const keys = new Set(Array.from(
+        document.querySelectorAll<HTMLInputElement>("#euSalesmen input:checked")
+      ).map((c) => c.value));
+      if (role === "salesman" && salesGroup) keys.add(salesmanKey(salesGroup));
+      const accessResp = await api(
+        `${usersUrl}/${editingUserId}/salesman-access`, "POST", { keys: [...keys] }
+      );
+      if (!accessResp.ok) {
+        setMsg("euMsg", (await accessResp.json().catch(() => ({}))).error
+          || "User saved, but salesman access could not be saved.", true);
+        return;
+      }
+    }
+
+    const reportPosts = Array.from(
+      document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
+    ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
+      { report_key: sel.getAttribute("data-report"), access: sel.value }));
+    const reportResponses = await Promise.all(reportPosts);
+    if (reportResponses.some((response) => !response.ok)) {
+      setMsg("euMsg", "User saved, but report access could not be saved.", true);
       return;
     }
+  } catch {
+    setMsg("euMsg", "User saved, but access changes could not be saved.", true);
+    return;
   }
-
-  const reportPosts = Array.from(
-    document.querySelectorAll<HTMLSelectElement>("#euReports .report-access-select")
-  ).map((sel) => api(`${usersUrl}/${editingUserId}/report-access`, "POST",
-    { report_key: sel.getAttribute("data-report"), access: sel.value }));
-  await Promise.all(reportPosts);
   window.location.reload();
 }
 
@@ -265,30 +281,26 @@ async function deleteUser(): Promise<void> {
   if (!window.confirm("Delete this user and all their saved data? To block sign-in without wiping data, Disable them instead.")) return;
   const resp = await api(`${usersUrl}/${editingUserId}`, "DELETE");
   if (resp.ok) window.location.reload();
-  else setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Delete failed");
+  else setMsg("euMsg", (await resp.json().catch(() => ({}))).error || "Delete failed", true);
 }
 
 // --- helpers ----------------------------------------------------------------
-function show(id: string): void {
+function setMsg(id: string, text: string, isError = false): void {
   const el = $(id);
-  if (el) el.style.display = "flex";
-}
-function hide(id: string): void {
-  const el = $(id);
-  if (el) el.style.display = "none";
-}
-function setMsg(id: string, text: string): void {
-  const el = $(id);
-  if (el) el.textContent = text;
+  if (!el) return;
+  el.textContent = text;
+  el.setAttribute("aria-live", isError ? "assertive" : "polite");
+  el.setAttribute("role", isError ? "alert" : "status");
 }
 
 function initEvents(): void {
   document.addEventListener("click", (e) => {
     const t = e.target as HTMLElement;
     if (t.closest(".btn-edit-user")) {
-      openUserModal(t.closest("tr") as HTMLTableRowElement);
+      openUserModal(t.closest("tr") as HTMLTableRowElement, t.closest<HTMLElement>(".btn-edit-user")!);
     } else if (t.closest("[data-close-user]") || t.id === "editUserModal") {
-      hide("editUserModal");
+      const modal = $("editUserModal");
+      if (modal) closeDialog(modal);
     }
   });
   $("euSave")?.addEventListener("click", saveUser);

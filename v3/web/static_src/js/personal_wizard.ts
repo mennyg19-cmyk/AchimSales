@@ -41,6 +41,8 @@ function msg(text: string, isError: boolean): void {
   el.textContent = text;
   el.hidden = !text;
   el.className = "ms-msg" + (isError ? " ms-msg-error" : "");
+  el.setAttribute("aria-live", isError ? "assertive" : "polite");
+  el.setAttribute("role", isError ? "alert" : "status");
 }
 
 function selectedView(): { view: ViewRow; owner: ViewGroup } | null {
@@ -164,7 +166,7 @@ function fillViewSelect(group: ViewGroup | undefined, selectedId: string): void 
   });
 }
 
-function renderViews(groups: ViewGroup[], selectedId: string): void {
+function renderViews(groups: ViewGroup[], selectedId: string, loadFailed = false): void {
   const ownerSel = document.getElementById("psOwnerSelect") as HTMLSelectElement | null;
   const empty = document.getElementById("psViewEmpty");
   if (!ownerSel) return;
@@ -175,7 +177,7 @@ function renderViews(groups: ViewGroup[], selectedId: string): void {
   }
   const flat = ownerGroups.flatMap((g) => g.views);
   if (!flat.length && !lockedView) {
-    if (empty) empty.hidden = false;
+    if (empty) empty.hidden = loadFailed;
     fillViewSelect(undefined, "");
     return;
   }
@@ -205,16 +207,36 @@ function onOwnerChange(): void {
   updateFilenamePreview();
 }
 
+function failViewsLoad(selectedId: string, text: string): void {
+  viewCache = [];
+  renderViews([], selectedId, true);
+  msg(text, true);
+}
+
 async function loadViews(selectedId: string): Promise<void> {
   const url = wiz()?.getAttribute("data-views-url") || "";
-  if (!url) return;
+  if (!url) {
+    failViewsLoad(selectedId, "Could not load saved views.");
+    return;
+  }
   try {
     const res = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
-    const data = await res.json().catch(() => ({}));
-    viewCache = (data.groups || []) as ViewGroup[];
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      failViewsLoad(selectedId, (data as { error?: string }).error || "Could not load saved views. Try again.");
+      return;
+    }
+    const data = await res.json();
+    if (!Array.isArray((data as { groups?: unknown }).groups)) {
+      failViewsLoad(selectedId, "Could not load saved views. Try again.");
+      return;
+    }
+    viewCache = data.groups as ViewGroup[];
   } catch {
-    viewCache = [];
+    failViewsLoad(selectedId, "Could not load saved views. Check your connection and try again.");
+    return;
   }
+  msg("", false);
   renderViews(viewCache, selectedId);
 }
 
@@ -334,7 +356,7 @@ function openWizard(): void {
   const root = wiz();
   if (!root) return;
   root.hidden = false;
-  root.scrollIntoView({ behavior: "smooth", block: "start" });
+  root.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
 function closeWizard(): void {

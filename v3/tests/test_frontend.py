@@ -1,5 +1,6 @@
 """Front-end shell: live-faithful tokens, base.html structure, bundled assets."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,93 @@ def test_tokens_match_live_primary_blue():
     tokens = (_SRC / "css" / "tokens.css").read_text(encoding="utf-8")
     assert "--primary: #2563eb" in tokens   # live-blue, NOT the green test app
     assert "--bottom-nav-height: 84px" in tokens
+
+
+def _contrast_ratio(foreground: str, background: str) -> float:
+    def luminance(color: str) -> float:
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [
+            channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+_THEME_CONTRAST_PAIRS = (
+    ("light", "#1e293b", "#f8fafc", 4.5), ("light", "#1e293b", "#ffffff", 4.5),
+    ("light", "#64748b", "#f8fafc", 4.5), ("light", "#64748b", "#ffffff", 4.5),
+    ("light", "#2563eb", "#eff6ff", 4.5), ("light", "#ffffff", "#2563eb", 4.5),
+    # .btn-primary:hover
+    ("light", "#ffffff", "#1d4ed8", 4.5),
+    ("light", "#15803d", "#f0fdf4", 4.5), ("light", "#b91c1c", "#fef2f2", 4.5),
+    ("light", "#ffffff", "#b91c1c", 4.5),
+    ("dark", "#e2e8f0", "#0f172a", 4.5), ("dark", "#e2e8f0", "#1e293b", 4.5),
+    ("dark", "#94a3b8", "#0f172a", 4.5), ("dark", "#94a3b8", "#1e293b", 4.5),
+    ("dark", "#60a5fa", "#1e3a5f", 4.5), ("dark", "#0f172a", "#60a5fa", 4.5),
+    ("dark", "#0f172a", "#93c5fd", 4.5),
+    ("dark", "#4ade80", "#14532d", 4.5), ("dark", "#f87171", "#450a0a", 4.5),
+    ("dark", "#0f172a", "#ef4444", 4.5),
+    ("monochrome", "#18181b", "#fafafa", 4.5), ("monochrome", "#18181b", "#ffffff", 4.5),
+    ("monochrome", "#52525b", "#fafafa", 4.5), ("monochrome", "#52525b", "#ffffff", 4.5),
+    ("monochrome", "#3f3f46", "#e4e4e7", 4.5), ("monochrome", "#ffffff", "#3f3f46", 4.5),
+    ("monochrome", "#ffffff", "#27272a", 4.5),
+    ("monochrome", "#52525b", "#f4f4f5", 4.5), ("monochrome", "#b91c1c", "#fef2f2", 4.5),
+    ("monochrome", "#ffffff", "#b91c1c", 4.5),
+    ("monochrome-dark", "#f4f4f5", "#18181b", 4.5), ("monochrome-dark", "#f4f4f5", "#27272a", 4.5),
+    ("monochrome-dark", "#d4d4d8", "#18181b", 4.5), ("monochrome-dark", "#d4d4d8", "#27272a", 4.5),
+    ("monochrome-dark", "#a1a1aa", "#18181b", 4.5), ("monochrome-dark", "#a1a1aa", "#27272a", 4.5),
+    ("monochrome-dark", "#18181b", "#a1a1aa", 4.5), ("monochrome-dark", "#18181b", "#d4d4d8", 4.5),
+    ("monochrome-dark", "#f87171", "#450a0a", 4.5), ("monochrome-dark", "#18181b", "#ef4444", 4.5),
+    ("all", "#ffffff", "#3572a5", 4.5), ("dark", "#ffffff", "#b45309", 4.5),
+)
+
+
+def test_theme_text_button_and_alert_contrast():
+    tokens = (_SRC / "css" / "tokens.css").read_text(encoding="utf-8")
+    shell = (_SRC / "css" / "shell.css").read_text(encoding="utf-8")
+    pages = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert len(_THEME_CONTRAST_PAIRS) == len(set(_THEME_CONTRAST_PAIRS))
+    for declaration in (
+        "--primary-light: #eff6ff;", "--success: #15803d;", "--error: #b91c1c;",
+        "--text-light: #64748b;", "--primary: #60a5fa;", "--primary-foreground: #0f172a;",
+        "--primary-hover: #1d4ed8;", "--success: #4ade80;", "--text-light: #94a3b8;",
+        "--primary-hover: #93c5fd;", "--primary-hover: #27272a;", "--text-light: #52525b;",
+        "--primary: #a1a1aa;", "--text-muted: #d4d4d8;", "--text-light: #a1a1aa;",
+        "--primary-hover: #d4d4d8;", "--error-foreground: #ffffff;",
+        "--error-foreground: #0f172a;", "--error-foreground: #18181b;",
+    ):
+        assert declaration in tokens
+    assert "color: var(--primary-foreground)" in shell
+    assert "color: var(--success-foreground)" in shell
+    assert ".report-jobs-failed .report-jobs-fab { background: var(--error, #dc2626); color: var(--error-foreground); }" in shell
+    assert "color: var(--error-foreground); font-size: 10px" in shell
+    assert "background: #3572a5" in pages
+    for theme, foreground, background, threshold in _THEME_CONTRAST_PAIRS:
+        assert _contrast_ratio(foreground, background) >= threshold, (
+            f"{theme}: {foreground} on {background} must meet {threshold}:1"
+        )
+
+
+def test_theme_badge_and_status_contrast():
+    pairs = (
+        ("light", "#92400e", "#fef3c7"), ("light", "#3730a3", "#e0e7ff"),
+        ("light", "#2563eb", "#eff6ff"), ("light", "#15803d", "#dcfce7"),
+        ("light", "#b91c1c", "#fef2f2"), ("light", "#64748b", "#f8fafc"),
+        ("dark", "#fbbf24", "#422006"), ("dark", "#a5b4fc", "#312e81"),
+        ("dark", "#60a5fa", "#1e3a5f"), ("dark", "#4ade80", "#14532d"),
+        ("dark", "#ef4444", "#450a0a"), ("dark", "#94a3b8", "#0f172a"),
+        ("monochrome", "#fafafa", "#27272a"), ("monochrome", "#27272a", "#e4e4e7"),
+        ("monochrome", "#52525b", "#f4f4f5"), ("monochrome", "#b91c1c", "#fef2f2"),
+        ("monochrome-dark", "#18181b", "#fafafa"), ("monochrome-dark", "#e4e4e7", "#3f3f46"),
+        ("monochrome-dark", "#d4d4d8", "#27272a"), ("monochrome-dark", "#ef4444", "#450a0a"),
+    )
+    for theme, foreground, background in pairs:
+        assert _contrast_ratio(foreground, background) >= 3, (
+            f"{theme}: {foreground} on {background} must meet 3:1"
+        )
 
 
 def test_shell_css_has_core_components():
@@ -344,6 +432,138 @@ def test_settings_exclusions_use_customer_picker():
     assert "data-customers-url" in src
 
 
+def test_phase_8_6_live_status_announcements():
+    admin_html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
+    admin = (_SRC / "js" / "admin.ts").read_text(encoding="utf-8")
+    for message_id in ("addUserMsg", "euMsg"):
+        assert f'id="{message_id}" role="status" aria-live="polite"' in admin_html
+    assert 'setAttribute("aria-live", isError ? "assertive" : "polite")' in admin
+    assert 'setAttribute("role", isError ? "alert" : "status")' in admin
+    assert "User saved, but salesman access could not be saved." in admin
+    assert "User saved, but report access could not be saved." in admin
+
+    dashboard_html = (_V3 / "web" / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    dashboard = (_SRC / "js" / "dashboard.ts").read_text(encoding="utf-8")
+    assert 'id="dashRefreshStatus" role="status" aria-live="polite"' in dashboard_html
+    assert "announceRefresh" in dashboard
+    assert "Could not start the dashboard refresh." in dashboard
+
+    settings_html = (_V3 / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
+    settings = (_SRC / "js" / "settings.ts").read_text(encoding="utf-8")
+    assert 'id="exclHint" role="status" aria-live="polite"' in settings_html
+    assert 'id="testModeMsg" role="status" aria-live="polite"' in settings_html
+    assert 'setExclHint("Could not load customers.", true)' in settings
+    assert 'setExclHint("Could not save customer exclusions.", true)' in settings
+
+    schedules = (_SRC / "js" / "schedules.ts").read_text(encoding="utf-8")
+    for rel in ("templates/schedules.html", "templates/company_schedules.html"):
+        html = (_V3 / "web" / rel).read_text(encoding="utf-8")
+        assert 'id="runStatus" role="status" aria-live="polite"' in html
+    assert 'announceRun("Schedule run queued.")' in schedules
+    assert 'announceRun("Could not start the schedule run.", true)' in schedules
+    assert "announceRun(step)" in schedules
+    job_log = (_SRC / "js" / "job_log.ts").read_text(encoding="utf-8")
+    assert 'job.status === "cancelled"' in job_log
+
+
+def test_report_status_is_a_live_region():
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert 'id="reportStatus" class="report-status" role="status" aria-live="polite" hidden' in html
+    assert 'const txt = $("reportStatusText");' in report
+    assert 'if (txt) txt.textContent = msg; else el.textContent = msg;' in report
+    assert 'setAttribute("aria-live", kind === "error" ? "assertive" : "polite")' in report
+    assert 'setAttribute("role", kind === "error" ? "alert" : "status")' in report
+
+
+def test_phase_8_7_named_controls_have_44px_targets():
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    for selector in (".help-btn", ".modal-close", ".sp-picker-close", ".customer-chip", ".sched-day-chip"):
+        rules = css.split(selector, 1)[1].split("}", 1)[0]
+        assert "min-width: 44px" in rules
+        assert "min-height: 44px" in rules
+
+
+def test_phone_layout_css_contracts():
+    shell = (_SRC / "css" / "shell.css").read_text(encoding="utf-8")
+    pages = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    base_html = (_V3 / "web" / "templates" / "base.html").read_text(encoding="utf-8")
+
+    phone_header = shell.split("@media (max-width: 479px) {", 1)[1].split("\n}\n", 1)[0]
+    assert ".header-right { flex: 1 1 100%; flex-wrap: nowrap; }" in phone_header
+    assert ".user-role { display: none; }" in phone_header
+    assert ".header-left { flex: 1 1 100%; }" in phone_header
+
+    phone_layout = pages.rsplit("@media (max-width: 600px)", 1)[1]
+    assert "flex: 1 1 100%; min-width: 0; max-width: 100%;" in phone_layout
+    assert ".report-meta { white-space: normal; }" in phone_layout
+    assert ".report-tabbar { flex-direction: column; align-items: stretch; }" in phone_layout
+    assert ".ms-field-row .ms-field-block { min-width: 0; flex: 1 1 100%; }" in phone_layout
+    assert "grid-template-columns: 1fr 1fr" in phone_layout
+    after_meta = pages.split(".report-meta {", 1)[1]
+    assert after_meta.rfind("white-space: nowrap") < after_meta.rfind("white-space: normal")
+
+    help_button = pages.split(".help-btn", 1)[1].split("}", 1)[0]
+    assert "min-width: 44px" in help_button
+    assert "min-height: 44px" in help_button
+    assert "user-scalable=no" not in base_html
+
+
+def test_searchable_picker_has_keyboard_and_combobox_semantics():
+    picker = (_SRC / "js" / "searchable_picker.ts").read_text(encoding="utf-8")
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    assert 'search.setAttribute("aria-expanded", "false")' in picker
+    assert 'this.search.setAttribute("aria-controls", list.id)' in picker
+    assert 'list.setAttribute("role", "listbox")' in picker
+    assert 'row.setAttribute("role", "option")' in picker
+    assert 'row.setAttribute("aria-selected", String(this.selected.has(item.key)))' in picker
+    assert 'checkbox.setAttribute("aria-hidden", "true")' in picker
+    assert 'row.addEventListener("click", () => {' in picker
+    assert 'cb.type = "checkbox"' not in picker
+    assert 'event.key === "ArrowDown" || event.key === "ArrowUp"' in picker
+    assert 'event.key === "Home" || event.key === "End"' in picker
+    assert 'event.key === "Enter" || event.key === " "' in picker
+    assert 'this.search.setAttribute("aria-activedescendant"' in picker
+    assert 'import { SearchablePicker } from "./searchable_picker"' in report
+
+
+def test_report_menus_have_keyboard_semantics():
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert "function bindMenuKeyboard" in report
+    assert 'event.key === "ArrowDown"' in report
+    assert 'event.key === "Home"' in report
+    assert 'event.key === "Escape"' in report
+    assert 'close(true)' in report
+    assert 'caret.setAttribute("aria-haspopup", "menu")' in report
+    assert 'menu.setAttribute("role", "menu")' in report
+    assert 'b.setAttribute("role", "menuitem")' in report
+    assert 'document.addEventListener("click", closeTabMenu, { once: true })' not in report
+    assert 'document.addEventListener("click", () => closeTabMenu(), { once: true })' in report
+    assert 'aria-haspopup="menu"' in html
+
+
+def test_report_tabs_have_tablist_semantics():
+    report = (_SRC / "js" / "report.ts").read_text(encoding="utf-8")
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    tabs = report.split("function renderTabs()", 1)[1].split("function activateTab", 1)[0]
+    activate = report.split("function activateTab", 1)[1].split("let tabMenuEl", 1)[0]
+    assert 'id="reportTabPanel" role="tabpanel"' in html
+    assert 'tabsEl.setAttribute("role", "tablist")' in tabs
+    assert 'tabsEl.setAttribute("aria-label", "Report sheets")' in tabs
+    assert 'btn.setAttribute("role", "tab")' in tabs
+    assert 'btn.setAttribute("aria-controls", "reportTabPanel")' in tabs
+    assert 'caret.setAttribute("aria-haspopup", "menu")' in tabs
+    for key in ("ArrowLeft", "ArrowRight", "Home", "End"):
+        assert f'"{key}"' in tabs
+    assert '"aria-labelledby"' in tabs
+    assert 'function reportTabId' in report
+    body = report.split("function reportTabId", 1)[1].split("function renderTabs", 1)[0]
+    assert "encodeURIComponent(key)" in body
+    assert 'replace(/[^A-Za-z0-9_-]/g, "_")' not in body
+    assert 'querySelector<HTMLButtonElement>(\'#reportTabs [role="tab"][aria-selected="true"]\')?.focus()' in activate
+
+
 def test_admin_users_has_company_views_flag():
     html = (_V3 / "web" / "templates" / "admin_users.html").read_text(encoding="utf-8")
     assert 'id="euCompanyViews"' in html
@@ -380,6 +600,190 @@ def test_admin_users_has_sales_group_dropdown():
     assert "data-sales-groups-url" in src
 
 
+def test_hidden_tab_pollers_use_shared_visibility_helpers():
+    visibility = (_SRC / "js" / "visibility.ts").read_text(encoding="utf-8")
+    for name in ("isHidden", "onVisible", "sleepUntilVisible"):
+        assert f"export function {name}" in visibility
+    for filename in ("main.ts", "report.ts", "master_wizard.ts", "settings.ts", "admin.ts", "dashboard.ts", "job_log.ts"):
+        source = (_SRC / "js" / filename).read_text(encoding="utf-8")
+        assert '"./visibility"' in source
+
+
+def test_user_facing_copy_never_mentions_the_outbox():
+    # The outbox is a developer-only .eml artifact; users cannot "check" it.
+    sources = sorted((_SRC / "js").glob("*.ts"))
+    assert sources
+    for path in sources:
+        assert "outbox" not in path.read_text(encoding="utf-8").lower(), path.name
+
+
+def test_schedule_wizard_errors_when_saved_views_fail_to_load():
+    personal = (_SRC / "js" / "personal_wizard.ts").read_text(encoding="utf-8")
+    assert "Could not load saved views. Try again." in personal
+    assert "Could not load saved views. Check your connection and try again." in personal
+    assert "empty.hidden = loadFailed" in personal
+    assert "Array.isArray" in personal
+    master = (_SRC / "js" / "master_wizard.ts").read_text(encoding="utf-8")
+    assert "Could not load saved views for this report. Try again." in master
+    assert "Could not load saved views for this report. Check your connection and try again." in master
+    assert "if (!res.ok)" in master
+    assert "Array.isArray(data)" in master
+    assert "presets?: unknown" in master
+
+
+_FROM_IMPORT = re.compile(r"""from\s+["'](\.[^"']+)["']""")
+_BARE_IMPORT = re.compile(r"""(?:^|\n)import\s+["'](\.[^"']+)["']""")
+
+
+def _relative_ts_imports(path: Path) -> list[Path]:
+    text = path.read_text(encoding="utf-8")
+    rels = _FROM_IMPORT.findall(text) + _BARE_IMPORT.findall(text)
+    resolved: list[Path] = []
+    for rel in rels:
+        target = (path.parent / rel).resolve()
+        if target.suffix == "":
+            target = target.with_suffix(".ts")
+        resolved.append(target)
+    return resolved
+
+
+def _assert_ts_import_graph_acyclic(start: Path) -> None:
+    visiting: set[Path] = set()
+    seen: set[Path] = set()
+    stack: list[Path] = []
+
+    def visit(node: Path) -> None:
+        if node in visiting:
+            cycle = " -> ".join(part.name for part in stack) + f" -> {node.name}"
+            pytest.fail(f"import cycle: {cycle}")
+        if node in seen:
+            return
+        if not node.exists():
+            pytest.fail(f"import target missing: {node}")
+        visiting.add(node)
+        stack.append(node)
+        for dep in _relative_ts_imports(node):
+            visit(dep)
+        stack.pop()
+        visiting.remove(node)
+        seen.add(node)
+
+    visit(start.resolve())
+
+
+def _first(haystack: str, needle: str) -> int:
+    index = haystack.find(needle)
+    assert index >= 0, needle
+    return index
+
+
+def _brace_body(source: str, header: str) -> str:
+    start = source.index(header)
+    open_at = start + len(header)
+    while open_at < len(source) and source[open_at] in " \t\n":
+        open_at += 1
+    if open_at >= len(source) or source[open_at] != "{":
+        pytest.fail(f"expected '{{' after {header!r}")
+    depth = 0
+    for index in range(open_at, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[open_at + 1 : index]
+    pytest.fail(f"unclosed block after {header!r}")
+
+
+def test_report_module_has_no_import_cycles_and_boots_in_order():
+    report = _SRC / "js" / "report.ts"
+    src = report.read_text(encoding="utf-8")
+    _assert_ts_import_graph_acyclic(report)
+    for dep in _relative_ts_imports(report):
+        assert dep.name != "report.ts"
+        assert report.resolve() not in {p.resolve() for p in _relative_ts_imports(dep)}
+
+    deep = src.split("function applyDeepLink()", 1)[1].split("// --- live API preview", 1)[0]
+    assert "salesmanSelect" not in deep
+    assert 'if (q.has("salesman")) pendingSalesman = q.get("salesman") || "";' in deep
+
+    lookups = src.split("async function initLookups()", 1)[1].split("// --- inbound deep-links", 1)[0]
+    assert _first(lookups, "await loadSalesmen();") < _first(
+        lookups, "if (pendingSalesman != null) applySalesman(pendingSalesman);"
+    )
+
+    boot = src.split('document.addEventListener("DOMContentLoaded"', 1)[1]
+    assert _first(boot, "applyDeepLink();") < _first(boot, "initCustomRangeToggle();")
+    assert _first(boot, "initCustomRangeToggle();") < _first(
+        boot, "await Promise.all([initLookups(), loadCompanyDefault()]);"
+    )
+    assert _first(boot, "await Promise.all([initLookups(), loadCompanyDefault()]);") < _first(
+        boot, "const resumed = await resumeInFlight();"
+    )
+    assert _first(boot, "const resumed = await resumeInFlight();") < _first(
+        boot, "await autoOpenPresetIfRequested();"
+    )
+    assert "if (!resumed)" in boot
+    assert _first(boot, "if (!resumed)") < _first(boot, "await autoOpenPresetIfRequested();")
+    assert _first(boot, "await autoOpenPresetIfRequested();") < _first(
+        boot, "if (autoRunRequested) { autoRunRequested = false; run(); }"
+    )
+    not_resumed = _brace_body(boot, "if (!resumed)")
+    open_preset = "await autoOpenPresetIfRequested();"
+    auto_run = "if (autoRunRequested) { autoRunRequested = false; run(); }"
+    assert not_resumed.count(open_preset) == 1
+    assert boot.count(open_preset) == 1
+    assert not_resumed.count(auto_run) == 1
+    assert boot.count(auto_run) == 1
+
+
+def test_boot_order_helper_rejects_denested_preset_open():
+    nested = (
+        "if (!resumed) {\n"
+        "    await autoOpenPresetIfRequested();\n"
+        "    if (autoRunRequested) { autoRunRequested = false; run(); }\n"
+        "  }\n"
+    )
+    denested = (
+        "if (!resumed) {\n"
+        "  }\n"
+        "    await autoOpenPresetIfRequested();\n"
+        "    if (autoRunRequested) { autoRunRequested = false; run(); }\n"
+    )
+    open_preset = "await autoOpenPresetIfRequested();"
+    auto_run = "if (autoRunRequested) { autoRunRequested = false; run(); }"
+    body = _brace_body(nested, "if (!resumed)")
+    assert body.count(open_preset) == 1
+    assert body.count(auto_run) == 1
+    broken = _brace_body(denested, "if (!resumed)")
+    assert broken.count(open_preset) == 0
+    assert broken.count(auto_run) == 0
+    assert denested.count(open_preset) == 1
+    assert denested.count(auto_run) == 1
+    with pytest.raises(pytest.fail.Exception, match="expected '\\{' after"):
+        _brace_body(
+            "if (!resumed) await autoOpenPresetIfRequested();\nfunction unrelated() { doSomethingElse(); }\n",
+            "if (!resumed)",
+        )
+
+
+def test_tabulator_mit_license_is_attributed(tmp_path):
+    src = (_SRC / "public" / "licenses" / "tabulator-MIT.txt").read_text(encoding="utf-8")
+    dist = (_V3 / "web" / "static_dist" / "licenses" / "tabulator-MIT.txt").read_text(encoding="utf-8")
+    assert src == dist
+    assert "The MIT License (MIT)" in src
+    assert "Copyright (c) 2015-2025 Oli Folkerd" in src
+    assert "tabulator-tables@6.3.1" in src
+    html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    assert html.count("https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css") == 1
+    assert html.count("https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js") == 1
+    assert html.count("tabulator-tables@") == 2
+    assert "Report tables use Tabulator 6.3.1." in html
+    assert "filename='licenses/tabulator-MIT.txt'" in html
+    app = create_app(_cfg(tmp_path))
+    response = app.test_client().get("/static/licenses/tabulator-MIT.txt")
+    assert response.status_code == 200
+    assert response.data.decode("utf-8") == src
 def test_live_job_log_shows_every_entry():
     report_html = (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
     assert 'id="jobLiveLog"' in report_html
