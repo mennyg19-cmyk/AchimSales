@@ -21,8 +21,8 @@ Q8/Q9 as before. Home (`BETA_*`) is the live data. `/test` stays. Azure Automati
 - `SITE_*` / `/test` DB compare and unmount: skipped for now.
 - Cookie rotation: owner-confirmed 31 Aug 2026 (after 12 Aug leak). Do not rotate again.
 - Access-log review: skipped (no logs).
-- Live Litestream empty-disk drill: still owner, not on live B1 without a slot.
-- Phase 10: whole-branch review, then owner says merge to `main`.
+- Live Litestream empty-disk drill: skipped (no slot; do not wipe Production).
+- Presentation vs leftover: see `REPORT-TAB-HANDOFF.md`. Phase 10 merge is paused.
 
 ## Next action
 
