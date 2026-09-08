@@ -1,5 +1,18 @@
 # Testing Strategy
 
+## Group then sort keeps the groups
+
+**What to test:**
+- Source has `withinGroupSorter` / `groupPrefixRanks`: a header click while grouped compares group prefixes first (original row order) and only then the clicked column.
+- Sorting the group column itself still reorders that level; outer groups stay put.
+- Ungrouped tables still use Tabulator’s built-in `sorter: "number"` / `"string"`.
+- Excel already keeps group fields primary (`test_export_customer_sort_does_not_split_salesman_groups`).
+
+**Expected behavior:**
+- Group by Salesman, then sort Amount: salesman blocks stay in the same order; amounts reorder inside each salesman.
+
+**Test file:** `v3/tests/test_frontend.py`, `v3/tests/test_reporting.py`
+
 ## Commissions tab uses live blue / grey / yellow blocks
 
 **What to test:**

@@ -162,6 +162,9 @@ def test_report_viewer_meeting_ux():
     assert 'textContent = "Delete"' in src
     assert "Add subgroup" in src
     assert "groupPills" in src
+    assert "function withinGroupSorter" in src
+    assert "function groupPrefixRanks" in src
+    assert "dir === \"desc\" ? -cmp : cmp" in src
     assert "function openSaveViewModal" in src
     assert "function confirmSaveView" in src
     assert 'id="saveViewModal"' in (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
@@ -435,3 +438,22 @@ def test_live_job_log_shows_every_entry():
     assert "data-cancel-url" in (_V3 / "web" / "templates" / "schedules.html").read_text(encoding="utf-8")
     assert "function cancelJob" in sched_js
     assert "js-cancel-job" in sched_js
+
+
+def test_group_then_sort_keeps_first_seen_blocks():
+    """Group by Salesman then sort Amt desc: Zed stays above Ann; amounts reorder inside."""
+    rows = [
+        {"Salesman": "Zed", "Amt": 1},
+        {"Salesman": "Ann", "Amt": 9},
+        {"Salesman": "Zed", "Amt": 5},
+        {"Salesman": "Ann", "Amt": 2},
+    ]
+    ranks, n = {}, 0
+    for row in rows:
+        key = str(row["Salesman"])
+        if key not in ranks:
+            ranks[key] = n
+            n += 1
+    ordered = sorted(rows, key=lambda r: (ranks[r["Salesman"]], -r["Amt"]))
+    assert [r["Salesman"] for r in ordered] == ["Zed", "Zed", "Ann", "Ann"]
+    assert [r["Amt"] for r in ordered] == [5, 1, 9, 2]

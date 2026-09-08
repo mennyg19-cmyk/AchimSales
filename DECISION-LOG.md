@@ -1,3 +1,10 @@
+## 2026-09-08 Sort stays inside the groups you made
+**What you asked for:** Group by a column, then sort, and the groups should not shuffle. Sort only inside each group.
+**What I had to decide:** Re-sort groups A–Z by the group field vs freeze the order they had when you grouped.
+**What I chose:** Freeze first-seen order from the payload. The clicked column sorts rows inside each group. Clicking the group column itself still reorders that level.
+**Why:** Tabulator’s header sort is table-wide, so the group with the biggest amount jumped to the top. Excel export already kept group fields primary.
+**Status:** DECIDED
+
 ## 2026-09-08 Commissions tab uses live blue / grey / yellow
 **What you asked for:** Format the Commissions tab like the Excel screenshot (blue header, grey net, yellow commission and payable).
 **What I had to decide:** Restyle only the Excel export vs also the on-screen `$` spacer. The on-screen table already had the colors.

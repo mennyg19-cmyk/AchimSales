@@ -457,6 +457,55 @@ function monthSortKey(field: string): [number, number, number] {
   return [9999, 99, 9];
 }
 
+/** First-seen rank of each group prefix in the payload, so a column sort
+ *  cannot reorder the groups the user made. */
+function groupPrefixRanks(tab: Tab, groups: string[]): Record<string, number> {
+  const ranks: Record<string, number> = {};
+  let n = 0;
+  for (const row of tab.rows) {
+    for (let depth = 1; depth <= groups.length; depth++) {
+      const key = groups.slice(0, depth).map((g) => String(row[g] ?? "")).join("\0");
+      if (!(key in ranks)) ranks[key] = n++;
+    }
+  }
+  return ranks;
+}
+
+function prefixKey(row: Record<string, unknown>, groups: string[], depth: number): string {
+  return groups.slice(0, depth).map((g) => String(row[g] ?? "")).join("\0");
+}
+
+function withinGroupSorter(
+  tab: Tab, field: string, inner: unknown, ranks: Record<string, number>,
+) {
+  return (a: unknown, b: unknown, aRow: any, bRow: any, column: any, dir: string, params: any) => {
+    const groups = view(tab.key).group;
+    if (groups.length) {
+      const aData = aRow.getData() as Record<string, unknown>;
+      const bData = bRow.getData() as Record<string, unknown>;
+      for (let i = 0; i < groups.length; i++) {
+        if (groups[i] === field) continue;
+        const cmp = (ranks[prefixKey(aData, groups, i + 1)] ?? 0)
+          - (ranks[prefixKey(bData, groups, i + 1)] ?? 0);
+        if (cmp !== 0) return dir === "desc" ? -cmp : cmp;
+      }
+    }
+    if (typeof inner === "function") return inner(a, b, aRow, bRow, column, dir, params);
+    if (inner === "number") {
+      const na = Number(a), nb = Number(b);
+      const aOk = a !== "" && a != null && isFinite(na);
+      const bOk = b !== "" && b != null && isFinite(nb);
+      if (aOk && bOk) return na - nb;
+      if (aOk) return -1;
+      if (bOk) return 1;
+      return 0;
+    }
+    return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
+      numeric: true, sensitivity: "base",
+    });
+  };
+}
+
 function looksLikeNumber4(cols: Column[]): boolean {
   return cols.some((c) => c.field === "Avg Price" || c.field === "Book Price" || isMonthField(c.field));
 }
@@ -483,6 +532,7 @@ function orderNumber4Columns(cols: Column[]): Column[] {
 
 function buildColumns(tab: Tab): any[] {
   const v = view(tab.key);
+  const ranks = groupPrefixRanks(tab, v.group);
   let ordered = tab.columns;
   if (v.order) {
     // Saved order first (only fields that still exist), then any columns the
@@ -496,19 +546,25 @@ function buildColumns(tab: Tab): any[] {
     ];
   }
   ordered = orderNumber4Columns(ordered);
-  return ordered.map((c, i) => ({
-    title: c.header,
-    field: c.field,
-    visible: !v.hidden.has(c.field),
-    frozen: v.frozen.has(c.field),
-    width: v.widths[c.field],
-    titleFormatter: () => columnHeaderEl(tab, c),
-    headerMenu: headerMenu(tab),
-    bottomCalc: canSumColumn(c) ? "sum" : undefined,
-    bottomCalcFormatter: c.type === "money" ? "money" : undefined,
-    bottomCalcFormatterParams: c.type === "money" ? { symbol: "$", precision: 2, thousand: "," } : undefined,
-    ...formatterFor(c, i),
-  }));
+  return ordered.map((c, i) => {
+    const fmt = formatterFor(c, i);
+    return {
+      title: c.header,
+      field: c.field,
+      visible: !v.hidden.has(c.field),
+      frozen: v.frozen.has(c.field),
+      width: v.widths[c.field],
+      titleFormatter: () => columnHeaderEl(tab, c),
+      headerMenu: headerMenu(tab),
+      bottomCalc: canSumColumn(c) ? "sum" : undefined,
+      bottomCalcFormatter: c.type === "money" ? "money" : undefined,
+      bottomCalcFormatterParams: c.type === "money" ? { symbol: "$", precision: 2, thousand: "," } : undefined,
+      ...fmt,
+      sorter: v.group.length
+        ? withinGroupSorter(tab, c.field, fmt.sorter, ranks)
+        : fmt.sorter,
+    };
+  });
 }
 
 /** A header cell: the column label plus an Excel-style filter funnel button. */
@@ -888,6 +944,10 @@ function buildTable(tab: Tab): void {
     if (field) view(tab.key).widths[field] = column.getWidth();
   });
   table.on("renderComplete", () => {
+    if (state.table !== table) return;
+    paintNestedGroups(table);
+  });
+  table.on("dataSorted", () => {
     if (state.table !== table) return;
     paintNestedGroups(table);
   });
