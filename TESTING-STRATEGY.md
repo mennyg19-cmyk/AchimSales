@@ -1,5 +1,19 @@
 # Testing Strategy
 
+## Test-mode SharePoint keeps the live folder tree
+
+**What to test:**
+- `test_sharepoint_path` turns `Direct Reports/Invoiced Report/Daily` into `Test/Invoiced Report/Daily`. Bare `Direct Reports` or empty stays empty (email-only).
+- A path already under `Test/` is not wrapped again (`Test/Test/...`).
+- Company test-mode Run now passes that nested path into delivery, never the live Daily/YTD folder. Split legs stay `sharepoint_path=""`.
+- Personal test-mode OneDrive redirect still dumps to SharePoint, under `Test/` plus the stored relative path (e.g. `Test/Personal/Reports`).
+
+**Expected behavior:**
+- Files land in `Direct Reports/Test/<same tree as live>`, not all dumped into `Direct Reports/Test/`.
+- Oversized Graph mail with no folder still uploads to bare `Test/` (email-now fallback, not a scheduled folder).
+
+**Test files:** `v3/tests/test_delivery.py`, `v3/tests/test_scheduling.py`
+
 ## Schedule UI: hide company setup, wizard dropdowns, dev history
 
 **What to test:**
@@ -619,11 +633,11 @@ A cheaper model can use this file as a guide to run the full test suite without 
 - Workbooks at/over `MAX_GRAPH_ATTACH_BYTES` are not attached; Graph `xlsx_bytes` is None.
 - With a live SharePoint path (test mode off), the file URL is in the plain-text body and in HTML (`Download workbook` button, brand `#2563eb`).
 - With no path, the file uploads to `Test` under Direct Reports and the button/link use that URL.
-- Company test mode with a live folder (e.g. Invoiced Report/Daily) passes `sharepoint_path=Test`, never the live path. Split legs stay `sharepoint_path=""`.
+- Company test mode with a live folder (e.g. Invoiced Report/Daily) passes `sharepoint_path=Test/Invoiced Report/Daily`, never the live path. Split legs stay `sharepoint_path=""`.
 - If the Test-folder upload fails, the email still sends; delivery is not marked failed.
 
 **Expected behavior:**
-- Outlook shows a blue Download workbook button that opens the SharePoint file in `Direct Reports/Test` (test mode) or the live folder (test mode off).
+- Outlook shows a blue Download workbook button that opens the SharePoint file under `Direct Reports/Test/...` (test mode, same tree as live) or the live folder (test mode off).
 - Plain-text clients still get `Download it here: <url>`.
 - Live Daily/YTD/Monthly folders are never written while test mode is on.
 
@@ -993,7 +1007,7 @@ A cheaper model can use this file as a guide to run the full test suite without 
 **What to test:**
 - Admin can save several test emails and turn test mode on; cannot turn on with an empty list.
 - Salesman cannot POST the API.
-- Company and personal schedule Run now in test mode emails only the test list, `[TEST]` subject. SharePoint/OneDrive dumps to `Test` (not the live folder or the salesman's OneDrive).
+- Company and personal schedule Run now in test mode emails only the test list, `[TEST]` subject. SharePoint dumps under `Test/` plus the live folder tree (e.g. `Test/Invoiced Report/Daily`), never the live Daily/YTD folder or the salesman's OneDrive.
 - Split schedules still fan out in test mode; every file goes to the test list with the salesman in the subject/filename.
 - Personal schedules are redirected the same way as company schedules. Salesmen are not emailed.
 - Test mode on with no emails fails the run instead of sending to stored recipients.

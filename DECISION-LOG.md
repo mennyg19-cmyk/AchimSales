@@ -1,3 +1,10 @@
+## 2026-09-08 Test-mode SharePoint keeps the live folder tree
+**What you asked for:** Test mode should prepend Test to the SharePoint filepath, not dump every report into one flat Test folder.
+**What I had to decide:** Flatten to `Test/` vs `Test/` + the live relative tree (after stripping Direct Reports).
+**What I chose:** `test_sharepoint_path` builds `Test/<live tree>`. Empty live path stays empty (email-only). Paths already under Test/ are left alone. Oversized Graph mail with no folder still uses bare `Test/`.
+**Why:** Live `Direct Reports/Invoiced Report/Daily` must become `Direct Reports/Test/Invoiced Report/Daily`, not `Direct Reports/Test/filename.xlsx` next to every other test file.
+**Status:** DECIDED
+
 ## 2026-09-04 Saved-view params cannot carry schedule mail HTML
 **What I had to decide:** Trust-boundary F1 — salesman plants `email_html` on a saved view, schedule create copies it, admin Edit runs it via `innerHTML`.
 **What I chose:** Strip delivery keys when seeding a schedule from a view (`without_delivery_keys`). Same strip on the runner live-view overlay. Sanitize mail fields when copying from an existing row and when rendering `/schedules`.

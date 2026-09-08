@@ -27,8 +27,8 @@ TIMEOUT = 30
 UPLOAD_TIMEOUT = 120
 REPORTS_SUBFOLDER = "Direct Reports"
 
-# Company test-mode uploads land here (under Direct Reports). Never write
-# test runs into live Daily / YTD / Monthly folders.
+# Company test-mode uploads land under this folder (still inside Direct Reports),
+# keeping the live tree: Test/Invoiced Report/Daily, not a flat dump into Test/.
 TEST_SHAREPOINT_FOLDER = "Test"
 
 
@@ -45,6 +45,17 @@ def strip_reports_home(path: str) -> str:
             continue
         return p
     return ""
+
+
+def test_sharepoint_path(live_path: str) -> str:
+    """Live tree under Test/, not a flat dump into Test/."""
+    rel = strip_reports_home(live_path)
+    if not rel:
+        return ""
+    test_root = TEST_SHAREPOINT_FOLDER.strip("/")
+    if rel.lower() == test_root.lower() or rel.lower().startswith(test_root.lower() + "/"):
+        return rel
+    return f"{test_root}/{rel}"
 
 
 # Characters that must never appear in a folder/file segment we interpolate into a

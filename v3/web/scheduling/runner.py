@@ -37,7 +37,7 @@ from web.delivery.email import DeliveryResult
 from web.delivery.email_template import RETRY_SUBJECT_MARK
 from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
-from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER
+from web.delivery.sharepoint import test_sharepoint_path
 from web.scheduling.delivery_keys import MASTER_DELIVERY_PARAM_KEYS, without_delivery_keys
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
@@ -77,10 +77,10 @@ def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str
 
 
 def _sharepoint_for_test(test_to, live_path: str) -> str:
-    """Test mode writes to Test, never to the live Daily/YTD folder."""
+    """Test mode writes under Test/ plus the live folder tree, never into live Daily/YTD."""
     if not test_to:
         return live_path or ""
-    return TEST_SHAREPOINT_FOLDER if live_path else ""
+    return test_sharepoint_path(live_path)
 
 
 class _NoSalesmen:

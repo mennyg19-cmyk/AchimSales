@@ -24,7 +24,7 @@ from web.data.repositories.schedules import (
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult, EmailService
 from web.delivery.service import DeliveryOutcome, DeliveryService
-from web.delivery.sharepoint import TEST_SHAREPOINT_FOLDER, SharePointService
+from web.delivery.sharepoint import SharePointService
 from web.scheduling import cadence as C
 from web.scheduling.runner import ScheduleRunner
 from web.reporting.http_client import ReportResult
@@ -518,7 +518,7 @@ def test_runner_master_test_mode_redirects_and_skips_sharepoint(tmp_path):
     assert len(delivery.calls) == 1
     call = delivery.calls[0]
     assert call["recipients"] == "menny@x.com; other@x.com"
-    assert call["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
+    assert call["sharepoint_path"] == "Test/Invoiced Report/Daily"
     assert call["onedrive_user"] == ""
     assert call["cc_raw"] == ""
     assert call["subject"].startswith("[TEST] ")
@@ -555,7 +555,7 @@ def test_runner_personal_test_mode_redirects_and_skips_onedrive(tmp_path):
     assert call["recipients"] == "menny@x.com"
     assert call["subject"].startswith("[TEST] ")
     assert call["onedrive_user"] == ""
-    assert call["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
+    assert call["sharepoint_path"] == "Test/Personal/Reports"
     assert "real@x.com" not in str(delivery.calls)
 
 
@@ -852,7 +852,7 @@ def test_runner_test_mode_fans_out_splits_to_test_list(tmp_path):
     runner.run(mid, MASTER)
     assert len(delivery.calls) == 3
     assert all(c["recipients"] == "menny@x.com" for c in delivery.calls)
-    assert delivery.calls[0]["sharepoint_path"] == TEST_SHAREPOINT_FOLDER
+    assert delivery.calls[0]["sharepoint_path"] == "Test/Salesman Report/Daily"
     assert all(c["sharepoint_path"] == "" for c in delivery.calls[1:])
     assert delivery.calls[0]["subject"].startswith("[TEST] ")
     assert delivery.calls[0]["params"] == {}

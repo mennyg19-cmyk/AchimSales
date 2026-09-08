@@ -505,6 +505,18 @@ def test_strip_reports_home_drops_duplicated_prefix():
     assert strip_reports_home("Salesman Report/Customer Activity") == "Salesman Report/Customer Activity"
 
 
+def test_test_sharepoint_path_nests_live_tree():
+    from web.delivery.sharepoint import test_sharepoint_path
+
+    assert test_sharepoint_path("Direct Reports/Invoiced Report/Daily") == "Test/Invoiced Report/Daily"
+    assert test_sharepoint_path("Salesman Report/Daily") == "Test/Salesman Report/Daily"
+    assert test_sharepoint_path("Personal/Reports") == "Test/Personal/Reports"
+    assert test_sharepoint_path("Test/Invoiced Report/Daily") == "Test/Invoiced Report/Daily"
+    assert test_sharepoint_path("Direct Reports/Test/Ordered Report/Daily") == "Test/Ordered Report/Daily"
+    assert test_sharepoint_path("Direct Reports") == ""
+    assert test_sharepoint_path("") == ""
+
+
 def test_sharepoint_list_and_upload_strip_home_prefix(tmp_path):
     sp = SharePointService(_cfg(tmp_path))
     names = [f["name"] for f in sp.list_folders("Direct Reports")]

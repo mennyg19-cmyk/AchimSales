@@ -2935,7 +2935,7 @@ def test_master_run_now_test_mode_mails_test_list_only(tmp_path):
     assert "customers@x.com" not in row.recipients
     meta = row.sharepoint_meta or {}
     assert meta.get("saved") is True
-    assert meta.get("path") == "Test"
+    assert meta.get("path") == "Test/Invoiced Report/Daily"
 
 
 def test_personal_run_now_test_mode_mails_test_list_only(tmp_path):
