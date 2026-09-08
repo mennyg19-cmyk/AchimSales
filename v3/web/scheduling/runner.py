@@ -9,8 +9,10 @@ row count, and a full message (errors, skips, and success details).
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+import traceback
 from datetime import date, datetime, timezone
 
 from report_engine import registry
@@ -34,7 +36,6 @@ from web.data.repositories.schedules import (
 )
 from web.data.repositories.users import UserRepository
 from web.delivery.email import DeliveryResult
-from web.delivery.email_template import RETRY_SUBJECT_MARK
 from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import test_sharepoint_path
@@ -47,33 +48,79 @@ log = logging.getLogger(__name__)
 
 # One extra full run after a short wait so a dropped Graph call is not the
 # last word. [FAIL] mail waits so a later retry/success can replace it.
-# A retry that succeeds is one report email that names the failure, not
-# [FAIL] plus a pass.
+# A retry that succeeds is a normal report email — no mention of the blip.
 _TRANSIENT_ATTEMPTS = 2
 _TRANSIENT_RETRY_WAIT_S = 30
 _FAIL_NOTICE_WAIT_S = 15 * 60
 _FAIL_NOTICE_PENDING = "pending"
 _FAIL_NOTICE_SENT = "sent"
 _FAIL_NOTICE_SUPERSEDED = "superseded"
-_RECOVERED_RETRY_REASON = "an earlier worker run failed or was interrupted"
-_PRIOR_FAIL_REASON = "an earlier run of this schedule failed today"
 
 
 def _inbox_already_got_mail(result: DeliveryResult) -> bool:
     return bool(result.sent_via_smtp or result.send_channel in ("graph", "smtp"))
 
 
-def _retry_success_mail(subject: str, prior_errors: list[str]) -> tuple[str, str]:
-    reasons = "; ".join(
-        str(err).strip() for err in prior_errors if str(err).strip()
-    ) or "unknown error"
-    marked = subject if RETRY_SUBJECT_MARK in subject else f"{subject}{RETRY_SUBJECT_MARK}"
-    body = (
-        "This send failed once, then retried and succeeded.\n"
-        f"First attempt: {reasons}\n\n"
-        "There is no separate failure email for this run.\n"
-    )
-    return marked, body
+_META_SKIP = frozenset({
+    "job_log", "fail_notice", "fail_error", "fail_traceback",
+})
+
+
+def _format_job_log_lines(entries) -> str:
+    lines = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            lines.append(str(entry))
+            continue
+        when = str(entry.get("t") or "").strip()
+        step = str(entry.get("step") or "").strip()
+        detail = str(entry.get("detail") or "").strip()
+        extra = []
+        if entry.get("ms") is not None:
+            extra.append(f"{entry['ms']} ms")
+        if entry.get("elapsed_ms") is not None:
+            extra.append(f"+{entry['elapsed_ms']}ms")
+        timing = f" ({', '.join(extra)})" if extra else ""
+        left = " ".join(part for part in (when, step) if part)
+        line = f"{left}: {detail}{timing}".strip(": ").rstrip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _failure_notice_body(sched, schedule_type: str, error: str, run) -> str:
+    name = getattr(sched, "name", None) or getattr(sched, "report_key", "schedule")
+    kind = "Company" if schedule_type == MASTER else "Personal"
+    meta = dict(getattr(run, "output_meta", None) or {}) if run is not None else {}
+    tb = str(meta.get("fail_traceback") or "").strip()
+    log_text = _format_job_log_lines(meta.get("job_log"))
+    leftover = {
+        key: value for key, value in meta.items()
+        if key not in _META_SKIP and value not in (None, "", [], {})
+    }
+    err = str(error or meta.get("fail_error") or getattr(run, "debug_log", "") or "unknown error")
+    parts = [
+        f"{kind} schedule failed after retry.",
+        "",
+        f"Schedule: {name}",
+        f"Report: {getattr(sched, 'report_key', '')}",
+        f"Schedule id: {getattr(run, 'schedule_id', '')}",
+        f"Run id: {getattr(run, 'id', '')}",
+        f"Status: {getattr(run, 'status', 'failure')}",
+        f"Started: {getattr(run, 'started_at', '') or ''}",
+        f"Finished: {getattr(run, 'finished_at', '') or ''}",
+        f"Recipients: {getattr(sched, 'recipients', '') or ''}",
+        f"SharePoint: {getattr(sched, 'sharepoint_path', '') or ''}",
+        "",
+        "Error:",
+        err,
+    ]
+    if tb:
+        parts.extend(["", "Traceback:", tb])
+    parts.extend(["", "Job log:", log_text or "(empty)"])
+    if leftover:
+        parts.extend(["", "Run details:", json.dumps(leftover, indent=2, default=str)])
+    return "\n".join(parts) + "\n"
 
 
 def _sharepoint_for_test(test_to, live_path: str) -> str:
@@ -240,13 +287,9 @@ class ScheduleRunner:
                 ),
                 include_regular=include_regular,
             )
-            prior_errors: list[str] = []
-            if recovered:
-                prior_errors.append(_RECOVERED_RETRY_REASON)
-            elif self._had_failure_today(schedule_id, schedule_type):
-                prior_errors.append(_PRIOR_FAIL_REASON)
             outcomes: list[DeliveryOutcome] = []
             window_errors: list[str] = []
+            window_tbs: list[str] = []
             for window in windows:
                 raise_if_cancelled()
                 window_subject, window_name = _window_labels(
@@ -258,7 +301,6 @@ class ScheduleRunner:
                         identity=identity, scope=scope, spec=spec, params=window,
                         subject=window_subject, report_name=report_name,
                         od_user=od_user, test_to=test_to, schedule_name=window_name,
-                        prior_errors=prior_errors + window_errors,
                     )
                     outcomes.append(outcome)
                 except JobCancelled:
@@ -269,9 +311,13 @@ class ScheduleRunner:
                         schedule_type, schedule_id, exc_info=True,
                     )
                     window_errors.append(str(exc))
+                    window_tbs.append(traceback.format_exc())
             if not outcomes:
                 err = "; ".join(window_errors) or "delivery failed"
-                self._hold_fail_notice(run_id, schedule_id, schedule_type, err)
+                self._hold_fail_notice(
+                    run_id, schedule_id, schedule_type, err,
+                    traceback_text="\n".join(window_tbs),
+                )
                 raise RuntimeError(err)
             combined = _combine_outcomes(outcomes)
             meta = _output_meta(combined, manual=manual)
@@ -301,7 +347,10 @@ class ScheduleRunner:
             existing = self.run_repo.get(run_id)
             # Don't wipe a detailed finish() already written for a delivery failure.
             if existing is None or existing.status == "running":
-                self._hold_fail_notice(run_id, schedule_id, schedule_type, str(exc))
+                self._hold_fail_notice(
+                    run_id, schedule_id, schedule_type, str(exc),
+                    traceback_text=traceback.format_exc(),
+                )
             raise
         return run_id
 
@@ -311,25 +360,18 @@ class ScheduleRunner:
         last = eastern_date_of(self.run_repo.last_success_at(schedule_id, schedule_type))
         return last is not None and last.isoformat() == C.eastern_date_iso()
 
-    def _had_failure_today(self, schedule_id: int, schedule_type: str) -> bool:
-        today = C.eastern_date_iso()
-        for row in self.run_repo.list_for_schedule(schedule_id, schedule_type, limit=20):
-            if row.status != "failure":
-                continue
-            day = eastern_date_of(row.started_at or row.finished_at)
-            if day is not None and day.isoformat() == today:
-                return True
-        return False
-
     def _hold_fail_notice(self, run_id: int, schedule_id: int, schedule_type: str,
-                          error: str) -> None:
+                          error: str, *, traceback_text: str = "") -> None:
         self._supersede_pending_fail_notices(schedule_id, schedule_type)
+        extra = {
+            "fail_notice": _FAIL_NOTICE_PENDING,
+            "fail_error": error,
+        }
+        if traceback_text:
+            extra["fail_traceback"] = traceback_text
         self.run_repo.finish(
             run_id, status="failure", debug_log=error,
-            output_meta=_log_meta({
-                "fail_notice": _FAIL_NOTICE_PENDING,
-                "fail_error": error,
-            }),
+            output_meta=_log_meta(extra),
         )
 
     def _supersede_pending_fail_notices(self, schedule_id: int, schedule_type: str) -> None:
@@ -362,7 +404,9 @@ class ScheduleRunner:
             sched = self._load(row.schedule_id, row.schedule_type)
             if sched is not None:
                 self._notify_failure(
-                    sched, row.schedule_type, meta.get("fail_error") or row.debug_log,
+                    sched, row.schedule_type,
+                    meta.get("fail_error") or row.debug_log,
+                    run=row,
                 )
             meta["fail_notice"] = _FAIL_NOTICE_SENT
             self.run_repo.patch_output_meta(row.id, meta)
@@ -384,32 +428,23 @@ class ScheduleRunner:
     def _deliver_window(self, *, sched, schedule_type: str, schedule_id: int,
                         identity: str, scope, spec, params: dict,
                         subject: str, report_name: str, od_user: str,
-                        test_to: list[str] | None, schedule_name: str,
-                        recovered: bool = False,
-                        prior_errors: list[str] | None = None) -> DeliveryOutcome:
+                        test_to: list[str] | None, schedule_name: str) -> DeliveryOutcome:
         builder_version = spec.builder_version if spec else 1
         last_error: Exception | None = None
-        prior_errors = list(prior_errors or [])
         job_step(
             "schedule",
             f"{schedule_type} #{schedule_id} {report_name} "
             f"{_compact_params(params)}",
         )
-        if recovered and _RECOVERED_RETRY_REASON not in prior_errors:
-            prior_errors.append(_RECOVERED_RETRY_REASON)
         for attempt in range(1, _TRANSIENT_ATTEMPTS + 1):
-            send_subject, send_body = subject, ""
-            if prior_errors:
-                send_subject, send_body = _retry_success_mail(subject, prior_errors)
             try:
                 if schedule_type == MASTER and self._salesman_targets(params):
                     outcome = self._run_master_fanout(
                         sched=sched, identity=identity, scope=scope,
                         builder_version=builder_version,
-                        subject=send_subject, report_name=report_name,
+                        subject=subject, report_name=report_name,
                         onedrive_user=od_user, test_to=test_to,
                         params=params, schedule_name=schedule_name,
-                        body_text=send_body,
                     )
                 else:
                     no_data_all = bool(params.get("email_on_no_data"))
@@ -422,7 +457,7 @@ class ScheduleRunner:
                         builder_version=builder_version,
                         params=_report_params(params), layout=self._layout_for(sched, schedule_type),
                         recipients="; ".join(test_to) if test_to else sched.recipients,
-                        subject=send_subject, report_name=report_name,
+                        subject=subject, report_name=report_name,
                         sharepoint_path=_sharepoint_for_test(test_to, sched.sharepoint_path),
                         filename_template=getattr(sched, "filename_template", "") or "",
                         onedrive_user=od_user,
@@ -434,7 +469,6 @@ class ScheduleRunner:
                             else ("; ".join(test_empty) if empty_to_test else None)
                         ),
                         schedule_name=schedule_name,
-                        body_text=send_body,
                         subject_template=str(params.get("email_subject") or ""),
                         body_html_template=str(params.get("email_html") or ""),
                     )
@@ -445,7 +479,6 @@ class ScheduleRunner:
                 return outcome
             except Exception as exc:
                 last_error = exc
-                prior_errors.append(str(exc))
                 if attempt >= _TRANSIENT_ATTEMPTS:
                     raise
                 log.warning(
@@ -499,7 +532,7 @@ class ScheduleRunner:
             )
         return emails
 
-    def _notify_failure(self, sched, schedule_type: str, error: str) -> None:
+    def _notify_failure(self, sched, schedule_type: str, error: str, *, run=None) -> None:
         """Mail the test-email list. Runs even when test mode is off."""
         emails = self.settings.test_emails()
         if not emails:
@@ -512,13 +545,7 @@ class ScheduleRunner:
         if send is None:
             return
         name = getattr(sched, "name", None) or getattr(sched, "report_key", "schedule")
-        kind = "Company" if schedule_type == MASTER else "Personal"
-        body = (
-            f"{kind} schedule failed.\n\n"
-            f"Schedule: {name}\n"
-            f"Report: {getattr(sched, 'report_key', '')}\n"
-            f"Error: {error}\n"
-        )
+        body = _failure_notice_body(sched, schedule_type, error, run)
         try:
             send(to=emails, subject=f"[FAIL] {name}", body_text=body)
         except Exception:  # noqa: BLE001 - never hide the original failure

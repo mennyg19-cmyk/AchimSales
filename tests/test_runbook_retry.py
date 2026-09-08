@@ -86,7 +86,7 @@ def test_compose_first_success_keeps_heartbeat():
     assert out == [hb]
 
 
-def test_compose_fail_then_success_is_one_retry_mail():
+def test_compose_fail_then_success_is_plain_heartbeat():
     fail = _alert("FAILURE: ordered", "Graph dropped")
     hb_fail = _alert("FAILURE: ordered", "<p>failed</p>", html=True)
     hb_ok = _alert("Runbook Heartbeat: ordered", "<p>ok</p>", html=True)
@@ -94,25 +94,16 @@ def test_compose_fail_then_success_is_one_retry_mail():
         {"n": 1, "ok": False, "code": 1, "alerts": [fail, hb_fail], "error": None},
         {"n": 2, "ok": True, "code": 0, "alerts": [hb_ok], "error": None},
     ])
-    assert len(out) == 1
-    assert out[0]["subject"] == (
-        "Runbook Heartbeat: ordered (failed, then retried and succeeded)"
-    )
-    assert "Graph dropped" in out[0]["body"]
-    assert "only status email" in out[0]["body"]
-    assert "<p>ok</p>" in out[0]["body"]
+    assert out == [hb_ok]
 
 
-def test_compose_catchup_fail_then_success_heartbeat_is_one_mail():
+def test_compose_catchup_fail_then_success_is_plain_heartbeat():
     catch = _alert("FAILURE: ordered catch-up", "catch-up boom")
     hb = _alert("Runbook Heartbeat: ordered", "<p>ok</p>", html=True)
     out = _compose_status_alerts([
         {"n": 1, "ok": True, "code": 0, "alerts": [catch, hb], "error": None},
     ])
-    assert len(out) == 1
-    assert "later step succeeded" in out[0]["subject"]
-    assert "catch-up boom" in out[0]["body"]
-    assert "<p>ok</p>" in out[0]["body"]
+    assert out == [hb]
 
 
 def test_compose_final_failure_after_retry_is_one_mail():
@@ -127,9 +118,37 @@ def test_compose_final_failure_after_retry_is_one_mail():
     assert len(out) == 1
     assert out[0]["subject"] == "FAILURE: ordered (failed after retry)"
     assert "daily boom" in out[0]["body"]
+    assert "Retries did not recover this job" in out[0]["body"]
 
 
-def test_retry_success_sends_one_combined_alert(monkeypatch):
+def test_compose_final_failure_includes_traceback_and_log():
+    try:
+        raise RuntimeError("graph timeout")
+    except RuntimeError as exc:
+        held = exc
+    out = _compose_status_alerts([
+        {
+            "n": 1, "ok": False, "code": 1,
+            "alerts": [_alert("FAILURE: ordered", "first drop")],
+            "error": held,
+            "log": ["2026-01-01 INFO job - started", "2026-01-01 ERROR job - boom"],
+        },
+        {
+            "n": 2, "ok": False, "code": 1,
+            "alerts": [_alert("FAILURE: ordered", "second drop")],
+            "error": None,
+            "log": ["retry log line"],
+        },
+    ])
+    body = out[0]["body"]
+    assert "RuntimeError: graph timeout" in body
+    assert "started" in body
+    assert "retry log line" in body
+    assert "first drop" in body
+    assert "second drop" in body
+
+
+def test_retry_success_sends_plain_heartbeat(monkeypatch):
     sent = []
     monkeypatch.setattr(
         "universal_runbook._deliver_alert",
@@ -154,8 +173,8 @@ def test_retry_success_sends_one_combined_alert(monkeypatch):
 
     assert run_with_retry(flaky, attempts=2, wait_s=0, sleeper=lambda _: None) == 0
     assert len(sent) == 1
-    assert "retried and succeeded" in sent[0]["subject"]
-    assert "Graph dropped" in sent[0]["body"]
+    assert sent[0]["subject"] == "Runbook Heartbeat: ordered"
+    assert "Graph dropped" not in sent[0]["body"]
     assert "ok hb" in sent[0]["body"]
 
 

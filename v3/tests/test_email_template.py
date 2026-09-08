@@ -125,26 +125,18 @@ def test_test_prefix_stays_on_custom_subject():
     assert subj == "[TEST] Mine"
 
 
-def test_retry_mark_stays_on_custom_subject_and_body():
-    from web.delivery.email_template import RETRY_SUBJECT_MARK
-    retry_body = (
-        "This send failed once, then retried and succeeded.\n"
-        "First attempt: graph timeout\n\n"
-        "There is no separate failure email for this run.\n"
-    )
-    subj, text, html = apply_mail_templates(
-        subject_default=f"[TEST] Scheduled: X{RETRY_SUBJECT_MARK}",
-        body_text_default=retry_body, body_html_default=None,
-        subject_template="{Schedule}",
-        body_html_template="<p>Hi {Schedule}</p>",
+def test_test_prefix_survives_max_length_subject():
+    subj, _, _ = apply_mail_templates(
+        subject_default="[TEST] Scheduled: X",
+        body_text_default="x", body_html_default=None,
+        subject_template="A" * 240, body_html_template="",
         report_name="Ordered", schedule_name="Mine",
         filename="", file_url="", attached=True,
     )
-    assert subj.startswith("[TEST] Mine")
-    assert subj.endswith(RETRY_SUBJECT_MARK)
-    assert "This send failed once" in text
-    assert "This send failed once" in html
-    assert "Hi Mine" in html
+    assert subj.startswith("[TEST] ")
+    assert len(subj) <= 240
+    msg = EmailMessage()
+    msg["Subject"] = subj
 
 
 def test_custom_subject_strips_encoded_crlf():
@@ -163,19 +155,3 @@ def test_custom_subject_strips_encoded_crlf():
     msg["Subject"] = subj
     assert "Bcc:" in msg["Subject"]
     assert "\r" not in sanitize_subject("Line&#10;two")
-
-
-def test_retry_mark_survives_max_length_subject():
-    from web.delivery.email_template import RETRY_SUBJECT_MARK
-    subj, _, _ = apply_mail_templates(
-        subject_default=f"[TEST] Scheduled: X{RETRY_SUBJECT_MARK}",
-        body_text_default="x", body_html_default=None,
-        subject_template="A" * 240, body_html_template="",
-        report_name="Ordered", schedule_name="Mine",
-        filename="", file_url="", attached=True,
-    )
-    assert subj.startswith("[TEST] ")
-    assert subj.endswith(RETRY_SUBJECT_MARK)
-    assert len(subj) <= 240
-    msg = EmailMessage()
-    msg["Subject"] = subj

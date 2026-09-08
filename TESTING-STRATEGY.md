@@ -1,5 +1,21 @@
 # Testing Strategy
 
+## Quiet retry-success mail; rich final failure
+
+**What to test:**
+- Home-site: in-process retry success is a normal report email (no retry subject, no “failed once” body). No `[FAIL]`.
+- Home-site: both attempts fail → `[FAIL]` after flush includes error, traceback, job log, run id/times, leftover run details. A later same-day success drops the `[FAIL]`.
+- Recovered worker send after a crash is a normal report email if mail had not gone out; already-sent today still skips.
+- Catch-up window fail then regular success is one run, no `[FAIL]`, success body does not name the catch-up error.
+- Runbook: fail then success is the plain heartbeat. Catch-up step fail then overall success is the plain heartbeat (step FAILURE held).
+- Runbook: both attempts fail → one `FAILURE: … (failed after retry)` with every attempt, traceback, and captured log. `main()` wraps retry.
+
+**Expected behavior:**
+- Inbox only hears about a failure when retries did not recover it.
+- That failure mail has the breakdown and the log.
+
+**Test files:** `v3/tests/test_scheduling.py`, `v3/tests/test_email_template.py`, `tests/test_runbook_retry.py`
+
 ## Test-mode SharePoint keeps the live folder tree
 
 **What to test:**
@@ -25,7 +41,7 @@
 - Developer `/api/reports/active?all=1` sees another user's report.run; admin `?all=1` does not.
 - Developer GET `/api/jobs/<id>` can read another user's `report.run`; `can_cancel` is false; cancel of that job is 404. Unrelated job types stay 404. Privileged cancel of `schedule.run` still works. Cancel on the report page only shows when `can_cancel` is true and does not claim success on a failed POST.
 - PUT `/api/schedules/<id>` without `start_date`/`end_date` keeps the existing window. Grid Done omits empty `saved_report_id` and skips unchanged rows.
-- Personal wizard stores optional `email_subject` / `email_html` with `{Schedule}` `{SharePointUrl}` `{DownloadButton}` tokens. Blank keeps the auto subject/body. Grid PUT without those keys keeps them. Script tags and `javascript:` / `data:` hrefs are stripped on store, including encoded newlines/tabs. Subject CR/LF (including `&#13;`) are unfolded so Graph/SMTP cannot fail on a folded header. `[TEST]` and the retry-after-failure subject mark stay on a custom subject, even at the 240-character cap. A saved view's `params` cannot smuggle `email_html` / `email_subject` / `email_cc` onto a schedule or a send; salesman-planted markup does not appear on `GET /schedules` for an admin.
+- Personal wizard stores optional `email_subject` / `email_html` with `{Schedule}` `{SharePointUrl}` `{DownloadButton}` tokens. Blank keeps the auto subject/body. Grid PUT without those keys keeps them. Script tags and `javascript:` / `data:` hrefs are stripped on store, including encoded newlines/tabs. Subject CR/LF (including `&#13;`) are unfolded so Graph/SMTP cannot fail on a folded header. `[TEST]` stays on a custom subject, even at the 240-character cap. A saved view's `params` cannot smuggle `email_html` / `email_subject` / `email_cc` onto a schedule or a send; salesman-planted markup does not appear on `GET /schedules` for an admin.
 - Developer recent-runs includes `job_log`; others do not. History Steps is a details block.
 - Home page `home-fold` wraps My presets (closed). Pencil `psGridEditBtn` is on the schedules template. Grid save splits owner vs extras so the owner email is not dropped.
 
@@ -500,15 +516,15 @@ A cheaper model can use this file as a guide to run the full test suite without 
 ## One status email after fail-then-retry
 
 **What to test:**
-- Home-site: in-process retry success sends no `[FAIL]`; subject names the retry.
-- Home-site: both attempts fail → `[FAIL]` only after flush; a later same-day success drops it.
+- Home-site: in-process retry success sends no `[FAIL]`; the report email is a normal success (no retry subject).
+- Home-site: both attempts fail → `[FAIL]` only after flush, with job log and traceback; a later same-day success drops it.
 - Catch-up window fail then regular success is one run, no `[FAIL]`.
 - Tick flushes held notices.
-- Runbook: fail then success is one heartbeat; `main()` wraps retry.
+- Runbook: fail then success is the plain heartbeat; `main()` wraps retry. Final failure after retry is one FAILURE mail with the log.
 - `[TEST]` mail that already went out, then Test-folder upload fails: no second Graph send, no `[FAIL]`.
 
 **Expected behavior:**
-- One status email per schedule run. Fail then success is not `[FAIL]` plus a later pass.
+- Success never mentions a recovered failure. Only a final failure is mailed, with the full breakdown.
 
 **Edge cases:**
 - Recovered worker job after a successful send today skips a second mail.

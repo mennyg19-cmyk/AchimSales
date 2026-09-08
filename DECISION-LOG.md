@@ -1,3 +1,9 @@
+## 2026-09-08 Quiet retry-success mail; dump the log on final failure
+**What you asked for:** Don't email me when a job failed, retried, and then succeeded. Only tell me about failures if retries did not work, and then send the whole log.
+**What I chose:** Success (including fail-then-retry) is a normal heartbeat / report email with no mention of the blip. `[FAIL]` / runbook FAILURE still wait for retries to finish. The final failure mail includes every attempt, traceback, job/runbook log, and run details.
+**Why:** A recovered Graph drop is noise. A real failure needs enough to debug without opening Azure or the job log page.
+**Status:** DECIDED
+
 ## 2026-09-08 Test-mode SharePoint keeps the live folder tree
 **What you asked for:** Test mode should prepend Test to the SharePoint filepath, not dump every report into one flat Test folder.
 **What I had to decide:** Flatten to `Test/` vs `Test/` + the live relative tree (after stripping Direct Reports).

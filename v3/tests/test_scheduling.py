@@ -1184,16 +1184,18 @@ def test_runner_failure_holds_fail_mail_until_flush(tmp_path, monkeypatch):
     assert log and log[0]["step"] == "api"
     assert delivery.email.notices == []
     assert runner.flush_pending_fail_notices(wait_s=0) == 1
-    assert delivery.email.notices == [{
-        "to": ["menny@x.com"],
-        "subject": "[FAIL] Nightly",
-        "body_text": (
-            "Company schedule failed.\n\n"
-            "Schedule: Nightly\n"
-            "Report: ordered\n"
-            "Error: SharePoint dropped\n"
-        ),
-    }]
+    notice = delivery.email.notices[0]
+    assert notice["to"] == ["menny@x.com"]
+    assert notice["subject"] == "[FAIL] Nightly"
+    body = notice["body_text"]
+    assert "Company schedule failed after retry." in body
+    assert "Schedule: Nightly" in body
+    assert "Report: ordered" in body
+    assert "Error:" in body
+    assert "SharePoint dropped" in body
+    assert "Job log:" in body
+    assert "api: Reporting API POST ordered" in body
+    assert "Traceback:" in body
 
 
 def test_runner_failure_notice_does_not_hide_original_error(tmp_path, monkeypatch):
@@ -1275,9 +1277,9 @@ def test_runner_retries_once_then_succeeds_without_fail_mail(tmp_path, monkeypat
     assert len(hist) == 1 and hist[0].status == "success"
     assert delivery.email.notices == []
     sent = delivery.kwargs[1]
-    assert "retried after a failure" in sent["subject"]
-    assert "SharePoint dropped" in sent["body_text"]
-    assert "retried and succeeded" in sent["body_text"]
+    assert "retried after a failure" not in sent["subject"]
+    assert "SharePoint dropped" not in (sent.get("body_text") or "")
+    assert "retried and succeeded" not in (sent.get("body_text") or "")
 
 
 def test_runner_does_not_resend_when_mail_already_went_out(tmp_path, monkeypatch):
@@ -1363,7 +1365,7 @@ def test_recovered_run_skips_when_already_sent_today(tmp_path, monkeypatch):
     assert delivery.calls == 3
 
 
-def test_recovered_run_notes_retry_when_not_already_sent(tmp_path, monkeypatch):
+def test_recovered_run_sends_normal_mail_when_not_already_sent(tmp_path, monkeypatch):
     monkeypatch.setattr("web.scheduling.runner._TRANSIENT_RETRY_WAIT_S", 0)
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
@@ -1389,8 +1391,8 @@ def test_recovered_run_notes_retry_when_not_already_sent(tmp_path, monkeypatch):
         cadence={"freq": "daily", "time": "08:00"}, recipients="team@x.com")
     runner.run(mid, MASTER, recovered=True)
     assert len(delivery.sent) == 1
-    assert "retried after a failure" in delivery.sent[0]["subject"]
-    assert "earlier worker run failed" in delivery.sent[0]["body_text"]
+    assert "retried after a failure" not in delivery.sent[0]["subject"]
+    assert "earlier worker run failed" not in (delivery.sent[0].get("body_text") or "")
 
 
 def test_later_success_after_failure_skips_fail_mail(tmp_path, monkeypatch):
@@ -1440,8 +1442,8 @@ def test_later_success_after_failure_skips_fail_mail(tmp_path, monkeypatch):
     runner.run(mid, MASTER)
     assert delivery.email.notices == []
     sent = delivery.kwargs[-1]
-    assert "retried after a failure" in sent["subject"]
-    assert "earlier run of this schedule failed today" in sent["body_text"]
+    assert "retried after a failure" not in sent["subject"]
+    assert "earlier run of this schedule failed today" not in (sent.get("body_text") or "")
     assert runner.flush_pending_fail_notices(wait_s=0) == 0
     assert delivery.email.notices == []
 
@@ -1496,8 +1498,8 @@ def test_catchup_window_fail_then_regular_success_is_one_mail(tmp_path, monkeypa
     success_sends = [
         k for k in delivery.kwargs if "retried after a failure" in k.get("subject", "")
     ]
-    assert success_sends
-    assert "catch-up boom" in success_sends[0]["body_text"]
+    assert success_sends == []
+    assert all("catch-up boom" not in (k.get("body_text") or "") for k in delivery.kwargs if k.get("subject", "").startswith("Master:"))
     assert runner.flush_pending_fail_notices(wait_s=0) == 0
 
 

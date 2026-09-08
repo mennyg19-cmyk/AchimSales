@@ -15,7 +15,6 @@ from web.delivery.filename_template import token_values
 
 _TOKEN_RE = re.compile(r"\{[A-Za-z]+\}")
 DOWNLOAD_BUTTON_BG = "#2563eb"
-RETRY_SUBJECT_MARK = " — retried after a failure"
 _STYLE_BAD = re.compile(r"expression|javascript|url\s*\(", re.I)
 
 _ALLOWED: dict[str, frozenset[str]] = {
@@ -120,18 +119,14 @@ def sanitize_subject(text: str, *, max_len: int = _SUBJECT_MAX) -> str:
 
 
 def _fit_mail_subject(text: str) -> str:
-    """Keep [TEST] and the retry suffix; truncate the middle so the header stays ≤240."""
+    """Keep [TEST]; truncate the middle so the header stays ≤240."""
     text = _clean_subject(text)
     prefix = ""
     if text.startswith("[TEST] "):
         prefix = "[TEST] "
         text = text[len(prefix):]
-    suffix = ""
-    if RETRY_SUBJECT_MARK in text:
-        text = _clean_subject(text.replace(RETRY_SUBJECT_MARK, ""))
-        suffix = RETRY_SUBJECT_MARK
-    budget = _SUBJECT_MAX - len(prefix) - len(suffix)
-    return prefix + text[:max(0, budget)].rstrip() + suffix
+    budget = _SUBJECT_MAX - len(prefix)
+    return prefix + text[:max(0, budget)].rstrip()
 
 
 def resolve_subject(template: str, mapping: dict[str, str]) -> str:
@@ -166,16 +161,11 @@ def apply_mail_templates(
             subject = resolved
             if subject_default.startswith("[TEST] ") and not subject.startswith("[TEST] "):
                 subject = f"[TEST] {subject}"
-            if RETRY_SUBJECT_MARK in subject_default and RETRY_SUBJECT_MARK not in subject:
-                subject = f"{subject}{RETRY_SUBJECT_MARK}"
     subject = _fit_mail_subject(subject)
     html_tpl = (body_html_template or "").strip()
     if not html_tpl:
         return subject, body_text_default, body_html_default
     html = sanitize_html(expand_tokens(html_tpl, mapping))
-    retry_intro = (body_text_default or "")
-    if retry_intro.startswith("This send failed once"):
-        html = f"<p>{escape(retry_intro).replace(chr(10), '<br>')}</p>" + html
     if (
         not attached
         and file_url

@@ -24,10 +24,11 @@ Flow:
  10. Log SUCCESS/FAILED to run_log.csv
  11. Upload Direct Reports/ output to SharePoint
  12. Send alert email on failure; heartbeat on success.
-      Fail-then-retry is one status email. Per-step FAILURE mails are held
-      until the retry finishes. Azure Automation must call main() — main()
-      wraps the retry so a main-by-name start still combines mail. git push
-      does not publish this file; use deploy-runbook.ps1.
+      Fail-then-retry-success is the normal heartbeat only. Per-step FAILURE
+      mails are held until the retry finishes. Final failure is one FAILURE
+      mail with every attempt, traceback, and log. Azure Automation must call
+      main() — main() wraps the retry so a main-by-name start still holds mail.
+      git push does not publish this file; use deploy-runbook.ps1.
 
 Azure Automation Parameters:
   report_name (str, required): Key from report_registry.json, e.g. "ordered",
@@ -1955,6 +1956,7 @@ def _job():
 
 _JOB_ATTEMPTS = 2
 _JOB_RETRY_WAIT_S = 30
+_MAX_CAPTURED_LOG_LINES = 2000
 _ALERT_ROUTE_KEYS = (
     "tenant_id", "client_id", "client_secret", "from_addr", "recipients",
 )
@@ -2018,14 +2020,29 @@ def _attempt_failure_html(record):
     from html import escape
     parts = [f"<p><strong>Attempt {record.get('n', '?')}</strong></p>"]
     err = record.get("error")
-    if err is not None:
-        parts.append(f"<pre style=\"white-space:pre-wrap;font-size:13px\">{escape(str(err))}</pre>")
+    err_text = _format_recorded_error(err)
+    if err_text:
+        parts.append(f"<pre style=\"white-space:pre-wrap;font-size:13px\">{escape(err_text)}</pre>")
     code = record.get("code")
-    if code not in (0, None) and err is None:
+    if code not in (0, None) and not err_text:
         parts.append(f"<p>Exit code {escape(str(code))}</p>")
     for alert in record.get("alerts") or []:
         parts.append(_alert_as_html(alert))
+    log_lines = record.get("log") or []
+    if log_lines:
+        parts.append("<h4 style=\"margin:16px 0 8px\">Log</h4>")
+        parts.append(
+            f"<pre style=\"white-space:pre-wrap;font-size:12px\">{escape(chr(10).join(log_lines))}</pre>"
+        )
     return "\n".join(parts)
+
+
+def _format_recorded_error(err):
+    if err is None:
+        return ""
+    if isinstance(err, BaseException):
+        return "".join(traceback.format_exception(err))
+    return str(err)
 
 
 def _wrap_status_html(intro, records, *, success_record=None):
@@ -2042,7 +2059,7 @@ def _wrap_status_html(intro, records, *, success_record=None):
         for alert in intra:
             blocks.append(_alert_as_html(alert))
     if success_record is not None:
-        blocks.append("<h3 style=\"margin:18px 0 8px;color:#2e7d32\">Retry succeeded</h3>")
+        blocks.append("<h3 style=\"margin:18px 0 8px;color:#2e7d32\">Later attempt succeeded</h3>")
         for alert in success_record.get("alerts") or []:
             if _is_step_failure_alert(alert):
                 continue
@@ -2057,47 +2074,27 @@ def _wrap_status_html(intro, records, *, success_record=None):
 def _compose_status_alerts(records):
     """Turn per-attempt queued alerts into the emails that should actually go out.
 
-    Fail then success (or a step fail then a later success in the same run) is
-    one heartbeat that names the failure. A final failure is one FAILURE mail,
-    not a stack of per-period alerts plus a heartbeat.
+    Success (including fail-then-retry-success) sends the normal heartbeat only.
+    A final failure is one FAILURE mail with every attempt, traceback, and log.
     """
     if not records:
         return []
     last = records[-1]
     succeeded = bool(last.get("ok"))
     last_alerts = list(last.get("alerts") or [])
-    prior_failed = [r for r in records[:-1] if not r.get("ok")]
-    intra_fail = [a for a in last_alerts if _is_step_failure_alert(a)]
 
     if succeeded:
-        if not prior_failed and not intra_fail:
-            return last_alerts
-        route = _route_from_alerts(last_alerts or _all_attempt_alerts(records))
-        name = _report_name_from_alerts(last_alerts or _all_attempt_alerts(records))
-        if prior_failed:
-            subject = f"Runbook Heartbeat: {name} (failed, then retried and succeeded)"
-            intro = (
-                "This job failed, waited, and ran again successfully. "
-                "This is the only status email for that run — there is no separate failure email."
-            )
-        else:
-            subject = f"Runbook Heartbeat: {name} (a step failed, then a later step succeeded)"
-            intro = (
-                "A step in this job failed, then a later step succeeded. "
-                "This is the only status email for that run — there is no separate failure email."
-            )
-        body = _wrap_status_html(intro, records, success_record=last)
-        return [{**route, "subject": subject, "body": body, "content_type": "HTML"}]
+        return [a for a in last_alerts if not _is_step_failure_alert(a)]
 
     all_alerts = _all_attempt_alerts(records)
-    if len(records) == 1 and len(all_alerts) <= 1 and last.get("error") is None:
+    if len(records) == 1 and len(all_alerts) <= 1 and last.get("error") is None and not last.get("log"):
         return all_alerts
     route = _route_from_alerts(all_alerts)
     name = _report_name_from_alerts(all_alerts)
     retried = len(records) > 1
     subject = f"FAILURE: {name} (failed after retry)" if retried else f"FAILURE: {name}"
     intro = (
-        "This job failed after a retry. Earlier failure mails were held so you get this one email."
+        "Retries did not recover this job. Full attempt log below."
         if retried else
         "This job failed. Per-step failure mails were combined into this one email."
     )
@@ -2114,8 +2111,9 @@ def run_with_retry(run_fn=_job, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAI
                    sleeper=time.sleep):
     """Run the job once more after a wait so a one-off Graph drop is not final.
 
-    Status alerts are held until the retry finishes so fail-then-success is one
-    email (failure + retry + success), not a FAILURE mail and a later Heartbeat.
+    Status alerts are held until the retry finishes. Success (including after a
+    failed first try) sends the normal heartbeat only. Final failure is one
+    FAILURE mail with every attempt, traceback, and log.
     """
     global _alert_buffer
     last_code = 1
@@ -2123,27 +2121,37 @@ def run_with_retry(run_fn=_job, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAI
     for attempt in range(1, attempts + 1):
         sink = []
         _alert_buffer = sink
+        handler = _AttemptLogHandler()
+        logging.getLogger().addHandler(handler)
+        raised = None
+        rec = {
+            "n": attempt, "ok": False, "code": 1, "alerts": [], "error": None,
+        }
         try:
             last_code = int(run_fn() or 0)
-            records.append({
+            rec = {
                 "n": attempt, "ok": last_code == 0, "code": last_code,
                 "alerts": list(sink), "error": None,
-            })
+            }
         except Exception as exc:
-            records.append({
+            last_code = 1
+            rec = {
                 "n": attempt, "ok": False, "code": 1,
                 "alerts": list(sink), "error": exc,
-            })
+            }
+            raised = exc
+        finally:
+            _alert_buffer = None
+            rec["log"] = _take_attempt_log(handler)
+            records.append(rec)
+        if raised is not None:
             if attempt >= attempts:
-                _alert_buffer = None
                 _flush_status_alerts(records)
-                raise
+                raise raised
             log.exception("Runbook attempt %d/%d failed; retrying in %ss",
                           attempt, attempts, wait_s)
             sleeper(wait_s)
             continue
-        finally:
-            _alert_buffer = None
         if last_code == 0 or attempt >= attempts:
             _flush_status_alerts(records)
             return last_code
@@ -2154,9 +2162,30 @@ def run_with_retry(run_fn=_job, *, attempts=_JOB_ATTEMPTS, wait_s=_JOB_RETRY_WAI
     return last_code
 
 
+class _AttemptLogHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.lines: list[str] = []
+        self.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+
+    def emit(self, record):
+        try:
+            self.lines.append(self.format(record))
+        except Exception:  # noqa: BLE001 - never break the job for a log line
+            pass
+
+
+def _take_attempt_log(handler):
+    logging.getLogger().removeHandler(handler)
+    return list(handler.lines[-_MAX_CAPTURED_LOG_LINES:])
+
+
 def main():
     """Azure Automation entry. Retry+buffer lives here so a main() start
-    still combines fail-then-success into one mail."""
+    still holds alerts until the retry finishes."""
     return run_with_retry(_job)
 
 
