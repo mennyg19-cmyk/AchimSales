@@ -46,6 +46,12 @@ def test_this_week_starts_monday():
     assert p.end_date == _TODAY
 
 
+def test_this_week_accepts_spaces():
+    p = parse_period("this week", today=_TODAY)
+    assert p.start_date == date(2026, 4, 13)
+    assert p.end_date == _TODAY
+
+
 def test_last_7_days_is_six_days_back_inclusive():
     p = parse_period("last_7_days", today=_TODAY)
     assert p.start_date == date(2026, 4, 9)

@@ -1,3 +1,10 @@
+## 2026-09-09 WTD this_week was dropped after explorer edits
+**What you asked for:** A WTD ordered view and schedule edited in the explorer to `this_week` still ran `last_7_days`.
+**What I had to decide:** Treat explorer period as a one-off vs keep it through boot and send.
+**What I chose:** Boot no longer overwrites an existing company view’s params or layout. A personal named-view send uses the live view’s period when it has one; if the view has no window it keeps the schedule’s period. Run/Refresh re-fetches the open view when you have not changed filters. Company/master schedules still send their own period.
+**Why:** Canonical Daily Ordered params are `{}`. Overlaying that empty object wiped `this_week` off the schedule, and the next app recycle reset explorer edits on Daily Ordered back to `{}`. The report page also kept the old dropdown until you clicked the view again.
+**Status:** DECIDED
+
 ## 2026-09-09 Explorer checks JSON/SQL before save
 **What you asked for:** The explorer top bar looked messy. Saves and SQL should be checked so a broken layout cannot land. Example: deleting the groups array should be blocked if that would break the report.
 **What I had to decide:** Treat a missing `group` key as ungroup vs require `group: []`.

@@ -596,6 +596,73 @@ def test_runner_personal_named_view_uses_live_period_not_stale_schedule(tmp_path
     assert delivery.calls[0]["email_on_empty"] is True
 
 
+def test_runner_windowless_named_view_keeps_schedule_this_week(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    uid = UserRepository(db).upsert("avig@x.com", display_name="Avig", role="salesman").id
+    SavedReportRepository(db).create(uid, "ordered", "WTD ordered", {}, {})
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"period": "this_week", "email_on_no_data": True},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="avig@x.com", view_name="WTD ordered")
+    runner.run(sid, PERSONAL)
+    assert delivery.calls[0]["params"].get("period") == "this_week"
+
+
+def test_runner_live_this_week_beats_schedule_last_7_days(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    uid = UserRepository(db).upsert("avig@x.com", display_name="Avig", role="salesman").id
+    SavedReportRepository(db).create(
+        uid, "ordered", "WTD ordered", {"period": "this_week"}, {})
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"period": "last_7_days"},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="avig@x.com", view_name="WTD ordered")
+    runner.run(sid, PERSONAL)
+    assert delivery.calls[0]["params"].get("period") == "this_week"
+
+
 def test_runner_does_not_take_cc_from_live_saved_view(tmp_path):
     db = Database(tmp_path / "p.db", tmp_path / "c.db")
     migrate(db)
@@ -669,6 +736,40 @@ def test_runner_personal_company_view_uses_live_period_not_stale_schedule(tmp_pa
     params = delivery.calls[0]["params"]
     assert params.get("period") == "yesterday"
     assert "all_time" not in str(params)
+
+
+def test_runner_empty_company_view_keeps_schedule_this_week(tmp_path):
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.company_views import CompanyViewRepository
+
+    uid = UserRepository(db).upsert("admin@x.com", display_name="Admin", role="admin").id
+    CompanyViewRepository(db).upsert(
+        "ordered", "Daily Ordered", params={}, layout={}, updated_by=uid)
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"period": "this_week", "view_source": "company"},
+        layout={}, cadence={"freq": "daily", "time": "08:00"},
+        recipients="admin@x.com", view_name="Daily Ordered")
+    runner.run(sid, PERSONAL)
+    assert delivery.calls[0]["params"].get("period") == "this_week"
 
 
 def test_runner_company_view_schedule_ignores_same_named_personal_view(tmp_path):

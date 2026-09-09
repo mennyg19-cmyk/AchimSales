@@ -200,6 +200,8 @@ def test_report_viewer_meeting_ux():
     assert "pendingSalesman = null" in params_fn
     assert "applySalesman(typeof params.salesman === \"string\" ? params.salesman : \"\")" in params_fn
     assert "void loadCustomers()" in params_fn
+    assert "async function syncLiveViewParamsIfUnchanged" in src
+    assert "if (!opts.overrideParams) await syncLiveViewParamsIfUnchanged()" in src
     load_fn = src.split("async function loadPreset", 1)[1].split("async function autoOpenPresetIfRequested", 1)[0]
     assert "setEditingView(live)" in load_fn
     assert "opts?.edit" not in load_fn
@@ -217,7 +219,8 @@ def test_report_viewer_meeting_ux():
     assert "canDelete: !!p.can_edit, canEdit: !!p.can_edit" in src
     assert "companyViewGetUrl(String(preset.id).slice(COMPANY_VIEW_PREFIX.length))" in src
     assert "function mapPeriodValue" in src
-    assert 'v.toLowerCase() === "yesterday" ? "daily"' in src
+    assert 'low === "yesterday"' in src
+    assert 'low === "this week"' in src
     assert "function periodIsRunnable" in src
     assert "function layoutForCompanySave" in src
     assert "state.generatedAt = payload.generated_at" in src

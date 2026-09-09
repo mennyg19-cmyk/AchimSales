@@ -1621,7 +1621,11 @@ function collectCompanyViewParams(): Record<string, unknown> {
 
 function mapPeriodValue(raw: string): string {
   const v = raw.trim();
-  return v.toLowerCase() === "yesterday" ? "daily" : v;
+  const low = v.toLowerCase();
+  if (low === "yesterday") return "daily";
+  if (low === "this week") return "this_week";
+  if (low === "last 7 days") return "last_7_days";
+  return v;
 }
 
 function periodIsRunnable(params?: Record<string, unknown> | null): boolean {
@@ -1847,6 +1851,7 @@ async function run(opts: { preserveLayout?: boolean; overrideParams?: Record<str
   renderJobLog($("jobLiveLog"), []);
   runAborted = false;
   try {
+    if (!opts.overrideParams) await syncLiveViewParamsIfUnchanged();
     const params = opts.overrideParams ?? collectParams();
     const res = await fetch(attr("data-run-url"), {
       method: "POST",
@@ -2096,6 +2101,7 @@ let pendingSalesman: string | null = null; // deep-link salesman, applied after 
 let previewTimer: number | null = null;
 let pendingLayout: SavedLayout | null = null; // preset layout to apply after the next run
 let pendingLayoutQueued = false; // true even when the view stored an empty layout
+let appliedParamsSnap = ""; // form filters last applied from a saved view
 let editingPresetId: number | string | null = null;
 let editingPresetName: string | null = null;
 let autoRunRequested = false;                 // ?preset=<id> deep-link wants an auto-run
@@ -2865,6 +2871,17 @@ function applyParamsObject(params: Record<string, unknown>): void {
   }
   // Re-sync custom-range field visibility via the listener bound at boot.
   ($("periodSelect") as HTMLSelectElement | null)?.dispatchEvent(new Event("change"));
+  appliedParamsSnap = stableJson(collectParams());
+}
+
+async function syncLiveViewParamsIfUnchanged(): Promise<void> {
+  // Explorer (or another tab) can change the saved view after this page
+  // applied it. Re-fetch when the form still matches that apply so Run
+  // picks up this_week instead of the leftover last_7_days.
+  if (editingPresetId == null) return;
+  if (stableJson(collectParams()) !== appliedParamsSnap) return;
+  const live = await hydratePreset({ id: editingPresetId, name: editingPresetName || "" });
+  applyParamsObject(live.params || {});
 }
 
 function closePresetsPanel(): void {

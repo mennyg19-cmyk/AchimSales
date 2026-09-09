@@ -48,7 +48,7 @@ class Period:
 def parse_period(period: str, today: date | None = None) -> Period:
     """Resolve a named period to an inclusive date window (start clamped to go-live)."""
     today = today or today_eastern()
-    name = (period or "").strip().lower()
+    name = (period or "").strip().lower().replace(" ", "_")
 
     if name in ("daily", "yesterday"):
         y = today - timedelta(days=1)

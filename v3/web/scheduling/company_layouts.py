@@ -131,8 +131,12 @@ def is_heshy_open_orders(sched) -> bool:
 
 
 def seed_canonical_company_views(db) -> None:
+    """Insert missing canonical views. Do not overwrite params or layout that
+    already exist (explorer / Save this view period edits must survive boot)."""
     repo = CompanyViewRepository(db)
     for spec in CANONICAL:
+        if repo.get_by_name(spec["report_key"], spec["name"]) is not None:
+            continue
         repo.upsert(
             spec["report_key"], spec["name"],
             params=spec["params"], layout=spec["layout"], updated_by=None,
@@ -157,12 +161,22 @@ def _stamp(masters: MasterScheduleRepository, sched, view_name: str, layout: dic
     masters.set_view(sched.id, view_name, layout)
 
 
-_WINDOW_KEYS = ("period", "start_date", "end_date", "from", "to")
+WINDOW_KEYS = ("period", "start_date", "end_date", "from", "to")
 
 
 def params_without_window(params: dict | None) -> dict:
     """Company-view filters minus the date window. Schedules own YTD / MTD / yesterday."""
     out = dict(params or {})
-    for key in _WINDOW_KEYS:
+    for key in WINDOW_KEYS:
         out.pop(key, None)
     return out
+
+
+def has_date_window(params: dict | None) -> bool:
+    """True when filters already name a period or an explicit from/to range."""
+    raw = params or {}
+    if str(raw.get("period") or "").strip():
+        return True
+    start = str(raw.get("start_date") or raw.get("from") or "").strip()
+    end = str(raw.get("end_date") or raw.get("to") or "").strip()
+    return bool(start and end)

@@ -39,6 +39,7 @@ from web.delivery.email import DeliveryResult
 from web.delivery.service import DeliveryOutcome, DeliveryService
 from web.jobs.trace import JobCancelled, raise_if_cancelled, step as job_step
 from web.delivery.sharepoint import test_sharepoint_path
+from web.scheduling.company_layouts import WINDOW_KEYS, has_date_window
 from web.scheduling.delivery_keys import MASTER_DELIVERY_PARAM_KEYS, without_delivery_keys
 from web.scheduling import cadence as C
 from web.scheduling.catchup import eastern_date_of, run_param_windows
@@ -189,6 +190,13 @@ class ScheduleRunner:
         if live is None:
             return stored
         filters = without_delivery_keys(live, MASTER_DELIVERY_PARAM_KEYS)
+        # Named views send live filters, including period when the view stores
+        # one. Daily Ordered and other window-less views must not wipe the
+        # schedule's this_week / last_7_days / yesterday.
+        if not has_date_window(filters):
+            for key in WINDOW_KEYS:
+                if stored.get(key) not in (None, ""):
+                    filters[key] = stored[key]
         for key in _DELIVERY_PARAM_KEYS:
             if key in stored:
                 filters[key] = stored[key]

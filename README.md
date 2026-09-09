@@ -110,8 +110,10 @@ views flag (off by default; developers on, unused for admins). Toggle it on
 Users & access. Daily Ordered groups Summary by salesman then customer (A-Z),
 By Customer by salesman only (customers A-Z inside, not grouped), and leaves
 By Order ungrouped. Company views can store a date window when you check
-that box on Save this view; they can still be saved without one. Company
-schedules supply their own YTD / MTD / yesterday at send time. Managers who have the flag can edit
+that box on Save this view; they can still be saved without one. Boot does not
+reset those params. A personal named-view send uses the live view’s period when
+the view has one; if the view has no window it keeps the schedule’s
+this_week / last_7_days / yesterday. Company schedules supply their own YTD / MTD / yesterday at send time. Managers who have the flag can edit
 them from Saved views. Personal schedules send a **named saved view** (3
 steps: view, when, where). The Where step can set an email subject and HTML
 body with the same `{Schedule}` / `{Period}` chips as the filename, plus

@@ -1,5 +1,18 @@
 # Testing Strategy
 
+## Explorer period edits survive boot and send
+
+**What to test:**
+- `seed_canonical_company_views` inserts missing Daily Ordered / Heshy Open Orders only. A second seed leaves `period: this_week` and a custom layout on Daily Ordered.
+- Personal named-view send: live view `this_week` wins over schedule `last_7_days`. Live view `{}` keeps schedule `this_week`. Same for a personal schedule of a company view (`view_source=company`).
+- Master schedule with `yesterday` still sends yesterday when the company view stores another period.
+- `parse_period("this week")` is Monday–today. Report Run re-fetches the open view when filters still match the last apply (`syncLiveViewParamsIfUnchanged`).
+
+**Expected behavior:**
+- Explorer `params_json.period = "this_week"` on the view that backs the schedule is what Ordered uses. Empty company-view params no longer wipe the schedule window. Reload/Run without changing the form picks up the explorer edit.
+
+**Test files:** `v3/tests/test_company_views.py`, `v3/tests/test_scheduling.py`, `v3/tests/test_dates.py`, `v3/tests/test_frontend.py`
+
 ## Explorer rejects a layout that would regroup a tab
 
 **What to test:**
