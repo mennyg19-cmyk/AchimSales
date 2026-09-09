@@ -3358,6 +3358,8 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     assert 'id="dbxJsonModal"' in html
     assert "data-sql-url" in html
     assert "Pretty print" in html
+    assert "dbx-sql-run" in html
+    assert "dbx-controls" in html
 
     users = UserRepository(app.config["DB"])
     uid = users.get_by_email("dev@x.com").id
@@ -3405,6 +3407,29 @@ def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
     assert patched.status_code == 200, patched.get_data(as_text=True)
     after = SavedReportRepository(app.config["DB"]).get_any(mine["id"])
     assert after.layout["views"]["by_order"]["group"] == []
+
+    missing = dev.post("/api/dev/db/table/saved_reports/cell", json={
+        "db": "precious", "column": "layout_json", "pk": mine["id"],
+        "value": json.dumps({"views": {"by_order": {}}}),
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert missing.status_code == 400
+    assert "missing group" in missing.get_json()["error"]
+    still = SavedReportRepository(app.config["DB"]).get_any(mine["id"])
+    assert still.layout["views"]["by_order"]["group"] == []
+
+    syntax = dev.post("/api/dev/db/sql", json={
+        "db": "precious", "sql": "SELECT * FORM saved_reports",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert syntax.status_code == 400
+    assert "SQL will not run" in syntax.get_json()["error"]
+
+    escaped = json.dumps({"views": {"by_order": {"hidden": []}}}).replace("'", "''")
+    bad_sql = dev.post("/api/dev/db/sql", json={
+        "db": "precious",
+        "sql": f"UPDATE saved_reports SET layout_json = '{escaped}' WHERE id = {mine['id']}",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert bad_sql.status_code == 400
+    assert "missing group" in bad_sql.get_json()["error"]
 
     wrote = dev.post("/api/dev/db/sql", json={
         "db": "precious",

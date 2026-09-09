@@ -888,16 +888,33 @@ body.dark-theme .commission-live-table tr.comm-row-net td {
 .dbx-warn {
     background: var(--warning-light, #fef3c7); color: var(--text);
     border: 1px solid var(--warning, #f59e0b); border-radius: var(--radius-sm);
-    padding: 10px 12px; font-size: 13px; margin-bottom: 12px;
+    padding: 10px 12px; font-size: 13px; margin: 0 0 12px;
 }
-.dbx-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
-.dbx-sql-field { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
-.dbx-sql-field > span { flex: 1 1 100%; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.dbx-warn code { font-size: 12px; }
+.dbx-controls { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+.dbx-toolbar {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
+    align-items: end;
+}
+@media (max-width: 900px) {
+    .dbx-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.dbx-toolbar .filter-field { min-width: 0; width: 100%; }
+.dbx-toolbar .filter-field select,
+.dbx-toolbar .filter-field input { width: 100%; min-width: 0; }
+.dbx-sql-row { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.dbx-sql-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.4px;
+}
+.dbx-sql-run { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
 .dbx-sql {
-    flex: 1 1 16rem; min-width: 0; min-height: 72px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    width: 100%; min-width: 0; min-height: 72px; margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     background: var(--bg-card); color: var(--text); resize: vertical;
 }
+.dbx-sql-run .btn { align-self: stretch; }
 .dbx-layout { display: grid; grid-template-columns: 1fr; gap: 12px; }
 @media (min-width: 800px) { .dbx-layout { grid-template-columns: 220px 1fr; } }
 .dbx-tables {

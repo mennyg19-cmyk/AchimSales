@@ -1,3 +1,10 @@
+## 2026-09-09 Explorer checks JSON/SQL before save
+**What you asked for:** The explorer top bar looked messy. Saves and SQL should be checked so a broken layout cannot land. Example: deleting the groups array should be blocked if that would break the report.
+**What I had to decide:** Treat a missing `group` key as ungroup vs require `group: []`.
+**What I chose:** Require `group` on every tab in `views`. Empty `[]` is ungroup. Omitting `group` uses the builder default grouping (By Order can group every row). Invalid JSON, `groups` (plural), and SQL that SQLite cannot EXPLAIN are rejected with the reason. Filters sit in a 4-column row; SQL is full width under them.
+**Why:** Excel export only treats `group: []` as a saved ungroup. Deleting the key looks fine in the GUI and then the file is grouped again.
+**Status:** DECIDED
+
 ## 2026-09-09 Database explorer: SQL plus JSON pretty-edit
 **What you asked for:** Merge the views fix, and upgrade the explorer so you can filter Saved Reports to ordered views, expand layout_json, pretty-print it, and edit it yourself. Do not edit the views for you.
 **What I had to decide:** Raw SQL only vs richer table filters vs both.

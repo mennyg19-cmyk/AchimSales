@@ -14,6 +14,7 @@ from web.auth.decorators import require_login
 from web.auth.session import current_principal
 from web.dashboard.notifications import diagnose_overdue, generate_overdue_notifications
 from web.data.repositories.users import UserRepository
+from web.dbx_validate import json_assignments_in_sql, validate_column_value
 
 devtools_bp = Blueprint("devtools", __name__)
 
@@ -263,6 +264,17 @@ def api_run_sql():
                      "DROP, ALTER, ATTACH, CREATE, and multi-statement SQL are blocked.",
         }), 400
     with _conn(which) as conn:
+        kw = _sql_first_keyword(sql)
+        if kw not in ("PRAGMA", "EXPLAIN"):
+            try:
+                conn.execute("EXPLAIN " + sql)
+            except sqlite3.Error as exc:
+                return jsonify({"error": f"SQL will not run: {exc}"}), 400
+        if kind == "exec":
+            for col, raw in json_assignments_in_sql(sql):
+                err = validate_column_value(col, raw)
+                if err:
+                    return jsonify({"error": err}), 400
         try:
             cur = conn.execute(sql)
         except sqlite3.Error as exc:
@@ -319,6 +331,11 @@ def api_update_cell(table: str):
             return jsonify({"error": "Need a single-column primary key and a known column"}), 400
         col_type = next(c["type"] for c in cols if c["name"] == col)
         value = _coerce(body.get("value"), col_type)
+        if "INT" in (col_type or "").upper() and value is not None and not isinstance(value, int):
+            return jsonify({"error": f"{col} must be a whole number."}), 400
+        err = validate_column_value(col, value)
+        if err:
+            return jsonify({"error": err}), 400
         pk_value = body.get("pk")
         cur = conn.execute(
             f'UPDATE "{table}" SET "{col}"=? WHERE "{pk}"=?', (value, pk_value),

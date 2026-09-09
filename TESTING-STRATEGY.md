@@ -1,5 +1,18 @@
 # Testing Strategy
 
+## Explorer rejects a layout that would regroup a tab
+
+**What to test:**
+- `layout_errors`: a view object without `group` is rejected; `group: []` is allowed; `groups` (plural) is rejected; `group` must be an array of strings.
+- Cell POST of that bad layout_json is 400 and the row is unchanged.
+- SQL `SELECT * FORM …` is 400 (`SQL will not run`). UPDATE that assigns a layout_json missing `group` is 400.
+- Page stacks filters in `dbx-toolbar` and SQL in `dbx-sql-run`.
+
+**Expected behavior:**
+- To ungroup By Order you must keep `"group": []`. Deleting the key is blocked with that explanation.
+
+**Test files:** `v3/tests/test_dbx_validate.py`, `v3/tests/test_blueprints.py`
+
 ## Database explorer: SQL, column filter, JSON editor
 
 **What to test:**

@@ -174,9 +174,13 @@ function renderGrid(data: GridData, table: string | null, page: number, paged: b
         const input = document.createElement("input");
         input.className = "dbx-cell";
         input.value = raw;
+        input.dataset.orig = raw;
         input.addEventListener("change", () => {
           if (!pk || !table) return;
-          void saveCell(table, c.name, row[pk], input.value);
+          void saveCell(table, c.name, row[pk], input.value).then((ok) => {
+            if (ok) input.dataset.orig = input.value;
+            else input.value = input.dataset.orig || "";
+          });
         });
         if (!pk || !table) input.disabled = true;
         td.appendChild(input);
@@ -302,19 +306,28 @@ async function saveJsonEditor(): Promise<void> {
     jsonMsg((err as Error).message || "Invalid JSON — not saved.", true);
     return;
   }
-  await saveCell(jsonEdit.table, jsonEdit.column, jsonEdit.pk, compact);
+  const ok = await saveCell(jsonEdit.table, jsonEdit.column, jsonEdit.pk, compact);
+  if (!ok) return;
   jsonMsg("Saved.", false);
   if (currentTable) void loadRows(currentTable, currentPage);
 }
 
-async function saveCell(table: string, column: string, pk: unknown, value: string): Promise<void> {
+async function saveCell(table: string, column: string, pk: unknown, value: string): Promise<boolean> {
   const url = attr("data-cell-url").replace("__T__", encodeURIComponent(table));
   const resp = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf() },
     body: JSON.stringify({ db: dbName(), column, pk, value }),
   });
-  if (!resp.ok) show("Could not save cell.");
+  const data = await resp.json().catch(() => ({})) as { error?: string };
+  if (!resp.ok) {
+    const msg = data.error || "Could not save cell.";
+    show(msg);
+    jsonMsg(msg, true);
+    return false;
+  }
+  show("");
+  return true;
 }
 
 async function deleteRow(table: string, pk: unknown, after: () => void): Promise<void> {

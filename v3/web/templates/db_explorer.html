@@ -2,47 +2,54 @@
 {% block title %}Database explorer{% endblock %}
 
 {% block content %}
-<div class="page-head" id="dbxRoot"
+<div class="dbx-page" id="dbxRoot"
      data-tables-url="{{ url_for('devtools.api_list_tables') }}"
      data-table-url="{{ url_for('devtools.api_get_rows', table='__T__') }}"
      data-cell-url="{{ url_for('devtools.api_update_cell', table='__T__') }}"
      data-row-url="{{ url_for('devtools.api_delete_row', table='__T__') }}"
      data-sql-url="{{ url_for('devtools.api_run_sql') }}"
      data-csrf="{{ csrf_token() }}">
-  <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
-  <h1 class="page-title">Database explorer</h1>
-  <p class="page-subtitle">Edits save immediately. There is no undo.</p>
+  <div class="page-head">
+    <a class="back-link" href="{{ nav.settings }}"><i data-feather="arrow-left"></i> Settings</a>
+    <h1 class="page-title">Database explorer</h1>
+    <p class="page-subtitle">Edits save immediately. There is no undo. JSON and SQL are checked before they run.</p>
+  </div>
+  <p class="dbx-warn">Developer only. DROP, ALTER, ATTACH, and CREATE are blocked. To ungroup a tab keep <code>group: []</code> — deleting <code>group</code> restores the report’s default grouping.</p>
+  <div class="dbx-controls">
+    <div class="dbx-toolbar">
+      <label class="filter-field"><span>Database</span>
+        <select id="dbxDb">
+          <option value="precious">precious (users, jobs, schedules)</option>
+          <option value="cache">cache (exports, dashboard mirror)</option>
+        </select>
+      </label>
+      <label class="filter-field"><span>Search all columns</span>
+        <input type="search" id="dbxSearch" placeholder="Search this table…" autocomplete="off">
+      </label>
+      <label class="filter-field"><span>Column</span>
+        <select id="dbxCol"><option value="">Any column</option></select>
+      </label>
+      <label class="filter-field"><span>Column contains</span>
+        <input type="search" id="dbxColQ" placeholder="e.g. ordered" autocomplete="off">
+      </label>
+    </div>
+    <div class="dbx-sql-row">
+      <span class="dbx-sql-label">SQL</span>
+      <div class="dbx-sql-run">
+        <textarea id="dbxSql" class="dbx-sql" spellcheck="false" rows="3" placeholder="SELECT * FROM saved_reports WHERE report_key = 'ordered'"></textarea>
+        <button type="button" id="dbxSqlRun" class="btn btn-primary">Run SQL</button>
+      </div>
+    </div>
+  </div>
+  <div class="dbx-layout">
+    <aside class="dbx-tables">
+      <input type="search" id="dbxTableFilter" class="user-search" placeholder="Filter tables…" autocomplete="off">
+      <div id="dbxTables"></div>
+    </aside>
+    <div class="table-scroll" id="dbxGrid"></div>
+  </div>
+  <p class="flag-desc" id="dbxMsg" hidden></p>
 </div>
-<p class="dbx-warn">Developer only. Browse a table, filter a column, or run one SQL statement. SELECT / PRAGMA show a grid; INSERT / UPDATE / DELETE ask first. DROP, ALTER, ATTACH, and CREATE are blocked. JSON columns (layout_json, params_json) open in a pretty editor.</p>
-<div class="dbx-toolbar">
-  <label class="filter-field"><span>Database</span>
-    <select id="dbxDb">
-      <option value="precious">precious (users, jobs, schedules)</option>
-      <option value="cache">cache (exports, dashboard mirror)</option>
-    </select>
-  </label>
-  <label class="filter-field"><span>Search all columns</span>
-    <input type="search" id="dbxSearch" class="user-search" placeholder="Search this table…" autocomplete="off">
-  </label>
-  <label class="filter-field"><span>Column</span>
-    <select id="dbxCol"><option value="">Any column</option></select>
-  </label>
-  <label class="filter-field"><span>Column contains</span>
-    <input type="search" id="dbxColQ" class="user-search" placeholder="e.g. ordered" autocomplete="off">
-  </label>
-</div>
-<label class="filter-field dbx-sql-field"><span>SQL</span>
-  <textarea id="dbxSql" class="dbx-sql" spellcheck="false" rows="3" placeholder="SELECT * FROM saved_reports WHERE report_key = 'ordered'"></textarea>
-  <button type="button" id="dbxSqlRun" class="btn btn-primary btn-sm">Run SQL</button>
-</label>
-<div class="dbx-layout">
-  <aside class="dbx-tables">
-    <input type="search" id="dbxTableFilter" class="user-search" placeholder="Filter tables…" autocomplete="off">
-    <div id="dbxTables"></div>
-  </aside>
-  <div class="table-scroll" id="dbxGrid"></div>
-</div>
-<p class="flag-desc" id="dbxMsg" hidden></p>
 
 <div id="dbxJsonModal" class="modal-overlay" hidden>
   <div class="modal dbx-json-modal" role="dialog" aria-labelledby="dbxJsonTitle">
