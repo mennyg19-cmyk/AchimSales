@@ -4,6 +4,7 @@ passthrough, and notification diagnostic."""
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any
 
@@ -78,6 +79,57 @@ def _coerce(raw: Any, col_type: str) -> Any:
         except (TypeError, ValueError):
             return raw
     return raw
+
+
+_SQL_MAX = 20_000
+_SQL_ROW_CAP = 500
+_SQL_FROM = re.compile(
+    r'\bFROM\s+(?:"([A-Za-z_][\w]*)"|([A-Za-z_][\w]*))',
+    re.IGNORECASE,
+)
+_SQL_COMMENT = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
+
+
+def _strip_sql_comments(sql: str) -> str:
+    return _SQL_COMMENT.sub(" ", sql)
+
+
+def _sql_first_keyword(sql: str) -> str:
+    s = _strip_sql_comments(sql).strip().rstrip(";").strip()
+    while s.startswith("("):
+        s = s[1:].lstrip()
+    if not s:
+        return ""
+    return s.split(None, 1)[0].upper()
+
+
+def _sql_kind(sql: str) -> str:
+    """query = rows; exec = INSERT/UPDATE/DELETE; reject = blocked."""
+    body = sql.strip()
+    if not body or len(body) > _SQL_MAX:
+        return "reject"
+    if ";" in body.rstrip().rstrip(";"):
+        return "reject"
+    kw = _sql_first_keyword(body)
+    if kw in ("SELECT", "EXPLAIN", "PRAGMA"):
+        return "query"
+    if kw == "WITH":
+        upper = f" {_strip_sql_comments(body).upper()} "
+        if any(f" {w} " in upper for w in ("INSERT", "UPDATE", "DELETE")):
+            return "reject"
+        return "query"
+    if kw in ("INSERT", "UPDATE", "DELETE"):
+        return "exec"
+    return "reject"
+
+
+def _sql_from_table(sql: str) -> str | None:
+    if re.search(r"\bJOIN\b", sql, re.IGNORECASE):
+        return None
+    m = _SQL_FROM.search(_strip_sql_comments(sql))
+    if not m:
+        return None
+    return m.group(1) or m.group(2)
 
 
 @devtools_bp.get("/dev/db-explorer")
@@ -167,11 +219,17 @@ def api_get_rows(table: str):
         col_names = [c["name"] for c in cols]
         pk = _primary_key(cols)
         search = (request.args.get("q") or "").strip()
-        where_sql = ""
+        col_filter = _resolve_column(cols, request.args.get("col") or "")
+        colq = (request.args.get("colq") or "").strip()
+        clauses: list[str] = []
         params: list[Any] = []
         if search:
-            where_sql = "WHERE " + " OR ".join(f'CAST("{c}" AS TEXT) LIKE ?' for c in col_names)
+            clauses.append("(" + " OR ".join(f'CAST("{c}" AS TEXT) LIKE ?' for c in col_names) + ")")
             params.extend([f"%{search}%"] * len(col_names))
+        if col_filter and colq:
+            clauses.append(f'CAST("{col_filter}" AS TEXT) LIKE ?')
+            params.append(f"%{colq}%")
+        where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         sort_col = _resolve_column(cols, request.args.get("sort", "") or "") or pk
         order_sql = f'ORDER BY "{sort_col}"' if sort_col else ""
         offset = (page - 1) * per_page
@@ -184,6 +242,59 @@ def api_get_rows(table: str):
             "table": table, "columns": cols, "primary_key": pk,
             "rows": [dict(r) for r in rows], "total": total, "page": page,
             "per_page": per_page,
+        })
+
+
+@devtools_bp.post("/api/dev/db/sql")
+@require_login
+def api_run_sql():
+    blocked = _require_developer()
+    if blocked:
+        return blocked
+    body = request.get_json(silent=True) or {}
+    which = (body.get("db") or "precious").strip()
+    if which not in ("precious", "cache"):
+        return jsonify({"error": "db must be precious or cache"}), 400
+    sql = (body.get("sql") or "").strip()
+    kind = _sql_kind(sql)
+    if kind == "reject":
+        return jsonify({
+            "error": "Only one SELECT / PRAGMA / EXPLAIN, or one INSERT / UPDATE / DELETE. "
+                     "DROP, ALTER, ATTACH, CREATE, and multi-statement SQL are blocked.",
+        }), 400
+    with _conn(which) as conn:
+        try:
+            cur = conn.execute(sql)
+        except sqlite3.Error as exc:
+            return jsonify({"error": str(exc)}), 400
+        if kind == "exec":
+            return jsonify({"ok": True, "kind": "exec", "rowcount": cur.rowcount})
+        fetched = cur.fetchmany(_SQL_ROW_CAP + 1)
+        truncated = len(fetched) > _SQL_ROW_CAP
+        fetched = fetched[:_SQL_ROW_CAP]
+        col_names = [d[0] for d in (cur.description or [])]
+        inferred = _resolve_table(conn, _sql_from_table(sql) or "")
+        cols = _table_columns(conn, inferred) if inferred else [
+            {"name": n, "type": "", "notnull": False, "default": None, "pk": 0}
+            for n in col_names
+        ]
+        if inferred:
+            by_name = {c["name"]: c for c in cols}
+            cols = [by_name.get(n, {"name": n, "type": "", "notnull": False, "default": None, "pk": 0})
+                    for n in col_names]
+        pk = _primary_key(_table_columns(conn, inferred)) if inferred else None
+        writable = bool(inferred and pk and pk in col_names)
+        rows = []
+        for r in fetched:
+            if isinstance(r, sqlite3.Row):
+                rows.append({k: r[k] for k in r.keys()})
+            else:
+                rows.append(dict(zip(col_names, r)))
+        return jsonify({
+            "ok": True, "kind": "query", "sql": sql,
+            "table": inferred, "columns": cols, "primary_key": pk if writable else None,
+            "rows": rows, "total": len(rows), "truncated": truncated,
+            "page": 1, "per_page": _SQL_ROW_CAP,
         })
 
 

@@ -1,3 +1,10 @@
+## 2026-09-09 Database explorer: SQL plus JSON pretty-edit
+**What you asked for:** Merge the views fix, and upgrade the explorer so you can filter Saved Reports to ordered views, expand layout_json, pretty-print it, and edit it yourself. Do not edit the views for you.
+**What I had to decide:** Raw SQL only vs richer table filters vs both.
+**What I chose:** Both. One SELECT/PRAGMA (or a confirmed INSERT/UPDATE/DELETE). Column “contains” filter on browse. JSON columns open in a pretty editor and save back. DROP/ALTER/ATTACH/CREATE stay blocked.
+**Why:** Your example is `saved_reports` where report_key is ordered, then read/edit layout_json. Search-all-columns already existed but JSON was a one-line input.
+**Status:** DECIDED
+
 ## 2026-09-09 Selecting a view loads that view, not leftover filters
 **What you asked for:** Saved views were not applying in the GUI. Filters and layout stayed from the last view, so Save this view overwrote the real setup.
 **What I had to decide:** Overlay only the fields the new view stores vs reset the form/grid first. Re-apply company Default after every run vs only on a first blank run.

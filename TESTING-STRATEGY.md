@@ -1,5 +1,18 @@
 # Testing Strategy
 
+## Database explorer: SQL, column filter, JSON editor
+
+**What to test:**
+- Admin 403 on `/api/dev/db/sql`. Developer can SELECT `saved_reports WHERE report_key = 'ordered'` and get pretty `layout_json` plus a writable table/pk.
+- Table browse `?col=report_key&colq=ordered` returns only ordered views (all users).
+- POST cell can rewrite `layout_json`. DROP / ATTACH return 400. UPDATE SQL is exec with rowcount.
+- Page has SQL box and JSON modal.
+
+**Expected behavior:**
+- You can list every ordered saved view, expand `layout_json`, pretty-print it, edit By Order grouping, and save — without the agent touching those rows.
+
+**Test file:** `v3/tests/test_blueprints.py`
+
 ## Selecting a saved view loads its filters and layout
 
 **What to test:**

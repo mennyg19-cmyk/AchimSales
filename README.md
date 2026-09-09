@@ -159,7 +159,8 @@ asks for an optional name; the bottom-right pill can be minimized.
 
 On the home site, **Settings** is the control panel (same ~800px width as Live): You,
 People, Reports, Delivery, History, and (developers) Database explorer,
-notification diagnostic, and beta SQL/OData sources. Live Email Distributions
+notification diagnostic, and beta SQL/OData sources. The explorer can run one
+SELECT (or a confirmed INSERT/UPDATE/DELETE), filter a column (e.g. `saved_reports.report_key` contains `ordered`), and open `layout_json` / `params_json` in a pretty-print editor. DROP / ALTER / ATTACH / CREATE stay blocked. Live Email Distributions
 stay on Live only. Developers can also see any Reporting API SP's raw response
 at `/api/dev/reporting/<report_id>/run` (query string = SP params, e.g.
 `/api/dev/reporting/salesmen_master/run`); nothing is dropped or scoped.

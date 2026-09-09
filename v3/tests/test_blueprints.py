@@ -3338,6 +3338,83 @@ def test_devtools_forbidden_for_admin_and_ok_for_developer(tmp_path):
     assert any(t["name"] == "users" for t in tables)
 
 
+def test_db_explorer_sql_column_filter_and_json_cell(tmp_path):
+    """Developers can filter saved_reports, run SELECT, and rewrite layout_json.
+    DROP is blocked. Admins cannot run SQL."""
+    import json
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    app = _make_app(tmp_path)
+    admin = app.test_client()
+    _login(admin, app)
+    denied = admin.post("/api/dev/db/sql", json={"db": "precious", "sql": "SELECT 1"},
+                        headers={"X-CSRF-Token": _CSRF})
+    assert denied.status_code == 403
+
+    dev = app.test_client()
+    _login(dev, app, email="dev@x.com", role="developer")
+    html = dev.get("/dev/db-explorer").get_data(as_text=True)
+    assert 'id="dbxSql"' in html
+    assert 'id="dbxJsonModal"' in html
+    assert "data-sql-url" in html
+    assert "Pretty print" in html
+
+    users = UserRepository(app.config["DB"])
+    uid = users.get_by_email("dev@x.com").id
+    other = users.upsert("other@x.com", display_name="Other", role="salesman").id
+    saved = SavedReportRepository(app.config["DB"])
+    saved.create(uid, "ordered", "Mine", {"period": "ytd"},
+                 {"views": {"by_order": {"group": ["OrderNumber"]}}})
+    saved.create(other, "ordered", "Theirs", {},
+                 {"views": {"by_order": {"group": ["Salesman"]}}})
+    saved.create(uid, "invoiced", "Inv", {}, {"views": {}})
+
+    filtered = dev.get(
+        "/api/dev/db/table/saved_reports?col=report_key&colq=ordered",
+    ).get_json()
+    assert filtered["total"] == 2
+    assert {r["name"] for r in filtered["rows"]} == {"Mine", "Theirs"}
+
+    sql = dev.post("/api/dev/db/sql", json={
+        "db": "precious",
+        "sql": "SELECT id, name, report_key, layout_json FROM saved_reports WHERE report_key = 'ordered' ORDER BY name",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert sql.status_code == 200, sql.get_data(as_text=True)
+    body = sql.get_json()
+    assert body["kind"] == "query"
+    assert body["table"] == "saved_reports"
+    assert body["primary_key"] == "id"
+    assert [r["name"] for r in body["rows"]] == ["Mine", "Theirs"]
+    mine = next(r for r in body["rows"] if r["name"] == "Mine")
+    layout = json.loads(mine["layout_json"])
+    assert layout["views"]["by_order"]["group"] == ["OrderNumber"]
+
+    drop = dev.post("/api/dev/db/sql", json={
+        "db": "precious", "sql": "DROP TABLE saved_reports",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert drop.status_code == 400
+    attach = dev.post("/api/dev/db/sql", json={
+        "db": "precious", "sql": "ATTACH DATABASE '/tmp/x.db' AS x",
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert attach.status_code == 400
+
+    new_layout = json.dumps({"views": {"by_order": {"group": []}}})
+    patched = dev.post("/api/dev/db/table/saved_reports/cell", json={
+        "db": "precious", "column": "layout_json", "pk": mine["id"], "value": new_layout,
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert patched.status_code == 200, patched.get_data(as_text=True)
+    after = SavedReportRepository(app.config["DB"]).get_any(mine["id"])
+    assert after.layout["views"]["by_order"]["group"] == []
+
+    wrote = dev.post("/api/dev/db/sql", json={
+        "db": "precious",
+        "sql": "UPDATE saved_reports SET name='Mine2' WHERE id = %d" % mine["id"],
+    }, headers={"X-CSRF-Token": _CSRF})
+    assert wrote.status_code == 200
+    assert wrote.get_json()["kind"] == "exec"
+    assert SavedReportRepository(app.config["DB"]).get_any(mine["id"]).name == "Mine2"
+
+
 def test_dev_reporting_passthrough_returns_every_column(tmp_path):
     """Developers can see the raw Reporting API response for any SP, columns
     intact, with query-string values passed as SP params. Admins get 403."""
