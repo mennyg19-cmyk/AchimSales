@@ -179,7 +179,36 @@ def test_report_viewer_meeting_ux():
     assert "if (!res.ok)" in cancel
     assert "Could not cancel this run." in cancel
     assert "showCancel(job.status === \"running\" && !!job.can_cancel)" in src
-    assert 'closePresetsPanel(); loadPreset(preset); });' in src
+    assert "function applyPendingOrDefaultLayout" in src
+    assert 'applyPendingOrDefaultLayout(opts.preserveLayout ? "preserve" : "fresh")' in src
+    assert "pendingLayoutQueued" in src
+    assert "function queuePendingLayout" in src
+    assert "function resetLayoutToBuilderDefaults" in src
+    assert "function viewFromTabDefaults" in src
+    assert "async function hydratePreset" in src
+    assert "async function loadPreset" in src
+    assert "void loadPreset(preset, { run: true })" in src
+    assert "function setEditingView" in src
+    assert "function syncLoadedViewLabel" in src
+    assert 'id="loadedViewLabel"' in (_V3 / "web" / "templates" / "report_view.html").read_text(encoding="utf-8")
+    apply_pending = src.split("function applyPendingOrDefaultLayout", 1)[1].split("async function loadCompanyDefault", 1)[0]
+    assert 'mode === "fresh"' in apply_pending
+    assert "companyDefaultLayout" in apply_pending
+    assert "fromView" in apply_pending
+    params_fn = src.split("function applyParamsObject", 1)[1].split("function closePresetsPanel", 1)[0]
+    assert "form?.reset()" in params_fn
+    assert "pendingSalesman = null" in params_fn
+    assert "applySalesman(typeof params.salesman === \"string\" ? params.salesman : \"\")" in params_fn
+    assert "void loadCustomers()" in params_fn
+    load_fn = src.split("async function loadPreset", 1)[1].split("async function autoOpenPresetIfRequested", 1)[0]
+    assert "setEditingView(live)" in load_fn
+    assert "opts?.edit" not in load_fn
+    assert "setControlsCollapsed(false)" in load_fn
+    assert "preserveLayout: isReportShown()" in load_fn
+    assert 'closePresetsPanel(); loadPreset(preset); });' not in src
+    css = (_SRC / "css" / "pages.css").read_text(encoding="utf-8")
+    assert ".loaded-view-label" in css
+    assert ".presets-row-current" in css
     assert "Updated Default." in src
     assert "Only managers and admins can change the Default view." in src
     assert "Only managers and admins can change company views." in src

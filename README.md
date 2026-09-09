@@ -100,8 +100,11 @@ that primary group plus any additional checked SalesGroups controls the data
 they can see. Managers use the same per-salesman checkboxes (also from D365).
 
 Each report has a company **Default** view (the current tab/column layout)
-plus named **company views** (Daily Ordered, Heshy Open Orders). Admins and
-developers always see and can create, edit, and delete those views (Save for
+plus named **company views** (Daily Ordered, Heshy Open Orders). Opening a
+saved view (the name or Edit) loads that view’s filters and layout into the
+form and grid; **Save this view** updates the one you opened. A refresh with
+a report already on screen keeps your current layout and does not slam the
+company Default back on top. Admins and developers always see and can create, edit, and delete those views (Save for
 **Company**, or Edit/Delete in Saved views). Other roles need the Company
 views flag (off by default; developers on, unused for admins). Toggle it on
 Users & access. Daily Ordered groups Summary by salesman then customer (A-Z),

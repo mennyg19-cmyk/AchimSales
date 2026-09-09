@@ -227,6 +227,15 @@
 }
 .report-layout-toolbar .btn svg { width: 16px; height: 16px; flex: 0 0 auto; }
 .report-layout-toolbar .btn span { white-space: nowrap; }
+.loaded-view-label {
+    font-size: 12px; font-weight: 600; color: var(--text-muted);
+    padding: 0 4px; white-space: nowrap;
+}
+.presets-row-current {
+    background: var(--primary-light);
+    border-radius: 6px;
+}
+.presets-row-current .presets-open { font-weight: 700; }
 .view-owner-field {
     display: inline-flex; align-items: center; gap: 6px;
     font-size: 12px; font-weight: 600; color: var(--text-muted);

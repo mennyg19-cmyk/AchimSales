@@ -379,6 +379,14 @@ function freshView(): ViewState {
   return { hidden: new Set(), frozen: new Set(), order: null, sorters: null, columnFilters: {}, group: [], widths: {} };
 }
 
+function viewFromTabDefaults(tab: Tab): ViewState {
+  const v = freshView();
+  if (Array.isArray((tab as any).default_group) && (tab as any).default_group.length) {
+    v.group = [...(tab as any).default_group];
+  }
+  return v;
+}
+
 function addGroupField(tab: Tab, field: string): void {
   const g = view(tab.key).group;
   if (!field || g.includes(field)) return;
@@ -1641,11 +1649,7 @@ function loadPayload(payload: Payload, render = true): void {
     state.tabs[tab.key] = tab;
     state.order.push(tab.key);
     state.catalogOrder.push(tab.key);
-    const v = freshView();
-    if (Array.isArray((tab as any).default_group) && (tab as any).default_group.length) {
-      v.group = [...(tab as any).default_group];
-    }
-    state.views[tab.key] = v;
+    state.views[tab.key] = viewFromTabDefaults(tab);
   });
   state.active = state.order[0] || null;
   setToolbarEnabled(true);
@@ -1803,7 +1807,7 @@ async function poll(jobId: string, opts: { preserveLayout?: boolean; elapsedMs?:
       clearStatus();
       if (opts.preserveLayout) loadPayloadPreserving(payload);
       else loadPayload(payload);
-      applyPendingOrDefaultLayout();
+      applyPendingOrDefaultLayout(opts.preserveLayout ? "preserve" : "fresh");
       return;
     }
     if (job.status === "failure") throw new Error(friendlyError(job.error));
@@ -1921,6 +1925,37 @@ async function resumeInFlight(): Promise<boolean> {
   state.jobId = target.job_id;
   await resumeJob(target.job_id, (target.age_seconds || 0) * 1000);
   return true;
+}
+
+function syncLoadedViewLabel(): void {
+  const el = $("loadedViewLabel");
+  const save = $("saveViewBtn") as HTMLButtonElement | null;
+  if (el) {
+    if (editingPresetName) {
+      el.hidden = false;
+      el.textContent = `Editing “${editingPresetName}”`;
+    } else {
+      el.hidden = true;
+      el.textContent = "";
+    }
+  }
+  if (save) {
+    save.title = editingPresetName
+      ? `Save changes to “${editingPresetName}”`
+      : "Save these filters + layout as a named view";
+  }
+}
+
+function setEditingView(preset: { id?: number | string; name?: string }): void {
+  editingPresetId = isDefaultViewId(preset.id) ? DEFAULT_VIEW_ID : (preset.id ?? null);
+  editingPresetName = preset.name || null;
+  syncLoadedViewLabel();
+}
+
+function clearEditingView(): void {
+  editingPresetId = null;
+  editingPresetName = null;
+  syncLoadedViewLabel();
 }
 
 function setToolbarEnabled(hasData: boolean): void {
@@ -2060,6 +2095,7 @@ let lookupPollTimer: number | null = null;
 let pendingSalesman: string | null = null; // deep-link salesman, applied after options load
 let previewTimer: number | null = null;
 let pendingLayout: SavedLayout | null = null; // preset layout to apply after the next run
+let pendingLayoutQueued = false; // true even when the view stored an empty layout
 let editingPresetId: number | string | null = null;
 let editingPresetName: string | null = null;
 let autoRunRequested = false;                 // ?preset=<id> deep-link wants an auto-run
@@ -2224,7 +2260,8 @@ function applySalesman(val: string): void {
 async function loadCustomers(): Promise<void> {
   if (!hasFilter("customerPicker")) return;
   const sel = $("salesmanSelect") as HTMLSelectElement | null;
-  const salesman = sel?.value ? `?salesman=${encodeURIComponent(sel.value)}` : "";
+  const salesmanVal = sel?.value || pendingSalesman || "";
+  const salesman = salesmanVal ? `?salesman=${encodeURIComponent(salesmanVal)}` : "";
   const data = await getJSON<{ customers: LookupRow[] }>(attr("data-customers-url") + salesman);
   customerOptions = data?.customers || [];
   renderCustomerPicker();
@@ -2539,37 +2576,59 @@ function layoutForCompanySave(): SavedLayout {
   return pendingLayout && layoutIsUsable(pendingLayout) ? pendingLayout : serializeLayout();
 }
 
-function applyLayout(layout: SavedLayout | null): void {
-  if (!layout) return;
-  if (Array.isArray(layout.clones)) {
-    layout.clones.forEach((c) => {
-      if (!c?.key || !c?.baseKey || state.tabs[c.key]) return;
-      const base = state.tabs[c.baseKey];
-      if (!base) return;
-      const clone: Tab = JSON.parse(JSON.stringify(base));
-      clone.key = c.key;
-      clone.name = c.name || `${base.name} (copy)`;
-      (clone as any)._isDuplicate = true;
-      (clone as any)._baseKey = c.baseKey;
-      state.tabs[c.key] = clone;
-      if (!state.views[c.key]) state.views[c.key] = freshView();
-    });
-  }
-  if (layout.views) {
-    Object.keys(layout.views).forEach((k) => {
-      if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
-    });
-  }
-  if (layout.active && state.tabs[layout.active]) state.active = layout.active;
-  if (Array.isArray(layout.order) && layout.order.length) {
-    const wanted = layout.order.filter((k) => state.tabs[k]);
-    if (wanted.length) {
-      Object.keys(state.tabs).forEach((k) => {
-        if (!wanted.includes(k) && !(state.tabs[k] as any)?._isDuplicate) {
-          state.removed.add(k);
-        }
+function dropDuplicateTabs(keep: Set<string>): void {
+  Object.keys(state.tabs).forEach((k) => {
+    if (!(state.tabs[k] as any)._isDuplicate) return;
+    if (keep.has(k)) return;
+    delete state.tabs[k];
+    delete state.views[k];
+  });
+}
+
+function resetLayoutToBuilderDefaults(): void {
+  dropDuplicateTabs(new Set());
+  state.removed = new Set();
+  state.order = [...state.catalogOrder];
+  state.catalogOrder.forEach((k) => {
+    const tab = state.tabs[k];
+    if (tab) state.views[k] = viewFromTabDefaults(tab);
+  });
+  state.active = state.order[0] || null;
+}
+
+function applyLayout(layout: SavedLayout | null | undefined): void {
+  resetLayoutToBuilderDefaults();
+  if (layout && typeof layout === "object") {
+    if (Array.isArray(layout.clones)) {
+      layout.clones.forEach((c) => {
+        if (!c?.key || !c?.baseKey || state.tabs[c.key]) return;
+        const base = state.tabs[c.baseKey];
+        if (!base) return;
+        const clone: Tab = JSON.parse(JSON.stringify(base));
+        clone.key = c.key;
+        clone.name = c.name || `${base.name} (copy)`;
+        (clone as any)._isDuplicate = true;
+        (clone as any)._baseKey = c.baseKey;
+        state.tabs[c.key] = clone;
+        if (!state.views[c.key]) state.views[c.key] = freshView();
       });
-      state.order = wanted;
+    }
+    if (layout.views) {
+      Object.keys(layout.views).forEach((k) => {
+        if (state.tabs[k]) state.views[k] = deserializeView(layout.views[k]);
+      });
+    }
+    if (layout.active && state.tabs[layout.active]) state.active = layout.active;
+    if (Array.isArray(layout.order) && layout.order.length) {
+      const wanted = layout.order.filter((k) => state.tabs[k]);
+      if (wanted.length) {
+        Object.keys(state.tabs).forEach((k) => {
+          if (!wanted.includes(k) && !(state.tabs[k] as any)?._isDuplicate) {
+            state.removed.add(k);
+          }
+        });
+        state.order = wanted;
+      }
     }
   }
   renderTabs();
@@ -2667,6 +2726,7 @@ async function confirmSaveView(): Promise<void> {
     }
     if (await putCompanyView(name, includeWindow)) {
       closeSaveViewModal();
+      setEditingView({ id: editingPresetId ?? undefined, name });
       setStatus(`Updated “${name}”.`);
     }
     return;
@@ -2682,6 +2742,7 @@ async function confirmSaveView(): Promise<void> {
     }
     if (await putCompanyView(trimmed, includeWindow)) {
       closeSaveViewModal();
+      setEditingView({ id: editingPresetId ?? undefined, name: trimmed });
       setStatus(`Saved company view “${trimmed}”.`);
     }
     return;
@@ -2749,6 +2810,7 @@ async function confirmSaveView(): Promise<void> {
       const ownerLabel = ownerSel?.value ? ownerSel.selectedOptions[0]?.textContent?.trim() : "";
       setStatus(ownerLabel ? `Saved “${trimmed}” for ${ownerLabel}.` : `Saved “${trimmed}”.`);
     }
+    syncLoadedViewLabel();
     rememberNamedView({
       id: editingPresetId == null ? undefined : editingPresetId,
       name: trimmed,
@@ -2765,6 +2827,10 @@ async function confirmSaveView(): Promise<void> {
 }
 
 function applyParamsObject(params: Record<string, unknown>): void {
+  const form = $("filterForm") as HTMLFormElement | null;
+  selectedCustomers.clear();
+  pendingSalesman = null;
+  form?.reset();
   (["period", "year", "mode"] as const).forEach((name) => {
     const el = document.querySelector<HTMLSelectElement | HTMLInputElement>(`[name="${name}"]`);
     if (!el || params[name] == null) return;
@@ -2785,14 +2851,18 @@ function applyParamsObject(params: Record<string, unknown>): void {
   }
   const sd = document.querySelector<HTMLInputElement>('[name="start_date"]');
   const ed = document.querySelector<HTMLInputElement>('[name="end_date"]');
-  if (sd && params.start_date != null) sd.value = String(params.start_date);
-  if (ed && params.end_date != null) ed.value = String(params.end_date);
-  if (params.salesman != null) applySalesman(String(params.salesman));
-  selectedCustomers.clear();
+  const start = params.start_date ?? params.from;
+  const end = params.end_date ?? params.to;
+  if (sd && start != null) sd.value = String(start);
+  if (ed && end != null) ed.value = String(end);
+  applySalesman(typeof params.salesman === "string" ? params.salesman : "");
   const custs = params.customers;
   const list = Array.isArray(custs) ? custs : (custs ? String(custs).split(",") : []);
   list.forEach((c) => { const k = String(c).trim(); if (k) selectedCustomers.set(k, k); });
-  if (hasFilter("customerPicker")) renderCustomerPicker();
+  if (hasFilter("customerPicker")) {
+    renderCustomerPicker();
+    void loadCustomers();
+  }
   // Re-sync custom-range field visibility via the listener bound at boot.
   ($("periodSelect") as HTMLSelectElement | null)?.dispatchEvent(new Event("change"));
 }
@@ -2824,13 +2894,21 @@ function isCompanyViewId(id: unknown): boolean {
   return typeof id === "string" && id.startsWith(COMPANY_VIEW_PREFIX);
 }
 
-function applyPendingOrDefaultLayout(): void {
-  if (pendingLayout) {
+function queuePendingLayout(layout: SavedLayout | null | undefined): void {
+  pendingLayout = layout || null;
+  pendingLayoutQueued = true;
+}
+
+function applyPendingOrDefaultLayout(mode: "fresh" | "preserve"): void {
+  const fromView = pendingLayoutQueued;
+  if (pendingLayoutQueued) {
     applyLayout(pendingLayout);
     pendingLayout = null;
-  } else if (layoutIsUsable(companyDefaultLayout)) {
+    pendingLayoutQueued = false;
+  } else if (mode === "fresh" && layoutIsUsable(companyDefaultLayout)) {
     applyLayout(companyDefaultLayout);
   }
+  if (fromView) setControlsCollapsed(false);
   if (loadedNamedView && isReportShown()) {
     loadedNamedView.layoutSnap = stableJson(serializeLayout());
     loadedNamedView.layoutReady = true;
@@ -2864,7 +2942,13 @@ function appendPresetRow(
   open.title = isDefaultViewId(preset.id)
     ? "Run the Default view"
     : (isCompanyViewId(preset.id) ? "Run this company view" : "Run this saved view");
-  open.addEventListener("click", () => { closePresetsPanel(); loadPreset(preset); });
+  if (editingPresetId != null && String(editingPresetId) === String(preset.id)) {
+    row.classList.add("presets-row-current");
+  }
+  open.addEventListener("click", () => {
+    closePresetsPanel();
+    void loadPreset(preset, { run: true });
+  });
   row.appendChild(open);
   if (isCompanyViewId(preset.id)) {
     const tag = document.createElement("span");
@@ -2881,9 +2965,8 @@ function appendPresetRow(
     edit.addEventListener("click", (ev) => {
       ev.stopPropagation();
       closePresetsPanel();
-      loadPreset(preset, {
+      void loadPreset(preset, {
         run: !isReportShown() && periodIsRunnable(preset.params),
-        edit: true,
       });
       setStatus(`Editing “${preset.name}”. Change filters or layout, then Save this view.`);
     });
@@ -2906,10 +2989,7 @@ function appendPresetRow(
         return;
       }
       row.remove();
-      if (editingPresetId === preset.id) {
-        editingPresetId = null;
-        editingPresetName = null;
-      }
+      if (editingPresetId === preset.id) clearEditingView();
     });
     row.appendChild(del);
   }
@@ -2976,6 +3056,10 @@ async function togglePresetsPanel(): Promise<void> {
     });
   });
   ($("presetsBtn") as HTMLElement)?.insertAdjacentElement("afterend", panel);
+  panel.querySelectorAll(".presets-row-current").forEach((row) => {
+    const fold = row.closest("details.presets-fold");
+    if (fold) fold.open = true;
+  });
   setTimeout(() => document.addEventListener("click", onPresetsOutside, true), 0);
 }
 
@@ -2986,27 +3070,61 @@ function syncViewOwner(preset: { owner_user_id?: number }): void {
   el.value = [...el.options].some((o) => o.value === v) ? v : "";
 }
 
-function loadPreset(preset: {
+type PresetPick = {
   id?: number | string; name?: string;
   params?: Record<string, unknown>; layout?: SavedLayout;
   owner_user_id?: number;
-}, opts?: { run?: boolean; edit?: boolean }): void {
-  applyParamsObject(preset.params || {});
-  pendingLayout = preset.layout || (isDefaultViewId(preset.id) ? companyDefaultLayout : null);
-  if (opts?.edit) {
-    editingPresetId = isDefaultViewId(preset.id) ? DEFAULT_VIEW_ID : (preset.id ?? null);
-    editingPresetName = preset.name || null;
-  } else {
-    editingPresetId = null;
-    editingPresetName = null;
+};
+
+async function hydratePreset(preset: PresetPick): Promise<PresetPick> {
+  if (isDefaultViewId(preset.id)) {
+    await loadCompanyDefault();
+    return {
+      ...preset,
+      name: "Default",
+      params: companyDefaultParams,
+      layout: companyDefaultLayout || undefined,
+    };
   }
-  syncViewOwner(preset);
-  rememberNamedView(preset);
-  if (opts?.edit) setToolbarEnabled(isReportShown());
+  if (isCompanyViewId(preset.id)) {
+    const data = await getJSON<PresetPick>(
+      companyViewGetUrl(String(preset.id).slice(COMPANY_VIEW_PREFIX.length)),
+    );
+    if (!data) return preset;
+    return {
+      ...preset,
+      name: data.name || preset.name,
+      params: data.params && typeof data.params === "object" ? data.params : {},
+      layout: data.layout,
+    };
+  }
+  if (preset.id == null || preset.id === "") return preset;
+  const data = await getJSON<PresetPick>(presetUrl(preset.id));
+  if (!data) return preset;
+  return {
+    ...preset,
+    name: data.name || preset.name,
+    params: data.params && typeof data.params === "object" ? data.params : {},
+    layout: data.layout,
+    owner_user_id: data.owner_user_id,
+  };
+}
+
+async function loadPreset(preset: PresetPick, opts?: { run?: boolean }): Promise<void> {
+  const live = await hydratePreset(preset);
+  applyParamsObject(live.params || {});
+  const layout = live.layout || (isDefaultViewId(live.id) ? companyDefaultLayout : null);
+  queuePendingLayout(layout);
+  setEditingView(live);
+  syncViewOwner(live);
+  rememberNamedView(live);
+  setToolbarEnabled(isReportShown());
+  setControlsCollapsed(false);
   if (opts?.run === false) {
-    if (isReportShown() && pendingLayout) {
+    if (isReportShown()) {
       applyLayout(pendingLayout);
       pendingLayout = null;
+      pendingLayoutQueued = false;
     }
     if (loadedNamedView && isReportShown()) {
       loadedNamedView.layoutSnap = stableJson(serializeLayout());
@@ -3015,7 +3133,7 @@ function loadPreset(preset: {
     syncScheduleButton();
     return;
   }
-  run();
+  await run({ preserveLayout: isReportShown() });
 }
 
 async function autoOpenPresetIfRequested(): Promise<void> {
@@ -3024,9 +3142,11 @@ async function autoOpenPresetIfRequested(): Promise<void> {
   if (cview) {
     const view = await getJSON<any>(companyViewGetUrl(cview));
     if (!view) return;
-    if (view?.params) applyParamsObject(view.params);
-    if (view?.layout) pendingLayout = view.layout;
+    applyParamsObject(view.params || {});
+    queuePendingLayout(view.layout);
+    setEditingView({ id: `${COMPANY_VIEW_PREFIX}${cview}`, name: view.name });
     loadedNamedView = null;
+    setControlsCollapsed(false);
     syncScheduleButton();
     autoRunRequested = periodIsRunnable(view?.params);
     return;
@@ -3036,18 +3156,22 @@ async function autoOpenPresetIfRequested(): Promise<void> {
   if (id === DEFAULT_VIEW_ID) {
     await loadCompanyDefault();
     applyParamsObject(companyDefaultParams);
-    pendingLayout = companyDefaultLayout;
+    queuePendingLayout(companyDefaultLayout);
+    setEditingView({ id: DEFAULT_VIEW_ID, name: "Default" });
     rememberNamedView({ id: DEFAULT_VIEW_ID, name: "Default", params: companyDefaultParams });
+    setControlsCollapsed(false);
     autoRunRequested = true;
     return;
   }
   const preset = await getJSON<any>(presetUrl(id));
-  if (preset?.params) applyParamsObject(preset.params);
-  if (preset?.layout) pendingLayout = preset.layout;
+  applyParamsObject(preset?.params || {});
+  queuePendingLayout(preset?.layout);
+  setEditingView({ id: Number(id), name: preset?.name });
   rememberNamedView({
     id: Number(id), name: preset?.name, params: preset?.params, layout: preset?.layout,
   });
   syncViewOwner(preset || {});
+  setControlsCollapsed(false);
   autoRunRequested = true;
 }
 

@@ -1,5 +1,20 @@
 # Testing Strategy
 
+## Selecting a saved view loads its filters and layout
+
+**What to test:**
+- `applyParamsObject` resets the filter form (including salesman/customers) before applying the view’s params, so omitted fields do not leak from the previous view.
+- `applyLayout` resets every tab to builder defaults (including `default_group`) before overlaying the saved layout. Empty layout = builder defaults, not leftover grouping.
+- `applyPendingOrDefaultLayout("preserve")` does not apply company Default. Default layout only applies on a fresh run when no view queued a layout (`pendingLayoutQueued`).
+- Clicking a view name or Edit sets `editingPresetId` / `editingPresetName` (Save updates that view). Name click fetches live GET then runs; Edit with a report on screen applies without a run.
+- After applying a selected view, Filters & options uncollapses. Toolbar shows `Editing “…”`.
+
+**Expected behavior:**
+- Switch View A → View B: filters and columns match B. Save writes B, not A mixed with Default.
+- Run/Refresh after a report is showing keeps the current (or just-applied) layout.
+
+**Test file:** `v3/tests/test_frontend.py`
+
 ## Group then sort keeps the groups
 
 **What to test:**

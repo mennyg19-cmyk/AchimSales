@@ -1,3 +1,10 @@
+## 2026-09-09 Selecting a view loads that view, not leftover filters
+**What you asked for:** Saved views were not applying in the GUI. Filters and layout stayed from the last view, so Save this view overwrote the real setup.
+**What I had to decide:** Overlay only the fields the new view stores vs reset the form/grid first. Re-apply company Default after every run vs only on a first blank run.
+**What I chose:** Reset filters (`form.reset`) and tab layouts (builder `default_group`) then apply the selected view. Fetch the live GET before apply. Name click and Edit both become the Save target. After a report is on screen, Run/Refresh must not overlay Default; Default is only for a fresh run with no view queued. Empty saved layout means builder defaults, not Default. Uncollapse Filters & options and show `Editing “name”` so you see what Save will write.
+**Why:** The run success path always applied Default when `pendingLayout` was empty, and `applyParamsObject` / `applyLayout` never cleared omitted fields. That mixed View A leftovers + Default columns into View B’s save.
+**Status:** DECIDED
+
 ## 2026-09-08 Sort stays inside the groups you made
 **What you asked for:** Group by a column, then sort, and the groups should not shuffle. Sort only inside each group.
 **What I had to decide:** Re-sort groups A–Z by the group field vs freeze the order they had when you grouped.
