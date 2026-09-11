@@ -1,3 +1,10 @@
+## 2026-09-11 Blank GET / AlwaysOn 401 on report runs
+**What you asked for:** Brother’s on-demand reports send `GET /` with `User-Agent: AlwaysOn`, `api_client: null`, 401, and return nothing. Scheduled reports worked this morning.
+**What I had to decide:** Treat that log line as a real report call vs Azure keep-alive that never reaches the SP.
+**What I chose:** It is Azure App Service Always On (GET `/`, no API key). Login 302/401 on `/` means the ping never keeps gunicorn warm, so queued jobs never POST `/api/reports/{id}/run`. Answer 200 for that User-Agent at WSGI and Flask. Report POSTs send `User-Agent: AchimSales-Reports` and do not follow redirects (a 302 to `/` would become GET `/` with the key stripped).
+**Why:** The on-prem log matches Azure’s keep-alive, not our client. Scheduled jobs this morning used the same POST path; if the worker unloaded after that, on-demand would queue and never call the API.
+**Status:** DECIDED
+
 ## 2026-09-09 WTD this_week was dropped after explorer edits
 **What you asked for:** A WTD ordered view and schedule edited in the explorer to `this_week` still ran `last_7_days`.
 **What I had to decide:** Treat explorer period as a one-off vs keep it through boot and send.

@@ -661,3 +661,18 @@ def test_stale_impersonation_with_missing_actor_logs_out(tmp_path):
         assert not s.get("v3_user")
     assert repo.get_by_email("ghost-dev@x.com") is None
 
+
+def test_beta_always_on_root_skips_live_login(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(_dev_cfg(tmp_path), is_beta=True)
+    application = create_app(cfg)
+    migrate(application.config["DB"])
+    client = application.test_client()
+    resp = client.get("/", headers={"User-Agent": "AlwaysOn"})
+    assert resp.status_code == 200
+    assert resp.get_json() == {"status": "ok"}
+    login = client.get("/")
+    assert login.status_code in (301, 302)
+    assert "/login" in (login.headers.get("Location") or "")
+

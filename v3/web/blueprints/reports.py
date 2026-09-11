@@ -1038,9 +1038,9 @@ def _probe_reporting_api(cfg, *, run_live: bool = False) -> dict:
 
       tcp  - open a raw socket to host:port. Proves the Azure Hybrid Connection
              tunnel reaches the on-prem listener (no HTTP, no stored procedure).
-      http - a GET to the API root. ANY status code means the API process
-             answered and the DBA should see this request land. A connect/read
-             timeout here (with tcp ok) points at the API, not the tunnel.
+      http - a GET to the API root with User-Agent AchimSales-Probe. ANY status
+             code means the API process answered. Azure Always On also hits GET /
+             with User-Agent AlwaysOn and no API key (401); that is not a report.
       live_query (only when run_live) - POST a real but tiny reference-data SP
              (customer_master, no date window) with a short read timeout and no
              retries. This is the ONLY check that proves the stored-proc layer
@@ -1070,8 +1070,14 @@ def _probe_reporting_api(cfg, *, run_live: bool = False) -> dict:
     import requests
     t1 = time.monotonic()
     try:
-        r = requests.get(f"{base}/", timeout=(5, 10),
-                         headers={"X-API-Key": cfg.reporting_api_key})
+        r = requests.get(
+            f"{base}/", timeout=(5, 10),
+            headers={
+                "X-API-Key": cfg.reporting_api_key,
+                "User-Agent": "AchimSales-Probe",
+                "Accept": "application/json",
+            },
+        )
         out["http"] = {"ok": True, "status": r.status_code,
                        "ms": int((time.monotonic() - t1) * 1000)}
     except Exception as exc:  # noqa: BLE001 - report the failure, don't raise
@@ -1084,7 +1090,8 @@ def _probe_reporting_api(cfg, *, run_live: bool = False) -> dict:
             r = requests.post(
                 f"{base}/api/reports/customer_master/run", json={},
                 headers={"X-API-Key": cfg.reporting_api_key,
-                         "Content-Type": "application/json"},
+                         "Content-Type": "application/json",
+                         "User-Agent": "AchimSales-Probe"},
                 timeout=(5, 25))
             body = r.json() if r.ok else None
             out["live_query"] = {

@@ -54,6 +54,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.config["AUTHZ"] = Authorization(db)
 
     init_csrf(app)
+    _register_always_on(app)
     _register_reporting(app, cfg, db)
     _register_context(app, cfg, db)
     _register_blueprints(app, cfg)
@@ -61,6 +62,22 @@ def create_app(config: Config | None = None) -> Flask:
     _register_error_handlers(app)
     _register_cli(app, db)
     return app
+
+
+def _register_always_on(app: Flask) -> None:
+    """Azure Always On pings GET / with User-Agent AlwaysOn and ignores login 302s."""
+
+    @app.before_request
+    def _azure_always_on():
+        from flask import request
+
+        if request.method != "GET":
+            return None
+        if (request.headers.get("User-Agent") or "") != "AlwaysOn":
+            return None
+        if request.path not in ("", "/"):
+            return None
+        return {"status": "ok"}, 200
 
 
 def _register_reporting(app: Flask, cfg: Config, db) -> None:

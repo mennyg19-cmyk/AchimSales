@@ -5,7 +5,7 @@ from __future__ import annotations
 from werkzeug.test import Client
 from werkzeug.wrappers import Response
 
-from wsgi_dispatch import mount_beta_as_home
+from wsgi_dispatch import AlwaysOnMiddleware, mount_beta_as_home
 
 
 def _named(name: str):
@@ -104,3 +104,14 @@ def test_test_mount_unchanged():
     assert text.startswith("test|")
     assert "sn=/test" in text
     assert "pi=/healthz" in text
+
+
+def test_always_on_root_is_200_before_flask():
+    client = Client(AlwaysOnMiddleware(_named("beta")), Response)
+    resp = client.get("/", headers={"User-Agent": "AlwaysOn"})
+    assert resp.status_code == 200
+    assert resp.get_data(as_text=True).strip() == '{"status":"ok"}'
+    # A normal browser still reaches the wrapped app.
+    home = client.get("/")
+    assert home.status_code == 200
+    assert home.get_data(as_text=True).startswith("beta|")

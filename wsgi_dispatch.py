@@ -11,6 +11,41 @@ When Beta is the site home:
 
 from __future__ import annotations
 
+AZURE_ALWAYS_ON_UA = "AlwaysOn"
+_ALWAYS_ON_BODY = b'{"status":"ok"}\n'
+
+
+def is_azure_always_on(environ: dict) -> bool:
+    """True for Azure App Service's keep-alive ping (GET / User-Agent AlwaysOn)."""
+    method = (environ.get("REQUEST_METHOD") or "").upper()
+    path = environ.get("PATH_INFO") or ""
+    ua = environ.get("HTTP_USER_AGENT") or ""
+    return method == "GET" and ua == AZURE_ALWAYS_ON_UA and path in ("", "/")
+
+
+class AlwaysOnMiddleware:
+    """Answer Azure Always On before Flask auth.
+
+    Always On does not follow a login 302. The ping never reaches gunicorn, the
+    process can unload, and queued report jobs never POST to the Reporting API.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, environ, start_response):
+        if is_azure_always_on(environ):
+            start_response(
+                "200 OK",
+                [
+                    ("Content-Type", "application/json"),
+                    ("Content-Length", str(len(_ALWAYS_ON_BODY))),
+                    ("Cache-Control", "no-store"),
+                ],
+            )
+            return [_ALWAYS_ON_BODY]
+        return self.app(environ, start_response)
+
 
 def _join_qs(path: str, environ: dict) -> str:
     qs = environ.get("QUERY_STRING") or ""
