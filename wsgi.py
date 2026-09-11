@@ -39,7 +39,7 @@ log = logging.getLogger("wsgi")
 
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
-from wsgi_dispatch import mount_beta_as_home
+from wsgi_dispatch import AlwaysOnMiddleware, mount_beta_as_home
 
 
 def _env_bool(name: str) -> bool:
@@ -222,20 +222,20 @@ else:
     log.info("BETA_MOUNT_ENABLED off; / stays the live app")
 
 if _beta_app is not None:
-    application = mount_beta_as_home(
+    application = AlwaysOnMiddleware(mount_beta_as_home(
         _beta_app,
         live_app,
         MOUNTS,
         legacy=_LEGACY_MOUNT,
         beta_redirect=_BETA_REDIRECT,
-    )
+    ))
     log.info(
         "WSGI dispatcher ready: beta -> /, live -> %s, extra mounts -> %s, /beta redirects",
         _LEGACY_MOUNT,
         sorted(MOUNTS),
     )
 else:
-    application = DispatcherMiddleware(live_app, MOUNTS)
+    application = AlwaysOnMiddleware(DispatcherMiddleware(live_app, MOUNTS))
     log.info("WSGI dispatcher ready: live -> /, mounts -> %s", sorted(MOUNTS))
 
 

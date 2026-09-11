@@ -22,6 +22,10 @@ from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
 
+# Sent on every Reporting API call so the on-prem request log can tell a real
+# report POST apart from Azure's Always On GET / (User-Agent AlwaysOn, no key).
+CLIENT_USER_AGENT = "AchimSales-Reports"
+
 
 def _capture_raw_response(report_id: str, params: dict, body: Any) -> None:
     """Diagnostic tap: record the untouched endpoint response so we can prove
@@ -151,7 +155,8 @@ class ReportingApiError(RuntimeError):
 
 
 class _Session(Protocol):
-    def post(self, url: str, *, json: Any, headers: dict, timeout: float): ...
+    def post(self, url: str, *, json: Any, headers: dict, timeout: float,
+             allow_redirects: bool = True): ...
 
 
 @dataclass
@@ -176,17 +181,22 @@ class ReportingApiClient:
         return bool(self.base_url and self.api_key)
 
     def _session_or_default(self) -> _Session:
-        if self._session is not None:
-            return self._session
-        import requests
+        if self._session is None:
+            import requests
 
-        return requests.Session()
+            self._session = requests.Session()
+        return self._session
 
     def run_report(self, report_id: str, params: dict[str, Any]) -> ReportResult:
         if not self.configured:
             raise ReportingApiNotConfigured("REPORTING_API_BASE_URL/KEY not set")
         url = f"{self.base_url}/api/reports/{report_id}/run"
-        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        headers = {
+            "X-API-Key": self.api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": CLIENT_USER_AGENT,
+        }
         session = self._session_or_default()
 
         last_exc: Exception | None = None
@@ -198,9 +208,19 @@ class ReportingApiClient:
             raise_if_cancelled()
             t0 = time.monotonic()
             try:
-                resp = session.post(url, json=params, headers=headers,
-                                    timeout=(10, self.timeout))
+                resp = session.post(
+                    url, json=params, headers=headers,
+                    timeout=(10, self.timeout), allow_redirects=False,
+                )
                 status = resp.status_code
+                if 300 <= status < 400:
+                    loc = (getattr(resp, "headers", None) or {}).get("Location") or ""
+                    job_step("api", f"HTTP {status} {report_id} redirected to "
+                             f"{loc or '/'} (not following)")
+                    raise ReportingApiError(
+                        f"Reporting API redirected {report_id} to {loc or '/'} "
+                        f"(HTTP {status})"
+                    )
                 if 400 <= status < 500:
                     extra = _err_snippet(resp)
                     job_step("api", f"HTTP {status} {report_id} (not retrying)"

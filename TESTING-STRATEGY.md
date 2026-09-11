@@ -1,5 +1,17 @@
 # Testing Strategy
 
+## Azure Always On GET / must not 401 a report run
+
+**What to test:**
+- GET `/` with `User-Agent: AlwaysOn` returns 200 `{status: ok}` without a session (Flask and WSGI middleware).
+- A normal GET `/` still redirects to login.
+- `ReportingApiClient.run_report` POSTs `{base}/api/reports/{id}/run` with `X-API-Key` and `User-Agent: AchimSales-Reports`, and does not follow redirects (a 302 to `/` errors instead of becoming GET `/`).
+
+**Expected behavior:**
+- Azure keep-alive does not log in as a blank API request. On-demand report runs POST the stored-procedure path. A redirect to `/` is refused so it cannot masquerade as the Always On 401.
+
+**Test files:** `tests/test_wsgi_dispatch.py`, `v3/tests/test_blueprints.py`, `v3/tests/test_auth.py`, `v3/tests/test_reporting.py`
+
 ## Explorer period edits survive boot and send
 
 **What to test:**

@@ -17,6 +17,7 @@ from web.reporting.cache import (
 )
 from web.reporting.export import payload_to_xlsx
 from web.reporting.http_client import (
+    CLIENT_USER_AGENT,
     ReportingApiClient,
     ReportingApiError,
     ReportingApiNotConfigured,
@@ -35,11 +36,12 @@ def db(tmp_path):
 # --- HTTP client ------------------------------------------------------------
 
 class _FakeResp:
-    def __init__(self, status, body):
+    def __init__(self, status, body, headers=None):
         self.status_code = status
         self._body = body
         self.content = b""
         self.text = ""
+        self.headers = headers or {}
 
     def json(self):
         return self._body
@@ -48,9 +50,14 @@ class _FakeResp:
 class _FakeSession:
     def __init__(self, resp=None, exc=None):
         self.resp, self.exc, self.calls = resp, exc, 0
+        self.last = None
 
-    def post(self, url, *, json, headers, timeout):
+    def post(self, url, *, json, headers, timeout, allow_redirects=True):
         self.calls += 1
+        self.last = {
+            "url": url, "json": json, "headers": headers, "timeout": timeout,
+            "allow_redirects": allow_redirects,
+        }
         if self.exc:
             raise self.exc
         return self.resp
@@ -66,6 +73,19 @@ def test_client_parses_rows():
     client = ReportingApiClient("http://api", "k", session=sess)
     res = client.run_report("salesline_release", {"From": "2026-01-01"})
     assert res.row_count == 1 and res.rows == [{"A": 1}] and res.columns == ["A"]
+    assert sess.last["url"] == "http://api/api/reports/salesline_release/run"
+    assert sess.last["allow_redirects"] is False
+    assert sess.last["headers"]["X-API-Key"] == "k"
+    assert sess.last["headers"]["User-Agent"] == CLIENT_USER_AGENT
+
+
+def test_client_refuses_redirect_to_root():
+    """A 301/302 to / would turn POST into GET / (Azure Always On's blank 401)."""
+    sess = _FakeSession(_FakeResp(302, {}, headers={"Location": "/"}))
+    client = ReportingApiClient("http://api", "k", retries=3, session=sess)
+    with pytest.raises(ReportingApiError, match="redirected"):
+        client.run_report("salesline_release", {})
+    assert sess.calls == 1
 
 
 def test_client_4xx_raises_without_retry():

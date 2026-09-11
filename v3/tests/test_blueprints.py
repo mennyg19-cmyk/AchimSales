@@ -135,6 +135,13 @@ def test_reports_list_requires_login(tmp_path):
     assert "/login" in resp.headers["Location"]
 
 
+def test_azure_always_on_root_is_ok_without_login(tmp_path):
+    app = _make_app(tmp_path)
+    resp = app.test_client().get("/", headers={"User-Agent": "AlwaysOn"})
+    assert resp.status_code == 200
+    assert resp.get_json() == {"status": "ok"}
+
+
 def test_reports_list_shows_built_reports_for_admin(tmp_path):
     app = _make_app(tmp_path)
     client = app.test_client()
