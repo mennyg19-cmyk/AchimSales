@@ -1,9 +1,14 @@
-"""Normalized views tables: handles, Gate A round-trip, foreign keys."""
+"""Normalized views tables: handles, Gate A round-trip, foreign keys, Gate B workbooks."""
 
+import io
 import sqlite3
+from datetime import date
 
 import pytest
 
+from report_engine.reports import number_4 as number4_builder
+from report_engine.reports import ordered as ordered_builder
+from report_engine.sources import ordered as ordered_source
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.normalized_views import (
@@ -16,6 +21,8 @@ from web.data.normalized_views import (
     project_from_legacy,
     suggest_handle,
 )
+from web.delivery.layout import apply_layout, expand_clones
+from web.reporting.export import build_workbook
 from web.data.repositories.company_views import CompanyViewRepository
 from web.data.repositories.report_defaults import ReportDefaultRepository
 from web.data.repositories.saved_reports import SavedReportRepository
@@ -290,3 +297,210 @@ def test_edit_old_layout_json_updates_new_tables(tmp_path):
             (pid,),
         ).fetchone()["id"]
         assert assemble_layout(conn, vid)["views"]["by_order"]["group"] == ["Salesman"]
+
+
+PERSONAL_ORDERED_VIEW = "Open Orders"
+UNGROUPED_BY_ORDER_VIEW = "Ungrouped By Order"
+NUMBER_4_VIEW = "YTD"
+
+PERSONAL_ORDERED_LAYOUT = {
+    "active": "by_order",
+    "order": ["by_order", "full_data"],
+    "views": {
+        "by_order": {
+            "group": ["Salesman"],
+            "sorters": [{"column": "SalesOrderNumber", "dir": "asc"}],
+            "columnFilters": {"Status": {"op": "contains", "v": "Open"}},
+        },
+        "full_data": {
+            "group": [],
+            "hidden": ["LineNumber"],
+        },
+    },
+}
+
+UNGROUPED_BY_ORDER_LAYOUT = {
+    "order": ["by_order"],
+    "views": {"by_order": {"group": []}},
+}
+
+NUMBER_4_LAYOUT = {
+    "active": "by_item",
+    "order": ["by_item"],
+    "views": {
+        "by_item": {
+            "group": ["Item #"],
+            "sorters": [{"column": "Item #", "dir": "asc"}],
+        },
+    },
+}
+
+
+def _ordered_sp_row(**over):
+    row = {
+        "SalesOrderNumber": "SO1", "CustomerAccount": "100", "customername": "Acme",
+        "SalesGroup": "REdwards", "CreatedDateTime": "2026-03-01T08:30:00",
+        "CustomerRequisition": "PO-1001", "purchid": "PO-7788",
+        "ExpectedArrivalDate": "2026-03-15T00:00:00",
+        "LineNumber": "1", "Item": "ITM-A", "ItemDescription": "Widget",
+        "SalesPrice": "2.29", "SalesStatus": "Open order", "QuantityOrdered": "30",
+        "QuantityReserved": "5", "CancelledQTY": "0", "ReleasedQuantity": "10",
+        "DeliveryRemainder": "20",
+        "Ordered $": "68.70", "Shipped $": "22.90", "Cancelled $": "0",
+        "Commission": "0.06", "SalesmanName": "Ron Edwards",
+    }
+    row.update(over)
+    return row
+
+
+def _ordered_payload():
+    rows = [
+        _ordered_sp_row(),
+        _ordered_sp_row(
+            SalesOrderNumber="SO2", CreatedDateTime="2026-03-02T08:30:00",
+            CustomerRequisition="PO-1002", purchid="", Item="ITM-B",
+            ItemDescription="Gadget", SalesPrice="5.00", SalesStatus="Cancelled",
+            QuantityOrdered="4", QuantityReserved="0", CancelledQTY="4",
+            ReleasedQuantity="0", DeliveryRemainder="0",
+            **{"Ordered $": "20.00", "Shipped $": "0", "Cancelled $": "20.00"}),
+        _ordered_sp_row(
+            SalesOrderNumber="SO3", CustomerAccount="200", customername="BOSCOV'S",
+            SalesGroup="AGrossman", CreatedDateTime="2026-03-03T08:30:00",
+            Item="ITM-A", SalesmanName="Ari Grossman"),
+        _ordered_sp_row(
+            SalesOrderNumber="SO4", CustomerAccount="300", customername="MACY'S",
+            SalesGroup="AGrossman", CreatedDateTime="2026-03-04T08:30:00",
+            Item="ITM-C", ItemDescription="Gizmo", SalesmanName="Ari Grossman"),
+        _ordered_sp_row(
+            SalesOrderNumber="SO5", CustomerAccount="400", customername="ZEBRA",
+            CreatedDateTime="2026-03-05T08:30:00", Item="ITM-A"),
+    ]
+    return {"report_key": "ordered",
+            "tabs": ordered_builder.build(ordered_source.to_facts_ordered_report(rows))}
+
+
+def _number_4_payload():
+    def row(**over):
+        base = {
+            "Customer #": "100", "Customer Name": "Acme",
+            "Item #": "ITM-A", "Item Name": "Widget",
+            "Jul-25 Qty": 2, "Jul-25 $": 20,
+            "Jun-26 Qty": 1, "Jun-26 $": 10.5,
+            "Total Qty": 3, "Total $": 30.5, "Avg Price": 10.17,
+            "Book Price": 12.50, "Salesman": "REdwards",
+        }
+        base.update(over)
+        return base
+    rows = [
+        row(),
+        row(**{"Customer #": "200", "Customer Name": "BOSCOV'S",
+               "Item #": "ITM-B", "Item Name": "Gadget", "Salesman": "AGrossman"}),
+        row(**{"Item #": "ITM-B", "Item Name": "Gadget"}),
+    ]
+    headers = list(rows[0].keys())
+    return {
+        "report_key": "number_4",
+        "tabs": number4_builder.build(
+            by_customer=(headers, [dict(r) for r in rows]),
+            by_item=(headers, [dict(r) for r in rows]),
+            as_of=date(2026, 8, 25),
+        ),
+    }
+
+
+def _sheet_grid(xlsx_bytes: bytes):
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=False)
+    sheets = []
+    for name in wb.sheetnames:
+        rows = []
+        for row in wb[name].iter_rows(values_only=True):
+            vals = list(row)
+            while vals and vals[-1] is None:
+                vals.pop()
+            rows.append(tuple(vals))
+        sheets.append((name, tuple(rows)))
+    wb.close()
+    return tuple(sheets)
+
+
+def _xlsx(payload, layout):
+    shaped = apply_layout(expand_clones(payload, layout), layout)
+    return build_workbook(shaped, layout)
+
+
+def _text(sheets) -> str:
+    return " | ".join(
+        str(v) for _name, rows in sheets for row in rows for v in row if v is not None)
+
+
+def test_gate_b_workbooks_match_assembled_views(tmp_path):
+    db = _db(tmp_path)
+    meir = UserRepository(db).create("meir@x.com", role="admin", display_name="Meir Grego")
+    CompanyViewRepository(db).upsert(
+        "ordered", DAILY_ORDERED_VIEW, params={}, layout=DAILY_ORDERED_LAYOUT, updated_by=None)
+    CompanyViewRepository(db).upsert(
+        "ordered", HESHY_OPEN_VIEW,
+        params={"period": "yesterday", "salesman": "Hkaufman", "status": "Open order"},
+        layout=HESHY_OPEN_LAYOUT, updated_by=None)
+    CompanyViewRepository(db).upsert(
+        "number_4", NUMBER_4_VIEW, params={"mode": "both", "year": "2026"},
+        layout=NUMBER_4_LAYOUT, updated_by=None)
+    SavedReportRepository(db).create(
+        meir.id, "ordered", PERSONAL_ORDERED_VIEW,
+        {"period": "this_week", "status": ["Open order"]}, PERSONAL_ORDERED_LAYOUT)
+    SavedReportRepository(db).create(
+        meir.id, "ordered", UNGROUPED_BY_ORDER_VIEW, {}, UNGROUPED_BY_ORDER_LAYOUT)
+
+    ordered = _ordered_payload()
+    number4 = _number_4_payload()
+    cases = [
+        (DAILY_ORDERED_VIEW, "company", DAILY_ORDERED_LAYOUT, ordered),
+        (HESHY_OPEN_VIEW, "company", HESHY_OPEN_LAYOUT, ordered),
+        (PERSONAL_ORDERED_VIEW, "personal", PERSONAL_ORDERED_LAYOUT, ordered),
+        (NUMBER_4_VIEW, "company", NUMBER_4_LAYOUT, number4),
+        (UNGROUPED_BY_ORDER_VIEW, "personal", UNGROUPED_BY_ORDER_LAYOUT, ordered),
+    ]
+    with db.precious() as conn:
+        for name, kind, old_layout, payload in cases:
+            vid = conn.execute(
+                "SELECT id FROM views WHERE kind=? AND name=?", (kind, name),
+            ).fetchone()["id"]
+            assembled = assemble_layout(conn, vid)
+            old_sheets = _sheet_grid(_xlsx(payload, old_layout))
+            new_sheets = _sheet_grid(_xlsx(payload, assembled))
+            assert old_sheets == new_sheets, name
+            names = [n for n, _rows in old_sheets]
+            blob = _text(old_sheets)
+            if name == DAILY_ORDERED_VIEW:
+                assert names == [
+                    "Summary", "By Customer", "By Item", "By Order",
+                    "By Salesman", "Full Data"]
+                assert "Salesman: AGrossman" in blob
+                assert "Customer Name: BOSCOV'S" in blob
+                by_order = next(s for s in old_sheets if s[0] == "By Order")
+                assert not any(
+                    str(v).startswith("Salesman:") for row in by_order[1] for v in row)
+            elif name == HESHY_OPEN_VIEW:
+                assert names == ["Full Data"]
+                headers = old_sheets[0][1][0]
+                assert "LineNumber" not in headers
+                assert "SalesOrderNumber" in headers
+                assert "SalesOrderNumber: SO1" in blob
+            elif name == PERSONAL_ORDERED_VIEW:
+                assert names == ["By Order", "Full Data"]
+                assert "Salesman: AGrossman" in blob
+                by_order = next(s for s in old_sheets if s[0] == "By Order")
+                assert not any("SO2" in [str(v) for v in row] for row in by_order[1])
+                full = next(s for s in old_sheets if s[0] == "Full Data")
+                assert "LineNumber" not in full[1][0]
+                assert not any(
+                    str(v).startswith("SalesOrderNumber:") for row in full[1] for v in row)
+            elif name == NUMBER_4_VIEW:
+                assert names == ["By Item (12 Months)"]
+                assert "Item #: ITM-A" in blob
+            else:
+                assert names == ["By Order"]
+                assert not any(
+                    str(v).startswith("Salesman:") for row in old_sheets[0][1] for v in row)
+                assert "Grand total" not in blob

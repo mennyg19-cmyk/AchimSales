@@ -2,7 +2,7 @@
 
 ## Normalized views round-trip (new tables vs old JSON)
 
-**What to test:** (not built yet — spec `v3/docs/normalized-views.md`)
+**What to test:** spec `v3/docs/normalized-views.md`
 - Backfill every `saved_reports` / `company_views` / `report_defaults` row into `views` + layout children. Assemble back to a layout/params dict. Canonical JSON equals the source (`group: []` kept on stored tabs; delivery keys absent on views).
 - A tab with zero `layout_tab_groups` rows round-trips as `group: []`. A missing tab row is omitted (builder default), not ungroup.
 - A schedule whose snapshot differs from the named view gets a new personal view; matching snapshots only store `view_id`.
@@ -11,6 +11,7 @@
 - User handle `Meir Grego` → `mgrego`. Re-project is idempotent.
 - Save this view / Default / company view upsert writes `views` + children in the same transaction as the old JSON.
 - Explorer cell/SQL on `layout_tab_groups` (etc.) rewrites `saved_reports.layout_json`. Explorer edit of `layout_json` reprojects the new tables.
+- Gate B: Daily Ordered, Heshy Open Orders, one personal Ordered (filter + hide), one Number 4, one By Order with `group: []`. Workbook from assembled layout matches the old JSON on sheet names, column order, grouping banners, hidden columns, sort, and filters (cell values, not Excel XML).
 
 **Expected behavior:**
 - New schema can rebuild what the old blobs meant. Clock and Save this view do not gain a second copy of layout. Old tables stay until both gates pass.
