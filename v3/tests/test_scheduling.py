@@ -209,7 +209,9 @@ def test_runner_default_view_uses_company_layout_when_schedule_layout_empty(tmp_
         view_name="Default")
     runner.run(mid, MASTER)
     seeded = [c for c in delivery.calls if c.get("recipients") == "b@x.com"][0]
-    assert seeded["layout"]["order"] == ["summary"]
+    # Default always uses live company Default tables — not schedule layout_json.
+    assert seeded["layout"]["active"] == "by_item"
+    assert seeded["layout"].get("order") != ["summary"]
 
 
 def test_runner_company_named_view_uses_live_layout(tmp_path):
@@ -893,6 +895,47 @@ def test_runner_personal_named_view_uses_live_layout(tmp_path):
     runner.run(sid, PERSONAL)
     assert delivery.calls[0]["layout"] == {"order": ["full_data"], "active": "full_data"}
     assert delivery.calls[0]["params"].get("period") == "yesterday"
+
+
+def test_runner_ignores_schedule_layout_json_groups(tmp_path):
+    """Stale schedules.layout_json must not drive Excel groups — tables win."""
+    db = Database(tmp_path / "p.db", tmp_path / "c.db")
+    migrate(db)
+    from web.data.repositories.saved_reports import SavedReportRepository
+
+    uid = UserRepository(db).upsert("rep@x.com", display_name="Rep", role="salesman").id
+    views = SavedReportRepository(db)
+    views.create(
+        uid, "ordered", "Ordered",
+        {"period": "ytd"},
+        {"views": {"by_order": {"group": []}}},
+    )
+
+    class FakeDelivery:
+        def __init__(self):
+            self.calls = []
+
+        def run_and_deliver(self, **kwargs):
+            self.calls.append(kwargs)
+            return DeliveryOutcome(
+                result=DeliveryResult(ok=True, recipients=[kwargs["recipients"]], eml_name="x.eml"),
+                row_count=1,
+            )
+
+    delivery = FakeDelivery()
+    runner = ScheduleRunner(
+        schedule_repo=ScheduleRepository(db), master_repo=MasterScheduleRepository(db),
+        run_repo=ScheduleRunRepository(db), user_repo=UserRepository(db),
+        authz=Authorization(db), delivery=delivery)  # type: ignore[arg-type]
+    sid = ScheduleRepository(db).create(
+        uid, "ordered",
+        params={"period": "ytd", "email_on_no_data": True},
+        layout={"views": {"by_order": {"group": ["SalesOrderNumber"]}}},
+        cadence={"freq": "daily", "time": "08:00"},
+        recipients="rep@x.com", view_name="Ordered")
+    runner.run(sid, PERSONAL)
+    layout = delivery.calls[0]["layout"]
+    assert layout["views"]["by_order"]["group"] == []
 
 
 def test_runner_personal_filename_uses_view_name_not_report_title(tmp_path):

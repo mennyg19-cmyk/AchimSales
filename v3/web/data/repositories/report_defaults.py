@@ -34,23 +34,20 @@ def layout_has_snapshot(layout: dict | None) -> bool:
 def resolve_send_layout(view_name: str | None, stored: dict | None,
                         company_default: dict | None,
                         company_named: dict | None = None) -> dict:
-    """Layout to apply at send time.
+    """Layout to apply at send time — assembled live views only.
 
-    Named views use the live saved-view layout when one is passed in
-    (personal or company). Otherwise they keep the snapshot on the schedule.
-    Default with no snapshot uses the company Default. Default that already
-    has a snapshot keeps that snapshot so a Default edit does not rewrite
-    those files.
+    ``stored`` (schedule layout_json snapshot) is ignored. Named views use the
+    live assembled layout when present; otherwise company Default. Default
+    always uses the live company Default, never a frozen schedule copy.
     """
-    stored_layout = stored if isinstance(stored, dict) else {}
+    del stored  # schedule layout_json is garbage for live sends
+    named = company_named if isinstance(company_named, dict) else {}
+    default = company_default if isinstance(company_default, dict) else {}
     if normalize_view_name(view_name) != DEFAULT_VIEW_NAME:
-        if layout_has_snapshot(company_named if isinstance(company_named, dict) else None):
-            return company_named if isinstance(company_named, dict) else {}
-        return stored_layout
-    if layout_has_snapshot(stored_layout):
-        return stored_layout
-    return company_default if isinstance(company_default, dict) else {}
-
+        if layout_has_snapshot(named):
+            return named
+        return default
+    return default
 
 def view_and_layout_for_create(body: dict) -> tuple[str, dict]:
     incoming = body.get("layout") if isinstance(body.get("layout"), dict) else {}

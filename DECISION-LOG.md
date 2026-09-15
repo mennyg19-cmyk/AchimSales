@@ -1,3 +1,11 @@
+## 2026-09-15 Live layout from tables only (JSON is garbage)
+**What you asked for:** Stop using layout_json for live groups/layout; JSON only for the silent dual-parity second copy (skipped when too large).
+**What I had to decide:** Keep schedule snapshot fallback vs hard-cut to assembled views.
+**What I chose:** Hard-cut. GUI/clock hydrate and schedule `_layout_for` always assemble from `views` / `layout_tab_*`. Missing projections are seeded once from JSON into tables, then read via assemble. `resolve_send_layout` ignores schedule snapshots. Raw JSON remains only for parity compare_layout.
+**Why:** Stale schedules.layout_json was grouping By Order by SalesOrderNumber while layout_tab_groups was empty/correct.
+**Status:** DECIDED
+
+
 ## 2026-09-15 YTD Ordered stuck building xlsx
 **What you asked for:** Personal #41 Ordered YTD hung after "sheet By Order: 185281 rows".
 **What I had to decide:** Treat as orphan-restart vs real export path bug; keep per-order Excel grouping on huge sheets vs flatten.

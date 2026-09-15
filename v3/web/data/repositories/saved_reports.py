@@ -5,8 +5,8 @@ grid layout so the owner can re-open "My March Ordered view" in one click.
 Reads/writes take a user_id. Salesmen only touch their own rows; admins may use
 get_any / list_all to set up someone else's views.
 
-Reads prefer the normalized `views` tree when a projected row exists; JSON stays
-as the dual-write fallback until cutover drops it.
+Reads always assemble from the normalized `views` tree (syncing from JSON
+once if the projection is missing). JSON is not returned for live GUI/clock use.
 """
 
 from __future__ import annotations
@@ -45,7 +45,10 @@ class SavedReport:
 def _hydrate(conn: sqlite3.Connection, row: SavedReport) -> SavedReport:
     got = assemble_legacy_view(conn, "saved_reports", row.id)
     if got is None:
-        return row
+        sync_saved_report_conn(conn, row.id)
+        got = assemble_legacy_view(conn, "saved_reports", row.id)
+    if got is None:
+        return replace(row, params={}, layout={})
     params, layout = got
     return replace(row, params=params, layout=layout)
 
