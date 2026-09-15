@@ -581,3 +581,51 @@ class ScheduleRunRepository:
                 (limit,),
             ).fetchall()
             return [ScheduleRun.from_row(r) for r in rows]
+
+    def list_running(self, *, older_than_seconds: float | None = None) -> list[ScheduleRun]:
+        with self.db.precious() as conn:
+            if older_than_seconds is None:
+                rows = conn.execute(
+                    "SELECT * FROM schedule_runs WHERE status='running' ORDER BY id"
+                ).fetchall()
+            else:
+                cutoff = datetime.fromtimestamp(
+                    datetime.now(timezone.utc).timestamp() - older_than_seconds,
+                    tz=timezone.utc,
+                ).isoformat()
+                rows = conn.execute(
+                    "SELECT * FROM schedule_runs WHERE status='running'"
+                    " AND (started_at IS NULL OR started_at < ?) ORDER BY id",
+                    (cutoff,),
+                ).fetchall()
+            return [ScheduleRun.from_row(r) for r in rows]
+
+    def abandon_running(self, *, reason: str,
+                        older_than_seconds: float | None = None) -> int:
+        """Mark stuck ``running`` history rows terminal. Used after restart and
+        as a safety reaper — a killed process never calls finish()."""
+        rows = self.list_running(older_than_seconds=older_than_seconds)
+        for row in rows:
+            self.finish(
+                row.id, status="cancelled",
+                debug_log=reason,
+                output_meta={"abandoned": True},
+            )
+        return len(rows)
+
+    def finish_open_for_job(self, job_id: str, *, status: str,
+                            debug_log: str = "") -> int:
+        """Finish every still-running schedule_runs row linked to this job id."""
+        if not job_id:
+            return 0
+        with self.db.precious() as conn:
+            rows = conn.execute(
+                "SELECT id FROM schedule_runs WHERE status='running'"
+                " AND json_extract(output_meta, '$.job_id') = ?",
+                (job_id,),
+            ).fetchall()
+        n = 0
+        for row in rows:
+            self.finish(int(row["id"]), status=status, debug_log=debug_log)
+            n += 1
+        return n

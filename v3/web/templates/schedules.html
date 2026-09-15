@@ -29,11 +29,18 @@
          data-recent-url="{{ url_for('schedules.recent_runs') }}"
          data-job-url="{{ url_for('reports.job_status', job_id='__ID__') }}"
          data-cancel-url="{{ url_for('reports.cancel_job', job_id='__ID__') }}"
+         data-cancel-run-url="{{ url_for('schedules.cancel_schedule_run', run_id=999999) | replace('999999', '__ID__') }}"
+         {% if is_privileged or is_developer %}data-clear-stuck-url="{{ url_for('schedules.clear_stuck_schedule_runs') }}"{% endif %}
          {% if is_developer %}data-job-log="1"{% endif %}>
     <summary class="run-log-summary">
         Recent run log
         <span class="run-log-count" id="runLogCount"{% if not recent_runs %} hidden{% endif %}>{{ recent_runs|length }}</span>
     </summary>
+    {% if is_privileged or is_developer %}
+    <div class="run-log-actions" style="padding:0.5rem 0.75rem 0;">
+      <button type="button" class="btn btn-sm btn-outline" id="clearStuckRunsBtn" hidden>Clear stuck runs</button>
+    </div>
+    {% endif %}
     <div id="activeJobs" class="active-jobs" hidden></div>
     <ol id="liveJobLog" class="live-job-log" hidden></ol>
     <div id="runLogBody">

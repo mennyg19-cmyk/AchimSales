@@ -117,6 +117,45 @@ def test_schedule_runs_history_and_last_run(db, user_id):
     assert runs.last_success_at(sid, PERSONAL) == history[0].started_at
 
 
+def test_abandon_running_schedule_runs(db, user_id):
+    sid = ScheduleRepository(db).create(user_id, "ordered", params={}, layout={}, cadence={})
+    runs = ScheduleRunRepository(db)
+    rid = runs.start(sid, PERSONAL, extra_meta={"job_id": "j1"})
+    assert runs.get(rid).status == "running"
+    assert runs.abandon_running(reason="restart") == 1
+    row = runs.get(rid)
+    assert row.status == "cancelled"
+    assert "restart" in row.debug_log
+    assert row.output_meta.get("abandoned") is True
+    assert row.output_meta.get("job_id") == "j1"
+
+
+def test_finish_open_for_job(db, user_id):
+    sid = ScheduleRepository(db).create(user_id, "ordered", params={}, layout={}, cadence={})
+    runs = ScheduleRunRepository(db)
+    a = runs.start(sid, PERSONAL, extra_meta={"job_id": "abc"})
+    b = runs.start(sid, PERSONAL, extra_meta={"job_id": "other"})
+    assert runs.finish_open_for_job("abc", status="cancelled", debug_log="bye") == 1
+    assert runs.get(a).status == "cancelled"
+    assert runs.get(b).status == "running"
+
+
+def test_reap_stale_cancels_linked_job(db, user_id):
+    from web.data.repositories.jobs import JobRepository
+    from web.scheduling.tick import reap_stale_schedule_runs
+
+    jobs = JobRepository(db)
+    jid = jobs.enqueue("schedule.run", owner_user_id=user_id,
+                       params={"schedule_id": 1}, dedup_key="x")
+    jobs.claim_next()
+    sid = ScheduleRepository(db).create(user_id, "ordered", params={}, layout={}, cadence={})
+    rid = ScheduleRunRepository(db).start(sid, PERSONAL, extra_meta={"job_id": jid})
+    n = reap_stale_schedule_runs(db, jobs, older_than_seconds=0)
+    assert n == 1
+    assert ScheduleRunRepository(db).get(rid).status == "cancelled"
+    assert jobs.get(jid).status == "cancelled"
+
+
 def test_master_schedule_crud(db):
     repo = MasterScheduleRepository(db)
     mid = repo.create("invoiced", "Nightly invoiced", params={}, layout={},

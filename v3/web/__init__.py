@@ -428,6 +428,7 @@ def bootstrap_background(app: Flask) -> None:
         worker = app.config.get("JOB_WORKER")
         if worker is not None:
             worker.start()
+        _abandon_orphan_schedule_runs(app, db)
         if not app.config["APP_CONFIG"].dashboard_refresh_enabled:
             _cancel_pending_dashboard_refreshes(app, db)
         # Schedule cron on Live and Beta (each mount has its own precious DB).
@@ -480,6 +481,24 @@ def _is_background_leader(app: Flask) -> bool:
         return True
     _BG_LOCK_FH = fh  # keep the handle alive so GC can't drop the lock
     return True
+
+
+def _abandon_orphan_schedule_runs(app: Flask, db) -> None:
+    """Mark schedule_runs left ``running`` after a crash/deploy as cancelled.
+
+    Job rows are requeued by recover_orphans(); history rows are not, so without
+    this the Schedules run log stays on Running forever after a restart.
+    """
+    from web.data.repositories.schedules import ScheduleRunRepository
+
+    try:
+        n = ScheduleRunRepository(db).abandon_running(
+            reason="Stopped — the app restarted while this run was in progress.",
+        )
+        if n:
+            app.logger.info("abandoned %d orphaned schedule_runs row(s) on startup", n)
+    except Exception:  # noqa: BLE001 - never block boot
+        app.logger.exception("abandon orphan schedule_runs failed")
 
 
 def _cancel_pending_dashboard_refreshes(app: Flask, db) -> None:
