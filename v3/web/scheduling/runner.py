@@ -274,16 +274,20 @@ class ScheduleRunner:
     def _parity_deliver_kwargs(self, sched, schedule_type: str) -> dict:
         if not self.settings.view_workbook_parity_enabled():
             return {}
-        compare = self._legacy_json_layout(sched, schedule_type)
-        if compare is None:
+        try:
+            compare = self._legacy_json_layout(sched, schedule_type)
+            if compare is None:
+                return {}
+            return {
+                "compare_layout": compare,
+                "parity_view_name": normalize_view_name(getattr(sched, "view_name", None)),
+                "parity_view_id": self._resolved_view_id(sched, schedule_type),
+                "parity_schedule_kind": schedule_type,
+                "parity_schedule_id": getattr(sched, "id", None),
+            }
+        except Exception:  # noqa: BLE001 - never fail a real send on parity lookup
+            log.exception("view workbook parity lookup failed (delivery continues)")
             return {}
-        return {
-            "compare_layout": compare,
-            "parity_view_name": normalize_view_name(getattr(sched, "view_name", None)),
-            "parity_view_id": self._resolved_view_id(sched, schedule_type),
-            "parity_schedule_kind": schedule_type,
-            "parity_schedule_id": getattr(sched, "id", None),
-        }
 
     def _resolved_view_id(self, sched, schedule_type: str) -> str | None:
         name = getattr(sched, "view_name", None)
