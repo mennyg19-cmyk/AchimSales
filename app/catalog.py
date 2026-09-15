@@ -202,6 +202,25 @@ def invoiced_payload() -> dict:
                     {"InvoiceNumber": "IN01008290", "Total Invoice": 520.0},
                 ],
             },
+            "audit_reversals": {
+                "name": "Audit - Reversals",
+                "rows": [
+                    {
+                        "InvoiceNumber": "FCRD-004181",
+                        "CustomerName": "MAZER WHOLESALE",
+                        "Salesman": "DDweck",
+                        "Total Invoice": -50.0,
+                        "Note": "Credit / reversal pair",
+                    }
+                ],
+            },
+            "totals_by_salesman": {
+                "name": "Totals by Salesman",
+                "rows": [
+                    {"Salesman": "DDweck", "InvoiceCount": 2, "Total Invoices": 985.0},
+                    {"Salesman": "HKaufman", "InvoiceCount": 1, "Total Invoices": 520.0},
+                ],
+            },
         },
         raw,
     )
@@ -356,6 +375,14 @@ def mock_report(
         }
     if hide_commissions:
         payload["data"]["tabs"].pop("commissions", None)
+    totals = payload["data"]["tabs"].get("totals_by_salesman")
+    if totals:
+        unique = {str(row.get("Salesman") or "") for row in totals["rows"] if row.get("Salesman")}
+        if len(unique) < 2:
+            payload["data"]["tabs"].pop("totals_by_salesman", None)
+    audit = payload["data"]["tabs"].get("audit_reversals")
+    if audit and not audit["rows"]:
+        payload["data"]["tabs"].pop("audit_reversals", None)
     return payload
 
 
@@ -364,6 +391,11 @@ def last_order_for(account: str) -> dict | None:
     customer = by_acct.get(account)
     if customer is None:
         return None
+    invoices = [
+        row
+        for row in invoiced_payload()["data"]["raw"]
+        if row["CustomerAccount"] == account
+    ]
     return {
         "customer": customer,
         "primary": {
@@ -376,4 +408,5 @@ def last_order_for(account: str) -> dict | None:
             {"Item #": "A-100", "Description": "Widget", "Qty": 10, "Price": 40.0, "Amount": 400.0},
             {"Item #": "B-200", "Description": "Gadget", "Qty": 2, "Price": 15.0, "Amount": 30.0},
         ],
+        "recent_invoices": invoices,
     }

@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     subject TEXT NOT NULL DEFAULT '',
     filename TEXT NOT NULL DEFAULT '',
     sharepoint_folder TEXT NOT NULL DEFAULT '',
+    onedrive_folder TEXT NOT NULL DEFAULT '',
     is_active INTEGER NOT NULL DEFAULT 1,
     last_run TEXT,
     last_status TEXT
@@ -148,6 +149,7 @@ def init_db() -> None:
         ensure_column("schedules", "subject", "TEXT NOT NULL DEFAULT ''")
         ensure_column("schedules", "filename", "TEXT NOT NULL DEFAULT ''")
         ensure_column("schedules", "sharepoint_folder", "TEXT NOT NULL DEFAULT ''")
+        ensure_column("schedules", "onedrive_folder", "TEXT NOT NULL DEFAULT ''")
         for row in SEED_USERS:
             conn.execute(
                 """INSERT OR IGNORE INTO users

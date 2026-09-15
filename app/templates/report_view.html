@@ -15,15 +15,16 @@
     <h1 class="page-title">{{ report_title }}
         <button type="button" class="help-btn" id="helpBtn" aria-label="Help">?</button>
     </h1>
-    {% if loaded_view %}
-    <p class="page-subtitle">Loaded view: {{ loaded_view.name }}</p>
-    {% endif %}
+    <span id="loadedViewLabel" class="loaded-view-label" {% if not loaded_view %}hidden{% endif %}>
+        {% if loaded_view %}Loaded view: {{ loaded_view.name }}{% endif %}
+    </span>
 </div>
 
 <div class="report-controls" id="reportControls"
      data-report-key="{{ report_key }}"
      data-filters="{{ filters|join(',') }}"
-     data-view-params='{{ (loaded_view.params if loaded_view else {}) | tojson }}'>
+     data-view-params='{{ (loaded_view.params if loaded_view else {}) | tojson }}'
+     data-customers='{{ customers | tojson }}'>
     <button type="button" class="controls-toggle" id="controlsToggle" aria-expanded="true" aria-controls="controlsBody">
         <span class="controls-toggle-main"><i data-feather="sliders"></i> <span>Filters &amp; options</span></span>
         <span class="controls-summary" id="controlsSummary">Last 7 Days</span>
@@ -34,7 +35,7 @@
     <div class="filter-fields">
     {% if "period" in filters %}
     <label class="filter-field">
-        <span>Period</span>
+        <span>Period <button type="button" class="help-btn" data-help aria-label="Help">?</button></span>
         <select name="period" id="periodSelect">
             {% for value, label in period_options %}
             <option value="{{ value }}" {% if value == 'last_7_days' %}selected{% endif %}>{{ label }}</option>
@@ -92,14 +93,14 @@
     </label>
     {% endif %}
     {% if "customers" in filters %}
-    <label class="filter-field">
+    <div class="filter-field filter-field-customers">
         <span>Customers</span>
-        <select name="customers" id="customerSelect" multiple size="3">
-            {% for c in customers %}
-            <option value="{{ c.account }}">{{ c.name }}</option>
-            {% endfor %}
-        </select>
-    </label>
+        <div id="customerPicker" class="customer-picker">
+            <input type="text" id="customerSearch" placeholder="All customers" autocomplete="off">
+            <div id="customerMenu" class="toolbar-dropdown" hidden></div>
+        </div>
+        <div id="customerPills" class="customer-pills" aria-label="Selected customers"></div>
+    </div>
     {% endif %}
     </div>
     <div class="filter-run-group">
@@ -107,18 +108,78 @@
     <button type="button" id="emailMeBtn" class="btn btn-outline filter-run-btn">Email me</button>
     </div>
 </form>
+{% if privileged %}
+<textarea id="apiPreview" class="api-preview api-preview-editable" hidden rows="10" spellcheck="false"></textarea>
+<div id="apiRunWrap" class="api-run-wrap" hidden>
+    <button type="button" id="apiRunBtn" class="btn btn-primary btn-sm">Run with this body</button>
+    <span class="muted">Edit the JSON, then run. Dummy still uses catalog mocks, not the office API.</span>
+</div>
+{% endif %}
     </div>
 </div>
 </div>
 
 <div class="report-layout-toolbar" id="layoutToolbar">
+    <button type="button" class="btn btn-outline" id="columnsBtn" title="Show or hide columns"><i data-feather="columns"></i> <span>Columns</span></button>
+    <button type="button" class="btn btn-outline" id="resetLayoutBtn" title="Reset column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
     <button type="button" class="btn btn-outline" id="saveViewBtn" title="Save these filters as a named view"><i data-feather="bookmark"></i> <span>Save this view</span></button>
     <button type="button" class="btn btn-outline" id="savedViewsBtn" title="Open a saved view"><i data-feather="folder"></i> <span>Saved views</span></button>
-    <button type="button" class="btn btn-outline" id="scheduleViewBtn" title="Schedule this named view"><i data-feather="clock"></i> <span>Schedule</span></button>
-    <button type="button" class="btn btn-outline" id="keepBtn" title="Keep this run"><i data-feather="star"></i> <span>Keep</span></button>
-    <button type="button" class="btn btn-outline" id="refreshBtn" title="Run again, keep this layout"><i data-feather="refresh-cw"></i> <span>Refresh</span></button>
-    <button type="button" class="btn btn-outline" id="resetLayoutBtn" title="Reset column layout"><i data-feather="rotate-ccw"></i> <span>Reset layout</span></button>
-    <a class="btn btn-outline" id="exportBtn" href="#"><i data-feather="download"></i> <span>Export Excel</span></a>
+    <label class="filter-field" id="groupByWrap" hidden>
+        <span>Group by</span>
+        <select id="groupBySelect"><option value="">None</option></select>
+    </label>
+    <div class="toolbar-menu" id="moreMenuWrap">
+        <button type="button" id="moreBtn" class="btn btn-outline" aria-haspopup="true" aria-expanded="false">
+            <i data-feather="more-horizontal"></i> <span>More</span>
+        </button>
+        <div id="moreMenu" class="toolbar-dropdown" hidden role="menu">
+            <button type="button" id="scheduleViewBtn" class="toolbar-dropdown-item" role="menuitem">
+                <i data-feather="calendar"></i> <span>Schedule</span>
+            </button>
+            {% if privileged %}
+            <button type="button" id="previewBtn" class="toolbar-dropdown-item" role="menuitem">
+                <i data-feather="code"></i> <span>API preview</span>
+            </button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="report-status-row">
+    <div id="reportStatus" class="report-status" hidden>
+        <span id="reportStatusText" class="report-status-text"></span>
+        <button type="button" id="cancelRunBtn" class="btn btn-outline btn-sm" hidden>Cancel</button>
+    </div>
+</div>
+{% if privileged %}
+<details class="run-log-panel job-live-log-panel" id="jobLiveLogPanel" hidden>
+    <summary class="run-log-summary">Job log</summary>
+    <ol id="jobLiveLog" class="live-job-log"></ol>
+</details>
+{% endif %}
+
+<div id="exportsPanel" class="exports-panel" hidden>
+    <div class="exports-head">Recent exports</div>
+    <div id="exportsList" class="exports-list"></div>
+</div>
+
+<div id="columnsOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog">
+        <div class="modal-head"><h3>Columns</h3>
+            <button type="button" class="modal-close" id="columnsClose">&times;</button></div>
+        <div class="modal-body" id="columnsList"></div>
+        <div class="modal-foot">
+            <button type="button" class="btn btn-primary" id="columnsDone">Done</button>
+        </div>
+    </div>
+</div>
+
+<div id="savedViewsOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog">
+        <div class="modal-head"><h3>Saved views</h3>
+            <button type="button" class="modal-close" id="savedViewsClose">&times;</button></div>
+        <div class="modal-body" id="savedViewsList"></div>
+    </div>
 </div>
 
 <div id="reportSurface" class="report-surface" hidden>
@@ -126,6 +187,12 @@
         <div id="reportTabs" class="report-tabs"></div>
         <div class="report-tabbar-right">
             <div id="reportMeta" class="report-meta"></div>
+            <div class="report-result-actions">
+                <button type="button" id="refreshBtn" class="btn btn-outline btn-sm"><i data-feather="refresh-cw"></i> <span>Refresh</span></button>
+                <button type="button" id="keepBtn" class="btn btn-outline btn-sm"><i data-feather="star"></i> <span>Keep this run</span></button>
+                <button type="button" id="exportBtn" class="btn btn-outline btn-sm"><i data-feather="download"></i> <span>Export Excel</span></button>
+                <button type="button" id="exportsBtn" class="btn btn-outline btn-sm"><i data-feather="archive"></i> <span>Recent exports</span></button>
+            </div>
         </div>
     </div>
     <div id="commissionCards" class="commission-cards" hidden></div>
@@ -134,56 +201,64 @@
     </div>
 </div>
 
-<div id="helpOverlay" class="modal-overlay" hidden onclick="if(event.target===this) this.hidden=true">
+<div id="helpOverlay" class="modal-overlay" hidden>
   <div class="modal" role="dialog">
     <div class="modal-head"><h3>About this report</h3>
-      <button type="button" class="modal-close" onclick="document.getElementById('helpOverlay').hidden=true">&times;</button></div>
+      <button type="button" class="modal-close" id="helpClose">&times;</button></div>
     <div class="modal-body">
       <p>This preview shows dummy JSON in the same tab layout as live. Run report fills Tabulator from <code>data.tabs</code>. Export writes an .xlsx of those tabs. Email me writes the mock outbox — Graph is not connected yet.</p>
     </div>
   </div>
 </div>
 
-{% if privileged %}
-<details class="run-log-panel">
-  <summary class="run-log-summary">Developer API preview</summary>
-  <pre class="api-preview" id="apiPreview">Run the report to see the mock JSON body.</pre>
-</details>
-{% endif %}
-
-<div id="saveViewOverlay" class="modal-overlay" hidden onclick="if(event.target===this) this.hidden=true">
+<div id="saveViewOverlay" class="modal-overlay" hidden>
   <div class="modal" role="dialog">
     <div class="modal-head"><h3>Save this view</h3>
-      <button type="button" class="modal-close" onclick="document.getElementById('saveViewOverlay').hidden=true">&times;</button></div>
+      <button type="button" class="modal-close" id="saveViewClose">&times;</button></div>
     <div class="modal-body">
       <label class="modal-field"><span>Name</span><input type="text" id="saveViewName" required></label>
       <label class="modal-field" {% if not privileged %}hidden{% endif %}>
-        <span>Whose</span>
+        <span>Save for</span>
         <select id="saveViewKind">
           <option value="personal">Just for me</option>
           <option value="company">Company</option>
           <option value="company_default">Company Default</option>
         </select>
       </label>
+      {% if privileged %}
+      <label class="modal-field">
+        <span>Or another user</span>
+        <select id="saveViewFor">
+          <option value="">—</option>
+          {% for u in save_for_users %}
+          <option value="{{ u.email }}">{{ u.display_name }} ({{ u.email }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="modal-field flag-row" id="saveViewPeriodRow">
+        <input type="checkbox" id="saveViewIncludePeriod" checked>
+        <span>Save the date window with this view</span>
+      </label>
+      {% endif %}
       <div class="modal-foot">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('saveViewOverlay').hidden=true">Cancel</button>
+        <button type="button" class="btn btn-outline" id="saveViewCancel">Cancel</button>
         <button type="button" class="btn btn-primary" id="saveViewConfirm">Save</button>
       </div>
     </div>
   </div>
 </div>
 
-<div id="emailOverlay" class="modal-overlay" hidden onclick="if(event.target===this) this.hidden=true">
+<div id="emailOverlay" class="modal-overlay" hidden>
   <div class="modal" role="dialog">
     <div class="modal-head"><h3>Email me</h3>
-      <button type="button" class="modal-close" onclick="document.getElementById('emailOverlay').hidden=true">&times;</button></div>
+      <button type="button" class="modal-close" id="emailClose">&times;</button></div>
     <div class="modal-body">
       <p class="muted">Writes the mock outbox. Graph is not connected.</p>
       <label class="modal-field"><span>To</span><input type="text" id="emailTo" value="{{ user.email }}"></label>
       <label class="modal-field"><span>Subject</span><input type="text" id="emailSubject" value="[MOCK] {{ report_title }}"></label>
       <label class="modal-field"><span>SharePoint folder</span><input type="text" id="emailSharepoint" placeholder="optional — Graph is not wired"></label>
       <div class="modal-foot">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('emailOverlay').hidden=true">Cancel</button>
+        <button type="button" class="btn btn-outline" id="emailCancel">Cancel</button>
         <button type="button" class="btn btn-primary" id="emailConfirm">Queue mock mail</button>
       </div>
     </div>

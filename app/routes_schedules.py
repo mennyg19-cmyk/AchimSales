@@ -39,6 +39,8 @@ def _deliver(schedule: dict, user: dict) -> str:
         extra.append(f"file {schedule['filename']}")
     if schedule.get("sharepoint_folder"):
         extra.append(f"SharePoint {schedule['sharepoint_folder']}")
+    if schedule.get("onedrive_folder"):
+        extra.append(f"OneDrive {schedule['onedrive_folder']}")
     detail = "Scheduled dummy workbook. Graph is not wired on this preview."
     if extra:
         detail += " " + "; ".join(extra)
@@ -91,6 +93,7 @@ def schedules_add(
     subject: str = Form(""),
     filename: str = Form(""),
     sharepoint_folder: str = Form(""),
+    onedrive_folder: str = Form(""),
     csrf: str = Form(""),
 ):
     denied = need_login(request)
@@ -124,6 +127,7 @@ def schedules_add(
         subject=subject,
         filename=filename,
         sharepoint_folder=sharepoint_folder if user.get("sharepoint_access") or is_privileged(user) else "",
+        onedrive_folder=onedrive_folder if user.get("sharepoint_access") or is_privileged(user) else "",
     )
     flash(request, "Schedule saved. Run now sends mock mail to the outbox.")
     return RedirectResponse("/schedules", status_code=303)
@@ -314,6 +318,7 @@ def schedules_copy(request: Request, schedule_id: int, csrf: str = Form("")):
         subject=row.get("subject") or "",
         filename=row.get("filename") or "",
         sharepoint_folder=row.get("sharepoint_folder") or "",
+        onedrive_folder=row.get("onedrive_folder") or "",
     )
     flash(request, "Copied. Recipients set to you — edit if needed.")
     return RedirectResponse("/schedules", status_code=303)

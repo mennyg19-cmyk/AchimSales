@@ -4,25 +4,32 @@
 <div class="page-head">
     <a class="back-link" href="/settings"><i data-feather="arrow-left"></i> Settings</a>
     <h1 class="page-title">Database explorer</h1>
-    <p class="page-subtitle">One statement. DROP / ALTER / ATTACH / CREATE are blocked.</p>
+    <p class="page-subtitle">One statement. DROP / ALTER / ATTACH / CREATE are blocked. Writes need Confirm.</p>
 </div>
 <section class="settings-card">
     <form method="post" action="/dev/db-explorer">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <label class="auth-field"><span class="auth-label">SQL</span>
-            <textarea name="sql" rows="6" style="width:100%;font-family:monospace;">{{ sql or "SELECT name FROM sqlite_master" }}</textarea>
+            <textarea name="sql" rows="6" class="api-preview" style="width:100%;font-family:monospace;">{{ sql or "SELECT name FROM sqlite_master" }}</textarea>
+        </label>
+        <label class="access-item">
+            <input type="checkbox" name="confirm_write" value="1"> Confirm write (required for UPDATE/INSERT/DELETE)
         </label>
         <button class="btn btn-primary" type="submit">Run</button>
     </form>
     {% if error %}<p class="alert alert-error">{{ error }}</p>{% endif %}
     {% if rows is not none %}
+    <label class="filter-field" style="margin-top:16px;">
+        <span>Column filter</span>
+        <input type="text" id="colFilter" placeholder="Hide columns that don't match…">
+    </label>
     <div class="table-wrap" style="margin-top:16px;overflow:auto;">
-        <table class="simple-table">
+        <table class="simple-table" id="explorerTable">
             {% if rows %}
-            <thead><tr>{% for col in rows[0].keys() %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+            <thead><tr>{% for col in rows[0].keys() %}<th data-col="{{ col }}">{{ col }}</th>{% endfor %}</tr></thead>
             <tbody>
             {% for row in rows %}
-            <tr>{% for col in row.keys() %}<td>{{ row[col] }}</td>{% endfor %}</tr>
+            <tr>{% for col in row.keys() %}<td data-col="{{ col }}">{{ row[col] }}</td>{% endfor %}</tr>
             {% endfor %}
             </tbody>
             {% else %}
@@ -30,6 +37,39 @@
             {% endif %}
         </table>
     </div>
+    {% if rows and rows[0].get('params_json') is not none and rows[0].get('id') is not none %}
+    <h2 class="section-title">JSON editor (views.params_json)</h2>
+    <p class="flag-desc"><code>group</code> must stay an array if present.</p>
+    {% for row in rows %}
+    {% if row.get('params_json') is not none %}
+    <form method="post" action="/dev/db-explorer/json" class="auth-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="view_id" value="{{ row.id }}">
+        <label class="auth-field"><span class="auth-label">View {{ row.id }} {{ row.get('name') or '' }}</span>
+            <textarea name="params_json" rows="6" class="api-preview" style="width:100%;font-family:monospace;">{{ row.params_json }}</textarea>
+        </label>
+        <label class="access-item">
+            <input type="checkbox" name="confirm_write" value="1"> Confirm write
+        </label>
+        <button class="btn btn-outline" type="submit">Save JSON</button>
+    </form>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
     {% endif %}
 </section>
+<script>
+(function () {
+  var input = document.getElementById("colFilter");
+  var table = document.getElementById("explorerTable");
+  if (!input || !table) return;
+  input.addEventListener("input", function () {
+    var term = (input.value || "").toLowerCase();
+    table.querySelectorAll("[data-col]").forEach(function (cell) {
+      var col = (cell.getAttribute("data-col") || "").toLowerCase();
+      cell.hidden = !!(term && col.indexOf(term) === -1);
+    });
+  });
+})();
+</script>
 {% endblock %}

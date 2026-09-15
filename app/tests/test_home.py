@@ -93,6 +93,12 @@ def test_preview_login_then_invoiced_tabs(client):
     assert "tabulator" in page.lower()
     assert "Run report" in page
     assert 'id="reportTable"' in page
+    assert 'id="customerPicker"' in page
+    assert 'id="columnsBtn"' in page
+    assert 'id="reportStatus"' in page
+    assert 'id="moreBtn"' in page
+    assert "Audit - Reversals" in str(tabs)
+    assert "totals_by_salesman" in tabs
 
 
 def test_every_grid_report_returns_tabs(client):
@@ -591,6 +597,7 @@ def test_schedule_delivery_fields_land_in_outbox(client):
             "subject": "[MOCK] weekly",
             "filename": "{Schedule}.xlsx",
             "sharepoint_folder": "/Reports/Dummy",
+            "onedrive_folder": "/OneDrive/Dummy",
             "csrf": client.csrf,
         },
         follow_redirects=False,
@@ -605,9 +612,12 @@ def test_schedule_delivery_fields_land_in_outbox(client):
     assert "CC cc@achimonline.com" in diag
     assert "file {Schedule}.xlsx" in diag
     assert "SharePoint /Reports/Dummy" in diag
+    assert "OneDrive /OneDrive/Dummy" in diag
     sched = client.get("/schedules").text
     assert "Calendar skip is off" in sched
     assert 'href="/schedules/runs/' in sched
+    assert "Step 1 of 3" in sched
+    assert "OneDrive folder" in sched
 
 
 def test_master_schedule_history_and_diagnostics(client):
@@ -750,3 +760,107 @@ def test_salesman_cannot_schedule_company_view(client):
     assert after == before
     html = client.get("/schedules").text
     assert "Daily Ordered" not in html
+
+
+def test_invoiced_hides_totals_for_one_salesman(client):
+    login(client)
+    payload = client.post(
+        "/api/reports/invoiced/run",
+        json={"salesman": "HKaufman"},
+        headers=csrf_headers(client),
+    ).json()
+    tabs = payload["data"]["tabs"]
+    assert "totals_by_salesman" not in tabs
+    assert "audit_reversals" not in tabs
+
+
+def test_save_view_for_other_user_and_group_array(client):
+    login(client)
+    bad = client.post(
+        "/api/views",
+        json={"name": "Bad group", "report_key": "invoiced", "params": {"group": "Salesman"}},
+        headers=csrf_headers(client),
+    )
+    assert bad.status_code == 400
+    assert "array" in bad.json()["error"]
+    ok = client.post(
+        "/api/views",
+        json={
+            "name": "Salesman copy",
+            "report_key": "invoiced",
+            "kind": "personal",
+            "for_email": "salesman@achimonline.com",
+            "params": {"period": "mtd", "group": ["Salesman"]},
+            "include_period": True,
+        },
+        headers=csrf_headers(client),
+    )
+    assert ok.status_code == 200
+    become(client, "salesman@achimonline.com")
+    views = client.get("/api/views?report=invoiced").json()["views"]
+    names = {view["name"] for view in views}
+    assert "Salesman copy" in names
+
+
+def test_last_order_recent_invoices_and_xlsx(client):
+    login(client)
+    html = client.get("/report/customer-last-order/C-1001").text
+    assert "Recent invoiced" in html
+    assert "IN01008282" in html
+    xlsx = client.get("/report/customer-last-order/C-1001/xlsx")
+    assert xlsx.status_code == 200
+    assert xlsx.content[:2] == b"PK"
+
+
+def test_cancel_running_job(client):
+    login(client)
+    job_id = home_store.save_job("invoiced", "Invoiced", {"data": {"tabs": {}}}, owner_email="preview@achimonline.com", status="running")
+    res = client.post(f"/api/jobs/{job_id}/cancel", headers=csrf_headers(client))
+    assert res.status_code == 200
+    assert home_store.get_job(job_id)["status"] == "cancelled"
+    done = client.post("/api/reports/invoiced/run", json={}, headers=csrf_headers(client)).json()
+    finished_id = done["data"]["job_id"]
+    again = client.post(f"/api/jobs/{finished_id}/cancel", headers=csrf_headers(client))
+    assert again.status_code == 409
+
+
+def test_explorer_write_confirm_and_group_json(client):
+    login(client)
+    drop = client.post(
+        "/dev/db-explorer",
+        data={"sql": "DROP TABLE users", "csrf": client.csrf},
+        follow_redirects=True,
+    )
+    assert "DROP/ALTER" in drop.text
+    write = client.post(
+        "/dev/db-explorer",
+        data={"sql": "UPDATE views SET name = name", "csrf": client.csrf},
+        follow_redirects=True,
+    )
+    assert "Confirm write" in write.text
+    with db() as conn:
+        view_id = conn.execute("SELECT id FROM views ORDER BY id LIMIT 1").fetchone()["id"]
+    bad_json = client.post(
+        "/dev/db-explorer/json",
+        data={
+            "view_id": view_id,
+            "params_json": '{"group": "Salesman"}',
+            "csrf": client.csrf,
+            "confirm_write": "1",
+        },
+        follow_redirects=True,
+    )
+    assert "array" in bad_json.text
+    ok_json = client.post(
+        "/dev/db-explorer/json",
+        data={
+            "view_id": view_id,
+            "params_json": '{"group": ["Salesman"], "period": "mtd"}',
+            "csrf": client.csrf,
+            "confirm_write": "1",
+        },
+        follow_redirects=False,
+    )
+    assert ok_json.status_code == 303
+    view = home_store.get_view(view_id)
+    assert view["params"]["group"] == ["Salesman"]

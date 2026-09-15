@@ -106,6 +106,13 @@ def list_views(email: str, privileged: bool) -> list[dict]:
     return [_parse_view(row) for row in rows]
 
 
+def validate_view_params(params: dict) -> str | None:
+    group = params.get("group")
+    if group is not None and not isinstance(group, list):
+        return "views.group must stay an array"
+    return None
+
+
 def add_view(owner_email: str | None, report_key: str, name: str, kind: str, params: dict, include_period: int) -> int:
     with db() as conn:
         cur = conn.execute(
@@ -124,17 +131,32 @@ def get_view(view_id: int) -> dict | None:
     return _parse_view(row)
 
 
-def delete_view(view_id: int) -> None:
+def update_view_params(view_id: int, params: dict) -> str | None:
+    err = validate_view_params(params)
+    if err:
+        return err
     with db() as conn:
-        conn.execute("DELETE FROM views WHERE id = ?", (view_id,))
+        conn.execute(
+            "UPDATE views SET params_json = ? WHERE id = ?",
+            (json.dumps(params), view_id),
+        )
+    return None
 
 
-def save_job(report_key: str, title: str, payload: dict, owner_email: str = "", kept: int = 0, keep_name: str | None = None) -> int:
+def save_job(
+    report_key: str,
+    title: str,
+    payload: dict,
+    owner_email: str = "",
+    kept: int = 0,
+    keep_name: str | None = None,
+    status: str = "success",
+) -> int:
     with db() as conn:
         cur = conn.execute(
             """INSERT INTO jobs (report_key, title, status, created_at, kept, keep_name, payload_json, owner_email)
-               VALUES (?, ?, 'success', ?, ?, ?, ?, ?)""",
-            (report_key, title, now_iso(), kept, keep_name, json.dumps(payload), owner_email),
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (report_key, title, status, now_iso(), kept, keep_name, json.dumps(payload), owner_email),
         )
         return int(cur.lastrowid)
 
@@ -142,6 +164,14 @@ def save_job(report_key: str, title: str, payload: dict, owner_email: str = "", 
 def keep_job(job_id: int, name: str) -> None:
     with db() as conn:
         conn.execute("UPDATE jobs SET kept = 1, keep_name = ? WHERE id = ?", (name, job_id))
+
+
+def cancel_job(job_id: int) -> None:
+    with db() as conn:
+        conn.execute(
+            "UPDATE jobs SET status = 'cancelled' WHERE id = ? AND status IN ('running', 'queued')",
+            (job_id,),
+        )
 
 
 def list_jobs(kept_only: bool = False, owner_email: str | None = None) -> list[dict]:
@@ -209,16 +239,19 @@ def add_schedule(
     subject: str = "",
     filename: str = "",
     sharepoint_folder: str = "",
+    onedrive_folder: str = "",
 ) -> int:
     with db() as conn:
         cur = conn.execute(
             """INSERT INTO schedules (
                    view_id, owner_email, freq, run_time, weekdays, monthday,
-                   recipients, cc, bcc, subject, filename, sharepoint_folder, is_active
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                   recipients, cc, bcc, subject, filename, sharepoint_folder,
+                   onedrive_folder, is_active
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
             (
                 view_id, owner_email, freq, run_time, weekdays, monthday,
                 recipients, cc, bcc, subject, filename, sharepoint_folder,
+                onedrive_folder,
             ),
         )
         return int(cur.lastrowid)

@@ -136,6 +136,7 @@ def report_page(request: Request, report_key: str):
         loaded_view=loaded,
         privileged=is_privileged(user),
         can_company=is_privileged(user),
+        save_for_users=store.list_users() if is_privileged(user) else [],
     )
 
 
@@ -268,6 +269,37 @@ def last_order_view(request: Request, account: str):
     return page(request, "last_order_view.html", active_tab="reports", view=found)
 
 
+@router.get("/report/customer-last-order/{account}/xlsx")
+def last_order_xlsx(request: Request, account: str):
+    denied = need_login(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    if not can_see_report(user, "customer_last_order"):
+        return JSONResponse({"error": "Hidden"}, status_code=404)
+    found = catalog.last_order_for(account)
+    if found is None:
+        return JSONResponse({"error": "Unknown customer"}, status_code=404)
+    if account in store.exclusions_for(user["email"]):
+        return JSONResponse({"error": "Excluded"}, status_code=404)
+    scope = salesman_keys(user)
+    if scope is not None and found["customer"]["salesman"] not in scope:
+        return JSONResponse({"error": "Outside your SalesGroup"}, status_code=404)
+    payload = {
+        "data": {
+            "report_key": "customer_last_order",
+            "title": found["customer"]["name"],
+            "raw": found["lines"],
+            "tabs": {"lines": {"name": "Lines", "rows": found["lines"]}},
+        }
+    }
+    return Response(
+        workbook_bytes(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="last-order-{account}.xlsx"'},
+    )
+
+
 @router.get("/api/jobs")
 def jobs_list(request: Request):
     denied = need_login(request)
@@ -310,6 +342,24 @@ async def job_keep(request: Request, job_id: int):
     return {"ok": True}
 
 
+@router.post("/api/jobs/{job_id}/cancel")
+def job_cancel(request: Request, job_id: int):
+    denied = need_login(request)
+    if denied:
+        return denied
+    denied = require_csrf(request)
+    if denied:
+        return denied
+    user = session_user(request)
+    job = store.get_job(job_id)
+    if job is None or not can_read_job(user, job):
+        return JSONResponse({"error": "Unknown run"}, status_code=404)
+    if job["status"] not in {"running", "queued"}:
+        return JSONResponse({"error": "That run already finished.", "status": job["status"]}, status_code=409)
+    store.cancel_job(job_id)
+    return {"ok": True, "status": "cancelled"}
+
+
 @router.get("/api/views")
 def views_list(request: Request):
     denied = need_login(request)
@@ -346,7 +396,18 @@ async def views_save(request: Request):
         kind = "company"
         name = name or "Company Default"
     owner = None if kind == "company" else user["email"]
+    for_email = ((body or {}).get("for_email") or "").strip().lower()
+    if for_email and is_privileged(user) and kind != "company":
+        target = store.get_user(for_email)
+        if target is None:
+            return JSONResponse({"error": "Unknown user to save for"}, status_code=400)
+        owner = target["email"]
     params = (body or {}).get("params") or {}
+    if not isinstance(params, dict):
+        return JSONResponse({"error": "params must be a JSON object"}, status_code=400)
+    bad_group = store.validate_view_params(params)
+    if bad_group:
+        return JSONResponse({"error": bad_group}, status_code=400)
     include_period = 1 if (body or {}).get("include_period") else 0
     view_id = store.add_view(owner, report_key, name, kind, params, include_period)
     return {"ok": True, "id": view_id}

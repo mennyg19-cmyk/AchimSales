@@ -22,53 +22,75 @@
 <section class="settings-card">
     <h2 class="section-title">Add a schedule</h2>
     {% if views %}
-    <form method="post" action="/schedules/add" class="auth-form form-narrow">
+    <form method="post" action="/schedules/add" class="auth-form form-narrow" id="schedWizard">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <label class="auth-field"><span class="auth-label">View</span>
-            <select name="view_id" required>
-                {% for v in views %}
-                <option value="{{ v.id }}" {% if preselect_view and preselect_view|string == v.id|string %}selected{% endif %}>
-                    {{ v.name }} ({{ v.report_key }})
-                </option>
-                {% endfor %}
-            </select>
-        </label>
-        <label class="auth-field"><span class="auth-label">When</span>
-            <select name="freq" id="schedFreq">
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-            </select>
-        </label>
-        <div class="sched-weekdays" id="weekdayRow" hidden>
-            {% for day, label in [("mon","Mon"),("tue","Tue"),("wed","Wed"),("thu","Thu"),("fri","Fri")] %}
-            <label class="sched-day"><input type="checkbox" name="weekdays" value="{{ day }}"> {{ label }}</label>
-            {% endfor %}
+        <p class="flag-desc" id="wizHint">Step 1 of 3 — View</p>
+        <div class="wiz-step" data-step="1">
+            <label class="auth-field"><span class="auth-label">View</span>
+                <select name="view_id" required>
+                    {% for v in views %}
+                    <option value="{{ v.id }}" {% if preselect_view and preselect_view|string == v.id|string %}selected{% endif %}>
+                        {{ v.name }} ({{ v.report_key }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
         </div>
-        <label class="auth-field" id="monthdayRow" hidden>
-            <span class="auth-label">Day of month</span>
-            <input name="monthday" type="number" min="1" max="31" value="1">
-        </label>
-        <label class="auth-field"><span class="auth-label">Time (America/New_York)</span>
-            <input name="run_time" type="time" value="08:00"></label>
-        <label class="auth-field"><span class="auth-label">Where (email)</span>
-            <input name="recipients" type="text" value="{{ user.email }}" placeholder="one@x.com, two@x.com"></label>
-        {% if is_privileged %}
-        <label class="auth-field"><span class="auth-label">CC</span>
-            <input name="cc" type="text" placeholder="optional"></label>
-        <label class="auth-field"><span class="auth-label">BCC</span>
-            <input name="bcc" type="text" placeholder="optional"></label>
-        {% endif %}
-        <label class="auth-field"><span class="auth-label">Subject</span>
-            <input name="subject" type="text" placeholder="{Schedule} {Period}"></label>
-        <p class="form-hint">Chips you can type: {Schedule} {Period} {SharePointUrl} {DownloadButton}</p>
-        <label class="auth-field"><span class="auth-label">Filename</span>
-            <input name="filename" type="text" placeholder="{Schedule}-{Period}.xlsx"></label>
-        {% if is_privileged or user.sharepoint_access %}
-        <label class="auth-field"><span class="auth-label">SharePoint folder</span>
-            <input name="sharepoint_folder" type="text" placeholder="dummy path — Graph is not wired"></label>
-        {% endif %}
-        <button type="submit" class="btn btn-primary">Save schedule</button>
+        <div class="wiz-step" data-step="2" hidden>
+            <label class="auth-field"><span class="auth-label">When</span>
+                <select name="freq" id="schedFreq">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                </select>
+            </label>
+            <div class="sched-weekdays" id="weekdayRow" hidden>
+                {% for day, label in [("mon","Mon"),("tue","Tue"),("wed","Wed"),("thu","Thu"),("fri","Fri")] %}
+                <label class="sched-day"><input type="checkbox" name="weekdays" value="{{ day }}"> {{ label }}</label>
+                {% endfor %}
+            </div>
+            <label class="auth-field" id="monthdayRow" hidden>
+                <span class="auth-label">Day of month</span>
+                <input name="monthday" type="number" min="1" max="31" value="1">
+            </label>
+            <label class="auth-field"><span class="auth-label">Time (America/New_York)</span>
+                <input name="run_time" type="time" value="08:00"></label>
+        </div>
+        <div class="wiz-step" data-step="3" hidden>
+            <label class="auth-field"><span class="auth-label">Where (email)</span>
+                <input name="recipients" type="text" value="{{ user.email }}" placeholder="one@x.com, two@x.com"></label>
+            {% if is_privileged %}
+            <label class="auth-field"><span class="auth-label">CC</span>
+                <input name="cc" type="text" placeholder="optional"></label>
+            <label class="auth-field"><span class="auth-label">BCC</span>
+                <input name="bcc" type="text" placeholder="optional"></label>
+            {% endif %}
+            <label class="auth-field"><span class="auth-label">Subject</span>
+                <input name="subject" id="schedSubject" type="text" placeholder="{Schedule} {Period}"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{Period}">Period</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{SharePointUrl}">SharePointUrl</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedSubject" data-chip="{DownloadButton}">DownloadButton</button>
+            </p>
+            <label class="auth-field"><span class="auth-label">Filename</span>
+                <input name="filename" id="schedFilename" type="text" placeholder="{Schedule}-{Period}.xlsx"></label>
+            <p class="form-hint">Insert:
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Schedule}">Schedule</button>
+                <button type="button" class="btn btn-sm btn-outline chip-btn" data-target="schedFilename" data-chip="{Period}">Period</button>
+            </p>
+            {% if is_privileged or user.sharepoint_access %}
+            <label class="auth-field"><span class="auth-label">SharePoint folder</span>
+                <input name="sharepoint_folder" type="text" placeholder="dummy path — Graph is not wired"></label>
+            <label class="auth-field"><span class="auth-label">OneDrive folder</span>
+                <input name="onedrive_folder" type="text" placeholder="dummy path — Graph is not wired"></label>
+            {% endif %}
+        </div>
+        <div class="modal-foot">
+            <button type="button" class="btn btn-outline" id="wizBack" hidden>Back</button>
+            <button type="button" class="btn btn-primary" id="wizNext">Next</button>
+            <button type="submit" class="btn btn-primary" id="wizSave" hidden>Save schedule</button>
+        </div>
     </form>
     {% else %}
     <p class="flag-desc">Save a named view on a report first, then come back here.</p>
@@ -153,6 +175,32 @@
   }
   if (freq) freq.addEventListener("change", sync);
   sync();
+  var labels = ["View", "When", "Where"];
+  var step = 1;
+  var hint = document.getElementById("wizHint");
+  var back = document.getElementById("wizBack");
+  var next = document.getElementById("wizNext");
+  var save = document.getElementById("wizSave");
+  function show() {
+    document.querySelectorAll(".wiz-step").forEach(function (el) {
+      el.hidden = Number(el.getAttribute("data-step")) !== step;
+    });
+    if (hint) hint.textContent = "Step " + step + " of 3 — " + labels[step - 1];
+    if (back) back.hidden = step === 1;
+    if (next) next.hidden = step === 3;
+    if (save) save.hidden = step !== 3;
+  }
+  if (next) next.addEventListener("click", function () { step = Math.min(3, step + 1); show(); });
+  if (back) back.addEventListener("click", function () { step = Math.max(1, step - 1); show(); });
+  document.querySelectorAll(".chip-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var field = document.getElementById(btn.getAttribute("data-target"));
+      if (!field) return;
+      field.value = (field.value || "") + btn.getAttribute("data-chip");
+      field.focus();
+    });
+  });
+  show();
 })();
 </script>
 {% endblock %}

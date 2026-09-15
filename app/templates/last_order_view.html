@@ -12,7 +12,7 @@
 <div class="settings-card">
     <div class="clo-head" style="margin-top:0;">
         <h3>Last Order</h3>
-        <a class="btn btn-sm btn-outline" href="/api/reports/invoiced/xlsx">Export Excel (invoiced dummy)</a>
+        <a class="btn btn-sm btn-outline" href="/report/customer-last-order/{{ view.customer.account }}/xlsx">Export Excel</a>
     </div>
     <div class="cust-metrics">
         <div>
@@ -47,4 +47,22 @@
         </tbody>
     </table>
 </div>
+{% if view.recent_invoices %}
+<div class="settings-card">
+    <h3>Recent invoiced</h3>
+    <p class="flag-desc">Dummy helper from the Invoiced mock for this account.</p>
+    <table class="simple-table">
+        <thead><tr><th>Invoice</th><th>Date</th><th>Total</th></tr></thead>
+        <tbody>
+        {% for inv in view.recent_invoices %}
+        <tr>
+            <td>{{ inv.InvoiceNumber }}</td>
+            <td>{{ inv.InvoiceDate }}</td>
+            <td>{{ inv["Total Invoice"] }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 {% endblock %}
