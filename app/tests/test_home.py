@@ -368,3 +368,41 @@ def test_hidden_report_hides_company_view_card(client):
     html = client.get("/").text
     assert "Daily Ordered" not in html
     assert "/reports/ordered" not in html
+
+
+def test_hidden_last_order_blocks_store_visit(client):
+    login(client)
+    client.post(
+        "/api/settings/visibility",
+        json={"key": "customer_last_order", "enabled": False},
+        headers=csrf_headers(client),
+    )
+    pick = client.get("/report/customer-last-order", follow_redirects=False)
+    assert pick.status_code == 302
+    visit = client.get("/report/customer-last-order/C-1001", follow_redirects=False)
+    assert visit.status_code == 302
+    assert "SO-88021" not in (visit.text or "")
+
+
+def test_salesman_cannot_copy_others_schedule(client):
+    login(client)
+    from db import db
+    with db() as conn:
+        sid = conn.execute(
+            "SELECT id FROM schedules WHERE owner_email = 'preview@achimonline.com' LIMIT 1"
+        ).fetchone()["id"]
+        before = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
+        ).fetchone()["n"]
+    become(client, "salesman@achimonline.com")
+    copied = client.post(
+        f"/schedules/{sid}/copy",
+        data={"csrf": client.csrf},
+        follow_redirects=False,
+    )
+    assert copied.status_code == 303
+    with db() as conn:
+        after = conn.execute(
+            "SELECT COUNT(*) AS n FROM schedules WHERE owner_email = 'salesman@achimonline.com'"
+        ).fetchone()["n"]
+    assert after == before

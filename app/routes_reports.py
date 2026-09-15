@@ -247,6 +247,9 @@ def last_order_view(request: Request, account: str):
     if denied:
         return denied
     user = session_user(request)
+    if not can_see_report(user, "customer_last_order"):
+        flash(request, "Customer's Last Order is hidden.", "warn")
+        return RedirectResponse("/", status_code=302)
     found = catalog.last_order_for(account)
     if found is None:
         flash(request, "No mock customer with that account.", "warn")

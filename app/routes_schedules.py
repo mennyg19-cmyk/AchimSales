@@ -254,8 +254,8 @@ def schedules_copy(request: Request, schedule_id: int, csrf: str = Form("")):
         return denied
     user = session_user(request)
     row = store.get_schedule(schedule_id)
-    if row is None:
-        flash(request, "Unknown schedule.", "error")
+    if row is None or not can_read_schedule(user, row):
+        flash(request, "You can only copy a schedule you can see.", "warn")
         return RedirectResponse("/schedules", status_code=303)
     store.add_schedule(
         row["view_id"],
