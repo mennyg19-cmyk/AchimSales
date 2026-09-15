@@ -60,18 +60,7 @@ def schedules_page(request: Request):
     views = store.list_views(user["email"], is_privileged(user) or user.get("can_see_company_views"))
     named = [view for view in views if view["name"] and view["name"] != "Default"]
     named = [view for view in named if can_use_view_for_schedule(user, view)]
-    rows = store.list_schedules()
-    if not is_privileged(user):
-        own = [row for row in rows if row["owner_email"] == user["email"]]
-        if user.get("role") == "manager":
-            shared = [
-                row
-                for row in rows
-                if row["owner_email"] != user["email"] and row.get("view_kind") == "company"
-            ]
-            rows = own + shared
-        else:
-            rows = own
+    rows = [row for row in store.list_schedules() if can_read_schedule(user, row)]
     recent = store.list_schedule_runs()[:20]
     if not is_privileged(user):
         recent = [run for run in recent if can_read_schedule(user, run)]
@@ -170,7 +159,10 @@ def schedules_delete(request: Request, schedule_id: int, csrf: str = Form("")):
         return denied
     user = session_user(request)
     row = store.get_schedule(schedule_id)
-    if row and row["owner_email"] != user["email"] and not is_privileged(user):
+    if row is None:
+        flash(request, "Unknown schedule.", "error")
+        return RedirectResponse("/schedules", status_code=303)
+    if row["owner_email"] != user["email"] and not is_privileged(user):
         flash(request, "You can only delete your own schedules.", "warn")
         return RedirectResponse("/schedules", status_code=303)
     store.delete_schedule(schedule_id)
@@ -206,7 +198,7 @@ def schedule_history(request: Request, schedule_id: int):
     if row is None or not can_read_schedule(user, row):
         flash(request, "Unknown schedule.", "error")
         return RedirectResponse("/schedules", status_code=302)
-    runs = [item for item in store.list_schedule_runs() if item["schedule_id"] == schedule_id]
+    runs = store.list_schedule_runs_for(schedule_id)
     return page(
         request,
         "schedule_history.html",
@@ -285,7 +277,7 @@ def master_schedule_history(request: Request, schedule_id: int):
     if row is None:
         flash(request, "Unknown schedule.", "error")
         return RedirectResponse("/master-schedules", status_code=302)
-    runs = [item for item in store.list_schedule_runs() if item["schedule_id"] == schedule_id]
+    runs = store.list_schedule_runs_for(schedule_id)
     return page(
         request,
         "schedule_history.html",

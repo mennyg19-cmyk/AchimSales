@@ -37,9 +37,6 @@ def is_privileged(user: dict | None) -> bool:
     return bool(user) and user.get("role") in config.PRIVILEGED_ROLES
 
 
-is_admin = is_privileged
-
-
 def csrf_token(request: Request) -> str:
     token = request.session.get("csrf")
     if not token:
@@ -65,7 +62,6 @@ def ctx(request: Request, **extra):
         "flash_kind": flash_kind,
         "csrf": csrf_token(request),
         "is_privileged": is_privileged(user),
-        "is_admin": is_admin(user),
         "is_developer": is_privileged(user) and user.get("role") == "developer",
         "impersonating": request.session.get("impersonating"),
         **extra,

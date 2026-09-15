@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-head">
     <h1 class="page-title">Settings</h1>
-    <p class="page-subtitle">Your account{% if is_admin %}, access, delivery, and history{% endif %}.</p>
+    <p class="page-subtitle">Your account{% if is_privileged %}, access, delivery, and history{% endif %}.</p>
 </div>
 
 <div id="settingsHub" class="settings-hub">
@@ -48,7 +48,7 @@
     </section>
 </details>
 
-{% if is_admin %}
+{% if is_privileged %}
 <details class="settings-cat">
     <summary>People</summary>
     <section class="settings-card">
@@ -140,7 +140,7 @@
 </details>
 {% endif %}
 
-{% if is_developer or is_privileged %}
+{% if is_privileged %}
 <details class="settings-cat">
     <summary>Developer</summary>
     <section class="settings-card">

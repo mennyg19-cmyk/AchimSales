@@ -21,3 +21,4 @@
 .auth-field-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;margin:8px 0}
 .modal-overlay{display:flex}
 .modal-overlay[hidden],[hidden]{display:none!important}
+summary.settings-subhead{cursor:pointer}

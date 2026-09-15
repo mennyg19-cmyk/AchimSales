@@ -88,6 +88,12 @@ def set_visibility(report_key: str, enabled: bool) -> None:
         )
 
 
+def _parse_view(row) -> dict:
+    view = dict(row)
+    view["params"] = json.loads(view.pop("params_json") or "{}")
+    return view
+
+
 def list_views(email: str, privileged: bool) -> list[dict]:
     with db() as conn:
         if privileged:
@@ -97,12 +103,7 @@ def list_views(email: str, privileged: bool) -> list[dict]:
                 "SELECT * FROM views WHERE owner_email = ? OR kind = 'company' ORDER BY name",
                 (email,),
             ).fetchall()
-    parsed = []
-    for row in rows:
-        view = dict(row)
-        view["params"] = json.loads(view.pop("params_json") or "{}")
-        parsed.append(view)
-    return parsed
+    return [_parse_view(row) for row in rows]
 
 
 def add_view(owner_email: str | None, report_key: str, name: str, kind: str, params: dict, include_period: int) -> int:
@@ -120,9 +121,7 @@ def get_view(view_id: int) -> dict | None:
         row = conn.execute("SELECT * FROM views WHERE id = ?", (view_id,)).fetchone()
     if row is None:
         return None
-    out = dict(row)
-    out["params"] = json.loads(out.pop("params_json") or "{}")
-    return out
+    return _parse_view(row)
 
 
 def delete_view(view_id: int) -> None:
@@ -262,6 +261,20 @@ def list_schedule_runs() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def list_schedule_runs_for(schedule_id: int) -> list[dict]:
+    with db() as conn:
+        rows = conn.execute(
+            """SELECT r.*, s.owner_email, v.name AS view_name, v.report_key, v.kind AS view_kind
+               FROM schedule_runs r
+               JOIN schedules s ON s.id = r.schedule_id
+               JOIN views v ON v.id = s.view_id
+               WHERE r.schedule_id = ?
+               ORDER BY r.id DESC""",
+            (schedule_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_schedule_run(run_id: int) -> dict | None:
     with db() as conn:
         row = conn.execute(
@@ -344,12 +357,7 @@ def list_views_for_report(email: str, report_key: str, privileged: bool) -> list
                    ORDER BY name""",
                 (report_key, email),
             ).fetchall()
-    parsed = []
-    for row in rows:
-        view = dict(row)
-        view["params"] = json.loads(view.pop("params_json") or "{}")
-        parsed.append(view)
-    return parsed
+    return [_parse_view(row) for row in rows]
 
 
 def get_schedule(schedule_id: int) -> dict | None:
@@ -362,9 +370,7 @@ def get_schedule(schedule_id: int) -> dict | None:
         ).fetchone()
     if row is None:
         return None
-    out = dict(row)
-    out["params"] = json.loads(out.pop("params_json") or "{}")
-    return out
+    return _parse_view(row)
 
 
 def test_emails() -> list[str]:

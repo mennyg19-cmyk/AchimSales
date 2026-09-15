@@ -29,13 +29,27 @@ FLAGS = (
 )
 
 
+def _deny(request: Request, message: str, dest: str = "/settings"):
+    flash(request, message, "warn")
+    code = 303 if request.method == "POST" else 302
+    return RedirectResponse(dest, status_code=code)
+
+
 def _guard_admin(request: Request):
     denied = need_login(request)
     if denied:
         return denied
     if not is_privileged(session_user(request)):
-        flash(request, "Admin only.", "warn")
-        return RedirectResponse("/settings", status_code=302)
+        return _deny(request, "Admin only.", "/settings")
+    return None
+
+
+def _guard_developer(request: Request, dest: str = "/settings"):
+    denied = need_login(request)
+    if denied:
+        return denied
+    if not is_privileged(session_user(request)):
+        return _deny(request, "Developer only.", dest)
     return None
 
 
@@ -225,6 +239,9 @@ async def users_edit(request: Request, user_id: int):
     denied = require_csrf(request, str(form.get("csrf") or ""))
     if denied:
         return denied
+    if store.get_user_by_id(user_id) is None:
+        flash(request, "Unknown user.", "error")
+        return RedirectResponse("/admin/users", status_code=303)
     role = str(form.get("role") or "salesman")
     if role not in config.ROLES:
         flash(request, "Unknown role.", "error")
@@ -283,16 +300,15 @@ def view_as(request: Request, user_id: int, csrf: str = Form("")):
     denied = require_csrf(request, csrf)
     if denied:
         return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "View as is for developers.", "warn")
-        return RedirectResponse("/admin/users", status_code=302)
+    blocked = _guard_developer(request, "/admin/users")
+    if blocked:
+        return blocked
     target = store.get_user_by_id(user_id)
     if target is None or not target["is_active"]:
         flash(request, "That login is missing or disabled.", "error")
-        return RedirectResponse("/admin/users", status_code=302)
+        return RedirectResponse("/admin/users", status_code=303)
     if not request.session.get("impersonating"):
-        request.session["impersonating"] = user
+        request.session["impersonating"] = session_user(request)
     request.session["user"] = session_from_row(target)
     flash(request, f"Viewing as {target['email']}.")
     return RedirectResponse("/", status_code=303)
@@ -315,13 +331,9 @@ def stop_impersonate(request: Request, csrf: str = Form("")):
 def role_picker(request: Request):
     if config.PRODUCTION:
         return JSONResponse({"error": "Not in production"}, status_code=404)
-    denied = need_login(request)
-    if denied:
-        return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "Role picker is for developers.", "warn")
-        return RedirectResponse("/settings", status_code=302)
+    blocked = _guard_developer(request)
+    if blocked:
+        return blocked
     return page(request, "role_picker.html", active_tab="settings", users=store.list_users())
 
 
@@ -343,13 +355,9 @@ def schedule_runs(request: Request):
 
 @router.get("/dev/db-explorer")
 def db_explorer(request: Request):
-    denied = need_login(request)
-    if denied:
-        return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "Developer only.", "warn")
-        return RedirectResponse("/settings", status_code=302)
+    blocked = _guard_developer(request)
+    if blocked:
+        return blocked
     return page(request, "db_explorer.html", active_tab="settings", rows=None, error=None, sql="")
 
 
@@ -361,10 +369,9 @@ def db_explorer_run(request: Request, sql: str = Form(""), csrf: str = Form(""))
     denied = require_csrf(request, csrf)
     if denied:
         return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "Developer only.", "warn")
-        return RedirectResponse("/settings", status_code=302)
+    blocked = _guard_developer(request)
+    if blocked:
+        return blocked
     stripped = sql.strip().rstrip(";")
     upper = stripped.upper()
     blocked_words = ("DROP ", "ALTER ", "ATTACH ", "CREATE ", "DETACH ")
@@ -411,25 +418,17 @@ def db_explorer_run(request: Request, sql: str = Form(""), csrf: str = Form(""))
 
 @router.get("/dev/notif-diagnostic")
 def notif_diagnostic(request: Request):
-    denied = need_login(request)
-    if denied:
-        return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "Developer only.", "warn")
-        return RedirectResponse("/settings", status_code=302)
+    blocked = _guard_developer(request)
+    if blocked:
+        return blocked
     return page(request, "notif_diagnostic.html", active_tab="settings", outbox=store.list_outbox())
 
 
 @router.get("/dev/diagnostics")
 def diagnostics(request: Request):
-    denied = need_login(request)
-    if denied:
-        return denied
-    user = session_user(request)
-    if not is_privileged(user):
-        flash(request, "Developer only.", "warn")
-        return RedirectResponse("/settings", status_code=302)
+    blocked = _guard_developer(request)
+    if blocked:
+        return blocked
     salesman = catalog.mock_report("salesman")
     number4 = catalog.mock_report("number_4")
     return page(

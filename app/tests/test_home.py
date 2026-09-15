@@ -8,7 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from catalog import REPORTS
+from db import db
 from main import create_app
+import store as home_store
 
 
 @pytest.fixture
@@ -34,7 +36,6 @@ def csrf_headers(client: TestClient) -> dict[str, str]:
 
 
 def become(client: TestClient, email: str):
-    import store as home_store
     row = home_store.get_user(email)
     res = client.post(
         f"/admin/users/{row['id']}/view-as",
@@ -187,7 +188,6 @@ def test_save_view_and_schedule_run_now(client):
     schedules = client.get("/schedules").text
     assert "My Invoiced" in schedules
     # seeded Daily Ordered is id 2-ish; run the one we added via history list
-    from db import db
     with db() as conn:
         row = conn.execute("SELECT id FROM schedules ORDER BY id DESC LIMIT 1").fetchone()
         sid = row["id"]
@@ -270,7 +270,6 @@ def test_login_next_rejects_offsite(client):
 
 def test_disabled_magic_link_is_403(client):
     login(client)
-    from db import db
     with db() as conn:
         conn.execute("UPDATE users SET is_active = 0 WHERE email = 'external@example.com'")
     client.post("/logout", data={"csrf": client.csrf})
@@ -280,7 +279,6 @@ def test_disabled_magic_link_is_403(client):
 
 def test_copy_schedule(client):
     login(client)
-    from db import db
     with db() as conn:
         row = conn.execute("SELECT id FROM schedules ORDER BY id LIMIT 1").fetchone()
         sid = row["id"]
@@ -330,7 +328,6 @@ def test_salesman_cannot_read_others_jobs(client):
 
 def test_salesman_cannot_read_others_schedule_logs(client):
     login(client)
-    from db import db
     with db() as conn:
         sid = conn.execute(
             "SELECT id FROM schedules WHERE owner_email = 'preview@achimonline.com' LIMIT 1"
@@ -386,7 +383,6 @@ def test_hidden_last_order_blocks_store_visit(client):
 
 def test_salesman_cannot_copy_others_schedule(client):
     login(client)
-    from db import db
     with db() as conn:
         sid = conn.execute(
             "SELECT id FROM schedules WHERE owner_email = 'preview@achimonline.com' LIMIT 1"
@@ -422,7 +418,6 @@ def test_salesman_cannot_schedule_others_personal_view(client):
         headers=csrf_headers(client),
     ).json()
     view_id = created["id"]
-    from db import db
     become(client, "salesman@achimonline.com")
     with db() as conn:
         before = conn.execute(
@@ -460,7 +455,6 @@ def test_pwa_icons_and_manifest(client):
 
 def test_extra_sales_group_opens_last_order_customers(client):
     login(client)
-    import store as home_store
     row = home_store.get_user("salesman@achimonline.com")
     saved = client.post(
         f"/admin/users/{row['id']}/edit",
@@ -484,7 +478,6 @@ def test_extra_sales_group_opens_last_order_customers(client):
 
 def test_report_allow_overrides_global_visibility(client):
     login(client)
-    import store as home_store
     row = home_store.get_user("salesman@achimonline.com")
     client.post(
         "/api/settings/visibility",
@@ -511,7 +504,6 @@ def test_report_allow_overrides_global_visibility(client):
 
 def test_report_deny_hides_card(client):
     login(client)
-    import store as home_store
     row = home_store.get_user("salesman@achimonline.com")
     client.post(
         f"/admin/users/{row['id']}/edit",
@@ -532,7 +524,6 @@ def test_report_deny_hides_card(client):
 
 def test_item_averages_allow_still_admin_only(client):
     login(client)
-    import store as home_store
     row = home_store.get_user("salesman@achimonline.com")
     client.post(
         f"/admin/users/{row['id']}/edit",
@@ -583,7 +574,6 @@ def test_manager_sees_company_schedules_not_others_personal(client):
 
 def test_schedule_delivery_fields_land_in_outbox(client):
     login(client)
-    from db import db
     with db() as conn:
         view_id = conn.execute(
             "SELECT id FROM views WHERE name = 'Daily Ordered' AND kind = 'company'"
@@ -622,7 +612,6 @@ def test_schedule_delivery_fields_land_in_outbox(client):
 
 def test_master_schedule_history_and_diagnostics(client):
     login(client)
-    from db import db
     with db() as conn:
         sid = conn.execute("SELECT id FROM schedules ORDER BY id LIMIT 1").fetchone()["id"]
     hist = client.get(f"/master-schedules/{sid}/history")
@@ -635,7 +624,6 @@ def test_master_schedule_history_and_diagnostics(client):
 
 def test_dashboard_flag_does_not_add_nav(client):
     login(client)
-    import store as home_store
     row = home_store.get_user("preview@achimonline.com")
     client.post(
         f"/admin/users/{row['id']}/edit",
@@ -659,7 +647,6 @@ def test_dashboard_flag_does_not_add_nav(client):
 
 def test_cannot_delete_own_login(client):
     login(client)
-    import store as home_store
     row = home_store.get_user("preview@achimonline.com")
     res = client.post(
         f"/admin/users/{row['id']}/delete",
@@ -693,7 +680,6 @@ def test_manager_cannot_run_others_personal_schedule(client):
         },
         follow_redirects=False,
     )
-    from db import db
     with db() as conn:
         sid = conn.execute(
             "SELECT id FROM schedules WHERE view_id = ? ORDER BY id DESC LIMIT 1",
@@ -736,7 +722,6 @@ def test_manager_cannot_run_others_personal_schedule(client):
 
 def test_salesman_cannot_schedule_company_view(client):
     login(client)
-    from db import db
     with db() as conn:
         view_id = conn.execute(
             "SELECT id FROM views WHERE name = 'Daily Ordered' AND kind = 'company'"
