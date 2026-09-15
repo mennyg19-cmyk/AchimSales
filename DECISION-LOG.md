@@ -1,3 +1,10 @@
+## 2026-09-15 Loop C craft deferrals (go-live)
+**What you asked for:** Merge normalize-views to live after review.
+**What I had to decide:** Fix all Loop C findings now vs defer non-blockers with the god-file split.
+**What I chose:** Fixed F1–F4 (dedupe view resolution, shared JSON loads, delete dead helpers). Deferred F5 (move format_digest into parity_digest.py) and F6 (banned local names, groups_explicit guard, pass-through row_count) to the post-JSON-drop `normalized_views.py` split.
+**Why:** Go-live gate must not stall on rename/module-move noise; deferred items do not change runtime scores.
+**Status:** DECIDED
+
 ## 2026-09-15 Silent dual workbook parity + daily digest
 **What you asked for:** Run reports silently in the background using the new format, also write the old format to a folder, auto-compare, and email results once a day.
 **What I had to decide:** Per-run email vs daily digest; fail delivery on mismatch vs fail-soft; where to store the old xlsx.

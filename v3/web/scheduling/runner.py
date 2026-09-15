@@ -233,27 +233,20 @@ class ScheduleRunner:
             live,
         )
 
-    def _legacy_json_layout(self, sched, schedule_type: str) -> dict | None:
-        """Raw layout_json for silent parity (bypass live-read hydrate)."""
+    def _legacy_view_ref(self, sched, schedule_type: str) -> dict:
+        """Resolve which legacy JSON row (or schedule snapshot) backs this send.
+
+        Keys: ``source`` (saved_reports|company_views|report_defaults|snapshot),
+        ``legacy_id``, ``report_key``, ``snapshot`` (layout dict when source=snapshot).
+        """
         name = getattr(sched, "view_name", None)
         norm = normalize_view_name(name)
-        db = self.user_repo.db
         if norm == DEFAULT_VIEW_NAME:
             snap = getattr(sched, "layout", None)
             if layout_has_snapshot(snap if isinstance(snap, dict) else None):
-                return dict(snap)
-            with db.precious() as conn:
-                row = conn.execute(
-                    "SELECT layout_json FROM report_defaults WHERE report_key=?",
-                    (sched.report_key,),
-                ).fetchone()
-            if row is None:
-                return {}
-            try:
-                layout = json.loads(row["layout_json"] or "{}")
-            except (TypeError, ValueError):
-                return {}
-            return layout if isinstance(layout, dict) else {}
+                return {"source": "snapshot", "snapshot": dict(snap),
+                        "report_key": sched.report_key}
+            return {"source": "report_defaults", "report_key": sched.report_key}
         stored = dict(getattr(sched, "params", None) or {})
         use_company = schedule_type == MASTER or stored.get("view_source") == "company"
         if schedule_type == PERSONAL and not use_company:
@@ -263,13 +256,52 @@ class ScheduleRunner:
                 if owner_id else None
             )
             if personal is not None:
-                return raw_legacy_layout(db, "saved_reports", personal.id)
+                return {"source": "saved_reports", "legacy_id": personal.id}
             use_company = True
         if use_company:
             cv = self.company_views.get_by_name(sched.report_key, name)
             if cv is not None:
-                return raw_legacy_layout(db, "company_views", cv.id)
-        return dict(getattr(sched, "layout", None) or {})
+                return {"source": "company_views", "legacy_id": cv.id}
+        return {"source": "snapshot",
+                "snapshot": dict(getattr(sched, "layout", None) or {})}
+
+    def _legacy_json_layout(self, sched, schedule_type: str) -> dict | None:
+        """Raw layout_json for silent parity (bypass live-read hydrate)."""
+        from web.data.normalized_views import loads_json_object
+
+        ref = self._legacy_view_ref(sched, schedule_type)
+        source = ref.get("source")
+        if source == "snapshot":
+            return ref.get("snapshot") or {}
+        if source == "report_defaults":
+            with self.user_repo.db.precious() as conn:
+                row = conn.execute(
+                    "SELECT layout_json FROM report_defaults WHERE report_key=?",
+                    (ref.get("report_key"),),
+                ).fetchone()
+            if row is None:
+                return {}
+            return loads_json_object(row["layout_json"])
+        return raw_legacy_layout(self.user_repo.db, source, int(ref["legacy_id"]))
+
+    def _resolved_view_id(self, sched, schedule_type: str) -> str | None:
+        ref = self._legacy_view_ref(sched, schedule_type)
+        db = self.user_repo.db
+        source = ref.get("source")
+        with db.precious() as conn:
+            if source in ("report_defaults", "snapshot") and ref.get("report_key"):
+                row = conn.execute(
+                    "SELECT id FROM views WHERE kind='default' AND report_key=?",
+                    (ref["report_key"],),
+                ).fetchone()
+                return row["id"] if row else None
+            if source in ("saved_reports", "company_views") and ref.get("legacy_id") is not None:
+                row = conn.execute(
+                    "SELECT id FROM views WHERE legacy_source=? AND legacy_id=?",
+                    (source, ref["legacy_id"]),
+                ).fetchone()
+                return row["id"] if row else None
+        return None
 
     def _parity_deliver_kwargs(self, sched, schedule_type: str) -> dict:
         if not self.settings.view_workbook_parity_enabled():
@@ -288,46 +320,6 @@ class ScheduleRunner:
         except Exception:  # noqa: BLE001 - never fail a real send on parity lookup
             log.exception("view workbook parity lookup failed (delivery continues)")
             return {}
-
-    def _resolved_view_id(self, sched, schedule_type: str) -> str | None:
-        name = getattr(sched, "view_name", None)
-        norm = normalize_view_name(name)
-        db = self.user_repo.db
-        if norm == DEFAULT_VIEW_NAME:
-            with db.precious() as conn:
-                row = conn.execute(
-                    "SELECT id FROM views WHERE kind='default' AND report_key=?",
-                    (sched.report_key,),
-                ).fetchone()
-            return row["id"] if row else None
-        stored = dict(getattr(sched, "params", None) or {})
-        use_company = schedule_type == MASTER or stored.get("view_source") == "company"
-        if schedule_type == PERSONAL and not use_company:
-            owner_id = getattr(sched, "owner_user_id", None)
-            personal = (
-                self.saved_reports.get_by_name(owner_id, sched.report_key, name)
-                if owner_id else None
-            )
-            if personal is not None:
-                with db.precious() as conn:
-                    row = conn.execute(
-                        "SELECT id FROM views WHERE legacy_source='saved_reports'"
-                        " AND legacy_id=?",
-                        (personal.id,),
-                    ).fetchone()
-                return row["id"] if row else None
-            use_company = True
-        if use_company:
-            cv = self.company_views.get_by_name(sched.report_key, name)
-            if cv is not None:
-                with db.precious() as conn:
-                    row = conn.execute(
-                        "SELECT id FROM views WHERE legacy_source='company_views'"
-                        " AND legacy_id=?",
-                        (cv.id,),
-                    ).fetchone()
-                return row["id"] if row else None
-        return None
 
     def run(self, schedule_id: int, schedule_type: str = PERSONAL,
             *, ignore_sabbath: bool = False, catch_up_for_date: str | None = None,

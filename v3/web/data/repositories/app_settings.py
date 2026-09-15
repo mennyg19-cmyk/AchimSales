@@ -89,9 +89,6 @@ class AppSettingsRepository:
             return True
         return raw == "1"
 
-    def set_view_workbook_parity(self, enabled: bool) -> None:
-        self._set(_PARITY, "1" if enabled else "0")
-
     def view_parity_digest_emails(self) -> list[str]:
         raw = self._get(_PARITY_DIGEST_EMAILS)
         if raw:

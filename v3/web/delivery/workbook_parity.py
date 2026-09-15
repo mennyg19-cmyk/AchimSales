@@ -8,7 +8,6 @@ raw JSON layout, written under the parity folder, compared, and scored in
 from __future__ import annotations
 
 import io
-import json
 import logging
 import os
 import re
@@ -85,13 +84,6 @@ def diff_sheet_grids(old_sheets, new_sheets) -> list[str]:
 def _safe_name(text: str, fallback: str = "report") -> str:
     s = _SAFE.sub("_", (text or "").strip()).strip("._")
     return (s or fallback)[:80]
-
-
-def build_parity_pair(payload: dict, *, new_layout: dict, old_layout: dict) -> tuple[bytes, bytes]:
-    """Same payload, two layouts → (new_xlsx, old_xlsx)."""
-    new_shaped = apply_layout(expand_clones(payload, new_layout), new_layout)
-    old_shaped = apply_layout(expand_clones(payload, old_layout), old_layout)
-    return build_workbook(new_shaped, new_layout), build_workbook(old_shaped, old_layout)
 
 
 def run_parity_files(
@@ -171,18 +163,6 @@ class ViewWorkbookParityRepository:
             )
             return int(cur.lastrowid)
 
-    def undigested_for_day(self, day: str) -> list[dict]:
-        """Rows created on Eastern calendar ``day`` (YYYY-MM-DD) not yet emailed."""
-        with self.db.precious() as conn:
-            rows = conn.execute(
-                "SELECT * FROM view_workbook_parity"
-                " WHERE digest_date IS NULL"
-                " AND created_at >= ? AND created_at < ?"
-                " ORDER BY id",
-                (_eastern_day_start_utc_iso(day), _eastern_day_end_utc_iso(day)),
-            ).fetchall()
-            return [dict(r) for r in rows]
-
     def undigested_before(self, exclusive_end_utc_iso: str) -> list[dict]:
         """All unscored-email rows created before ``exclusive_end_utc_iso``."""
         with self.db.precious() as conn:
@@ -202,15 +182,6 @@ class ViewWorkbookParityRepository:
                 "UPDATE view_workbook_parity SET digest_date=? WHERE id=?",
                 [(day, i) for i in ids],
             )
-
-    def summary_counts(self, rows: list[dict]) -> tuple[int, int]:
-        matched = sum(1 for r in rows if r.get("matched"))
-        return matched, len(rows) - matched
-
-
-def _eastern_day_start_utc_iso(day: str) -> str:
-    local = datetime.fromisoformat(f"{day}T00:00:00").replace(tzinfo=EASTERN)
-    return local.astimezone(timezone.utc).isoformat()
 
 
 def _eastern_day_end_utc_iso(day: str) -> str:
@@ -257,6 +228,8 @@ def format_digest(day: str, rows: list[dict]) -> tuple[str, str]:
 
 def raw_legacy_layout(db: Database, legacy_source: str, legacy_id: int) -> dict | None:
     """layout_json from the old table, bypassing live-read hydrate."""
+    from web.data.normalized_views import loads_json_object
+
     with db.precious() as conn:
         row = None
         if legacy_source == "saved_reports":
@@ -279,8 +252,4 @@ def raw_legacy_layout(db: Database, legacy_source: str, legacy_id: int) -> dict 
                 ).fetchone()
         if row is None:
             return None
-        try:
-            layout = json.loads(row["layout_json"] or "{}")
-        except (TypeError, ValueError):
-            return {}
-        return layout if isinstance(layout, dict) else {}
+        return loads_json_object(row["layout_json"])

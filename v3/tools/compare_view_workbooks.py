@@ -62,20 +62,8 @@ FIXTURES = (
 
 
 def _sheet_grid(xlsx_bytes: bytes):
-    from openpyxl import load_workbook
-
-    wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=False)
-    sheets = []
-    for name in wb.sheetnames:
-        rows = []
-        for row in wb[name].iter_rows(values_only=True):
-            vals = list(row)
-            while vals and vals[-1] is None:
-                vals.pop()
-            rows.append(tuple(vals))
-        sheets.append((name, tuple(rows)))
-    wb.close()
-    return tuple(sheets)
+    from web.delivery.workbook_parity import sheet_grid
+    return sheet_grid(xlsx_bytes)
 
 
 def _xlsx(payload: dict, layout: dict) -> bytes:

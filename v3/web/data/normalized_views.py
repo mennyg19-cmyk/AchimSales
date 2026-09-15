@@ -98,16 +98,16 @@ def personal_view_id(handle: str, report_key: str, name: str) -> str:
     return _clip(f"pe-{handle}-{slug(report_key)}-{slug(name)}")
 
 
-def tab_id(view_id: str, tab_key: str) -> str:
-    return _clip(f"{view_id}__{slug(tab_key, 60)}")
-
-
-def _loads(raw: str | None) -> dict:
+def loads_json_object(raw: str | None) -> dict:
     try:
         obj = json.loads(raw or "{}")
     except (TypeError, ValueError):
         return {}
     return obj if isinstance(obj, dict) else {}
+
+
+def _loads(raw: str | None) -> dict:
+    return loads_json_object(raw)
 
 
 def _as_str_list(raw) -> list[str]:
