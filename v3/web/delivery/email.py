@@ -185,6 +185,7 @@ class EmailService:
         bcc = split_recipients(bcc_raw)
         folder_path = (sharepoint_path or "").strip() or None
         companions = [(n, b) for n, b in (companion_files or []) if n and b]
+        companion_names = [n for n, _ in companions]
         if not recipients and not folder_path:
             return DeliveryResult(ok=False, error="No valid recipients.")
 
@@ -218,13 +219,12 @@ class EmailService:
             # Main alone is incomplete. Do not email (body already lists companion
             # files in the folder) — fail so the scheduler retries instead of
             # reporting success with a missing Full Data / By Order file.
-            sp_saved = False
-            err = companion_err or "Companion workbook upload failed"
             return self._record(
                 subject or report_name, recipients, filename, eml_name="",
                 sent=False, channel="", sp_path=folder_path or upload_path,
-                sp_saved=False, sp_url=sp_url, sp_error=sp_err, error=err,
-                companions=[n for n, _ in companions],
+                sp_saved=False, sp_url=sp_url, sp_error=sp_err,
+                error=companion_err or "Companion workbook upload failed",
+                companions=companion_names,
             )
         record_path = folder_path or (upload_path if sp_saved else None)
         if not folder_path:
@@ -274,7 +274,7 @@ class EmailService:
                                         channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
                                         error=f"Graph failed: {exc}",
-                                        companions=[n for n, _ in companions])
+                                        companions=companion_names)
             elif self.cfg.smtp_host:
                 try:
                     self._smtp_send(msg, recipients + cc + bcc)
@@ -286,14 +286,14 @@ class EmailService:
                                         channel="", sp_path=record_path, sp_saved=sp_saved,
                                         sp_url=sp_url, sp_error=sp_err,
                                         error=f"SMTP failed: {exc}",
-                                        companions=[n for n, _ in companions])
+                                        companions=companion_names)
             else:
                 channel = "outbox"
 
         result = self._record(subject, recipients, filename, eml_name, sent=sent,
                               channel=channel, sp_path=record_path, sp_saved=sp_saved,
                               sp_url=sp_url, sp_error=sp_err,
-                              companions=[n for n, _ in companions])
+                              companions=companion_names)
         return result
 
     # -- internals ----------------------------------------------------------

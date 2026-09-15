@@ -810,7 +810,6 @@ _MAX_SHEET_ROWS_IN_MAIN = 100_000
 class WorkbookPart:
     """One companion workbook for an oversized tab."""
     stem: str
-    sheet_name: str
     row_count: int
     data: bytes
 
@@ -819,6 +818,14 @@ class WorkbookPart:
 class WorkbookBundle:
     main: bytes
     extras: tuple[WorkbookPart, ...] = ()
+
+
+def companion_filename(main_filename: str, stem: str) -> str:
+    """Sibling name for an oversized-tab companion next to the main workbook."""
+    base, dot, ext = (main_filename or "report.xlsx").rpartition(".")
+    if not dot:
+        base, ext = main_filename or "report", "xlsx"
+    return f"{base}__{stem}.{ext}"
 
 
 # Sheet titles allow more than Windows/SharePoint filenames; strip both.
@@ -873,14 +880,15 @@ def _layout_for_tab(layout: dict | None, tab_key: str | None) -> dict | None:
     v = views.get(tab_key)
     if not isinstance(v, dict):
         return {"views": {}}
-    return {"views": {tab_key: v}, "active": tab_key}
+    return {"views": {tab_key: v}}
 
 
 def _stub_tab(tab: dict, companion_stem: str, row_count: int) -> dict:
     name = tab.get("name") or tab.get("key") or "Sheet"
     note = (
         f"{row_count} rows were too large for this workbook. "
-        f"See companion file …__{companion_stem}.xlsx in the same folder."
+        f"See companion file {companion_filename('report.xlsx', companion_stem)} "
+        f"in the same folder (same …__{companion_stem}.* pattern as the delivered name)."
     )
     return {
         "key": tab.get("key"),
@@ -935,13 +943,15 @@ def build_workbook_bundle(
             "report_key": payload.get("report_key"),
             "tabs": [tab],
         }
-        data = build_workbook(one_payload, _layout_for_tab(layout, tab.get("key")))
+        companion_xlsx = build_workbook(
+            one_payload, _layout_for_tab(layout, tab.get("key")),
+        )
         extras.append(WorkbookPart(
-            stem=stem, sheet_name=str(label), row_count=n_rows, data=data,
+            stem=stem, row_count=n_rows, data=companion_xlsx,
         ))
         stubs[i] = _stub_tab(tab, stem, n_rows)
         tab["rows"] = []  # free before the next huge tab / main build
-        job_step("xlsx", f"companion {stem} done ({len(data)} bytes)")
+        job_step("xlsx", f"companion {stem} done ({len(companion_xlsx)} bytes)")
 
     main_tabs = [stubs[i] if i in stubs else t for i, t in enumerate(tabs)]
     main_payload = {**payload, "tabs": main_tabs}

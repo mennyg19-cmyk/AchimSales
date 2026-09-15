@@ -25,7 +25,11 @@ from web.delivery.workbook_parity import (
     run_parity_files,
 )
 from web.jobs.trace import raise_if_cancelled, step as job_step
-from web.reporting.export import _MAX_SHEET_ROWS_IN_MAIN, build_workbook_bundle
+from web.reporting.export import (
+    _MAX_SHEET_ROWS_IN_MAIN,
+    build_workbook_bundle,
+    companion_filename,
+)
 from web.reporting.jobs import BuilderResolver
 from web.reporting.report_service import invoiced_skip_commissions
 from web.reporting.runner import ReportRunner
@@ -134,14 +138,12 @@ class DeliveryService:
             bcc = ""
         companions: list[tuple[str, bytes]] = []
         if bundle.extras:
-            base, dot, ext = filename.rpartition(".")
-            if not dot:
-                base, ext = filename, "xlsx"
             for part in bundle.extras:
-                companions.append((f"{base}__{part.stem}.{ext}", part.data))
+                name = companion_filename(filename, part.stem)
+                companions.append((name, part.data))
                 job_step(
                     "workbook",
-                    f"companion ready {base}__{part.stem}.{ext} "
+                    f"companion ready {name} "
                     f"({part.row_count} rows, {len(part.data)} bytes)",
                 )
             note = "\n".join(

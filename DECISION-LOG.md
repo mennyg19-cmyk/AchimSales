@@ -3,6 +3,7 @@
 **What I had to decide:** Merge companions back into one workbook on the B1 worker vs leave them as sibling files in the same folder.
 **What I chose:** Companion `.xlsx` per sheet over 100k rows (largest first, clear rows after each). Main workbook keeps a one-row stub pointing at `…__Full_Data.xlsx`. Uploaded next to the main file; email body lists companions. Do **not** merge on this box — reloading 330k rows into an open multi-sheet book OOMs after By Order.
 **Why:** Log died at `sheet Full Data: 331495 rows` after By Order already finished (~4 min). Merge would re-open that memory wall.
+**Craft deferral:** Loop C Finding 5 — extract companion block from `export.py` into `export_bundle.py` after go-live (god-file tidy, not a behavior change).
 **Status:** DECIDED
 
 
