@@ -4,6 +4,7 @@ let activeKey = "";
 let lastJobId = null;
 let selectedCustomers = [];
 let runAbort = null;
+let frozenFields = new Set();
 
 function customerCatalog() {
   const controls = document.getElementById("reportControls");
@@ -50,7 +51,7 @@ function columnsFromRows(rows) {
     return {
       title: field,
       field,
-      frozen: idx === 0,
+      frozen: frozenFields.size ? frozenFields.has(field) : idx === 0,
       hozAlign: isNumber ? "right" : "left",
       headerFilter: "input",
       formatter: isNumber && moneyName ? "money" : "plaintext",
@@ -505,17 +506,30 @@ document.addEventListener("DOMContentLoaded", () => {
       const list = document.getElementById("columnsList");
       list.innerHTML = table.getColumns().map((col) => {
         const field = col.getField();
+        const title = col.getDefinition().title || field;
         const checked = col.isVisible() ? "checked" : "";
-        return '<label class="access-item"><input type="checkbox" data-field="' + field + '" ' + checked + "> "
-          + (col.getDefinition().title || field) + "</label>";
+        const pinned = col.getDefinition().frozen ? "checked" : "";
+        return '<div class="access-item">'
+          + '<label><input type="checkbox" data-field="' + field + '" ' + checked + "> " + title + "</label>"
+          + '<label><input type="checkbox" data-freeze="' + field + '" ' + pinned + "> Freeze</label>"
+          + "</div>";
       }).join("");
       openOverlay("columnsOverlay");
-      list.querySelectorAll("input").forEach((box) => {
+      list.querySelectorAll("input[data-field]").forEach((box) => {
         box.addEventListener("change", () => {
           const col = table.getColumn(box.getAttribute("data-field"));
           if (!col) return;
           if (box.checked) col.show();
           else col.hide();
+        });
+      });
+      list.querySelectorAll("input[data-freeze]").forEach((box) => {
+        box.addEventListener("change", () => {
+          frozenFields = new Set();
+          list.querySelectorAll("input[data-freeze]").forEach((pin) => {
+            if (pin.checked) frozenFields.add(pin.getAttribute("data-freeze"));
+          });
+          if (activeKey) showTab(activeKey);
         });
       });
     });

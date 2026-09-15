@@ -55,7 +55,7 @@
 | Cancel running job | 200; finished job 409 |
 | DB explorer write | Confirm required; DROP blocked; WITH+UPDATE needs confirm; group array |
 | Schedule OneDrive folder | mock outbox body |
-| Report chrome | customer picker, Columns, status, More |
+| Report chrome | customer picker, Columns (show + freeze), status, More |
 
 Never set `REPORTING_API_KEY` in CI.
 

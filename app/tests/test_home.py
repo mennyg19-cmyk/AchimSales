@@ -95,6 +95,7 @@ def test_preview_login_then_invoiced_tabs(client):
     assert 'id="reportTable"' in page
     assert 'id="customerPicker"' in page
     assert 'id="columnsBtn"' in page
+    assert "Freeze pins it" in page
     assert 'id="reportStatus"' in page
     assert 'id="moreBtn"' in page
     assert "Audit - Reversals" in str(tabs)
