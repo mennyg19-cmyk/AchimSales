@@ -390,6 +390,32 @@ def test_export_logs_each_sheet():
         job_trace.unbind()
 
 
+def test_export_logs_group_source_builder_default():
+    from web.jobs import trace as job_trace
+    pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook
+
+    payload = {"tabs": [{
+        "key": "by_order", "name": "By Order",
+        "default_group": ["Salesman"],
+        "columns": [
+            {"field": "Salesman", "header": "Salesman", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": [
+            {"Salesman": "A", "Amt": 1}, {"Salesman": "B", "Amt": 2},
+        ],
+    }]}
+    job_trace.bind("j", None)
+    try:
+        build_workbook(payload, {})  # no views → builder default
+        groups = [e["detail"] for e in job_trace.snapshot() if e.get("step") == "group"]
+        assert groups and "default_group" in groups[0]
+        assert "Salesman" in groups[0]
+    finally:
+        job_trace.unbind()
+
+
 def test_export_flattens_high_cardinality_groups():
     """Grouping by a near-unique key (order #) must not emit 1 banner per row."""
     openpyxl = pytest.importorskip("openpyxl")

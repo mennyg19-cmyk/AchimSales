@@ -1,3 +1,11 @@
+## 2026-09-15 Job logs show layout/group source
+**What you asked for:** Logs that show where building/grouping info comes from; still grouping after clearing groups table.
+**What I had to decide:** Log only vs also change missing-group → builder default_group.
+**What I chose:** Log `layout` (view_id, origin, per-tab group / groups_explicit / has_view=0) and `group` (final excel_group + whether layout vs builder default_group). Left default_group fallback behavior; missing group key or has_view=0 still applies Ordered Salesman default — that is the likely still-grouping cause.
+**Why:** Cleared layout_tab_groups with groups_explicit=0 (or no by_order view row) looks empty in the groups table but export falls back to builder default_group.
+**Status:** DECIDED
+
+
 ## 2026-09-15 Live layout from tables only (JSON is garbage)
 **What you asked for:** Stop using layout_json for live groups/layout; JSON only for the silent dual-parity second copy (skipped when too large).
 **What I had to decide:** Keep schedule snapshot fallback vs hard-cut to assembled views.
