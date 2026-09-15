@@ -71,6 +71,21 @@ def _clip(value: str) -> str:
     return value[:_ID_MAX]
 
 
+def _unique_clipped_id(base: str, used: set[str]) -> str:
+    """Clip to _ID_MAX while keeping a -n suffix when names collide."""
+    n = 0
+    while True:
+        suffix = "" if n == 0 else f"-{n}"
+        room = _ID_MAX - len(suffix)
+        if room < 1:
+            room = 1
+        candidate = base[:room] + suffix
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        n = 2 if n == 0 else n + 1
+
+
 def default_view_id(report_key: str) -> str:
     return _clip(f"df-{slug(report_key)}")
 
@@ -280,20 +295,24 @@ def _upsert_view(conn: sqlite3.Connection, *, view_id: str, kind: str, report_ke
 
 
 def _insert_list_filters(conn: sqlite3.Connection, view_id: str, params: dict) -> None:
+    used: set[str] = set()
     for salesman in params.get("salesman") or []:
+        fid = _unique_clipped_id(f"{view_id}__sm-{slug(salesman)}", used)
         conn.execute(
             "INSERT INTO view_salesmen(id, view_id, salesman) VALUES (?,?,?)",
-            (f"{view_id}__sm-{slug(salesman)}", view_id, salesman),
+            (fid, view_id, salesman),
         )
     for status in params.get("status") or []:
+        fid = _unique_clipped_id(f"{view_id}__st-{slug(status)}", used)
         conn.execute(
             "INSERT INTO view_statuses(id, view_id, status) VALUES (?,?,?)",
-            (f"{view_id}__st-{slug(status)}", view_id, status),
+            (fid, view_id, status),
         )
     for account in params.get("customers") or []:
+        fid = _unique_clipped_id(f"{view_id}__cu-{slug(account)}", used)
         conn.execute(
             "INSERT INTO view_customers(id, view_id, customer_account) VALUES (?,?,?)",
-            (f"{view_id}__cu-{slug(account)}", view_id, account),
+            (fid, view_id, account),
         )
 
 
@@ -318,10 +337,7 @@ def _insert_layout(conn: sqlite3.Connection, view_id: str, layout: dict) -> None
     order_pos = {k: i + 1 for i, k in enumerate(order)}
     used_tab_ids: set[str] = set()
     for key in keys:
-        tid = tab_id(view_id, key)
-        if tid in used_tab_ids:
-            tid = _clip(f"{tid}-{len(used_tab_ids)}")
-        used_tab_ids.add(tid)
+        tid = _unique_clipped_id(f"{view_id}__{slug(key, 60)}", used_tab_ids)
         clone = clone_by_key.get(key)
         conn.execute(
             "INSERT INTO layout_tabs(id, view_id, tab_key, position, clone_of_tab_key,"
@@ -359,10 +375,7 @@ def _insert_tab_settings(conn: sqlite3.Connection, tab_id_value: str, tab: dict)
         fields.setdefault(str(field), {})["width"] = width
     used = set()
     for field, spec in fields.items():
-        cid = _clip(f"{tab_id_value}__{slug(field)}")
-        if cid in used:
-            cid = _clip(f"{cid}-{len(used)}")
-        used.add(cid)
+        cid = _unique_clipped_id(f"{tab_id_value}__{slug(field)}", used)
         conn.execute(
             "INSERT INTO layout_columns(id, tab_id, field, position, hidden, frozen, width)"
             " VALUES (?,?,?,?,?,?,?)",
@@ -370,11 +383,13 @@ def _insert_tab_settings(conn: sqlite3.Connection, tab_id_value: str, tab: dict)
              1 if spec.get("hidden") else 0, 1 if spec.get("frozen") else 0,
              spec.get("width")),
         )
+    used_filters: set[str] = set()
     for field, spec in (tab.get("columnFilters") or {}).items():
+        fid = _unique_clipped_id(f"{tab_id_value}__f-{slug(field)}", used_filters)
         conn.execute(
             "INSERT INTO layout_column_filters(id, tab_id, field, op, v, v2)"
             " VALUES (?,?,?,?,?,?)",
-            (_clip(f"{tab_id_value}__f-{slug(field)}"), tab_id_value, field,
+            (fid, tab_id_value, field,
              spec.get("op") or "contains", spec.get("v"), spec.get("v2")),
         )
 
@@ -995,6 +1010,19 @@ def push_view_to_legacy_conn(conn: sqlite3.Connection, view_id: str) -> None:
         )
 
 
+def delete_legacy_for_view_row(conn: sqlite3.Connection, row) -> None:
+    """Remove the old JSON row after a normalized ``views`` row was deleted."""
+    source, lid = row["legacy_source"], row["legacy_id"]
+    if source == "saved_reports" and lid is not None:
+        conn.execute("DELETE FROM saved_reports WHERE id=?", (lid,))
+    elif source == "company_views" and lid is not None:
+        conn.execute("DELETE FROM company_views WHERE id=?", (lid,))
+    elif source == "report_defaults" and row["report_key"]:
+        conn.execute(
+            "DELETE FROM report_defaults WHERE report_key=?", (row["report_key"],),
+        )
+
+
 def view_id_for_layout_row(conn: sqlite3.Connection, table: str, pk) -> str | None:
     if pk is None or table not in _NEW_VIEW_TABLES:
         return None
@@ -1060,4 +1088,3 @@ def after_table_write(conn: sqlite3.Connection, table: str | None, pk=None) -> N
         " ('saved_reports','company_views','report_defaults')"
     ):
         push_view_to_legacy_conn(conn, r["id"])
-

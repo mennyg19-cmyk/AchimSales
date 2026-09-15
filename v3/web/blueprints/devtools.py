@@ -15,7 +15,13 @@ from web.auth.session import current_principal
 from web.dashboard.notifications import diagnose_overdue, generate_overdue_notifications
 from web.data.repositories.users import UserRepository
 from web.dbx_validate import json_assignments_in_sql, validate_column_value
-from web.data.normalized_views import after_table_write, push_view_to_legacy_conn, view_id_for_layout_row, write_table_from_sql
+from web.data.normalized_views import (
+    after_table_write,
+    delete_legacy_for_view_row,
+    push_view_to_legacy_conn,
+    view_id_for_layout_row,
+    write_table_from_sql,
+)
 
 devtools_bp = Blueprint("devtools", __name__)
 
@@ -368,12 +374,22 @@ def api_delete_row(table: str):
         if not pk_name:
             return jsonify({"error": "Table has no single-column primary key"}), 400
         pk_value = body.get("pk")
-        view_id = view_id_for_layout_row(conn, table, pk_value) if which == "precious" else None
+        legacy_view = None
+        view_id = None
+        if which == "precious":
+            if table == "views":
+                legacy_view = conn.execute(
+                    "SELECT * FROM views WHERE id=?", (pk_value,),
+                ).fetchone()
+            else:
+                view_id = view_id_for_layout_row(conn, table, pk_value)
         cur = conn.execute(f'DELETE FROM "{table}" WHERE "{pk_name}"=?', (pk_value,))
         if cur.rowcount != 1:
             return jsonify({"error": "Row not found"}), 404
         if which == "precious":
-            if view_id:
+            if legacy_view is not None:
+                delete_legacy_for_view_row(conn, legacy_view)
+            elif view_id:
                 push_view_to_legacy_conn(conn, view_id)
             else:
                 after_table_write(conn, table, pk_value)

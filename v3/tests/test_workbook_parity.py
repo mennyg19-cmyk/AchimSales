@@ -253,3 +253,21 @@ def test_format_digest_lists_diffs():
     assert "1 match, 1 diff" in subject
     assert "DIFF" in body and "MATCH" in body
     assert "summary: row mismatch" in body
+
+
+def test_parity_filenames_unique_same_second(tmp_path):
+    root = tmp_path / "view-parity"
+    layout = _layout_show_all()
+    a = run_parity_files(
+        root=root, report_key="ordered", view_name="Daily",
+        schedule_name="full", payload=_payload(),
+        new_layout=layout, old_layout=layout,
+    )
+    b = run_parity_files(
+        root=root, report_key="ordered", view_name="Daily",
+        schedule_name="split-A", payload=_payload(),
+        new_layout=layout, old_layout=layout,
+    )
+    assert a.new_path != b.new_path
+    assert a.old_path != b.old_path
+    assert Path(a.new_path).is_file() and Path(b.new_path).is_file()

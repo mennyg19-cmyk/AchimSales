@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,8 +111,9 @@ def run_parity_files(
     day_dir = root / now.strftime("%Y-%m-%d")
     day_dir.mkdir(parents=True, exist_ok=True)
     stamp = now.strftime("%H%M%S")
+    uniq = uuid.uuid4().hex[:8]
     base = (
-        f"{stamp}_{_safe_name(report_key)}_"
+        f"{stamp}_{uniq}_{_safe_name(report_key)}_"
         f"{_safe_name(view_name or schedule_name or 'view')}"
     )
     new_path = day_dir / f"{base}__new.xlsx"

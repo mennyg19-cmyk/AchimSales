@@ -541,3 +541,51 @@ def test_gate_b_workbooks_match_assembled_views(tmp_path):
                 assert not any(
                     str(v).startswith("Salesman:") for row in old_sheets[0][1] for v in row)
                 assert "Grand total" not in blob
+
+
+def test_slug_colliding_filters_get_distinct_ids(tmp_path):
+    from web.data.normalized_views import _unique_clipped_id, slug
+
+    used: set[str] = set()
+    a = _unique_clipped_id(f"v__sm-{slug('A B')}", used)
+    b = _unique_clipped_id(f"v__sm-{slug('A-B')}", used)
+    assert a != b
+    assert a in used and b in used
+
+
+def test_unique_clipped_id_keeps_suffix_at_max_length():
+    from web.data.normalized_views import _ID_MAX, _unique_clipped_id
+
+    used: set[str] = set()
+    base = "x" * (_ID_MAX + 20)
+    first = _unique_clipped_id(base, used)
+    second = _unique_clipped_id(base, used)
+    assert len(first) <= _ID_MAX
+    assert len(second) <= _ID_MAX
+    assert first != second
+    assert second.endswith("-2")
+
+
+def test_deleting_normalized_view_removes_legacy_json(tmp_path):
+    from web.data.normalized_views import delete_legacy_for_view_row, project_from_legacy
+
+    db = _db(tmp_path)
+    meir = UserRepository(db).create("meir@x.com", role="admin", display_name="Meir Grego")
+    saved = SavedReportRepository(db)
+    rid = saved.create(
+        meir.id, "ordered", "Temp View",
+        {"period": "yesterday"},
+        {"order": ["by_order"], "views": {"by_order": {"group": []}}},
+    )
+    project_from_legacy(db)
+    with db.precious() as conn:
+        view = conn.execute(
+            "SELECT * FROM views WHERE legacy_source='saved_reports' AND legacy_id=?",
+            (rid,),
+        ).fetchone()
+        assert view is not None
+        conn.execute("DELETE FROM views WHERE id=?", (view["id"],))
+        delete_legacy_for_view_row(conn, view)
+        assert conn.execute(
+            "SELECT 1 FROM saved_reports WHERE id=?", (rid,),
+        ).fetchone() is None
