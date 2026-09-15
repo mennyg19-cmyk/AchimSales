@@ -18,7 +18,9 @@ def is_custom_date_params(params: dict | None) -> bool:
         return True
     if period:
         return False
-    return bool(raw.get("from") and raw.get("to"))
+    if raw.get("from") and raw.get("to"):
+        return True
+    return bool(raw.get("start_date") and raw.get("end_date"))
 
 
 def is_schedulable_saved_view(preset: SavedReport) -> bool:

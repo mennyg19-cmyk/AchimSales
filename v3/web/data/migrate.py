@@ -96,8 +96,10 @@ def migrate(db: Database) -> dict[str, list[str]]:
     _ensure_users_company_views_column(db.precious_path)
     _ensure_users_sales_group_column(db.precious_path)
     from web.scheduling.personal_views import convert_personal_schedules
+    from web.data.normalized_views import project_from_legacy
 
     convert_personal_schedules(db)
+    project_from_legacy(db)
     return {
         "precious": precious,
         "cache": migrate_cache_only(db),

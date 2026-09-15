@@ -1677,8 +1677,11 @@ def test_schedulable_view_rules():
         report_key="customer_activity", name="Default", params={}))
     assert is_custom_date_params({"period": "custom"})
     assert is_custom_date_params({"from": "2026-01-01", "to": "2026-01-31"})
+    assert is_custom_date_params({"start_date": "2026-01-01", "end_date": "2026-01-31"})
     assert not is_custom_date_params({"period": "last_month", "from": "x", "to": "y"})
     assert not is_schedulable_saved_view(preset(params={"period": "custom"}))
+    assert not is_schedulable_saved_view(preset(
+        params={"start_date": "2026-01-01", "end_date": "2026-01-31"}))
 
 
 def test_convert_personal_schedules_snapshots_default_and_strips_extras(stack):

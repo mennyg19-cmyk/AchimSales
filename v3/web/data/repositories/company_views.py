@@ -2,16 +2,23 @@
 
 Default is still one-per-report in ``report_defaults``. These are extra named
 views everyone can pick in Saved views and on schedules.
+
+Reads prefer the normalized `views` tree when a projected row exists.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from web.data.connection import Database
+from web.data.normalized_views import (
+    assemble_legacy_view,
+    drop_synced_view_conn,
+    sync_company_view_conn,
+)
 from web.data.repositories.report_defaults import CUSTOM_VIEW_NAME, DEFAULT_VIEW_NAME, normalize_view_name
 
 _NAME_MAX = 120
@@ -40,6 +47,14 @@ class CompanyView:
         )
 
 
+def _hydrate(conn: sqlite3.Connection, row: CompanyView) -> CompanyView:
+    got = assemble_legacy_view(conn, "company_views", row.id)
+    if got is None:
+        return row
+    params, layout = got
+    return replace(row, params=params, layout=layout)
+
+
 class CompanyViewRepository:
     def __init__(self, db: Database):
         self.db = db
@@ -49,7 +64,7 @@ class CompanyViewRepository:
             row = conn.execute(
                 "SELECT * FROM company_views WHERE id=?", (view_id,),
             ).fetchone()
-            return CompanyView.from_row(row) if row else None
+            return _hydrate(conn, CompanyView.from_row(row)) if row else None
 
     def get_by_name(self, report_key: str, name: str) -> CompanyView | None:
         wanted = normalize_view_name(name)
@@ -60,7 +75,7 @@ class CompanyViewRepository:
                 "SELECT * FROM company_views WHERE report_key=? AND name=?",
                 (report_key, wanted),
             ).fetchone()
-            return CompanyView.from_row(row) if row else None
+            return _hydrate(conn, CompanyView.from_row(row)) if row else None
 
     def get_layout(self, report_key: str, name: str) -> dict:
         row = self.get_by_name(report_key, name)
@@ -72,14 +87,14 @@ class CompanyViewRepository:
                 "SELECT * FROM company_views WHERE report_key=? ORDER BY name COLLATE NOCASE",
                 (report_key,),
             ).fetchall()
-            return [CompanyView.from_row(r) for r in rows]
+            return [_hydrate(conn, CompanyView.from_row(r)) for r in rows]
 
     def list_all(self) -> list[CompanyView]:
         with self.db.precious() as conn:
             rows = conn.execute(
                 "SELECT * FROM company_views ORDER BY report_key, name COLLATE NOCASE",
             ).fetchall()
-            return [CompanyView.from_row(r) for r in rows]
+            return [_hydrate(conn, CompanyView.from_row(r)) for r in rows]
 
     def upsert(self, report_key: str, name: str, *, params: dict, layout: dict,
                updated_by: int | None) -> CompanyView:
@@ -97,6 +112,11 @@ class CompanyViewRepository:
                 (report_key, stripped, json.dumps(params or {}),
                  json.dumps(layout or {}), ts, updated_by),
             )
+            row = conn.execute(
+                "SELECT id FROM company_views WHERE report_key=? AND name=?",
+                (report_key, stripped),
+            ).fetchone()
+            sync_company_view_conn(conn, row["id"])
         saved = self.get_by_name(report_key, stripped)
         if saved is None:
             raise RuntimeError(f"failed to save company view {report_key}/{stripped}")
@@ -108,4 +128,6 @@ class CompanyViewRepository:
                 "DELETE FROM company_views WHERE id=? AND report_key=?",
                 (view_id, report_key),
             )
+            if cur.rowcount > 0:
+                drop_synced_view_conn(conn, "company_views", view_id)
             return cur.rowcount > 0

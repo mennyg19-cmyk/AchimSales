@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from web.data.connection import Database
+from web.data.normalized_views import live_default_payload, sync_report_default_conn
 
 DEFAULT_VIEW_NAME = "Default"
 CUSTOM_VIEW_NAME = "Custom"
@@ -114,7 +115,12 @@ class ReportDefaultRepository:
                 "SELECT * FROM report_defaults WHERE report_key=?",
                 (report_key,),
             ).fetchone()
-            return ReportDefault.from_row(row) if row else None
+            if row is None:
+                return None
+            out = ReportDefault.from_row(row)
+        params, layout = live_default_payload(
+            self.db, report_key, out.params, out.layout)
+        return replace(out, params=params, layout=layout)
 
     def get_layout(self, report_key: str) -> dict:
         row = self.get(report_key)
@@ -135,6 +141,7 @@ class ReportDefaultRepository:
                 (report_key, json.dumps(params or {}), json.dumps(layout or {}),
                  ts, updated_by),
             )
+            sync_report_default_conn(conn, report_key)
         saved = self.get(report_key)
         if saved is None:
             raise RuntimeError(f"failed to save Default view for {report_key}")

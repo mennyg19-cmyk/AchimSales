@@ -42,11 +42,14 @@ def user_id(db) -> int:
 
 def test_saved_report_create_list_get_delete(db, user_id):
     repo = SavedReportRepository(db)
+    layout = {"views": {"by_order": {"group": [], "hidden": ["x"]}}}
     pid = repo.create(user_id, "ordered", "March view",
-                      {"period": "mtd"}, {"hidden": ["x"]})
+                      {"period": "mtd"}, layout)
     rows = repo.list_for_user(user_id)
     assert len(rows) == 1 and rows[0].name == "March view"
-    assert rows[0].params == {"period": "mtd"} and rows[0].layout == {"hidden": ["x"]}
+    assert rows[0].params == {"period": "mtd"}
+    assert rows[0].layout["views"]["by_order"]["hidden"] == ["x"]
+    assert rows[0].layout["views"]["by_order"]["group"] == []
     got = repo.get(pid, user_id)
     assert got is not None and got.report_key == "ordered"
     assert repo.delete(pid, user_id) is True

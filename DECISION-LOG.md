@@ -1,3 +1,26 @@
+## 2026-09-15 Loop C craft deferrals (go-live)
+**What you asked for:** Merge normalize-views to live after review.
+**What I had to decide:** Fix all Loop C findings now vs defer non-blockers with the god-file split.
+**What I chose:** Fixed F1–F4 (dedupe view resolution, shared JSON loads, delete dead helpers). Deferred F5 (move format_digest into parity_digest.py) and F6 (banned local names, groups_explicit guard, pass-through row_count) to the post-JSON-drop `normalized_views.py` split.
+**Why:** Go-live gate must not stall on rename/module-move noise; deferred items do not change runtime scores.
+**Status:** DECIDED
+
+## 2026-09-15 Silent dual workbook parity + daily digest
+**What you asked for:** Run reports silently in the background using the new format, also write the old format to a folder, auto-compare, and email results once a day.
+**What I had to decide:** Per-run email vs daily digest; fail delivery on mismatch vs fail-soft; where to store the old xlsx.
+**What I chose:** Deliveries use the new assembled layout. Each run also builds the old JSON workbook under `{precious parent}/view-parity/YYYY-MM-DD/` (`VIEW_PARITY_DIR` override), scores into `view_workbook_parity`, and never fails the send on parity errors. APScheduler emails yesterday’s scores at Eastern 7:05 to `view_parity_digest_emails` (fallback test emails / `V3_ADMIN_EMAILS`). Toggle: `view_workbook_parity` app_settings key.
+**Why:** You want confidence over a week of real schedules, not inbox spam on every run. Old files stay on disk for inspection when a digest shows DIFF.
+**Status:** DECIDED
+
+## 2026-09-15 Normalize views/layouts/schedules (kill JSON copies)
+**What you asked for:** Stop storing layout and params as JSON blobs copied onto schedules and views. Use sub-tables with readable ids and real foreign keys. Build the new schema next to the old one, run a report builder on the new tables against the old JSON until they match, then drop the old tables.
+**What I had to decide:** One `views` tree vs separate params + layout ids on the schedule; child tables vs `group_by` columns; how coexistence works.
+**Options I considered:** `params_id` + `layout_id` on the schedule; a single `group_by` text column; replace tables in place.
+**What I chose:** One `views` row is filters + layout. Schedules (`report_schedules`) store only `view_id` plus clock/delivery/window. Grouping and sort are child rows (`layout_tab_groups`, `layout_tab_sorters`) because they are ordered lists. New tables sit beside `saved_reports` / `company_views` / `report_defaults` / `schedules` / `master_schedules` until round-trip + workbook parity pass. Spec: `v3/docs/normalized-views.md`.
+**Why:** The GUI and the clock already want the same object. Copying JSON is why explorer edits and scheduled files drift. A `group_by` column cannot store Daily Ordered Summary (Salesman then Customer Name). Dropping old tables first would make a mismatch unrecoverable.
+**Status:** DECIDED (open list confirmed 2026-09-15: yes to all; Gate A/B + dual-write + live-read from assembled tables; JSON still dual-written, not dropped; silent dual delivery + daily digest added)
+
+
 ## 2026-09-11 Blank GET / AlwaysOn 401 on report runs
 **What you asked for:** Brother’s on-demand reports send `GET /` with `User-Agent: AlwaysOn`, `api_client: null`, 401, and return nothing. Scheduled reports worked this morning.
 **What I had to decide:** Treat that log line as a real report call vs Azure keep-alive that never reaches the SP.

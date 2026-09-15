@@ -10,6 +10,9 @@ from web.delivery.email import split_recipients
 _MODE = "schedule_test_mode"
 _EMAILS = "schedule_test_emails"
 _SEED_SKIP = "seed_skip_schedule_names"
+_PARITY = "view_workbook_parity"
+_PARITY_DIGEST_EMAILS = "view_parity_digest_emails"
+_PARITY_DIGEST_SENT = "view_parity_digest_sent_day"
 
 
 class AppSettingsRepository:
@@ -78,6 +81,42 @@ class AppSettingsRepository:
             return
         names.discard(name)
         self._set(_SEED_SKIP, json.dumps(sorted(names)))
+
+    def view_workbook_parity_enabled(self) -> bool:
+        """Default on while dual-write exists. Set app_settings key to 0 to pause."""
+        raw = self._get(_PARITY)
+        if raw == "":
+            return True
+        return raw == "1"
+
+    def view_parity_digest_emails(self) -> list[str]:
+        raw = self._get(_PARITY_DIGEST_EMAILS)
+        if raw:
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                return split_recipients(raw)
+            if isinstance(parsed, list):
+                return split_recipients("; ".join(str(x) for x in parsed))
+            return split_recipients(str(parsed))
+        # Fall back to schedule test emails, then V3_ADMIN_EMAILS.
+        test = self.test_emails()
+        if test:
+            return test
+        import os
+        return split_recipients(
+            os.environ.get("V3_ADMIN_EMAILS") or os.environ.get("V2_ADMIN_EMAILS") or ""
+        )
+
+    def set_view_parity_digest_emails(self, emails: list[str]) -> None:
+        cleaned = split_recipients("; ".join(str(x) for x in emails))
+        self._set(_PARITY_DIGEST_EMAILS, json.dumps(cleaned))
+
+    def view_parity_digest_sent_day(self) -> str:
+        return self._get(_PARITY_DIGEST_SENT)
+
+    def set_view_parity_digest_sent_day(self, day: str) -> None:
+        self._set(_PARITY_DIGEST_SENT, day)
 
     def _get(self, key: str) -> str:
         with self.db.precious() as conn:
