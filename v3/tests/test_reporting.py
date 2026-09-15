@@ -1252,9 +1252,10 @@ def test_workbook_bundle_splits_oversized_tab_into_companion():
         },
     ]}
     bundle = build_workbook_bundle(payload, None, max_sheet_rows=100)
-    assert len(bundle.extras) == 1
-    assert bundle.extras[0].stem == "Full_Data"
-    assert bundle.extras[0].row_count == 120
+    assert len(bundle.extras) == 2  # 120 rows → two ≤100 parts
+    assert bundle.extras[0].row_count == 100
+    assert bundle.extras[1].row_count == 20
+    assert all("Full_Data" in p.stem for p in bundle.extras)
 
     main = openpyxl.load_workbook(io.BytesIO(bundle.main))
     assert set(main.sheetnames) == {"Summary", "Full Data"}
@@ -1262,12 +1263,10 @@ def test_workbook_bundle_splits_oversized_tab_into_companion():
     assert stub["A1"].value == "Note"
     assert "companion" in str(stub["A2"].value).lower()
     assert "Full_Data" in str(stub["A2"].value)
-    assert stub.max_row <= 3  # note (+ optional empty Total)
 
     companion = openpyxl.load_workbook(io.BytesIO(bundle.extras[0].data))
     assert companion.sheetnames == ["Full Data"]
-    # header + 120 data rows (+ optional Total)
-    assert companion["Full Data"].max_row >= 121
+    assert companion["Full Data"].max_row >= 101
 
 
 def test_workbook_bundle_noop_under_cap():
@@ -1296,6 +1295,29 @@ def test_workbook_bundle_clears_huge_rows_before_main():
     payload = {"tabs": [tab]}
     bundle = build_workbook_bundle(payload, None, max_sheet_rows=20)
     assert bundle.extras and tab["rows"] == []
+    assert len(bundle.extras) == 3  # 50 → 20+20+10
+
+
+def test_workbook_bundle_strips_groups_on_companions():
+    """Huge companions must not Excel-group (avoids 100k+ key sets)."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from web.reporting.export import build_workbook_bundle
+
+    rows = [{"SO": f"S{i}", "Amt": 1.0} for i in range(30)]
+    payload = {"tabs": [{
+        "key": "by_order", "name": "By Order",
+        "columns": [
+            {"field": "SO", "header": "SO", "type": "text"},
+            {"field": "Amt", "header": "Amt", "type": "money"},
+        ],
+        "rows": rows,
+    }]}
+    layout = {"views": {"by_order": {"group": ["SO"]}}}
+    bundle = build_workbook_bundle(payload, layout, max_sheet_rows=20)
+    assert bundle.extras
+    ws = openpyxl.load_workbook(io.BytesIO(bundle.extras[0].data))["By Order"]
+    values = [c.value for c in ws["A"] if c.value]
+    assert not any(isinstance(v, str) and v.startswith("SO:") for v in values)
 
 
 def test_workbook_bundle_unique_safe_companion_stems():
