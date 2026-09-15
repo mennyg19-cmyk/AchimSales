@@ -504,16 +504,17 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const list = document.getElementById("columnsList");
-      list.innerHTML = table.getColumns().map((col) => {
-        const field = col.getField();
-        const title = col.getDefinition().title || field;
-        const checked = col.isVisible() ? "checked" : "";
-        const pinned = col.getDefinition().frozen ? "checked" : "";
-        return '<div class="access-item">'
-          + '<label><input type="checkbox" data-field="' + field + '" ' + checked + "> " + title + "</label>"
-          + '<label><input type="checkbox" data-freeze="' + field + '" ' + pinned + "> Freeze</label>"
-          + "</div>";
-      }).join("");
+      list.innerHTML = "<table class=\"simple-table\"><thead><tr><th>Column</th><th>Show</th><th>Freeze</th></tr></thead><tbody>"
+        + table.getColumns().map((col) => {
+          const field = col.getField();
+          const title = col.getDefinition().title || field;
+          const checked = col.isVisible() ? "checked" : "";
+          const pinned = col.getDefinition().frozen ? "checked" : "";
+          return "<tr><td>" + title + "</td>"
+            + '<td><input type="checkbox" data-field="' + field + '" ' + checked + "></td>"
+            + '<td><input type="checkbox" data-freeze="' + field + '" ' + pinned + "></td></tr>";
+        }).join("")
+        + "</tbody></table>";
       openOverlay("columnsOverlay");
       list.querySelectorAll("input[data-field]").forEach((box) => {
         box.addEventListener("change", () => {
