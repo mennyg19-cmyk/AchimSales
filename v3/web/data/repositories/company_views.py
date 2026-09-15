@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from web.data.connection import Database
+from web.data.normalized_views import drop_synced_view_conn, sync_company_view_conn
 from web.data.repositories.report_defaults import CUSTOM_VIEW_NAME, DEFAULT_VIEW_NAME, normalize_view_name
 
 _NAME_MAX = 120
@@ -97,6 +98,11 @@ class CompanyViewRepository:
                 (report_key, stripped, json.dumps(params or {}),
                  json.dumps(layout or {}), ts, updated_by),
             )
+            row = conn.execute(
+                "SELECT id FROM company_views WHERE report_key=? AND name=?",
+                (report_key, stripped),
+            ).fetchone()
+            sync_company_view_conn(conn, row["id"])
         saved = self.get_by_name(report_key, stripped)
         if saved is None:
             raise RuntimeError(f"failed to save company view {report_key}/{stripped}")
@@ -108,4 +114,6 @@ class CompanyViewRepository:
                 "DELETE FROM company_views WHERE id=? AND report_key=?",
                 (view_id, report_key),
             )
+            if cur.rowcount > 0:
+                drop_synced_view_conn(conn, "company_views", view_id)
             return cur.rowcount > 0

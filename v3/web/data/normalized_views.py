@@ -841,3 +841,189 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,),
     ).fetchone()
     return row is not None
+
+
+_LEGACY_VIEW_TABLES = frozenset({"saved_reports", "company_views", "report_defaults"})
+_NEW_VIEW_TABLES = frozenset({
+    "views", "layout_tabs", "layout_tab_groups", "layout_tab_sorters",
+    "layout_columns", "layout_column_filters",
+    "view_salesmen", "view_statuses", "view_customers",
+})
+_WRITE_TABLE = re.compile(
+    r'(?is)\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?([A-Za-z_][\w]*)"?'
+)
+
+
+def write_table_from_sql(sql: str) -> str | None:
+    m = _WRITE_TABLE.search(sql or "")
+    return m.group(1) if m else None
+
+
+def drop_synced_view_conn(conn: sqlite3.Connection, legacy_source: str, legacy_id: int) -> None:
+    """Remove the projected row. Leave it if a schedule still points at it."""
+    if not _table_exists(conn, "views"):
+        return
+    row = conn.execute(
+        "SELECT id FROM views WHERE legacy_source=? AND legacy_id=?",
+        (legacy_source, legacy_id),
+    ).fetchone()
+    if row is None:
+        return
+    conn.execute("SAVEPOINT drop_synced_view")
+    try:
+        conn.execute("DELETE FROM views WHERE id=?", (row["id"],))
+        conn.execute("RELEASE drop_synced_view")
+    except sqlite3.IntegrityError:
+        conn.execute("ROLLBACK TO drop_synced_view")
+
+
+def sync_saved_report_conn(conn: sqlite3.Connection, preset_id: int) -> None:
+    if not _table_exists(conn, "views"):
+        return
+    handles = assign_handles(conn)
+    r = conn.execute("SELECT * FROM saved_reports WHERE id=?", (preset_id,)).fetchone()
+    if r is None:
+        drop_synced_view_conn(conn, "saved_reports", preset_id)
+        return
+    handle = handles.get(r["user_id"])
+    if not handle:
+        return
+    _upsert_view(
+        conn, view_id=personal_view_id(handle, r["report_key"], r["name"]),
+        kind="personal", report_key=r["report_key"], name=r["name"],
+        owner_handle=handle,
+        params=canonicalize_params(_loads(r["params_json"])),
+        layout=canonicalize_layout(_loads(r["layout_json"])),
+        updated_by_handle=handle, legacy_source="saved_reports", legacy_id=r["id"],
+    )
+
+
+def sync_company_view_conn(conn: sqlite3.Connection, view_id: int) -> None:
+    if not _table_exists(conn, "views"):
+        return
+    handles = assign_handles(conn)
+    r = conn.execute("SELECT * FROM company_views WHERE id=?", (view_id,)).fetchone()
+    if r is None:
+        drop_synced_view_conn(conn, "company_views", view_id)
+        return
+    _upsert_view(
+        conn, view_id=company_view_id(r["report_key"], r["name"]), kind="company",
+        report_key=r["report_key"], name=r["name"], owner_handle=None,
+        params=canonicalize_params(_loads(r["params_json"])),
+        layout=canonicalize_layout(_loads(r["layout_json"])),
+        updated_by_handle=_updated_by(handles, r["updated_by"] if "updated_by" in r.keys() else None),
+        legacy_source="company_views", legacy_id=r["id"],
+    )
+
+
+def sync_report_default_conn(conn: sqlite3.Connection, report_key: str) -> None:
+    if not _table_exists(conn, "views"):
+        return
+    handles = assign_handles(conn)
+    r = conn.execute(
+        "SELECT * FROM report_defaults WHERE report_key=?", (report_key,),
+    ).fetchone()
+    if r is None:
+        drop_synced_view_conn(conn, "report_defaults", _legacy_int(report_key))
+        return
+    _upsert_view(
+        conn, view_id=default_view_id(r["report_key"]), kind="default",
+        report_key=r["report_key"], name="Default", owner_handle=None,
+        params=canonicalize_params(_loads(r["params_json"])),
+        layout=canonicalize_layout(_loads(r["layout_json"])),
+        updated_by_handle=_updated_by(handles, r["updated_by"] if "updated_by" in r.keys() else None),
+        legacy_source="report_defaults", legacy_id=_legacy_int(r["report_key"]),
+    )
+
+
+def push_view_to_legacy_conn(conn: sqlite3.Connection, view_id: str) -> None:
+    """Write assembled params/layout back onto the old JSON row."""
+    row = conn.execute("SELECT * FROM views WHERE id=?", (view_id,)).fetchone()
+    if row is None:
+        return
+    params = json.dumps(assemble_params(conn, view_id))
+    layout = json.dumps(assemble_layout(conn, view_id))
+    source, lid = row["legacy_source"], row["legacy_id"]
+    if source == "saved_reports" and lid is not None:
+        conn.execute(
+            "UPDATE saved_reports SET params_json=?, layout_json=? WHERE id=?",
+            (params, layout, lid),
+        )
+    elif source == "company_views" and lid is not None:
+        conn.execute(
+            "UPDATE company_views SET params_json=?, layout_json=? WHERE id=?",
+            (params, layout, lid),
+        )
+    elif source == "report_defaults":
+        conn.execute(
+            "UPDATE report_defaults SET params_json=?, layout_json=? WHERE report_key=?",
+            (params, layout, row["report_key"]),
+        )
+
+
+def view_id_for_layout_row(conn: sqlite3.Connection, table: str, pk) -> str | None:
+    if pk is None or table not in _NEW_VIEW_TABLES:
+        return None
+    if table == "views":
+        return str(pk)
+    if table == "layout_tabs":
+        r = conn.execute("SELECT view_id FROM layout_tabs WHERE id=?", (pk,)).fetchone()
+        return r["view_id"] if r else None
+    if table in ("layout_tab_groups", "layout_tab_sorters", "layout_columns",
+                 "layout_column_filters"):
+        r = conn.execute(
+            f"SELECT t.view_id FROM layout_tabs t JOIN {table} c ON c.tab_id=t.id WHERE c.id=?",
+            (pk,),
+        ).fetchone()
+        return r["view_id"] if r else None
+    if table in ("view_salesmen", "view_statuses", "view_customers"):
+        r = conn.execute(f"SELECT view_id FROM {table} WHERE id=?", (pk,)).fetchone()
+        return r["view_id"] if r else None
+    return None
+
+
+def after_table_write(conn: sqlite3.Connection, table: str | None, pk=None) -> None:
+    """Keep old JSON and new tables in sync after Save this view or explorer."""
+    if not table or not _table_exists(conn, "views"):
+        return
+    if table in _LEGACY_VIEW_TABLES:
+        if table == "saved_reports":
+            if pk is not None:
+                sync_saved_report_conn(conn, int(pk))
+            else:
+                _project_saved_reports(conn, assign_handles(conn))
+                live = {r["id"] for r in conn.execute("SELECT id FROM saved_reports")}
+                for r in conn.execute(
+                    "SELECT legacy_id FROM views WHERE legacy_source='saved_reports'"
+                ):
+                    if r["legacy_id"] not in live:
+                        drop_synced_view_conn(conn, "saved_reports", r["legacy_id"])
+        elif table == "company_views":
+            if pk is not None:
+                sync_company_view_conn(conn, int(pk))
+            else:
+                _project_company_views(conn, assign_handles(conn))
+                live = {r["id"] for r in conn.execute("SELECT id FROM company_views")}
+                for r in conn.execute(
+                    "SELECT legacy_id FROM views WHERE legacy_source='company_views'"
+                ):
+                    if r["legacy_id"] not in live:
+                        drop_synced_view_conn(conn, "company_views", r["legacy_id"])
+        elif table == "report_defaults":
+            if pk is not None:
+                sync_report_default_conn(conn, str(pk))
+            else:
+                _project_defaults(conn, assign_handles(conn))
+        return
+    if table not in _NEW_VIEW_TABLES:
+        return
+    vid = view_id_for_layout_row(conn, table, pk)
+    if vid:
+        push_view_to_legacy_conn(conn, vid)
+        return
+    for r in conn.execute(
+        "SELECT id FROM views WHERE legacy_source IN"
+        " ('saved_reports','company_views','report_defaults')"
+    ):
+        push_view_to_legacy_conn(conn, r["id"])
+

@@ -9,6 +9,8 @@
 - Insert `layout_tabs` with a fake `view_id` → FOREIGN KEY error. Delete a view that `report_schedules` still points at → RESTRICT. Unused view delete cascades tabs.
 - Company schedule YTD window lands on `report_schedules.window_period`; `view_id` still points at Daily Ordered.
 - User handle `Meir Grego` → `mgrego`. Re-project is idempotent.
+- Save this view / Default / company view upsert writes `views` + children in the same transaction as the old JSON.
+- Explorer cell/SQL on `layout_tab_groups` (etc.) rewrites `saved_reports.layout_json`. Explorer edit of `layout_json` reprojects the new tables.
 
 **Expected behavior:**
 - New schema can rebuild what the old blobs meant. Clock and Save this view do not gain a second copy of layout. Old tables stay until both gates pass.

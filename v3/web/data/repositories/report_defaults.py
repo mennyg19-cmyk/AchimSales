@@ -11,6 +11,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from web.data.connection import Database
+from web.data.normalized_views import sync_report_default_conn
 
 DEFAULT_VIEW_NAME = "Default"
 CUSTOM_VIEW_NAME = "Custom"
@@ -135,6 +136,7 @@ class ReportDefaultRepository:
                 (report_key, json.dumps(params or {}), json.dumps(layout or {}),
                  ts, updated_by),
             )
+            sync_report_default_conn(conn, report_key)
         saved = self.get(report_key)
         if saved is None:
             raise RuntimeError(f"failed to save Default view for {report_key}")

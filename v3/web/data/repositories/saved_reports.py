@@ -13,6 +13,10 @@ import sqlite3
 from dataclasses import dataclass
 
 from web.data.connection import Database
+from web.data.normalized_views import (
+    drop_synced_view_conn,
+    sync_saved_report_conn,
+)
 
 
 @dataclass(frozen=True)
@@ -54,7 +58,9 @@ class SavedReportRepository:
                 "SELECT id FROM saved_reports WHERE user_id=? AND report_key=? AND name=?",
                 (user_id, report_key, name.strip()),
             ).fetchone()
-            return row["id"]
+            pid = row["id"]
+            sync_saved_report_conn(conn, pid)
+            return pid
 
     def list_for_user(self, user_id: int) -> list[SavedReport]:
         with self.db.precious() as conn:
@@ -122,6 +128,8 @@ class SavedReportRepository:
                 )
             except sqlite3.IntegrityError:
                 return False
+            if cur.rowcount == 1:
+                sync_saved_report_conn(conn, preset_id)
             return cur.rowcount == 1
 
     def delete(self, preset_id: int, user_id: int) -> bool:
@@ -130,4 +138,6 @@ class SavedReportRepository:
                 "DELETE FROM saved_reports WHERE id=? AND user_id=?",
                 (preset_id, user_id),
             )
+            if cur.rowcount == 1:
+                drop_synced_view_conn(conn, "saved_reports", preset_id)
             return cur.rowcount == 1

@@ -15,6 +15,7 @@ from web.auth.session import current_principal
 from web.dashboard.notifications import diagnose_overdue, generate_overdue_notifications
 from web.data.repositories.users import UserRepository
 from web.dbx_validate import json_assignments_in_sql, validate_column_value
+from web.data.normalized_views import after_table_write, push_view_to_legacy_conn, view_id_for_layout_row, write_table_from_sql
 
 devtools_bp = Blueprint("devtools", __name__)
 
@@ -280,6 +281,8 @@ def api_run_sql():
         except sqlite3.Error as exc:
             return jsonify({"error": str(exc)}), 400
         if kind == "exec":
+            if which == "precious":
+                after_table_write(conn, write_table_from_sql(sql))
             return jsonify({"ok": True, "kind": "exec", "rowcount": cur.rowcount})
         fetched = cur.fetchmany(_SQL_ROW_CAP + 1)
         truncated = len(fetched) > _SQL_ROW_CAP
@@ -342,6 +345,8 @@ def api_update_cell(table: str):
         )
         if cur.rowcount != 1:
             return jsonify({"error": "Row not found"}), 404
+        if which == "precious":
+            after_table_write(conn, table, pk_value)
         return jsonify({"ok": True})
 
 
@@ -359,12 +364,19 @@ def api_delete_row(table: str):
         table = _resolve_table(conn, table)
         if not table:
             return jsonify({"error": "Unknown table"}), 404
-        pk = _primary_key(_table_columns(conn, table))
-        if not pk:
+        pk_name = _primary_key(_table_columns(conn, table))
+        if not pk_name:
             return jsonify({"error": "Table has no single-column primary key"}), 400
-        cur = conn.execute(f'DELETE FROM "{table}" WHERE "{pk}"=?', (body.get("pk"),))
+        pk_value = body.get("pk")
+        view_id = view_id_for_layout_row(conn, table, pk_value) if which == "precious" else None
+        cur = conn.execute(f'DELETE FROM "{table}" WHERE "{pk_name}"=?', (pk_value,))
         if cur.rowcount != 1:
             return jsonify({"error": "Row not found"}), 404
+        if which == "precious":
+            if view_id:
+                push_view_to_legacy_conn(conn, view_id)
+            else:
+                after_table_write(conn, table, pk_value)
         return jsonify({"ok": True})
 
 

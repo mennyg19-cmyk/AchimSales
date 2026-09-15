@@ -7,6 +7,7 @@ import pytest
 from web.data.connection import Database
 from web.data.migrate import migrate
 from web.data.normalized_views import (
+    after_table_write,
     assemble_layout,
     assemble_params,
     canonicalize_layout,
@@ -233,3 +234,59 @@ def test_migration_creates_new_tables(tmp_path):
     with db.precious() as conn:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
     assert "handle" in cols
+
+
+def test_save_this_view_writes_new_tables(tmp_path):
+    db = _db(tmp_path)
+    u = UserRepository(db).create("meir@x.com", role="admin", display_name="Meir Grego")
+    layout = {"order": ["by_order"], "views": {"by_order": {"group": []}}}
+    pid = SavedReportRepository(db).create(
+        u.id, "ordered", "Open Orders", {"period": "yesterday"}, layout)
+    with db.precious() as conn:
+        vid = conn.execute(
+            "SELECT id FROM views WHERE legacy_source='saved_reports' AND legacy_id=?",
+            (pid,),
+        ).fetchone()["id"]
+        assert assemble_layout(conn, vid) == canonicalize_layout(layout)
+        assert assemble_params(conn, vid) == canonicalize_params({"period": "yesterday"})
+
+
+def test_edit_group_row_writes_back_old_json(tmp_path):
+    db = _db(tmp_path)
+    u = UserRepository(db).create("meir@x.com", role="admin", display_name="Meir Grego")
+    pid = SavedReportRepository(db).create(
+        u.id, "ordered", "Open Orders", {},
+        {"views": {"by_order": {"group": []}}})
+    with db.precious() as conn:
+        tab = conn.execute(
+            "SELECT t.id FROM layout_tabs t JOIN views v ON v.id=t.view_id"
+            " WHERE v.legacy_id=? AND t.tab_key='by_order'",
+            (pid,),
+        ).fetchone()
+        conn.execute(
+            "INSERT INTO layout_tab_groups(id, tab_id, position, column_name)"
+            " VALUES ('g1', ?, 1, 'Salesman')",
+            (tab["id"],),
+        )
+        after_table_write(conn, "layout_tab_groups", "g1")
+    row = SavedReportRepository(db).get_any(pid)
+    assert row.layout["views"]["by_order"]["group"] == ["Salesman"]
+
+
+def test_edit_old_layout_json_updates_new_tables(tmp_path):
+    db = _db(tmp_path)
+    u = UserRepository(db).create("meir@x.com", role="admin", display_name="Meir Grego")
+    pid = SavedReportRepository(db).create(
+        u.id, "ordered", "Open Orders", {},
+        {"views": {"by_order": {"group": []}}})
+    with db.precious() as conn:
+        conn.execute(
+            "UPDATE saved_reports SET layout_json=? WHERE id=?",
+            ('{"views":{"by_order":{"group":["Salesman"]}}}', pid),
+        )
+        after_table_write(conn, "saved_reports", pid)
+        vid = conn.execute(
+            "SELECT id FROM views WHERE legacy_source='saved_reports' AND legacy_id=?",
+            (pid,),
+        ).fetchone()["id"]
+        assert assemble_layout(conn, vid)["views"]["by_order"]["group"] == ["Salesman"]

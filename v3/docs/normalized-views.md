@@ -1,6 +1,6 @@
 # Normalized views, layouts, and schedules
 
-Status: **locked 2026-09-15** (step 1 in progress: new tables + old→new projector; do not drop old tables until parity passes).
+Status: **locked 2026-09-15** (step 2: Save this view + explorer dual-write new tables and old JSON; do not drop old tables until Gate B).
 
 This replaces three view tables and the layout/params copies on schedules with one `views` tree. The report page and the clock job both read that tree. JSON blobs stay on jobs, notifications, and job logs.
 
